@@ -10,9 +10,10 @@ import org.json.JSONObject;
 
 /**
  * Reads a YouTube video's transcript for the main chat: the video's own page, then the caption file the page points to
- * (core/YouTubeTranscript reads both), with no sign-in and no key, from YouTube's own site only. No model is asked.
- * A transcript read is kept in the app's private files for the user to read (유튜브 대본 보기). A video whose transcript
- * cannot be read gives a note that says why, so the answer says so instead of guessing.
+ * (core/YouTubeTranscript reads both), with no sign-in and no key, from YouTube's own site only. When that gives nothing
+ * and 유튜브 대본을 Gemini 홈페이지에서 받아 오기 is on, the app's own browser asks Gemini's site in the background
+ * (YouTubeGeminiWeb). A transcript read either way is kept in the app's private files for the user to read (유튜브 대본
+ * 보기). When neither works the request carries a note that says why, so the answer says so instead of guessing.
  * Never on the main thread.
  */
 final class YouTubeTranscriptClient {
@@ -41,7 +42,7 @@ final class YouTubeTranscriptClient {
      * What the request carries for the video with this id: its transcript as the app read it, which is also kept for
      * reading (saved); or why there is none (which step gave nothing, in words the answer can pass on).
      */
-    static String block(android.content.Context context, String id, AtomicReference<Runnable> cancel) {
+    static String block(android.content.Context context, String id, java.util.function.BooleanSupplier stopped, java.util.function.Consumer<String> progress, AtomicReference<Runnable> cancel) {
         String agent = agent(context);
         synchronized (READ) { String kept = READ.get(id); if (kept != null) return kept; }
         YouTubeTranscript.Video video = new YouTubeTranscript.Video(id, "", "", 0, true, "");
@@ -71,6 +72,16 @@ final class YouTubeTranscriptClient {
         } catch (IOException | RuntimeException failed) {
             if (failed instanceof java.util.concurrent.CancellationException) throw (RuntimeException) failed;
             why = failed.getMessage() == null || failed.getMessage().isBlank() ? "유튜브에 연결하지 못했어요." : failed.getMessage();
+        }
+        // The app could not read it itself: its own browser asks Gemini's site, in the background, when that is on.
+        if (((GyeotApp) context.getApplicationContext()).store().youtubeGeminiWeb()) {
+            try {
+                if (progress != null) progress.accept("AI 브라우저가 Gemini 홈페이지에서 대본을 받아 오는 중");
+                String words = YouTubeGeminiWeb.transcript(context, id, stopped, progress);
+                save(context, id, YouTubeTranscript.readable(video, "Gemini 홈페이지에서 받아 온 대본 (빠지거나 틀린 부분이 있을 수 있어요)", words));
+                return keep(id, YouTubeTranscript.fromSite(video, words, YouTubeTranscript.LIMIT));
+            } catch (java.util.concurrent.CancellationException halted) { throw halted; }
+            catch (Exception failed) { why += " AI 브라우저로 Gemini 홈페이지에서 받아 오는 것도 안 됐어요: " + (failed.getMessage() == null || failed.getMessage().isBlank() ? "이유를 알 수 없어요." : failed.getMessage()); }
         }
         return YouTubeTranscript.missing(video, why);
     }

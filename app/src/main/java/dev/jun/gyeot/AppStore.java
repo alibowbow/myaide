@@ -474,6 +474,8 @@ final class AppStore {
      * Gemini Decision picks the AI browser's clicks, scrolls and backs before its selected AI:
      * off until the user turns it on in the browser's model sheet, and only with a Gemini API key, which it uses.
      */
+    /** 유튜브 대본을 Gemini 홈페이지에서 받아 오기: on unless the user turned it off (YouTubeGeminiWeb). */
+    boolean youtubeGeminiWeb() { return settings.getBoolean("youtubeGeminiWeb", true); }
     boolean browserDecisions() { return settings.getBoolean("browserDecisions", false) && secrets.has(SecretStore.GEMINI); }
     String persona() { return settings.getString("persona", ""); }
     /** The assistant's name as the user set it in its profile (AssistantProfile), "들퍼레" when unset; for the voice, main-chat and 작업창 instructions. */

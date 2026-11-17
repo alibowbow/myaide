@@ -1422,7 +1422,7 @@ public final class AssistantService extends Service {
                 String words = newest.optString("content"), videoId = YouTubeTranscriptClient.videoId(words, earlier);
                 if (!videoId.isEmpty()) {
                     onStage.accept("유튜브 대본을 읽는 중");
-                    String video = YouTubeTranscriptClient.block(this, videoId, null);
+                    String video = YouTubeTranscriptClient.block(this, videoId, () -> control.stopped, stage -> { if (!control.stopped) onStage.accept(stage); }, null);
                     if (control.stopped) throw new IllegalStateException("작업을 멈췄어요.");
                     put(newest, "content", words + "\n\n" + video);
                     onStage.accept("생각하는 중");

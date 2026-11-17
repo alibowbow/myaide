@@ -50,6 +50,10 @@ final class BrowserModelUi {
                 }));
                 sheet.body.addView(ui.footer("링크·탭 누르기, 스크롤, 뒤로 가기는 디시전이 0.2초쯤에 골라요. 입력, 읽고 답하기, 완료 확인은 위에서 고른 모델이 해요. "
                     + "보내기·결제·삭제는 고르지 않아요. 페이지 글이 Gemini에도 가고, 요금은 Gemini API 키의 프로젝트로 나가요. 다음 지시부터 적용돼요."));
+                // A YouTube transcript the app could not read itself is asked of Gemini's own site, in a tab in the background.
+                sheet.body.addView(ui.toggle("유튜브 대본을 Gemini 홈페이지에서 받아 오기", store.youtubeGeminiWeb(), value -> store.settings.edit().putBoolean("youtubeGeminiWeb", value).apply()));
+                sheet.body.addView(ui.footer("앱이 자막을 직접 읽지 못한 영상만, 뒤에서 gemini.google.com을 열어 대본을 요청하고 그 답을 가져와요. "
+                    + "이 브라우저에 로그인해 둔 Google 계정으로 Gemini에 메시지 하나를 보내고, 페이지 조작은 위에서 고른 모델이 해요."));
             }
             if ("gpt".equals(brain[0])) GptSpeedUi.add(context, ui, sheet.body, store.openai, selected[0], speeds.getOrDefault(selected[0], models.speed(selected[0])), value -> {
                 speeds.put(selected[0], value); fill[0].run();

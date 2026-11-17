@@ -393,7 +393,7 @@ final class MainChatEngine implements AutoCloseable {
         // A schedule question's events, read once for the turn and sent with this request only.
         long asked=System.currentTimeMillis();String events=MainChatCalendar.context(context,app,query,asked);
         // A YouTube address in the question: the video's transcript, read once, goes with this request only.
-        String video=video(turn,query,abort);guard.run();
+        String video=video(turn,query,guard,abort);guard.run();
         // The photos and PDFs attached to the question go with it as the provider's file parts, every time it is answered;
         // a text file's text is in the input already.
         List<MainRequest.Attachment> attached=attachments(turn);
@@ -431,11 +431,11 @@ final class MainChatEngine implements AutoCloseable {
      * The transcript block for this question, or "": the video its address names, or, for a later question in the same
      * conversation that is still about the video (YouTubeTranscript.about), the one read last.
      */
-    private String video(MainChatStore.Turn turn,String question,AtomicReference<Runnable> abort){
+    private String video(MainChatStore.Turn turn,String question,Runnable guard,AtomicReference<Runnable> abort){
         String id=dev.jun.gyeot.core.YouTubeTranscript.id(question);
         if(id.isEmpty()&&lastVideoGeneration==turn.generation()&&dev.jun.gyeot.core.YouTubeTranscript.about(question))id=lastVideo;
         if(id.isEmpty())return "";
-        String block=YouTubeTranscriptClient.block(context,id,abort);
+        String block=YouTubeTranscriptClient.block(context,id,()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},null,abort);
         lastVideo=id;lastVideoGeneration=turn.generation();
         return block;
     }
