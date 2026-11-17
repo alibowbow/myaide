@@ -10,8 +10,10 @@ import org.json.JSONObject;
 
 /**
  * Reads a YouTube video's transcript for the main chat: the video's own page, then the caption file the page points to
- * (core/YouTubeTranscript reads both). No sign-in and no key; only www.youtube.com is asked. Never on the main thread.
- * A video whose transcript cannot be read gives a note that says why, so the answer says so instead of guessing.
+ * (core/YouTubeTranscript reads both), with no sign-in and no key, from YouTube's own site only. A video whose captions
+ * cannot be read is watched by Gemini instead when the user has a Gemini API key (GeminiAudioClient.describeYouTube).
+ * When neither works the request carries a note that says why, so the answer says so instead of guessing.
+ * Never on the main thread.
  */
 final class YouTubeTranscriptClient {
     private YouTubeTranscriptClient() {}
@@ -22,33 +24,61 @@ final class YouTubeTranscriptClient {
         @Override protected boolean removeEldestEntry(Map.Entry<String, String> eldest) { return size() > 4; }
     };
 
-    /** What the request carries for the video with this id: its transcript, or why there is none. agent: the phone's own browser name. */
-    static String block(String id, String agent, AtomicReference<Runnable> cancel) {
+    /**
+     * The video a request's newest message is about: the one the message names, or, for a message that is still about a
+     * video (YouTubeTranscript.about), the one an earlier message named (earlier: newest first). "" for none.
+     */
+    static String videoId(String newest, List<String> earlier) {
+        String id = YouTubeTranscript.id(newest);
+        if (id.isEmpty() && YouTubeTranscript.about(newest)) for (String older : earlier) { id = YouTubeTranscript.id(older); if (!id.isEmpty()) break; }
+        return id;
+    }
+    /** The phone's own browser name, or null when it has no WebView (the connection's own name goes instead). */
+    static String agent(android.content.Context context) {
+        try { return android.webkit.WebSettings.getDefaultUserAgent(context); } catch (RuntimeException noWebView) { return null; }
+    }
+    /** Videos Gemini watches at low resolution (longer than this, or of unknown length), and the longest it is asked to watch. */
+    private static final int LOW_RESOLUTION_SECONDS = 15 * 60, LONGEST_SECONDS = 3 * 60 * 60;
+    /**
+     * What the request carries for the video with this id: its transcript; when that cannot be read and there is a Gemini
+     * API key, Gemini's notes from watching the video (request: what the user asked, for the notes' focus); else why there
+     * is neither. agent: the phone's own browser name.
+     */
+    static String block(String id, String agent, String key, String request, AtomicReference<Runnable> cancel) {
         synchronized (READ) { String kept = READ.get(id); if (kept != null) return kept; }
         YouTubeTranscript.Video video = new YouTubeTranscript.Video(id, "", "", 0, true, "");
+        String why;
         try {
             Map<String, String> headers = new LinkedHashMap<>();
             if (agent != null && !agent.isBlank()) headers.put("User-Agent", agent);
             headers.put("Accept-Language", "ko-KR,ko;q=0.9,en;q=0.6"); headers.put("Accept", "text/html,application/xhtml+xml");
-            String html = get(YouTubeTranscript.page(id), headers, PAGE_BYTES, cancel);
-            JSONObject player = YouTubeTranscript.player(html);
-            if (player == null) return YouTubeTranscript.missing(video, "유튜브가 영상 정보를 주지 않았어요. 잠시 뒤에 다시 시도해 주세요.");
-            video = YouTubeTranscript.video(id, player);
-            List<YouTubeTranscript.Track> tracks = YouTubeTranscript.tracks(player);
-            YouTubeTranscript.Track track = YouTubeTranscript.pick(tracks);
-            if (track == null) return YouTubeTranscript.missing(video, YouTubeTranscript.noTrack(video));
-            headers.put("Accept", "*/*");
-            List<YouTubeTranscript.Line> lines = YouTubeTranscript.lines(get(track.url(), headers, CAPTION_BYTES, cancel));
-            if (lines.isEmpty()) return YouTubeTranscript.missing(video, "자막 파일이 비어 있어요. 유튜브가 이 영상의 자막을 앱에 내주지 않았어요.");
-            String block = YouTubeTranscript.block(video, track, lines, YouTubeTranscript.LIMIT);
-            synchronized (READ) { READ.put(id, block); }
-            return block;
+            JSONObject player = YouTubeTranscript.player(get(YouTubeTranscript.page(id), headers, PAGE_BYTES, cancel));
+            if (player == null) why = "유튜브가 영상 정보를 주지 않았어요.";
+            else {
+                video = YouTubeTranscript.video(id, player);
+                YouTubeTranscript.Track track = YouTubeTranscript.pick(YouTubeTranscript.tracks(player));
+                if (track == null) why = YouTubeTranscript.noTrack(video);
+                else {
+                    headers.put("Accept", "*/*");
+                    List<YouTubeTranscript.Line> lines = YouTubeTranscript.lines(get(track.url(), headers, CAPTION_BYTES, cancel));
+                    if (!lines.isEmpty()) return keep(id, YouTubeTranscript.block(video, track, lines, YouTubeTranscript.LIMIT));
+                    why = "유튜브가 이 영상의 자막 파일을 앱에 내주지 않았어요.";
+                }
+            }
         } catch (IOException | RuntimeException failed) {
             if (failed instanceof java.util.concurrent.CancellationException) throw (RuntimeException) failed;
-            String why = failed.getMessage() == null ? "" : failed.getMessage();
-            return YouTubeTranscript.missing(video, why.isBlank() ? "유튜브에 연결하지 못했어요." : why);
+            why = failed.getMessage() == null || failed.getMessage().isBlank() ? "유튜브에 연결하지 못했어요." : failed.getMessage();
         }
+        if (key != null && !key.isBlank() && video.seconds() <= LONGEST_SECONDS) {
+            try {
+                boolean low = video.seconds() == 0 || video.seconds() > LOW_RESOLUTION_SECONDS;
+                return keep(id, YouTubeTranscript.watched(video, GeminiAudioClient.describeYouTube(key, id, request, low, () -> {}, cancel), YouTubeTranscript.LIMIT));
+            } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
+            catch (Exception failed) { why += " Gemini도 영상을 보지 못했어요" + (failed.getMessage() == null || failed.getMessage().isBlank() ? "." : ": " + failed.getMessage()); }
+        }
+        return YouTubeTranscript.missing(video, why);
     }
+    private static String keep(String id, String block) { synchronized (READ) { READ.put(id, block); } return block; }
     /** One page from YouTube's own site, following its redirects there (at most three) and nowhere else. */
     private static String get(String url, Map<String, String> headers, int limit, AtomicReference<Runnable> cancel) throws IOException {
         String address = url;

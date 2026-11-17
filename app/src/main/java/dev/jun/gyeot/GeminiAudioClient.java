@@ -29,6 +29,10 @@ final class GeminiAudioClient {
             return generate(key, GeminiAudio.MODELS, request, GeminiAudio::answer, guard, cancel);
         } finally { cleanup(key, fileName.get(), cancel); }
     }
+    /** Notes on a public YouTube video, which Gemini watches from its address (GeminiMedia.youtube). */
+    static String describeYouTube(String key, String id, String request, boolean lowResolution, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        return generate(key, GeminiMedia.MODELS, GeminiMedia.request(GeminiMedia.youtube(id), GeminiMedia.videoPrompt(request), lowResolution), GeminiMedia::answer, guard, cancel);
+    }
     static String describe(String key, File video, String mime, String request, boolean lowResolution) throws Exception {
         return describe(key, video, mime, request, lowResolution, () -> {}, null);
     }

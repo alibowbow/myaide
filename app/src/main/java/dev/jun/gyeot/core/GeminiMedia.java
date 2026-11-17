@@ -34,6 +34,8 @@ public final class GeminiMedia {
     }
     public static JSONObject inline(byte[] bytes, String mime) { return obj("inline_data", obj("mime_type", mime, "data", Base64.getEncoder().encodeToString(bytes))); }
     public static JSONObject uploaded(String fileUri, String mime) { return obj("file_data", obj("mime_type", mime, "file_uri", fileUri)); }
+    /** A public YouTube video by its address: Gemini watches it itself, nothing is downloaded or uploaded. */
+    public static JSONObject youtube(String id) { return obj("file_data", obj("file_uri", "https://www.youtube.com/watch?v=" + id)); }
     /** The notes from a generateContent answer, thought parts skipped; explains an empty answer. */
     public static String answer(JSONObject response) {
         JSONArray candidates = response.optJSONArray("candidates");
