@@ -1,0 +1,14 @@
+.gradle/
+.cache/
+.deps/
+build/
+app/build/
+local.properties
+*.keystore
+*.jks
+__pycache__/
+*.py[cod]
+*.apk
+
+
+tests/browser/node_modules/

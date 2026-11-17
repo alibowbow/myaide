@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Same values as Ui.java's dark palette. -->
+    <color name="bg">#121110</color>
+    <color name="accent">#F08A63</color>
+    <color name="accent_soft">#44F08A63</color>
+</resources>

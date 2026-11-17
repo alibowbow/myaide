@@ -1,0 +1,10 @@
+GeckoView 158.0.20261021001945 — Mozilla Public License 2.0
+Copyright Mozilla and contributors.
+Unmodified upstream engine. Source for this build:
+https://hg.mozilla.org/releases/mozilla-release/rev/e4ce606692cd81e6898547e2edd7c552fefcbb04
+License: https://www.mozilla.org/MPL/2.0/
+Additional third-party notices are available in Gecko's about:license page and upstream source.
+AndroidX Browser and AndroidX dependencies — Apache License 2.0
+https://android.googlesource.com/platform/frameworks/support/
+Kotlin standard library — Apache License 2.0
+https://github.com/JetBrains/kotlin

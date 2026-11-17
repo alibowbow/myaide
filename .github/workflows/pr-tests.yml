@@ -1,0 +1,76 @@
+name: PR verification
+
+on:
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Cache only public dependencies, never APK signing keys or the release cache.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            .deps
+            .cache/platforms/android-35
+            .cache/build-tools/35.0.0
+          key: gyeot-pr-tests-v1-${{ runner.os }}
+      - name: Java contracts and client flows
+        run: python3 tools/build.py --test-only --compile-app
+      - name: Long-task evidence and recovery policy
+        if: hashFiles('tests/longtask/run.sh') != ''
+        run: bash tests/longtask/run.sh
+      - name: Native UI verification
+        if: hashFiles('tests/ui/*.java') != ''
+        run: python3 tools/ui_verify.py
+      # Manual design review only: print rendered Robolectric screens (PNG, no keys or accounts) into the log.
+      - name: Print UI renders for design review
+        if: always() && github.event_name == 'workflow_dispatch' && hashFiles('tests/ui/*.java') != ''
+        run: |
+          python3 - <<'EOF'
+          import base64, pathlib
+          for path in sorted(pathlib.Path('build/ui-verification').glob('*.png')):
+              data = base64.b64encode(path.read_bytes()).decode()
+              print('UIRENDER-BEGIN', path.name, len(data))
+              for start in range(0, len(data), 3000):
+                  print('UIRENDER', data[start:start + 3000])
+              print('UIRENDER-END', path.name)
+          EOF
+      # Public pinned NDK only; this builds/merges libraries, never assembles or signs an APK.
+      # Reuse the runner NDK when present. Do not cache the large NDK or any signing workspace.
+      - name: Trash JNI compile and ABI verification
+        run: python3 tools/verify_trash_native.py
+      - name: Python contracts
+        if: hashFiles('tests/test_*.py') != ''
+        env:
+          ANDROID_HOME: ${{ github.workspace }}/.cache
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Browser DOM contracts
+        if: hashFiles('tests/browser/package.json') != ''
+        run: npm ci --prefix tests/browser --ignore-scripts --no-audit --no-fund && npm test --prefix tests/browser
+      - name: Firefox native editor verification
+        if: hashFiles('tests/browser/package.json') != ''
+        run: npm run install:firefox --prefix tests/browser && npm run test:native --prefix tests/browser

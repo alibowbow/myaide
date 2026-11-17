@@ -1,0 +1,40 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'dev.jun.gyeot'
+    ndkVersion '28.2.13676358'
+    externalNativeBuild { ndkBuild { path file('src/main/jni/Android.mk') } }
+    compileSdk { version = release(37) { minorApiLevel = 2 } }
+    defaultConfig {
+        applicationId 'dev.jun.gyeot'
+        minSdk 33
+        targetSdk 35
+        ndk { abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64' }
+        versionCode 338
+        versionName '0.4.313'
+    }
+    packaging { jniLibs { useLegacyPackaging = true; keepDebugSymbols += ["**/*.so"] } }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+
+dependencies {
+    implementation 'androidx.browser:browser:1.8.0'
+    implementation 'org.mozilla.geckoview:geckoview:158.0.20261021001945'
+    implementation 'org.java-websocket:Java-WebSocket:1.6.0'
+    implementation 'org.slf4j:slf4j-api:2.0.17'
+    implementation 'org.slf4j:slf4j-nop:2.0.17'
+    // Google's sign-in sheet and short-lived tokens for the user's own Google Drive (Authorization API).
+    implementation 'com.google.android.gms:play-services-auth:21.2.0'
+    // edit_video: the phone's own editor (clips, pictures, title cards, narration and music mixed, captions burned in).
+    implementation 'androidx.media3:media3-transformer:1.5.1'
+    implementation 'androidx.media3:media3-effect:1.5.1'
+    implementation 'androidx.media3:media3-common:1.5.1'
+    // Profile pictures drawn as SVG (GPT Image 2.6): rendered on the phone into the square profile picture. Apache-2.0.
+    implementation 'com.caverock:androidsvg-aar:1.4'
+}
+
+
+
+
+
+

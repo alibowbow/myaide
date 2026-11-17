@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Reads the active window only when the assistant asks (canRetrieveWindowContent) and performs gestures; no key events
+     and no fingerprint gestures. One screenshot is taken only for 화면 보기, when the user allowed it and asks during a voice
+     conversation (canTakeScreenshot). Events only invalidate earlier readings. It does not request the
+     accessibility button: on Android 12+ that ties the service to the button, so it would only run while the button exists. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/phone_service_description"
+    android:summary="@string/phone_service_summary"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:canPerformGestures="true"
+    android:canTakeScreenshot="true"
+    android:notificationTimeout="200"
+    android:isAccessibilityTool="false" />

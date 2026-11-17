@@ -1,0 +1,137 @@
+name: Android APK
+
+# Builds the signed personal-test APK with tools/build.py and publishes it as a
+# prerelease, so it can be downloaded straight to a phone from the repository's Releases page.
+on:
+  push:
+    branches: [main, master, 'claude/**', 'dot/delta/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Browser DOM contracts
+        if: hashFiles('tests/browser/package.json') != ''
+        run: npm ci --prefix tests/browser --ignore-scripts --no-audit --no-fund && npm test --prefix tests/browser
+      - name: Firefox native editor verification
+        if: hashFiles('tests/browser/package.json') != ''
+        run: npm run install:firefox --prefix tests/browser && npm run test:native --prefix tests/browser
+      - name: Prepare isolated signing workspace
+        id: public-dependencies
+        env:
+          GYEOT_BUILD_CACHE: ${{ runner.temp }}/myaide-signing-build
+        run: |
+          set -euo pipefail
+          python3 tools/signing_cache.py prepare
+          printf 'GYEOT_BUILD_CACHE=%s\n' "$GYEOT_BUILD_CACHE" >> "$GITHUB_ENV"
+      - name: Restore public dependencies only
+        id: public-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ steps.public-dependencies.outputs.paths }}
+          key: gyeot-public-dependencies-v3-${{ runner.os }}-${{ hashFiles('tools/signing_cache.py', 'tools/dependency-lock.json') }}
+      - name: Validate restored cache before accessing the signing key
+        run: python3 tools/signing_cache.py restored
+      - name: Restore the existing signing key outside all cache paths
+        env:
+          KEYSTORE_B64: ${{ secrets.GYEOT_KEYSTORE_B64 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$GYEOT_BUILD_CACHE/gyeot-local-test.keystore"
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 -d > "$key"
+          else
+            # Keep the oldest pinned draft, never a key from a cache or a newly generated key.
+            drafts=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.draft and .tag_name == "gyeot-signing-key") | .id')
+            release=$(printf '%s\n' "$drafts" | sed '/^$/d' | sort -n | head -n1)
+            if [ -z "$release" ]; then echo "::error::The existing pinned signing key is missing. Restore it through the approved recovery process; no replacement will be generated."; exit 1; fi
+            asset=$(gh api "repos/$GITHUB_REPOSITORY/releases/$release/assets" --jq '[.[] | select(.name == "gyeot-local-test.keystore")][0].id // empty')
+            if [ -z "$asset" ]; then echo "::error::The pinned draft has no signing-key asset."; exit 1; fi
+            gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$asset" > "$key"
+          fi
+          chmod 600 "$key"
+          python3 tools/signing_cache.py signing-ready
+      # The certificate every released APK carries (tools/signing-cert.sha256): an APK signed with any other key could not
+      # update the installed app, so the build fails before anything is published.
+      - name: Test and build APK
+        run: |
+          set -euo pipefail
+          python3 tools/signing_cache.py signing-ready
+          expected=$(cat tools/signing-cert.sha256)
+          if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then echo "::error::A valid pinned signing certificate is required."; exit 1; fi
+          GYEOT_SIGNING_CERT="$expected" python3 tools/signing_cache.py run-build
+      - name: Long-task evidence and recovery policy
+        if: hashFiles('tests/longtask/run.sh') != ''
+        run: bash tests/longtask/run.sh
+      - name: Native UI startup checks
+        if: hashFiles('tests/ui/*.java') != ''
+        run: python3 tools/ui_verify.py
+      - name: Trash JNI compile and ABI verification
+        run: python3 tools/verify_trash_native.py
+      - name: Contract tests
+        if: hashFiles('tests/test_*.py') != ''
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+      - name: Validate public dependency cache before saving
+        run: python3 tools/signing_cache.py signing-ready
+      - name: Save public dependencies only after successful checks
+        if: success() && steps.public-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.public-dependencies.outputs.paths }}
+          key: ${{ steps.public-cache.outputs.cache-primary-key }}
+      - name: Read version
+        id: version
+        run: echo "name=$(python3 -c "import sys; sys.path.insert(0, 'tools'); import build; print(build.gradle_config()['versionName'])")" >> "$GITHUB_OUTPUT"
+      - name: Preserve any existing release or tag
+        id: release-gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.name }}
+        run: python3 tools/signing_cache.py release-gate
+      - name: Generate bounded ARM64 delta assets
+        if: steps.release-gate.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.name }}
+        run: python3 tools/release_deltas.py --version "$VERSION" --apk "build/gyeot-$VERSION-debug.apk" --output build/deltas > build/delta-report.json
+      - name: Verify actual APK and update files
+        id: verify-candidate
+        if: steps.release-gate.outputs.publish == 'true'
+        run: python3 tools/verify_release_candidate.py --commit "$GITHUB_SHA"
+      - name: Publish prerelease
+        if: success() && steps.verify-candidate.outcome == 'success' && steps.release-gate.outputs.publish == 'true' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/claude/'))
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          deltas=(build/deltas/*.gdelta)
+          tag="v${VERSION}-test"
+          apk="build/gyeot-${VERSION}-debug.apk"
+          universal="build/gyeot-${VERSION}-universal-debug.apk"
+          sha=$(sha256sum "$apk" | cut -d' ' -f1)
+          notes="개인 테스트용 APK입니다. ARM64 휴대폰은 gyeot-${VERSION}-debug.apk를 설치하세요. 기본 APK는 100MiB 미만으로 이전 앱에서도 업데이트를 찾을 수 있습니다. ARM32·x86_64 기기는 universal-debug.apk를 사용하세요. 커밋 ${GITHUB_SHA::7}, SHA-256 ${sha}"
+          # A competing release creation fails rather than overwriting any assets.
+          gh release create "$tag" "$apk" "$universal" "${deltas[@]}" build/release-candidate.json --prerelease --target "$GITHUB_SHA" --title "들퍼레 ${VERSION} (테스트용)" --notes "$notes"

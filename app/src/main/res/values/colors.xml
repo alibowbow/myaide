@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Same values as Ui.java's light palette; values-night/colors.xml has the dark ones. -->
+    <color name="bg">#F5F4F1</color>
+    <color name="accent">#B94E2B</color>
+    <color name="accent_soft">#33B94E2B</color>
+</resources>

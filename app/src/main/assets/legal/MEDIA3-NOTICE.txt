@@ -1,0 +1,6 @@
+AndroidX Media3 1.5.1 (media3-transformer, media3-effect, media3-common and their media3 dependencies) — Apache License 2.0
+Copyright The Android Open Source Project.
+Unmodified upstream libraries. Source: https://github.com/androidx/media/tree/1.5.1
+License: https://www.apache.org/licenses/LICENSE-2.0
+Guava (com.google.guava), a Media3 dependency — Apache License 2.0
+https://github.com/google/guava
