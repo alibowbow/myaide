@@ -46,7 +46,8 @@ final class YouTubeGeminiWeb {
         AtomicReference<JSONObject> result = new AtomicReference<>(); AtomicReference<BrowserEngine> running = new AtomicReference<>();
         main.post(() -> {
             try {
-                BrowserEngine engine = BrowserEngine.forWork(context, SITE); running.set(engine);
+                // A job of its own, by a name of its own: the browser keeps a job's recovery record under it before any step that changes a page.
+                BrowserEngine engine = BrowserEngine.forWork(context, SITE, "youtube-" + id + "-" + System.currentTimeMillis()); running.set(engine);
                 if (progress != null) engine.observer = () -> { try { progress.accept("AI 브라우저 · " + engine.status); } catch (RuntimeException ignored) { /* The caller stopped listening. */ } };
                 new BrowserAgent(engine, request(id), value -> { result.compareAndSet(null, value); done.countDown(); }).start();
             } catch (Exception failed) { result.compareAndSet(null, BrowserEngine.error(failed.getMessage() == null ? "AI 브라우저를 시작하지 못했어요." : failed.getMessage())); done.countDown(); }
