@@ -921,6 +921,9 @@ final class MainChatPage implements AutoCloseable {
         if (done) item(group, sheet, R.drawable.ic_pages, BLUE, "페이지에 저장", "카테고리를 골라 문서로 보관해요", false, () -> { if (!stopped) PageSaveSheet.show(activity, ui, PageSaveSheet.document(text), dev.jun.gyeot.core.PageBook.CHAT, modelLabel(m), d -> track(d)); });
         if (done) { boolean reading = store.speech != null && store.speech.reading(readKey(m));
             item(group, sheet, R.drawable.ic_sound, TEAL, reading ? "읽기 멈추기" : "읽어 주기", reading ? "지금 읽는 답변을 멈춰요" : "소리 내어 읽어요 · 다시 누르면 멈춰요", false, () -> readAloud(m)); }
+        // The transcript read for the video this message (or the question this answer is for) named, to read by itself.
+        String asked = mine ? text : done ? question(m) : "";
+        if (YouTubeTranscriptUi.has(activity, asked)) item(group, sheet, R.drawable.ic_file, INDIGO, "유튜브 대본 보기", "가져온 대본을 따로 읽어요", false, () -> YouTubeTranscriptUi.show(activity, asked));
         if (mine) {
             item(group, sheet, R.drawable.ic_tune, ORANGE, "수정", "연결 답변과 요약을 다시 정리해요", false, () -> editMessage(m));
             item(group, sheet, R.drawable.ic_heart, PINK, "기억으로 저장", "이 대화에 고정해 함께 보내요", false, () -> editNote(null, text, m.optLong("id")));
@@ -937,6 +940,10 @@ final class MainChatPage implements AutoCloseable {
             info.setPadding(ui.dp(16), 0, ui.dp(16), ui.dp(4)); info.setLineSpacing(ui.dp(4), 1); info.setTextIsSelectable(true); sheet.body.addView(info);
         }
         sheet.show();
+    }
+    /** The question an answer is for, or "". */
+    private String question(JSONObject answer) {
+        try { JSONObject asked = store.mainChat.message(answer.optLong("reply_to")); return asked == null ? "" : asked.optString("text"); } catch (RuntimeException gone) { return ""; }
     }
     private void deleteMessage(JSONObject m) {
         // A memory notice is not conversation: removing it leaves the summary and running replies alone.

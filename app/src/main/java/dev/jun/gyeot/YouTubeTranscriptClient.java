@@ -10,10 +10,9 @@ import org.json.JSONObject;
 
 /**
  * Reads a YouTube video's transcript for the main chat: the video's own page, then the caption file the page points to
- * (core/YouTubeTranscript reads both), with no sign-in and no key, from YouTube's own site only. Only when that gives
- * nothing, and the user has a Gemini API key, the address goes to Gemini's light model, which writes the words down
- * (GeminiAudioClient.transcribeYouTube). When neither works the request carries a note that says why, so the answer says
- * so instead of guessing.
+ * (core/YouTubeTranscript reads both), with no sign-in and no key, from YouTube's own site only. No model is asked.
+ * A transcript read is kept in the app's private files for the user to read (유튜브 대본 보기). A video whose transcript
+ * cannot be read gives a note that says why, so the answer says so instead of guessing.
  * Never on the main thread.
  */
 final class YouTubeTranscriptClient {
@@ -38,14 +37,12 @@ final class YouTubeTranscriptClient {
     static String agent(android.content.Context context) {
         try { return android.webkit.WebSettings.getDefaultUserAgent(context); } catch (RuntimeException noWebView) { return null; }
     }
-    /** The longest video Google is asked to write down (the light model's free allowance a minute holds about this much at low resolution). */
-    private static final int LONGEST_SECONDS = 40 * 60;
     /**
-     * What the request carries for the video with this id: its transcript as the app read it; when the app cannot read it
-     * and there is a Gemini API key (key), the words Google wrote down from the address; else why there is neither (which
-     * step gave nothing, in words the answer can pass on). agent: the phone's own browser name.
+     * What the request carries for the video with this id: its transcript as the app read it, which is also kept for
+     * reading (saved); or why there is none (which step gave nothing, in words the answer can pass on).
      */
-    static String block(String id, String agent, String key, AtomicReference<Runnable> cancel) {
+    static String block(android.content.Context context, String id, AtomicReference<Runnable> cancel) {
+        String agent = agent(context);
         synchronized (READ) { String kept = READ.get(id); if (kept != null) return kept; }
         YouTubeTranscript.Video video = new YouTubeTranscript.Video(id, "", "", 0, true, "");
         String why;
@@ -67,7 +64,7 @@ final class YouTubeTranscriptClient {
                     String body = get(track.url(), headers, CAPTION_BYTES, cancel);
                     List<YouTubeTranscript.Line> lines = YouTubeTranscript.lines(body);
                     if (lines.isEmpty()) { String json = get(track.url() + "&fmt=json3", headers, CAPTION_BYTES, cancel); lines = YouTubeTranscript.lines(json); body = body.length() >= json.length() ? body : json; }
-                    if (!lines.isEmpty()) return keep(id, YouTubeTranscript.block(video, track, lines, YouTubeTranscript.LIMIT));
+                    if (!lines.isEmpty()) { save(context, id, YouTubeTranscript.readable(video, YouTubeTranscript.source(track), YouTubeTranscript.text(lines))); return keep(id, YouTubeTranscript.block(video, track, lines, YouTubeTranscript.LIMIT)); }
                     why = "영상에 자막은 있는데(" + tracks.size() + "개) 유튜브가 자막 파일을 비워서 보냈어요 (받은 글자 " + body.length() + "자).";
                 }
             }
@@ -75,14 +72,32 @@ final class YouTubeTranscriptClient {
             if (failed instanceof java.util.concurrent.CancellationException) throw (RuntimeException) failed;
             why = failed.getMessage() == null || failed.getMessage().isBlank() ? "유튜브에 연결하지 못했어요." : failed.getMessage();
         }
-        // The app could not read it: with a Gemini API key, Google writes the words down from the address alone.
-        if (key != null && !key.isBlank() && (video.seconds() == 0 || video.seconds() <= LONGEST_SECONDS)) {
-            try { return keep(id, YouTubeTranscript.heard(video, GeminiAudioClient.transcribeYouTube(key, id, () -> {}, cancel), YouTubeTranscript.LIMIT)); }
-            catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
-            catch (Exception failed) { why += " Gemini 3.5 Flash Lite에 주소를 보내 봤지만 그쪽도 받아 적지 못했어요" + (failed.getMessage() == null || failed.getMessage().isBlank() ? "." : ": " + failed.getMessage()); }
-        } else if (key == null || key.isBlank()) why += " Gemini API 키가 없어서 Gemini에 맡기지도 못했어요.";
-        else why += " 영상이 너무 길어서 Gemini에 맡기지 않았어요.";
         return YouTubeTranscript.missing(video, why);
+    }
+    /** How many transcripts are kept for reading (the newest). */
+    private static final int KEPT = 30;
+    private static java.io.File folder(android.content.Context context) { return new java.io.File(context.getFilesDir(), "youtube"); }
+    /** Whether a transcript is kept for this video. */
+    static boolean kept(android.content.Context context, String id) { return id != null && id.matches("[A-Za-z0-9_-]{11}") && new java.io.File(folder(context), id + ".txt").isFile(); }
+    /** The transcript kept for reading (YouTubeTranscript.readable), or "" when this video has none. */
+    static String saved(android.content.Context context, String id) {
+        if (id == null || !id.matches("[A-Za-z0-9_-]{11}")) return "";
+        java.io.File file = new java.io.File(folder(context), id + ".txt");
+        try { return file.isFile() ? new String(java.nio.file.Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8) : ""; } catch (IOException | RuntimeException unreadable) { return ""; }
+    }
+    /** Keeps a transcript for reading in the app's private files, written whole; only the newest KEPT stay. */
+    private static void save(android.content.Context context, String id, String text) {
+        try {
+            java.io.File folder = folder(context); folder.mkdirs();
+            java.io.File temporary = new java.io.File(folder, id + ".tmp"), file = new java.io.File(folder, id + ".txt");
+            java.nio.file.Files.write(temporary.toPath(), text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            java.nio.file.Files.move(temporary.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            java.io.File[] all = folder.listFiles((dir, name) -> name.endsWith(".txt"));
+            if (all != null && all.length > KEPT) {
+                java.util.Arrays.sort(all, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+                for (int i = KEPT; i < all.length; i++) all[i].delete();
+            }
+        } catch (IOException | RuntimeException failed) { /* Reading it later is a convenience; the answer does not depend on it. */ }
     }
     private static String keep(String id, String block) { synchronized (READ) { READ.put(id, block); } return block; }
     /** One page from YouTube's own site, following its redirects there (at most three) and nowhere else. */
