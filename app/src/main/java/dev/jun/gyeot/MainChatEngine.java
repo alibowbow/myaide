@@ -435,8 +435,7 @@ final class MainChatEngine implements AutoCloseable {
         String id=dev.jun.gyeot.core.YouTubeTranscript.id(question);
         if(id.isEmpty()&&lastVideoGeneration==turn.generation()&&dev.jun.gyeot.core.YouTubeTranscript.about(question))id=lastVideo;
         if(id.isEmpty())return "";
-        String key="";try{key=app.secrets.workKey();}catch(Exception noKey){/* Without a key only the captions are read. */}
-        String block=YouTubeTranscriptClient.block(id,YouTubeTranscriptClient.agent(context),key,question,abort);
+        String block=YouTubeTranscriptClient.block(id,YouTubeTranscriptClient.agent(context),abort);
         lastVideo=id;lastVideoGeneration=turn.generation();
         return block;
     }

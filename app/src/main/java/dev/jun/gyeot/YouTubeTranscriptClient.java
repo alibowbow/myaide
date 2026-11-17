@@ -10,9 +10,8 @@ import org.json.JSONObject;
 
 /**
  * Reads a YouTube video's transcript for the main chat: the video's own page, then the caption file the page points to
- * (core/YouTubeTranscript reads both), with no sign-in and no key, from YouTube's own site only. A video whose captions
- * cannot be read is watched by Gemini instead when the user has a Gemini API key (GeminiAudioClient.describeYouTube).
- * When neither works the request carries a note that says why, so the answer says so instead of guessing.
+ * (core/YouTubeTranscript reads both), with no sign-in and no key, from YouTube's own site only. No model is asked.
+ * A video whose transcript cannot be read gives a note that says why, so the answer says so instead of guessing.
  * Never on the main thread.
  */
 final class YouTubeTranscriptClient {
@@ -37,14 +36,11 @@ final class YouTubeTranscriptClient {
     static String agent(android.content.Context context) {
         try { return android.webkit.WebSettings.getDefaultUserAgent(context); } catch (RuntimeException noWebView) { return null; }
     }
-    /** Videos Gemini watches at low resolution (longer than this, or of unknown length), and the longest it is asked to watch. */
-    private static final int LOW_RESOLUTION_SECONDS = 15 * 60, LONGEST_SECONDS = 3 * 60 * 60;
     /**
-     * What the request carries for the video with this id: its transcript; when that cannot be read and there is a Gemini
-     * API key, Gemini's notes from watching the video (request: what the user asked, for the notes' focus); else why there
-     * is neither. agent: the phone's own browser name.
+     * What the request carries for the video with this id: its transcript, or why there is none (which step gave nothing,
+     * in words the answer can pass on). agent: the phone's own browser name.
      */
-    static String block(String id, String agent, String key, String request, AtomicReference<Runnable> cancel) {
+    static String block(String id, String agent, AtomicReference<Runnable> cancel) {
         synchronized (READ) { String kept = READ.get(id); if (kept != null) return kept; }
         YouTubeTranscript.Video video = new YouTubeTranscript.Video(id, "", "", 0, true, "");
         String why;
@@ -52,29 +48,27 @@ final class YouTubeTranscriptClient {
             Map<String, String> headers = new LinkedHashMap<>();
             if (agent != null && !agent.isBlank()) headers.put("User-Agent", agent);
             headers.put("Accept-Language", "ko-KR,ko;q=0.9,en;q=0.6"); headers.put("Accept", "text/html,application/xhtml+xml");
-            JSONObject player = YouTubeTranscript.player(get(YouTubeTranscript.page(id), headers, PAGE_BYTES, cancel));
-            if (player == null) why = "유튜브가 영상 정보를 주지 않았어요.";
+            String html = get(YouTubeTranscript.page(id), headers, PAGE_BYTES, cancel);
+            JSONObject player = YouTubeTranscript.player(html);
+            if (player == null) why = "유튜브가 보낸 영상 페이지에 영상 정보가 없었어요 (페이지 " + html.length() + "자).";
             else {
                 video = YouTubeTranscript.video(id, player);
-                YouTubeTranscript.Track track = YouTubeTranscript.pick(YouTubeTranscript.tracks(player));
+                List<YouTubeTranscript.Track> tracks = YouTubeTranscript.tracks(player);
+                YouTubeTranscript.Track track = YouTubeTranscript.pick(tracks);
                 if (track == null) why = YouTubeTranscript.noTrack(video);
                 else {
                     headers.put("Accept", "*/*");
-                    List<YouTubeTranscript.Line> lines = YouTubeTranscript.lines(get(track.url(), headers, CAPTION_BYTES, cancel));
+                    // The caption file as the page names it, then the same file in YouTube's JSON form.
+                    String body = get(track.url(), headers, CAPTION_BYTES, cancel);
+                    List<YouTubeTranscript.Line> lines = YouTubeTranscript.lines(body);
+                    if (lines.isEmpty()) { String json = get(track.url() + "&fmt=json3", headers, CAPTION_BYTES, cancel); lines = YouTubeTranscript.lines(json); body = body.length() >= json.length() ? body : json; }
                     if (!lines.isEmpty()) return keep(id, YouTubeTranscript.block(video, track, lines, YouTubeTranscript.LIMIT));
-                    why = "유튜브가 이 영상의 자막 파일을 앱에 내주지 않았어요.";
+                    why = "영상에 자막은 있는데(" + tracks.size() + "개) 유튜브가 자막 파일을 비워서 보냈어요 (받은 글자 " + body.length() + "자).";
                 }
             }
         } catch (IOException | RuntimeException failed) {
             if (failed instanceof java.util.concurrent.CancellationException) throw (RuntimeException) failed;
             why = failed.getMessage() == null || failed.getMessage().isBlank() ? "유튜브에 연결하지 못했어요." : failed.getMessage();
-        }
-        if (key != null && !key.isBlank() && video.seconds() <= LONGEST_SECONDS) {
-            try {
-                boolean low = video.seconds() == 0 || video.seconds() > LOW_RESOLUTION_SECONDS;
-                return keep(id, YouTubeTranscript.watched(video, GeminiAudioClient.describeYouTube(key, id, request, low, () -> {}, cancel), YouTubeTranscript.LIMIT));
-            } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
-            catch (Exception failed) { why += " Gemini도 영상을 보지 못했어요" + (failed.getMessage() == null || failed.getMessage().isBlank() ? "." : ": " + failed.getMessage()); }
         }
         return YouTubeTranscript.missing(video, why);
     }
