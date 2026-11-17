@@ -16,10 +16,12 @@ final class MainChatStore implements AutoCloseable {
     record Summary(long generation,long through,String previous,JSONArray messages,Set<Long> sources) {}
     /**
      * What one request may carry: extended memory, the stored summary, a character budget, long-term notes, the send time for the
-     * question's clock line (0: none), and the calendar block a schedule question carries after it (MainChatCalendar.context).
+     * question's clock line (0: none), the calendar block a schedule question carries after it (MainChatCalendar.context),
+     * and the transcript of a video the question is about (YouTubeTranscriptClient), sent with the attached files' text.
      */
-    record Options(boolean memory,boolean summary,int budget,String longTerm,long now,String calendar) {
-        Options(boolean memory,boolean summary,int budget,String longTerm,long now){this(memory,summary,budget,longTerm,now,"");}
+    record Options(boolean memory,boolean summary,int budget,String longTerm,long now,String calendar,String video) {
+        Options(boolean memory,boolean summary,int budget,String longTerm,long now,String calendar){this(memory,summary,budget,longTerm,now,calendar,"");}
+        Options(boolean memory,boolean summary,int budget,String longTerm,long now){this(memory,summary,budget,longTerm,now,"","");}
         static Options of(boolean memory,int budget){return new Options(memory,memory,budget,"",0);}
     }
     /** Conversation since the last automatic memory pass. */
@@ -77,6 +79,8 @@ final class MainChatStore implements AutoCloseable {
     private Set<String> columns(String table){Set<String> names=new HashSet<>();try(Cursor c=db.rawQuery("PRAGMA table_info("+table+")",null)){int name=c.getColumnIndex("name");while(c.moveToNext())names.add(c.getString(name));}return names;}
     synchronized boolean available(){return db!=null&&db.isOpen();} String failure(){return failure;}
     private void require(){if(!available())throw new IllegalStateException(failure);}
+    /** The attached files' text, then the video transcript read for this question (YouTubeTranscriptClient): this request only. */
+    private static String attachedWith(String files,String video){return video==null||video.isBlank()?files:files==null||files.isBlank()?video:files+"\n\n"+video;}
     synchronized long generation(){require();try(Cursor c=db.rawQuery("SELECT generation FROM meta WHERE id=1",null)){c.moveToFirst();return c.getLong(0);}}
     synchronized int pendingCount(){require();try(Cursor c=db.rawQuery("SELECT count(*) FROM messages WHERE state IN ('queued','running')",null)){c.moveToFirst();return c.getInt(0);}}
     private long count(String sql,String... args){try(Cursor c=db.rawQuery(sql,args)){c.moveToFirst();return c.getLong(0);}}
@@ -196,7 +200,7 @@ final class MainChatStore implements AutoCloseable {
         // Attached files: the question names them; a text file's text goes in its own section after it (photos and PDFs go
         // along as the provider's file parts, MainChatEngine).
         JSONArray files=MainAttachments.of(current);
-        MainChatContext.Sections fixed=new MainChatContext.Sections(MainAttachments.question(current.optString("text"),files),"",o.memory()?memoryText():"",o.memory()?o.longTerm():"",summary,"",taskState(),pendingReplies(turn),o.now()>0?MainChatContext.now(o.now()):"",o.calendar()==null?"":o.calendar(),MainAttachments.texts(files));
+        MainChatContext.Sections fixed=new MainChatContext.Sections(MainAttachments.question(current.optString("text"),files),"",o.memory()?memoryText():"",o.memory()?o.longTerm():"",summary,"",taskState(),pendingReplies(turn),o.now()>0?MainChatContext.now(o.now()):"",o.calendar()==null?"":o.calendar(),attachedWith(MainAttachments.texts(files),o.video()));
         int room=MainChatContext.room(fixed,o.budget()),recentRoom=Math.max(0,(o.memory()?room-Math.min(MainChatContext.RETRIEVED,room/8):Math.min(room,MainChatContext.RECENT_OFF))-200);
         // Newest first so the latest turns always fit; joined oldest first. An answer the app closed on goes along with
         // what had streamed in, marked as cut off, so 이어서 답하기 can carry on from it; one too long for the room left

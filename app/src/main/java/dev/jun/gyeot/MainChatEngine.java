@@ -392,11 +392,13 @@ final class MainChatEngine implements AutoCloseable {
         String identity=app.usageIdentity(engine),cacheKey=history.cacheKey();
         // A schedule question's events, read once for the turn and sent with this request only.
         long asked=System.currentTimeMillis();String events=MainChatCalendar.context(context,app,query,asked);
+        // A YouTube address in the question: the video's transcript, read once, goes with this request only.
+        String video=video(turn,query,abort);guard.run();
         // The photos and PDFs attached to the question go with it as the provider's file parts, every time it is answered;
         // a text file's text is in the input already.
         List<MainRequest.Attachment> attached=attachments(turn);
         for(int attempt=0;;attempt++){
-            String input=history.context(turn,new MainChatStore.Options(memory,summary,budget,longTerm,asked,events));
+            String input=history.context(turn,new MainChatStore.Options(memory,summary,budget,longTerm,asked,events,video));
             if(attempt>0)deltas.restart();
             // Every reply streams through the gate, and its first piece is timed on the way in; the thinking summary rides
             // along where the provider carries it.
@@ -422,6 +424,22 @@ final class MainChatEngine implements AutoCloseable {
                 if(memory)longTerm=app.recallMemory(query,Memory.budget(budget));
             }
         }
+    }
+    /** The video the conversation last read a transcript for, and the conversation (generation) it was read in. */
+    private volatile String lastVideo="";private volatile long lastVideoGeneration=-1;
+    /**
+     * The transcript block for this question, or "": the video its address names, or, for a later question in the same
+     * conversation that is still about the video (YouTubeTranscript.about), the one read last.
+     */
+    private String video(MainChatStore.Turn turn,String question,AtomicReference<Runnable> abort){
+        String id=dev.jun.gyeot.core.YouTubeTranscript.id(question);
+        if(id.isEmpty()&&lastVideoGeneration==turn.generation()&&dev.jun.gyeot.core.YouTubeTranscript.about(question))id=lastVideo;
+        if(id.isEmpty())return "";
+        String agent=null;
+        try{agent=android.webkit.WebSettings.getDefaultUserAgent(context);}catch(RuntimeException noWebView){/* The connection's own name goes instead. */}
+        String block=YouTubeTranscriptClient.block(id,agent,abort);
+        lastVideo=id;lastVideoGeneration=turn.generation();
+        return block;
     }
     /** tools with ran set once any function was run; null stays null. */
     private static WorkTools counted(WorkTools tools,java.util.concurrent.atomic.AtomicBoolean ran){
