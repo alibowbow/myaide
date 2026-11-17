@@ -29,6 +29,10 @@ final class GeminiAudioClient {
             return generate(key, GeminiAudio.MODELS, request, GeminiAudio::answer, guard, cancel);
         } finally { cleanup(key, fileName.get(), cancel); }
     }
+    /** What is said in a public YouTube video, read by Google from its address (GeminiMedia.youtube), at low resolution: the words matter, not the picture. */
+    static String transcribeYouTube(String key, String id, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        return generate(key, GeminiMedia.YOUTUBE_MODELS, GeminiMedia.request(GeminiMedia.youtube(id), GeminiMedia.youtubePrompt(), true), GeminiMedia::answer, guard, cancel);
+    }
     static String describe(String key, File video, String mime, String request, boolean lowResolution) throws Exception {
         return describe(key, video, mime, request, lowResolution, () -> {}, null);
     }

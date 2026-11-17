@@ -10,8 +10,10 @@ import org.json.JSONObject;
 
 /**
  * Reads a YouTube video's transcript for the main chat: the video's own page, then the caption file the page points to
- * (core/YouTubeTranscript reads both), with no sign-in and no key, from YouTube's own site only. No model is asked.
- * A video whose transcript cannot be read gives a note that says why, so the answer says so instead of guessing.
+ * (core/YouTubeTranscript reads both), with no sign-in and no key, from YouTube's own site only. Only when that gives
+ * nothing, and the user has a Gemini API key, the address goes to Gemini's light model, which writes the words down
+ * (GeminiAudioClient.transcribeYouTube). When neither works the request carries a note that says why, so the answer says
+ * so instead of guessing.
  * Never on the main thread.
  */
 final class YouTubeTranscriptClient {
@@ -36,11 +38,14 @@ final class YouTubeTranscriptClient {
     static String agent(android.content.Context context) {
         try { return android.webkit.WebSettings.getDefaultUserAgent(context); } catch (RuntimeException noWebView) { return null; }
     }
+    /** The longest video Google is asked to write down (the light model's free allowance a minute holds about this much at low resolution). */
+    private static final int LONGEST_SECONDS = 40 * 60;
     /**
-     * What the request carries for the video with this id: its transcript, or why there is none (which step gave nothing,
-     * in words the answer can pass on). agent: the phone's own browser name.
+     * What the request carries for the video with this id: its transcript as the app read it; when the app cannot read it
+     * and there is a Gemini API key (key), the words Google wrote down from the address; else why there is neither (which
+     * step gave nothing, in words the answer can pass on). agent: the phone's own browser name.
      */
-    static String block(String id, String agent, AtomicReference<Runnable> cancel) {
+    static String block(String id, String agent, String key, AtomicReference<Runnable> cancel) {
         synchronized (READ) { String kept = READ.get(id); if (kept != null) return kept; }
         YouTubeTranscript.Video video = new YouTubeTranscript.Video(id, "", "", 0, true, "");
         String why;
@@ -70,6 +75,13 @@ final class YouTubeTranscriptClient {
             if (failed instanceof java.util.concurrent.CancellationException) throw (RuntimeException) failed;
             why = failed.getMessage() == null || failed.getMessage().isBlank() ? "유튜브에 연결하지 못했어요." : failed.getMessage();
         }
+        // The app could not read it: with a Gemini API key, Google writes the words down from the address alone.
+        if (key != null && !key.isBlank() && (video.seconds() == 0 || video.seconds() <= LONGEST_SECONDS)) {
+            try { return keep(id, YouTubeTranscript.heard(video, GeminiAudioClient.transcribeYouTube(key, id, () -> {}, cancel), YouTubeTranscript.LIMIT)); }
+            catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
+            catch (Exception failed) { why += " Gemini 3.5 Flash Lite에 주소를 보내 봤지만 그쪽도 받아 적지 못했어요" + (failed.getMessage() == null || failed.getMessage().isBlank() ? "." : ": " + failed.getMessage()); }
+        } else if (key == null || key.isBlank()) why += " Gemini API 키가 없어서 Gemini에 맡기지도 못했어요.";
+        else why += " 영상이 너무 길어서 Gemini에 맡기지 않았어요.";
         return YouTubeTranscript.missing(video, why);
     }
     private static String keep(String id, String block) { synchronized (READ) { READ.put(id, block); } return block; }

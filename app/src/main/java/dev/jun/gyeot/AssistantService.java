@@ -1422,7 +1422,8 @@ public final class AssistantService extends Service {
                 String words = newest.optString("content"), videoId = YouTubeTranscriptClient.videoId(words, earlier);
                 if (!videoId.isEmpty()) {
                     onStage.accept("유튜브 대본을 읽는 중");
-                    String video = YouTubeTranscriptClient.block(videoId, YouTubeTranscriptClient.agent(this), null);
+                    String geminiKey = ""; try { geminiKey = store.secrets.workKey(); } catch (Exception noKey) { /* Without a key only the app's own reading is tried. */ }
+                    String video = YouTubeTranscriptClient.block(videoId, YouTubeTranscriptClient.agent(this), geminiKey, null);
                     if (control.stopped) throw new IllegalStateException("작업을 멈췄어요.");
                     put(newest, "content", words + "\n\n" + video);
                     onStage.accept("생각하는 중");
