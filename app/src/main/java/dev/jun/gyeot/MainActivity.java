@@ -2508,6 +2508,8 @@ public final class MainActivity extends Activity {
         labels.add("페이지에 저장"); actions.add(() -> PageSaveSheet.show(this, ui, PageSaveSheet.document(text), dev.jun.gyeot.core.PageBook.WORK, title, null));
         if (store.archiveConnected()) { labels.add("서재에 저장 (마이아카이브)"); actions.add(() -> saveToArchive(title, text, prompt, by)); }
         labels.add("공유"); actions.add(() -> share(title + "\n\n" + text));
+        // The answer without Markdown's marks, in one block with a copy button: for pasting where Markdown is not drawn.
+        labels.add("텍스트로 보기"); actions.add(() -> PlainTextSheet.answer(this, text));
         // The transcript read for the video the request named, to read by itself.
         if (YouTubeTranscriptUi.has(this, prompt)) { labels.add("유튜브 대본 보기"); actions.add(() -> YouTubeTranscriptUi.show(this, prompt)); }
         labels.add("이 답의 정보"); actions.add(() -> new AlertDialog.Builder(this).setTitle("이 답의 정보").setMessage(info).setPositiveButton("닫기", null).show());
