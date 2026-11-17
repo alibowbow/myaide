@@ -18,6 +18,8 @@ import org.json.JSONObject;
  */
 final class YouTubeTranscriptClient {
     private YouTubeTranscriptClient() {}
+    /** The name a computer's browser of the same engine as the app's own (Gecko) gives, for the computer version of the page. */
+    private static final String DESKTOP = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0";
     /** The page is about a megabyte; a caption file of a long video a few hundred kilobytes. */
     private static final int PAGE_BYTES = 6 * 1024 * 1024, CAPTION_BYTES = 4 * 1024 * 1024, TIMEOUT_MS = 20_000;
     /** The last few videos read, by id, so a follow-up question or a second try does not ask YouTube again. */
@@ -53,12 +55,22 @@ final class YouTubeTranscriptClient {
             headers.put("Accept-Language", "ko-KR,ko;q=0.9,en;q=0.6"); headers.put("Accept", "text/html,application/xhtml+xml");
             String html = get(YouTubeTranscript.page(id), headers, PAGE_BYTES, cancel);
             JSONObject player = YouTubeTranscript.player(html);
+            List<YouTubeTranscript.Track> tracks = YouTubeTranscript.tracks(player);
+            if (player != null) video = YouTubeTranscript.video(id, player);
+            // The phone page can leave the caption list out of a video that has captions: the computer page is asked too.
+            if (tracks.isEmpty()) {
+                Map<String, String> desktop = new LinkedHashMap<>(headers); desktop.put("User-Agent", DESKTOP);
+                String wide = get(YouTubeTranscript.page(id), desktop, PAGE_BYTES, cancel);
+                JSONObject other = YouTubeTranscript.player(wide);
+                if (other != null) {
+                    List<YouTubeTranscript.Track> listed = YouTubeTranscript.tracks(other);
+                    if (player == null || !listed.isEmpty()) { player = other; tracks = listed; headers = desktop; html = wide; video = YouTubeTranscript.video(id, other); }
+                }
+            }
             if (player == null) why = "유튜브가 보낸 영상 페이지에 영상 정보가 없었어요 (페이지 " + html.length() + "자).";
             else {
-                video = YouTubeTranscript.video(id, player);
-                List<YouTubeTranscript.Track> tracks = YouTubeTranscript.tracks(player);
                 YouTubeTranscript.Track track = YouTubeTranscript.pick(tracks);
-                if (track == null) why = YouTubeTranscript.noTrack(video);
+                if (track == null) why = YouTubeTranscript.noTrack(video).replace("이 영상에는 자막이 없어요.", "유튜브가 보낸 영상 정보에 자막 목록이 없었어요 (휴대폰용·컴퓨터용 페이지 모두).");
                 else {
                     headers.put("Accept", "*/*");
                     // The caption file as the page names it, then the same file in YouTube's JSON form.

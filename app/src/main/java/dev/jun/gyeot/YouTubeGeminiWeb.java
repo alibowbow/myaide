@@ -27,11 +27,12 @@ final class YouTubeGeminiWeb {
     /** What Gemini is asked, as typed into its message box. */
     static String message(String id) { return "https://www.youtube.com/watch?v=" + id + " 이 유튜브 영상의 대본(스크립트)을 요약하지 말고 처음부터 끝까지 시간 표시와 함께 그대로 적어 줘."; }
     /**
-     * The browser job: the part the gate reads as the user's words is this setting's standing request (asking Gemini one
-     * thing), and the rest says how. Page text is untrusted, as in every browser job.
+     * The browser job: the part the gate reads as the user's words is this setting's standing request (choose the model,
+     * type one question, ask Gemini), which names its steps so that they are not taken for more than a read was asked;
+     * the rest says how. Page text is untrusted, as in every browser job.
      */
     static String request(String id) {
-        return AutomationGate.AUTHORITY_PREFIX + "제미나이(gemini.google.com)에 이 유튜브 영상의 대본을 물어봐 줘: https://www.youtube.com/watch?v=" + id + AutomationGate.AUTHORITY_END
+        return AutomationGate.AUTHORITY_PREFIX + "제미나이(gemini.google.com)에서 모델을 ‘" + MODEL + "’으로 고르고, 이 유튜브 영상의 대본을 적어 달라고 입력해서 물어봐 줘: https://www.youtube.com/watch?v=" + id + AutomationGate.AUTHORITY_END
             + "gemini.google.com 대화 화면에서 모델 선택이 ‘" + MODEL + "’이 아니면 모델 선택을 열어 ‘" + MODEL + "’을 고르세요. 그 모델이 없거나 고를 수 없으면 지금 모델 그대로 두세요. "
             + "그다음 입력창에 다음 글을 그대로 넣고 한 번만 보내세요: 「" + message(id) + "」 "
             + "Gemini의 답이 다 써질 때까지 기다린 뒤, 그 답의 글을 요약하거나 줄이지 말고 시간 표시까지 그대로 결과(answer)로 전하세요. 답이 길어 한 번에 다 읽히지 않으면 아래로 내려가며 이어서 읽으세요. "
@@ -66,7 +67,7 @@ final class YouTubeGeminiWeb {
         if (late) throw new IllegalStateException("AI 브라우저가 " + WAIT_MS / 60_000 + "분 안에 끝내지 못했어요.");
         JSONObject value = result.get(); String state = value == null ? "error" : BrowserTools.resultState(value);
         String answer = value == null ? "" : value.optString("answer").strip(), error = value == null ? "" : value.optString("error").strip();
-        if (state.equals("paused")) throw new IllegalStateException("Gemini 홈페이지가 로그인이나 확인을 요구했어요. AI 브라우저에서 gemini.google.com에 로그인해 둔 뒤 다시 해 주세요." + (answer.isEmpty() ? "" : " (" + clip(answer) + ")"));
+        if (state.equals("paused")) throw new IllegalStateException("AI 브라우저가 Gemini 홈페이지에서 진행하지 못하고 멈췄어요" + (answer.isEmpty() && error.isEmpty() ? "." : ": " + clip(answer.isEmpty() ? error : answer)));
         if (!state.equals("done") || answer.isEmpty()) throw new IllegalStateException(!error.isEmpty() ? clip(error) : !answer.isEmpty() ? clip(answer) : "AI 브라우저가 답을 가져오지 못했어요.");
         return answer;
     }
