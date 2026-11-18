@@ -1099,6 +1099,7 @@ public final class MainActivity extends Activity {
         if (!force && records.equals(lastRecords)) return;
         int y = scroll.getScrollY();
         lastRecords = records; destroyWebViews(recordsList); recordsList.removeAllViews();
+        View everywhere = SearchActivity.link(this, ui, query); if (everywhere != null) ui.add(recordsList, everywhere, 12);
         if (recordsView == 0) buildRecords(recordsList); else buildSessions(recordsList, SESSION_MODES[recordsView]);
         scroll.post(() -> scroll.scrollTo(0, y));
     }
@@ -1515,6 +1516,7 @@ public final class MainActivity extends Activity {
             Ui.pressable(sort, true);
             ui.add(sessionsBox, sort, 0);
         }
+        View everywhere = SearchActivity.link(this, ui, workQuery); if (everywhere != null) ui.add(sessionsBox, everywhere, 12);
         JSONArray sections = Sessions.sections(threads, mode, workQuery, now, ZoneId.systemDefault());
         if (sections.length() == 0) {
             TextView none = ui.text(searching ? "‘" + workQuery.strip() + "’에 맞는 대화가 없어요." : "고정한 대화가 없어요. 대화를 길게 눌러 ‘맨 위에 고정’을 골라 보세요.", 14, 450, MUTED);

@@ -1034,6 +1034,7 @@ final class MainChatPage implements AutoCloseable {
             LinearLayout talk = ui.group(); int jobCount = store.mainChat.jobs(false).length();
             item(talk, sheet, R.drawable.ic_sparkle, ACCENT, "모델·추론 레벨", modelLine(), true, this::models);
             item(talk, sheet, R.drawable.ic_search, BLUE, "대화 검색", query.isBlank() ? "지난 원문에서 단어로 찾기" : "검색 중 · " + query, true, this::search);
+            item(talk, sheet, R.drawable.ic_search, TEAL, "전체 검색", "작업창·페이지·기억·메모·기록까지 한 번에 찾기", true, () -> SearchActivity.open(activity, query));
             item(talk, sheet, R.drawable.ic_layers, INDIGO, "맡긴 작업", jobCount == 0 ? "아직 없어요" : jobCount + "개 · 상태 보기·작업창 열기", true, this::jobs);
             switchRow(talk, R.drawable.ic_sound, MINT, "답변 자동 읽기", store.geminiSpeech() && store.gemini.hasKey() ? "Gemini 음성 · API 요금이 붙을 수 있어요 · 오프라인이면 기기 음성" : "새 답변이 오면 기기 음성으로 읽어요", Speech.AUTO_READ, false, false);
             sheet.body.addView(talk);

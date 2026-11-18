@@ -164,6 +164,7 @@ public final class PagesActivity extends Activity {
         if (category != null && find(category) == null) category = null; // removed or renamed elsewhere
         renderChips();
         list.removeAllViews();
+        View everywhere = SearchActivity.link(this, ui, query); if (everywhere != null) ui.add(list, everywhere, 12);
         if (!book.problem().isEmpty()) {
             ui.add(list, ui.banner("페이지 목록 파일을 읽지 못했어요. 원본 파일은 그대로 두었고, 고칠 때까지 새로 저장하지 않아요. (" + book.problem() + ")", ERROR), 12);
             return;
@@ -177,6 +178,7 @@ public final class PagesActivity extends Activity {
             main.post(() -> {
                 if (destroyed || generation != searches || list == null || openId != null) return;
                 list.removeAllViews();
+                View all = SearchActivity.link(this, ui, words); if (all != null) ui.add(list, all, 12);
                 if (found.isEmpty()) { ui.add(list, ui.label("‘" + words + "’이(가) 들어간 페이지가 없어요.", 14, MUTED), 8); return; }
                 list.addView(ui.sectionHeader("찾은 페이지 · " + found.size()));
                 LinearLayout group = ui.group();

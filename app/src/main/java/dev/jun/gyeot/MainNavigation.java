@@ -12,9 +12,9 @@ import static dev.jun.gyeot.Ui.*;
 final class MainNavigation extends LinearLayout {
     static final int RAIL_WIDTH_DP=50;
     static final String TARGET="app_menu_destination";
-    static final String[] IDS={"voice","chat","work","pages","browser","phone","gallery","search","settings"};
-    static final String[] LABELS={"음성 비서","메인 대화","작업창","페이지","브라우저","내 휴대폰","갤러리","전체 검색","설정"};
-    static final int[] ICONS={R.drawable.ic_wave,R.drawable.ic_chat,R.drawable.ic_work,R.drawable.ic_pages,R.drawable.ic_browser,R.drawable.ic_folder,R.drawable.ic_gallery,R.drawable.ic_search,R.drawable.ic_settings};
+    static final String[] IDS={"voice","chat","work","pages","browser","phone","gallery","settings"};
+    static final String[] LABELS={"음성 비서","메인 대화","작업창","페이지","브라우저","내 휴대폰","갤러리","설정"};
+    static final int[] ICONS={R.drawable.ic_wave,R.drawable.ic_chat,R.drawable.ic_work,R.drawable.ic_pages,R.drawable.ic_browser,R.drawable.ic_folder,R.drawable.ic_gallery,R.drawable.ic_settings};
     private final Activity activity;private final Ui ui;private final Consumer<String> route;private final boolean primaryScreen;
     final Button menu;final TextView current;final ScrollView rail;final LinearLayout railItems;
     private final LinearLayout top;private String selected;private boolean wide;private Dialog drawer;private Runnable resize=()->{};
@@ -122,7 +122,7 @@ final class MainNavigation extends LinearLayout {
     static void open(Activity activity,String target){
         boolean primary=java.util.List.of("voice","chat","work","gallery","settings").contains(target);
         if(primary&&activity instanceof MainActivity host){host.navigateMenu(target);return;}
-        Class<?> screen=target.equals("browser")?BrowserActivity.class:target.equals("phone")?FileExplorerActivity.class:target.equals("pages")?PagesActivity.class:target.equals("search")?SearchActivity.class:MainActivity.class;
+        Class<?> screen=target.equals("browser")?BrowserActivity.class:target.equals("phone")?FileExplorerActivity.class:target.equals("pages")?PagesActivity.class:MainActivity.class;
         Intent intent=new Intent(activity,screen).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);
         // The menu and rail are drawn in the same place on every screen: switching between them must not slide the whole
         // window, so only the content appears to change. The browser is full screen without the rail and keeps its transition.

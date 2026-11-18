@@ -29,7 +29,8 @@ import static dev.jun.gyeot.Ui.*;
 
 /**
  * 전체 검색: one box that looks through the main chat, work rooms, pages, memories, notes, voice records, recordings and
- * fetched texts. A work room or a page opens in its own screen; everything else opens as text to read and copy.
+ * fetched texts. A work room or a page opens in its own screen; everything else opens as text to read and copy. It has no
+ * place of its own in the app menu: the search boxes of 작업창, 기록 and 페이지 and the main chat's menu lead here.
  */
 public final class SearchActivity extends Activity {
     /** Starts with these words already searched. */
@@ -45,6 +46,17 @@ public final class SearchActivity extends Activity {
     private long searches; private boolean destroyed, searched; private Ui.Sheet open;
     private final Runnable search = this::search;
 
+    /** Opens this screen with query already searched ("" for an empty box). */
+    static void open(Activity from, String query) {
+        from.startActivity(new Intent(from, SearchActivity.class).putExtra(QUERY, query == null ? "" : query.strip()).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP));
+    }
+    /** Under a screen's own search box: a row that takes the same words to 전체 검색. null while there is too little to search for. */
+    static View link(Activity from, Ui ui, String query) {
+        if (GlobalSearch.words(query).isEmpty()) return null;
+        LinearLayout group = ui.group();
+        ui.addRow(group, ui.listRow(R.drawable.ic_search, BLUE, "전체에서 ‘" + query.strip() + "’ 찾기", "메인 대화·작업창·페이지·기억·메모·기록을 한 번에", ui.chevron(), () -> open(from, query)), true);
+        return group;
+    }
     private void noTransition() { if (android.os.Build.VERSION.SDK_INT >= 34) { overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0); overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0); } else overridePendingTransition(0, 0); }
     @Override public void finish() { super.finish(); noTransition(); }
     @Override public void onCreate(Bundle state) {
