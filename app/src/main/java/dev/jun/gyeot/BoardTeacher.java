@@ -4,6 +4,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import dev.jun.gyeot.core.Board;
+import dev.jun.gyeot.core.BoardAgent;
 import dev.jun.gyeot.core.BoardScript;
 import dev.jun.gyeot.core.MainRequest;
 import java.util.ArrayList;
@@ -39,8 +40,8 @@ final class BoardTeacher {
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "board-teacher"); t.setDaemon(true); return t; });
     private final Handler main = new Handler(Looper.getMainLooper());
     private final BoardView board; private final BoardVoice voice; private final Brain brain; private final Watcher watcher;
-    private final AtomicReference<Runnable> cancel = new AtomicReference<>();
-    private String state = IDLE; private int epoch; private boolean muted, closed, voiceNoticed;
+    private AtomicReference<Runnable> cancel = new AtomicReference<>();
+    private String state = IDLE; private volatile int epoch; private volatile boolean closed; private boolean muted, voiceNoticed;
     /** This lesson's words could not be read aloud: its steps are timed as if muted, without changing the user's own choice. */
     private boolean voiceless;
     // The lesson being given.
@@ -99,16 +100,26 @@ final class BoardTeacher {
     /** Asks the model for a lesson on the request (with its files) and gives it. Does nothing while a lesson is on. */
     void ask(String request, List<MainRequest.Attachment> files, String language) {
         if (closed || busy()) return;
-        int mine = ++epoch; state = THINKING; lesson = null; index = 0; tell();
+        AtomicReference<Runnable> activeCancel=new AtomicReference<>();cancel=activeCancel;
+        int mine = ++epoch; JSONArray snapshot=BoardAgent.snapshot(board.items()); state = THINKING; lesson = null; index = 0; tell();
         // While the model prepares the lesson the voice connects, so the first step's words do not wait for that.
         if (!muted) voice.warm();
         String instructions = BoardScript.instructions(language, textScale, BoardScript.shown(board.items()).size())
-            + (chalk ? "\n- This board is a green blackboard written in chalk: \"black\" is white chalk, and every color is a soft chalk color. Yellow and pink chalk stand out most; use them for what matters." : ""), input = BoardScript.request(request, Board.words(board.items(), 6000), files != null && !files.isEmpty());
+            + BoardAgent.GUIDE + (chalk ? "\n- This board is a green blackboard written in chalk: \"black\" is white chalk, and every color is a soft chalk color. Yellow and pink chalk stand out most; use them for what matters." : ""), input = BoardScript.request(request, Board.words(board.items(), 6000), files != null && !files.isEmpty()) + "\n<editable_widgets>\n"+BoardAgent.inventory(snapshot)+"\n</editable_widgets>";
         Runnable job = () -> {
             BoardScript.Lesson made = null; String problem = null;
-            try { made = BoardScript.parse(brain.ask(instructions, input, files == null ? List.of() : files, cancel)); }
+            try {
+                var media=files==null?List.<MainRequest.Attachment>of():files;
+                String answer=brain.ask(instructions,input,media,activeCancel);
+                try { made=BoardAgent.checked(answer,snapshot,input); }
+                catch(IllegalArgumentException invalid) {
+                    if(mine!=epoch || closed) return;
+                    String fix=input+"\n판서 검증 결과: "+invalid.getMessage()+"\n도구 인자를 수정해 전체 수업 JSON을 다시 작성하세요.\n"+answer.substring(0,Math.min(20000,answer.length()));
+                    made=BoardAgent.checked(brain.ask(instructions,fix,media,activeCancel),snapshot,input);
+                }
+            }
             catch (Exception failed) { problem = failed.getMessage() == null || failed.getMessage().isBlank() ? "AI에게서 판서를 받지 못했어요." : failed.getMessage(); }
-            finally { cancel.set(null); }
+            finally { activeCancel.set(null); }
             BoardScript.Lesson result = made; String why = problem;
             Runnable deliver = () -> {
                 if (mine != epoch || closed) return;
@@ -143,6 +154,22 @@ final class BoardTeacher {
     private void step() {
         if (lesson == null || index >= lesson.steps().size()) { finish(); return; }
         BoardScript.Step step = lesson.steps().get(index);
+        if(!replaying) {
+            JSONArray current=board.items(), edited=current; String target="";
+            try {
+                for(JSONObject op:step.draw()) if("update".equals(op.optString("op"))) {
+                    edited=BoardAgent.update(edited,op,board.measure);target=op.optString("_target");
+                }
+                if(edited!=current) {
+                    if(Board.bottom(edited,board.measure)>Board.DEEPEST)throw new IllegalArgumentException("수정한 자료가 판의 높이를 넘어요.");
+                    board.replace(edited);flow.reflow(edited);
+                    for(int i=0;i<edited.length();i++) { JSONObject item=edited.optJSONObject(i);
+                        if(item!=null && target.equals(item.optString("wid")))board.follow(Board.bounds(item,board.measure)[1]+board.shown()*.45f);
+                    }
+                    watcher.wrote(index==0?lesson.title():null);
+                }
+            } catch(IllegalArgumentException invalid) { watcher.notice(invalid.getMessage());stop();return; }
+        }
         placed = replaying ? kept.get(index) : flow.place(step);
         if (!replaying && !board.fits(placed)) { watcher.notice("이 판이 가득 찼어요. 새 판에서 계속해 주세요."); stop(); return; }
         ends = new long[placed.size()]; long natural = 0;

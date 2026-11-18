@@ -1,0 +1,17 @@
+2022 개정 교육과정
+원문은 교육부 고시 제2022-33호 교과별 별책입니다. 국가교육과정정보센터 https://ncic.re.kr
+구조화 자료는 greatsong, k-curriculum-2022, CC BY 4.0입니다.
+https://github.com/greatsong/k-curriculum-2022/tree/817c725d96c68eb8afa33d6ac295b0eb3b7fb3f0
+https://creativecommons.org/licenses/by/4.0/
+들퍼레에서 중·고등학교의 해당 교과를 추출하고 교과 필터, 과목 표시명 및 검색 형식을 구성했습니다. 같은 통합과학 기준은 여러 과목에서 찾을 수 있습니다.
+
+2015 개정 교육과정
+교육부 고시 제2015-74호 별책 5, 8, 9, 14. 사회·역사 영역은 제2018-162호 별책 7을 사용했습니다.
+https://www.moe.go.kr/boardCnts/viewRenew.do?boardID=141&boardSeq=60747&lev=0&m=040401
+https://www.moe.go.kr/boardCnts/viewRenew.do?boardID=141&boardSeq=74931&lev=0&m=0404&opType=N&s=moe&statusYN=C
+PDF에서 선택 교과의 코드와 성취기준을 추출하고 줄바꿈과 수식 표기를 정리했습니다. 학교별 진도 순서는 다를 수 있습니다.
+
+지도 해안선
+Made with Natural Earth. Public domain. https://www.naturalearthdata.com/
+육지와 바다의 경계는 1:110m 및 1:50m 해안선을 단순화한 자료입니다.
+https://github.com/nvkelso/natural-earth-vector/tree/master/geojson

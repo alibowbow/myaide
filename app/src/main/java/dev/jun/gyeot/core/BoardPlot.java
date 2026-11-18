@@ -43,20 +43,29 @@ public final class BoardPlot {
     }
 
     private static Function function(String text, Map<String, Double> values, Map<String, Double> names) {
+        return function(text,values,names,null);
+    }
+    static java.util.function.DoubleBinaryOperator implicit(String expression) {
+        double[] ordinate={0};
+        Function curve=function(expression,Map.of(),null,ordinate);
+        return (x,y)->{ordinate[0]=y;return curve.at(x);};
+    }
+    private static Function function(String text, Map<String,Double> values, Map<String,Double> names,double[] ordinate) {
         String clean = text == null ? "" : text.strip();
         // "y = …" and "f(x) = …" say what the function is called, not what it is.
         clean = clean.replaceFirst("^(?i)\\s*(y|[a-z]\\s*\\(\\s*x\\s*\\))\\s*=\\s*", "");
         clean = clean.replace("×", "*").replace("·", "*").replace("÷", "/").replace("−", "-").replace("–", "-").replace("²", "^2").replace("³", "^3").replace("π", "pi").replace("√", "sqrt")
             .replace("½", "(1/2)").replace("⅓", "(1/3)").replace("¼", "(1/4)").replace("¾", "(3/4)").toLowerCase(Locale.ROOT).replaceAll("\\s+", "");
         if (clean.isEmpty() || clean.length() > 200) throw new IllegalArgumentException("함수식을 읽지 못했어요.");
-        Parser parser = new Parser(clean, values, names); Node root = parser.expression();
+        Parser parser = new Parser(clean, values, names,ordinate); Node root = parser.expression();
         if (parser.at < clean.length()) throw new IllegalArgumentException("함수식을 읽지 못했어요: " + text);
         return root::value;
     }
     private interface Node { double value(double x); }
     private static final class Parser {
         final String s; final Map<String, Double> values, names; int at; int depth;
-        Parser(String s, Map<String, Double> values, Map<String, Double> names) { this.s = s; this.values = values; this.names = names; }
+        final double[] ordinate;
+        Parser(String s, Map<String, Double> values, Map<String, Double> names,double[] ordinate) {this.ordinate=ordinate; this.s = s; this.values = values; this.names = names; }
         private boolean eat(char c) { if (at < s.length() && s.charAt(at) == c) { at++; return true; } return false; }
         Node expression() {
             if (++depth > 60) throw new IllegalArgumentException("함수식이 너무 복잡해요.");
@@ -116,6 +125,7 @@ public final class BoardPlot {
                 if (name.startsWith("pi")) { at = from + 2; return x -> Math.PI; }
                 at = from + 1;
                 if (c == 'x') return x -> x;
+                if(c=='y' && ordinate!=null)return x->ordinate[0];
                 if (c == 'e') return x -> Math.E;
                 if (c >= 'a' && c <= 'z') {
                     String key = String.valueOf(c);
@@ -189,9 +199,25 @@ public final class BoardPlot {
      * function. "shade" tints the region between a curve and the x axis. A function that cannot be read is left out;
      * with nothing to draw the axes still are.
      */
+    static boolean hasPoints(JSONObject spec) { return pointRange(spec.optJSONArray("points"), 0) != null; }
+    private static double[] pointRange(JSONArray points, int axis) {
+        double min=Double.POSITIVE_INFINITY, max=Double.NEGATIVE_INFINITY;
+        for(int i=0;points!=null && i<Math.min(256,points.length());i++) {
+            JSONObject point=points.optJSONObject(i); JSONArray at=point==null?points.optJSONArray(i):point.optJSONArray("at");
+            if(at==null || !Double.isFinite(at.optDouble(0)) || !Double.isFinite(at.optDouble(1)))continue;
+            double v=at.optDouble(axis); min=Math.min(min,v); max=Math.max(max,v);
+        }
+        if(min>max)return null;
+        double pad=Math.max(1,(max-min)*.1); return new double[]{min-pad,max+pad};
+    }
+
     public static List<JSONObject> graph(JSONObject spec, float top, float height, float scale) {
+        return graph(spec,top,height,scale,false);
+    }
+    static List<JSONObject> graph(JSONObject spec,float top,float height,float scale,boolean relation) {
         List<JSONObject> out = new ArrayList<>();
-        double[] xs = range(spec.optJSONArray("x"), -5, 5);
+        double[] dataX = pointRange(spec.optJSONArray("points"),0);
+        double[] xs = range(spec.optJSONArray("x"), dataX==null?-5:Math.min(-5,dataX[0]), dataX==null?5:Math.max(5,dataX[1]));
         Map<String, Double> values = BoardWidget.values(spec);
         JSONArray list = spec.optJSONArray("functions"); List<Curve> curves = new ArrayList<>();
         List<String> errors = new ArrayList<>();
@@ -204,9 +230,19 @@ public final class BoardPlot {
                     d.optString("color").isBlank() ? COLORS[curves.size() % COLORS.length] : d.optString("color"), d.optString("label").strip()));
             } catch (IllegalArgumentException unreadable) { errors.add(expr); }
         }
-        if (curves.isEmpty()) return List.of(Board.text(Board.MARGIN, top, "표시할 수 있는 함수식이 없어요. 그래프를 눌러 식을 고쳐 주세요.", Board.SMALL * scale, "red", false, Board.WIDTH - 2 * Board.MARGIN, Board.AI));
-        double[] ys = spec.optJSONArray("y") != null ? range(spec.optJSONArray("y"), -5, 5) : fit(curves, xs);
-        float left = 90, right = left + (Board.WIDTH - 150) * compact(scale), bottom = top + height - 40, size = Math.max(18, Board.SMALL * .8f * scale);
+        if (curves.isEmpty() && dataX==null && !relation) return List.of(Board.text(Board.MARGIN, top, "표시할 수 있는 함수식이 없어요. 그래프를 눌러 식을 고쳐 주세요.", Board.SMALL * scale, "red", false, Board.WIDTH - 2 * Board.MARGIN, Board.AI));
+        double[] dataY = pointRange(spec.optJSONArray("points"),1);
+        double[] fitted = spec.optJSONArray("y") != null ? range(spec.optJSONArray("y"), -5, 5) : curves.isEmpty() ? (dataY==null?new double[]{-5,5}:dataY) : fit(curves, xs);
+        double[] ys=spec.optJSONArray("y")==null && dataY!=null ? new double[]{Math.min(fitted[0],dataY[0]),Math.max(fitted[1],dataY[1])}:fitted;
+        float size=Math.max(18,Board.SMALL*.8f*scale);
+        float roomWidth=(Board.WIDTH-150)*compact(scale);
+        float roomTop=top+30+size*.9f+(curves.stream().filter(curve->!curve.label().isBlank()).count()+(errors.isEmpty()?0:1))*size*1.5f;
+        float roomHeight=Math.max(8,top+height-40-roomTop);
+        double ratio=(xs[1]-xs[0])/(ys[1]-ys[0]);
+        boolean squareUnits=relation || spec.optBoolean("equalUnits");
+        float plotWidth=squareUnits?(float)Math.min(roomWidth,roomHeight*ratio):roomWidth;
+        float plotHeight=squareUnits?(float)Math.min(roomHeight,roomWidth/ratio):roomHeight;
+        float left=90+(roomWidth-plotWidth)/2,right=left+plotWidth,bottom=roomTop+plotHeight;
         // The functions' names are a legend above the plot, each in its curve's color, so no name lies across a curve.
         float legendY = top; boolean named = false;
         for (Curve curve : curves) {
@@ -265,6 +301,7 @@ public final class BoardPlot {
         JSONArray vertical = spec.optJSONArray("vlines"), horizontal = spec.optJSONArray("hlines");
         for (int i = 0; vertical != null && i < vertical.length() && i < 6; i++) { double x = vertical.optDouble(i, Double.NaN); if (x >= xs[0] && x <= xs[1]) out.add(Board.dashed(Board.shape(Board.LINE, (float) px.applyAsDouble(x), bottom, (float) px.applyAsDouble(x), upper, "orange", 3, false, Board.AI))); }
         for (int i = 0; horizontal != null && i < horizontal.length() && i < 6; i++) { double y = horizontal.optDouble(i, Double.NaN); if (y >= ys[0] && y <= ys[1]) out.add(Board.dashed(Board.shape(Board.LINE, left, (float) py.applyAsDouble(y), right, (float) py.applyAsDouble(y), "orange", 3, false, Board.AI))); }
+        if(relation)BoardCurves.add(out,spec,xs,ys,px,py);
         for (Curve curve : curves) {
             if (!(curve.from() < curve.to())) continue;
             for (List<Float> piece : pieces(curve.function(), curve.from(), curve.to(), ys, px, py, false)) out.add(stroke(piece, curve.color()));
@@ -276,11 +313,12 @@ public final class BoardPlot {
             if (Double.isFinite(curve.end())) end(out, curve, curve.end(), curve.toOpen(), xs, ys, px, py);
         }
         JSONArray points = spec.optJSONArray("points");
-        for (int i = 0; points != null && i < points.length() && i < POINTS; i++) {
-            JSONObject point = points.optJSONObject(i); JSONArray at = point == null ? null : point.optJSONArray("at"); if (at == null) continue;
+        for (int i = 0; points != null && i < points.length() && i < 256; i++) {
+            JSONObject point = points.optJSONObject(i); JSONArray at = point == null ? points.optJSONArray(i) : point.optJSONArray("at"); if (at == null) continue;
+            if (point == null) point = Jsons.obj();
             double x = at.optDouble(0, Double.NaN), y = at.optDouble(1, Double.NaN); if (!(x >= xs[0] && x <= xs[1] && y >= ys[0] && y <= ys[1])) continue;
             float cx = (float) px.applyAsDouble(x), cy = (float) py.applyAsDouble(y); String color = point.optString("color").isBlank() ? "red" : point.optString("color");
-            out.add(point.optBoolean("open") ? Board.shape(Board.OVAL, cx - 9, cy - 9, cx + 9, cy + 9, color, 4, false, Board.AI) : Board.stroke(color, 18, false, new float[]{cx, cy}, Board.AI));
+            out.add(point.optBoolean("open") ? Board.shape(Board.OVAL, cx - 9, cy - 9, cx + 9, cy + 9, color, 4, false, Board.AI) : Board.stroke(color, points.length()>40?8:15, false, new float[]{cx, cy}, Board.AI));
             String label = point.optString("label").strip(); if (label.isEmpty()) continue;
             // The name goes to the corner of the point with the least under it: no curve, no axis, no tick's number.
             float wide = label.length() * size * .56f, tall = size * 1.3f, best = Float.MAX_VALUE, bx = cx + 14, by = cy - tall - 8;

@@ -155,6 +155,11 @@ public final class BoardScript {
             y = bottom <= 0 ? Board.MARGIN : bottom + 3 * gap;
         }
         public float y() { return y; }
+        public void reflow(JSONArray items) {
+            y=Board.bottom(items,measure)+3*gap;
+            written.clear(); pictures.clear(); pictures.addAll(shown(items));
+            for(int i=0;i<items.length();i++) { JSONObject item=items.optJSONObject(i); if(item!=null && Board.TEXT.equals(item.optString("t"))) written.add(item); }
+        }
 
         /** The Board items of one step, in the order they are drawn. Operations the board does not know are left out. */
         public List<JSONObject> place(Step step) {
@@ -221,6 +226,8 @@ public final class BoardScript {
                     case "tree", "mindmap" -> widget(out, BoardWidget.TREE, op);
                     case "geometry" -> widget(out, BoardWidget.GEOMETRY, op);
                     case "solid" -> widget(out, BoardWidget.SOLID, op);
+                    case "relation","map","diagram","chemistry","reading","finitefield" -> widget(out, op.optString("op"), op);
+                    case "update" -> {} // applied to existing material by the teacher before placement
                     default -> missing(out, "이 단계의 그리기 도구를 사용할 수 없어요.");
                 }
             }
@@ -229,6 +236,7 @@ public final class BoardScript {
         private void widget(List<JSONObject> out, String kind, JSONObject op) {
             JSONObject item = BoardWidget.make(kind, op, y + figureGap, scale, Board.AI, measure);
             if (item == null) { missing(out, BoardWidget.name(kind) + "에 그릴 내용이 없어요."); return; }
+            if (op.has("_wid")) Jsons.put(item,"wid",op.optString("_wid"));
             out.add(item); y = Board.bounds(item, measure)[3] + figureGap;
         }
         private void missing(List<JSONObject> out, String text) {
@@ -266,7 +274,7 @@ public final class BoardScript {
             float height = b[3] - b[1], middle = (b[1] + b[3]) / 2;
             return Board.stroke(color, Math.min(Board.THICK, height * share), true, new float[]{b[0] - 3, middle, b[2] + 3, middle}, Board.AI);
         }
-        private JSONObject shape(JSONObject shape, float top, float height) {
+        JSONObject shape(JSONObject shape, float top, float height) {
             if (shape == null) return null;
             String kind = shape.optString("kind").strip().toLowerCase(Locale.ROOT), color = shape.optString("color");
             JSONArray from = shape.optJSONArray("from"), to = shape.optJSONArray("to");

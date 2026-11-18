@@ -40,6 +40,7 @@ final class BoardEditor {
     Ui.Sheet open(String kind, JSONObject original, Consumer<JSONObject> apply, InkReader inkReader) {
         return switch (kind) {
             case GRAPH -> new GraphEdit(original, apply, inkReader).sheet;
+            case RELATION, FIELD, MAP, CHEM, DIAGRAM, READING -> subjectTool(kind,original,apply);
             case GEOMETRY, SOLID -> figure(kind, original, apply);
             default -> data(kind, original, apply);
         };
@@ -56,9 +57,10 @@ final class BoardEditor {
         JSONObject values;
         boolean filling;
         final Runnable refresh = () -> update(true);
+        final JSONObject pointSpec; final List<Runnable> pointEdits=new java.util.ArrayList<>();
 
         GraphEdit(JSONObject original, Consumer<JSONObject> apply, InkReader inkReader) {
-            this.original = original; this.apply = apply;
+            this.original = original; this.apply = apply; pointSpec=BoardWidget.copy(original);
             values = BoardWidget.copy(original.optJSONObject("parameters"));
             sheet = ui.selectionSheet("함수 그래프", "함수식을 한 줄에 하나씩 입력하세요. a, h, k 같은 글자에 조절 막대가 생겨요.");
             preview = new Preview(GRAPH); sheet.controls.addView(preview, new LinearLayout.LayoutParams(-1, ui.dp(184)));
@@ -93,13 +95,14 @@ final class BoardEditor {
             if (functions == null || functions.length() == 0) {
                 sheet.body.addView(ui.button("이차함수 예시 넣기", false, this::example));
             }
+            EditText coordinates=editPoints(sheet,pointSpec,pointEdits,"표시할 점 · x | y | 이름");
             LinearLayout rangeX = ui.row(), rangeY = ui.row(); sheet.body.addView(rangeX); sheet.body.addView(rangeY);
-            x1 = axis(rangeX, "x 최소", original.optJSONArray("x"), 0, "−5");
-            x2 = axis(rangeX, "x 최대", original.optJSONArray("x"), 1, "5");
+            x1 = axis(rangeX, "x 최소", original.optJSONArray("x"), 0, "");
+            x2 = axis(rangeX, "x 최대", original.optJSONArray("x"), 1, "");
             y1 = axis(rangeY, "y 최소 · 자동", original.optJSONArray("y"), 0, "");
             y2 = axis(rangeY, "y 최대 · 자동", original.optJSONArray("y"), 1, "");
             sliders = ui.column(); sheet.body.addView(sliders);
-            for (EditText input : List.of(expressions, x1, x2, y1, y2)) input.addTextChangedListener(new TextWatcher() {
+            for (EditText input : List.of(expressions,coordinates,x1,x2,y1,y2)) input.addTextChangedListener(new TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
                 @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
                     if (!filling) { preview.removeCallbacks(refresh); preview.postDelayed(refresh, 150); }
@@ -141,7 +144,8 @@ final class BoardEditor {
                     if (!expr.equals(curve.optString("expr"))) put(curve, "label", "y = " + expr.replaceFirst("(?i)^\\s*(y|[a-z]\\s*\\(\\s*x\\s*\\))\\s*=\\s*", ""));
                     put(curve, "expr", expr); curves.put(curve);
                 }
-                if (curves.length() == 0) throw new IllegalArgumentException("함수식을 입력하세요.");
+                for(Runnable read:pointEdits)read.run();
+                if(curves.length()==0 && (pointSpec.optJSONArray("points")==null || pointSpec.optJSONArray("points").length()==0))throw new IllegalArgumentException("함수식 또는 좌표를 입력하세요.");
                 if (names.size() > 12) throw new IllegalArgumentException("조절 변수는 열두 개까지 쓸 수 있어요.");
                 JSONObject controls = obj();
                 for (String name : names) {
@@ -149,8 +153,9 @@ final class BoardEditor {
                     put(controls, name, value == null ? obj("value", "a".equals(name) ? 1 : 0) : value);
                 }
                 JSONObject made = BoardWidget.copy(original);
+                if(pointSpec.has("points"))put(made,"points",pointSpec.optJSONArray("points"));
                 put(made, "functions", curves); put(made, "parameters", controls);
-                put(made, "x", axisRange(x1, x2, "x", false));
+                JSONArray x=axisRange(x1,x2,"x",true);if(x==null)made.remove("x");else put(made,"x",x);
                 JSONArray y = axisRange(y1, y2, "y", true);
                 if (y == null) made.remove("y"); else put(made, "y", y);
                 values = controls;
@@ -188,10 +193,18 @@ final class BoardEditor {
         sheet.body.addView(preview, new LinearLayout.LayoutParams(-1, ui.dp(256)));
         Runnable refresh = () -> preview.update(spec);
         if (solid) {
-            sheet.body.addView(ui.pills(new String[]{"정육면체", "직육면체"}, "box".equals(spec.optString("kind")) ? 1 : 0,
-                index -> { put(spec, "kind", index == 0 ? "cube" : "box"); refresh.run(); }));
-            if (spec.optString("kind").isBlank()) put(spec, "kind", "cube");
-            sheet.body.addView(check("전개도 펼치기", spec.optBoolean("net"), net -> { put(spec, "net", net); refresh.run(); }));
+            if(spec.optString("kind").isBlank())put(spec,"kind","cube");
+            CheckBox unfold=check("전개도 펼치기",spec.optBoolean("net"),net->{put(spec,"net",net);refresh.run();});
+            var ids=new java.util.ArrayList<>(dev.jun.gyeot.core.BoardSolid.KINDS);
+            if(!spec.has("vertices"))ids.remove("mesh");
+            String[] names=ids.stream().map(dev.jun.gyeot.core.BoardSolid::name).toArray(String[]::new);
+            sheet.body.addView(ui.spinner("입체도형 종류",names,Math.max(0,ids.indexOf(spec.optString("kind"))),i->{
+                put(spec,"kind",ids.get(i));boolean supported=i<2;
+                if(!supported)unfold.setChecked(false);
+                unfold.setVisibility(supported?View.VISIBLE:View.GONE);refresh.run();
+            }));
+            unfold.setVisibility(ids.indexOf(spec.optString("kind"))<2?View.VISIBLE:View.GONE);
+            sheet.body.addView(unfold);
         } else {
             boolean quad = BoardWidget.vertices(spec, false).length() == 4;
             sheet.body.addView(ui.pills(new String[]{"삼각형", "사각형"}, quad ? 1 : 0, index -> {
@@ -203,6 +216,120 @@ final class BoardEditor {
         sheet.primary.setOnClickListener(v -> { apply.accept(spec); sheet.dismiss(); });
         refresh.run();
         return sheet;
+    }
+
+    private Ui.Sheet subjectTool(String kind, JSONObject original, Consumer<JSONObject> apply) {
+        Ui.Sheet s=ui.selectionSheet(name(kind),null);
+        JSONObject spec=BoardWidget.copy(original);
+        Preview preview=new Preview(kind);s.body.addView(preview,new LinearLayout.LayoutParams(-1,ui.dp(210)));
+        java.util.List<Runnable> read=new java.util.ArrayList<>();
+        if(MAP.equals(kind) || DIAGRAM.equals(kind) || READING.equals(kind)){
+            EditText title=field(s.body,"제목",spec.optString("title",name(kind)),1,160);
+            read.add(()->put(spec,"title",title.getText().toString()));
+        }
+        if(RELATION.equals(kind)){
+            List<String> modes=List.of("implicit","parametric","polar");
+            s.body.addView(ui.spinner("좌표 표현",new String[]{"음함수 방정식","매개변수 곡선","극좌표 곡선"},Math.max(0,modes.indexOf(spec.optString("mode"))),i->put(spec,"mode",modes.get(i))));
+            for(String key:List.of("expr","xt","yt")){
+                String fallback=switch(key){case "xt"->"cos(t)";case "yt"->"sin(t)";default->"x^2+y^2=4";};
+                EditText value=field(s.body,switch(key){case "xt"->"매개변수 x(t)";case "yt"->"매개변수 y(t)";default->"방정식 또는 반지름 r(t)";},spec.optString(key,fallback),1,200);
+                read.add(()->put(spec,key,value.getText().toString().strip()));
+            }
+            for(String key:List.of("x","y","t")){
+                LinearLayout range=ui.row();s.body.addView(range);boolean t=key.equals("t");
+                EditText lo=axis(range,key+" 최소",spec.optJSONArray(key),0,t?"0":"-5"),hi=axis(range,key+" 최대",spec.optJSONArray(key),1,t?"6.283185307":"5");
+                read.add(()->put(spec,key,axisRange(lo,hi,key,false)));
+            }
+        }else if(FIELD.equals(kind)){
+            for(String key:List.of("p","a","b")){
+                String label=key.equals("p")?"소수 p (5~97)":key+" 계수";
+                EditText input=field(s.body,label,spec.optString(key,key.equals("p")?"17":key.equals("b")?"7":"0"),1,8);
+                read.add(()->put(spec,key,decimal(input.getText().toString().strip())));
+            }
+            editPoints(s,spec,read,"강조할 점 · x | y | 이름");
+        }else if(CHEM.equals(kind)){
+            EditText formula=field(s.body,"중성 화학식 또는 반응식",spec.optString("formula","2H2O → 2H2 + O2"),2,240);
+            read.add(()->put(spec,"formula",formula.getText().toString()));
+        }else if(MAP.equals(kind)){
+            List<String> ids=List.of("world","korea","eastAsia","europe","mediterranean");
+            s.body.addView(ui.spinner("지도 범위",new String[]{"세계","한반도","동아시아","유럽","지중해"},Math.max(0,ids.indexOf(spec.optString("region"))),i->put(spec,"region",ids.get(i))));
+            EditText bounds=field(s.body,"직접 지정할 범위 · 서쪽 경도 | 남쪽 위도 | 동쪽 경도 | 북쪽 위도",joined(spec.optJSONArray("bounds")," | "),1,110);
+            read.add(()->{
+                String v=bounds.getText().toString().strip();
+                if(v.isBlank()){spec.remove("bounds");return;}
+                String[] cells=v.split("\\s*\\|\\s*",-1);if(cells.length!=4)throw new IllegalArgumentException("경계 좌표 네 개를 입력하세요.");
+                put(spec,"bounds",arr(decimal(cells[0]),decimal(cells[1]),decimal(cells[2]),decimal(cells[3])));
+            });
+            rowsField(s,spec,read,"places","장소 · 이름 | 경도 | 위도",List.of("name","lon","lat"),16);
+            s.body.addView(check("순서대로 경로 연결",spec.optBoolean("route"),on->put(spec,"route",on)));
+        }else if(READING.equals(kind)){
+            EditText source=field(s.body,"작품·사료 출처",spec.optString("source"),1,400);
+            read.add(()->put(spec,"source",source.getText().toString()));
+            rowsField(s,spec,read,"lines","한 줄에 본문 | 해설",List.of("text","note"),20);
+            s.body.addView(check("해설 펼치기",spec.optBoolean("reveal",true),on->put(spec,"reveal",on)));
+        }else{
+            List<String> ids=List.of("animalCell","plantCell","neuron","earthLayers","");
+            if(!spec.has("preset") && !spec.has("layers"))put(spec,"preset","animalCell");
+            LinearLayout focuses=ui.column();
+            Runnable focus=()->{
+                focuses.removeAllViews();JSONArray parts=dev.jun.gyeot.core.BoardIllustration.parts(spec);
+                List<String> keys=new java.util.ArrayList<>(List.of("")),names=new java.util.ArrayList<>(List.of("전체 보기"));
+                for(int i=0;i<parts.length();i++){JSONObject part=parts.optJSONObject(i);keys.add(part.optString("id"));names.add(part.optString("label"));}
+                focuses.addView(ui.spinner("강조할 부분",names.toArray(new String[0]),Math.max(0,keys.indexOf(spec.optString("focus"))),i->put(spec,"focus",keys.get(i))));
+            };
+            s.body.addView(ui.spinner("그림 바탕",new String[]{"동물 세포","식물 세포","뉴런","지구 내부","사용자 정의 층"},Math.max(0,ids.indexOf(spec.optString("preset"))),i->{put(spec,"preset",ids.get(i));spec.remove("focus");focus.run();}));
+            s.body.addView(focuses);focus.run();
+        }
+        TextView status=notice(s);
+        Consumer<Boolean> refresh=commit->{
+            try{
+                for(Runnable collect:read)collect.run();
+                if(BoardWidget.make(kind,spec,0,.85f,Board.ME,board.measure)==null)throw new IllegalArgumentException("표시할 자료를 입력하세요.");
+                preview.update(spec);status.setVisibility(View.GONE);
+                if(commit){apply.accept(BoardWidget.copy(spec));s.dismiss();}
+            }catch(IllegalArgumentException invalid){status.setText(invalid.getMessage());status.setVisibility(View.VISIBLE);}
+        };
+        s.body.addView(ui.button("미리보기 갱신",false,()->refresh.accept(false)));
+        s.primary.setText("판에 적용");s.primary.setOnClickListener(v->refresh.accept(true));
+        if(original.length()>0 || !READING.equals(kind))refresh.accept(false);
+        return s;
+    }
+
+    private void rowsField(Ui.Sheet s,JSONObject spec,List<Runnable> read,String key,String label,List<String> fields,int limit){
+        List<String> lines=new java.util.ArrayList<>();JSONArray rows=spec.optJSONArray(key);
+        for(int i=0;rows!=null && i<rows.length();i++){JSONObject row=rows.optJSONObject(i);if(row==null)continue;
+            List<String> cells=new java.util.ArrayList<>();for(String f:fields)cells.add(row.optString(f));lines.add(String.join(" | ",cells));}
+        String initial=String.join("\n",lines);
+        EditText input=field(s.body,label,initial,3,Math.max(12000,initial.length()));
+        read.add(()->{String now=input.getText().toString();if(now.equals(initial) && rows!=null){put(spec,key,rows);return;}
+            JSONArray next=arr();for(String line:now.split("\\R")){if(line.isBlank())continue;
+                String[] cells=line.split("\\s*\\|\\s*",fields.size());JSONObject row=obj();
+                for(int i=0;i<fields.size();i++){
+                    String f=fields.get(i),val=i<cells.length?cells[i].strip():"";
+                    if(f.equals("lat") || f.equals("lon"))put(row,f,decimal(val));else put(row,f,val);
+                }
+                if(next.length()>=limit)throw new IllegalArgumentException(limit+"줄까지 넣을 수 있어요.");
+                next.put(row);
+            }put(spec,key,next);
+        });
+    }
+
+    private EditText editPoints(Ui.Sheet s,JSONObject spec,List<Runnable> read,String label) {
+        JSONArray points=spec.optJSONArray("points");List<String> strings=new java.util.ArrayList<>();
+        for(int i=0;points!=null && i<points.length();i++) {
+            JSONObject p=points.optJSONObject(i);JSONArray xy=p==null?points.optJSONArray(i):p.optJSONArray("at");
+            if(xy!=null)strings.add(xy.optString(0)+" | "+xy.optString(1)+(p==null||p.optString("label").isBlank()?"":" | "+p.optString("label")));
+        }
+        String initial=String.join("\n",strings);EditText input=field(s.body,label,initial,2,8000);
+        read.add(()->{String now=input.getText().toString();if(now.equals(initial)){if(points!=null)put(spec,"points",points);else spec.remove("points");return;}
+            JSONArray changed=arr();for(String line:now.split("\\R")){
+                if(line.isBlank())continue;String[] cells=line.split("\\s*\\|\\s*",3);
+                if(cells.length<2 || changed.length()>=40)throw new IllegalArgumentException("한 줄에 x | y | 이름 형식으로 최대 40개를 입력하세요.");
+                JSONObject p=BoardWidget.copy(points==null?null:points.optJSONObject(changed.length()));
+                put(p,"at",arr(decimal(cells[0].strip()),decimal(cells[1].strip())));put(p,"label",cells.length==3?cells[2]:"");changed.put(p);
+            }put(spec,"points",changed);
+        });
+        return input;
     }
 
     private Ui.Sheet data(String kind, JSONObject original, Consumer<JSONObject> apply) {

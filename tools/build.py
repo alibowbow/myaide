@@ -160,9 +160,9 @@ def test_board(json_jar):
     output = BUILD / 'board-checks'
     output.mkdir(parents=True, exist_ok=True)
     core = ROOT / 'app/src/main/java/dev/jun/gyeot/core'
-    sources = [core / (name + '.java') for name in ('Board', 'BoardPlot', 'BoardScript', 'BoardWidget', 'Jsons')]
+    sources = [*sorted(core.glob('Board*.java')), core / 'Jsons.java']
     javac(['-encoding', 'UTF-8', '-d', output, '-cp', json_jar, *sources, ROOT / 'tools/BoardRegression.java'])
-    run(['java', '-ea', '-cp', str(output) + os.pathsep + str(json_jar), 'dev.jun.gyeot.core.BoardRegression'])
+    run(['java', '-ea', '-cp', os.pathsep.join(map(str, (output, json_jar, ROOT / 'app/src/main/resources'))), 'dev.jun.gyeot.core.BoardRegression'])
 
 
 def test(jars):
@@ -373,7 +373,7 @@ if __name__ == '__main__':
     jars = dependencies()
     test_board(jars[-1])
     # The optional larger suites run when their tests folder is present.
-    if (ROOT / 'tests').is_dir(): test(jars)
+    if (ROOT / 'tests/CoreTests.java').is_file(): test(jars)
     if args.test_only and (args.compile_app or os.environ.get('GITHUB_EVENT_NAME') == 'pull_request'):
         compile_app()
     if not args.test_only:

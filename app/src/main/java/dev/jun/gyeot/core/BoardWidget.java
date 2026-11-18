@@ -14,19 +14,26 @@ public final class BoardWidget {
     private BoardWidget() {}
 
     public static final String GRAPH = "graph", TABLE = "table", CHART = "chart", FLOW = "flow",
-        TIMELINE = "timeline", TREE = "tree", NUMBER_LINE = "numberline", GEOMETRY = "geometry", SOLID = "solid";
+        TIMELINE = "timeline", TREE = "tree", NUMBER_LINE = "numberline", GEOMETRY = "geometry", SOLID = "solid", MAP = "map", CHEM = "chemistry", DIAGRAM = "diagram", READING = "reading", FIELD = "finitefield", RELATION = "relation";
     public static final float GEOMETRY_LEFT = 120, GEOMETRY_TOP = 42, GEOMETRY_UNIT = 76;
-    private static final Map<String, List<String>> FIELDS = Map.of(
-        GRAPH, List.of("height", "x", "y", "grid", "functions", "points", "vlines", "hlines", "shade", "parameters"),
-        TABLE, List.of("rows", "header"), CHART, List.of("kind", "title", "labels", "values", "unit", "color"),
-        FLOW, List.of("steps", "direction"), TIMELINE, List.of("events"), TREE, List.of("root", "children"),
-        NUMBER_LINE, List.of("from", "to", "marks", "ranges"), GEOMETRY, List.of("vertices"), SOLID, List.of("kind", "yaw", "pitch", "net"));
+    private static final Map<String, List<String>> FIELDS = Map.ofEntries(
+        Map.entry(GRAPH, List.of("height", "x", "y", "grid", "functions", "points", "vlines", "hlines", "shade", "parameters")),
+        Map.entry(TABLE,List.of("rows","header")),Map.entry(CHART,List.of("kind","title","labels","values","unit","color")),
+        Map.entry(FLOW,List.of("steps","direction")),Map.entry(TIMELINE,List.of("events")),Map.entry(TREE,List.of("root","children")),
+        Map.entry(NUMBER_LINE,List.of("from","to","marks","ranges")),Map.entry(GEOMETRY,List.of("vertices")),Map.entry(SOLID,List.of("kind","yaw","pitch","net","vertices","faces")),
+        Map.entry(MAP,List.of("title","region","bounds","route","places")),Map.entry(CHEM,List.of("formula")),
+        Map.entry(DIAGRAM,List.of("title","preset","layers","height","focus")),Map.entry(READING,List.of("title","source","lines","reveal")),
+        Map.entry(RELATION,List.of("mode","expr","xt","yt","t","x","y","points")),Map.entry(FIELD,List.of("p","a","b","points")));
+
+    public static boolean supports(String kind) { return FIELDS.containsKey(kind); }
+    static boolean accepts(String kind,String key) { return supports(kind) && FIELDS.get(kind).contains(key); }
 
     public static String name(String kind) {
         return switch (kind) {
             case GRAPH -> "함수 그래프"; case TABLE -> "표"; case CHART -> "차트"; case FLOW -> "순서도";
             case TIMELINE -> "타임라인"; case TREE -> "개념 트리"; case NUMBER_LINE -> "수직선";
-            case GEOMETRY -> "평면 도형"; case SOLID -> "입체도형"; default -> "시각 자료";
+            case RELATION -> "음함수·매개·극좌표"; case MAP -> "장소와 경로 지도"; case CHEM -> "화학식·반응식"; case DIAGRAM -> "과학 일러스트";
+            case READING -> "지문·사료 분석"; case FIELD -> "유한체 점 그래프"; case GEOMETRY -> "평면 도형"; case SOLID -> "입체도형"; default -> "시각 자료";
         };
     }
 
@@ -55,12 +62,12 @@ public final class BoardWidget {
             Object data = bounded(input.opt(key), 0);
             if (data != null) put(spec, key, data);
         }
-        return obj("t", Board.WIDGET, "kind", kind, "spec", spec, "y", limit(top, 0, Board.DEEPEST),
+        return obj("wid", java.util.UUID.randomUUID().toString().substring(0,13), "t", Board.WIDGET, "kind", kind, "spec", spec, "y", limit(top, 0, Board.DEEPEST),
             "h", limit(height, 1, Board.DEEPEST), "scale", limit(scale, .3, 2.5), "by", Board.AI.equals(by) ? Board.AI : Board.ME);
     }
 
     private static Object bounded(Object value, int level) {
-        if (level > 5 || value == null || value == JSONObject.NULL) return null;
+        if (level > 8 || value == null || value == JSONObject.NULL) return null;
         if (value instanceof String text) return text.length() <= Board.TEXT_LIMIT ? text : text.substring(0, Board.TEXT_LIMIT);
         if (value instanceof Number number) return Double.isFinite(number.doubleValue()) ? value : null;
         if (value instanceof Boolean) return value;
@@ -105,11 +112,18 @@ public final class BoardWidget {
             case NUMBER_LINE -> new BoardPlot.Made(BoardPlot.numberLine(spec, 0, scale), BoardPlot.LINE_HEIGHT);
             case GEOMETRY -> polygon(spec, scale, measure);
             case SOLID -> solid(spec, scale);
+            case RELATION -> { float h=530*BoardPlot.compact(scale); yield new BoardPlot.Made(BoardPlot.graph(spec,0,h,scale,true),h); }
+            case MAP -> BoardMap.draw(spec,scale,measure); case FIELD -> BoardField.draw(spec,scale,measure);
+            case CHEM -> BoardChemistry.draw(spec,scale,measure); case DIAGRAM -> BoardIllustration.draw(spec,scale,measure);
+            case READING -> BoardIllustration.reading(spec,scale,measure);
             default -> new BoardPlot.Made(List.of(), 0);
         };
     }
 
-    public static List<JSONObject> render(JSONObject item, Board.Measure measure) { return drawing(item, measure).items(); }
+    public static List<JSONObject> render(JSONObject item, Board.Measure measure) {
+        try { return drawing(item, measure).items(); }
+        catch(IllegalArgumentException invalid) { return List.of(Board.text(Board.MARGIN,0,invalid.getMessage(),28,"red",false,900,Board.AI)); }
+    }
 
     public record Parameter(String name, double value, double min, double max, double step) {}
 
@@ -150,13 +164,18 @@ public final class BoardWidget {
                 }
                 String parameters = values(spec).toString();
                 yield String.join(", ", words) + (parameters.equals("{}") ? "" : " " + parameters); }
+            case MAP -> spec.optString("title")+" "+asText(spec.optJSONArray("places"));
+            case RELATION -> spec.optString("mode")+" "+spec.optString("expr")+" "+spec.optString("xt")+" "+spec.optString("yt");
+            case CHEM -> spec.optString("formula"); case FIELD -> "p="+spec.optInt("p",17)+", a="+spec.optInt("a",0)+", b="+spec.optInt("b",7);
+            case DIAGRAM -> spec.optString("title")+" "+spec.optString("preset")+" "+spec.optString("focus");
+            case READING -> spec.optString("title")+" "+spec.optString("source")+" "+asText(spec.optJSONArray("lines"));
             case TABLE -> asText(spec.optJSONArray("rows"));
             case CHART -> spec.optString("title") + " " + asText(spec.optJSONArray("labels")) + " " + asText(spec.optJSONArray("values"));
             case FLOW -> asText(spec.optJSONArray("steps"));
             case TIMELINE -> asText(spec.optJSONArray("events"));
             case TREE -> spec.optString("root") + " " + asText(spec.optJSONArray("children"));
             case NUMBER_LINE -> spec.optString("from") + " ~ " + spec.optString("to") + " " + asText(spec.optJSONArray("marks"));
-            case SOLID -> "cube".equals(spec.optString("kind")) ? "정육면체" : "직육면체";
+            case SOLID -> BoardSolid.name(spec.optString("kind","cube"));
             default -> asText(spec.optJSONArray("vertices"));
         };
         return body.isBlank() ? name(kind) : name(kind) + " · " + body;
@@ -239,7 +258,9 @@ public final class BoardWidget {
     }
 
     private static BoardPlot.Made solid(JSONObject spec, float scale) {
-        boolean cube = "cube".equals(spec.optString("kind"));
+        String kind=spec.optString("kind","cube");
+        if(!kind.equals("cube") && !kind.equals("box"))return BoardSolid.draw(spec,scale);
+        boolean cube = kind.equals("cube");
         if (spec.optBoolean("net")) return net(cube);
         double yaw = Math.toRadians(limit(spec.optDouble("yaw", 30), -180, 180)), pitch = Math.toRadians(limit(spec.optDouble("pitch", 24), -85, 85));
         double x = cube ? 126 : 182, y = cube ? 126 : 116, z = cube ? 126 : 99;

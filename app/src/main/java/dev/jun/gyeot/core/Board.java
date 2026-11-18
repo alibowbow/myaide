@@ -78,6 +78,7 @@ public final class Board {
     }
     /** Copies what marks an item as part of a lesson, and its dashes, from a stored item. */
     private static JSONObject tagged(JSONObject made, JSONObject from) {
+        if (WIDGET.equals(made.optString("t")) && from.optString("wid").matches("[a-zA-Z0-9_-]{1,40}")) Jsons.put(made,"wid",from.optString("wid"));
         String lesson = from.optString("ls");
         if (lesson.matches("[a-z0-9]{1,12}")) { Jsons.put(made, "ls", lesson); Jsons.put(made, "st", Math.max(0, Math.min(999, from.optInt("st")))); }
         if (from.optBoolean("d") && !TEXT.equals(made.optString("t")) && !IMAGE.equals(made.optString("t"))) Jsons.put(made, "d", true);
