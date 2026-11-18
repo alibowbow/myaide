@@ -32,6 +32,16 @@ final class WorkSchedulesUi {
     private static final String[] REPEATS = {WorkSchedules.ONCE, WorkSchedules.DAILY, WorkSchedules.WEEKDAYS, WorkSchedules.WEEKLY, WorkSchedules.MONTHLY, WorkSchedules.INTERVAL};
     private static final String[] REPEAT_NAMES = {"한 번", "매일", "평일", "매주", "매월", "간격"};
     private static final String[] WEEK = {"월", "화", "수", "목", "금", "토", "일"};
+    /** 아침 브리핑: when it runs unless changed, and what it asks; the bracketed parts are for the user to fill in. */
+    static final String BRIEFING_TIME = "07:30";
+    static final String BRIEFING = "아침 브리핑을 해 줘. 짧게, 한눈에 보이게.\n"
+        + "1. 오늘 날짜와 요일\n"
+        + "2. 오늘 내 일정 (캘린더를 읽을 수 있으면)\n"
+        + "3. 오늘 날씨와 옷차림 한 줄: [지역을 적어 주세요]\n"
+        + "4. 새 소식 3~5개, 출처와 함께: [관심 주제를 적어 주세요]\n"
+        + "대괄호가 그대로 남아 있는 항목은 건너뛰어 줘.";
+    /** The time a new schedule's editor opens with, for the next edit(null, …) only. */
+    private String presetTime;
     private final Activity activity;
     private final Ui ui;
     private final AppStore store;
@@ -57,6 +67,9 @@ final class WorkSchedulesUi {
         fill(sheet);
         sheet.primary.setText("새 예약 만들기");
         sheet.primary.setOnClickListener(v -> edit(null, "", null, null));
+        // 아침 브리핑: a new schedule already filled in (every day at BRIEFING_TIME), for the user to adjust and save.
+        LinearLayout.LayoutParams above = new LinearLayout.LayoutParams(-1, -2); above.bottomMargin = ui.dp(8);
+        sheet.footer.addView(ui.button("아침 브리핑 만들기", false, () -> { presetTime = BRIEFING_TIME; edit(null, BRIEFING, null, null); }), 0, above);
         sheet.show();
     }
     private void refresh() { if (list != null && list.isShowing()) fill(list); }
@@ -148,7 +161,8 @@ final class WorkSchedulesUi {
     void edit(JSONObject existing, String goalText, JSONObject roomSelection, String startPage) { edit(existing, goalText, roomSelection, startPage, WorkSchedules.memory(existing)); }
     private void edit(JSONObject existing, String goalText, JSONObject roomSelection, String startPage, boolean memory) {
         long now = System.currentTimeMillis(); ZoneId zone = ZoneId.systemDefault();
-        JSONObject draft = existing == null ? obj("repeat", WorkSchedules.DAILY, "time", "09:00") : copy(existing);
+        String opensAt = presetTime == null ? "09:00" : presetTime; presetTime = null;
+        JSONObject draft = existing == null ? obj("repeat", WorkSchedules.DAILY, "time", opensAt) : copy(existing);
         if (startPage != null) put(draft, "browser", obj("url", startPage.startsWith("http://") || startPage.startsWith("https://") ? startPage : ""));
         if (!draft.has("date")) {
             LocalDate today = Instant.ofEpochMilli(now).atZone(zone).toLocalDate();
