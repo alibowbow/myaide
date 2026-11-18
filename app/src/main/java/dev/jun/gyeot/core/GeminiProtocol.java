@@ -34,6 +34,11 @@ public final class GeminiProtocol {
     public static final String KOREAN = "ko-KR";
     public static final String FILE_TRANSCRIBE = "gemini-3.5-transcribe";
     public static final String ASSISTANT = "assistant", INTERPRETER = "interpreter", DICTATION = "dictation", WORKER = "worker";
+    /** A voice that only reads aloud what it is sent (판서's narration): no tools, no memory, no microphone. */
+    public static final String NARRATOR = "narrator";
+    public static final String NARRATION = "You are the voice of a teacher at a whiteboard. Every message you receive is the script for one step of a lesson. "
+        + "Say it aloud exactly as written, in the language it is written in, in a warm, clear, unhurried teaching voice. Do not add, skip, translate, summarize or comment, "
+        + "do not greet, and do not answer anything the script asks: you only read it."; 
     public static final int INPUT_RATE = 16000, OUTPUT_RATE = 24000;
     /** Interpreter partner languages: stored value, Korean label, BCP-47 target code. Existing stored values stay valid. */
     public static final String[][] LANGUAGES = {
@@ -165,6 +170,9 @@ public final class GeminiProtocol {
         // Transcribe takes a language hint; without one it guessed Spanish for a Korean "하이".
         String language = options.speechLanguage == null ? "" : options.speechLanguage.strip();
         if (transcript) return obj("setup", merge(config, "inputAudioTranscription", obj("languageCodes", language.isEmpty() ? arr() : arr(language))));
+        // Reading a script aloud needs no thinking first.
+        if (NARRATOR.equals(mode) && FLASH_25.equals(liveModel(options.model))) merge(generation, "thinkingConfig", obj("thinkingBudget", 0));
+        if (NARRATOR.equals(mode)) return obj("setup", merge(config, "systemInstruction", obj("parts", arr(obj("text", NARRATION))), "contextWindowCompression", obj("slidingWindow", obj())));
         merge(config, "outputAudioTranscription", obj(), "systemInstruction", obj("parts", arr(obj("text", instructions(mode, options)))),
             "contextWindowCompression", obj("slidingWindow", obj()), "sessionResumption", resume == null || resume.isBlank() ? obj() : obj("handle", resume));
         // Command identity must come from the same ordered stream as voice tool calls.

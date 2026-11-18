@@ -919,6 +919,8 @@ final class MainChatPage implements AutoCloseable {
         if (done) item(group, sheet, R.drawable.ic_share, GREEN, "공유", "기호 없이 읽기 좋은 글로", false, () -> share(text));
         // The answer without Markdown's marks, in one block with a copy button: for pasting where Markdown is not drawn.
         if (done) item(group, sheet, R.drawable.ic_file, TEAL, "텍스트로 보기", "기호 없는 글 · 복사해서 메신저에 붙여 넣기 좋아요", false, () -> PlainTextSheet.answer(activity, text));
+        // 판서: the same content taught on the board, written step by step and read aloud.
+        if (done || mine) item(group, sheet, R.drawable.ic_board, INDIGO, "판서로 설명 듣기", "판에 써 가며 차근차근 설명해요", false, () -> { if (!stopped) BoardActivity.teach(activity, mine ? text : question(m), mine ? "" : text); });
         // 페이지: the answer as a document in a category the user picks.
         if (done) item(group, sheet, R.drawable.ic_pages, BLUE, "페이지에 저장", "카테고리를 골라 문서로 보관해요", false, () -> { if (!stopped) PageSaveSheet.show(activity, ui, PageSaveSheet.document(text), dev.jun.gyeot.core.PageBook.CHAT, modelLabel(m), d -> track(d)); });
         if (done) { boolean reading = store.speech != null && store.speech.reading(readKey(m));

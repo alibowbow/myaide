@@ -101,7 +101,7 @@ final class AppNavigator {
      * Opened again from the app icon: singleTask brought MainActivity back alone, finishing the browser, 내 휴대폰 or 페이지 the
      * user left above it, which is then opened again. "" when the user left MainActivity, which keeps its own page.
      */
-    static String leftAbove() { return front.equals("browser") || front.equals("phone") || front.equals("files") || front.equals("pages") ? front : ""; }
+    static String leftAbove() { return front.equals("browser") || front.equals("phone") || front.equals("files") || front.equals("pages") || front.equals("board") ? front : ""; }
     /** BrowserActivity is resumed in front (main thread): a bare spoken 'go back' then leaves it for MainActivity. */
     private static boolean browserFront;
     static void browserInFront(boolean front) { browserFront = front; }
