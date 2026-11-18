@@ -26,7 +26,7 @@ final class DriveBackupUi {
     /** The two rows, for the Drive page. */
     LinearLayout rows() {
         LinearLayout group = ui.group();
-        ui.addRow(group, ui.listRow(0, 0, "지금 백업하기", "기억·메모·대화 기록·작업창·예약·페이지·메인 대화를 Drive에 올려요", null, this::backup), false);
+        ui.addRow(group, ui.listRow(0, 0, "지금 백업하기", "기억·메모·대화 기록·작업창·예약·루틴·페이지·메인 대화를 Drive에 올려요", null, this::backup), false);
         ui.addRow(group, ui.listRow(0, 0, "백업 가져오기", "다른 폰에서 올린 백업을 이 폰에 더해요", ui.chevron(), this::choose), false);
         return group;
     }

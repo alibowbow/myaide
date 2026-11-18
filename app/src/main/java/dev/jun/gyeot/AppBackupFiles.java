@@ -39,13 +39,13 @@ final class AppBackupFiles {
         long now = System.currentTimeMillis();
         boolean chat = store.mainChat.available();
         JSONObject memory = MemoryBackup.export(store.memories(), store.persona(), chat ? store.mainChat.notes() : new JSONArray(), now);
-        JSONArray notes = store.notes(), sessions = store.allSessions(), works = store.works(), schedules = store.schedules();
+        JSONArray notes = store.notes(), sessions = store.allSessions(), works = store.works(), schedules = store.schedules(), routines = store.routines();
         File pages = PageStore.book(context).dir(); List<File> pageFiles = new ArrayList<>();
         File[] found = pages.listFiles();
         if (found != null) for (File file : found) if (file.isFile() && AppBackup.allowed(AppBackup.PAGES + file.getName())) pageFiles.add(file);
         long messages = chat ? store.mainChat.count() : 0;
         JSONObject counts = obj("memories", length(memory.optJSONArray("memories")), "pinned", length(memory.optJSONArray("notes")), "persona", !memory.optString("persona").isBlank(),
-            "notes", notes.length(), "sessions", sessions.length(), "works", works.length(), "schedules", schedules.length(), "pages", PageStore.book(context).pages().size(), "messages", messages);
+            "notes", notes.length(), "sessions", sessions.length(), "works", works.length(), "schedules", schedules.length(), "routines", routines.length(), "pages", PageStore.book(context).pages().size(), "messages", messages);
         File copy = new File(context.getCacheDir(), "backup-main-chat.db"); copy.delete();
         try (ZipOutputStream zip = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(target)))) {
             entry(zip, AppBackup.MANIFEST, AppBackup.manifest(version(context), now, counts).toString(2).getBytes(StandardCharsets.UTF_8));
@@ -54,6 +54,7 @@ final class AppBackupFiles {
             entry(zip, AppBackup.SESSIONS, sessions.toString().getBytes(StandardCharsets.UTF_8));
             entry(zip, AppBackup.WORKS, works.toString().getBytes(StandardCharsets.UTF_8));
             entry(zip, AppBackup.SCHEDULES, schedules.toString().getBytes(StandardCharsets.UTF_8));
+            entry(zip, AppBackup.ROUTINES, routines.toString().getBytes(StandardCharsets.UTF_8));
             for (File file : pageFiles) { zip.putNextEntry(new ZipEntry(AppBackup.PAGES + file.getName())); Files.copy(file.toPath(), zip); zip.closeEntry(); }
             if (messages > 0) { store.mainChat.backupTo(copy); zip.putNextEntry(new ZipEntry(AppBackup.MAIN)); Files.copy(copy.toPath(), zip); zip.closeEntry(); }
         } finally { copy.delete(); }
@@ -109,6 +110,12 @@ final class AppBackupFiles {
                 int count = store.changeSchedules(schedules -> AppBackup.addUnseen(schedules, list, Math.max(0, WorkSchedules.MAX_SCHEDULES - schedules.length()), item -> put(item, "enabled", false)));
                 put(added, "schedules", count);
                 if (count > 0) skipped.put("예약은 꺼진 채로 가져왔어요. 예약 작업에서 하나씩 켜 주세요.");
+            });
+            part(skipped, "한마디 루틴", () -> {
+                JSONArray list = list(dir, AppBackup.ROUTINES); if (list == null) return;
+                JSONArray mine = store.routines(); int count = dev.jun.gyeot.core.Routines.addUnseen(mine, list);
+                if (count > 0) store.saveRoutines(mine);
+                put(added, "routines", count);
             });
             part(skipped, "페이지", () -> {
                 File pages = new File(dir, "pages"); if (!new File(pages, "index.json").isFile()) return;

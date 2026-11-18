@@ -478,12 +478,15 @@ final class AppStore {
     boolean youtubeGeminiWeb() { return settings.getBoolean("youtubeGeminiWeb", true); }
     boolean browserDecisions() { return settings.getBoolean("browserDecisions", false) && secrets.has(SecretStore.GEMINI); }
     String persona() { return settings.getString("persona", ""); }
+    /** 한마디 루틴 (설정 → 한마디 루틴), in the order they were made. */
+    JSONArray routines() { return dev.jun.gyeot.core.Routines.parse(settings.getString("routines", "")); }
+    void saveRoutines(JSONArray list) { settings.edit().putString("routines", list == null ? "" : list.toString()).apply(); changed(); }
     /** The assistant's name as the user set it in its profile (AssistantProfile), "들퍼레" when unset; for the voice, main-chat and 작업창 instructions. */
     String assistantName() { return AssistantProfile.readName(diagnosticsContext); }
     /** The settings a live call is shaped by (voice, its style, persona, interpreter language), to tell when a call is behind them. */
     String sessionSettings() {
         if (GeminiProtocol.INTERPRETER.equals(voiceMode)) return interpreterConfig().fingerprint();
-        return brain() + "\u0000" + liveModel() + "\u0000" + liveThinkingLevel() + "\u0000" + voice() + "\u0000" + voiceStyle(voice()) + "\u0000" + persona() + "\u0000" + phoneDecisions();
+        return brain() + "\u0000" + liveModel() + "\u0000" + liveThinkingLevel() + "\u0000" + voice() + "\u0000" + voiceStyle(voice()) + "\u0000" + persona() + "\u0000" + settings.getString("routines", "") + "\u0000" + phoneDecisions();
     }
     /** sessionSettings() as the current call was connected with; set by the voice service. */
     volatile String appliedSettings = "";
@@ -515,7 +518,7 @@ final class AppStore {
      */
     GeminiProtocol.Options options(boolean inputTranscription, String model) {
         GeminiProtocol.Options options = new GeminiProtocol.Options();
-        options.language = language(); options.voice = voice(); options.voiceStyle = voiceStyle(voice()); options.persona = persona(); options.quietSpeech = quietSpeech(); options.model = model == null ? liveModel() : model;
+        options.language = language(); options.voice = voice(); options.voiceStyle = voiceStyle(voice()); options.persona = persona(); options.routines = dev.jun.gyeot.core.Routines.instructions(routines()); options.quietSpeech = quietSpeech(); options.model = model == null ? liveModel() : model;
         options.thinkingLevel = liveThinkingLevel(); options.translateToKorean = translateToKorean();
         options.interpreter = interpreterConfig();
         // Built-in Google Search only when Gemini answers searches and this model may ground on this key; otherwise search_web.

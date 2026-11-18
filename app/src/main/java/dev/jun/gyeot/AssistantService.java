@@ -1419,6 +1419,9 @@ public final class AssistantService extends Service {
             if (newest != null && "user".equals(newest.optString("role"))) {
                 java.util.List<String> earlier = new java.util.ArrayList<>();
                 for (int t = turns.length() - 2; t >= 0; t--) { JSONObject turn = turns.optJSONObject(t); if (turn != null && "user".equals(turn.optString("role"))) earlier.add(turn.optString("content")); }
+                // A request that is only a 한마디 루틴 word: what the word stands for goes with it.
+                JSONObject routine = dev.jun.gyeot.core.Routines.match(store.routines(), WorkBook.request(thread));
+                if (routine != null && newest.opt("content") instanceof String) put(newest, "content", newest.optString("content") + dev.jun.gyeot.core.Routines.expand(routine));
                 String words = newest.optString("content"), videoId = YouTubeTranscriptClient.videoId(words, earlier);
                 if (!videoId.isEmpty()) {
                     onStage.accept("유튜브 대본을 읽는 중");

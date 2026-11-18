@@ -25,7 +25,7 @@ public final class AppBackup {
     public static final String FORMAT = "dev.jun.gyeot.app-backup", MIME = "application/zip", KIND = "gyeot-backup";
     public static final int VERSION = 1;
     public static final String MANIFEST = "backup.json", MEMORY = "memory.json", NOTES = "notes.json", SESSIONS = "sessions.json", WORKS = "works.json",
-        SCHEDULES = "schedules.json", MAIN = "main-chat.db", PAGES = "pages/";
+        SCHEDULES = "schedules.json", ROUTINES = "routines.json", MAIN = "main-chat.db", PAGES = "pages/";
     /** The largest backup brought in, and the largest of its list files. */
     public static final long MAX_BYTES = 1024L * 1024 * 1024, MAX_LIST_BYTES = 64L * 1024 * 1024;
 
@@ -47,7 +47,7 @@ public final class AppBackup {
     /** Whether a zip entry is one of the backup's own parts: a known file, or one plain file name under pages/. Anything else is skipped. */
     public static boolean allowed(String entry) {
         if (entry == null) return false;
-        if (Set.of(MANIFEST, MEMORY, NOTES, SESSIONS, WORKS, SCHEDULES, MAIN).contains(entry)) return true;
+        if (Set.of(MANIFEST, MEMORY, NOTES, SESSIONS, WORKS, SCHEDULES, ROUTINES, MAIN).contains(entry)) return true;
         return entry.startsWith(PAGES) && entry.substring(PAGES.length()).matches("[A-Za-z0-9_][A-Za-z0-9_.-]{0,120}") && !entry.contains("..");
     }
     /**
@@ -96,7 +96,7 @@ public final class AppBackup {
 
     /** "기억 12개 · 메모 3개 · …" from counts (memories, notes, sessions, works, schedules, pages, messages); only what is above zero. */
     public static String summary(JSONObject counts) {
-        String[][] names = {{"memories", "기억"}, {"pinned", "고정 기억"}, {"notes", "메모"}, {"sessions", "대화 기록"}, {"works", "작업창"}, {"schedules", "예약"}, {"pages", "페이지"}, {"messages", "메인 대화 메시지"}};
+        String[][] names = {{"memories", "기억"}, {"pinned", "고정 기억"}, {"notes", "메모"}, {"sessions", "대화 기록"}, {"works", "작업창"}, {"schedules", "예약"}, {"routines", "한마디 루틴"}, {"pages", "페이지"}, {"messages", "메인 대화 메시지"}};
         List<String> parts = new ArrayList<>();
         for (String[] name : names) if (counts != null && counts.optInt(name[0]) > 0) parts.add(name[1] + " " + counts.optInt(name[0]) + "개");
         if (counts != null && counts.optBoolean("persona")) parts.add("‘나에 대해’");

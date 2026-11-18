@@ -1404,6 +1404,7 @@ public final class MainActivity extends Activity {
             case "phone" -> pagePhone();
             case "look" -> pageLook();
             case "persona" -> pagePersona();
+            case "routines" -> add(new RoutinesUi(this, ui, store, () -> showTab(2)).page(), 0);
             case "memory" -> pageMemory();
             case "background" -> pageBackground();
             case "update" -> pageUpdate();
@@ -1418,7 +1419,7 @@ public final class MainActivity extends Activity {
     }
     /** Every settings page id; anything else opens the list. */
     private static final java.util.Set<String> SETTINGS_PAGES = java.util.Set.of("", "key", "chatgpt", "grok", "nim", "claude", "ai", "connectors", "voice",
-        "quick", "phone", "look", "persona", "memory", "background", "update", "usage", "calendar", "wake", "about", "github", "drive", "memories");
+        "quick", "phone", "look", "persona", "routines", "memory", "background", "update", "usage", "calendar", "wake", "about", "github", "drive", "memories");
     /** The page a sub-page belongs to, "" for the pages listed on the settings home. */
     static String settingsParent(String page) {
         return switch (page) {
@@ -1434,7 +1435,7 @@ public final class MainActivity extends Activity {
             case "github" -> "GitHub"; case "drive" -> "Google Drive"; case "memories" -> "기억한 것";
             case "nim" -> "NVIDIA NIM";
             case "key" -> "Gemini"; case "chatgpt" -> "ChatGPT"; case "claude" -> "Claude"; case "ai" -> "AI 역할"; case "connectors" -> "커넥터"; case "voice" -> "목소리와 대화";
-            case "quick" -> "바로 부르기"; case "phone" -> "폰 조작"; case "look" -> "화면 보기"; case "persona" -> "나에 대해"; case "memory" -> "기억";
+            case "quick" -> "바로 부르기"; case "phone" -> "폰 조작"; case "look" -> "화면 보기"; case "persona" -> "나에 대해"; case "routines" -> "한마디 루틴"; case "memory" -> "기억";
             case "background" -> "다른 앱 쓰는 동안"; case "update" -> "업데이트"; case "usage" -> "사용량 · 남은 한도"; case "calendar" -> "캘린더"; case "wake" -> "차에서 호출어"; default -> "정보";
         };
     }
@@ -3496,6 +3497,8 @@ public final class MainActivity extends Activity {
         LinearLayout personal = ui.group();
         String persona = store.persona().strip().replaceAll("\\s+", " ");
         settingsRow(personal, "persona", "나에 대해", persona.isEmpty() ? "비어 있어요 · 호칭과 답변 스타일" : persona, null);
+        String routines = dev.jun.gyeot.core.Routines.summary(store.routines());
+        settingsRow(personal, "routines", "한마디 루틴", routines.isEmpty() ? "아직 없어요 · 한마디로 여러 일을 맡겨요" : routines, null);
         int remembered = store.memories().length();
         settingsRow(personal, "memory", "기억", !store.memoryOn() ? "꺼짐" : remembered == 0 ? "켜짐 · 아직 기억한 게 없어요" : remembered + "개 기억 중" + (store.autoMemory() ? " · 자동으로 배우는 중" : ""), null);
         ui.add(sections, personal, 0);
@@ -3535,6 +3538,7 @@ public final class MainActivity extends Activity {
             case "phone" -> new int[]{R.drawable.ic_phone, Ui.GREEN};
             case "look" -> new int[]{R.drawable.ic_eye, Ui.INDIGO};
             case "persona" -> new int[]{R.drawable.ic_person, Ui.PINK};
+            case "routines" -> new int[]{R.drawable.ic_bolt, Ui.MINT};
             case "memory", "memories" -> new int[]{R.drawable.ic_bulb, Ui.ORANGE};
             case "update" -> new int[]{R.drawable.ic_download, Ui.BLUE};
             default -> new int[]{R.drawable.ic_info, Ui.GRAY};

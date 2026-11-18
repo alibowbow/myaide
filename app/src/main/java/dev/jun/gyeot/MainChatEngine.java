@@ -484,6 +484,7 @@ final class MainChatEngine implements AutoCloseable {
         b.append(memory&&autoMemory()?" Lasting facts the user shares are saved to long-term memory automatically after replies; when asked to remember something, acknowledge it briefly without claiming it is already saved.":" Automatic memory is off: do not promise to remember anything outside this conversation.");
         // The profile name the chat screen shows; it changes only when the user renames the assistant.
         b.append(" Your name is ").append(Brand.called(app.assistantName())).append('.');
+        b.append(Routines.instructions(app.routines()));
         String persona=app.persona().strip();
         if(!persona.isEmpty())b.append("\n\nThe user wrote these notes about themselves and their preferred style. Follow them when they do not conflict with the rules above:\n<user_preferences>\n").append(MainChatContext.clip(persona,GeminiProtocol.PERSONA_LIMIT)).append("\n</user_preferences>");
         return b.toString();

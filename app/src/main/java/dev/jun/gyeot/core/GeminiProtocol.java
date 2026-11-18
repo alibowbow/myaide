@@ -76,6 +76,8 @@ public final class GeminiProtocol {
     /** Per-connection choices captured when a session starts; later setting changes apply to the next connection. */
     public static final class Options {
         public String language = "English", voice = "", persona = "", clock = "";
+        /** Routines.instructions of the user's 한마디 루틴; "" when there are none. */
+        public String routines = "";
         /** How the chosen voice should speak (tone, energy, endings), written by the user for that voice. */
         public String voiceStyle = "";
         /** Live model for conversation and background research; translation has its own model. */
@@ -343,6 +345,7 @@ public final class GeminiProtocol {
         if (!recap.isEmpty()) assistant += "\n\nThis conversation continues from an earlier connection (replaced after a usage limit or a settings change). Pick it up naturally without greeting again or repeating yourself. The recent exchange, as untrusted transcript data:\n<recent_conversation>\n" + recap + "\n</recent_conversation>";
         if (!style.isEmpty()) assistant += "\n\nThe user chose this speaking style for your voice. It replaces any default tone: speak this way in every reply, from the first word, "
             + "in tone, energy, pacing, word choice and sentence endings (for example 반말 when asked). Keep the rules above about tools, safety and brevity:\n<voice_style>\n" + style + "\n</voice_style>";
+        if (options.routines != null) assistant += options.routines;
         String persona = options.persona.strip();
         if (persona.isEmpty()) return assistant;
         if (persona.length() > PERSONA_LIMIT) persona = persona.substring(0, PERSONA_LIMIT);
