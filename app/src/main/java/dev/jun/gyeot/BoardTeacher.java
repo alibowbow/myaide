@@ -45,7 +45,13 @@ final class BoardTeacher {
     private boolean voiceless;
     // The lesson being given.
     private BoardScript.Lesson lesson; private BoardScript.Flow flow; private int index;
-    private List<JSONObject> placed = new ArrayList<>(); private long[] starts; private long drawTotal, stepStarted, drawnFor;
+    private List<JSONObject> placed = new ArrayList<>();
+    private long[] ends;
+    private long drawTotal, stepStarted, drawnFor, lastFrame;
+    private boolean betweenSteps;
+    private final Runnable nextStep = () -> {
+        if (state.equals(PLAYING) && betweenSteps) { betweenSteps = false; index++; step(); }
+    };
     private boolean drawn, heard;
     private final Runnable frame = this::frame;
     /** The board's lessons as they are kept ([{id, title, says}]); a new lesson is added to them. Set with the board. */
@@ -137,10 +143,15 @@ final class BoardTeacher {
     private void step() {
         if (lesson == null || index >= lesson.steps().size()) { finish(); return; }
         BoardScript.Step step = lesson.steps().get(index);
-        placed = replaying ? kept.get(index) : flow.place(step); starts = new long[placed.size()]; drawTotal = 0;
+        placed = replaying ? kept.get(index) : flow.place(step);
+        if (!replaying && !board.fits(placed)) { watcher.notice("이 판이 가득 찼어요. 새 판에서 계속해 주세요."); stop(); return; }
+        ends = new long[placed.size()]; long natural = 0;
+        for (int i = 0; i < placed.size(); i++) { natural += BoardScript.itemMillis(placed.get(i)); ends[i] = natural; }
+        drawTotal = android.animation.ValueAnimator.areAnimatorsEnabled() ? Math.min(20_000, natural) : 0;
         for (int i = 0; i < placed.size(); i++) {
-            starts[i] = drawTotal; drawTotal += BoardScript.itemMillis(placed.get(i));
-            if (replaying) board.reveal(placed.get(i), 0); else board.add(Board.inLesson(placed.get(i), lessonId, index), true);
+            ends[i] = ends[i] * drawTotal / natural;
+            if (replaying) board.reveal(placed.get(i), drawTotal == 0 ? 1 : 0);
+            else board.add(Board.inLesson(placed.get(i), lessonId, index), drawTotal > 0);
         }
         if (!placed.isEmpty()) {
             // The page follows the writing: the lowest thing of the step comes into view (a mark on a picture stays where the picture is).
@@ -148,7 +159,7 @@ final class BoardTeacher {
             board.follow(lowest - highest > board.shown() * .5f ? highest + board.shown() * .45f : lowest);
             if (!replaying) watcher.wrote(index == 0 ? lesson.title() : null);
         }
-        drawn = placed.isEmpty(); drawnFor = 0; stepStarted = SystemClock.uptimeMillis();
+        drawn = drawTotal == 0; drawnFor = 0; lastFrame = stepStarted = SystemClock.uptimeMillis();
         tell(); speak(step); main.removeCallbacks(frame); main.post(frame);
     }
     private void speak(BoardScript.Step step) {
@@ -168,12 +179,12 @@ final class BoardTeacher {
     }
     /** One tick of the writing: every item of the step shows as much as its share of the elapsed time. */
     private void frame() {
-        if (!state.equals(PLAYING) || lesson == null) return;
-        long now = SystemClock.uptimeMillis(); drawnFor = Math.min(drawTotal, drawnFor + FRAME_MS);
+        if (!state.equals(PLAYING) || lesson == null || betweenSteps) return;
+        long now = SystemClock.uptimeMillis(); drawnFor = Math.min(drawTotal, drawnFor + now - lastFrame); lastFrame = now;
         for (int i = 0; i < placed.size(); i++) {
-            long length = Math.max(1, BoardScript.itemMillis(placed.get(i)));
-            float fraction = (drawnFor - starts[i]) / (float) length;
-            if (fraction > 0) board.reveal(placed.get(i), Math.min(1, fraction));
+            long start = i == 0 ? 0 : ends[i - 1];
+            if (drawnFor >= ends[i]) board.reveal(placed.get(i), 1);
+            else if (drawnFor > start) board.reveal(placed.get(i), (drawnFor - start) / (float) (ends[i] - start));
         }
         if (drawnFor >= drawTotal) drawn = true;
         if (drawn && (heard || silentLongEnough(now))) { advance(); return; }
@@ -187,26 +198,28 @@ final class BoardTeacher {
     private void advance() {
         main.removeCallbacks(frame);
         for (JSONObject item : placed) board.reveal(item, 1);
-        index++; int mine = epoch;
-        main.postDelayed(() -> { if (mine == epoch && state.equals(PLAYING)) step(); }, BETWEEN_STEPS_MS);
+        betweenSteps = true;
+        main.removeCallbacks(nextStep); main.postDelayed(nextStep, BETWEEN_STEPS_MS);
     }
     private void finish() {
-        main.removeCallbacks(frame); board.revealAll(); voice.stop();
+        main.removeCallbacks(frame); main.removeCallbacks(nextStep); betweenSteps = false; board.revealAll(); voice.stop();
         boolean again = replaying;
         state = IDLE; lesson = null; placed = new ArrayList<>(); replaying = false; epoch++; tell(); if (!again) watcher.wrote(null);
     }
 
     /** Holds the lesson where it is: the writing freezes and the voice stops. */
-    void pause() { if (!state.equals(PLAYING)) return; state = PAUSED; main.removeCallbacks(frame); voice.stop(); tell(); }
+    void pause() { if (!state.equals(PLAYING)) return; state = PAUSED; main.removeCallbacks(frame); main.removeCallbacks(nextStep); voice.stop(); tell(); }
     /** Goes on: the step's words are read again from their start while its writing continues. */
     void resume() {
         if (!state.equals(PAUSED) || lesson == null) return;
         state = PLAYING; tell();
-        if (index < lesson.steps().size()) { stepStarted = SystemClock.uptimeMillis(); speak(lesson.steps().get(index)); main.post(frame); } else finish();
+        if (betweenSteps) { nextStep.run(); return; }
+        if (index < lesson.steps().size()) { lastFrame = stepStarted = SystemClock.uptimeMillis(); speak(lesson.steps().get(index)); main.post(frame); } else finish();
     }
     /** Shows the rest of this step at once and moves to the next. */
     void skip() {
         if (lesson == null || !(state.equals(PLAYING) || state.equals(PAUSED))) return;
+        if (betweenSteps) { state = PLAYING; main.removeCallbacks(nextStep); nextStep.run(); return; }
         voice.stop(); state = PLAYING; drawn = true; advance();
     }
     /** Ends the lesson (or the wait for it): what is written stays, the rest is not written. */
@@ -216,7 +229,7 @@ final class BoardTeacher {
         // The worker is inside the request: what aborts it runs on a thread of its own (it closes a connection).
         if (abort != null) { Thread stopper = new Thread(abort, "board-teacher-stop"); stopper.setDaemon(true); stopper.start(); }
         boolean wrote = lesson != null && !replaying;
-        main.removeCallbacks(frame); board.revealAll(); voice.stop();
+        main.removeCallbacks(frame); main.removeCallbacks(nextStep); betweenSteps = false; board.revealAll(); voice.stop();
         state = IDLE; lesson = null; placed = new ArrayList<>(); replaying = false; epoch++; tell();
         if (wrote) watcher.wrote(null);
     }
