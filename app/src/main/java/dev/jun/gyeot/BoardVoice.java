@@ -10,8 +10,8 @@ import java.util.function.Consumer;
 
 /**
  * 판서's narration. A step's words are read by the Gemini Live voice the assistant speaks with (one quiet connection
- * that only reads aloud); when that cannot be used or fails, by Gemini's speech model, and then by the device's own
- * voice. Main thread only. Nothing is read during a call, a recording or while a microphone is listening.
+ * that only reads aloud) when the chosen Live model reads word for word; otherwise, and when Live cannot be used or
+ * fails, by Gemini's speech model, and then by the device's own voice. Main thread only. Nothing is read during a call, a recording or while a microphone is listening.
  */
 final class BoardVoice {
     /** Makes the voice for a rung of the ladder (LIVE, SPEECH or DEVICE); tests pass their own. */
@@ -29,8 +29,18 @@ final class BoardVoice {
     }
     /** Whether anything would hear the reading as speech to answer (a call, a recording, an open microphone). */
     boolean blocked() { return store.voiceActive || store.recording || ComposerDictation.listening() || store.talk != null && store.talk.listening(); }
-    /** The first rung to try now: Live with a Gemini key and a network, the device's voice otherwise. */
-    String first() { return hasKey() && Speech.online(context) ? LIVE : DEVICE; }
+    /**
+     * The first rung to try now. With a Gemini key and a network: the Live voice when the chosen Live model reads a
+     * script as written, and Gemini's speech model when it is one that says the script in its own, shorter words (2.5
+     * Flash native audio does), since narration that leaves the script falls out of step with the writing. Without
+     * them, the device's voice.
+     */
+    String first() {
+        if (!(hasKey() && Speech.online(context))) return DEVICE;
+        return readsAsWritten(store.liveModel()) ? LIVE : SPEECH;
+    }
+    /** Whether a Live model, asked to read a script aloud, says it word for word. */
+    static boolean readsAsWritten(String liveModel) { return !GeminiProtocol.FLASH_25.equals(GeminiProtocol.liveModel(liveModel)); }
     private boolean hasKey() { try { return store.secrets.hasKey(); } catch (RuntimeException unknown) { return false; } }
     private static String next(String kind) { return LIVE.equals(kind) ? SPEECH : SPEECH.equals(kind) ? DEVICE : ""; }
     String kind() { return kind; }

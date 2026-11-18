@@ -25,8 +25,8 @@ import org.json.JSONObject;
 
 /**
  * The board itself: a page Board.WIDTH units wide that fills the view's width and scrolls down. One finger uses the
- * chosen tool (pen, highlighter, eraser, a shape, text, or the hand that moves the page); two fingers always move and
- * zoom the page. An item can be shown partly (reveal), which is how the AI's writing appears stroke by stroke.
+ * chosen tool (the hand that moves the page, which a board opens with, or a pen, highlighter, eraser, shape or text);
+ * two fingers always move and zoom the page. An item can be shown partly (reveal), which is how the AI's writing appears stroke by stroke.
  */
 final class BoardView extends View {
     static final String PEN = "pen", MARKER = "marker", ERASER = "eraser", LINE = "line", ARROW = "arrow", RECT = "rect", OVAL = "oval", TEXT = "text", HAND = "hand";
@@ -57,7 +57,8 @@ final class BoardView extends View {
     private final TextPaint letters = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private Listener listener;
-    private String tool = PEN, color = Board.INK; private float width = WIDTHS[1];
+    /** The hand first: a finger on a board is usually moving it, and drawing begins when a pen is picked. */
+    private String tool = HAND, color = Board.INK; private float width = WIDTHS[1];
     /** The page's top-left corner in board units, and how much it is magnified beyond fitting the width. */
     private float left, top, zoom = 1;
     // The gesture in progress.
@@ -104,6 +105,8 @@ final class BoardView extends View {
     void show(JSONArray stored) { items = stored == null ? new JSONArray() : stored; undo.clear(); redo.clear(); revealing.clear(); layouts.clear(); loaded.clear(); left = 0; top = 0; zoom = 1; invalidate(); }
     /** Puts a picture on the page under what is there; undo takes it off again. */
     void addPicture(JSONObject picture) { add(picture, false); changed(); }
+    /** Shows another arrangement of the board (a picture made larger or smaller); undo brings the one before back. */
+    void replace(JSONArray next) { if (next == null || next == items) return; undo.push(new Object[]{"clear", items}); redo.clear(); items = next; revealing.clear(); layouts.clear(); changed(); }
     /** Takes an item off the board (the hand's 지우기 for a picture or a line); undo puts it back in its place. */
     void remove(int index) {
         JSONObject gone = items.optJSONObject(index); if (gone == null) return;
@@ -197,7 +200,8 @@ final class BoardView extends View {
 
     private int argb(JSONObject item) {
         int base = switch (item.optString("c")) { case "red" -> Ui.RED; case "blue" -> Ui.BLUE; case "green" -> Ui.GREEN; case "orange" -> Ui.ORANGE; case "purple" -> Ui.PURPLE; default -> Ui.TEXT; };
-        return item.optBoolean("hl") ? (base & 0x00ffffff) | 0x55000000 : base;
+        // A highlighter is see-through; a guide line (a graph's grid) is paler still.
+        return item.optBoolean("hl") ? (base & 0x00ffffff) | 0x55000000 : item.optBoolean("faint") ? (base & 0x00ffffff) | 0x2c000000 : base;
     }
     static int swatch(String color) { return switch (Board.color(color)) { case "red" -> Ui.RED; case "blue" -> Ui.BLUE; case "green" -> Ui.GREEN; case "orange" -> Ui.ORANGE; case "purple" -> Ui.PURPLE; default -> Ui.TEXT; }; }
 
@@ -238,10 +242,15 @@ final class BoardView extends View {
         return fresh;
     }
     private void picture(Canvas canvas, JSONObject item, float[] b, float shown) {
-        RectF box = new RectF(b[0], b[1], b[2], b[3]); Bitmap bitmap = bitmap(item.optString("id"));
-        if (bitmap != null) { picturePaint.setAlpha(Math.round(255 * Math.min(1, shown))); canvas.drawBitmap(bitmap, null, box, picturePaint); }
-        ink.setPathEffect(null); ink.setStyle(Paint.Style.STROKE); ink.setStrokeWidth(2); ink.setColor((Ui.MUTED & 0x00ffffff) | 0x66000000);
-        canvas.drawRect(box, ink);
+        RectF box = new RectF(b[0], b[1], b[2], b[3]); Bitmap bitmap = bitmap(item.optString("id")); float corner = 12;
+        // A sheet of paper lying on the page: rounded, with a hairline around it.
+        if (bitmap != null) {
+            picturePaint.setAlpha(Math.round(255 * Math.min(1, shown)));
+            Path round = new Path(); round.addRoundRect(box, corner, corner, Path.Direction.CW);
+            canvas.save(); canvas.clipPath(round); canvas.drawBitmap(bitmap, null, box, picturePaint); canvas.restore();
+        }
+        ink.setPathEffect(null); ink.setStyle(Paint.Style.STROKE); ink.setStrokeWidth(1.2f); ink.setColor((Ui.MUTED & 0x00ffffff) | 0x55000000);
+        canvas.drawRoundRect(box, corner, corner, ink);
         if (bitmap == null) { TextPaint paint = new TextPaint(letters); paint.setTextSize(30); paint.setColor(Ui.MUTED); canvas.drawText("자료를 불러오지 못했어요", box.left + 20, box.top + 50, paint); }
     }
     private void paint(Canvas canvas, JSONObject item, float shown) {
@@ -285,7 +294,11 @@ final class BoardView extends View {
         if (shown < 1) {
             PathMeasure whole = new PathMeasure(path, false); Path part = new Path();
             whole.getSegment(0, whole.getLength() * shown, part, true); canvas.drawPath(part, ink);
-        } else canvas.drawPath(path, ink);
+        } else {
+            // A tinted inside (a bar, a slice, a shaded region, a diagram's box) under its own outline.
+            if (item.optBoolean("fill")) { int line = ink.getColor(); ink.setPathEffect(null); ink.setStyle(Paint.Style.FILL); ink.setColor((line & 0x00ffffff) | 0x30000000); canvas.drawPath(path, ink); ink.setStyle(Paint.Style.STROKE); ink.setColor(line); }
+            canvas.drawPath(path, ink);
+        }
     }
 
     /** The page between two heights as a picture widthPx wide, on the board's own paper. */

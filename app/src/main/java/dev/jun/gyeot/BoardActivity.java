@@ -110,7 +110,7 @@ public final class BoardActivity extends Activity {
         hint = ui.column(); hint.setGravity(Gravity.CENTER_HORIZONTAL); hint.setPadding(ui.dp(40), 0, ui.dp(40), ui.dp(60));
         ImageView mark = new ImageView(this); mark.setImageResource(R.drawable.ic_board); mark.setImageTintList(ColorStateList.valueOf(MUTED)); mark.setAlpha(.55f); hint.addView(mark, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         TextView lead = ui.text("손으로 쓰고, AI에게 배워요", TITLE2, 700, TEXT); lead.setGravity(Gravity.CENTER); lead.setPadding(0, ui.dp(14), 0, ui.dp(6)); hint.addView(lead);
-        TextView how = ui.text("문제 사진이나 PDF를 붙여 보내면 판서로 풀어 주고, 주제를 적으면 차례로 가르쳐 줘요.", SUBHEAD, 450, MUTED); how.setGravity(Gravity.CENTER); how.setLineSpacing(ui.dp(3), 1); hint.addView(how);
+        TextView how = ui.text("문제 사진이나 PDF를 붙여 보내면 판서로 풀어 주고, 주제를 적으면 차례로 가르쳐 줘요. 직접 쓰려면 아래에서 펜을 골라 주세요.", SUBHEAD, 450, MUTED); how.setGravity(Gravity.CENTER); how.setLineSpacing(ui.dp(3), 1); hint.addView(how);
         hint.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(-1, -2); hp.gravity = Gravity.CENTER; root.addView(hint, hp);
         teacher.textScale = textScale(); teacher.hand = board.handwriting();
@@ -175,6 +175,11 @@ public final class BoardActivity extends Activity {
         if (!lesson.isEmpty()) {
             ui.addRow(group, ui.listRow(R.drawable.ic_play, ACCENT, "여기부터 다시 듣기", "이 단계부터 다시 써 가며 설명해요", null, () -> { menu.dismiss(); teacher.replay(lesson, item.optInt("st")); }), true);
             if (written) ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, INDIGO, "이 부분 더 설명해 줘", "더 쉽게, 다른 방법으로 이어서 판서해요", null, () -> { menu.dismiss(); input.setText("방금 판서에서 ‘" + words + "’ 부분이 이해가 안 돼. 더 쉽게, 다른 방법으로 설명해 줘."); send(); }), true);
+        }
+        if (picture) {
+            // Larger or smaller, with whatever is written on it; what is under it moves to make room.
+            ui.addRow(group, ui.listRow(R.drawable.ic_add, BLUE, "크게", "위에 쓴 것도 함께 커져요", null, () -> { menu.dismiss(); board.replace(Board.resized(board.items(), index, 1.25f, board.measure)); paintHistory(); }), true);
+            ui.addRow(group, ui.listRow(R.drawable.ic_chevron_down, TEAL, "작게", "위에 쓴 것도 함께 작아져요", null, () -> { menu.dismiss(); board.replace(Board.resized(board.items(), index, .8f, board.measure)); paintHistory(); }), true);
         }
         ui.addRow(group, ui.listRow(R.drawable.ic_eraser, RED, picture ? "이 자료 지우기" : "지우기", "되돌리기로 다시 살릴 수 있어요", null, () -> { menu.dismiss(); board.remove(index); paintHistory(); paintFiles(); }), true);
         menu.body.addView(group); show(menu);
@@ -336,7 +341,7 @@ public final class BoardActivity extends Activity {
         ui.addRow(ai, ui.listRow(R.drawable.ic_sparkle, INDIGO, "두뇌", engine.isBlank() ? "연결된 AI가 없어요 · 메인 대화에서 고르기" : WorkBook.author(engine) + " · " + models.model(engine) + " · 메인 대화에서 고른 모델",
             ui.chevron(), () -> { menu.dismiss(); MainNavigation.open(this, "chat"); }), true);
         boolean live = store.secrets.hasKey();
-        ui.addRow(ai, ui.listRow(R.drawable.ic_wave, PURPLE, "목소리", live ? "Gemini Live" + (store.voice().isBlank() ? "" : " · " + store.voice()) + " · 안 되면 기기 음성" : "Gemini 키가 없어 기기 음성으로 읽어요", null, null), true);
+        ui.addRow(ai, ui.listRow(R.drawable.ic_wave, PURPLE, "목소리", !live ? "Gemini 키가 없어 기기 음성으로 읽어요" : (BoardVoice.readsAsWritten(store.liveModel()) ? "Gemini Live" : "Gemini 음성 모델 · 2.5 Live는 대본을 줄여 말해서 쓰지 않아요") + (store.voice().isBlank() ? "" : " · " + store.voice()) + " · 안 되면 기기 음성", null, null), true);
         menu.body.addView(ai);
         menu.body.addView(ui.footer("문제 사진이나 PDF를 붙이면 판에 올라가고, 그 위에 직접 쓰거나 AI가 표시하며 풀어 줘요. 손 도구로 판서한 줄을 누르면 거기부터 다시 듣거나 더 물어볼 수 있어요. 두 손가락으로 판을 움직이고 키워요."));
         show(menu);
@@ -413,7 +418,7 @@ public final class BoardActivity extends Activity {
             try { dev.jun.gyeot.core.BoardPlot.function(text); } catch (IllegalArgumentException unreadable) { toast(unreadable.getMessage()); return; }
             double low = number(from.getText().toString(), -5), high = number(to.getText().toString(), 5);
             JSONObject spec = dev.jun.gyeot.core.Jsons.obj("x", dev.jun.gyeot.core.Jsons.arr(low, high), "functions", dev.jun.gyeot.core.Jsons.arr(dev.jun.gyeot.core.Jsons.obj("expr", text, "label", "y = " + text.replace("^2", "²").replace("^3", "³").replace("*", "×").replace("-", "−"))));
-            place(dev.jun.gyeot.core.BoardPlot.graph(spec, below(), 460, board.textScale)); ask.dismiss();
+            place(dev.jun.gyeot.core.BoardPlot.graph(spec, below(), 460 * dev.jun.gyeot.core.BoardPlot.compact(board.textScale) + dev.jun.gyeot.core.BoardPlot.legendHeight(spec, board.textScale), board.textScale)); ask.dismiss();
         });
         show(ask); expr.requestFocus();
     }
@@ -490,20 +495,52 @@ public final class BoardActivity extends Activity {
                 if (destroyed) { if (added != null) store.attachmentFile(added.optString("id")).delete(); return; }
                 if (added != null) { attached.add(added); paintFiles(); return; }
                 if (why != null) { toast(why); return; }
-                float y = below(), width = Board.WIDTH - 2 * Board.MARGIN; List<JSONObject> made = new ArrayList<>();
+                // As wide as the writing around it calls for: the whole page on a phone, about half of it where the page is a wide screen.
+                float y = below(), width = (Board.WIDTH - 2 * Board.MARGIN) * dev.jun.gyeot.core.BoardPlot.compact(textScale()); List<JSONObject> made = new ArrayList<>();
                 for (int i = 0; i < names.size(); i++) { float height = width * sizes.get(i)[1] / Math.max(1, sizes.get(i)[0]); made.add(Board.image(names.get(i), Board.MARGIN, y, width, height, Board.ME)); y += height + 30; }
                 board.addAll(made); paintHistory(); if (!made.isEmpty()) board.follow((float) made.get(0).optDouble("y") + board.shown() * .4f);
                 if (told != null) toast(told);
             });
         });
     }
-    /** Copies a picked picture into the board's own files; adds its name and size. */
-    private String photo(java.io.File stored, boolean png, List<String> names, List<float[]> sizes) throws Exception {
-        android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options(); bounds.inJustDecodeBounds = true; android.graphics.BitmapFactory.decodeFile(stored.getPath(), bounds);
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new java.io.IOException("not a picture");
+    /**
+     * The part of a picture that holds something: a scan or a screenshot of a problem often has wide empty margins, and
+     * the board shows the problem, not its margins. The background is what the four corners are; a row or column
+     * belongs to the content when a few of its pixels differ from that. A little margin is kept. A photograph, whose
+     * corners are not a plain background, comes back whole.
+     */
+    static android.graphics.Rect content(Bitmap picture) {
+        int width = picture.getWidth(), height = picture.getHeight(); android.graphics.Rect whole = new android.graphics.Rect(0, 0, width, height);
+        if (width < 80 || height < 80) return whole;
+        int[] corners = {picture.getPixel(2, 2), picture.getPixel(width - 3, 2), picture.getPixel(2, height - 3), picture.getPixel(width - 3, height - 3)};
+        int r = 0, g = 0, b = 0; for (int corner : corners) { r += (corner >> 16) & 255; g += (corner >> 8) & 255; b += corner & 255; }
+        r /= 4; g /= 4; b /= 4;
+        // Corners that differ from one another are not a plain background: nothing is cut.
+        for (int corner : corners) if (Math.abs(((corner >> 16) & 255) - r) + Math.abs(((corner >> 8) & 255) - g) + Math.abs((corner & 255) - b) > 40) return whole;
+        int step = Math.max(1, Math.min(width, height) / 600), left = width, right = -1, top = height, bottom = -1; int[] row = new int[width];
+        for (int y = 0; y < height; y += step) {
+            picture.getPixels(row, 0, width, 0, y, width, 1); int found = 0, first = -1, last = -1;
+            for (int x = 0; x < width; x += step) { int p = row[x]; if (Math.abs(((p >> 16) & 255) - r) + Math.abs(((p >> 8) & 255) - g) + Math.abs((p & 255) - b) > 90) { found++; if (first < 0) first = x; last = x; } }
+            if (found >= 2) { top = Math.min(top, y); bottom = Math.max(bottom, y); left = Math.min(left, first); right = Math.max(right, last); }
+        }
+        if (right < 0) return whole;
+        int pad = Math.max(14, Math.max(width, height) / 40);
+        android.graphics.Rect found = new android.graphics.Rect(Math.max(0, left - pad), Math.max(0, top - pad), Math.min(width, right + pad + 1), Math.min(height, bottom + pad + 1));
+        return (long) found.width() * found.height() > (long) width * height * 92 / 100 ? whole : found;
+    }
+    /** Writes a picture, without its empty margins, into the board's own files; adds its name and size. */
+    private void keep(Bitmap picture, boolean png, List<String> names, List<float[]> sizes) throws Exception {
+        android.graphics.Rect part = content(picture); Bitmap cut = part.width() == picture.getWidth() && part.height() == picture.getHeight() ? picture : Bitmap.createBitmap(picture, part.left, part.top, part.width(), part.height());
         String name = boards.pictureName(boardId, png); names.add(name);
-        java.nio.file.Files.copy(stored.toPath(), boards.picture(name).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        sizes.add(new float[]{bounds.outWidth, bounds.outHeight});
+        try (OutputStream out = new java.io.FileOutputStream(boards.picture(name))) { if (!cut.compress(png ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG, 90, out)) throw new java.io.IOException("not written"); }
+        sizes.add(new float[]{cut.getWidth(), cut.getHeight()});
+        if (cut != picture) cut.recycle();
+    }
+    /** Puts a picked picture into the board's own files. */
+    private String photo(java.io.File stored, boolean png, List<String> names, List<float[]> sizes) throws Exception {
+        Bitmap picture = android.graphics.BitmapFactory.decodeFile(stored.getPath());
+        if (picture == null) throw new java.io.IOException("not a picture");
+        try { keep(picture, png, names, sizes); } finally { picture.recycle(); }
         return null;
     }
     /** Draws a PDF's first pages as pictures in the board's own files; says so when it has more pages than are shown. */
@@ -517,9 +554,7 @@ public final class BoardActivity extends Activity {
                     if (height > 4000) { width = Math.max(1, Math.round(width * 4000f / height)); height = 4000; }
                     Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888); bitmap.eraseColor(android.graphics.Color.WHITE);
                     page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
-                    String name = boards.pictureName(boardId, false); names.add(name);
-                    try (OutputStream out = new java.io.FileOutputStream(boards.picture(name))) { if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 88, out)) throw new java.io.IOException("not written"); }
-                    sizes.add(new float[]{width, height}); bitmap.recycle();
+                    try { keep(bitmap, false, names, sizes); } finally { bitmap.recycle(); }
                 }
             }
             return pdf.getPageCount() > count ? "문서가 길어서 앞의 " + count + "쪽만 판에 올렸어요." : null;

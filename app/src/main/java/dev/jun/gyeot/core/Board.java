@@ -28,7 +28,7 @@ public final class Board {
     /** Text sizes in board units: a phone shows WIDTH units across, so NORMAL reads like body text. */
     public static final float TITLE = 68, BIG = 56, NORMAL = 46, SMALL = 36;
     /** The thickest and thinnest line, the longest text of one item, the most points of one stroke and the most items. */
-    public static final float THIN = 2, THICK = 60;
+    public static final float THIN = 1, THICK = 60;
     public static final int TEXT_LIMIT = 2000, POINTS = 4000, ITEMS = 6000;
     /** The board never grows past this. */
     public static final float DEEPEST = 200_000;
@@ -75,11 +75,60 @@ public final class Board {
         if (from.optBoolean("d") && !TEXT.equals(made.optString("t")) && !IMAGE.equals(made.optString("t"))) Jsons.put(made, "d", true);
         if (from.optBoolean("sharp") && STROKE.equals(made.optString("t"))) Jsons.put(made, "sharp", true);
         if (from.optBoolean("hand") && TEXT.equals(made.optString("t"))) Jsons.put(made, "hand", true);
+        if (from.optBoolean("fill") && Set.of(STROKE, RECT, OVAL).contains(made.optString("t"))) Jsons.put(made, "fill", true);
+        if (from.optBoolean("faint") && !IMAGE.equals(made.optString("t"))) Jsons.put(made, "faint", true);
         return made;
     }
     /** Marks an item as written in a lesson's step. */
     public static JSONObject inLesson(JSONObject item, String lesson, int step) { Jsons.put(item, "ls", lesson); Jsons.put(item, "st", step); return item; }
     public static JSONObject dashed(JSONObject item) { if (item != null) Jsons.put(item, "d", true); return item; }
+    /** A closed stroke, a rectangle or an oval whose inside is tinted with its color (a bar, a slice, a shaded region). */
+    public static JSONObject filled(JSONObject item) { if (item != null && Set.of(STROKE, RECT, OVAL).contains(item.optString("t"))) Jsons.put(item, "fill", true); return item; }
+    /** Drawn pale, behind the eye: a grid line, a guide. */
+    public static JSONObject faint(JSONObject item) { if (item != null) Jsons.put(item, "faint", true); return item; }
+
+    /**
+     * The board with one of its pictures made larger or smaller (factor times its width, kept between a narrow strip and
+     * the page's width). What is drawn on the picture grows or shrinks with it about its top left corner, and everything
+     * under it moves up or down by the change in its height. Returns a new list; the given one is left as it was.
+     */
+    public static JSONArray resized(JSONArray items, int index, float factor, Measure measure) {
+        JSONArray out = arr(); JSONObject picture = items == null ? null : items.optJSONObject(index);
+        try { for (int i = 0; items != null && i < items.length(); i++) out.put(new JSONObject(items.optJSONObject(i).toString())); } catch (Exception impossible) { return items; }
+        if (picture == null || !IMAGE.equals(picture.optString("t"))) return out;
+        float[] box = bounds(picture, measure); float width = box[2] - box[0], height = box[3] - box[1];
+        float wanted = Math.max(220, Math.min(WIDTH - 2 * MARGIN, width * factor)), f = wanted / width, down = height * (f - 1);
+        if (Math.abs(f - 1) < .01f) return out;
+        for (int i = 0; i < out.length(); i++) {
+            JSONObject item = out.optJSONObject(i); float[] b = bounds(items.optJSONObject(i), measure); float cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
+            if (i == index) { Jsons.put(item, "w", round(width * f)); Jsons.put(item, "h", round(height * f)); continue; }
+            boolean on = !IMAGE.equals(item.optString("t")) && cx >= box[0] - 12 && cx <= box[2] + 12 && cy >= box[1] - 12 && cy <= box[3] + 12;
+            if (on) scale(item, box[0], box[1], f); else if (b[1] >= box[3] - 2) shift(item, down);
+        }
+        return out;
+    }
+    private static void scale(JSONObject item, float ox, float oy, float f) {
+        String type = item.optString("t");
+        if (STROKE.equals(type)) {
+            JSONArray p = item.optJSONArray("p"), next = arr();
+            for (int k = 0; p != null && k + 1 < p.length(); k += 2) { put(next, round(ox + ((float) p.optDouble(k) - ox) * f)); put(next, round(oy + ((float) p.optDouble(k + 1) - oy) * f)); }
+            Jsons.put(item, "p", next); Jsons.put(item, "w", round(clamp(item.optDouble("w", 6) * f, THIN, THICK)));
+        } else if (TEXT.equals(type)) {
+            Jsons.put(item, "x", round(ox + ((float) item.optDouble("x") - ox) * f)); Jsons.put(item, "y", round(oy + ((float) item.optDouble("y") - oy) * f));
+            Jsons.put(item, "s", round(clamp(item.optDouble("s", NORMAL) * f, 16, 160))); Jsons.put(item, "mw", round(clamp(item.optDouble("mw", WIDTH) * f, 80, WIDTH)));
+        } else {
+            for (String key : new String[]{"x1", "x2"}) Jsons.put(item, key, round(ox + ((float) item.optDouble(key) - ox) * f));
+            for (String key : new String[]{"y1", "y2"}) Jsons.put(item, key, round(oy + ((float) item.optDouble(key) - oy) * f));
+            Jsons.put(item, "w", round(clamp(item.optDouble("w", 6) * f, THIN, THICK)));
+        }
+    }
+    private static void shift(JSONObject item, float down) {
+        String type = item.optString("t");
+        if (STROKE.equals(type)) { JSONArray p = item.optJSONArray("p"), next = arr(); for (int k = 0; p != null && k + 1 < p.length(); k += 2) { put(next, p.optDouble(k)); put(next, round(y((float) p.optDouble(k + 1) + down))); } Jsons.put(item, "p", next); }
+        else if (TEXT.equals(type) || IMAGE.equals(type)) Jsons.put(item, "y", round(y((float) item.optDouble("y") + down)));
+        else { Jsons.put(item, "y1", round(y((float) item.optDouble("y1") + down))); Jsons.put(item, "y2", round(y((float) item.optDouble("y2") + down))); }
+    }
+
     /** Marks a text as written in the handwriting letters. */
     public static JSONObject handwritten(JSONObject item, boolean hand) { if (item != null && hand && TEXT.equals(item.optString("t"))) Jsons.put(item, "hand", true); return item; }
 

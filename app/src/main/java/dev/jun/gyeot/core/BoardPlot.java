@@ -103,6 +103,12 @@ public final class BoardPlot {
         }
     }
 
+    /**
+     * How much of the page's width a computed visual takes at a text scale: all of it at a phone's scale, less where the
+     * writing is small (a wide screen), so a graph is the size of the writing around it and not of the screen.
+     */
+    public static float compact(float scale) { return Math.max(.58f, Math.min(1, scale / .85f)); }
+
     // ── A graph ─────────────────────────────────────────────────────────────────────────────────────────
 
     /** A round step for about `wanted` ticks across a span: 1, 2 or 5 times a power of ten. */
@@ -121,67 +127,108 @@ public final class BoardPlot {
         if (Double.isNaN(a) || Double.isNaN(b) || Double.isInfinite(a) || Double.isInfinite(b) || a == b) return new double[]{low, high};
         return new double[]{Math.max(-1e6, Math.min(a, b)), Math.min(1e6, Math.max(a, b))};
     }
+    private static final String[] COLORS = {"blue", "red", "green", "purple", "orange"};
+    /** The room a graph's legend takes above its plot: a row for each function that has a name. */
+    public static float legendHeight(JSONObject spec, float scale) {
+        JSONArray list = spec.optJSONArray("functions"); int named = 0;
+        for (int i = 0; list != null && i < list.length() && i < FUNCTIONS; i++) { JSONObject one = list.optJSONObject(i); if (one != null && !one.optString("label").isBlank()) named++; }
+        return named * Math.max(18, Board.SMALL * .8f * scale) * 1.5f;
+    }
+    /** One function of a graph: what it is, where it is drawn (a piece of a piecewise function has ends), its color and name. */
+    private record Curve(Function function, double from, double to, boolean fromGiven, boolean toGiven, boolean fromOpen, boolean toOpen, String color, String label) {
+        double value(double x) { try { return function.at(x); } catch (RuntimeException undefined) { return Double.NaN; } }
+    }
 
     /**
-     * The graph an operation describes: {"x":[from,to], "y":[from,to] (found from the functions when left out),
-     * "functions":[{"expr","color","label"}], "points":[{"at":[x,y],"label","open"}], "vlines":[x…], "hlines":[y…]} in a
-     * box as wide as the page and `height` tall whose top is at `top`. `scale` sizes its numbers and labels. A function
-     * that cannot be read is left out; with nothing to draw the axes still are.
+     * The graph an operation describes, in a box as wide as the page and `height` tall whose top is at `top`; `scale`
+     * sizes its numbers and names. The operation: {"x":[from,to], "y":[from,to] (found from the functions when left
+     * out), "grid":true, "functions":[{"expr","color","label","from","to","fromOpen","toOpen"}], "shade":[{"expr",
+     * "from","to","color"}], "points":[{"at":[x,y],"label","open"}], "vlines":[x…], "hlines":[y…]}. A function with
+     * "from" or "to" is drawn only there, with a dot at that end (hollow when the end is open): the pieces of a piecewise
+     * function. "shade" tints the region between a curve and the x axis. A function that cannot be read is left out;
+     * with nothing to draw the axes still are.
      */
     public static List<JSONObject> graph(JSONObject spec, float top, float height, float scale) {
         List<JSONObject> out = new ArrayList<>();
         double[] xs = range(spec.optJSONArray("x"), -5, 5);
-        JSONArray list = spec.optJSONArray("functions"); List<Function> functions = new ArrayList<>(); List<JSONObject> described = new ArrayList<>();
-        for (int i = 0; list != null && i < list.length() && functions.size() < FUNCTIONS; i++) {
+        JSONArray list = spec.optJSONArray("functions"); List<Curve> curves = new ArrayList<>();
+        for (int i = 0; list != null && i < list.length() && curves.size() < FUNCTIONS; i++) {
             JSONObject one = list.optJSONObject(i); String expr = one == null ? list.optString(i) : one.optString("expr");
-            try { functions.add(function(expr)); described.add(one == null ? Jsons.obj("expr", expr) : one); } catch (IllegalArgumentException unreadable) { /* left out */ }
+            try {
+                Function function = function(expr); JSONObject d = one == null ? Jsons.obj() : one;
+                double from = d.optDouble("from", Double.NaN), to = d.optDouble("to", Double.NaN);
+                curves.add(new Curve(function, Double.isNaN(from) ? xs[0] : Math.max(xs[0], from), Double.isNaN(to) ? xs[1] : Math.min(xs[1], to), !Double.isNaN(from), !Double.isNaN(to), d.optBoolean("fromOpen"), d.optBoolean("toOpen"),
+                    d.optString("color").isBlank() ? COLORS[curves.size() % COLORS.length] : d.optString("color"), d.optString("label").strip()));
+            } catch (IllegalArgumentException unreadable) { /* left out */ }
         }
-        double[] ys = spec.optJSONArray("y") != null ? range(spec.optJSONArray("y"), -5, 5) : fit(functions, xs);
-        float left = 90, right = Board.WIDTH - 60, bottom = top + height - 40, size = Math.max(20, Board.SMALL * .8f * scale);
+        double[] ys = spec.optJSONArray("y") != null ? range(spec.optJSONArray("y"), -5, 5) : fit(curves, xs);
+        float left = 90, right = left + (Board.WIDTH - 150) * compact(scale), bottom = top + height - 40, size = Math.max(18, Board.SMALL * .8f * scale);
         // The functions' names are a legend above the plot, each in its curve's color, so no name lies across a curve.
-        String[] colors = {"blue", "red", "green", "purple", "orange"};
-        float legendX = left, legendY = top; boolean named = false;
-        for (int f = 0; f < functions.size(); f++) {
-            String label = described.get(f).optString("label").strip(); if (label.isEmpty()) continue;
-            String color = described.get(f).optString("color").isBlank() ? colors[f % colors.length] : described.get(f).optString("color");
+        float legendY = top; boolean named = false;
+        for (Curve curve : curves) {
+            if (curve.label().isEmpty()) continue;
             // One name to a row: whatever letters it is written in, no name runs into the next.
             if (named) legendY += size * 1.5f;
-            out.add(Board.text(legendX, legendY, "— " + label, size, color, false, right - left, Board.AI)); named = true;
+            out.add(Board.text(left, legendY, "— " + curve.label(), size, curve.color(), false, right - left, Board.AI)); named = true;
         }
-        float upper = (named ? legendY + size * 1.5f : top) + 30;
+        // Room above the plot for the y axis's arrow and its name, so they never reach into the line above.
+        float upper = (named ? legendY + size * 1.5f : top) + 30 + size * .9f;
         double xSpan = xs[1] - xs[0], ySpan = ys[1] - ys[0];
         java.util.function.DoubleUnaryOperator px = x -> left + (x - xs[0]) / xSpan * (right - left), py = y -> bottom - (y - ys[0]) / ySpan * (bottom - upper);
+        // As many ticks as their numbers have room for: fewer on a small plot, so no number sits on the next.
+        double xStep = step(xSpan, Math.max(2, Math.min(10, Math.round((right - left) / (size * 3.2f))))), yStep = step(ySpan, Math.max(2, Math.min(8, Math.round((bottom - upper) / (size * 1.9f)))));
+        // A pale grid at the ticks, under everything else.
+        if (spec.optBoolean("grid", true)) {
+            for (double x = Math.ceil(xs[0] / xStep) * xStep; x <= xs[1] + 1e-9; x += xStep) out.add(Board.faint(Board.shape(Board.LINE, (float) px.applyAsDouble(x), bottom, (float) px.applyAsDouble(x), upper, Board.INK, 1.5f, false, Board.AI)));
+            for (double y = Math.ceil(ys[0] / yStep) * yStep; y <= ys[1] + 1e-9; y += yStep) out.add(Board.faint(Board.shape(Board.LINE, left, (float) py.applyAsDouble(y), right, (float) py.applyAsDouble(y), Board.INK, 1.5f, false, Board.AI)));
+        }
+        // Regions between a curve and the x axis, tinted.
+        JSONArray shades = spec.optJSONArray("shade");
+        for (int i = 0; shades != null && i < shades.length() && i < 4; i++) {
+            JSONObject shade = shades.optJSONObject(i); if (shade == null) continue;
+            Function function; try { function = function(shade.optString("expr")); } catch (IllegalArgumentException unreadable) { continue; }
+            double from = Math.max(xs[0], shade.optDouble("from", xs[0])), to = Math.min(xs[1], shade.optDouble("to", xs[1])); if (!(from < to)) continue;
+            double base = Math.max(ys[0], Math.min(ys[1], 0)); List<Float> edge = new ArrayList<>();
+            edge.add((float) px.applyAsDouble(from)); edge.add((float) py.applyAsDouble(base));
+            for (int k = 0; k <= 80; k++) { double x = from + (to - from) * k / 80, y; try { y = function.at(x); } catch (RuntimeException undefined) { y = Double.NaN; } if (Double.isNaN(y) || Double.isInfinite(y)) continue; edge.add((float) px.applyAsDouble(x)); edge.add((float) py.applyAsDouble(Math.max(ys[0], Math.min(ys[1], y)))); }
+            edge.add((float) px.applyAsDouble(to)); edge.add((float) py.applyAsDouble(base)); edge.add(edge.get(0)); edge.add(edge.get(1));
+            if (edge.size() >= 10) out.add(region(edge, shade.optString("color").isBlank() ? "orange" : shade.optString("color"), 1.5f));
+        }
         // Axes where zero is, at the box's edge when zero is out of view.
         float axisY = (float) py.applyAsDouble(Math.max(ys[0], Math.min(ys[1], 0))), axisX = (float) px.applyAsDouble(Math.max(xs[0], Math.min(xs[1], 0)));
         out.add(Board.shape(Board.LINE, left - 20, axisY, right + 30, axisY, Board.INK, 3, true, Board.AI));
         out.add(Board.shape(Board.LINE, axisX, bottom + 20, axisX, upper - 24, Board.INK, 3, true, Board.AI));
         out.add(Board.text(right + 34, axisY - size * .7f, "x", size, Board.INK, false, 80, Board.AI));
         out.add(Board.text(axisX + 10, upper - 24 - size * .9f, "y", size, Board.INK, false, 80, Board.AI));
-        double xStep = step(xSpan, 8), yStep = step(ySpan, 6);
         for (double x = Math.ceil(xs[0] / xStep) * xStep; x <= xs[1] + 1e-9; x += xStep) {
             if (Math.abs(x) < xStep / 1000) continue;
-            float at = (float) px.applyAsDouble(x); out.add(Board.shape(Board.LINE, at, axisY - 8, at, axisY + 8, Board.INK, 2, false, Board.AI));
-            String label = number(x); out.add(Board.text(at - label.length() * size * .28f, axisY + 12, label, size, Board.INK, false, 200, Board.AI));
+            float at = (float) px.applyAsDouble(x); out.add(Board.shape(Board.LINE, at, axisY - 7, at, axisY + 7, Board.INK, 2, false, Board.AI));
+            String label = number(x); out.add(Board.text(at - label.length() * size * .28f, axisY + 10, label, size, Board.INK, false, 200, Board.AI));
         }
         for (double y = Math.ceil(ys[0] / yStep) * yStep; y <= ys[1] + 1e-9; y += yStep) {
             if (Math.abs(y) < yStep / 1000) continue;
-            float at = (float) py.applyAsDouble(y); out.add(Board.shape(Board.LINE, axisX - 8, at, axisX + 8, at, Board.INK, 2, false, Board.AI));
-            String label = number(y); out.add(Board.text(axisX - 16 - label.length() * size * .58f, at - size * .7f, label, size, Board.INK, false, 200, Board.AI));
+            float at = (float) py.applyAsDouble(y); out.add(Board.shape(Board.LINE, axisX - 7, at, axisX + 7, at, Board.INK, 2, false, Board.AI));
+            String label = number(y); out.add(Board.text(axisX - 14 - label.length() * size * .58f, at - size * .7f, label, size, Board.INK, false, 200, Board.AI));
         }
-        if (xs[0] <= 0 && xs[1] >= 0 && ys[0] <= 0 && ys[1] >= 0) out.add(Board.text(axisX - size * .9f, axisY + 10, "O", size, Board.INK, false, 80, Board.AI));
+        if (xs[0] <= 0 && xs[1] >= 0 && ys[0] <= 0 && ys[1] >= 0) out.add(Board.text(axisX - size * .9f, axisY + 8, "O", size, Board.INK, false, 80, Board.AI));
         JSONArray vertical = spec.optJSONArray("vlines"), horizontal = spec.optJSONArray("hlines");
         for (int i = 0; vertical != null && i < vertical.length() && i < 6; i++) { double x = vertical.optDouble(i, Double.NaN); if (x >= xs[0] && x <= xs[1]) out.add(Board.dashed(Board.shape(Board.LINE, (float) px.applyAsDouble(x), bottom, (float) px.applyAsDouble(x), upper, "orange", 3, false, Board.AI))); }
         for (int i = 0; horizontal != null && i < horizontal.length() && i < 6; i++) { double y = horizontal.optDouble(i, Double.NaN); if (y >= ys[0] && y <= ys[1]) out.add(Board.dashed(Board.shape(Board.LINE, left, (float) py.applyAsDouble(y), right, (float) py.applyAsDouble(y), "orange", 3, false, Board.AI))); }
-        for (int f = 0; f < functions.size(); f++) {
-            String color = described.get(f).optString("color").isBlank() ? colors[f % colors.length] : described.get(f).optString("color");
+        for (Curve curve : curves) {
+            if (!(curve.from() < curve.to())) continue;
             // The curve in pieces: it breaks where the function has no value or leaves the box.
-            List<Float> piece = new ArrayList<>();
+            List<Float> piece = new ArrayList<>(); double span = curve.to() - curve.from();
             for (int i = 0; i <= SAMPLES; i++) {
-                double x = xs[0] + xSpan * i / SAMPLES, y; try { y = functions.get(f).at(x); } catch (RuntimeException undefined) { y = Double.NaN; }
+                double x = curve.from() + span * i / SAMPLES, y = curve.value(x);
                 boolean inside = !Double.isNaN(y) && !Double.isInfinite(y) && y >= ys[0] && y <= ys[1];
                 if (inside) { piece.add((float) px.applyAsDouble(x)); piece.add((float) py.applyAsDouble(y)); }
-                if (!inside || i == SAMPLES) { if (piece.size() >= 4) out.add(stroke(piece, color)); piece = new ArrayList<>(); }
+                if (!inside || i == SAMPLES) { if (piece.size() >= 4) out.add(stroke(piece, curve.color())); piece = new ArrayList<>(); }
             }
+        }
+        // The ends of a piece: a filled dot where the end belongs to it, a hollow one where it does not.
+        for (Curve curve : curves) {
+            if (curve.fromGiven()) end(out, curve, curve.from(), curve.fromOpen(), xs, ys, px, py);
+            if (curve.toGiven()) end(out, curve, curve.to(), curve.toOpen(), xs, ys, px, py);
         }
         JSONArray points = spec.optJSONArray("points");
         for (int i = 0; points != null && i < points.length() && i < POINTS; i++) {
@@ -193,11 +240,21 @@ public final class BoardPlot {
         }
         return out;
     }
+    private static void end(List<JSONObject> out, Curve curve, double x, boolean open, double[] xs, double[] ys, java.util.function.DoubleUnaryOperator px, java.util.function.DoubleUnaryOperator py) {
+        double y = curve.value(x); if (Double.isNaN(y) || Double.isInfinite(y) || x < xs[0] || x > xs[1] || y < ys[0] || y > ys[1]) return;
+        float cx = (float) px.applyAsDouble(x), cy = (float) py.applyAsDouble(y);
+        out.add(open ? Board.shape(Board.OVAL, cx - 9, cy - 9, cx + 9, cy + 9, curve.color(), 4, false, Board.AI) : Board.stroke(curve.color(), 18, false, new float[]{cx, cy}, Board.AI));
+    }
     private static JSONObject stroke(List<Float> points, String color) { float[] flat = new float[points.size()]; for (int i = 0; i < flat.length; i++) flat[i] = points.get(i); return Board.stroke(color, 5, false, flat, Board.AI); }
+    /** A closed outline with straight sides, tinted inside. */
+    private static JSONObject region(List<Float> outline, String color, float pen) {
+        float[] flat = new float[outline.size()]; for (int i = 0; i < flat.length; i++) flat[i] = outline.get(i);
+        JSONObject made = Board.filled(Board.stroke(color, pen, false, flat, Board.AI)); Jsons.put(made, "sharp", true); return made;
+    }
     /** A y range that shows the functions over the x range, without letting one steep end flatten everything else. */
-    private static double[] fit(List<Function> functions, double[] xs) {
+    private static double[] fit(List<Curve> curves, double[] xs) {
         List<Double> values = new ArrayList<>();
-        for (Function function : functions) for (int i = 0; i <= SAMPLES; i++) { double y; try { y = function.at(xs[0] + (xs[1] - xs[0]) * i / SAMPLES); } catch (RuntimeException undefined) { continue; } if (!Double.isNaN(y) && !Double.isInfinite(y)) values.add(y); }
+        for (Curve curve : curves) for (int i = 0; i <= SAMPLES; i++) { double y = curve.value(curve.from() + (curve.to() - curve.from()) * i / SAMPLES); if (!Double.isNaN(y) && !Double.isInfinite(y)) values.add(y); }
         if (values.isEmpty()) return new double[]{-5, 5};
         values.sort(Double::compare);
         double low = values.get((int) (values.size() * .04)), high = values.get((int) Math.min(values.size() - 1, values.size() * .96)), span = Math.max(high - low, 1e-6);
@@ -228,9 +285,11 @@ public final class BoardPlot {
         }
         if (total > room) { for (int c = 0; c < columns; c++) widths[c] *= room / total; total = room; }
         float left = Board.MARGIN, rowHeight = size * 1.9f, bottom = top + rowCount * rowHeight;
-        for (int r = 0; r <= rowCount; r++) out.add(Board.shape(Board.LINE, left, top + r * rowHeight, left + total, top + r * rowHeight, Board.INK, r == 0 || r == rowCount || header && r == 1 ? 4 : 2, false, Board.AI));
+        // Ruled like a printed table: a firm frame and header rule, hairlines inside, all in proportion to the writing.
+        float frame = Math.max(1.5f, Math.min(3.5f, size / 14)), hair = Math.max(1, frame * .45f);
+        for (int r = 0; r <= rowCount; r++) out.add(Board.shape(Board.LINE, left, top + r * rowHeight, left + total, top + r * rowHeight, Board.INK, r == 0 || r == rowCount || header && r == 1 ? frame : hair, false, Board.AI));
         float x = left;
-        for (int c = 0; c <= columns; c++) { out.add(Board.shape(Board.LINE, x, top, x, bottom, Board.INK, c == 0 || c == columns ? 4 : 2, false, Board.AI)); if (c < columns) x += widths[c]; }
+        for (int c = 0; c <= columns; c++) { out.add(Board.shape(Board.LINE, x, top, x, bottom, Board.INK, c == 0 || c == columns ? frame : hair, false, Board.AI)); if (c < columns) x += widths[c]; }
         for (int r = 0; r < rowCount; r++) {
             JSONArray row = rows.optJSONArray(r); x = left;
             for (int c = 0; c < columns; c++) {
@@ -253,7 +312,7 @@ public final class BoardPlot {
     public static List<JSONObject> numberLine(JSONObject spec, float top, float scale) {
         List<JSONObject> out = new ArrayList<>();
         double[] xs = range(Jsons.arr(spec.optDouble("from", -5), spec.optDouble("to", 5)), -5, 5); double span = xs[1] - xs[0];
-        float left = 90, right = Board.WIDTH - 90, y = top + 90, size = Math.max(20, Board.SMALL * .8f * scale);
+        float left = 90, right = left + (Board.WIDTH - 180) * compact(scale), y = top + 90, size = Math.max(18, Board.SMALL * .8f * scale);
         java.util.function.DoubleUnaryOperator px = x -> left + (x - xs[0]) / span * (right - left);
         out.add(Board.shape(Board.LINE, left - 40, y, right + 40, y, Board.INK, 3, true, Board.AI));
         double step = step(span, 10);
@@ -278,5 +337,165 @@ public final class BoardPlot {
             String label = mark.optString("label").strip(); if (!label.isEmpty()) out.add(Board.text(cx - label.length() * size * .28f, y - 44 - size, label, size, color, false, 300, Board.AI));
         }
         return out;
+    }
+
+    // ── Charts and diagrams ─────────────────────────────────────────────────────────────────────────────
+
+    /** Something drawn in the flow of the page: its items and how tall it is. */
+    public record Made(List<JSONObject> items, float height) {}
+    public static final int BARS = 10, SLICES = 8, BOXES = 10, EVENTS = 14, BRANCHES = 6, LEAVES = 6;
+    private static Board.Measure ruler(Board.Measure measure) { return measure == null ? Board.ROUGH : measure; }
+    private static String color(JSONObject spec, int index) { return spec != null && !spec.optString("color").isBlank() ? spec.optString("color") : COLORS[index % COLORS.length]; }
+    /** A text centred in a box (at most as wide as the box), and the height it takes. */
+    private static float centred(List<JSONObject> out, String text, float left, float top, float width, float size, String color, boolean bold, Board.Measure measure) {
+        float[] box = measure.size(text, size, bold, width);
+        out.add(Board.text(left + Math.max(0, (width - box[0]) / 2), top, text, size, color, bold, width, Board.AI));
+        return box[1];
+    }
+
+    /**
+     * A chart of numbers from {"kind":"bar|line|pie","title","labels":[…],"values":[…],"unit","color"}: bars or a line
+     * over a numbered axis with a pale grid, each value written at its bar or point; or a pie whose slices are tinted and
+     * named with their share. Values that are not numbers are left out with their labels.
+     */
+    public static Made chart(JSONObject spec, float top, float scale, Board.Measure measure) {
+        List<JSONObject> out = new ArrayList<>(); Board.Measure ruler = ruler(measure);
+        JSONArray labels = spec.optJSONArray("labels"), numbers = spec.optJSONArray("values"); List<String> names = new ArrayList<>(); List<Double> values = new ArrayList<>();
+        String kind = spec.optString("kind").strip().toLowerCase(Locale.ROOT); int most = kind.equals("pie") ? SLICES : BARS;
+        for (int i = 0; numbers != null && i < numbers.length() && values.size() < most; i++) { double value = numbers.optDouble(i, Double.NaN); if (Double.isNaN(value) || Double.isInfinite(value)) continue; values.add(value); names.add(labels == null ? "" : labels.optString(i).strip()); }
+        if (values.isEmpty()) return new Made(out, 0);
+        float size = Math.max(18, Board.SMALL * .85f * scale), y = top; String unit = spec.optString("unit").strip(), title = spec.optString("title").strip();
+        if (!title.isEmpty()) y += centred(out, title, Board.MARGIN, y, Board.WIDTH - 2 * Board.MARGIN, size * 1.1f, Board.INK, true, ruler) + size * .5f;
+        if (kind.equals("pie")) {
+            double total = 0; for (double value : values) total += Math.max(0, value);
+            if (!(total > 0)) return new Made(new ArrayList<>(), 0);
+            float radius = 170 * compact(scale), cx = Board.MARGIN + radius + 30, cy = y + radius + 10; double angle = -Math.PI / 2; float legendY = y + 20;
+            for (int i = 0; i < values.size(); i++) {
+                double share = Math.max(0, values.get(i)) / total; if (share <= 0) continue;
+                // The slice: its centre, then its arc in small steps.
+                List<Float> outline = new ArrayList<>(); outline.add(cx); outline.add(cy); int steps = Math.max(2, (int) Math.ceil(share * 72));
+                for (int k = 0; k <= steps; k++) { double at = angle + share * 2 * Math.PI * k / steps; outline.add((float) (cx + radius * Math.cos(at))); outline.add((float) (cy + radius * Math.sin(at))); }
+                outline.add(cx); outline.add(cy); out.add(region(outline, COLORS[i % COLORS.length], 2)); angle += share * 2 * Math.PI;
+                float lx = cx + radius + 70; out.add(Board.filled(Board.shape(Board.RECT, lx, legendY + size * .2f, lx + size * .8f, legendY + size, COLORS[i % COLORS.length], 2, false, Board.AI)));
+                String line = (names.get(i).isEmpty() ? "" : names.get(i) + "  ") + number(Math.round(share * 1000) / 10.0) + "%";
+                legendY += Math.max(size * 1.5f, ruler.size(line, size, false, Board.WIDTH - Board.MARGIN - lx - size * 1.3f)[1] + size * .3f);
+                out.add(Board.text(lx + size * 1.3f, legendY - Math.max(size * 1.5f, ruler.size(line, size, false, Board.WIDTH - Board.MARGIN - lx - size * 1.3f)[1] + size * .3f), line, size, Board.INK, false, Board.WIDTH - Board.MARGIN - lx - size * 1.3f, Board.AI));
+            }
+            return new Made(out, Math.max(cy + radius + 10, legendY) - top);
+        }
+        double low = 0, high = 0; for (double value : values) { low = Math.min(low, value); high = Math.max(high, value); }
+        if (high == low) high = low + 1;
+        double tick = step(high - low, 5); high = Math.ceil(high / tick) * tick; low = Math.floor(low / tick) * tick;
+        float left = 120, right = left + (Board.WIDTH - Board.MARGIN - 120) * compact(scale), plotTop = y + size * 1.6f, plotBottom = plotTop + 300 * compact(scale), slot = (right - left) / values.size();
+        double floor = low, ceiling = high;
+        java.util.function.DoubleUnaryOperator py = v -> plotBottom - (v - floor) / (ceiling - floor) * (plotBottom - plotTop);
+        for (double v = floor; v <= ceiling + 1e-9; v += tick) {
+            float at = (float) py.applyAsDouble(v); out.add(Board.faint(Board.shape(Board.LINE, left, at, right, at, Board.INK, 1.5f, false, Board.AI)));
+            String label = number(v) + (unit.isEmpty() || v != ceiling ? "" : " " + unit); out.add(Board.text(Math.max(0, left - 14 - ruler.size(label, size * .9f, false, 300)[0]), at - size * .65f, label, size * .9f, Board.INK, false, 300, Board.AI));
+        }
+        float zero = (float) py.applyAsDouble(0); out.add(Board.shape(Board.LINE, left, zero, right, zero, Board.INK, 2.5f, false, Board.AI));
+        float tallest = 0; List<Float> line = new ArrayList<>();
+        for (int i = 0; i < values.size(); i++) {
+            float centre = left + slot * (i + .5f), at = (float) py.applyAsDouble(values.get(i)); String shade = spec.optString("color").isBlank() ? COLORS[i % COLORS.length] : spec.optString("color"), value = number(values.get(i));
+            if (kind.equals("line")) { line.add(centre); line.add(at); }
+            else out.add(Board.filled(Board.shape(Board.RECT, centre - slot * .3f, Math.min(at, zero), centre + slot * .3f, Math.max(at, zero), shade, 2, false, Board.AI)));
+            float width = ruler.size(value, size * .9f, false, slot)[0];
+            out.add(Board.text(centre - width / 2, values.get(i) >= 0 ? at - size * 1.35f : at + 6, value, size * .9f, kind.equals("line") ? color(spec, 0) : shade, false, Math.max(60, slot), Board.AI));
+            if (!names.get(i).isEmpty()) tallest = Math.max(tallest, centred(out, names.get(i), centre - slot * .48f, plotBottom + 10, slot * .96f, size * .9f, Board.INK, false, ruler));
+        }
+        if (kind.equals("line") && line.size() >= 4) {
+            JSONObject path = stroke(line, color(spec, 0)); Jsons.put(path, "sharp", true); out.add(path);
+            for (int i = 0; i + 1 < line.size(); i += 2) out.add(Board.stroke(color(spec, 0), 16, false, new float[]{line.get(i), line.get(i + 1)}, Board.AI));
+        }
+        return new Made(out, plotBottom + 10 + tallest + size * .4f - top);
+    }
+
+    /**
+     * Steps in order, each in a tinted box with an arrow to the next: {"steps":["…", {"text":"…","color":"red"}],
+     * "direction":"down|right"}. Across the page when asked and there are few enough short steps; down it otherwise.
+     */
+    public static Made flow(JSONObject spec, float top, float scale, Board.Measure measure) {
+        List<JSONObject> out = new ArrayList<>(); Board.Measure ruler = ruler(measure); JSONArray steps = spec.optJSONArray("steps");
+        List<String> texts = new ArrayList<>(), colors = new ArrayList<>();
+        for (int i = 0; steps != null && i < steps.length() && texts.size() < BOXES; i++) { JSONObject one = steps.optJSONObject(i); String text = (one == null ? steps.optString(i) : one.optString("text")).strip(); if (text.isEmpty()) continue; texts.add(text); colors.add(one == null || one.optString("color").isBlank() ? "blue" : one.optString("color")); }
+        if (texts.isEmpty()) return new Made(out, 0);
+        float size = Math.max(18, Board.SMALL * scale), padX = size * .7f, padY = size * .45f, room = Board.WIDTH - 2 * Board.MARGIN, gap = size * 1.5f;
+        boolean across = spec.optString("direction").toLowerCase(Locale.ROOT).startsWith("r") && texts.size() <= 4;
+        if (across) {
+            float each = (room - gap * (texts.size() - 1)) / texts.size(), tallest = 0; float[] heights = new float[texts.size()];
+            for (int i = 0; i < texts.size(); i++) { heights[i] = ruler.size(texts.get(i), size, false, each - 2 * padX)[1]; tallest = Math.max(tallest, heights[i]); }
+            for (int i = 0; i < texts.size(); i++) {
+                float left = Board.MARGIN + i * (each + gap);
+                out.add(Board.filled(Board.shape(Board.RECT, left, top, left + each, top + tallest + 2 * padY, colors.get(i), 2.5f, false, Board.AI)));
+                centred(out, texts.get(i), left + padX, top + padY + (tallest - heights[i]) / 2, each - 2 * padX, size, Board.INK, false, ruler);
+                if (i + 1 < texts.size()) out.add(Board.shape(Board.LINE, left + each + 6, top + padY + tallest / 2, left + each + gap - 6, top + padY + tallest / 2, Board.INK, 3, true, Board.AI));
+            }
+            return new Made(out, tallest + 2 * padY);
+        }
+        float widest = 0; for (String text : texts) widest = Math.max(widest, ruler.size(text, size, false, room - 2 * padX)[0]);
+        float width = Math.min(room, Math.max(size * 8, widest + 2 * padX)), left = Board.MARGIN + (room - width) / 2, y = top;
+        for (int i = 0; i < texts.size(); i++) {
+            float height = ruler.size(texts.get(i), size, false, width - 2 * padX)[1];
+            out.add(Board.filled(Board.shape(Board.RECT, left, y, left + width, y + height + 2 * padY, colors.get(i), 2.5f, false, Board.AI)));
+            centred(out, texts.get(i), left + padX, y + padY, width - 2 * padX, size, Board.INK, false, ruler);
+            y += height + 2 * padY;
+            if (i + 1 < texts.size()) { out.add(Board.shape(Board.LINE, left + width / 2, y + 5, left + width / 2, y + gap - 5, Board.INK, 3, true, Board.AI)); y += gap; }
+        }
+        return new Made(out, y - top);
+    }
+
+    /** Events in order down a line, each with when it was and what happened: {"events":[{"when":"1392","what":"…"}]}. */
+    public static Made timeline(JSONObject spec, float top, float scale, Board.Measure measure) {
+        List<JSONObject> out = new ArrayList<>(); Board.Measure ruler = ruler(measure); JSONArray events = spec.optJSONArray("events");
+        float size = Math.max(18, Board.SMALL * scale), whenWidth = 0; List<String[]> rows = new ArrayList<>();
+        for (int i = 0; events != null && i < events.length() && rows.size() < EVENTS; i++) { JSONObject event = events.optJSONObject(i); if (event == null) continue; String when = event.optString("when").strip(), what = event.optString("what").strip(); if (when.isEmpty() && what.isEmpty()) continue; rows.add(new String[]{when, what, event.optString("color")}); whenWidth = Math.max(whenWidth, ruler.size(when, size, true, 280)[0]); }
+        if (rows.isEmpty()) return new Made(out, 0);
+        whenWidth = Math.min(280, whenWidth); float lineX = Board.MARGIN + whenWidth + size, textX = lineX + size, room = Board.WIDTH - Board.MARGIN - textX, y = top + size * .3f; int rail = out.size();
+        for (String[] row : rows) {
+            String color = row[2].isBlank() ? "blue" : row[2];
+            float[] when = ruler.size(row[0], size, true, 280); float height = Math.max(when[1], row[1].isEmpty() ? 0 : ruler.size(row[1], size, false, room)[1]);
+            if (!row[0].isEmpty()) out.add(Board.text(lineX - size - when[0], y, row[0], size, color, true, 280, Board.AI));
+            out.add(Board.stroke(color, 16, false, new float[]{lineX, y + size * .7f}, Board.AI));
+            if (!row[1].isEmpty()) out.add(Board.text(textX, y, row[1], size, Board.INK, false, room, Board.AI));
+            y += height + size * .7f;
+        }
+        out.add(rail, Board.shape(Board.LINE, lineX, top, lineX, y - size * .4f, Board.INK, 2.5f, false, Board.AI));
+        return new Made(out, y - top);
+    }
+
+    /**
+     * One idea and what it branches into: {"root":"…","children":[{"text":"…","children":["…"]}]}. The root's box on top,
+     * its branches in rows of up to three under it joined by lines, and each branch's own points listed under it.
+     */
+    public static Made tree(JSONObject spec, float top, float scale, Board.Measure measure) {
+        List<JSONObject> out = new ArrayList<>(); Board.Measure ruler = ruler(measure); String root = spec.optString("root").strip(); JSONArray children = spec.optJSONArray("children");
+        float size = Math.max(18, Board.SMALL * scale), padX = size * .7f, padY = size * .45f, room = Board.WIDTH - 2 * Board.MARGIN, y = top;
+        if (root.isEmpty()) return new Made(out, 0);
+        float rootWidth = Math.min(room, Math.max(size * 7, ruler.size(root, size * 1.05f, true, room - 2 * padX)[0] + 2 * padX)), rootLeft = Board.MARGIN + (room - rootWidth) / 2, rootHeight = ruler.size(root, size * 1.05f, true, rootWidth - 2 * padX)[1];
+        out.add(Board.filled(Board.shape(Board.RECT, rootLeft, y, rootLeft + rootWidth, y + rootHeight + 2 * padY, "purple", 3, false, Board.AI)));
+        centred(out, root, rootLeft + padX, y + padY, rootWidth - 2 * padX, size * 1.05f, Board.INK, true, ruler);
+        y += rootHeight + 2 * padY; float trunk = Board.WIDTH / 2f;
+        List<JSONObject> branches = new ArrayList<>();
+        for (int i = 0; children != null && i < children.length() && branches.size() < BRANCHES; i++) { JSONObject child = children.optJSONObject(i); if (child == null && !children.optString(i).isBlank()) child = Jsons.obj("text", children.optString(i)); if (child != null && !child.optString("text").isBlank()) branches.add(child); }
+        for (int start = 0; start < branches.size(); start += 3) {
+            int count = Math.min(3, branches.size() - start); float gap = size, each = (room - gap * (count - 1)) / count, bus = y + size * .9f, rowTop = bus + size * .9f, tallest = 0;
+            out.add(Board.shape(Board.LINE, trunk, y, trunk, bus, Board.INK, 2.5f, false, Board.AI));
+            float first = Board.MARGIN + each / 2, last = Board.MARGIN + (count - 1) * (each + gap) + each / 2;
+            out.add(Board.shape(Board.LINE, Math.min(first, trunk), bus, Math.max(last, trunk), bus, Board.INK, 2.5f, false, Board.AI));
+            for (int k = 0; k < count; k++) {
+                JSONObject child = branches.get(start + k); String text = child.optString("text").strip(), color = color(child, start + k);
+                float left = Board.MARGIN + k * (each + gap), height = ruler.size(text, size, false, each - 2 * padX)[1], bottom = rowTop + height + 2 * padY;
+                out.add(Board.shape(Board.LINE, left + each / 2, bus, left + each / 2, rowTop, Board.INK, 2.5f, false, Board.AI));
+                out.add(Board.filled(Board.shape(Board.RECT, left, rowTop, left + each, bottom, color, 2.5f, false, Board.AI)));
+                centred(out, text, left + padX, rowTop + padY, each - 2 * padX, size, Board.INK, false, ruler);
+                JSONArray leaves = child.optJSONArray("children"); float leafY = bottom + size * .35f;
+                for (int n = 0; leaves != null && n < leaves.length() && n < LEAVES; n++) { String leaf = leaves.optString(n).strip(); if (leaf.isEmpty()) continue; String line = "· " + leaf; out.add(Board.text(left + 6, leafY, line, size * .88f, Board.INK, false, each - 6, Board.AI)); leafY += ruler.size(line, size * .88f, false, each - 6)[1] + size * .15f; }
+                tallest = Math.max(tallest, leafY - rowTop);
+            }
+            y = rowTop + tallest + size * .2f; trunk = Board.WIDTH / 2f;
+            // A further row hangs from the same trunk: it runs down the page's middle between the boxes of this row.
+            if (start + 3 < branches.size()) out.add(Board.faint(Board.shape(Board.LINE, trunk, bus, trunk, y, Board.INK, 2, false, Board.AI)));
+        }
+        return new Made(out, y - top);
     }
 }
