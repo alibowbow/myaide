@@ -47,6 +47,26 @@ public final class BoardField {
         }
     }
 
+    private static final Pattern COORDINATE =
+            Pattern.compile("[（(]\\s*(\\d{1,2})\\s*[,，]\\s*(\\d{1,2})\\s*[)）]");
+
+    static void labelMentionedPoints(JSONObject spec, String text) {
+        JSONArray selected = spec.optJSONArray("points");
+        if (selected != null && selected.length() > 0) return;
+        int p = spec.optInt("p", 17),
+                a = Math.floorMod(spec.optInt("a", 0), p),
+                b = Math.floorMod(spec.optInt("b", 7), p);
+        var seen = new java.util.HashSet<Integer>();
+        var matches = COORDINATE.matcher(text);
+        JSONArray labels = arr();
+        while (labels.length() < 8 && matches.find()) {
+            int x = Integer.parseInt(matches.group(1)), y = Integer.parseInt(matches.group(2));
+            if (x < p && y < p && (y * y) % p == (x * x * x + a * x + b) % p && seen.add(x * p + y))
+                labels.put(obj("at", arr(x, y), "label", "(" + x + ", " + y + ")"));
+        }
+        if (labels.length() > 0) put(spec, "points", labels);
+    }
+
     private static int integer(JSONObject spec, String key, int fallback) {
         double n = spec.optDouble(key, fallback);
         if (!Double.isFinite(n) || n != Math.rint(n) || Math.abs(n) > 10000)
@@ -145,18 +165,22 @@ public final class BoardField {
                     || !BoardWidget.GRAPH.equals(old.optString("kind"))
                     || old.optDouble("h") > 150) continue;
             JSONObject spec = BoardWidget.spec(old), finite = recognize(spec.toString());
-            if (finite == null && !old.optString("ls").isEmpty())
+            StringBuilder context = new StringBuilder();
+            if (!old.optString("ls").isEmpty())
                 for (int j = i - 1; j >= Math.max(0, i - 14); j--) {
                     JSONObject before = items.optJSONObject(j);
                     if (before == null || !old.optString("ls").equals(before.optString("ls")))
                         break;
-                    if (Board.TEXT.equals(before.optString("t")))
-                        finite = recognize(before.optString("text"));
-                    if (finite != null) break;
+                    if (Board.TEXT.equals(before.optString("t"))) {
+                        String text = before.optString("text");
+                        context.append(text).append('\n');
+                        if (finite == null) finite = recognize(text);
+                    }
                 }
             if (finite == null && !BoardPlot.hasPoints(spec)) continue;
             if (finite != null && spec.has("points"))
                 put(finite, "points", spec.optJSONArray("points"));
+            if (finite != null) labelMentionedPoints(finite, context.toString());
             JSONObject made =
                     BoardWidget.make(
                             finite == null ? BoardWidget.GRAPH : BoardWidget.FIELD,

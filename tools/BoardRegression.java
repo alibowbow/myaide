@@ -99,6 +99,31 @@ final class BoardRegression {
         reject(()->BoardAgent.checked("{\"steps\":[{\"say\":\"함수 설명\"}]}",arr(),"그래프를 그려줘"),"missing requested graph diagnosed");
         var repair=BoardAgent.checked("{\"steps\":[{\"draw\":[{\"op\":\"write\",\"text\":\"연습: y² ≡ x³ + 7 (mod 17)\"}]}]}",arr(),"비트코인 타원곡선 설명");
         check(repair.steps().stream().anyMatch(step->step.draw().stream().anyMatch(o->"finitefield".equals(o.optString("op")))),"toy field lesson gets a real plot even if the model omits it");
+        String textOnly = "{\"steps\":[{\"say\":\"비트코인의 타원곡선 원리를 봅니다.\"}]}";
+        var automatic = BoardAgent.checked(textOnly, arr(), "비트코인 타원곡선을 설명해 줘");
+        var teaching = automatic.steps().get(1);
+        check(teaching.draw().get(1).optInt("p")==17 && teaching.draw().get(1).getJSONArray("points").length()==3,
+                "a topic alone leads to a labelled finite-field plot");
+        check(teaching.draw().get(0).getString("text").contains("연습용"), "toy field is identified on the board");
+        var chosen = BoardAgent.checked(textOnly, arr(), "secp256k1을 p=19로 설명해 줘");
+        check(chosen.steps().get(1).draw().get(1).optInt("p")==19, "explicit prime respected");
+        check(BoardAgent.checked(textOnly, arr(), "비트코인의 타원곡선을 그림 없이 글로만 설명해 줘").steps().size()==1,
+                "explicit text-only request kept");
+        check(BoardAgent.checked(textOnly, arr(), "secp256k1 실제 소수만 알려줘").steps().size()==1,
+                "an exact parameter request does not add a toy example");
+        var symbolic = BoardAgent.checked("{\"steps\":[{\"say\":\"p = 2^256 - 2^32 - 977\"}]}", arr(), "secp256k1 설명");
+        check(symbolic.steps().get(1).draw().get(1).optInt("p")==17, "large prime formula does not become modulus two");
+        check(BoardAgent.checked(textOnly, arr(), "비트코인 가격의 추세를 설명해 줘").steps().size()==1,
+                "unrelated Bitcoin topic has no cryptographic diagram");
+        var mention = BoardAgent.checked("{\"steps\":[{\"say\":\"y² ≡ x³ + 7 (mod 17). (1,5), (1,12), (1,5), (0,1)\"}]}", arr(), "점 확인");
+        check(mention.steps().get(1).draw().get(1).getJSONArray("points").length()==2,
+                "valid finite-field coordinates in text are highlighted just once");
+        var mapOnly = BoardAgent.checked("{\"steps\":[{\"draw\":[{\"op\":\"map\",\"region\":\"korea\"}]}]}",
+                arr(), "Draw a map of Korea");
+        check(mapOnly.steps().size()==1, "English map instruction does not require a graph");
+        check(BoardAgent.checked("{\"steps\":[{\"draw\":[{\"op\":\"finitefield\",\"a\":0,\"b\":7,\"p\":19}]}]}",
+                arr(), "비트코인 타원곡선 설명").steps().size()==1, "existing finite-field lesson is not duplicated");
+
     }
 
     private static void graph() {
