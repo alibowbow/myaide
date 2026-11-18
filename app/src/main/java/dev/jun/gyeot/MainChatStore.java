@@ -285,6 +285,13 @@ final class MainChatStore implements AutoCloseable {
     synchronized void attachJob(String id,String room,String run){require();db.execSQL("UPDATE jobs SET room=?,run=?,state='running' WHERE id=? AND receipt=0",new Object[]{room,run,id});}
     synchronized boolean finishJob(String id,String text,String state){require();db.beginTransaction();try{JSONObject j=job(id);if(j==null||j.optInt("receipt")!=0)return false;db.execSQL("UPDATE jobs SET receipt=1,state=?,request='',selection='{}' WHERE id=?",new Object[]{state,id});if(j.optInt("hidden")==0&&message(j.optLong("source"))!=null)insertMessage("job",MainChatContext.clip(text,MainChatContext.OUTPUT),"done",j.optString("run"),j.optLong("source"),id,"","");db.setTransactionSuccessful();return true;}finally{db.endTransaction();}}
     /** How many messages the conversation holds. */
+    /** Finished messages whose text holds every one of words (anywhere, any case), newest first. */
+    synchronized JSONArray containing(java.util.List<String> words,int limit){
+        if(words==null||words.isEmpty())return arr();StringBuilder where=new StringBuilder("state='done' AND role IN('user','assistant')");List<String> args=new ArrayList<>();
+        for(String word:words){where.append(" AND text LIKE ? ESCAPE '\\'");args.add("%"+word.replace("\\","\\\\").replace("%","\\%").replace("_","\\_")+"%");}
+        args.add(""+Math.max(1,Math.min(200,limit)));
+        return query("SELECT id,role,text,created FROM messages WHERE "+where+" ORDER BY id DESC LIMIT ?",args.toArray(new String[0]));
+    }
     synchronized long count(){require();try(Cursor c=db.rawQuery("SELECT COUNT(*) FROM messages",null)){c.moveToFirst();return c.getLong(0);}}
     /** A whole copy of this database as it is now, in target (which must not exist yet): for a backup. */
     synchronized void backupTo(java.io.File target){require();db.execSQL("VACUUM INTO ?",new Object[]{target.getPath()});}

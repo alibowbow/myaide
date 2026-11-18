@@ -60,6 +60,7 @@
         <activity android:name=".FileExplorerActivity" android:exported="false" />
         <!-- 페이지: documents made in the 작업창 and the main chat, by category. -->
         <activity android:name=".PagesActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".SearchActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".BrowserActivity" android:exported="false" android:launchMode="singleTop" android:windowSoftInputMode="adjustResize" />
         <!-- singleTask: opening 들퍼레 again from its icon or by Bixby reaches the running screen (onNewIntent), so
              "앱을 열면 바로 대화" can start voice; coming back from recent apps sends no new intent. -->
