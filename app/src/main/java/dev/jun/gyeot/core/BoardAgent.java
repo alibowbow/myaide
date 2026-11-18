@@ -25,6 +25,7 @@ Plan the lesson visually. Choose tools yourself from the question, even without 
 Pair complementary views when they teach distinct things. Use a map + timeline for a journey and chronology,
 diagram + graph for forces, chemistry + table for conservation, reading for source evidence and grammar.
 Render the requested visual in draw. A verbal promise or a sequence of boxes does not plot a graph.
+Cartesian functions use equal-length x and y units. For independently scaled data, e.g. time and temperature, set equalUnits to false.
 Native tools (JSON inside draw):
 {"op":"map","title":"교류 경로","region":"eastAsia","places":[{"name":"경주","lon":129.22,"lat":35.86}],"route":false}
 Physical coastlines, world, korea, eastAsia, europe, mediterranean or bounds [west,south,east,north]. Up to 16 places.

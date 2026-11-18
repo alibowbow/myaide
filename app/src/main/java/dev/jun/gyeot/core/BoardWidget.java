@@ -17,7 +17,7 @@ public final class BoardWidget {
         TIMELINE = "timeline", TREE = "tree", NUMBER_LINE = "numberline", GEOMETRY = "geometry", SOLID = "solid", MAP = "map", CHEM = "chemistry", DIAGRAM = "diagram", READING = "reading", FIELD = "finitefield", RELATION = "relation";
     public static final float GEOMETRY_LEFT = 120, GEOMETRY_TOP = 42, GEOMETRY_UNIT = 76;
     private static final Map<String, List<String>> FIELDS = Map.ofEntries(
-        Map.entry(GRAPH, List.of("height", "x", "y", "grid", "functions", "points", "vlines", "hlines", "shade", "parameters")),
+        Map.entry(GRAPH, List.of("height", "x", "y", "grid", "equalUnits", "functions", "points", "vlines", "hlines", "shade", "parameters")),
         Map.entry(TABLE,List.of("rows","header")),Map.entry(CHART,List.of("kind","title","labels","values","unit","color")),
         Map.entry(FLOW,List.of("steps","direction")),Map.entry(TIMELINE,List.of("events")),Map.entry(TREE,List.of("root","children")),
         Map.entry(NUMBER_LINE,List.of("from","to","marks","ranges")),Map.entry(GEOMETRY,List.of("vertices")),Map.entry(SOLID,List.of("kind","yaw","pitch","net","vertices","faces")),
@@ -92,14 +92,40 @@ public final class BoardWidget {
         return null;
     }
 
+    private static float graphHeight(JSONObject spec, float scale) {
+        boolean equal = spec.optBoolean("equalUnits", true);
+        return (float) limit(spec.optDouble("height", 475), equal ? 650 : 280, 900) * BoardPlot.compact(scale)
+            + BoardPlot.legendHeight(spec, scale);
+    }
+
+    /** Older graphs reserved a shallow box. Move subsequent writing down only if the board has room. */
+    public static JSONArray reflowGraphs(JSONArray items, Board.Measure measure) {
+        float pageEnd = Board.bottom(items, measure);
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject old = items.optJSONObject(i);
+            if (old == null || !Board.WIDGET.equals(old.optString("t")) || !GRAPH.equals(old.optString("kind"))) continue;
+            float height = (float) old.optDouble("h");
+            if (height <= 150) continue;
+            float wanted = graphHeight(spec(old), (float) old.optDouble("scale", .85));
+            if (wanted <= height + 1 || pageEnd + wanted - height > Board.DEEPEST) continue;
+            JSONObject next = copy(old);
+            put(next, "h", wanted);
+            items = Board.editedWidget(items, old, next, measure);
+            pageEnd += wanted - height;
+        }
+        return items;
+    }
+
     static BoardPlot.Made drawing(JSONObject item, Board.Measure measure) {
         String kind = item.optString("kind"); JSONObject spec = item.optJSONObject("spec");
         if (spec == null) return new BoardPlot.Made(List.of(), 0);
         float scale = (float) item.optDouble("scale", .85);
         return switch (kind) {
             case GRAPH -> {
-                float height = (float) limit(spec.optDouble("height", 475), 280, 900) * BoardPlot.compact(scale)
-                    + BoardPlot.legendHeight(spec, scale);
+                float desired = graphHeight(spec, scale);
+                // Existing boards may already occupy the last available space on the page.
+                float saved = (float) item.optDouble("h", 1);
+                float height = saved > 150 ? Math.min(desired, saved) : desired;
                 List<JSONObject> graph = BoardPlot.graph(spec, 0, height, scale);
                 yield new BoardPlot.Made(graph, graph.size() == 1 ? 62 * scale : height);
             }
