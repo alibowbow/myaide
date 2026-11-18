@@ -434,7 +434,8 @@ final class MainChatEngine implements AutoCloseable {
     private String video(MainChatStore.Turn turn,String question,Runnable guard,AtomicReference<Runnable> abort){
         String id=dev.jun.gyeot.core.YouTubeTranscript.id(question);
         if(id.isEmpty()&&lastVideoGeneration==turn.generation()&&dev.jun.gyeot.core.YouTubeTranscript.about(question))id=lastVideo;
-        if(id.isEmpty())return "";
+        // No video: the page at the address the question asks about, read by the app itself.
+        if(id.isEmpty())return dev.jun.gyeot.core.WebArticle.wanted(question)?WebArticleClient.block(context,dev.jun.gyeot.core.WebArticle.url(question),abort):"";
         String block=YouTubeTranscriptClient.block(context,id,()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},null,abort);
         lastVideo=id;lastVideoGeneration=turn.generation();
         return block;

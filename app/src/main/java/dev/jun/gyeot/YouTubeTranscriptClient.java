@@ -97,31 +97,12 @@ final class YouTubeTranscriptClient {
         }
         return YouTubeTranscript.missing(video, why);
     }
-    /** How many transcripts are kept for reading (the newest). */
-    private static final int KEPT = 30;
-    private static java.io.File folder(android.content.Context context) { return new java.io.File(context.getFilesDir(), "youtube"); }
+    static final String KIND = "youtube";
     /** Whether a transcript is kept for this video. */
-    static boolean kept(android.content.Context context, String id) { return id != null && id.matches("[A-Za-z0-9_-]{11}") && new java.io.File(folder(context), id + ".txt").isFile(); }
+    static boolean kept(android.content.Context context, String id) { return KeptText.kept(context, KIND, id); }
     /** The transcript kept for reading (YouTubeTranscript.readable), or "" when this video has none. */
-    static String saved(android.content.Context context, String id) {
-        if (id == null || !id.matches("[A-Za-z0-9_-]{11}")) return "";
-        java.io.File file = new java.io.File(folder(context), id + ".txt");
-        try { return file.isFile() ? new String(java.nio.file.Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8) : ""; } catch (IOException | RuntimeException unreadable) { return ""; }
-    }
-    /** Keeps a transcript for reading in the app's private files, written whole; only the newest KEPT stay. */
-    private static void save(android.content.Context context, String id, String text) {
-        try {
-            java.io.File folder = folder(context); folder.mkdirs();
-            java.io.File temporary = new java.io.File(folder, id + ".tmp"), file = new java.io.File(folder, id + ".txt");
-            java.nio.file.Files.write(temporary.toPath(), text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            java.nio.file.Files.move(temporary.toPath(), file.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            java.io.File[] all = folder.listFiles((dir, name) -> name.endsWith(".txt"));
-            if (all != null && all.length > KEPT) {
-                java.util.Arrays.sort(all, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
-                for (int i = KEPT; i < all.length; i++) all[i].delete();
-            }
-        } catch (IOException | RuntimeException failed) { /* Reading it later is a convenience; the answer does not depend on it. */ }
-    }
+    static String saved(android.content.Context context, String id) { return KeptText.saved(context, KIND, id); }
+    private static void save(android.content.Context context, String id, String text) { KeptText.save(context, KIND, id, text); }
     private static String keep(String id, String block) { synchronized (READ) { READ.put(id, block); } return block; }
     /** One page from YouTube's own site, following its redirects there (at most three) and nowhere else. */
     private static String get(String url, Map<String, String> headers, int limit, AtomicReference<Runnable> cancel) throws IOException {

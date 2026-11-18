@@ -2512,6 +2512,7 @@ public final class MainActivity extends Activity {
         labels.add("텍스트로 보기"); actions.add(() -> PlainTextSheet.answer(this, text));
         // The transcript read for the video the request named, to read by itself.
         if (YouTubeTranscriptUi.has(this, prompt)) { labels.add("유튜브 대본 보기"); actions.add(() -> YouTubeTranscriptUi.show(this, prompt)); }
+        if (YouTubeTranscriptUi.hasPage(this, prompt)) { labels.add("가져온 글 보기"); actions.add(() -> YouTubeTranscriptUi.showPage(this, prompt)); }
         labels.add("이 답의 정보"); actions.add(() -> new AlertDialog.Builder(this).setTitle("이 답의 정보").setMessage(info).setPositiveButton("닫기", null).show());
         new AlertDialog.Builder(this).setItems(labels.toArray(new String[0]), (d, which) -> actions.get(which).run()).show();
     }

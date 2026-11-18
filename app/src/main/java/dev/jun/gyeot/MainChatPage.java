@@ -926,6 +926,7 @@ final class MainChatPage implements AutoCloseable {
         // The transcript read for the video this message (or the question this answer is for) named, to read by itself.
         String asked = mine ? text : done ? question(m) : "";
         if (YouTubeTranscriptUi.has(activity, asked)) item(group, sheet, R.drawable.ic_file, INDIGO, "유튜브 대본 보기", "가져온 대본을 따로 읽어요", false, () -> YouTubeTranscriptUi.show(activity, asked));
+        if (YouTubeTranscriptUi.hasPage(activity, asked)) item(group, sheet, R.drawable.ic_file, INDIGO, "가져온 글 보기", "앱이 읽어 온 글을 따로 읽어요", false, () -> YouTubeTranscriptUi.showPage(activity, asked));
         if (mine) {
             item(group, sheet, R.drawable.ic_tune, ORANGE, "수정", "연결 답변과 요약을 다시 정리해요", false, () -> editMessage(m));
             item(group, sheet, R.drawable.ic_heart, PINK, "기억으로 저장", "이 대화에 고정해 함께 보내요", false, () -> editNote(null, text, m.optLong("id")));

@@ -1426,6 +1426,13 @@ public final class AssistantService extends Service {
                     if (control.stopped) throw new IllegalStateException("작업을 멈췄어요.");
                     put(newest, "content", words + "\n\n" + video);
                     onStage.accept("생각하는 중");
+                } else if (dev.jun.gyeot.core.WebArticle.wanted(WorkBook.request(thread))) {
+                    // The page at the address the request asks about, read by the app itself: with this request only.
+                    onStage.accept("웹 글을 읽는 중");
+                    String page = WebArticleClient.block(this, dev.jun.gyeot.core.WebArticle.url(WorkBook.request(thread)), null);
+                    if (control.stopped) throw new IllegalStateException("작업을 멈췄어요.");
+                    put(newest, "content", words + "\n\n" + page);
+                    onStage.accept("생각하는 중");
                 }
             }
             // For the gallery: a drawing sent back with this message is what a new one was edited from; an attached photo makes it a photo edit.
