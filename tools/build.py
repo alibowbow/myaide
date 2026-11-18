@@ -46,6 +46,15 @@ def fetch(url, output):
         shutil.copyfileobj(response, output)
 
 
+def retry_wait(error, round_):
+    """Seconds to wait before the next round of downloads: the server's Retry-After when it gives one, else a growing wait."""
+    asked = getattr(error, 'headers', None)
+    asked = asked.get('Retry-After') if asked is not None else None
+    if asked and str(asked).strip().isdigit():
+        return max(1, min(120, int(str(asked).strip())))
+    return min(60, 5 * 3 ** round_)
+
+
 def download(url, destination, checksum=None, algorithm='sha256', mirrors=None):
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists() and (not checksum or hashlib.new(algorithm, destination.read_bytes()).hexdigest() == checksum):
@@ -53,8 +62,9 @@ def download(url, destination, checksum=None, algorithm='sha256', mirrors=None):
     partial = destination.with_suffix(destination.suffix + '.partial')
     print('Downloading', url.rsplit('/', 1)[-1], flush=True)
     candidates = [url] if not mirrors else [base + url for base in mirrors]
-    # Rate limits (429) and network hiccups are transient: cycle through the mirrors a few times with backoff.
-    attempts = [(round_, candidate) for round_ in range(3) for candidate in candidates]
+    # Rate limits (429) and network hiccups are transient: cycle through the mirrors with a growing wait (5s, 15s, 45s,
+    # then a minute), or as long as the server asks for, up to two minutes.
+    attempts = [(round_, candidate) for round_ in range(5) for candidate in candidates]
     for index, (round_, candidate) in enumerate(attempts):
         try:
             with partial.open('wb') as output:
@@ -65,7 +75,7 @@ def download(url, destination, checksum=None, algorithm='sha256', mirrors=None):
                 raise
             print('  retrying after:', error, flush=True)
             if candidate == candidates[-1]:
-                time.sleep(2 ** (round_ + 1))
+                time.sleep(retry_wait(error, round_))
     if checksum and hashlib.new(algorithm, partial.read_bytes()).hexdigest() != checksum:
         partial.unlink()
         raise ValueError('Dependency checksum mismatch: ' + destination.name)
