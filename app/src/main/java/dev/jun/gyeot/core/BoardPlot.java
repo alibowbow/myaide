@@ -127,7 +127,7 @@ public final class BoardPlot {
         if (Double.isNaN(a) || Double.isNaN(b) || Double.isInfinite(a) || Double.isInfinite(b) || a == b) return new double[]{low, high};
         return new double[]{Math.max(-1e6, Math.min(a, b)), Math.min(1e6, Math.max(a, b))};
     }
-    private static final String[] COLORS = {"blue", "red", "green", "purple", "orange"};
+    private static final String[] COLORS = {"blue", "pink", "green", "orange", "purple"};
     /** The room a graph's legend takes above its plot: a row for each function that has a name. */
     public static float legendHeight(JSONObject spec, float scale) {
         JSONArray list = spec.optJSONArray("functions"); int named = 0;
@@ -176,7 +176,7 @@ public final class BoardPlot {
         double xSpan = xs[1] - xs[0], ySpan = ys[1] - ys[0];
         java.util.function.DoubleUnaryOperator px = x -> left + (x - xs[0]) / xSpan * (right - left), py = y -> bottom - (y - ys[0]) / ySpan * (bottom - upper);
         // As many ticks as their numbers have room for: fewer on a small plot, so no number sits on the next.
-        double xStep = step(xSpan, Math.max(2, Math.min(10, Math.round((right - left) / (size * 3.2f))))), yStep = step(ySpan, Math.max(2, Math.min(8, Math.round((bottom - upper) / (size * 1.9f)))));
+        double xStep = step(xSpan, Math.max(2, Math.min(8, Math.round((right - left) / (size * 3.6f))))), yStep = step(ySpan, Math.max(2, Math.min(8, Math.round((bottom - upper) / (size * 1.9f)))));
         // A pale grid at the ticks, under everything else.
         if (spec.optBoolean("grid", true)) {
             for (double x = Math.ceil(xs[0] / xStep) * xStep; x <= xs[1] + 1e-9; x += xStep) out.add(Board.faint(Board.shape(Board.LINE, (float) px.applyAsDouble(x), bottom, (float) px.applyAsDouble(x), upper, Board.INK, 1.5f, false, Board.AI)));
@@ -196,8 +196,8 @@ public final class BoardPlot {
         }
         // Axes where zero is, at the box's edge when zero is out of view.
         float axisY = (float) py.applyAsDouble(Math.max(ys[0], Math.min(ys[1], 0))), axisX = (float) px.applyAsDouble(Math.max(xs[0], Math.min(xs[1], 0)));
-        out.add(Board.shape(Board.LINE, left - 20, axisY, right + 30, axisY, Board.INK, 3, true, Board.AI));
-        out.add(Board.shape(Board.LINE, axisX, bottom + 20, axisX, upper - 24, Board.INK, 3, true, Board.AI));
+        out.add(Board.shape(Board.LINE, left - 20, axisY, right + 30, axisY, Board.INK, 2.4f, true, Board.AI));
+        out.add(Board.shape(Board.LINE, axisX, bottom + 20, axisX, upper - 24, Board.INK, 2.4f, true, Board.AI));
         out.add(Board.text(right + 34, axisY - size * .7f, "x", size, Board.INK, false, 80, Board.AI));
         out.add(Board.text(axisX + 10, upper - 24 - size * .9f, "y", size, Board.INK, false, 80, Board.AI));
         for (double x = Math.ceil(xs[0] / xStep) * xStep; x <= xs[1] + 1e-9; x += xStep) {
@@ -236,7 +236,23 @@ public final class BoardPlot {
             double x = at.optDouble(0, Double.NaN), y = at.optDouble(1, Double.NaN); if (!(x >= xs[0] && x <= xs[1] && y >= ys[0] && y <= ys[1])) continue;
             float cx = (float) px.applyAsDouble(x), cy = (float) py.applyAsDouble(y); String color = point.optString("color").isBlank() ? "red" : point.optString("color");
             out.add(point.optBoolean("open") ? Board.shape(Board.OVAL, cx - 9, cy - 9, cx + 9, cy + 9, color, 4, false, Board.AI) : Board.stroke(color, 18, false, new float[]{cx, cy}, Board.AI));
-            String label = point.optString("label").strip(); if (!label.isEmpty()) out.add(Board.text(cx + 16, cy + 8, label, size, color, false, 360, Board.AI));
+            String label = point.optString("label").strip(); if (label.isEmpty()) continue;
+            // The name goes to the corner of the point with the least under it: no curve, no axis, no tick's number.
+            float wide = label.length() * size * .56f, tall = size * 1.3f, best = Float.MAX_VALUE, bx = cx + 14, by = cy - tall - 8;
+            float[][] corners = {{cx + 14, cy - tall - 8}, {cx - 14 - wide, cy - tall - 8}, {cx + 14, cy + 10}, {cx - 14 - wide, cy + 10}};
+            for (float[] corner : corners) {
+                float l = corner[0], t = corner[1], r = l + wide, b = t + tall, cost = 0;
+                if (l < left || r > right + 40 || t < upper - tall || b > bottom + 10) cost += 6;
+                if (b > axisY - 6 && t < axisY + 12 + tall) cost += 4;
+                if (r > axisX - size * 2.4f && l < axisX + 8) cost += 4;
+                for (Curve curve : curves) for (int k = 0; k <= 10; k++) {
+                    double x0 = xs[0] + (l + (r - l) * k / 10f - left) / (right - left) * xSpan; if (x0 < curve.from() || x0 > curve.to()) continue;
+                    double y0 = curve.value(x0); if (Double.isNaN(y0) || Double.isInfinite(y0)) continue;
+                    float at0 = (float) py.applyAsDouble(y0); if (at0 > t - 6 && at0 < b + 6) cost += 1;
+                }
+                if (cost < best) { best = cost; bx = l; by = t; }
+            }
+            out.add(Board.text(bx, by, label, size, color, false, 360, Board.AI));
         }
         return out;
     }
@@ -245,7 +261,7 @@ public final class BoardPlot {
         float cx = (float) px.applyAsDouble(x), cy = (float) py.applyAsDouble(y);
         out.add(open ? Board.shape(Board.OVAL, cx - 9, cy - 9, cx + 9, cy + 9, curve.color(), 4, false, Board.AI) : Board.stroke(curve.color(), 18, false, new float[]{cx, cy}, Board.AI));
     }
-    private static JSONObject stroke(List<Float> points, String color) { float[] flat = new float[points.size()]; for (int i = 0; i < flat.length; i++) flat[i] = points.get(i); return Board.stroke(color, 5, false, flat, Board.AI); }
+    private static JSONObject stroke(List<Float> points, String color) { float[] flat = new float[points.size()]; for (int i = 0; i < flat.length; i++) flat[i] = points.get(i); return Board.stroke(color, 4.5f, false, flat, Board.AI); }
     /** A closed outline with straight sides, tinted inside. */
     private static JSONObject region(List<Float> outline, String color, float pen) {
         float[] flat = new float[outline.size()]; for (int i = 0; i < flat.length; i++) flat[i] = outline.get(i);
@@ -285,11 +301,14 @@ public final class BoardPlot {
         }
         if (total > room) { for (int c = 0; c < columns; c++) widths[c] *= room / total; total = room; }
         float left = Board.MARGIN, rowHeight = size * 1.9f, bottom = top + rowCount * rowHeight;
-        // Ruled like a printed table: a firm frame and header rule, hairlines inside, all in proportion to the writing.
-        float frame = Math.max(1.5f, Math.min(3.5f, size / 14)), hair = Math.max(1, frame * .45f);
-        for (int r = 0; r <= rowCount; r++) out.add(Board.shape(Board.LINE, left, top + r * rowHeight, left + total, top + r * rowHeight, Board.INK, r == 0 || r == rowCount || header && r == 1 ? frame : hair, false, Board.AI));
+        // Ruled like a table in a tidy notebook: a tinted band under the header, pale rules between rows and columns,
+        // and one thin rounded frame around it all.
+        float frame = Math.max(1.5f, Math.min(3, size / 15)), corner = Math.min(16, rowHeight * .3f);
+        if (header) out.add(Board.rounded(Board.bare(Board.filled(Board.shape(Board.RECT, left + frame, top + frame, left + total - frame, top + rowHeight, "blue", 1, false, Board.AI))), Math.max(0, corner - frame)));
+        for (int r = 1; r < rowCount; r++) out.add(Board.faint(Board.shape(Board.LINE, left + 4, top + r * rowHeight, left + total - 4, top + r * rowHeight, Board.INK, Math.max(1.2f, frame * .7f), false, Board.AI)));
         float x = left;
-        for (int c = 0; c <= columns; c++) { out.add(Board.shape(Board.LINE, x, top, x, bottom, Board.INK, c == 0 || c == columns ? frame : hair, false, Board.AI)); if (c < columns) x += widths[c]; }
+        for (int c = 0; c < columns; c++) { if (c > 0) out.add(Board.faint(Board.shape(Board.LINE, x, top + 4, x, bottom - 4, Board.INK, Math.max(1.2f, frame * .7f), false, Board.AI))); x += widths[c]; }
+        out.add(Board.rounded(Board.shape(Board.RECT, left, top, left + total, bottom, Board.INK, frame, false, Board.AI), corner));
         for (int r = 0; r < rowCount; r++) {
             JSONArray row = rows.optJSONArray(r); x = left;
             for (int c = 0; c < columns; c++) {
@@ -376,7 +395,7 @@ public final class BoardPlot {
                 List<Float> outline = new ArrayList<>(); outline.add(cx); outline.add(cy); int steps = Math.max(2, (int) Math.ceil(share * 72));
                 for (int k = 0; k <= steps; k++) { double at = angle + share * 2 * Math.PI * k / steps; outline.add((float) (cx + radius * Math.cos(at))); outline.add((float) (cy + radius * Math.sin(at))); }
                 outline.add(cx); outline.add(cy); out.add(region(outline, COLORS[i % COLORS.length], 2)); angle += share * 2 * Math.PI;
-                float lx = cx + radius + 70; out.add(Board.filled(Board.shape(Board.RECT, lx, legendY + size * .2f, lx + size * .8f, legendY + size, COLORS[i % COLORS.length], 2, false, Board.AI)));
+                float lx = cx + radius + 70; out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, lx, legendY + size * .2f, lx + size * .8f, legendY + size, COLORS[i % COLORS.length], 2, false, Board.AI)), 40));
                 String line = (names.get(i).isEmpty() ? "" : names.get(i) + "  ") + number(Math.round(share * 1000) / 10.0) + "%";
                 legendY += Math.max(size * 1.5f, ruler.size(line, size, false, Board.WIDTH - Board.MARGIN - lx - size * 1.3f)[1] + size * .3f);
                 out.add(Board.text(lx + size * 1.3f, legendY - Math.max(size * 1.5f, ruler.size(line, size, false, Board.WIDTH - Board.MARGIN - lx - size * 1.3f)[1] + size * .3f), line, size, Board.INK, false, Board.WIDTH - Board.MARGIN - lx - size * 1.3f, Board.AI));
@@ -393,12 +412,12 @@ public final class BoardPlot {
             float at = (float) py.applyAsDouble(v); out.add(Board.faint(Board.shape(Board.LINE, left, at, right, at, Board.INK, 1.5f, false, Board.AI)));
             String label = number(v) + (unit.isEmpty() || v != ceiling ? "" : " " + unit); out.add(Board.text(Math.max(0, left - 14 - ruler.size(label, size * .9f, false, 300)[0]), at - size * .65f, label, size * .9f, Board.INK, false, 300, Board.AI));
         }
-        float zero = (float) py.applyAsDouble(0); out.add(Board.shape(Board.LINE, left, zero, right, zero, Board.INK, 2.5f, false, Board.AI));
+        float zero = (float) py.applyAsDouble(0); out.add(Board.shape(Board.LINE, left, zero, right, zero, Board.INK, 2.2f, false, Board.AI));
         float tallest = 0; List<Float> line = new ArrayList<>();
         for (int i = 0; i < values.size(); i++) {
             float centre = left + slot * (i + .5f), at = (float) py.applyAsDouble(values.get(i)); String shade = spec.optString("color").isBlank() ? COLORS[i % COLORS.length] : spec.optString("color"), value = number(values.get(i));
             if (kind.equals("line")) { line.add(centre); line.add(at); }
-            else out.add(Board.filled(Board.shape(Board.RECT, centre - slot * .3f, Math.min(at, zero), centre + slot * .3f, Math.max(at, zero), shade, 2, false, Board.AI)));
+            else out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, centre - slot * .28f, Math.min(at, zero), centre + slot * .28f, Math.max(at, zero), shade, 2, false, Board.AI)), 10));
             float width = ruler.size(value, size * .9f, false, slot)[0];
             out.add(Board.text(centre - width / 2, values.get(i) >= 0 ? at - size * 1.35f : at + 6, value, size * .9f, kind.equals("line") ? color(spec, 0) : shade, false, Math.max(60, slot), Board.AI));
             if (!names.get(i).isEmpty()) tallest = Math.max(tallest, centred(out, names.get(i), centre - slot * .48f, plotBottom + 10, slot * .96f, size * .9f, Board.INK, false, ruler));
@@ -426,9 +445,9 @@ public final class BoardPlot {
             for (int i = 0; i < texts.size(); i++) { heights[i] = ruler.size(texts.get(i), size, false, each - 2 * padX)[1]; tallest = Math.max(tallest, heights[i]); }
             for (int i = 0; i < texts.size(); i++) {
                 float left = Board.MARGIN + i * (each + gap);
-                out.add(Board.filled(Board.shape(Board.RECT, left, top, left + each, top + tallest + 2 * padY, colors.get(i), 2.5f, false, Board.AI)));
+                out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, left, top, left + each, top + tallest + 2 * padY, colors.get(i), 2, false, Board.AI)), Math.min(24, (tallest + 2 * padY) / 2)));
                 centred(out, texts.get(i), left + padX, top + padY + (tallest - heights[i]) / 2, each - 2 * padX, size, Board.INK, false, ruler);
-                if (i + 1 < texts.size()) out.add(Board.shape(Board.LINE, left + each + 6, top + padY + tallest / 2, left + each + gap - 6, top + padY + tallest / 2, Board.INK, 3, true, Board.AI));
+                if (i + 1 < texts.size()) out.add(Board.shape(Board.LINE, left + each + 6, top + padY + tallest / 2, left + each + gap - 6, top + padY + tallest / 2, Board.INK, 2.4f, true, Board.AI));
             }
             return new Made(out, tallest + 2 * padY);
         }
@@ -436,10 +455,10 @@ public final class BoardPlot {
         float width = Math.min(room, Math.max(size * 8, widest + 2 * padX)), left = Board.MARGIN + (room - width) / 2, y = top;
         for (int i = 0; i < texts.size(); i++) {
             float height = ruler.size(texts.get(i), size, false, width - 2 * padX)[1];
-            out.add(Board.filled(Board.shape(Board.RECT, left, y, left + width, y + height + 2 * padY, colors.get(i), 2.5f, false, Board.AI)));
+            out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, left, y, left + width, y + height + 2 * padY, colors.get(i), 2, false, Board.AI)), Math.min(24, (height + 2 * padY) / 2)));
             centred(out, texts.get(i), left + padX, y + padY, width - 2 * padX, size, Board.INK, false, ruler);
             y += height + 2 * padY;
-            if (i + 1 < texts.size()) { out.add(Board.shape(Board.LINE, left + width / 2, y + 5, left + width / 2, y + gap - 5, Board.INK, 3, true, Board.AI)); y += gap; }
+            if (i + 1 < texts.size()) { out.add(Board.shape(Board.LINE, left + width / 2, y + 5, left + width / 2, y + gap - 5, Board.INK, 2.4f, true, Board.AI)); y += gap; }
         }
         return new Made(out, y - top);
     }
@@ -459,7 +478,7 @@ public final class BoardPlot {
             if (!row[1].isEmpty()) out.add(Board.text(textX, y, row[1], size, Board.INK, false, room, Board.AI));
             y += height + size * .7f;
         }
-        out.add(rail, Board.shape(Board.LINE, lineX, top, lineX, y - size * .4f, Board.INK, 2.5f, false, Board.AI));
+        out.add(rail, Board.faint(Board.shape(Board.LINE, lineX, top, lineX, y - size * .4f, Board.INK, 4, false, Board.AI)));
         return new Made(out, y - top);
     }
 
@@ -472,21 +491,21 @@ public final class BoardPlot {
         float size = Math.max(18, Board.SMALL * scale), padX = size * .7f, padY = size * .45f, room = Board.WIDTH - 2 * Board.MARGIN, y = top;
         if (root.isEmpty()) return new Made(out, 0);
         float rootWidth = Math.min(room, Math.max(size * 7, ruler.size(root, size * 1.05f, true, room - 2 * padX)[0] + 2 * padX)), rootLeft = Board.MARGIN + (room - rootWidth) / 2, rootHeight = ruler.size(root, size * 1.05f, true, rootWidth - 2 * padX)[1];
-        out.add(Board.filled(Board.shape(Board.RECT, rootLeft, y, rootLeft + rootWidth, y + rootHeight + 2 * padY, "purple", 3, false, Board.AI)));
+        out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, rootLeft, y, rootLeft + rootWidth, y + rootHeight + 2 * padY, "purple", 2.4f, false, Board.AI)), 20));
         centred(out, root, rootLeft + padX, y + padY, rootWidth - 2 * padX, size * 1.05f, Board.INK, true, ruler);
         y += rootHeight + 2 * padY; float trunk = Board.WIDTH / 2f;
         List<JSONObject> branches = new ArrayList<>();
         for (int i = 0; children != null && i < children.length() && branches.size() < BRANCHES; i++) { JSONObject child = children.optJSONObject(i); if (child == null && !children.optString(i).isBlank()) child = Jsons.obj("text", children.optString(i)); if (child != null && !child.optString("text").isBlank()) branches.add(child); }
         for (int start = 0; start < branches.size(); start += 3) {
             int count = Math.min(3, branches.size() - start); float gap = size, each = (room - gap * (count - 1)) / count, bus = y + size * .9f, rowTop = bus + size * .9f, tallest = 0;
-            out.add(Board.shape(Board.LINE, trunk, y, trunk, bus, Board.INK, 2.5f, false, Board.AI));
+            out.add(Board.shape(Board.LINE, trunk, y, trunk, bus, Board.INK, 2, false, Board.AI));
             float first = Board.MARGIN + each / 2, last = Board.MARGIN + (count - 1) * (each + gap) + each / 2;
-            out.add(Board.shape(Board.LINE, Math.min(first, trunk), bus, Math.max(last, trunk), bus, Board.INK, 2.5f, false, Board.AI));
+            out.add(Board.shape(Board.LINE, Math.min(first, trunk), bus, Math.max(last, trunk), bus, Board.INK, 2, false, Board.AI));
             for (int k = 0; k < count; k++) {
                 JSONObject child = branches.get(start + k); String text = child.optString("text").strip(), color = color(child, start + k);
                 float left = Board.MARGIN + k * (each + gap), height = ruler.size(text, size, false, each - 2 * padX)[1], bottom = rowTop + height + 2 * padY;
-                out.add(Board.shape(Board.LINE, left + each / 2, bus, left + each / 2, rowTop, Board.INK, 2.5f, false, Board.AI));
-                out.add(Board.filled(Board.shape(Board.RECT, left, rowTop, left + each, bottom, color, 2.5f, false, Board.AI)));
+                out.add(Board.shape(Board.LINE, left + each / 2, bus, left + each / 2, rowTop, Board.INK, 2, false, Board.AI));
+                out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, left, rowTop, left + each, bottom, color, 2, false, Board.AI)), 16));
                 centred(out, text, left + padX, rowTop + padY, each - 2 * padX, size, Board.INK, false, ruler);
                 JSONArray leaves = child.optJSONArray("children"); float leafY = bottom + size * .35f;
                 for (int n = 0; leaves != null && n < leaves.length() && n < LEAVES; n++) { String leaf = leaves.optString(n).strip(); if (leaf.isEmpty()) continue; String line = "· " + leaf; out.add(Board.text(left + 6, leafY, line, size * .88f, Board.INK, false, each - 6, Board.AI)); leafY += ruler.size(line, size * .88f, false, each - 6)[1] + size * .15f; }

@@ -1,7 +1,7 @@
-Gaegu (font) — SIL Open Font License 1.1
-Unmodified upstream font file, used for the handwriting style of the board (판서). Source: https://github.com/google/fonts/tree/main/ofl/gaegu
+Gamja Flower (font) — SIL Open Font License 1.1
+Unmodified upstream font file, used for the handwriting of the board (판서). Source: https://github.com/google/fonts/tree/main/ofl/gamjaflower
 
-Copyright 2018 The Gaegu Project Authors
+Copyright (c) YoonDesign Inc. All Rights Reserved.
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

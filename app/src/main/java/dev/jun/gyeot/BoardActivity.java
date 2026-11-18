@@ -63,8 +63,8 @@ public final class BoardActivity extends Activity {
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
     private Ui ui; private AppStore store; private BoardStore boards; private MainNavigation navigation;
-    private FrameLayout root; private BoardView board; private BoardTeacher teacher;
-    private LinearLayout chrome, palette, askBar, lessonBar, files, hint, topBar; private View gapView; private TextView titleView, caption, progress; private EditText input;
+    private FrameLayout root; private BoardView board; private BoardTeacher teacher; private BoardVoice narration;
+    private LinearLayout chrome, palette, askBar, lessonBar, files, hint, topBar; private View gapView; private TextView hintLead, hintHow; private ImageView hintMark; private TextView titleView, caption, progress; private EditText input;
     private ImageView undo, redo, sound, pause, next, colorDot; private final List<ImageView> toolIcons = new ArrayList<>(); private final List<String> toolIds = new ArrayList<>();
     private String boardId = "", title = "", shape = BoardView.LINE; private final List<JSONObject> attached = new ArrayList<>();
     private boolean destroyed; private Ui.Sheet sheet;
@@ -101,19 +101,20 @@ public final class BoardActivity extends Activity {
             @Override public void textAt(float x, float y) { writeText(x, y); }
             @Override public void tapped(int index, float x, float y) { tappedItem(index); }
         });
-        board.pictures(this::picture); board.handwriting(store.settings.getBoolean("boardHand", false)); board.textScale = textScale();
-        teacher = new BoardTeacher(board, new BoardVoice(this, store, voices), brain != null ? brain : this::askModel, new BoardTeacher.Watcher() {
+        board.pictures(this::picture); board.textScale = textScale(); look();
+        narration = new BoardVoice(this, store, voices);
+        teacher = new BoardTeacher(board, narration, brain != null ? brain : this::askModel, new BoardTeacher.Watcher() {
             @Override public void state(String now, int step, int steps, String words) { lesson(now, step, steps, words); }
             @Override public void notice(String why) { toast(why); }
             @Override public void wrote(String lessonTitle) { if (lessonTitle != null && !lessonTitle.isBlank() && title.isBlank()) { title = lessonTitle; paintTitle(); } saveSoon(); paintHistory(); }
         });
         hint = ui.column(); hint.setGravity(Gravity.CENTER_HORIZONTAL); hint.setPadding(ui.dp(40), 0, ui.dp(40), ui.dp(60));
-        ImageView mark = new ImageView(this); mark.setImageResource(R.drawable.ic_board); mark.setImageTintList(ColorStateList.valueOf(MUTED)); mark.setAlpha(.55f); hint.addView(mark, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
-        TextView lead = ui.text("손으로 쓰고, AI에게 배워요", TITLE2, 700, TEXT); lead.setGravity(Gravity.CENTER); lead.setPadding(0, ui.dp(14), 0, ui.dp(6)); hint.addView(lead);
-        TextView how = ui.text("문제 사진이나 PDF를 붙여 보내면 판서로 풀어 주고, 주제를 적으면 차례로 가르쳐 줘요. 직접 쓰려면 아래에서 펜을 골라 주세요.", SUBHEAD, 450, MUTED); how.setGravity(Gravity.CENTER); how.setLineSpacing(ui.dp(3), 1); hint.addView(how);
+        ImageView mark = new ImageView(this); hintMark = mark; mark.setImageResource(R.drawable.ic_board); mark.setImageTintList(ColorStateList.valueOf(MUTED)); mark.setAlpha(.55f); hint.addView(mark, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
+        TextView lead = ui.text("AI 선생님의 판서로 배워요", TITLE2, 700, TEXT); hintLead = lead; lead.setGravity(Gravity.CENTER); lead.setPadding(0, ui.dp(14), 0, ui.dp(6)); hint.addView(lead);
+        TextView how = hintHow = ui.text("문제 사진이나 PDF를 붙여 보내면 판서로 풀어 주고, 주제를 적으면 노트 정리하듯 차례로 가르쳐 줘요.", SUBHEAD, 450, MUTED); how.setGravity(Gravity.CENTER); how.setLineSpacing(ui.dp(3), 1); hint.addView(how);
         hint.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(-1, -2); hp.gravity = Gravity.CENTER; root.addView(hint, hp);
-        teacher.textScale = textScale(); teacher.hand = board.handwriting();
+        teacher.textScale = textScale(); look();
         chrome = ui.column(); root.addView(chrome, new FrameLayout.LayoutParams(-1, -1));
         // The page starts under the top bar and its writing is followed above the bars at the bottom.
         chrome.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (topBar != null && gapView != null) board.insets(topBar.getBottom() + ui.dp(8), Math.max(0, chrome.getHeight() - gapView.getBottom())); });
@@ -122,7 +123,7 @@ public final class BoardActivity extends Activity {
             boolean typing = insets.isVisible(WindowInsets.Type.ime());
             chrome.setPadding(ui.dp(12) + bars.left, ui.dp(8) + bars.top, ui.dp(12) + bars.right, ui.dp(10) + Math.max(bars.bottom, insets.getInsets(WindowInsets.Type.ime()).bottom));
             // While typing, the tools make room for the keyboard: the question is what matters.
-            if (palette != null) palette.setVisibility(typing || teacher.busy() ? View.GONE : View.VISIBLE);
+            if (palette != null) palette.setVisibility(typing || teacher.busy() || !tools() ? View.GONE : View.VISIBLE);
             return insets;
         });
         build();
@@ -241,7 +242,7 @@ public final class BoardActivity extends Activity {
         colorDot = new ImageView(this); colorDot.setContentDescription("색 고르기"); colorDot.setOnClickListener(v -> colors()); Ui.pressable(colorDot, true); colorDot.setPadding(ui.dp(10), ui.dp(10), ui.dp(10), ui.dp(10));
         palette.addView(colorDot, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-2, -2); pp.gravity = Gravity.CENTER_HORIZONTAL; chrome.addView(palette, pp);
-        paintTools(); paintHistory(); paintSound();
+        paintTools(); paintHistory(); paintSound(); palette.setVisibility(tools() ? View.VISIBLE : View.GONE);
     }
     private void tool(String id, int drawable, String name) {
         ImageView view = icon(drawable, name, () -> choose(id));
@@ -262,12 +263,30 @@ public final class BoardActivity extends Activity {
             String id = toolIds.get(i); boolean on = id.equals(now) || id.equals("shape") && isShape(now); ImageView view = toolIcons.get(i);
             view.setBackground(on ? ui.shape(ACCENT_SOFT, PILL) : null); view.setImageTintList(ColorStateList.valueOf(on ? ACCENT : TEXT)); view.setSelected(on);
         }
-        GradientDrawable dot = new GradientDrawable(); dot.setShape(GradientDrawable.OVAL); dot.setColor(BoardView.swatch(board.color())); dot.setStroke(ui.dp(2), SEPARATOR);
+        GradientDrawable dot = new GradientDrawable(); dot.setShape(GradientDrawable.OVAL); dot.setColor(board.ink(board.color())); dot.setStroke(ui.dp(2), SEPARATOR);
         colorDot.setImageDrawable(dot);
     }
     private void paintHistory() {
         if (hint != null) hint.setVisibility(board.items().length() == 0 && !teacher.busy() ? View.VISIBLE : View.GONE);
         undo.setEnabled(board.canUndo()); undo.setAlpha(board.canUndo() ? 1f : .3f); redo.setEnabled(board.canRedo()); redo.setAlpha(board.canRedo() ? 1f : .3f);
+        // Undo and redo belong to writing by hand: they show with its tools.
+        undo.setVisibility(tools() ? View.VISIBLE : View.GONE); redo.setVisibility(tools() ? View.VISIBLE : View.GONE);
+    }
+    /** Whether the tools for writing by hand are out. They are put away unless asked for: the board is the AI's to write on. */
+    private boolean tools() { return store.settings.getBoolean("boardTools", false); }
+    private void showTools(boolean on) {
+        store.settings.edit().putBoolean("boardTools", on).apply();
+        if (!on) board.tool(BoardView.HAND);
+        paintTools(); paintHistory(); palette.setVisibility(on && !teacher.busy() ? View.VISIBLE : View.GONE); root.requestApplyInsets();
+    }
+    /** The board's look as it is chosen: notes or a blackboard, and the letters new writing is in (chalk is always written by hand). */
+    private void look() {
+        board.style(store.settings.getString("boardStyle", BoardView.NOTE));
+        boolean hand = board.chalk() || store.settings.getBoolean("boardHand", true);
+        board.handwriting(hand);
+        if (teacher != null) { teacher.hand = board.handwriting(); teacher.chalk = board.chalk(); }
+        if (root != null) root.setBackgroundColor(board.paper());
+        if (hintLead != null) { hintLead.setTextColor(board.ink(Board.INK)); hintHow.setTextColor((board.ink(Board.INK) & 0x00ffffff) | 0xa0000000); hintMark.setImageTintList(ColorStateList.valueOf((board.ink(Board.INK) & 0x00ffffff) | 0x90000000)); }
     }
     private void paintSound() { sound.setImageResource(teacher.muted() ? R.drawable.ic_sound_off : R.drawable.ic_sound); sound.setContentDescription(teacher.muted() ? "소리 켜기" : "소리 끄기"); }
     private void paintTitle() { titleView.setText(title.isBlank() ? "새 판" : title); titleView.setContentDescription((title.isBlank() ? "새 판" : title) + " · 눌러서 이름 바꾸기"); }
@@ -276,7 +295,7 @@ public final class BoardActivity extends Activity {
     private void lesson(String state, int step, int steps, String words) {
         if (destroyed) return;
         boolean idle = state.equals(BoardTeacher.IDLE), thinking = state.equals(BoardTeacher.THINKING), paused = state.equals(BoardTeacher.PAUSED);
-        askBar.setVisibility(idle ? View.VISIBLE : View.GONE); palette.setVisibility(idle ? View.VISIBLE : View.GONE); lessonBar.setVisibility(idle ? View.GONE : View.VISIBLE);
+        askBar.setVisibility(idle ? View.VISIBLE : View.GONE); palette.setVisibility(idle && tools() ? View.VISIBLE : View.GONE); lessonBar.setVisibility(idle ? View.GONE : View.VISIBLE);
         progress.setText(thinking ? "판서를 준비하는 중…" : (paused ? "멈춤 · " : "") + step + " / " + steps);
         for (ImageView control : new ImageView[]{sound, pause, next}) control.setVisibility(thinking ? View.GONE : View.VISIBLE);
         pause.setImageResource(paused ? R.drawable.ic_play : R.drawable.ic_pause); pause.setContentDescription(paused ? "이어서 하기" : "잠깐 멈추기");
@@ -336,14 +355,21 @@ public final class BoardActivity extends Activity {
         ui.addRow(writing, ui.listRow(R.drawable.ic_text, TEAL, "글자 크기", TEXT_NAMES[level] + " · 새로 쓰는 글부터 적용돼요", ui.chevron(), () -> { menu.dismiss(); textSizes(); }), true);
         ui.addRow(writing, ui.listRow(R.drawable.ic_pen, PINK, "글씨체", (board.handwriting() ? "손글씨" : "또박또박") + " · 새로 쓰는 글부터 적용돼요", ui.chevron(), () -> { menu.dismiss(); fonts(); }), true);
         menu.body.addView(writing);
+        menu.body.addView(ui.sectionHeader("판"));
+        LinearLayout looks = ui.group();
+        ui.addRow(looks, ui.listRow(R.drawable.ic_board, GREEN, "판 모양", board.chalk() ? "칠판 · 분필로 쓴 판서" : "노트 · 펜과 형광펜으로 정리한 노트", ui.chevron(), () -> { menu.dismiss(); styles(); }), true);
+        ui.addRow(looks, ui.listRow(R.drawable.ic_hand, BLUE, "직접 쓰기 도구", tools() ? "켜짐 · 펜·형광펜·지우개·도형이 아래에 보여요" : "꺼짐 · 판은 AI가 쓰고, 나는 움직여 봐요", null, () -> { menu.dismiss(); showTools(!tools()); }), true);
+        menu.body.addView(looks);
         menu.body.addView(ui.sectionHeader("AI"));
-        LinearLayout ai = ui.group(); ScopedModels models = ScopedModels.main(store); String engine = models.readyEngine();
-        ui.addRow(ai, ui.listRow(R.drawable.ic_sparkle, INDIGO, "두뇌", engine.isBlank() ? "연결된 AI가 없어요 · 메인 대화에서 고르기" : WorkBook.author(engine) + " · " + models.model(engine) + " · 메인 대화에서 고른 모델",
-            ui.chevron(), () -> { menu.dismiss(); MainNavigation.open(this, "chat"); }), true);
-        boolean live = store.secrets.hasKey();
-        ui.addRow(ai, ui.listRow(R.drawable.ic_wave, PURPLE, "목소리", live ? "Gemini Live" + (store.voice().isBlank() ? "" : " · " + store.voice()) + " · 안 되면 기기 음성" : "Gemini 키가 없어 기기 음성으로 읽어요", null, null), true);
+        // 판서's own choices: the model that prepares lessons, and the Live model and voice that read them. None of them changes the main chat or the assistant.
+        LinearLayout ai = ui.group(); ScopedModels models = ScopedModels.board(store); String engine = models.engine(); boolean live = store.secrets.hasKey();
+        ui.addRow(ai, ui.listRow(R.drawable.ic_sparkle, INDIGO, "두뇌", (engine.isBlank() ? "AI를 골라 주세요" : WorkBook.author(engine) + " · " + new TeamRoster(store, models).label(engine, models.model(engine)) + (store.ready(engine) ? "" : " · 연결 필요")) + " · 판서를 준비하는 모델",
+            ui.chevron(), () -> { menu.dismiss(); brains(); }), true);
+        ui.addRow(ai, ui.listRow(R.drawable.ic_wave, PURPLE, "Live 모델", live ? liveName(BoardVoice.liveModel(store)) + " · 설명을 읽는 모델" : "Gemini 키가 없어 기기 음성으로 읽어요", ui.chevron(), () -> { menu.dismiss(); liveModels(); }), true);
+        ui.addRow(ai, ui.listRow(R.drawable.ic_sound, PINK, "목소리", (BoardVoice.voice(store).isBlank() ? "기본 목소리" : BoardVoice.voice(store)) + (live ? " · 안 되면 기기 음성" : ""), ui.chevron(), () -> { menu.dismiss(); voiceNames(); }), true);
         menu.body.addView(ai);
-        menu.body.addView(ui.footer("문제 사진이나 PDF를 붙이면 판에 올라가고, 그 위에 직접 쓰거나 AI가 표시하며 풀어 줘요. 손 도구로 판서한 줄을 누르면 거기부터 다시 듣거나 더 물어볼 수 있어요. 두 손가락으로 판을 움직이고 키워요."));
+        menu.body.addView(ui.footer("두뇌·Live 모델·목소리는 판서에서만 쓰는 선택이에요. 메인 대화와 음성 비서의 설정은 바뀌지 않아요."));
+        menu.body.addView(ui.footer("문제 사진이나 PDF를 붙이면 판에 올라가고, AI가 그 위에 표시하며 풀어 줘요. 판서한 줄을 누르면 거기부터 다시 듣거나 더 물어볼 수 있어요. 한 손가락으로 판을 움직이고 두 손가락으로 키워요."));
         show(menu);
     }
     private void rename() {
@@ -365,14 +391,14 @@ public final class BoardActivity extends Activity {
 
     private void colors() {
         Ui.Sheet pick = ui.selectionSheet("색", ""); pick.primary.setVisibility(View.GONE);
-        String[] names = {"기본", "빨강", "파랑", "초록", "주황", "보라"};
+        String[] names = {"기본", "빨강", "분홍", "주황", "노랑", "초록", "파랑", "보라"};
         LinearLayout row = ui.row(); row.setGravity(Gravity.CENTER); row.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), ui.dp(16));
         for (int i = 0; i < Board.COLORS.length; i++) {
             String color = Board.COLORS[i]; boolean on = color.equals(board.color());
-            GradientDrawable dot = new GradientDrawable(); dot.setShape(GradientDrawable.OVAL); dot.setColor(BoardView.swatch(color)); dot.setStroke(ui.dp(on ? 3 : 1), on ? ACCENT : SEPARATOR);
+            GradientDrawable dot = new GradientDrawable(); dot.setShape(GradientDrawable.OVAL); dot.setColor(board.ink(color)); dot.setStroke(ui.dp(on ? 3 : 1), on ? ACCENT : SEPARATOR);
             ImageView view = new ImageView(this); view.setImageDrawable(dot); view.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)); view.setContentDescription(names[i] + (on ? ", 선택됨" : ""));
             view.setOnClickListener(v -> { board.color(color); paintTools(); pick.dismiss(); }); Ui.pressable(view, true);
-            row.addView(view, new LinearLayout.LayoutParams(ui.dp(52), ui.dp(52)));
+            row.addView(view, new LinearLayout.LayoutParams(0, ui.dp(48), 1));
         }
         pick.body.addView(row); show(pick);
     }
@@ -435,6 +461,63 @@ public final class BoardActivity extends Activity {
         });
         show(ask);
     }
+    private static String liveName(String id) { for (String[] model : dev.jun.gyeot.core.GeminiProtocol.LIVE_MODELS) if (model[0].equals(id)) return model[1].replace(" (기본)", ""); return id; }
+    /** A choice of how lessons are read takes effect at once: a lesson that is on pauses, and reads on in the new voice when continued. */
+    private void voiceChanged() { if (teacher.state().equals(BoardTeacher.PLAYING)) teacher.pause(); narration.reset(); }
+    private void liveModels() {
+        Ui.Sheet pick = ui.selectionSheet("Live 모델", "판서의 설명을 읽는 모델 · 음성 비서의 모델은 바뀌지 않아요"); pick.primary.setVisibility(View.GONE);
+        LinearLayout group = ui.group(); String now = BoardVoice.liveModel(store);
+        for (String[] model : dev.jun.gyeot.core.GeminiProtocol.LIVE_MODELS) {
+            boolean on = model[0].equals(now);
+            ui.addRow(group, ui.listRow(R.drawable.ic_wave, on ? ACCENT : MUTED, model[1].replace(" (기본)", ""), dev.jun.gyeot.core.GeminiProtocol.readsAsWritten(model[0]) ? "단계의 말을 한 번에 읽어요" : "한 문장씩 그대로 읽어요",
+                on ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putString("boardLiveModel", model[0]).apply(); voiceChanged(); pick.dismiss(); }), true);
+        }
+        pick.body.addView(group); show(pick);
+    }
+    private void voiceNames() {
+        Ui.Sheet pick = ui.selectionSheet("목소리", "판서의 설명을 읽는 목소리 · 음성 비서의 목소리는 바뀌지 않아요"); pick.primary.setVisibility(View.GONE);
+        LinearLayout group = ui.group(); String now = BoardVoice.voice(store);
+        for (String name : dev.jun.gyeot.core.GeminiProtocol.VOICES) {
+            boolean on = name.equals(now);
+            ui.addRow(group, ui.listRow(R.drawable.ic_sound, on ? ACCENT : MUTED, name.isEmpty() ? "기본 목소리" : name, "", on ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putString("boardVoice", name).apply(); voiceChanged(); pick.dismiss(); }), true);
+        }
+        pick.body.addView(group); show(pick);
+    }
+    /** The model that prepares 판서's lessons: an AI, one of its models and how deeply it thinks. */
+    private void brains() {
+        Ui.Sheet pick = ui.selectionSheet("두뇌", "판서를 준비하는 모델 · 메인 대화의 모델은 바뀌지 않아요"); pick.primary.setVisibility(View.GONE);
+        LinearLayout content = ui.column(); pick.body.addView(content);
+        String[] ids = dev.jun.gyeot.core.TeamPlan.ENGINES.toArray(new String[0]), names = new String[ids.length]; for (int i = 0; i < ids.length; i++) names[i] = WorkBook.author(ids[i]);
+        Runnable[] fill = new Runnable[1];
+        fill[0] = () -> {
+            content.removeAllViews(); ScopedModels chosen = ScopedModels.board(store); TeamRoster roster = new TeamRoster(store, chosen); String engine = chosen.engine(), current = chosen.model(engine);
+            View engines = ui.pills(names, java.util.Arrays.asList(ids).indexOf(engine), index -> { try { ScopedModels.board(store).chooseEngine(ids[index]); } catch (RuntimeException refused) { toast(refused.getMessage()); } fill[0].run(); });
+            LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(-1, -2); ep.leftMargin = ep.rightMargin = ui.dp(16); ep.bottomMargin = ui.dp(10); content.addView(engines, ep);
+            if (!store.ready(engine)) content.addView(ui.footer(WorkBook.author(engine) + "는 아직 연결되지 않았어요. 설정 → AI 연결에서 연결한 뒤 쓸 수 있어요."));
+            JSONArray catalog = roster.catalog(engine); LinearLayout group = ui.group(); boolean listed = false;
+            for (int i = 0; i < catalog.length(); i++) {
+                JSONObject model = catalog.optJSONObject(i); String id = model == null ? "" : model.optString("id"); if (id.isBlank()) continue;
+                boolean on = id.equals(current); listed |= on;
+                ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, on ? ACCENT : MUTED, roster.label(engine, id), "", on ? ui.text("✓", 16, 700, ACCENT) : null, () -> choose(engine, id, ScopedModels.board(store).effort(engine, id), fill[0])), true);
+            }
+            if (!listed && !current.isBlank()) ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, ACCENT, roster.label(engine, current), "", ui.text("✓", 16, 700, ACCENT), () -> {}), true);
+            content.addView(group);
+            // How deeply the chosen model thinks, where it offers levels.
+            dev.jun.gyeot.core.Reasoning.Profile profile = roster.profile(engine, current);
+            if (!current.isBlank() && !profile.efforts.isEmpty()) {
+                content.addView(ui.sectionHeader("생각 깊이"));
+                List<String> levels = new ArrayList<>(); levels.add(""); levels.addAll(profile.efforts); String[] words = new String[levels.size()];
+                for (int i = 0; i < words.length; i++) words[i] = levels.get(i).isEmpty() ? "기본" : WorkBook.CHATGPT.equals(engine) ? dev.jun.gyeot.core.Reasoning.gptShortLabel(levels.get(i)) : levels.get(i);
+                View depth = ui.pills(words, Math.max(0, levels.indexOf(chosen.effort(engine, current))), index -> choose(engine, current, levels.get(index), fill[0]));
+                LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(-1, -2); dp.leftMargin = dp.rightMargin = ui.dp(16); content.addView(depth, dp);
+            }
+        };
+        fill[0].run(); show(pick);
+    }
+    private void choose(String engine, String model, String effort, Runnable then) {
+        try { ScopedModels.board(store).chooseProfile(engine, model, effort); } catch (RuntimeException refused) { toast(refused.getMessage() == null ? "모델을 고르지 못했어요." : refused.getMessage()); }
+        then.run();
+    }
     private void textSizes() {
         Ui.Sheet pick = ui.selectionSheet("글자 크기", "AI 판서와 글자 도구가 새로 쓰는 글에 적용돼요"); pick.primary.setVisibility(View.GONE);
         LinearLayout group = ui.group(); int now = Math.max(0, Math.min(TEXT_NAMES.length - 1, store.settings.getInt("boardText", 1)));
@@ -447,10 +530,17 @@ public final class BoardActivity extends Activity {
         pick.body.addView(group); show(pick);
     }
     private void fonts() {
-        Ui.Sheet pick = ui.selectionSheet("글씨체", "AI 판서와 글자 도구가 새로 쓰는 글에 적용돼요"); pick.primary.setVisibility(View.GONE);
-        LinearLayout group = ui.group(); boolean hand = board.handwriting();
-        ui.addRow(group, ui.listRow(R.drawable.ic_text, !hand ? ACCENT : MUTED, "또박또박", "또렷한 인쇄 글씨", !hand ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putBoolean("boardHand", false).apply(); board.handwriting(false); teacher.hand = false; pick.dismiss(); }), true);
-        ui.addRow(group, ui.listRow(R.drawable.ic_pen, hand ? ACCENT : MUTED, "손글씨", "선생님이 펜으로 쓴 듯한 글씨", hand ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putBoolean("boardHand", true).apply(); board.handwriting(true); teacher.hand = board.handwriting(); pick.dismiss(); }), true);
+        Ui.Sheet pick = ui.selectionSheet("글씨체", "AI 판서가 새로 쓰는 글에 적용돼요 · 칠판은 늘 손글씨예요"); pick.primary.setVisibility(View.GONE);
+        LinearLayout group = ui.group(); boolean hand = store.settings.getBoolean("boardHand", true);
+        ui.addRow(group, ui.listRow(R.drawable.ic_pen, hand ? ACCENT : MUTED, "손글씨", "노트에 예쁘게 쓴 듯한 글씨", hand ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putBoolean("boardHand", true).apply(); look(); pick.dismiss(); }), true);
+        ui.addRow(group, ui.listRow(R.drawable.ic_text, !hand ? ACCENT : MUTED, "또박또박", "또렷한 인쇄 글씨", !hand ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putBoolean("boardHand", false).apply(); look(); pick.dismiss(); }), true);
+        pick.body.addView(group); show(pick);
+    }
+    private void styles() {
+        Ui.Sheet pick = ui.selectionSheet("판 모양", "지금 판에 있는 것도 바로 그 모양으로 보여요"); pick.primary.setVisibility(View.GONE);
+        LinearLayout group = ui.group(); boolean chalk = board.chalk();
+        ui.addRow(group, ui.listRow(R.drawable.ic_pages, !chalk ? ACCENT : MUTED, "노트", "크림색 종이에 펜과 형광펜으로 정리한 노트", !chalk ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putString("boardStyle", BoardView.NOTE).apply(); look(); pick.dismiss(); }), true);
+        ui.addRow(group, ui.listRow(R.drawable.ic_board, chalk ? ACCENT : MUTED, "칠판", "초록 칠판에 분필로 쓴 판서", chalk ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putString("boardStyle", BoardView.CHALK).apply(); look(); pick.dismiss(); }), true);
         pick.body.addView(group); show(pick);
     }
     private void writeText(float x, float y) {
@@ -589,7 +679,7 @@ public final class BoardActivity extends Activity {
         // The board's pictures (the newest few) go with every question, in the order the model numbers them.
         List<String> shownPictures = new ArrayList<>(); for (JSONObject picture : dev.jun.gyeot.core.BoardScript.shown(board.items())) shownPictures.add(picture.optString("id"));
         if (words.isEmpty() && attached.isEmpty() && shownPictures.isEmpty()) { toast("풀 문제나 배우고 싶은 것을 적어 주세요."); return; }
-        if (brain == null && ScopedModels.main(store).readyEngine().isBlank()) { toast("메인 대화에서 쓸 AI를 먼저 연결해 주세요."); return; }
+        if (brain == null && ScopedModels.board(store).readyEngine().isBlank()) { toast("판서에 쓸 AI를 먼저 골라 주세요. 더 보기 → 두뇌"); return; }
         List<JSONObject> sending = new ArrayList<>(attached); attached.clear(); paintFiles();
         Bitmap drawn = null;
         if (handDrawn()) { float bottom = Board.bottom(board.items(), board.measure) + 20; drawn = board.render(Board.WIDTH, Math.max(0, bottom - SNAPSHOT_UNITS), bottom); }
@@ -632,10 +722,10 @@ public final class BoardActivity extends Activity {
             });
         });
     }
-    /** The lesson from the model chosen in the main chat. */
+    /** The lesson from 판서's own model (더 보기 → 두뇌). */
     private String askModel(String instructions, String request, List<MainRequest.Attachment> with, java.util.concurrent.atomic.AtomicReference<Runnable> cancel) throws Exception {
-        ScopedModels models = ScopedModels.main(store);
-        if (models.readyEngine().isBlank()) throw new IllegalStateException("메인 대화에서 쓸 AI를 먼저 연결해 주세요.");
+        ScopedModels models = ScopedModels.board(store);
+        if (models.readyEngine().isBlank()) throw new IllegalStateException("판서에 쓸 AI를 먼저 골라 주세요. 더 보기 → 두뇌");
         return MainAdapters.send(store, models.snapshot(), MainRequest.of(instructions, request).files(with), () -> {}, cancel).text();
     }
 

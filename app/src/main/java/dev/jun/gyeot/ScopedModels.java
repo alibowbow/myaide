@@ -43,6 +43,16 @@ final class ScopedModels {
         change(s->{put(s,"engine",engine);put(s.optJSONObject("models"),engine,model);put(s.optJSONObject("efforts"),engine+":"+model,effort);});
     }
     static ScopedModels recording(AppStore store) { return new ScopedModels(store, "", RECORDING); }
+    /** 판서's own choice of the model that prepares its lessons: copied from the main chat's the first time, independent after. */
+    static ScopedModels board(AppStore store) {
+        synchronized (store) {
+            if (!store.settings.contains("boardModels")) {
+                JSONObject value = main(store).snapshot();
+                if (!store.settings.edit().putString("boardModels", value.toString()).commit()) throw new IllegalStateException("판서 모델 설정을 저장하지 못했어요.");
+            }
+        }
+        return new ScopedModels(store, "", "boardModels");
+    }
     static JSONObject copy(JSONObject value) { try { return new JSONObject(value.toString()); } catch (Exception e) { throw new IllegalStateException(e); } }
     static JSONObject saved(AppStore store, String key) {
         try { return new JSONObject(store.settings.getString(key, "{}")); } catch (Exception e) { throw new IllegalStateException("모델 설정을 읽지 못했어요. 기존 설정은 보존했어요.", e); }

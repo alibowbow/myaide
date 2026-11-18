@@ -24,7 +24,7 @@ public final class Board {
     /** Who put an item on the board. */
     public static final String ME = "me", AI = "ai";
     public static final String INK = "ink";
-    public static final String[] COLORS = {INK, "red", "blue", "green", "orange", "purple"};
+    public static final String[] COLORS = {INK, "red", "pink", "orange", "yellow", "green", "blue", "purple"};
     /** Text sizes in board units: a phone shows WIDTH units across, so NORMAL reads like body text. */
     public static final float TITLE = 68, BIG = 56, NORMAL = 46, SMALL = 36;
     /** The thickest and thinnest line, the longest text of one item, the most points of one stroke and the most items. */
@@ -77,6 +77,9 @@ public final class Board {
         if (from.optBoolean("hand") && TEXT.equals(made.optString("t"))) Jsons.put(made, "hand", true);
         if (from.optBoolean("fill") && Set.of(STROKE, RECT, OVAL).contains(made.optString("t"))) Jsons.put(made, "fill", true);
         if (from.optBoolean("faint") && !IMAGE.equals(made.optString("t"))) Jsons.put(made, "faint", true);
+        if (from.optBoolean("bare") && made.optBoolean("fill")) Jsons.put(made, "bare", true);
+        if (RECT.equals(made.optString("t")) && from.optDouble("r", 0) > 0) Jsons.put(made, "r", round(clamp(from.optDouble("r"), 0, 80)));
+        if (from.optBoolean("wavy") && LINE.equals(made.optString("t"))) Jsons.put(made, "wavy", true);
         return made;
     }
     /** Marks an item as written in a lesson's step. */
@@ -84,6 +87,12 @@ public final class Board {
     public static JSONObject dashed(JSONObject item) { if (item != null) Jsons.put(item, "d", true); return item; }
     /** A closed stroke, a rectangle or an oval whose inside is tinted with its color (a bar, a slice, a shaded region). */
     public static JSONObject filled(JSONObject item) { if (item != null && Set.of(STROKE, RECT, OVAL).contains(item.optString("t"))) Jsons.put(item, "fill", true); return item; }
+    /** A tinted shape with no outline of its own: a band of color under what is written on it. */
+    public static JSONObject bare(JSONObject item) { if (item != null && item.optBoolean("fill")) Jsons.put(item, "bare", true); return item; }
+    /** A rectangle with corners this round (a note's box, a bar, a pill). */
+    public static JSONObject rounded(JSONObject item, float radius) { if (item != null && RECT.equals(item.optString("t"))) Jsons.put(item, "r", round(clamp(radius, 0, 80))); return item; }
+    /** A line drawn as a wave: the underline of something to remember. */
+    public static JSONObject wavy(JSONObject item) { if (item != null && LINE.equals(item.optString("t"))) Jsons.put(item, "wavy", true); return item; }
     /** Drawn pale, behind the eye: a grid line, a guide. */
     public static JSONObject faint(JSONObject item) { if (item != null) Jsons.put(item, "faint", true); return item; }
 

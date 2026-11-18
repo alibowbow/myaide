@@ -52,6 +52,8 @@ final class BoardTeacher {
     private JSONArray lessons = new JSONArray();
     /** The board's text scale (글자 크기) and letters (글씨체): what a new lesson is written at and in. */
     float textScale = 1; boolean hand;
+    /** The board is a blackboard: the model is told what its colors are there. */
+    boolean chalk;
     /** Giving a kept lesson again: its items are on the board already and only shown anew. */
     private boolean replaying; private String lessonId = ""; private List<List<JSONObject>> kept = new ArrayList<>();
 
@@ -92,7 +94,10 @@ final class BoardTeacher {
     void ask(String request, List<MainRequest.Attachment> files, String language) {
         if (closed || busy()) return;
         int mine = ++epoch; state = THINKING; lesson = null; index = 0; tell();
-        String instructions = BoardScript.instructions(language, textScale, BoardScript.shown(board.items()).size()), input = BoardScript.request(request, Board.words(board.items(), 6000), files != null && !files.isEmpty());
+        // While the model prepares the lesson the voice connects, so the first step's words do not wait for that.
+        if (!muted) voice.warm();
+        String instructions = BoardScript.instructions(language, textScale, BoardScript.shown(board.items()).size())
+            + (chalk ? "\n- This board is a green blackboard written in chalk: \"black\" is white chalk, and every color is a soft chalk color. Yellow and pink chalk stand out most; use them for what matters." : ""), input = BoardScript.request(request, Board.words(board.items(), 6000), files != null && !files.isEmpty());
         Runnable job = () -> {
             BoardScript.Lesson made = null; String problem = null;
             try { made = BoardScript.parse(brain.ask(instructions, input, files == null ? List.of() : files, cancel)); }
@@ -158,6 +163,8 @@ final class BoardTeacher {
             }
             heard = true; advanceWhenDone();
         });
+        // The next step's words are got ready while this one is said, so it starts without a wait.
+        if (lesson != null && at + 1 < lesson.steps().size()) voice.prepare(lesson.steps().get(at + 1).say());
     }
     /** One tick of the writing: every item of the step shows as much as its share of the elapsed time. */
     private void frame() {

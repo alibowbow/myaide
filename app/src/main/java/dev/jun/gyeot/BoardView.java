@@ -47,13 +47,13 @@ final class BoardView extends View {
     private static final int KEPT_PICTURES = 6;
     /** The bars that float over the page, in pixels: writing starts under the top one and follows above the bottom one. */
     private int insetTop, insetBottom;
-    private Typeface penFace; private boolean penMissing, hand; static final float PEN_SCALE = 1.25f;
+    private Typeface penFace; private boolean penMissing, hand; static final float PEN_SCALE = 1.12f;
     private final Paint picturePaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private JSONArray items = new JSONArray();
     private final Deque<Object[]> undo = new ArrayDeque<>(), redo = new ArrayDeque<>();
     private final Map<JSONObject, Float> revealing = new IdentityHashMap<>();
     private final Map<JSONObject, StaticLayout> layouts = new IdentityHashMap<>();
-    private final Paint ink = new Paint(Paint.ANTI_ALIAS_FLAG), dots = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint ink = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint letters = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private Listener listener;
@@ -82,7 +82,7 @@ final class BoardView extends View {
     };
     /** The pen font, read once; null when it cannot be (then handwriting is drawn in print letters). */
     private Typeface pen() {
-        if (penFace == null && !penMissing) { try { penFace = Typeface.createFromAsset(getContext().getAssets(), "fonts/Gaegu-Regular.ttf"); } catch (RuntimeException missing) { penMissing = true; } }
+        if (penFace == null && !penMissing) { try { penFace = Typeface.createFromAsset(getContext().getAssets(), "fonts/GamjaFlower-Regular.ttf"); } catch (RuntimeException missing) { penMissing = true; } }
         return penFace;
     }
     private StaticLayout layout(String text, float size, boolean bold, float maxWidth, boolean hand) {
@@ -198,29 +198,54 @@ final class BoardView extends View {
     }
     void scrollToEnd() { touchedAt = 0; follow(Board.bottom(items, measure)); }
 
-    private int argb(JSONObject item) {
-        int base = switch (item.optString("c")) { case "red" -> Ui.RED; case "blue" -> Ui.BLUE; case "green" -> Ui.GREEN; case "orange" -> Ui.ORANGE; case "purple" -> Ui.PURPLE; default -> Ui.TEXT; };
-        // A highlighter is see-through; a guide line (a graph's grid) is paler still.
-        return item.optBoolean("hl") ? (base & 0x00ffffff) | 0x55000000 : item.optBoolean("faint") ? (base & 0x00ffffff) | 0x2c000000 : base;
+    /** How the board looks: a page of neat notes in pen, or a blackboard in chalk. The same items, drawn differently. */
+    static final String NOTE = "note", CHALK = "chalk";
+    private String style = NOTE;
+    /** Chalk's grain: an alpha-only speckle that a paint in chalk draws through, so lines and letters come out dusty. */
+    private android.graphics.BitmapShader grain;
+    void style(String value) { String wanted = CHALK.equals(value) ? CHALK : NOTE; if (wanted.equals(style)) return; style = wanted; layouts.clear(); invalidate(); }
+    String style() { return style; }
+    boolean chalk() { return CHALK.equals(style); }
+    /** The page's own color: warm paper, or the green of a blackboard. */
+    int paper() { return chalk() ? 0xff28463b : Ui.DARK ? Ui.BG : 0xfffbf8f1; }
+    /** A named color as this board's pen or chalk has it. */
+    int ink(String color) {
+        if (chalk()) return switch (Board.color(color)) { case "red" -> 0xfff59a90; case "pink" -> 0xfff9add0; case "orange" -> 0xfff9b872; case "yellow" -> 0xfffde27a; case "green" -> 0xffa3e3ad; case "blue" -> 0xffa3ccff; case "purple" -> 0xffd4b9ff; default -> 0xfff4f1e7; };
+        return switch (Board.color(color)) { case "red" -> 0xffe5566a; case "pink" -> 0xffee6fa8; case "orange" -> 0xfff0953a; case "yellow" -> 0xffeebb1c; case "green" -> 0xff2aa873; case "blue" -> 0xff4484e6; case "purple" -> 0xff8b6be0; default -> Ui.DARK ? Ui.TEXT : 0xff37322f; };
     }
-    static int swatch(String color) { return switch (Board.color(color)) { case "red" -> Ui.RED; case "blue" -> Ui.BLUE; case "green" -> Ui.GREEN; case "orange" -> Ui.ORANGE; case "purple" -> Ui.PURPLE; default -> Ui.TEXT; }; }
+    private int argb(JSONObject item) {
+        int base = ink(item.optString("c"));
+        // A highlighter is see-through (and yellow marker is brighter than yellow pen); a guide line (a graph's grid) is paler still.
+        if (item.optBoolean("hl")) return ((!chalk() && "yellow".equals(item.optString("c")) ? 0xffffd84a : base) & 0x00ffffff) | (chalk() ? 0x42000000 : 0x5c000000);
+        return item.optBoolean("faint") ? (base & 0x00ffffff) | (chalk() ? 0x38000000 : 0x26000000) : base;
+    }
+    private android.graphics.Shader grain() {
+        if (grain == null) {
+            int size = 96; byte[] alpha = new byte[size * size]; java.util.Random random = new java.util.Random(7);
+            // Mostly solid, with gaps where the chalk skipped over the board's tooth.
+            for (int i = 0; i < alpha.length; i++) { int roll = random.nextInt(100); alpha[i] = (byte) (roll < 9 ? 40 + random.nextInt(60) : roll < 30 ? 150 + random.nextInt(60) : 215 + random.nextInt(40)); }
+            Bitmap speckle = Bitmap.createBitmap(size, size, Bitmap.Config.ALPHA_8); speckle.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(alpha));
+            grain = new android.graphics.BitmapShader(speckle, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT);
+            android.graphics.Matrix coarse = new android.graphics.Matrix(); coarse.setScale(1.6f, 1.6f); grain.setLocalMatrix(coarse);
+        }
+        return grain;
+    }
 
     @Override protected void onDraw(Canvas canvas) {
-        // On screen the page is the app's warm canvas, so the white bars float over it; a picture of it (render) is on white.
-        canvas.drawColor(Ui.BG);
+        canvas.drawColor(paper());
         float scale = scale();
         // The page's own top sits under the top bar; what scrolls above it passes behind the bar.
         canvas.save(); canvas.translate(0, insetTop); canvas.scale(scale, scale); canvas.translate(-left, -top);
         paint(canvas, top - insetTop / scale, top + (getHeight() - insetTop) / scale, true);
         canvas.restore();
     }
-    /** The paper's dots and every item between two heights of the page, in board units. */
+    /** Every item between two heights of the page, in board units. */
     private void paint(Canvas canvas, float from, float to, boolean live) {
-        dots.setColor((Ui.MUTED & 0x00ffffff) | 0x30000000);
-        for (float y = (float) Math.floor(from / 50) * 50; y <= to; y += 50) for (float x = 50; x < Board.WIDTH; x += 50) canvas.drawCircle(x, y, 1.6f, dots);
-        // Pictures lie under everything written, wherever they are in the order of things.
-        for (int pass = 0; pass < 2; pass++) for (int i = 0; i < items.length(); i++) {
-            JSONObject item = items.optJSONObject(i); if (item == null || Board.IMAGE.equals(item.optString("t")) != (pass == 0)) continue;
+        ink.setShader(chalk() ? grain() : null);
+        // Pictures lie under everything written, and a marker's band under the ink it colors, wherever they are in the
+        // order of things: words stay as dark as they were written.
+        for (int pass = 0; pass < 3; pass++) for (int i = 0; i < items.length(); i++) {
+            JSONObject item = items.optJSONObject(i); if (item == null || (Board.IMAGE.equals(item.optString("t")) ? 0 : item.optBoolean("hl") ? 1 : 2) != pass) continue;
             Float shown = live ? revealing.get(item) : null;
             if (shown != null && shown <= 0) continue;
             float[] b = Board.bounds(item, measure);
@@ -260,7 +285,7 @@ final class BoardView extends View {
             StaticLayout layout;
             if (shown >= 1) { layout = layouts.get(item); if (layout == null) { layout = layout(text, size, item.optBoolean("b"), room, item.optBoolean("hand")); layouts.put(item, layout); } }
             else { int count = Math.max(1, Math.min(text.length(), Math.round(text.length() * shown))); if (count < text.length() && Character.isHighSurrogate(text.charAt(count - 1))) count++; layout = layout(text.substring(0, Math.min(text.length(), count)), size, item.optBoolean("b"), room, item.optBoolean("hand")); }
-            layout.getPaint().setColor(argb(item));
+            layout.getPaint().setColor(argb(item)); layout.getPaint().setShader(chalk() ? grain() : null);
             canvas.save(); canvas.translate((float) item.optDouble("x"), (float) item.optDouble("y")); layout.draw(canvas); canvas.restore();
             return;
         }
@@ -280,10 +305,15 @@ final class BoardView extends View {
             }
         } else {
             float x1 = (float) item.optDouble("x1"), y1 = (float) item.optDouble("y1"), x2 = (float) item.optDouble("x2"), y2 = (float) item.optDouble("y2");
-            if (Board.RECT.equals(type)) path.addRoundRect(new RectF(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)), 6, 6, Path.Direction.CW);
+            if (Board.RECT.equals(type)) { float corner = (float) Math.min(item.optDouble("r", 6), Math.min(Math.abs(x2 - x1), Math.abs(y2 - y1)) / 2); path.addRoundRect(new RectF(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)), corner, corner, Path.Direction.CW); }
             else if (Board.OVAL.equals(type)) path.addOval(new RectF(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)), Path.Direction.CW);
             else {
-                path.moveTo(x1, y1); path.lineTo(x2, y2);
+                if (item.optBoolean("wavy") && Math.hypot(x2 - x1, y2 - y1) > 20) {
+                    // A wave along the line: the underline a student draws under what matters.
+                    float length = (float) Math.hypot(x2 - x1, y2 - y1), ux = (x2 - x1) / length, uy = (y2 - y1) / length, wave = Math.max(10, ink.getStrokeWidth() * 3.2f), height = Math.max(3, ink.getStrokeWidth() * 1.1f);
+                    int waves = Math.max(2, Math.round(length / wave)); path.moveTo(x1, y1);
+                    for (int i = 0; i < waves; i++) { float a = length * (i + .5f) / waves, b = length * (i + 1f) / waves, side = i % 2 == 0 ? -height : height; path.quadTo(x1 + ux * a - uy * side, y1 + uy * a + ux * side, x1 + ux * b, y1 + uy * b); }
+                } else { path.moveTo(x1, y1); path.lineTo(x2, y2); }
                 if (item.optBoolean("arrow") && shown >= 1) {
                     double angle = Math.atan2(y2 - y1, x2 - x1); float head = Math.max(18, ink.getStrokeWidth() * 4);
                     path.moveTo(x2, y2); path.lineTo((float) (x2 - head * Math.cos(angle - .45)), (float) (y2 - head * Math.sin(angle - .45)));
@@ -296,8 +326,8 @@ final class BoardView extends View {
             whole.getSegment(0, whole.getLength() * shown, part, true); canvas.drawPath(part, ink);
         } else {
             // A tinted inside (a bar, a slice, a shaded region, a diagram's box) under its own outline.
-            if (item.optBoolean("fill")) { int line = ink.getColor(); ink.setPathEffect(null); ink.setStyle(Paint.Style.FILL); ink.setColor((line & 0x00ffffff) | 0x30000000); canvas.drawPath(path, ink); ink.setStyle(Paint.Style.STROKE); ink.setColor(line); }
-            canvas.drawPath(path, ink);
+            if (item.optBoolean("fill")) { int line = ink.getColor(); ink.setPathEffect(null); ink.setStyle(Paint.Style.FILL); ink.setColor((line & 0x00ffffff) | (chalk() ? 0x3a000000 : 0x2e000000)); canvas.drawPath(path, ink); ink.setStyle(Paint.Style.STROKE); ink.setColor(line); }
+            if (!(item.optBoolean("fill") && item.optBoolean("bare"))) canvas.drawPath(path, ink);
         }
     }
 
@@ -305,7 +335,7 @@ final class BoardView extends View {
     Bitmap render(int widthPx, float from, float to) {
         float scale = widthPx / (float) Board.WIDTH; int height = Math.max(1, Math.round((to - from) * scale));
         Bitmap bitmap = Bitmap.createBitmap(widthPx, height, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap); canvas.drawColor(Ui.CARD); canvas.scale(scale, scale); canvas.translate(0, -from);
+        Canvas canvas = new Canvas(bitmap); canvas.drawColor(paper()); canvas.scale(scale, scale); canvas.translate(0, -from);
         paint(canvas, from, to, false); ink.setPathEffect(null);
         return bitmap;
     }
