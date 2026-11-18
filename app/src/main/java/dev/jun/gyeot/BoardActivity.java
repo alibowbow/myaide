@@ -68,6 +68,7 @@ public final class BoardActivity extends Activity {
     static Executor work;
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
+    private JSONObject classroom=new JSONObject(); private BoardClassroom classroomPicker;
     private Ui ui; private AppStore store; private BoardStore boards; private MainNavigation navigation;
     private FrameLayout root; private BoardView board; private BoardTeacher teacher; private BoardVoice narration;
     private LinearLayout chrome, palette, askBar, lessonBar, files, hint, topBar; private View gapView, toolBar; private TextView hintLead, hintHow; private ImageView hintMark; private TextView titleView, caption, progress; private EditText input;
@@ -119,7 +120,7 @@ public final class BoardActivity extends Activity {
         hint = ui.column(); hint.setGravity(Gravity.CENTER_HORIZONTAL); hint.setPadding(ui.dp(40), 0, ui.dp(40), ui.dp(60));
         ImageView mark = new ImageView(this); hintMark = mark; mark.setImageResource(R.drawable.ic_board); mark.setImageTintList(ColorStateList.valueOf(MUTED)); mark.setAlpha(.55f); hint.addView(mark, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         TextView lead = ui.text("AI 선생님의 판서로 배워요", TITLE2, 700, TEXT); hintLead = lead; lead.setGravity(Gravity.CENTER); lead.setPadding(0, ui.dp(14), 0, ui.dp(6)); hint.addView(lead);
-        TextView how = hintHow = ui.text("문제 사진이나 PDF를 붙여 보내면 판서로 풀어 주고, 주제를 적으면 노트 정리하듯 차례로 가르쳐 줘요.", SUBHEAD, 450, MUTED); how.setGravity(Gravity.CENTER); how.setLineSpacing(ui.dp(3), 1); hint.addView(how);
+        TextView how = hintHow = ui.text("주제나 문제 사진을 보내세요. 아래 +에서 교과와 단원을 골라 수업을 시작할 수도 있어요.", SUBHEAD, 450, MUTED); how.setGravity(Gravity.CENTER); how.setLineSpacing(ui.dp(3), 1); hint.addView(how);
         hint.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(-1, -2); hp.gravity = Gravity.CENTER; root.addView(hint, hp);
         teacher.textScale = textScale(); look();
@@ -185,6 +186,13 @@ public final class BoardActivity extends Activity {
         if (widget) ui.addRow(group, ui.listRow(R.drawable.ic_pen, ACCENT, "편집·조작", BoardWidget.description(item), ui.chevron(), () -> {
             menu.dismiss(); editWidget(item.optString("kind"), item);
         }), true);
+        if(widget)ui.addRow(group,ui.listRow(R.drawable.ic_sparkle,INDIGO,"AI로 수정","바꿀 부분을 말하면 이 자료에 반영해요",ui.chevron(),()->{
+            menu.dismiss();
+            Ui.Sheet command=ui.selectionSheet("AI로 수정",shown);
+            EditText edit=ui.input("예: 두 번째 점을 강조해 줘",2,1200);command.body.addView(edit);
+            command.primary.setText("수정 요청");command.primary.setOnClickListener(v->{String change=edit.getText().toString().strip();if(change.isEmpty())return;command.dismiss();input.setText("판서 자료 "+item.optString("wid")+" 수정: "+change);send();});
+            show(command);
+        }),true);
         if (!lesson.isEmpty()) {
             ui.addRow(group, ui.listRow(R.drawable.ic_play, ACCENT, "여기부터 다시 듣기", "이 단계부터 다시 써 가며 설명해요", null, () -> { menu.dismiss(); teacher.replay(lesson, item.optInt("st")); }), true);
             if (written || widget) ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, INDIGO, "이 부분 더 설명해 줘", "더 쉽게, 다른 방법으로 이어서 판서해요", null, () -> { menu.dismiss(); input.setText("방금 판서에서 ‘" + (widget ? BoardWidget.description(item) : words) + "’ 부분이 이해가 안 돼. 더 쉽게, 다른 방법으로 설명해 줘."); send(); }), true);
@@ -341,15 +349,17 @@ public final class BoardActivity extends Activity {
         if (entry == null) { try { entry = boards.create("", System.currentTimeMillis()); } catch (Exception failed) { toast(failed.getMessage()); finish(); return; } }
         BoardStore.Doc doc = boards.load(entry.id());
         if (!boardId.isBlank() && !boardId.equals(entry.id())) { dropFiles(); input.setText(""); }
-        boardId = entry.id(); title = entry.title(); board.show(doc.items()); teacher.lessons(doc.lessons()); paintTitle(); paintHistory(); paintFiles();
+        boardId = entry.id(); title = entry.title(); classroom=doc.classroom();
+        board.show(dev.jun.gyeot.core.BoardField.restore(doc.items(),board.measure));
+        input.setHint(classroom.length()==0?"풀 문제나 배우고 싶은 것":BoardClassroom.summary(classroom)); teacher.lessons(doc.lessons()); paintTitle(); paintHistory(); paintFiles();
         board.post(board::scrollToEnd);
     }
     private void saveSoon() { main.removeCallbacks(save); main.postDelayed(save, 600); }
     private void saveNow() {
         if (boardId.isEmpty()) return;
-        String id = boardId, name = title; JSONArray copy, lessons;
+        String id = boardId, name = title; JSONObject context=BoardWidget.copy(classroom); JSONArray copy, lessons;
         try { copy = new JSONArray(board.items().toString()); lessons = new JSONArray(teacher.lessons().toString()); } catch (Exception impossible) { return; }
-        background(() -> { try { boards.save(id, copy, lessons, name, System.currentTimeMillis()); } catch (Exception failed) { foreground(() -> { if (!destroyed) toast("판을 저장하지 못했어요."); }); } });
+        background(() -> { try { boards.save(id, copy, lessons, context, name, System.currentTimeMillis()); } catch (Exception failed) { foreground(() -> { if (!destroyed) toast("판을 저장하지 못했어요."); }); } });
     }
     private void newBoard() {
         stopLesson(); main.removeCallbacks(save); saveNow();
@@ -477,11 +487,14 @@ public final class BoardActivity extends Activity {
     private void visuals() {
         if (busy()) return;
         Ui.Sheet pick = ui.selectionSheet("시각 자료 넣기", "넣은 자료를 탭하면 다시 편집할 수 있어요."); pick.primary.setVisibility(View.GONE);
+        LinearLayout curriculum=ui.group();
+        ui.addRow(curriculum,ui.listRow(R.drawable.ic_book,INDIGO,"교과 수업",classroom.length()==0?"중1~고3 · 아홉 교과의 성취기준과 주제":BoardClassroom.summary(classroom),ui.chevron(),()->{pick.dismiss();classroom();}),false);
+        pick.body.addView(curriculum);pick.body.addView(ui.sectionHeader("판서 도구"));
         String[] kinds = {BoardWidget.GRAPH, BoardWidget.TABLE, BoardWidget.CHART, BoardWidget.GEOMETRY,
-            BoardWidget.SOLID, BoardWidget.NUMBER_LINE, BoardWidget.FLOW, BoardWidget.TIMELINE, BoardWidget.TREE};
+            BoardWidget.SOLID, BoardWidget.NUMBER_LINE, BoardWidget.FLOW, BoardWidget.TIMELINE, BoardWidget.TREE,BoardWidget.RELATION,BoardWidget.FIELD,BoardWidget.MAP,BoardWidget.CHEM,BoardWidget.DIAGRAM,BoardWidget.READING};
         String[] descriptions = {"함수식, 축 범위, 변수 슬라이더", "행과 셀을 입력하거나 붙여넣기", "막대·선·원형 차트",
             "꼭짓점을 끌어 길이와 각도 측정", "회전하고 전개도 펼치기", "범위와 열린·닫힌 점",
-            "단계를 화살표로 연결", "날짜와 단계 정리", "중심 주제와 가지 정리"};
+            "단계를 화살표로 연결", "날짜와 단계 정리", "중심 주제와 가지 정리","방정식·매개변수·극좌표 곡선","작은 소수에서 타원곡선의 점 표시","지도에 장소를 찍고 경로 연결","원자 수와 계수 검산","구조 모식도와 부위별 강조","지문과 사료의 원문·해설"};
         LinearLayout group = ui.group();
         for (int i = 0; i < kinds.length; i++) {
             String kind = kinds[i];
@@ -489,6 +502,22 @@ public final class BoardActivity extends Activity {
                 () -> { pick.dismiss(); editWidget(kind, null); }), true);
         }
         pick.body.addView(group); show(pick);
+    }
+
+    private void classroom() {
+        if(busy())return;
+        try { if(classroomPicker==null)classroomPicker=new BoardClassroom(this,ui); }
+        catch(java.io.IOException failed){toast("교과 기준 자료를 읽지 못했어요.");return;}
+        String id=boardId;
+        show(classroomPicker.open(classroom,context->{
+            if(!id.equals(boardId) || busy())return;
+            classroom=context;saveSoon();
+            input.setHint(context.length()==0?"풀 문제나 배우고 싶은 것":BoardClassroom.summary(context));
+            if(context.length()>0){
+                if(input.getText().toString().isBlank())input.setText(BoardClassroom.summary(context)+" 수업을 시작해 줘.");
+                send();
+            }
+        }));
     }
 
     private void editWidget(String kind, JSONObject before) {
@@ -790,6 +819,7 @@ public final class BoardActivity extends Activity {
         if (words.isEmpty() && attached.isEmpty() && shownPictures.isEmpty()) { toast("풀 문제나 배우고 싶은 것을 적어 주세요."); return; }
         if (brain == null && ScopedModels.board(store).readyEngine().isBlank()) { toast("판서에 쓸 AI를 먼저 골라 주세요. 더 보기 → 두뇌"); return; }
         List<JSONObject> sending = new ArrayList<>(attached);
+        String lessonContext=BoardClassroom.instruction(classroom);
         String boardAtSend = boardId; int epoch = ++prepareEpoch; preparing = true;
         Bitmap drawn = null;
         if (handDrawn()) { float bottom = Board.bottom(board.items(), board.measure) + 20; drawn = board.render(Board.WIDTH, Math.max(0, bottom - SNAPSHOT_UNITS), bottom); }
@@ -825,7 +855,7 @@ public final class BoardActivity extends Activity {
                 }
             } catch (Exception failed) { problem = failed.getMessage() == null || failed.getMessage().isBlank() ? "첨부한 자료를 읽지 못했어요." : failed.getMessage(); }
             finally { if (snapshot != null) snapshot.recycle(); }
-            String why = problem, request = text.toString();
+            String why = problem, request = text.toString()+lessonContext;
             foreground(() -> {
                 if (destroyed || epoch != prepareEpoch || !boardAtSend.equals(boardId)) return;
                 preparing = false;

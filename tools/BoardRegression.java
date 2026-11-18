@@ -14,11 +14,116 @@ final class BoardRegression {
     }
 
     public static void main(String[] args) throws Exception {
+        schoolTools();
+        agentTools();
         graph();
         tableAndFigure();
         roundTrip();
         pagesAndGeometry();
         System.out.println("Board regression checks passed: " + checked);
+    }
+
+    private static void schoolTools() throws Exception {
+        var mod=obj("p",17,"a",0,"b",7,"points",arr(obj("at",arr(1,5),"label","G"),obj("at",arr(1,12),"label","−G"),obj("at",arr(2,10),"label","2G")));
+        JSONArray dots=BoardField.points(mod);
+        check(dots.length()==17,"affine point count over F17");
+        var coords=new java.util.HashSet<String>();
+        for(int i=0;i<dots.length();i++)coords.add(dots.getJSONObject(i).getJSONArray("at").toString());
+        check(coords.containsAll(List.of("[1,5]","[1,12]","[2,10]")),"user's exact elliptic curve points");
+        var plotted=BoardField.draw(mod,.85f,Board.ROUGH).items();
+        check(plotted.stream().filter(p->p.optJSONArray("p")!=null && p.optJSONArray("p").length()==2).count()==17,"all affine points drawn");
+        check(plotted.stream().anyMatch(p->"2G".equals(p.optString("text"))),"selected point labelled");
+        check(BoardField.recognize("연습용: p = 17, y² ≡ x³ + 7 (mod 17)").optInt("p")==17,"legacy equation detected");
+        check(BoardField.recognize("y² ≡ x³ + 7 (mod p)")==null,"no invented small prime");
+        for(int bad:List.of(1,9,101))reject(()->BoardField.points(obj("p",bad)),"invalid modulus");
+        var pointsOnly=BoardPlot.graph(obj("points",arr(arr(37,112),obj("at",arr(80,130)))),0,480,.85f);
+        check(pointsOnly.stream().filter(i->i.optJSONArray("p")!=null && i.optJSONArray("p").length()==2).count()==2,"scatter works without functions or explicit bounds");
+        for(JSONObject input:List.of(obj("mode","implicit","expr","y^2=x^3+7"),obj("mode","parametric","xt","cos(t)","yt","sin(t)"),obj("mode","polar","expr","2*cos(3*t)"))) {
+            var relation=BoardWidget.make(BoardWidget.RELATION,input,0,.85f,Board.ME,Board.ROUGH);
+            check(BoardWidget.render(relation,Board.ROUGH).stream().anyMatch(i->"blue".equals(i.optString("c"))),"non-cartesian geometry is drawn");
+        }
+        reject(()->BoardWidget.make("relation",obj("mode","implicit","expr","1/(x-0.023)=0"),0,1,Board.ME,Board.ROUGH),"a sign change at a pole is not an implicit zero");
+        var legacy=BoardWidget.stored("graph",obj(),120,.85f,58,Board.AI);
+        JSONObject clue=Board.inLesson(Board.text(48,40,"연습용: y² ≡ x³ + 7 (mod 17)",30,"ink",false,900,Board.AI),"lesson",1);
+        Board.inLesson(legacy,"lesson",1);
+        var restored=BoardField.restore(arr(clue,legacy,Board.text(48,200,"다음 줄",30,"ink",false,900,Board.AI)),Board.ROUGH);
+        check(restored.getJSONObject(1).getString("kind").equals("finitefield") && restored.getJSONObject(2).getDouble("y")>600,"a broken kept graph is restored and following writing moves");
+        check(BoardField.restore(restored,Board.ROUGH)==restored,"migration is idempotent");
+
+        var eq=BoardChemistry.draw(obj("formula","Ca(OH)2 + 2HCl → CaCl2 + 2H2O"),.85f,Board.ROUGH);
+        check(eq.items().stream().anyMatch(i->"양쪽 원자 수가 같아요".equals(i.optString("text"))),"groups and coefficients conserve atoms");
+        check(BoardChemistry.draw(obj("formula","H2 + O2 → H2O"),1,Board.ROUGH).items().stream().anyMatch(i->"양쪽 원자 수가 달라요".equals(i.optString("text"))),"unbalanced equation reported");
+        reject(()->BoardChemistry.draw(obj("formula","Mg(OH"),1,Board.ROUGH),"invalid chemistry syntax");
+        var map=BoardWidget.make("map",obj("region","korea","places",arr(obj("name","서울","lon",126.98,"lat",37.57),obj("name","경주","lon",129.22,"lat",35.86)),"route",true),0,.85f,Board.AI,Board.ROUGH);
+        var land=BoardWidget.render(map,Board.ROUGH);
+        check(land.stream().filter(i->"green".equals(i.optString("c"))).count()>10,"actual local coastline");
+        check(land.stream().anyMatch(i->i.optBoolean("arrow")),"map route drawn");
+        reject(()->BoardMap.draw(obj("region","korea","places",arr(obj("lon",1,"lat",1))),1,Board.ROUGH),"invalid map extent");
+        for(String preset:List.of("plantCell","animalCell","neuron","earthLayers")){
+            check(BoardIllustration.parts(obj("preset",preset)).length()>=3,"preset has meaningful editable layers");
+        }
+        var layers=arr(obj("id","force","at",arr(20,30),"label","힘","shapes",arr(obj("kind","path","points",arr(arr(80,30),arr(300,160))))));
+        var layered=BoardWidget.make("diagram",obj("layers",layers,"focus","force"),30,1,Board.AI,Board.ROUGH);
+        check(BoardWidget.render(Board.clean(arr(layered)).getJSONObject(0),Board.ROUGH).stream().anyMatch(i->i.optJSONArray("p")!=null && i.optJSONArray("p").optInt(2)==300),"custom illustration survives nested point arrays");
+        for(String kind:List.of("tetrahedron","pyramid","prism","cylinder","cone","sphere")){
+            var solid=BoardWidget.make("solid",obj("kind",kind,"yaw",35,"pitch",22),0,1,Board.ME,Board.ROUGH);
+            check(BoardWidget.render(solid,Board.ROUGH).stream().anyMatch(i->BoardSolid.name(kind).equals(i.optString("text"))),"correct solid drawn: "+kind);
+        }
+        var mesh=obj("kind","mesh","vertices",arr(arr(0,0,0),arr(1,0,0),arr(0,1,0),arr(0,0,1)),"faces",arr(arr(0,1,2),arr(0,2,3),arr(0,1,3),arr(1,2,3)));
+        check(BoardSolid.draw(mesh,1).items().size()==5,"agent-defined tetrahedral mesh has four faces");
+        var reading=obj("lines",arr(obj("text","봄이 왔다.","note","계절의 변화")),"reveal",false);
+        check(BoardIllustration.reading(reading,1,Board.ROUGH).items().stream().noneMatch(i->"계절의 변화".equals(i.optString("text"))),"reading notes can be hidden");
+        put(reading,"reveal",true);check(BoardIllustration.reading(reading,1,Board.ROUGH).items().stream().anyMatch(i->"계절의 변화".equals(i.optString("text"))),"reading notes revealed");
+    }
+    private static void reject(Runnable action,String why) {
+        try{action.run();}catch(IllegalArgumentException expected){check(true,why);return;}
+        throw new AssertionError(why);
+    }
+    private static void agentTools() throws Exception {
+        JSONObject graph=obj("op","graph","as","slope","functions",arr("a*x"),"parameters",obj("a",obj("value",1,"min",-3,"max",3)));
+        JSONObject update=obj("op","update","target","slope","set",obj("parameters",obj("a",obj("value",2))));
+        var create=new BoardScript.Step("그래프",List.of(graph));
+        var change=new BoardScript.Step("기울기를 바꿔요",List.of(update));
+        var plan=BoardAgent.prepare(new BoardScript.Lesson("직선",List.of(create,change)),arr());
+        var flow=new BoardScript.Flow(arr(),Board.ROUGH);
+        JSONObject placed=flow.place(plan.steps().get(0)).get(0);
+        var stored=Board.clean(new JSONArray(arr(placed).toString()));String id=placed.getString("wid");
+        check(BoardAgent.inventory(stored).contains(id),"agent can identify stored visual");
+        var result=BoardAgent.update(stored,plan.steps().get(1).draw().get(0),Board.ROUGH);
+        check(result.length()==1 && id.equals(result.getJSONObject(0).getString("wid")),"edit replaces original and preserves id");
+        var p=BoardWidget.parameters(BoardWidget.spec(result.getJSONObject(0))).get(0);
+        check(p.value()==2 && p.min()==-3 && p.max()==3,"nested patch preserves other parameters");
+        check(BoardWidget.parameters(BoardWidget.spec(stored.getJSONObject(0))).get(0).value()==1,"undo retains old data");
+        var invalid=obj("op","update","target","unknown","set",obj("a",2));
+        reject(()->BoardAgent.prepare(new BoardScript.Lesson("",List.of(new BoardScript.Step("",List.of(invalid)))),stored),"bad reference diagnosed");
+        reject(()->BoardAgent.checked("{\"steps\":[{\"say\":\"함수 설명\"}]}",arr(),"그래프를 그려줘"),"missing requested graph diagnosed");
+        var repair=BoardAgent.checked("{\"steps\":[{\"draw\":[{\"op\":\"write\",\"text\":\"연습: y² ≡ x³ + 7 (mod 17)\"}]}]}",arr(),"비트코인 타원곡선 설명");
+        check(repair.steps().stream().anyMatch(step->step.draw().stream().anyMatch(o->"finitefield".equals(o.optString("op")))),"toy field lesson gets a real plot even if the model omits it");
+        String textOnly = "{\"steps\":[{\"say\":\"비트코인의 타원곡선 원리를 봅니다.\"}]}";
+        var automatic = BoardAgent.checked(textOnly, arr(), "비트코인 타원곡선을 설명해 줘");
+        var teaching = automatic.steps().get(1);
+        check(teaching.draw().get(1).optInt("p")==17 && teaching.draw().get(1).getJSONArray("points").length()==3,
+                "a topic alone leads to a labelled finite-field plot");
+        check(teaching.draw().get(0).getString("text").contains("연습용"), "toy field is identified on the board");
+        var chosen = BoardAgent.checked(textOnly, arr(), "secp256k1을 p=19로 설명해 줘");
+        check(chosen.steps().get(1).draw().get(1).optInt("p")==19, "explicit prime respected");
+        check(BoardAgent.checked(textOnly, arr(), "비트코인의 타원곡선을 그림 없이 글로만 설명해 줘").steps().size()==1,
+                "explicit text-only request kept");
+        check(BoardAgent.checked(textOnly, arr(), "secp256k1 실제 소수만 알려줘").steps().size()==1,
+                "an exact parameter request does not add a toy example");
+        var symbolic = BoardAgent.checked("{\"steps\":[{\"say\":\"p = 2^256 - 2^32 - 977\"}]}", arr(), "secp256k1 설명");
+        check(symbolic.steps().get(1).draw().get(1).optInt("p")==17, "large prime formula does not become modulus two");
+        check(BoardAgent.checked(textOnly, arr(), "비트코인 가격의 추세를 설명해 줘").steps().size()==1,
+                "unrelated Bitcoin topic has no cryptographic diagram");
+        var mention = BoardAgent.checked("{\"steps\":[{\"say\":\"y² ≡ x³ + 7 (mod 17). (1,5), (1,12), (1,5), (0,1)\"}]}", arr(), "점 확인");
+        check(mention.steps().get(1).draw().get(1).getJSONArray("points").length()==2,
+                "valid finite-field coordinates in text are highlighted just once");
+        var mapOnly = BoardAgent.checked("{\"steps\":[{\"draw\":[{\"op\":\"map\",\"region\":\"korea\"}]}]}",
+                arr(), "Draw a map of Korea");
+        check(mapOnly.steps().size()==1, "English map instruction does not require a graph");
+        check(BoardAgent.checked("{\"steps\":[{\"draw\":[{\"op\":\"finitefield\",\"a\":0,\"b\":7,\"p\":19}]}]}",
+                arr(), "비트코인 타원곡선 설명").steps().size()==1, "existing finite-field lesson is not duplicated");
+
     }
 
     private static void graph() {

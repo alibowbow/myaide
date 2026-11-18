@@ -55,6 +55,7 @@ final class BoardView extends View {
     private final Deque<Object[]> undo = new ArrayDeque<>(), redo = new ArrayDeque<>();
     private final Map<JSONObject, Float> revealing = new IdentityHashMap<>();
     private final Map<JSONObject, StaticLayout> layouts = new IdentityHashMap<>();
+    private final Map<JSONObject, JSONObject> playback = new IdentityHashMap<>();
     private final Map<JSONObject, List<JSONObject>> widgets = new IdentityHashMap<>();
     private final Paint ink = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint letters = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -150,7 +151,7 @@ final class BoardView extends View {
     // ── What is on the board ────────────────────────────────────────────────────────────────────────────
 
     JSONArray items() { return items; }
-    void show(JSONArray stored) { items = stored == null ? new JSONArray() : stored; undo.clear(); redo.clear(); revealing.clear(); layouts.clear(); widgets.clear(); loaded.clear(); left = 0; top = 0; zoom = 1; invalidate(); }
+    void show(JSONArray stored) { playback.clear(); items = stored == null ? new JSONArray() : stored; undo.clear(); redo.clear(); revealing.clear(); layouts.clear(); widgets.clear(); loaded.clear(); left = 0; top = 0; zoom = 1; invalidate(); }
     /** Puts a picture on the page under what is there; undo takes it off again. */
     void addPicture(JSONObject picture) { if (add(picture, false)) changed(); }
     /** Shows another arrangement of the board as a single undoable edit. */
@@ -197,7 +198,14 @@ final class BoardView extends View {
         if (fraction >= 1) revealing.remove(item); else if (revealing.containsKey(item) || fraction < 1) revealing.put(item, Math.max(0, fraction));
         invalidate();
     }
-    void revealAll() { revealing.clear(); invalidate(); }
+    void revealAll() { revealing.clear();for(JSONObject item:playback.values())widgets.remove(item);playback.clear();invalidate(); }
+    void showFrame(JSONObject item,JSONObject spec) {
+        if(item==null || spec==null)return;
+        try {
+            JSONObject frame=BoardWidget.make(item.optString("kind"),spec,0,(float)item.optDouble("scale",.85),item.optString("by"),measure);
+            if(frame!=null){widgets.remove(playback.put(item,frame));invalidate();}
+        } catch(IllegalArgumentException ignored) { /* Older saved input can still use the current drawing. */ }
+    }
     private int indexOf(JSONObject item) { for (int i = items.length() - 1; i >= 0; i--) if (items.opt(i) == item) return i; return -1; }
     private void removeAt(int index) { items.remove(index); }
     private void insert(int index, JSONObject item) {
@@ -349,7 +357,13 @@ final class BoardView extends View {
             if (shown != null && shown <= 0) continue;
             float[] b = Board.bounds(item, measure);
             if (b[3] < from - 40 || b[1] > to + 40) continue;
-            if (pass == 0) picture(canvas, item, b, shown == null ? 1 : shown); else paint(canvas, item, shown == null ? 1 : shown);
+            if (pass == 0) picture(canvas, item, b, shown == null ? 1 : shown);
+            else if(live && playback.containsKey(item)){
+                JSONObject frame=playback.get(item);
+                float fit=(float)Math.min(1,item.optDouble("h")/Math.max(1,frame.optDouble("h")));
+                canvas.save();canvas.translate(0,(float)item.optDouble("y"));canvas.scale(fit,fit);
+                paint(canvas,frame,shown==null?1:shown);canvas.restore();
+            } else paint(canvas, item, shown == null ? 1 : shown);
         }
         if (live && preview != null) paint(canvas, preview, 1);
         if (live && drawing && points.size() >= 2 && (tool.equals(PEN) || tool.equals(MARKER))) {
