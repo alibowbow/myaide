@@ -186,6 +186,27 @@ public final class MainSearch {
      * The site a chip names: the host without www. or m. (the chip shows its end, the registrable part, when it is long), or
      * for a Gemini grounding redirect the site Google gave as its title when that title is a site, else GOOGLE.
      */
+    private static final Set<String> SECOND = Set.of("co", "ac", "go", "or", "ne", "re", "pe", "gov", "edu", "com", "net", "org", "mil", "nhs");
+    private static final Set<String> GENERIC = Set.of("www", "m", "mobile", "amp", "news", "blog", "blogs", "docs", "doc", "en", "ko", "kr", "ja", "jp", "zh", "de", "fr", "es",
+        "apps", "app", "help", "support", "api", "web", "search", "store", "shop", "cafe", "post", "view", "data", "info", "home", "my", "n", "v", "dic", "dict", "about", "community", "forum", "forums", "wiki");
+    /**
+     * A site's short name, as a small citation mark shows it: the name it is registered under (onlinelibrary.wiley.com
+     * is "wiley", news.bbc.co.uk "bbc"), or the service in front of a short umbrella name (pubmed.ncbi.nlm.nih.gov is
+     * "pubmed"). Anything that is not a host name is given back as it is.
+     */
+    public static String shortName(String site) {
+        String host = site == null ? "" : site.strip().toLowerCase(Locale.ROOT).replaceFirst("^www\\.", "");
+        if (!DOMAIN.matcher(host).matches()) return site == null ? "" : site.strip();
+        String[] labels = host.split("\\."); int count = labels.length, name = count - 2;
+        if (count >= 3 && labels[count - 1].length() == 2 && SECOND.contains(labels[count - 2])) name = count - 3;
+        String registered = labels[name];
+        if (registered.length() <= 3 && name > 0 && labels[0].length() >= 4 && !GENERIC.contains(labels[0])) return labels[0];
+        return registered;
+    }
+    /** The host of a web address, without www., or "" when it has none. */
+    public static String host(String uri) {
+        try { String host = URI.create(uri).getHost(); return host == null ? "" : host.toLowerCase(Locale.ROOT).replaceFirst("^www\\.", ""); } catch (Exception invalid) { return ""; }
+    }
     public static String site(String uri, String title) {
         String host;
         try { host = URI.create(uri).getHost(); } catch (Exception invalid) { host = null; }

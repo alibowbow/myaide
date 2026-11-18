@@ -627,7 +627,6 @@ final class MainChatPage implements AutoCloseable {
         MainSearch.Web web = state.equals("done") ? MainSearch.web(m.optString("web")) : MainSearch.Web.NONE;
         if (state.equals("done")) {
             if (!m.optString("thinking").isBlank()) { Thought thought = new Thought(id); thought.set(m.optString("thinking")); wrap.addView(thought.view); }
-            if (web.sources().length() > 0) wrap.addView(sources(web.sources()), new LinearLayout.LayoutParams(-1, -2));
             int liveVisuals = live.getOrDefault(id, 0);
             String key = id + ":" + written.hashCode() + ":" + written.length() + ":" + liveVisuals + ":" + DARK;
             View content = previous.remove(key);
@@ -636,6 +635,7 @@ final class MainChatPage implements AutoCloseable {
             // Only the newest answer offers its suggested requests; a kept view just shows or hides them.
             RichAnswer.offer(content, id == offering);
             answers.put(key, content); wrap.addView(content);
+            if (web.sources().length() > 0) wrap.addView(sources(web.sources()), new LinearLayout.LayoutParams(-1, -2));
             // Google's search suggestions under a grounded Gemini answer, as wide as it, as Google sent them, made once the
             // answer comes near the screen.
             if (!web.suggestions().isBlank()) {
@@ -828,26 +828,57 @@ final class MainChatPage implements AutoCloseable {
         try { activity.startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, Markdown.plain(text)), "답변 공유")); } catch (Exception e) { error(e); }
     }
     /**
-     * 출처: the pages the answer cited, as compact chips above it (the site, then the page's title), at most MainSearch.STRIP.
-     * The titles are untrusted web text, shown as plain text. A tap opens the page in the app's browser.
+     * 출처: the pages the answer cited, as one small button under it (the first sites' marks overlapping, and how many
+     * pages there are) that lists them in a sheet: each page's title, its number and its site. At most MainSearch.STRIP.
+     * The titles are untrusted web text, shown as plain text. A tap on a page opens it in the app's browser.
      */
     private View sources(JSONArray pages) {
-        HorizontalScrollView strip = new HorizontalScrollView(activity); strip.setHorizontalScrollBarEnabled(false); strip.setClipToPadding(false);
-        LinearLayout row = ui.row(); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(0, ui.dp(2), 0, ui.dp(8));
-        TextView label = ui.text("출처", FOOTNOTE, 600, MUTED); label.setPadding(ui.dp(2), 0, ui.dp(8), 0); label.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); row.addView(label);
-        for (int i = 0; i < pages.length(); i++) {
-            JSONObject page = pages.optJSONObject(i); if (page == null) continue;
-            String uri = page.optString("uri"), site = page.optString("site"), title = page.optString("title");
-            LinearLayout chip = ui.column(); chip.setBackground(ui.shape(FILL, 14)); chip.setPadding(ui.dp(12), ui.dp(6), ui.dp(12), ui.dp(6)); chip.setMinimumHeight(ui.dp(44)); chip.setGravity(Gravity.CENTER_VERTICAL);
-            // A long host is cut at its start, so its end, the site it really is, always shows ("…verification-center.example").
-            TextView name = ui.text(site, 12.5f, 650, TEXT); name.setSingleLine(true); name.setEllipsize(TextUtils.TruncateAt.START); name.setMaxWidth(ui.dp(200)); chip.addView(name);
-            if (!title.isBlank()) { TextView about = ui.text(title, 12f, 450, MUTED); about.setSingleLine(true); about.setEllipsize(TextUtils.TruncateAt.END); about.setMaxWidth(ui.dp(200)); chip.addView(about); }
-            chip.setContentDescription("출처 " + (i + 1) + " · " + site + (title.isBlank() ? "" : " · " + title) + " · 앱 브라우저로 열기");
-            chip.setOnClickListener(v -> openSource(uri)); Ui.pressable(chip, true);
-            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-2, -2); cp.rightMargin = ui.dp(8); row.addView(chip, cp);
+        List<JSONObject> list = new ArrayList<>(); for (int i = 0; i < pages.length(); i++) { JSONObject page = pages.optJSONObject(i); if (page != null) list.add(page); }
+        LinearLayout button = ui.row(); button.setGravity(Gravity.CENTER_VERTICAL); button.setBackground(ui.shape(FILL, PILL)); button.setMinimumHeight(ui.dp(34));
+        button.setPadding(ui.dp(5), ui.dp(5), ui.dp(13), ui.dp(5));
+        for (int i = 0; i < Math.min(3, list.size()); i++) {
+            LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(ui.dp(22), ui.dp(22)); if (i > 0) mp.leftMargin = -ui.dp(7);
+            button.addView(mark(list.get(i).optString("site"), 22, FILL), mp);
         }
-        strip.addView(row);
-        return strip;
+        TextView count = ui.text("출처 " + list.size(), FOOTNOTE, 600, MUTED); count.setPadding(ui.dp(7), 0, 0, 0); count.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); button.addView(count);
+        button.setContentDescription("출처 " + list.size() + "개 보기"); button.setOnClickListener(v -> sourceList(list)); Ui.pressable(button, true);
+        LinearLayout line = ui.row(); line.setPadding(0, ui.dp(8), 0, ui.dp(2)); line.addView(button, new LinearLayout.LayoutParams(-2, -2));
+        return line;
+    }
+    /** The cited pages in a sheet, each opening in the app's browser. */
+    private void sourceList(List<JSONObject> pages) {
+        if (stopped) return;
+        Ui.Sheet sheet = ui.selectionSheet("출처", "답변이 참고한 페이지예요 · 누르면 앱 브라우저로 열려요"); sheet.primary.setVisibility(View.GONE);
+        LinearLayout group = ui.group();
+        for (int i = 0; i < pages.size(); i++) {
+            JSONObject page = pages.get(i); String uri = page.optString("uri"), site = page.optString("site"), title = page.optString("title");
+            LinearLayout row = ui.row(); row.setGravity(Gravity.CENTER_VERTICAL); row.setMinimumHeight(ui.dp(62)); row.setPadding(ui.dp(14), ui.dp(10), ui.dp(12), ui.dp(10));
+            row.addView(mark(site, 32, 0), new LinearLayout.LayoutParams(ui.dp(32), ui.dp(32)));
+            LinearLayout words = ui.column(); words.setPadding(ui.dp(12), 0, ui.dp(8), 0);
+            TextView head = ui.text(title.isBlank() ? MainSearch.shortName(site) : title, CALLOUT, 560, TEXT); head.setMaxLines(2); head.setEllipsize(TextUtils.TruncateAt.END); words.addView(head);
+            LinearLayout where = ui.row(); where.setPadding(0, ui.dp(2), 0, 0);
+            TextView number = ui.text((i + 1) + " · ", FOOTNOTE, 500, MUTED); where.addView(number);
+            // A long host is cut at its start, so its end, the site it really is, always shows ("…verification-center.example").
+            TextView name = ui.text(site, FOOTNOTE, 450, MUTED); name.setSingleLine(true); name.setEllipsize(TextUtils.TruncateAt.START); where.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+            words.addView(where); row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+            ImageView open = new ImageView(activity); open.setImageResource(R.drawable.ic_chevron); open.setImageTintList(android.content.res.ColorStateList.valueOf(MUTED)); open.setAlpha(.6f);
+            open.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); row.addView(open, new LinearLayout.LayoutParams(ui.dp(16), ui.dp(16)));
+            row.setContentDescription("출처 " + (i + 1) + " · " + site + (title.isBlank() ? "" : " · " + title) + " · 앱 브라우저로 열기");
+            row.setOnClickListener(v -> { sheet.dismiss(); openSource(uri); }); Ui.pressable(row, false);
+            ui.addRow(group, row, true);
+        }
+        sheet.body.addView(group); sheet.show();
+    }
+    private static final int[] MARKS = {0xff4f86e8, 0xff2e9e74, 0xffe08a3c, 0xff8e6ad8, 0xffdb5c8a, 0xff2f9fb3, 0xff6f7c8c};
+    /** A site's mark: the first letter of its short name on a disc of its own color, ringed in ring when it overlaps another. */
+    private TextView mark(String site, int size, int ring) {
+        String name = MainSearch.shortName(site); String letter = name.isEmpty() ? "·" : name.substring(0, name.offsetByCodePoints(0, 1)).toUpperCase(java.util.Locale.ROOT);
+        TextView mark = ui.text(letter, 12, 700, 0xffffffff); mark.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP, size * .45f);
+        mark.setGravity(Gravity.CENTER); mark.setIncludeFontPadding(false); mark.setSingleLine(true); mark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        android.graphics.drawable.GradientDrawable disc = new android.graphics.drawable.GradientDrawable(); disc.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        disc.setColor(MARKS[Math.floorMod(name.hashCode(), MARKS.length)]); if (ring != 0) disc.setStroke(ui.dp(2), ring);
+        mark.setBackground(disc);
+        return mark;
     }
     /**
      * Where an answer's Google search suggestions go: empty until the answer comes near the screen (nearSuggestions), then

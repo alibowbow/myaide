@@ -5,11 +5,13 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Insets;
+import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Spannable;
+import android.text.Spanned;
 import android.text.method.LinkMovementMethod;
 import android.text.style.ClickableSpan;
 import android.text.style.URLSpan;
@@ -33,6 +35,7 @@ import android.widget.TextView;
 import dev.jun.gyeot.core.Markdown;
 import dev.jun.gyeot.core.RichBlocks;
 import java.io.ByteArrayInputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import static dev.jun.gyeot.Ui.*;
@@ -236,16 +239,69 @@ final class RichAnswer {
         return body;
     }
 
-    /** Inline citations (a link that reads [1], as Markdown draws Grok's) go to the host's cite, the rest stay ordinary links. */
-    private static CharSequence cited(CharSequence rendered, Host host) {
-        if (!(rendered instanceof Spannable spans)) return rendered;
-        for (URLSpan link : spans.getSpans(0, spans.length(), URLSpan.class)) {
-            int start = spans.getSpanStart(link), end = spans.getSpanEnd(link), flags = spans.getSpanFlags(link); String url = link.getURL();
-            if (!spans.subSequence(start, end).toString().matches("\\[\\d{1,3}]")) continue;
+    /**
+     * Inline citations go to the host's cite and are drawn as small marks: a link that reads [1] (Gemini's and Grok's) as
+     * its number, a link that reads as its own site's address (ChatGPT writes "(pubmed.ncbi.nlm.nih.gov)") as the site's
+     * short name, with the brackets around one or a run of them gone. The rest stay ordinary links.
+     */
+    static CharSequence cited(CharSequence rendered, Host host) {
+        if (!(rendered instanceof Spanned spanned)) return rendered;
+        android.text.SpannableStringBuilder spans = new android.text.SpannableStringBuilder(spanned);
+        URLSpan[] links = spans.getSpans(0, spans.length(), URLSpan.class);
+        java.util.Arrays.sort(links, java.util.Comparator.comparingInt(spans::getSpanStart));
+        List<int[]> marks = new ArrayList<>();
+        for (URLSpan link : links) {
+            int start = spans.getSpanStart(link), end = spans.getSpanEnd(link); String url = link.getURL(), words = spans.subSequence(start, end).toString().strip();
+            String label = citation(words, url); if (label == null) continue;
             spans.removeSpan(link);
-            spans.setSpan(new ClickableSpan() { @Override public void onClick(View widget) { host.cite(url); } }, start, end, flags);
+            // The mark has its own size: a <small> around a number would make it smaller still.
+            for (android.text.style.RelativeSizeSpan smaller : spans.getSpans(start, end, android.text.style.RelativeSizeSpan.class)) if (spans.getSpanStart(smaller) >= start && spans.getSpanEnd(smaller) <= end) spans.removeSpan(smaller);
+            spans.setSpan(new ClickableSpan() { @Override public void onClick(View widget) { host.cite(url); } @Override public void updateDrawState(android.text.TextPaint paint) {} }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            spans.setSpan(new Cite(label), start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            marks.add(new int[]{start, end});
         }
-        return rendered;
+        // Runs of marks with only commas or spaces between them, from the last so that what is cut does not move the rest.
+        for (int i = marks.size() - 1; i >= 0; ) {
+            int last = i; while (i > 0 && spans.subSequence(marks.get(i - 1)[1], marks.get(i)[0]).toString().matches("[\\s,;·]*")) i--;
+            int first = i; i--;
+            int from = marks.get(first)[0], to = marks.get(last)[1];
+            boolean bracketed = from > 0 && to < spans.length() && "(（[".indexOf(spans.charAt(from - 1)) >= 0 && ")）]".indexOf(spans.charAt(to)) >= 0;
+            if (bracketed) spans.delete(to, to + 1);
+            for (int k = last; k > first; k--) spans.delete(marks.get(k - 1)[1], marks.get(k)[0]);
+            if (bracketed) spans.delete(from - 1, from);
+        }
+        return spans;
+    }
+    /** What an inline citation's mark says, or null for an ordinary link: its number, or its site's short name. */
+    static String citation(String words, String url) {
+        if (words.matches("\\[\\d{1,3}]")) return words.substring(1, words.length() - 1);
+        String named = words.toLowerCase(java.util.Locale.ROOT).replaceFirst("^www\\.", ""), site = dev.jun.gyeot.core.MainSearch.host(url);
+        if (named.isEmpty() || site.isEmpty() || !named.matches("[a-z0-9-]+(\\.[a-z0-9-]+)+")) return null;
+        String name = dev.jun.gyeot.core.MainSearch.shortName(site);
+        return name.equals(dev.jun.gyeot.core.MainSearch.shortName(named)) ? name : null;
+    }
+    /** An inline citation's mark: its words in a small rounded tint, set on the line like a word. */
+    static final class Cite extends android.text.style.ReplacementSpan {
+        final String label; private final int fill = Ui.FILL, ink = Ui.MUTED;
+        Cite(String label) { this.label = label; }
+        private static float small(Paint paint) { return paint.getTextSize() * .72f; }
+        private float inner(Paint paint) {
+            Paint measure = new Paint(paint); measure.setTextSize(small(paint)); measure.setFakeBoldText(false);
+            measure.setTypeface(android.graphics.Typeface.create(paint.getTypeface(), 560, false));
+            return measure.measureText(label) + small(paint) * 1.1f;
+        }
+        @Override public int getSize(Paint paint, CharSequence text, int start, int end, Paint.FontMetricsInt fm) { return Math.round(inner(paint) + paint.getTextSize() * .3f); }
+        @Override public void draw(android.graphics.Canvas canvas, CharSequence text, int start, int end, float x, int top, int y, int bottom, Paint paint) {
+            float size = small(paint), width = inner(paint), height = size * 1.62f, left = x + paint.getTextSize() * .15f;
+            // Centred where the line's lowercase letters are, so the mark sits with the words and not on their baseline.
+            float middle = y - paint.getTextSize() * .34f;
+            Paint pill = new Paint(Paint.ANTI_ALIAS_FLAG); pill.setColor(fill);
+            canvas.drawRoundRect(left, middle - height / 2, left + width, middle + height / 2, height / 2, height / 2, pill);
+            Paint words = new Paint(paint); words.setTextSize(size); words.setColor(ink); words.setUnderlineText(false); words.setFakeBoldText(false);
+            words.setTypeface(android.graphics.Typeface.create(paint.getTypeface(), 560, false)); words.setTextAlign(Paint.Align.CENTER);
+            Paint.FontMetrics m = words.getFontMetrics();
+            canvas.drawText(label, left + width / 2, middle - (m.ascent + m.descent) / 2, words);
+        }
     }
 
     private static LinearLayout header(Context context, Ui ui, String label, int icon) {
