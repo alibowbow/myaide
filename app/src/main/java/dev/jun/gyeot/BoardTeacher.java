@@ -5,6 +5,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import dev.jun.gyeot.core.Board;
 import dev.jun.gyeot.core.BoardAgent;
+import dev.jun.gyeot.core.BoardReplay;
 import dev.jun.gyeot.core.BoardScript;
 import dev.jun.gyeot.core.MainRequest;
 import java.util.ArrayList;
@@ -84,6 +85,13 @@ final class BoardTeacher {
         for (int k = 0; k < count; k++) steps.add(new ArrayList<>());
         JSONArray items = board.items();
         for (int i = 0; i < items.length(); i++) { JSONObject item = items.optJSONObject(i); if (item != null && id.equals(item.optString("ls")) && item.optInt("st") >= from && item.optInt("st") < count) { steps.get(item.optInt("st")).add(item); any = true; } }
+        JSONArray frames=record.optJSONArray("frames");
+        for(int i=0;frames!=null && i<frames.length();i++){
+            JSONObject frame=frames.optJSONObject(i);if(frame==null)continue;int at=frame.optInt("step",-1);
+            if(at<from || at>=count)continue;
+            JSONObject item=BoardReplay.find(items,frame.optString("id"));
+            if(item!=null && !steps.get(at).contains(item)){steps.get(at).add(item);any=true;}
+        }
         // Steps at the end that left nothing on the board (the lesson was stopped early, or they were erased) are not given again.
         while (!steps.isEmpty() && steps.get(steps.size() - 1).isEmpty()) steps.remove(steps.size() - 1);
         return any ? steps : new ArrayList<>();
@@ -147,9 +155,17 @@ final class BoardTeacher {
         JSONObject record = lesson(id); List<List<JSONObject>> steps = record == null ? new ArrayList<>() : written(id, Math.max(0, from));
         if (steps.isEmpty()) { watcher.notice("다시 보여 줄 판서가 판에 남아 있지 않아요."); return; }
         List<BoardScript.Step> script = new ArrayList<>(); JSONArray says = record.optJSONArray("says");
-        for (int k = 0; k < steps.size(); k++) { script.add(new BoardScript.Step(says.optString(k), List.of())); if (k >= from) for (JSONObject item : steps.get(k)) board.reveal(item, 0); }
+        for (int k = 0; k < steps.size(); k++) { script.add(new BoardScript.Step(says.optString(k), List.of())); if (k >= from) for (JSONObject item : steps.get(k)) if(id.equals(item.optString("ls")) && item.optInt("st")==k)board.reveal(item, 0); }
+        applyFrames(record,-1,from-1);
         epoch++; lesson = new BoardScript.Lesson(record.optString("title"), script); kept = steps; replaying = true; lessonId = id; index = Math.max(0, Math.min(from, steps.size() - 1)); voiceNoticed = false; voiceless = false;
         state = PLAYING; step();
+    }
+    private void applyFrames(JSONObject record,int from,int through) {
+        JSONArray frames=record==null?null:record.optJSONArray("frames");
+        for(int i=0;frames!=null && i<frames.length();i++){
+            JSONObject f=frames.optJSONObject(i);if(f==null || f.optInt("step")<from || f.optInt("step")>through)continue;
+            board.showFrame(BoardReplay.find(board.items(),f.optString("id")),f.optJSONObject("spec"));
+        }
     }
     private void step() {
         if (lesson == null || index >= lesson.steps().size()) { finish(); return; }
@@ -163,6 +179,12 @@ final class BoardTeacher {
                 if(edited!=current) {
                     if(Board.bottom(edited,board.measure)>Board.DEEPEST)throw new IllegalArgumentException("수정한 자료가 판의 높이를 넘어요.");
                     board.replace(edited);flow.reflow(edited);
+                    JSONObject record=lesson(lessonId);
+                    for(JSONObject op:step.draw())if("update".equals(op.optString("op"))){
+                        String id=op.optString("_target");
+                        BoardReplay.remember(record,BoardReplay.find(current,id),-1);
+                        BoardReplay.remember(record,BoardReplay.find(edited,id),index);
+                    }
                     for(int i=0;i<edited.length();i++) { JSONObject item=edited.optJSONObject(i);
                         if(item!=null && target.equals(item.optString("wid")))board.follow(Board.bounds(item,board.measure)[1]+board.shown()*.45f);
                     }
@@ -170,6 +192,7 @@ final class BoardTeacher {
                 }
             } catch(IllegalArgumentException invalid) { watcher.notice(invalid.getMessage());stop();return; }
         }
+        if(replaying)applyFrames(lesson(lessonId),index,index);
         placed = replaying ? kept.get(index) : flow.place(step);
         if (!replaying && !board.fits(placed)) { watcher.notice("이 판이 가득 찼어요. 새 판에서 계속해 주세요."); stop(); return; }
         ends = new long[placed.size()]; long natural = 0;
@@ -178,7 +201,7 @@ final class BoardTeacher {
         for (int i = 0; i < placed.size(); i++) {
             ends[i] = ends[i] * drawTotal / natural;
             if (replaying) board.reveal(placed.get(i), drawTotal == 0 ? 1 : 0);
-            else board.add(Board.inLesson(placed.get(i), lessonId, index), drawTotal > 0);
+            else { JSONObject item=placed.get(i);board.add(Board.inLesson(item,lessonId,index),drawTotal>0);BoardReplay.remember(lesson(lessonId),item,index); }
         }
         if (!placed.isEmpty()) {
             // The page follows the writing: the lowest thing of the step comes into view (a mark on a picture stays where the picture is).

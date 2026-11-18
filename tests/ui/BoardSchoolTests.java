@@ -200,6 +200,15 @@ public class BoardSchoolTests {
                 assertEquals(1, board.items().length());
                 assertEquals(id, board.items().getJSONObject(0).getString("wid"));
                 assertEquals(3, BoardWidget.spec(board.items().getJSONObject(0)).getInt("b"));
+                String updatedLesson = teacher.latest();
+                assertFalse(updatedLesson.isBlank());
+                var kept = BoardStore.lessons(teacher.lessons());
+                assertEquals(2, kept.getJSONObject(1).getJSONArray("frames").length());
+                teacher.lessons(kept);
+                teacher.replay(updatedLesson, 0);
+                assertEquals(BoardTeacher.PLAYING, teacher.state());
+                teacher.stop();
+                assertEquals(3, BoardWidget.spec(board.items().getJSONObject(0)).getInt("b"));
                 board.undo();
                 assertEquals(7, BoardWidget.spec(board.items().getJSONObject(0)).getInt("b"));
             } finally {

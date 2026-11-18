@@ -97,7 +97,7 @@ final class BoardStore {
             JSONObject lesson = stored.optJSONObject(i); if (lesson == null || !lesson.optString("id").matches("[a-z0-9]{1,12}")) continue;
             JSONArray says = arr(), from = lesson.optJSONArray("says");
             for (int k = 0; from != null && k < from.length() && k < dev.jun.gyeot.core.BoardScript.STEPS; k++) says.put(from.optString(k));
-            out.put(obj("id", lesson.optString("id"), "title", title(lesson.optString("title")), "says", says));
+            out.put(obj("id", lesson.optString("id"), "title", title(lesson.optString("title")), "says", says, "frames",dev.jun.gyeot.core.BoardReplay.clean(lesson,says.length())));
         }
         return out;
     }
