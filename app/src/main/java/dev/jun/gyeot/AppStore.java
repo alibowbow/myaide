@@ -604,6 +604,21 @@ final class AppStore {
         saveSessionsSoon(0); sessionsVersion++; changed();
         return said ? copy(open) : null;
     }
+    /** Every saved session that has words, oldest first, as copies: for a backup. */
+    synchronized JSONArray allSessions() {
+        JSONArray result = new JSONArray();
+        for (int i = 0; i < sessions.length(); i++) { JSONObject session = sessions.optJSONObject(i); if (session != null && !session.optString("id").equals(openSession) && spoken(session)) result.put(copy(session)); }
+        return result;
+    }
+    /** Adds a backup's sessions this phone does not have (by id), keeps the list oldest first and saves it; returns how many came in. */
+    synchronized int mergeSessions(JSONArray incoming) {
+        JSONArray next = new JSONArray(); for (int i = 0; i < sessions.length(); i++) next.put(sessions.opt(i));
+        int added = dev.jun.gyeot.core.AppBackup.addUnseen(next, incoming, -1, null);
+        if (added == 0) return 0;
+        sessions = dev.jun.gyeot.core.AppBackup.sorted(next, "startedAt", false);
+        saveSessionsSoon(0); sessionsVersion++; changed();
+        return added;
+    }
     /** Saved sessions of one mode, newest first, as copies. */
     synchronized JSONArray sessions(String mode) {
         JSONArray result = new JSONArray();
@@ -972,6 +987,16 @@ final class AppStore {
         next.put(note);
         if (next.toString().getBytes(StandardCharsets.UTF_8).length > 4 * 1024 * 1024) throw new IllegalStateException("메모 보관 용량을 초과했어요. 기존 메모를 먼저 별도로 보관해 주세요.");
         write(new File(root, "notes.json"), next.toString()); notes = next; notesVersion++; changed(); return copy(note);
+    }
+    /** Adds a backup's notes this phone does not have (by id), within the notes' size limit, and saves; returns how many came in. */
+    synchronized int mergeNotes(JSONArray incoming) throws Exception {
+        if (notesUnreadable) throw new IllegalStateException("기존 메모 기록을 읽지 못해 변경하지 않았어요.");
+        JSONArray next = new JSONArray(notes.toString());
+        int added = dev.jun.gyeot.core.AppBackup.addUnseen(next, incoming, -1, null);
+        if (added == 0) return 0;
+        if (next.toString().getBytes(StandardCharsets.UTF_8).length > 4 * 1024 * 1024) throw new IllegalStateException("메모 보관 용량을 넘어서 메모는 가져오지 않았어요.");
+        write(new File(root, "notes.json"), next.toString()); notes = next; notesVersion++; changed();
+        return added;
     }
     synchronized boolean deleteNote(String id) throws Exception {
         if (notesUnreadable) throw new IllegalStateException("기존 메모 기록을 읽지 못해 변경하지 않았어요.");

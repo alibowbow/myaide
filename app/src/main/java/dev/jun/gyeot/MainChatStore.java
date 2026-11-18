@@ -284,5 +284,33 @@ final class MainChatStore implements AutoCloseable {
     synchronized boolean claimJob(String id){require();ContentValues v=new ContentValues();v.put("state","dispatching");return db.update("jobs",v,"id=? AND state='queued' AND hidden=0",new String[]{id})==1;}
     synchronized void attachJob(String id,String room,String run){require();db.execSQL("UPDATE jobs SET room=?,run=?,state='running' WHERE id=? AND receipt=0",new Object[]{room,run,id});}
     synchronized boolean finishJob(String id,String text,String state){require();db.beginTransaction();try{JSONObject j=job(id);if(j==null||j.optInt("receipt")!=0)return false;db.execSQL("UPDATE jobs SET receipt=1,state=?,request='',selection='{}' WHERE id=?",new Object[]{state,id});if(j.optInt("hidden")==0&&message(j.optLong("source"))!=null)insertMessage("job",MainChatContext.clip(text,MainChatContext.OUTPUT),"done",j.optString("run"),j.optLong("source"),id,"","");db.setTransactionSuccessful();return true;}finally{db.endTransaction();}}
+    /** How many messages the conversation holds. */
+    synchronized long count(){require();try(Cursor c=db.rawQuery("SELECT COUNT(*) FROM messages",null)){c.moveToFirst();return c.getLong(0);}}
+    /** A whole copy of this database as it is now, in target (which must not exist yet): for a backup. */
+    synchronized void backupTo(java.io.File target){require();db.execSQL("VACUUM INTO ?",new Object[]{target.getPath()});}
+    /**
+     * Brings another phone's conversation (a backup's copy of this database) into this one while this one is still empty:
+     * its questions and finished answers, in their order, without their attachments (the files are not on this phone).
+     * Returns how many messages came in, or -1 when this conversation already has messages and nothing was changed.
+     */
+    synchronized int importFrom(java.io.File other){
+        require();if(count()>0)return -1;
+        db.execSQL("ATTACH DATABASE ? AS old",new Object[]{other.getPath()});
+        try{
+            Set<String> mine=columns("messages");List<String> shared=new ArrayList<>();
+            try(Cursor c=db.rawQuery("PRAGMA old.table_info(messages)",null)){int name=c.getColumnIndex("name");while(c.moveToNext())if(mine.contains(c.getString(name)))shared.add(c.getString(name));}
+            if(!shared.contains("id")||!shared.contains("role")||!shared.contains("text")||!shared.contains("state"))throw new IllegalArgumentException("백업의 메인 대화를 읽지 못했어요.");
+            String names=String.join(",",shared);
+            db.beginTransaction();
+            try{
+                db.execSQL("INSERT INTO messages("+names+") SELECT "+names+" FROM old.messages WHERE role IN ('user','assistant') AND state='done'"+(shared.contains("job")?" AND job=''":"")+" ORDER BY id");
+                if(mine.contains("files"))db.execSQL("UPDATE messages SET files=''");
+                db.execSQL("DELETE FROM message_search");db.execSQL("INSERT INTO message_search(docid,text) SELECT id,text FROM messages");
+                db.execSQL("UPDATE meta SET generation=generation+1,summary='',through_id=0,fingerprint='' WHERE id=1");
+                db.setTransactionSuccessful();
+            }finally{db.endTransaction();}
+            return (int)count();
+        }finally{db.execSQL("DETACH DATABASE old");}
+    }
     @Override public synchronized void close(){if(db!=null){db.close();db=null;}pinned="";}
 }

@@ -54,6 +54,10 @@ final class GoogleDriveUi {
         page.addView(ui.details("할 수 있는 일", "파일 찾기(이름·내용), Google 문서·스프레드시트·프레젠테이션과 글 파일 읽기, 첨부한 파일·만든 파일 올리기, 휴대폰 들퍼레 폴더로 내려받기, 폴더 만들기를 해요. "
             + "기본 권한은 모든 파일 읽기와 이 앱이 만든 파일만 쓰기예요. ‘수정·정리 허용’을 켜면 요청한 파일의 내용 고치기·이름 바꾸기·폴더로 옮기기·휴지통으로 보내기도 해요. "
             + "휴지통은 30일 안에 되돌릴 수 있고, 고친 내용은 Drive 버전 기록에 남아요. 예: “Drive에서 지난주 회의록 찾아서 요약해 줘”, “이 표를 구글 시트로 저장해 줘”."));
+        // 앱 백업: this phone's data to Drive, and a backup from another phone into this one.
+        page.addView(ui.sectionHeader("앱 백업"));
+        page.addView(new DriveBackupUi(activity, ui, store).rows());
+        page.addView(ui.footer(DriveBackupUi.about()));
         page.addView(ui.sectionHeader("연결 관리"));
         LinearLayout manage = ui.group();
         ui.addRow(manage, ui.listRow(0, 0, "연결 확인", "Google에 다시 확인해요", null, () -> connect(drive.writable())), false);
