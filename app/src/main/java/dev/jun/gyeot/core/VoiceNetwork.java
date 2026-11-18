@@ -5,8 +5,8 @@ import java.util.Set;
 
 /**
  * One voice session's view of the default network. Offline, dropped connections wait instead of spending their reconnect
- * budget, and a validated network coming back resumes them once. On a metered or roaming network each data-heavy extra
- * (precision captions, the camera) gets one cost notice per session. Main thread only.
+ * budget, and a validated network coming back resumes them once. While roaming, each data-heavy extra (precision
+ * captions, the camera) gets one cost notice per session; ordinary mobile data gets none. Main thread only.
  */
 public final class VoiceNetwork {
     /** retry(): no attempt now, the network is gone; it resumes once a validated network is back and costs nothing. */
@@ -47,12 +47,12 @@ public final class VoiceNetwork {
     }
 
     public final Budget voice = new Budget(), captions = new Budget();
-    private boolean offline, metered, roaming;
+    private boolean offline, roaming;
     private final Set<String> warned = new HashSet<>();
 
     /** A new session: online until told otherwise, with a fresh budget and no notices given. */
     public void reset() {
-        offline = false; metered = false; roaming = false; warned.clear();
+        offline = false; roaming = false; warned.clear();
         voice.clear(); captions.clear();
     }
     public boolean offline() { return offline; }
@@ -64,15 +64,14 @@ public final class VoiceNetwork {
     }
     /** The default network's capabilities. True exactly once per offline spell, when a validated network is back: resume now. */
     public boolean capabilities(boolean validated, boolean metered, boolean roaming) {
-        this.metered = metered; this.roaming = roaming;
+        this.roaming = roaming;
         if (!offline || !validated) return false;
         offline = false;
         return true;
     }
-    /** The notice to show before a data-heavy extra starts on a metered or roaming network, once per extra and session; else null. */
+    /** The notice to show before a data-heavy extra starts while roaming, once per extra and session; else null. */
     public String costWarning(String feature) {
-        if (!metered && !roaming || !CAPTIONS.equals(feature) && !CAMERA.equals(feature) || !warned.add(feature)) return null;
-        String network = roaming ? "로밍 중이에요" : "데이터 요금이 나갈 수 있는 연결이에요";
-        return network + (CAMERA.equals(feature) ? " · 카메라는 1초에 한 장씩 사진을 보내 데이터를 많이 써요" : " · 정밀 자막은 연결을 하나 더 열어 데이터를 더 써요");
+        if (!roaming || !CAPTIONS.equals(feature) && !CAMERA.equals(feature) || !warned.add(feature)) return null;
+        return "로밍 중이에요" + (CAMERA.equals(feature) ? " · 카메라는 1초에 한 장씩 사진을 보내 데이터를 많이 써요" : " · 정밀 자막은 연결을 하나 더 열어 데이터를 더 써요");
     }
 }
