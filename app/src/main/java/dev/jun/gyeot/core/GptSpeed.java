@@ -9,7 +9,7 @@ import org.json.JSONObject;
 public final class GptSpeed {
     private GptSpeed() {}
     // Official Fast pricing/guide verified 2026-10-25; Terra model page 2026-10-27. No inferred snapshots or families.
-    private static final List<String> DOCUMENTED = List.of("gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna", "gpt-5.6-sol");
+    private static final List<String> DOCUMENTED = List.of("gpt-6.2-astra", "gpt-6.2-sol", "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna", "gpt-5.6-sol");
     public static String normalize(String speed) {
         if (speed == null || speed.isEmpty() || speed.equals("standard")) return "standard";
         if (speed.equals("fast")) return "fast";

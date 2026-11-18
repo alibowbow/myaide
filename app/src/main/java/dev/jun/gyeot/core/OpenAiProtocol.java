@@ -743,7 +743,7 @@ public final class OpenAiProtocol {
     /** Account catalog remains authoritative; this only names a known ID when no useful label is supplied. */
     private static String modelName(String id, String advertised) {
         if (advertised != null && !advertised.isBlank() && !advertised.equals(id)) return advertised;
-        return "gpt-6.1-terra".equals(id) ? "GPT-6.1 Terra" : id;
+        return switch (id == null ? "" : id) { case "gpt-6.1-terra" -> "GPT-6.1 Terra"; case "gpt-6.2-sol" -> "GPT-6.2 Sol"; case "gpt-6.2-astra" -> "GPT-6.2 Astra"; default -> id; };
     }
     /** A catalog refresh must not silently move an existing selection to a new or available model. */
     public static String refreshedModel(String selected, JSONArray catalog) {

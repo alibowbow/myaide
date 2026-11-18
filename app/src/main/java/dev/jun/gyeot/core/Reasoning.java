@@ -100,8 +100,9 @@ public final class Reasoning {
         // Official model pages checked 2026-10-22. Match exact families/snapshots, never guess capabilities for future models.
         String family = id == null ? "" : id.toLowerCase(Locale.ROOT).replaceFirst("-\\d{4}-\\d{2}-\\d{2}$", "");
         Profile fallback = switch (family) {
-            case "gpt-6-astra" -> fallback("", "low", "medium", "high", "xhigh", "max");
-            case "gpt-6.1-sol" -> fallback("medium", "low", "medium", "high", "xhigh", "max");
+            // GPT-6.2 Astra and Sol: their model pages say only that none is rejected, so each keeps the levels of the model it follows.
+            case "gpt-6-astra", "gpt-6.2-astra" -> fallback("", "low", "medium", "high", "xhigh", "max");
+            case "gpt-6.1-sol", "gpt-6.2-sol" -> fallback("medium", "low", "medium", "high", "xhigh", "max");
             case "gpt-6.1-terra" -> fallback("medium", "none", "low", "medium", "high", "xhigh", "max"); // API model page, 2026-10-27; advertised levels still win.
             case "gpt-6-sol", "gpt-6-luna", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna" -> fallback("medium", "none", "low", "medium", "high", "xhigh", "max");
             case "gpt-5.5" -> fallback("medium", "none", "low", "medium", "high", "xhigh");
