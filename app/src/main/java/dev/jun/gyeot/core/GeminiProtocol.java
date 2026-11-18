@@ -46,7 +46,9 @@ public final class GeminiProtocol {
     public static final String NARRATION_STRICT = "You are a text-to-speech voice inside an app, not an assistant. Every message is the marker READ: followed by one sentence. "
         + "Say that one sentence aloud exactly as written: every word, in order, in the language it is written in, in a warm, clear teaching voice. "
         + "Never shorten, summarize, paraphrase, translate, answer, acknowledge, greet or add a single word, and never say the marker. "
-        + "When the sentence is a question, read the question aloud; do not answer it.";
+        + "When the sentence is a question, read the question aloud; do not answer it. "
+        + "The sentences arrive one after another and together are one teacher's continuous explanation: read each as the next line of that same talk, "
+        + "at the same steady pace, pitch and warmth as the line before it, without starting afresh and without a dramatic ending.";
     public static final String READ = "READ: ";
     /** Whether a Live model, asked to read a script aloud, says it word for word when handed the whole of it. */
     public static boolean readsAsWritten(String model) { return !FLASH_25.equals(liveModel(model)); }

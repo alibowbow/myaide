@@ -117,10 +117,13 @@ final class BoardVoice {
 
     /**
      * The Gemini Live reading. What is to be said is cut into pieces (the whole step, or its sentences for a model that
-     * shortens passages), and the pieces are made ahead of being heard: each connection reads its next piece as soon as
-     * it has finished one, their sound is kept in order, and a piece plays the moment the one before it has. With two
-     * connections the next sentence is being made while this one sounds, so sentences follow one another without the
-     * model's thinking time between them; and a step handed over early (prepare) is ready when its turn comes.
+     * shortens passages), and the pieces are made ahead of being heard: a connection reads its next piece as soon as
+     * it has finished one, their sound is kept in order, and a piece plays the moment the one before it has.
+     * Sentences made apart are joined to sound like one reading. A step's sentences are read by one connection, one
+     * after another, so they come in one voice at one pace (two connections read the same voice a little differently);
+     * the other connection gets the next step ready meanwhile, and reads a sentence of this step only when the listener
+     * would otherwise have to wait for it. And each sentence's own silence, a different length every time, is taken off
+     * and a pause of one length put in its place (SpeechJoin).
      */
     static final class LiveVoice implements Speech.Voice, Ahead {
         /** One reading connection, as this class needs it; GeminiSession behind it, or a test's own. */
@@ -130,17 +133,23 @@ final class BoardVoice {
         interface Lines { Line open(String model, String voice, Events events) throws Exception; }
         /** Where the sound goes; Speaker, or a test's own. */
         interface Out { void play(byte[] pcm); void finish(Runnable done); void flush(); void close(); }
-        private static final class Piece { final String text; final int step; final List<byte[]> sound = new ArrayList<>(); boolean sent, complete, dropped; int played; Piece(String text, int step) { this.text = text; this.step = step; } }
+        private static final class Piece {
+            final String text; final int step; final List<byte[]> sound = new ArrayList<>(); final dev.jun.gyeot.core.SpeechJoin join = new dev.jun.gyeot.core.SpeechJoin();
+            boolean sent, complete, dropped; int played, pause; Piece(String text, int step) { this.text = text; this.step = step; }
+        }
+        /** With less than this much sound still to be heard, a sentence the listener is about to need is read by whichever connection is free. */
+        static final long HELP_MS = 1200;
         private final class Seat implements Events {
             Line line; boolean ready, broken; Piece piece;
             @Override public void ready() { main.post(() -> { if (seats.contains(this) && !broken) { ready = true; pump(); } }); }
-            @Override public void audio(byte[] pcm) { main.post(() -> { if (seats.contains(this) && piece != null && !piece.dropped) { piece.sound.add(pcm); drain(); } }); }
-            @Override public void finished() { main.post(() -> { if (!seats.contains(this) || piece == null) return; piece.complete = true; piece = null; pump(); drain(); }); }
+            @Override public void audio(byte[] pcm) { main.post(() -> { if (!seats.contains(this) || piece == null || piece.dropped) return; byte[] sound = piece.join.feed(pcm); if (sound.length > 0) piece.sound.add(sound); drain(); pump(); }); }
+            @Override public void finished() { main.post(() -> { if (!seats.contains(this) || piece == null) return; byte[] last = piece.join.end(piece.pause); if (last.length > 0) piece.sound.add(last); piece.complete = true; piece = null; drain(); pump(); }); }
             @Override public void failed(String why) { main.post(() -> { if (seats.contains(this)) broke(why == null ? "" : why); }); }
         }
         private final Handler main = new Handler(Looper.getMainLooper());
         private final Lines lines; private final java.util.function.Supplier<Out> outs; private final java.util.function.Supplier<String> model, voice;
         private final List<Seat> seats = new ArrayList<>(); private final List<Piece> queue = new ArrayList<>();
+        private final java.util.Map<Integer, Seat> owners = new java.util.HashMap<>(); private long heardUntil;
         private Out out; private boolean closed; private int steps, playing = -1, ahead = -1, epoch; private String aheadText = "", using = "";
         private Consumer<String> done; private Runnable patience;
 
@@ -171,7 +180,7 @@ final class BoardVoice {
         }
         LiveVoice(Lines lines, java.util.function.Supplier<Out> outs, java.util.function.Supplier<String> model, java.util.function.Supplier<String> voice) { this.lines = lines; this.outs = outs; this.model = model; this.voice = voice; }
 
-        /** How many connections read at once: two where pieces are sentences (one makes the next while one sounds), one otherwise. */
+        /** How many connections read at once: two where pieces are sentences (one reads a step, one gets the next ready), one otherwise. */
         static int seats(String model) { return GeminiProtocol.readsAsWritten(model) ? 1 : 2; }
         private boolean open() {
             if (closed) return false;
@@ -184,11 +193,18 @@ final class BoardVoice {
         @Override public void warm() { open(); }
         private int add(String text, int at) {
             int step = ++steps; int index = at;
-            for (String piece : pieces(text, using.isEmpty() ? model.get() : using)) queue.add(Math.min(index++, queue.size()), new Piece(piece, step));
+            List<String> parts = pieces(text, using.isEmpty() ? model.get() : using);
+            for (int i = 0; i < parts.size(); i++) {
+                Piece piece = new Piece(parts.get(i), step);
+                // A pause after every sentence but the step's last: after that one the writing goes on.
+                piece.pause = i + 1 < parts.size() ? dev.jun.gyeot.core.SpeechJoin.pause(parts.get(i)) : 0;
+                queue.add(Math.min(index++, queue.size()), piece);
+            }
             return step;
         }
         private void drop(int step) {
             for (int i = queue.size() - 1; i >= 0; i--) { Piece piece = queue.get(i); if (piece.step != step) continue; piece.dropped = true; queue.remove(i); }
+            owners.remove(step);
             // A connection in the middle of a dropped piece would go on reading it: it is closed, and opened again when next needed.
             for (int i = seats.size() - 1; i >= 0; i--) { Seat seat = seats.get(i); if (seat.piece != null && seat.piece.dropped) { seats.remove(i); try { seat.line.close(); } catch (RuntimeException ignored) { /* gone already */ } } }
         }
@@ -209,30 +225,49 @@ final class BoardVoice {
             if (patience != null) main.removeCallbacks(patience);
             patience = () -> { if (mine == epoch) broke("읽는 데 너무 오래 걸렸어요."); };
             main.postDelayed(patience, LIVE_PATIENCE_MS);
-            pump(); drain();
+            // What is made already goes to the speaker first: who reads what next depends on how much is left to hear.
+            drain(); pump();
         }
-        /** Every free connection takes the next piece nobody has. */
+        /** How much sound is still to be heard of what was given to the speaker. */
+        private long lead() { return Math.max(0, heardUntil - android.os.SystemClock.uptimeMillis()); }
+        /**
+         * Every free connection takes the next piece that is its to read: of a step nobody reads yet, or of the step it
+         * reads already. A piece of the step another connection is busy reading is taken only when it is of the step
+         * being heard and the sound is about to run out.
+         */
         private void pump() {
-            if (closed || !open()) return;
+            if (closed || queue.isEmpty() || !open()) return;
             for (Seat seat : seats) {
                 if (!seat.ready || seat.piece != null) continue;
-                Piece next = null; for (Piece piece : queue) if (!piece.sent) { next = piece; break; }
-                if (next == null) return;
+                Piece next = null;
+                for (Piece piece : queue) {
+                    if (piece.sent) continue;
+                    Seat owner = owners.get(piece.step);
+                    if (owner == null || owner == seat || !seats.contains(owner)) { next = piece; break; }
+                    if (owner.piece != null && piece.step == playing && lead() < HELP_MS) { next = piece; break; }
+                }
+                if (next == null) continue;
+                Seat owner = owners.get(next.step); if (owner == null || !seats.contains(owner)) owners.put(next.step, seat);
                 next.sent = true; seat.piece = next;
                 try { seat.line.say(next.text); } catch (RuntimeException failed) { broke(""); return; }
             }
+        }
+        private void play(byte[] pcm) {
+            long now = android.os.SystemClock.uptimeMillis(); heardUntil = Math.max(heardUntil, now) + dev.jun.gyeot.core.SpeechJoin.millis(pcm.length);
+            out.play(pcm);
         }
         /** Sound goes out in the order of the pieces: all that the front piece has, then, once it is whole, the next one's. */
         private void drain() {
             while (out != null && playing >= 0 && !queue.isEmpty()) {
                 Piece head = queue.get(0);
                 if (head.step != playing) break;
-                while (head.played < head.sound.size()) out.play(head.sound.get(head.played++));
+                while (head.played < head.sound.size()) play(head.sound.get(head.played++));
                 if (!head.complete) return;
                 queue.remove(0);
             }
             if (playing < 0 || (!queue.isEmpty() && queue.get(0).step == playing)) return;
             // The step's last piece is out: it is heard when the sound has played.
+            owners.remove(playing);
             Consumer<String> finished = done; int mine = epoch; playing = -1; done = null;
             if (patience != null) main.removeCallbacks(patience);
             if (finished != null && out != null) out.finish(() -> main.post(() -> { if (mine == epoch) finished.accept(null); }));
@@ -246,14 +281,14 @@ final class BoardVoice {
         }
         private void shut() {
             for (Seat seat : seats) { seat.broken = true; try { if (seat.line != null) seat.line.close(); } catch (RuntimeException ignored) { /* gone already */ } }
-            seats.clear(); queue.clear(); playing = -1; ahead = -1; aheadText = ""; using = "";
+            seats.clear(); queue.clear(); owners.clear(); heardUntil = 0; playing = -1; ahead = -1; aheadText = ""; using = "";
             Out old = out; out = null; if (old != null) { old.flush(); old.close(); }
         }
         /** Silence now: what is being said is let go. What was got ready for afterwards is kept, as are connections that are free. */
         @Override public void stop() {
             epoch++; done = null; if (patience != null) main.removeCallbacks(patience);
             if (playing >= 0) drop(playing);
-            playing = -1; if (out != null) out.flush();
+            playing = -1; heardUntil = 0; if (out != null) out.flush();
         }
         @Override public void close() { stop(); closed = true; shut(); }
     }
