@@ -79,7 +79,8 @@ final class BoardTeacher {
     }
     private JSONObject lesson(String id) { for (int i = 0; i < lessons.length(); i++) if (lessons.optJSONObject(i).optString("id").equals(id)) return lessons.optJSONObject(i); return null; }
     /** A lesson's items still on the board from a step on, step by step (a step whose writing was erased is empty). */
-    private List<List<JSONObject>> written(String id, int from) {
+    private List<List<JSONObject>> written(String id, int from) { return written(id, from, false); }
+    private List<List<JSONObject>> written(String id, int from, boolean completePlan) {
         JSONObject record = lesson(id); List<List<JSONObject>> steps = new ArrayList<>(); if (record == null) return steps;
         int count = record.optJSONArray("says") == null ? 0 : record.optJSONArray("says").length(); boolean any = false;
         for (int k = 0; k < count; k++) steps.add(new ArrayList<>());
@@ -92,6 +93,7 @@ final class BoardTeacher {
             JSONObject item=BoardReplay.find(items,frame.optString("id"));
             if(item!=null && !steps.get(at).contains(item)){steps.get(at).add(item);any=true;}
         }
+        if (completePlan) return steps;
         // Steps at the end that left nothing on the board (the lesson was stopped early, or they were erased) are not given again.
         while (!steps.isEmpty() && steps.get(steps.size() - 1).isEmpty()) steps.remove(steps.size() - 1);
         return any ? steps : new ArrayList<>();
@@ -109,22 +111,14 @@ final class BoardTeacher {
     void ask(String request, List<MainRequest.Attachment> files, String language) {
         if (closed || busy()) return;
         AtomicReference<Runnable> activeCancel=new AtomicReference<>();cancel=activeCancel;
-        int mine = ++epoch; JSONArray snapshot=BoardAgent.snapshot(board.items()); state = THINKING; lesson = null; index = 0; tell();
+        int mine = ++epoch; state = THINKING; lesson = null; index = 0; tell();
         // While the model prepares the lesson the voice connects, so the first step's words do not wait for that.
         if (!muted) voice.warm();
-        String instructions = BoardScript.instructions(language, textScale, BoardScript.shown(board.items()).size())
-            + BoardAgent.GUIDE + (chalk ? "\n- This board is a green blackboard written in chalk: \"black\" is white chalk, and every color is a soft chalk color. Yellow and pink chalk stand out most; use them for what matters." : ""), input = BoardScript.request(request, Board.words(board.items(), 6000), files != null && !files.isEmpty()) + "\n<editable_widgets>\n"+BoardAgent.inventory(snapshot)+"\n</editable_widgets>";
+        JSONArray source; try { source = new JSONArray(board.items().toString()); } catch(Exception e) { throw new IllegalStateException(e); }
         Runnable job = () -> {
             BoardScript.Lesson made = null; String problem = null;
             try {
-                var media=files==null?List.<MainRequest.Attachment>of():files;
-                String answer=brain.ask(instructions,input,media,activeCancel);
-                try { made=BoardAgent.checked(answer,snapshot,input); }
-                catch(IllegalArgumentException invalid) {
-                    if(mine!=epoch || closed) return;
-                    String fix=input+"\n판서 검증 결과: "+invalid.getMessage()+"\n도구 인자를 수정해 전체 수업 JSON을 다시 작성하세요.\n"+answer.substring(0,Math.min(20000,answer.length()));
-                    made=BoardAgent.checked(brain.ask(instructions,fix,media,activeCancel),snapshot,input);
-                }
+                made=plan(brain,request,files,source,textScale,chalk,language,activeCancel,()->mine!=epoch || closed);
             }
             catch (Exception failed) { problem = failed.getMessage() == null || failed.getMessage().isBlank() ? "AI에게서 판서를 받지 못했어요." : failed.getMessage(); }
             finally { activeCancel.set(null); }
@@ -138,6 +132,22 @@ final class BoardTeacher {
         };
         if (work != null) work.execute(job); else worker.execute(job);
     }
+    static BoardScript.Lesson plan(Brain brain, String request, List<MainRequest.Attachment> files,
+            JSONArray source, float textScale, boolean chalk, String language, AtomicReference<Runnable> activeCancel,
+            java.util.function.BooleanSupplier cancelled) throws Exception {
+        JSONArray snapshot=BoardAgent.snapshot(source);
+        String instructions = BoardScript.instructions(language, textScale, BoardScript.shown(source).size())
+            + BoardAgent.GUIDE + (chalk ? "\n- This board is a green blackboard written in chalk: \"black\" is white chalk, and every color is a soft chalk color. Yellow and pink chalk stand out most; use them for what matters." : ""), input = BoardScript.request(request, Board.words(source, 6000), files != null && !files.isEmpty()) + "\n<editable_widgets>\n"+BoardAgent.inventory(snapshot)+"\n</editable_widgets>";
+
+        var media=files==null?List.<MainRequest.Attachment>of():files;
+        String answer=brain.ask(instructions,input,media,activeCancel);
+        try { return BoardAgent.checked(answer,snapshot,input); }
+        catch(IllegalArgumentException invalid) {
+            if(cancelled.getAsBoolean()) throw new java.util.concurrent.CancellationException();
+            String fix=input+"\n판서 검증 결과: "+invalid.getMessage()+"\n도구 인자를 수정해 전체 수업 JSON을 다시 작성하세요.\n"+answer.substring(0,Math.min(20000,answer.length()));
+            return BoardAgent.checked(brain.ask(instructions,fix,media,activeCancel),snapshot,input);
+        }
+    }
     /** Gives a lesson that is already made (ask's second half; tests start here). */
     void begin(BoardScript.Lesson made) {
         lesson = made; flow = new BoardScript.Flow(board.items(), board.measure, textScale, hand); index = 0; voiceNoticed = false; voiceless = false; replaying = false;
@@ -150,9 +160,11 @@ final class BoardTeacher {
      * Gives a kept lesson again from a step: its writing from there on disappears and is written anew while its words
      * are read. Nothing happens while a lesson is on; says so when the lesson's writing is no longer on the board.
      */
-    void replay(String id, int from) {
+    void replay(String id, int from) { replay(id, from, false); }
+    void playCompleted(String id) { replay(id, 0, true); }
+    private void replay(String id, int from, boolean completePlan) {
         if (closed || busy()) return;
-        JSONObject record = lesson(id); List<List<JSONObject>> steps = record == null ? new ArrayList<>() : written(id, Math.max(0, from));
+        JSONObject record = lesson(id); List<List<JSONObject>> steps = record == null ? new ArrayList<>() : written(id, Math.max(0, from), completePlan);
         if (steps.isEmpty()) { watcher.notice("다시 보여 줄 판서가 판에 남아 있지 않아요."); return; }
         List<BoardScript.Step> script = new ArrayList<>(); JSONArray says = record.optJSONArray("says");
         for (int k = 0; k < steps.size(); k++) { script.add(new BoardScript.Step(says.optString(k), List.of())); if (k >= from) for (JSONObject item : steps.get(k)) if(id.equals(item.optString("ls")) && item.optInt("st")==k)board.reveal(item, 0); }

@@ -349,6 +349,10 @@ public final class MainActivity extends Activity {
         if (intent.hasExtra("work")) { workId = intent.getStringExtra("work"); if (galleryDialog != null) galleryDialog.dismiss(); if (videoDialog != null) videoDialog.dismiss(); }
         // Asked for the settings tab (the browser's 모델 연결 설정): its home with the AI 연결 group, not a page left open earlier.
         if (fromSignIn(intent)) openSettings(signInPage(intent)); else if (intent.hasExtra("tab")) { int asked = intent.getIntExtra("tab", 0); if (asked == 2) { settingsPage = ""; settingsQuery = ""; } showTab(asked); }
+        // Some existing home-screen pins still address MainActivity directly.
+        if (isLauncher(intent) && "board".equals(AppNavigator.leftAbove())) {
+            pendingLaunchVoice = false; reopenLeftScreen(); return;
+        }
         startFromShortcut(intent);
         startOnOpen(intent);
         // The app icon (or "들퍼레 열어 줘") brings the app back as the user left it: this window keeps its page (tab, settings

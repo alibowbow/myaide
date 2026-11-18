@@ -101,7 +101,15 @@ final class BoardEditor {
             x2 = axis(rangeX, "x 최대", original.optJSONArray("x"), 1, "");
             y1 = axis(rangeY, "y 최소 · 자동", original.optJSONArray("y"), 0, "");
             y2 = axis(rangeY, "y 최대 · 자동", original.optJSONArray("y"), 1, "");
+            CheckBox equal = new CheckBox(activity);
+            equal.setText("X축과 Y축의 1단위를 같은 길이로 표시");
+            equal.setChecked(original.optBoolean("equalUnits", true));
+            sheet.body.addView(equal);
             sliders = ui.column(); sheet.body.addView(sliders);
+            equal.setOnCheckedChangeListener((button, checked) -> {
+                put(pointSpec, "equalUnits", checked);
+                update(false);
+            });
             for (EditText input : List.of(expressions,coordinates,x1,x2,y1,y2)) input.addTextChangedListener(new TextWatcher() {
                 @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
                 @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
@@ -153,6 +161,7 @@ final class BoardEditor {
                     put(controls, name, value == null ? obj("value", "a".equals(name) ? 1 : 0) : value);
                 }
                 JSONObject made = BoardWidget.copy(original);
+                put(made, "equalUnits", pointSpec.optBoolean("equalUnits", true));
                 if(pointSpec.has("points"))put(made,"points",pointSpec.optJSONArray("points"));
                 put(made, "functions", curves); put(made, "parameters", controls);
                 JSONArray x=axisRange(x1,x2,"x",true);if(x==null)made.remove("x");else put(made,"x",x);

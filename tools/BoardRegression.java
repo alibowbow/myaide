@@ -17,10 +17,35 @@ final class BoardRegression {
         schoolTools();
         agentTools();
         graph();
+        cartesianScales();
         tableAndFigure();
         roundTrip();
         pagesAndGeometry();
         System.out.println("Board regression checks passed: " + checked);
+    }
+
+    private static void cartesianScales() {
+        for (float scale : new float[] {.5f, .85f}) {
+            for (boolean steep : List.of(true, false)) {
+                double x = steep ? 0 : -3;
+                JSONObject spec = obj("height", 280, "x", steep ? arr(-1.2,1.6) : arr(-3.5,-.5),
+                    "y", steep ? arr(-7,8) : arr(-1.5,1.5), "functions", arr(steep ? "x^3+3x-2" : "(x+1)(x+2)(x+3)"),
+                    "points", arr(arr(x,0),arr(x+1,0),arr(x,1)));
+                JSONObject graph = BoardWidget.make("graph",spec,15,scale,Board.AI,Board.ROUGH);
+                var points = BoardWidget.render(graph,Board.ROUGH).stream().map(o->o.optJSONArray("p"))
+                    .filter(p->p!=null && p.length()==2).toList();
+                double dx=points.get(1).optDouble(0)-points.get(0).optDouble(0);
+                double dy=points.get(0).optDouble(1)-points.get(2).optDouble(1);
+                check(dx>1 && Math.abs(dx-dy)<.05,"same Cartesian units for both reported cubics");
+                put(spec,"equalUnits",false);
+                check(!BoardWidget.spec(BoardWidget.make("graph",spec,0,scale,Board.AI,Board.ROUGH))
+                    .optBoolean("equalUnits",true),"independent scale survives storage");
+                var old=BoardWidget.copy(graph);put(old,"h",220);var note=Board.text(50,260,"다음 단계",28,"ink",false,600,Board.AI);
+                var moved=BoardWidget.reflowGraphs(arr(old,note),Board.ROUGH);
+                check(moved.optJSONObject(1).optDouble("y")>moved.optJSONObject(0).optDouble("h")+15
+                    && BoardWidget.reflowGraphs(moved,Board.ROUGH)==moved,"existing lesson reflows once without overlap");
+            }
+        }
     }
 
     private static void schoolTools() throws Exception {

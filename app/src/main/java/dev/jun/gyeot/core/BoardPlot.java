@@ -211,6 +211,11 @@ public final class BoardPlot {
         double pad=Math.max(1,(max-min)*.1); return new double[]{min-pad,max+pad};
     }
 
+    private static void expandRange(double[] bounds, double span) {
+        double extra = (span - (bounds[1] - bounds[0])) / 2;
+        if (extra > 0) { bounds[0] -= extra; bounds[1] += extra; }
+    }
+
     public static List<JSONObject> graph(JSONObject spec, float top, float height, float scale) {
         return graph(spec,top,height,scale,false);
     }
@@ -239,7 +244,21 @@ public final class BoardPlot {
         float roomTop=top+30+size*.9f+(curves.stream().filter(curve->!curve.label().isBlank()).count()+(errors.isEmpty()?0:1))*size*1.5f;
         float roomHeight=Math.max(8,top+height-40-roomTop);
         double ratio=(xs[1]-xs[0])/(ys[1]-ys[0]);
-        boolean squareUnits=relation || spec.optBoolean("equalUnits");
+        boolean squareUnits = relation || spec.optBoolean("equalUnits", true);
+        // Ordinary Cartesian graphs use the full drawing area with one geometric scale. Keep both requested
+        // ranges in view and pad the shorter one. Relations and discrete fields have an exact domain.
+        if (squareUnits && !relation && !curves.isEmpty()) {
+            double unitsPerPixel = Math.max((xs[1] - xs[0]) / roomWidth, (ys[1] - ys[0]) / roomHeight);
+            double wider = unitsPerPixel * roomWidth, taller = unitsPerPixel * roomHeight;
+            if (Double.isFinite(wider) && Double.isFinite(taller) && wider <= 2e6 && taller <= 2e6) {
+                expandRange(xs, wider);
+                expandRange(ys, taller);
+                ratio = (xs[1] - xs[0]) / (ys[1] - ys[0]);
+                curves.replaceAll(c -> new Curve(c.function(), Double.isFinite(c.start()) ? Math.max(xs[0], c.start()) : xs[0],
+                    Double.isFinite(c.end()) ? Math.min(xs[1], c.end()) : xs[1],
+                    c.start(), c.end(), c.fromOpen(), c.toOpen(), c.color(), c.label()));
+            }
+        }
         float plotWidth=squareUnits?(float)Math.min(roomWidth,roomHeight*ratio):roomWidth;
         float plotHeight=squareUnits?(float)Math.min(roomHeight,roomWidth/ratio):roomHeight;
         float left=90+(roomWidth-plotWidth)/2,right=left+plotWidth,bottom=roomTop+plotHeight;
@@ -249,11 +268,11 @@ public final class BoardPlot {
             if (curve.label().isEmpty()) continue;
             // One name to a row: whatever letters it is written in, no name runs into the next.
             if (named) legendY += size * 1.5f;
-            out.add(Board.text(left, legendY, "— " + curve.label(), size, curve.color(), false, right - left, Board.AI)); named = true;
+            out.add(Board.text(90, legendY, "— " + curve.label(), size, curve.color(), false, roomWidth, Board.AI)); named = true;
         }
         if (!errors.isEmpty()) {
             if (named) legendY += size * 1.5f;
-            out.add(Board.text(left, legendY, "일부 함수식을 그리지 못했어요. 그래프에서 식을 확인해 주세요.", size, "red", false, right - left, Board.AI));
+            out.add(Board.text(90, legendY, "일부 함수식을 그리지 못했어요. 그래프에서 식을 확인해 주세요.", size, "red", false, roomWidth, Board.AI));
             named = true;
         }
         // Room above the plot for the y axis's arrow and its name, so they never reach into the line above.

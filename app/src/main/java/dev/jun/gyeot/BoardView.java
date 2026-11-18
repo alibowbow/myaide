@@ -255,6 +255,15 @@ final class BoardView extends View {
     private float boardX(float screenX) { return left + screenX / scale(); }
     private float boardY(float screenY) { return top + (screenY - insetTop) / scale(); }
     float top() { return top; }
+    void saveViewport(android.os.Bundle state) {
+        state.putFloat("boardTop", top); state.putFloat("boardLeft", left); state.putFloat("boardZoom", zoom);
+    }
+    boolean restoreViewport(android.os.Bundle state) {
+        if (!state.containsKey("boardTop")) return false;
+        zoom = Math.max(1, Math.min(MAX_ZOOM, state.getFloat("boardZoom", 1)));
+        top = state.getFloat("boardTop"); left = state.getFloat("boardLeft");
+        clampPage(); invalidate(); return true;
+    }
     /** The page's height shown clear of the bars at once, in board units. */
     float shown() { return Math.max(1, getHeight() - insetTop - insetBottom) / scale(); }
     private void clampPage() {
