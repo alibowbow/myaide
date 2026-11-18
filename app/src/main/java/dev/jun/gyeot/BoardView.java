@@ -38,7 +38,17 @@ final class BoardView extends View {
         void changed();
         /** The text tool tapped the page here (board units). */
         void textAt(float x, float y);
+        /** The hand tapped (without moving the page) on the item at this index, a picture included; -1 for bare page. */
+        default void tapped(int index, float x, float y) {}
     }
+    /** Gives a picture's file as a bitmap (null when it is gone); asked on the main thread, kept for a few pictures. */
+    interface Pictures { Bitmap load(String name); }
+    private Pictures pictures; private final java.util.LinkedHashMap<String, Bitmap> loaded = new java.util.LinkedHashMap<>(8, .75f, true);
+    private static final int KEPT_PICTURES = 6;
+    /** The bars that float over the page, in pixels: writing starts under the top one and follows above the bottom one. */
+    private int insetTop, insetBottom;
+    private Typeface penFace; private boolean penMissing, hand; static final float PEN_SCALE = 1.25f;
+    private final Paint picturePaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private JSONArray items = new JSONArray();
     private final Deque<Object[]> undo = new ArrayDeque<>(), redo = new ArrayDeque<>();
     private final Map<JSONObject, Float> revealing = new IdentityHashMap<>();
@@ -52,7 +62,7 @@ final class BoardView extends View {
     private float left, top, zoom = 1;
     // The gesture in progress.
     private final List<Float> points = new ArrayList<>();
-    private float downX, downY, lastX, lastY, lastSpan, lastMidX, lastMidY; private boolean drawing, moving, erased; private long touchedAt;
+    private float downX, downY, downSx, downSy, lastX, lastY, lastSpan, lastMidX, lastMidY; private boolean drawing, moving, erased; private long touchedAt;
     private JSONObject preview;
 
     BoardView(Context context) {
@@ -61,20 +71,44 @@ final class BoardView extends View {
         setFocusable(true); setContentDescription("판서 판");
     }
     void listen(Listener value) { listener = value; }
-    final Board.Measure measure = (text, size, bold, maxWidth) -> {
-        StaticLayout layout = layout(text, size, bold, maxWidth);
-        float widest = 0; for (int i = 0; i < layout.getLineCount(); i++) widest = Math.max(widest, layout.getLineWidth(i));
-        return new float[]{widest, layout.getHeight()};
+    final Board.Measure measure = new Board.Measure() {
+        @Override public float[] size(String text, float size, boolean bold, float maxWidth) { return size(text, size, bold, maxWidth, false); }
+        @Override public float[] size(String text, float size, boolean bold, float maxWidth, boolean hand) {
+            StaticLayout layout = layout(text, size, bold, maxWidth, hand);
+            float widest = 0; for (int i = 0; i < layout.getLineCount(); i++) widest = Math.max(widest, layout.getLineWidth(i));
+            return new float[]{widest, layout.getHeight()};
+        }
     };
-    private StaticLayout layout(String text, float size, boolean bold, float maxWidth) {
-        TextPaint paint = new TextPaint(letters); paint.setTextSize(size); paint.setTypeface(Typeface.create(Typeface.DEFAULT, bold ? Typeface.BOLD : Typeface.NORMAL));
+    /** The pen font, read once; null when it cannot be (then handwriting is drawn in print letters). */
+    private Typeface pen() {
+        if (penFace == null && !penMissing) { try { penFace = Typeface.createFromAsset(getContext().getAssets(), "fonts/Gaegu-Regular.ttf"); } catch (RuntimeException missing) { penMissing = true; } }
+        return penFace;
+    }
+    private StaticLayout layout(String text, float size, boolean bold, float maxWidth, boolean hand) {
+        Typeface pen = hand ? pen() : null;
+        // The pen font's letters are small for their size: they are drawn a quarter larger to read like the print ones.
+        TextPaint paint = new TextPaint(letters); paint.setTextSize(pen != null ? size * PEN_SCALE : size); paint.setTypeface(Typeface.create(pen != null ? pen : Typeface.DEFAULT, bold ? Typeface.BOLD : Typeface.NORMAL));
+        if (pen != null && bold) paint.setFakeBoldText(true);
         return StaticLayout.Builder.obtain(text, 0, text.length(), paint, Math.max(1, Math.round(maxWidth))).setAlignment(Layout.Alignment.ALIGN_NORMAL).setLineSpacing(0, 1.18f).setIncludePad(false).build();
     }
+
+    void pictures(Pictures value) { pictures = value; loaded.clear(); invalidate(); }
+    /** What the text tool writes in from now on: the bundled pen font's handwriting, or the system's print letters. */
+    void handwriting(boolean on) { hand = on && pen() != null; }
+    boolean handwriting() { return hand; }
+    void insets(int topPx, int bottomPx) { if (insetTop == topPx && insetBottom == bottomPx) return; insetTop = Math.max(0, topPx); insetBottom = Math.max(0, bottomPx); clampPage(); invalidate(); }
 
     // ── What is on the board ────────────────────────────────────────────────────────────────────────────
 
     JSONArray items() { return items; }
-    void show(JSONArray stored) { items = stored == null ? new JSONArray() : stored; undo.clear(); redo.clear(); revealing.clear(); layouts.clear(); left = 0; top = 0; zoom = 1; invalidate(); }
+    void show(JSONArray stored) { items = stored == null ? new JSONArray() : stored; undo.clear(); redo.clear(); revealing.clear(); layouts.clear(); loaded.clear(); left = 0; top = 0; zoom = 1; invalidate(); }
+    /** Puts a picture on the page under what is there; undo takes it off again. */
+    void addPicture(JSONObject picture) { add(picture, false); changed(); }
+    /** Takes an item off the board (the hand's 지우기 for a picture or a line); undo puts it back in its place. */
+    void remove(int index) {
+        JSONObject gone = items.optJSONObject(index); if (gone == null) return;
+        removeAt(index); revealing.remove(gone); layouts.remove(gone); undo.push(new Object[]{"remove", index, gone}); redo.clear(); changed();
+    }
     String tool() { return tool; }
     void tool(String value) { tool = value; cancelGesture(); }
     String color() { return color; }
@@ -107,6 +141,7 @@ final class BoardView extends View {
     void undo() {
         Object[] step = undo.poll(); if (step == null) return;
         if ("add".equals(step[0])) { int index = indexOf((JSONObject) step[1]); if (index >= 0) removeAt(index); revealing.remove((JSONObject) step[1]); }
+        else if ("many".equals(step[0])) { for (Object one : (List<?>) step[1]) { int index = indexOf((JSONObject) one); if (index >= 0) removeAt(index); } }
         else if ("remove".equals(step[0])) insert((Integer) step[1], (JSONObject) step[2]);
         else { JSONArray now = items; items = (JSONArray) step[1]; step = new Object[]{"clear", now}; }
         redo.push(step); changed();
@@ -114,15 +149,24 @@ final class BoardView extends View {
     void redo() {
         Object[] step = redo.poll(); if (step == null) return;
         if ("add".equals(step[0])) items.put((JSONObject) step[1]);
+        else if ("many".equals(step[0])) { for (Object one : (List<?>) step[1]) items.put((JSONObject) one); }
         else if ("remove".equals(step[0])) { int index = indexOf((JSONObject) step[2]); if (index >= 0) removeAt(index); }
         else { JSONArray now = items; items = (JSONArray) step[1]; step = new Object[]{"clear", now}; }
         undo.push(step); changed();
     }
     /** Empties the board; undo brings everything back. */
     void clear() { if (items.length() == 0) return; undo.push(new Object[]{"clear", items}); redo.clear(); items = new JSONArray(); revealing.clear(); top = 0; changed(); }
+    /** What the text tool writes at (the board's 글자 크기). */
+    float textScale = 1;
     void addText(float x, float y, String text) {
         if (text == null || text.isBlank()) return;
-        add(Board.text(x, y, text, Board.NORMAL, color, false, Math.max(160, Board.WIDTH - Board.MARGIN - x), Board.ME), false); changed();
+        add(Board.handwritten(Board.text(x, y, text, Board.NORMAL * textScale, color, false, Math.max(160, Board.WIDTH - Board.MARGIN - x), Board.ME), hand), false); changed();
+    }
+    /** Puts several items on the board as one thing: one undo takes all of them off. */
+    void addAll(List<JSONObject> made) {
+        if (made == null || made.isEmpty()) return;
+        for (JSONObject item : made) items.put(item);
+        undo.push(new Object[]{"many", new ArrayList<>(made)}); redo.clear(); changed();
     }
     private void changed() { invalidate(); if (listener != null) listener.changed(); }
 
@@ -130,10 +174,10 @@ final class BoardView extends View {
 
     private float scale() { return getWidth() <= 0 ? 1 : getWidth() * zoom / Board.WIDTH; }
     private float boardX(float screenX) { return left + screenX / scale(); }
-    private float boardY(float screenY) { return top + screenY / scale(); }
+    private float boardY(float screenY) { return top + (screenY - insetTop) / scale(); }
     float top() { return top; }
-    /** The page's height shown at once, in board units. */
-    float shown() { return getHeight() / scale(); }
+    /** The page's height shown clear of the bars at once, in board units. */
+    float shown() { return Math.max(1, getHeight() - insetTop - insetBottom) / scale(); }
     private void clampPage() {
         float visible = Board.WIDTH / zoom;
         left = Math.max(0, Math.min(Board.WIDTH - visible, left));
@@ -161,21 +205,23 @@ final class BoardView extends View {
         // On screen the page is the app's warm canvas, so the white bars float over it; a picture of it (render) is on white.
         canvas.drawColor(Ui.BG);
         float scale = scale();
-        canvas.save(); canvas.scale(scale, scale); canvas.translate(-left, -top);
-        paint(canvas, top, top + getHeight() / scale, true);
+        // The page's own top sits under the top bar; what scrolls above it passes behind the bar.
+        canvas.save(); canvas.translate(0, insetTop); canvas.scale(scale, scale); canvas.translate(-left, -top);
+        paint(canvas, top - insetTop / scale, top + (getHeight() - insetTop) / scale, true);
         canvas.restore();
     }
     /** The paper's dots and every item between two heights of the page, in board units. */
     private void paint(Canvas canvas, float from, float to, boolean live) {
         dots.setColor((Ui.MUTED & 0x00ffffff) | 0x30000000);
         for (float y = (float) Math.floor(from / 50) * 50; y <= to; y += 50) for (float x = 50; x < Board.WIDTH; x += 50) canvas.drawCircle(x, y, 1.6f, dots);
-        for (int i = 0; i < items.length(); i++) {
-            JSONObject item = items.optJSONObject(i); if (item == null) continue;
+        // Pictures lie under everything written, wherever they are in the order of things.
+        for (int pass = 0; pass < 2; pass++) for (int i = 0; i < items.length(); i++) {
+            JSONObject item = items.optJSONObject(i); if (item == null || Board.IMAGE.equals(item.optString("t")) != (pass == 0)) continue;
             Float shown = live ? revealing.get(item) : null;
             if (shown != null && shown <= 0) continue;
             float[] b = Board.bounds(item, measure);
             if (b[3] < from - 40 || b[1] > to + 40) continue;
-            paint(canvas, item, shown == null ? 1 : shown);
+            if (pass == 0) picture(canvas, item, b, shown == null ? 1 : shown); else paint(canvas, item, shown == null ? 1 : shown);
         }
         if (live && preview != null) paint(canvas, preview, 1);
         if (live && drawing && points.size() >= 2 && (tool.equals(PEN) || tool.equals(MARKER))) {
@@ -183,26 +229,43 @@ final class BoardView extends View {
             paint(canvas, Board.stroke(color, tool.equals(MARKER) ? MARKER_WIDTH : width, tool.equals(MARKER), flat, Board.ME), 1);
         }
     }
+    private Bitmap bitmap(String name) {
+        Bitmap kept = loaded.get(name); if (kept != null && !kept.isRecycled()) return kept;
+        Bitmap fresh = null; try { fresh = pictures == null ? null : pictures.load(name); } catch (RuntimeException unreadable) { /* drawn as missing */ }
+        if (fresh == null) return null;
+        loaded.put(name, fresh);
+        if (loaded.size() > KEPT_PICTURES) { java.util.Iterator<String> oldest = loaded.keySet().iterator(); oldest.next(); oldest.remove(); }
+        return fresh;
+    }
+    private void picture(Canvas canvas, JSONObject item, float[] b, float shown) {
+        RectF box = new RectF(b[0], b[1], b[2], b[3]); Bitmap bitmap = bitmap(item.optString("id"));
+        if (bitmap != null) { picturePaint.setAlpha(Math.round(255 * Math.min(1, shown))); canvas.drawBitmap(bitmap, null, box, picturePaint); }
+        ink.setPathEffect(null); ink.setStyle(Paint.Style.STROKE); ink.setStrokeWidth(2); ink.setColor((Ui.MUTED & 0x00ffffff) | 0x66000000);
+        canvas.drawRect(box, ink);
+        if (bitmap == null) { TextPaint paint = new TextPaint(letters); paint.setTextSize(30); paint.setColor(Ui.MUTED); canvas.drawText("자료를 불러오지 못했어요", box.left + 20, box.top + 50, paint); }
+    }
     private void paint(Canvas canvas, JSONObject item, float shown) {
         String type = item.optString("t");
         if (Board.TEXT.equals(type)) {
             String text = item.optString("text"); float size = (float) item.optDouble("s", Board.NORMAL), room = (float) item.optDouble("mw", Board.WIDTH);
             StaticLayout layout;
-            if (shown >= 1) { layout = layouts.get(item); if (layout == null) { layout = layout(text, size, item.optBoolean("b"), room); layouts.put(item, layout); } }
-            else { int count = Math.max(1, Math.min(text.length(), Math.round(text.length() * shown))); if (count < text.length() && Character.isHighSurrogate(text.charAt(count - 1))) count++; layout = layout(text.substring(0, Math.min(text.length(), count)), size, item.optBoolean("b"), room); }
+            if (shown >= 1) { layout = layouts.get(item); if (layout == null) { layout = layout(text, size, item.optBoolean("b"), room, item.optBoolean("hand")); layouts.put(item, layout); } }
+            else { int count = Math.max(1, Math.min(text.length(), Math.round(text.length() * shown))); if (count < text.length() && Character.isHighSurrogate(text.charAt(count - 1))) count++; layout = layout(text.substring(0, Math.min(text.length(), count)), size, item.optBoolean("b"), room, item.optBoolean("hand")); }
             layout.getPaint().setColor(argb(item));
             canvas.save(); canvas.translate((float) item.optDouble("x"), (float) item.optDouble("y")); layout.draw(canvas); canvas.restore();
             return;
         }
         ink.setStyle(Paint.Style.STROKE); ink.setColor(argb(item)); ink.setStrokeWidth((float) item.optDouble("w", 6));
+        ink.setPathEffect(item.optBoolean("d") ? new android.graphics.DashPathEffect(new float[]{16, 13}, 0) : null);
         path.reset();
         if (Board.STROKE.equals(type)) {
             JSONArray p = item.optJSONArray("p"); int count = p == null ? 0 : p.length() / 2; if (count == 0) return;
             float px = (float) p.optDouble(0), py = (float) p.optDouble(1);
             if (count == 1) { ink.setStyle(Paint.Style.FILL); canvas.drawCircle(px, py, ink.getStrokeWidth() / 2, ink); return; }
-            path.moveTo(px, py);
+            path.moveTo(px, py); boolean sharp = item.optBoolean("sharp");
             for (int i = 1; i < count; i++) {
                 float x = (float) p.optDouble(2 * i), y = (float) p.optDouble(2 * i + 1);
+                if (sharp) { path.lineTo(x, y); continue; }
                 // Each point is a corner softened toward the middle of the next segment: a hand's line, not a polygon.
                 if (i < count - 1) path.quadTo(x, y, (x + (float) p.optDouble(2 * i + 2)) / 2, (y + (float) p.optDouble(2 * i + 3)) / 2); else path.lineTo(x, y);
             }
@@ -230,7 +293,7 @@ final class BoardView extends View {
         float scale = widthPx / (float) Board.WIDTH; int height = Math.max(1, Math.round((to - from) * scale));
         Bitmap bitmap = Bitmap.createBitmap(widthPx, height, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap); canvas.drawColor(Ui.CARD); canvas.scale(scale, scale); canvas.translate(0, -from);
-        paint(canvas, from, to, false);
+        paint(canvas, from, to, false); ink.setPathEffect(null);
         return bitmap;
     }
 
@@ -246,10 +309,10 @@ final class BoardView extends View {
             float span = (float) Math.hypot(event.getX(0) - event.getX(1), event.getY(0) - event.getY(1));
             if (action == MotionEvent.ACTION_POINTER_DOWN || !moving) { cancelGesture(); moving = true; }
             else if (action == MotionEvent.ACTION_MOVE) {
-                float before = scale(), anchorX = left + midX / before, anchorY = top + midY / before;
+                float before = scale(), anchorX = left + midX / before, anchorY = top + (midY - insetTop) / before;
                 if (lastSpan > 10 && span > 10) zoom = Math.max(1, Math.min(MAX_ZOOM, zoom * span / lastSpan));
                 float after = scale();
-                left = anchorX - midX / after - (midX - lastMidX) / after; top = anchorY - midY / after - (midY - lastMidY) / after;
+                left = anchorX - midX / after - (midX - lastMidX) / after; top = anchorY - (midY - insetTop) / after - (midY - lastMidY) / after;
                 clampPage(); invalidate();
             }
             lastSpan = span; lastMidX = midX; lastMidY = midY;
@@ -260,7 +323,7 @@ final class BoardView extends View {
         switch (action) {
             case MotionEvent.ACTION_DOWN -> {
                 getParent().requestDisallowInterceptTouchEvent(true);
-                moving = false; drawing = true; erased = false; points.clear(); downX = x; downY = y; lastX = sx; lastY = sy;
+                moving = false; drawing = true; erased = false; points.clear(); downX = x; downY = y; lastX = sx; lastY = sy; downSx = sx; downSy = sy;
                 if (tool.equals(PEN) || tool.equals(MARKER)) { points.add(x); points.add(y); }
                 else if (tool.equals(ERASER)) erase(x, y);
             }
@@ -285,6 +348,7 @@ final class BoardView extends View {
                         add(Board.stroke(color, tool.equals(MARKER) ? MARKER_WIDTH : width, tool.equals(MARKER), flat, Board.ME), false); points.clear(); changed();
                     }
                 } else if (tool.equals(TEXT)) { if (listener != null && Math.hypot(x - downX, y - downY) < 30) listener.textAt(Math.max(Board.MARGIN / 2f, downX), downY); }
+                else if (tool.equals(HAND)) { if (listener != null && Math.hypot(sx - downSx, sy - downSy) < 14) listener.tapped(Board.hit(items, x, y, 12 / zoom + 8, measure, true), x, y); }
                 else if (tool.equals(ERASER)) { if (erased) changed(); }
                 else if (preview != null) {
                     JSONObject made = preview; preview = null;

@@ -12,6 +12,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
@@ -47,12 +48,37 @@ final class BoardTeacher {
     private List<JSONObject> placed = new ArrayList<>(); private long[] starts; private long drawTotal, stepStarted, drawnFor;
     private boolean drawn, heard;
     private final Runnable frame = this::frame;
+    /** The board's lessons as they are kept ([{id, title, says}]); a new lesson is added to them. Set with the board. */
+    private JSONArray lessons = new JSONArray();
+    /** The board's text scale (글자 크기) and letters (글씨체): what a new lesson is written at and in. */
+    float textScale = 1; boolean hand;
+    /** Giving a kept lesson again: its items are on the board already and only shown anew. */
+    private boolean replaying; private String lessonId = ""; private List<List<JSONObject>> kept = new ArrayList<>();
 
     BoardTeacher(BoardView board, BoardVoice voice, Brain brain, Watcher watcher) {
         this.board = board; this.voice = voice; this.brain = brain; this.watcher = watcher;
         voice.onLost = () -> { if (state.equals(PLAYING)) pause(); };
     }
     String state() { return state; }
+    void lessons(JSONArray value) { lessons = value == null ? new JSONArray() : value; }
+    JSONArray lessons() { return lessons; }
+    /** The newest lesson that still has writing on the board, or "". */
+    String latest() {
+        for (int i = lessons.length() - 1; i >= 0; i--) { String id = lessons.optJSONObject(i).optString("id"); if (!written(id, 0).isEmpty()) return id; }
+        return "";
+    }
+    private JSONObject lesson(String id) { for (int i = 0; i < lessons.length(); i++) if (lessons.optJSONObject(i).optString("id").equals(id)) return lessons.optJSONObject(i); return null; }
+    /** A lesson's items still on the board from a step on, step by step (a step whose writing was erased is empty). */
+    private List<List<JSONObject>> written(String id, int from) {
+        JSONObject record = lesson(id); List<List<JSONObject>> steps = new ArrayList<>(); if (record == null) return steps;
+        int count = record.optJSONArray("says") == null ? 0 : record.optJSONArray("says").length(); boolean any = false;
+        for (int k = 0; k < count; k++) steps.add(new ArrayList<>());
+        JSONArray items = board.items();
+        for (int i = 0; i < items.length(); i++) { JSONObject item = items.optJSONObject(i); if (item != null && id.equals(item.optString("ls")) && item.optInt("st") >= from && item.optInt("st") < count) { steps.get(item.optInt("st")).add(item); any = true; } }
+        // Steps at the end that left nothing on the board (the lesson was stopped early, or they were erased) are not given again.
+        while (!steps.isEmpty() && steps.get(steps.size() - 1).isEmpty()) steps.remove(steps.size() - 1);
+        return any ? steps : new ArrayList<>();
+    }
     boolean busy() { return !state.equals(IDLE); }
     boolean muted() { return muted; }
     /** Sound off: steps are held long enough to read their words. Takes effect at once. */
@@ -66,7 +92,7 @@ final class BoardTeacher {
     void ask(String request, List<MainRequest.Attachment> files, String language) {
         if (closed || busy()) return;
         int mine = ++epoch; state = THINKING; lesson = null; index = 0; tell();
-        String instructions = BoardScript.instructions(language), input = BoardScript.request(request, Board.words(board.items(), 6000), files != null && !files.isEmpty());
+        String instructions = BoardScript.instructions(language, textScale, BoardScript.shown(board.items()).size()), input = BoardScript.request(request, Board.words(board.items(), 6000), files != null && !files.isEmpty());
         Runnable job = () -> {
             BoardScript.Lesson made = null; String problem = null;
             try { made = BoardScript.parse(brain.ask(instructions, input, files == null ? List.of() : files, cancel)); }
@@ -84,15 +110,39 @@ final class BoardTeacher {
     }
     /** Gives a lesson that is already made (ask's second half; tests start here). */
     void begin(BoardScript.Lesson made) {
-        lesson = made; flow = new BoardScript.Flow(board.items(), board.measure); index = 0; voiceNoticed = false; voiceless = false;
+        lesson = made; flow = new BoardScript.Flow(board.items(), board.measure, textScale, hand); index = 0; voiceNoticed = false; voiceless = false; replaying = false;
+        lessonId = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+        JSONArray says = new JSONArray(); for (BoardScript.Step step : made.steps()) says.put(step.say());
+        lessons.put(dev.jun.gyeot.core.Jsons.obj("id", lessonId, "title", made.title(), "says", says));
+        state = PLAYING; step();
+    }
+    /**
+     * Gives a kept lesson again from a step: its writing from there on disappears and is written anew while its words
+     * are read. Nothing happens while a lesson is on; says so when the lesson's writing is no longer on the board.
+     */
+    void replay(String id, int from) {
+        if (closed || busy()) return;
+        JSONObject record = lesson(id); List<List<JSONObject>> steps = record == null ? new ArrayList<>() : written(id, Math.max(0, from));
+        if (steps.isEmpty()) { watcher.notice("다시 보여 줄 판서가 판에 남아 있지 않아요."); return; }
+        List<BoardScript.Step> script = new ArrayList<>(); JSONArray says = record.optJSONArray("says");
+        for (int k = 0; k < steps.size(); k++) { script.add(new BoardScript.Step(says.optString(k), List.of())); if (k >= from) for (JSONObject item : steps.get(k)) board.reveal(item, 0); }
+        epoch++; lesson = new BoardScript.Lesson(record.optString("title"), script); kept = steps; replaying = true; lessonId = id; index = Math.max(0, Math.min(from, steps.size() - 1)); voiceNoticed = false; voiceless = false;
         state = PLAYING; step();
     }
     private void step() {
         if (lesson == null || index >= lesson.steps().size()) { finish(); return; }
         BoardScript.Step step = lesson.steps().get(index);
-        placed = flow.place(step); starts = new long[placed.size()]; drawTotal = 0;
-        for (int i = 0; i < placed.size(); i++) { starts[i] = drawTotal; drawTotal += BoardScript.itemMillis(placed.get(i)); board.add(placed.get(i), true); }
-        if (!placed.isEmpty()) { float[] b = Board.bounds(placed.get(placed.size() - 1), board.measure); board.follow(b[3]); watcher.wrote(index == 0 ? lesson.title() : null); }
+        placed = replaying ? kept.get(index) : flow.place(step); starts = new long[placed.size()]; drawTotal = 0;
+        for (int i = 0; i < placed.size(); i++) {
+            starts[i] = drawTotal; drawTotal += BoardScript.itemMillis(placed.get(i));
+            if (replaying) board.reveal(placed.get(i), 0); else board.add(Board.inLesson(placed.get(i), lessonId, index), true);
+        }
+        if (!placed.isEmpty()) {
+            // The page follows the writing: the lowest thing of the step comes into view (a mark on a picture stays where the picture is).
+            float lowest = 0, highest = Float.MAX_VALUE; for (JSONObject item : placed) { float[] b = Board.bounds(item, board.measure); lowest = Math.max(lowest, b[3]); highest = Math.min(highest, b[1]); }
+            board.follow(lowest - highest > board.shown() * .5f ? highest + board.shown() * .45f : lowest);
+            if (!replaying) watcher.wrote(index == 0 ? lesson.title() : null);
+        }
         drawn = placed.isEmpty(); drawnFor = 0; stepStarted = SystemClock.uptimeMillis();
         tell(); speak(step); main.removeCallbacks(frame); main.post(frame);
     }
@@ -135,7 +185,8 @@ final class BoardTeacher {
     }
     private void finish() {
         main.removeCallbacks(frame); board.revealAll(); voice.stop();
-        state = IDLE; lesson = null; placed = new ArrayList<>(); epoch++; tell(); watcher.wrote(null);
+        boolean again = replaying;
+        state = IDLE; lesson = null; placed = new ArrayList<>(); replaying = false; epoch++; tell(); if (!again) watcher.wrote(null);
     }
 
     /** Holds the lesson where it is: the writing freezes and the voice stops. */
@@ -157,9 +208,9 @@ final class BoardTeacher {
         Runnable abort = cancel.getAndSet(null);
         // The worker is inside the request: what aborts it runs on a thread of its own (it closes a connection).
         if (abort != null) { Thread stopper = new Thread(abort, "board-teacher-stop"); stopper.setDaemon(true); stopper.start(); }
-        boolean wrote = lesson != null;
+        boolean wrote = lesson != null && !replaying;
         main.removeCallbacks(frame); board.revealAll(); voice.stop();
-        state = IDLE; lesson = null; placed = new ArrayList<>(); epoch++; tell();
+        state = IDLE; lesson = null; placed = new ArrayList<>(); replaying = false; epoch++; tell();
         if (wrote) watcher.wrote(null);
     }
     void close() { stop(); closed = true; voice.close(); worker.shutdown(); }

@@ -52,7 +52,9 @@ import static dev.jun.gyeot.Ui.*;
 public final class BoardActivity extends Activity {
     /** Opens this board; asks this at once. */
     static final String OPEN = "gyeot.board_id", ASK = "gyeot.board_ask";
-    static final int PICK = 71, FILES = 4, SNAPSHOT_UNITS = 3000;
+    static final int PICK = 71, FILES = 4, SNAPSHOT_UNITS = 3000, PDF_PAGES = 10, PAGE_PIXELS = 1600;
+    /** 글자 크기: how much of the device's own text scale each choice is. */
+    static final String[] TEXT_NAMES = {"작게", "보통", "크게", "아주 크게"}; static final float[] TEXT_LEVELS = {.8f, 1f, 1.25f, 1.55f};
     static final long FILE_BYTES = 12L * 1024 * 1024;
     /** The model and the voices; tests put their own here. */
     static BoardTeacher.Brain brain; static BoardVoice.Voices voices;
@@ -62,7 +64,7 @@ public final class BoardActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private Ui ui; private AppStore store; private BoardStore boards; private MainNavigation navigation;
     private FrameLayout root; private BoardView board; private BoardTeacher teacher;
-    private LinearLayout chrome, palette, askBar, lessonBar, files, hint; private TextView titleView, caption, progress; private EditText input;
+    private LinearLayout chrome, palette, askBar, lessonBar, files, hint, topBar; private View gapView; private TextView titleView, caption, progress; private EditText input;
     private ImageView undo, redo, sound, pause, next, colorDot; private final List<ImageView> toolIcons = new ArrayList<>(); private final List<String> toolIds = new ArrayList<>();
     private String boardId = "", title = "", shape = BoardView.LINE; private final List<JSONObject> attached = new ArrayList<>();
     private boolean destroyed; private Ui.Sheet sheet;
@@ -97,7 +99,9 @@ public final class BoardActivity extends Activity {
         board.listen(new BoardView.Listener() {
             @Override public void changed() { saveSoon(); paintHistory(); }
             @Override public void textAt(float x, float y) { writeText(x, y); }
+            @Override public void tapped(int index, float x, float y) { tappedItem(index); }
         });
+        board.pictures(this::picture); board.handwriting(store.settings.getBoolean("boardHand", false)); board.textScale = textScale();
         teacher = new BoardTeacher(board, new BoardVoice(this, store, voices), brain != null ? brain : this::askModel, new BoardTeacher.Watcher() {
             @Override public void state(String now, int step, int steps, String words) { lesson(now, step, steps, words); }
             @Override public void notice(String why) { toast(why); }
@@ -109,7 +113,10 @@ public final class BoardActivity extends Activity {
         TextView how = ui.text("문제 사진이나 PDF를 붙여 보내면 판서로 풀어 주고, 주제를 적으면 차례로 가르쳐 줘요.", SUBHEAD, 450, MUTED); how.setGravity(Gravity.CENTER); how.setLineSpacing(ui.dp(3), 1); hint.addView(how);
         hint.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(-1, -2); hp.gravity = Gravity.CENTER; root.addView(hint, hp);
+        teacher.textScale = textScale(); teacher.hand = board.handwriting();
         chrome = ui.column(); root.addView(chrome, new FrameLayout.LayoutParams(-1, -1));
+        // The page starts under the top bar and its writing is followed above the bars at the bottom.
+        chrome.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (topBar != null && gapView != null) board.insets(topBar.getBottom() + ui.dp(8), Math.max(0, chrome.getHeight() - gapView.getBottom())); });
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
             boolean typing = insets.isVisible(WindowInsets.Type.ime());
@@ -145,6 +152,34 @@ public final class BoardActivity extends Activity {
         super.onBackPressed();
     }
 
+    /** The board's text scale: smaller on a wide screen (the page is as wide as the screen), times the user's 글자 크기. */
+    private float textScale() {
+        float base = getResources().getConfiguration().smallestScreenWidthDp >= 600 ? .5f : .85f;
+        return base * TEXT_LEVELS[Math.max(0, Math.min(TEXT_LEVELS.length - 1, store.settings.getInt("boardText", 1)))];
+    }
+    /** A picture of the board from its file, no larger than the page is ever drawn. */
+    private Bitmap picture(String name) {
+        java.io.File file = boards.picture(name); if (file == null || !file.isFile()) return null;
+        android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options(); bounds.inJustDecodeBounds = true; android.graphics.BitmapFactory.decodeFile(file.getPath(), bounds);
+        android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options(); options.inSampleSize = 1;
+        while (Math.max(bounds.outWidth, bounds.outHeight) / options.inSampleSize > 2400) options.inSampleSize *= 2;
+        return android.graphics.BitmapFactory.decodeFile(file.getPath(), options);
+    }
+    /** The hand tapped something: a lesson's line can be heard again or explained more, a picture or one's own writing taken off. */
+    private void tappedItem(int index) {
+        JSONObject item = index < 0 ? null : board.items().optJSONObject(index); if (item == null || teacher.busy()) return;
+        boolean picture = Board.IMAGE.equals(item.optString("t")), written = Board.TEXT.equals(item.optString("t")); String lesson = item.optString("ls"), words = item.optString("text");
+        String shown = written ? (words.length() > 40 ? words.substring(0, 40) + "…" : words) : picture ? "붙인 자료" : "그린 것";
+        Ui.Sheet menu = ui.selectionSheet(shown, lesson.isEmpty() ? "" : "AI가 판서한 부분이에요"); menu.primary.setVisibility(View.GONE);
+        LinearLayout group = ui.group();
+        if (!lesson.isEmpty()) {
+            ui.addRow(group, ui.listRow(R.drawable.ic_play, ACCENT, "여기부터 다시 듣기", "이 단계부터 다시 써 가며 설명해요", null, () -> { menu.dismiss(); teacher.replay(lesson, item.optInt("st")); }), true);
+            if (written) ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, INDIGO, "이 부분 더 설명해 줘", "더 쉽게, 다른 방법으로 이어서 판서해요", null, () -> { menu.dismiss(); input.setText("방금 판서에서 ‘" + words + "’ 부분이 이해가 안 돼. 더 쉽게, 다른 방법으로 설명해 줘."); send(); }), true);
+        }
+        ui.addRow(group, ui.listRow(R.drawable.ic_eraser, RED, picture ? "이 자료 지우기" : "지우기", "되돌리기로 다시 살릴 수 있어요", null, () -> { menu.dismiss(); board.remove(index); paintHistory(); paintFiles(); }), true);
+        menu.body.addView(group); show(menu);
+    }
+
     // ── The screen ──────────────────────────────────────────────────────────────────────────────────────
 
     /** A floating bar: a white capsule with a hairline, lifted off the page by a soft shadow. */
@@ -164,8 +199,8 @@ public final class BoardActivity extends Activity {
         top.addView(undo, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(48))); top.addView(redo, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(48)));
         top.addView(icon(R.drawable.ic_layers, "판 목록", this::listBoards), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(48)));
         top.addView(icon(R.drawable.ic_more, "더 보기", this::more), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(48)));
-        chrome.addView(top, new LinearLayout.LayoutParams(-1, -2));
-        View gap = new View(this); gap.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); chrome.addView(gap, new LinearLayout.LayoutParams(-1, 0, 1));
+        chrome.addView(top, new LinearLayout.LayoutParams(-1, -2)); topBar = top;
+        View gap = new View(this); gapView = gap; gap.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); chrome.addView(gap, new LinearLayout.LayoutParams(-1, 0, 1));
 
         caption = ui.text("", CALLOUT, 500, TEXT); caption.setMaxLines(4); caption.setEllipsize(TextUtils.TruncateAt.END); caption.setLineSpacing(ui.dp(3), 1);
         caption.setBackground(surface(R_CARD)); ui.lift(caption, 8); caption.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(12)); caption.setVisibility(View.GONE);
@@ -242,7 +277,7 @@ public final class BoardActivity extends Activity {
         pause.setImageResource(paused ? R.drawable.ic_play : R.drawable.ic_pause); pause.setContentDescription(paused ? "이어서 하기" : "잠깐 멈추기");
         caption.setVisibility(!idle && !thinking && !words.isBlank() ? View.VISIBLE : View.GONE); caption.setText(words);
         if (idle) root.requestApplyInsets();
-        paintHistory();
+        paintHistory(); paintFiles();
     }
 
     // ── Boards ──────────────────────────────────────────────────────────────────────────────────────────
@@ -252,15 +287,16 @@ public final class BoardActivity extends Activity {
         BoardStore.Entry entry = id.isBlank() ? null : boards.entry(id);
         if (entry == null) { List<BoardStore.Entry> all = boards.list(); entry = all.isEmpty() ? null : all.get(0); }
         if (entry == null) { try { entry = boards.create("", System.currentTimeMillis()); } catch (Exception failed) { toast(failed.getMessage()); finish(); return; } }
-        boardId = entry.id(); title = entry.title(); board.show(boards.items(boardId)); paintTitle(); paintHistory();
+        BoardStore.Doc doc = boards.load(entry.id());
+        boardId = entry.id(); title = entry.title(); board.show(doc.items()); teacher.lessons(doc.lessons()); paintTitle(); paintHistory(); paintFiles();
         board.post(board::scrollToEnd);
     }
     private void saveSoon() { main.removeCallbacks(save); main.postDelayed(save, 600); }
     private void saveNow() {
         if (boardId.isEmpty()) return;
-        String id = boardId, name = title; JSONArray copy;
-        try { copy = new JSONArray(board.items().toString()); } catch (Exception impossible) { return; }
-        background(() -> { try { boards.save(id, copy, name, System.currentTimeMillis()); } catch (Exception failed) { foreground(() -> { if (!destroyed) toast("판을 저장하지 못했어요."); }); } });
+        String id = boardId, name = title; JSONArray copy, lessons;
+        try { copy = new JSONArray(board.items().toString()); lessons = new JSONArray(teacher.lessons().toString()); } catch (Exception impossible) { return; }
+        background(() -> { try { boards.save(id, copy, lessons, name, System.currentTimeMillis()); } catch (Exception failed) { foreground(() -> { if (!destroyed) toast("판을 저장하지 못했어요."); }); } });
     }
     private void newBoard() {
         teacher.stop(); main.removeCallbacks(save); saveNow();
@@ -290,6 +326,11 @@ public final class BoardActivity extends Activity {
         ui.addRow(group, ui.listRow(R.drawable.ic_eraser, ORANGE, "모두 지우기", "되돌리기로 다시 살릴 수 있어요", null, () -> { menu.dismiss(); teacher.stop(); board.clear(); paintHistory(); }), true);
         ui.addRow(group, ui.listRow(R.drawable.ic_close, RED, "이 판 지우기", "지우면 되살릴 수 없어요", null, () -> { menu.dismiss(); deleteBoard(); }), true);
         menu.body.addView(group);
+        menu.body.addView(ui.sectionHeader("글씨"));
+        LinearLayout writing = ui.group(); int level = Math.max(0, Math.min(TEXT_NAMES.length - 1, store.settings.getInt("boardText", 1)));
+        ui.addRow(writing, ui.listRow(R.drawable.ic_text, TEAL, "글자 크기", TEXT_NAMES[level] + " · 새로 쓰는 글부터 적용돼요", ui.chevron(), () -> { menu.dismiss(); textSizes(); }), true);
+        ui.addRow(writing, ui.listRow(R.drawable.ic_pen, PINK, "글씨체", (board.handwriting() ? "손글씨" : "또박또박") + " · 새로 쓰는 글부터 적용돼요", ui.chevron(), () -> { menu.dismiss(); fonts(); }), true);
+        menu.body.addView(writing);
         menu.body.addView(ui.sectionHeader("AI"));
         LinearLayout ai = ui.group(); ScopedModels models = ScopedModels.main(store); String engine = models.readyEngine();
         ui.addRow(ai, ui.listRow(R.drawable.ic_sparkle, INDIGO, "두뇌", engine.isBlank() ? "연결된 AI가 없어요 · 메인 대화에서 고르기" : WorkBook.author(engine) + " · " + models.model(engine) + " · 메인 대화에서 고른 모델",
@@ -297,7 +338,7 @@ public final class BoardActivity extends Activity {
         boolean live = store.secrets.hasKey();
         ui.addRow(ai, ui.listRow(R.drawable.ic_wave, PURPLE, "목소리", live ? "Gemini Live" + (store.voice().isBlank() ? "" : " · " + store.voice()) + " · 안 되면 기기 음성" : "Gemini 키가 없어 기기 음성으로 읽어요", null, null), true);
         menu.body.addView(ai);
-        menu.body.addView(ui.footer("문제 사진이나 PDF를 붙여 보내면 판서로 풀어 주고, 주제나 자료를 주면 차례로 가르쳐 줘요. 두 손가락으로 판을 움직이고 키울 수 있어요."));
+        menu.body.addView(ui.footer("문제 사진이나 PDF를 붙이면 판에 올라가고, 그 위에 직접 쓰거나 AI가 표시하며 풀어 줘요. 손 도구로 판서한 줄을 누르면 거기부터 다시 듣거나 더 물어볼 수 있어요. 두 손가락으로 판을 움직이고 키워요."));
         show(menu);
     }
     private void rename() {
@@ -346,6 +387,65 @@ public final class BoardActivity extends Activity {
             String id = ids[i]; boolean on = id.equals(board.tool());
             ui.addRow(group, ui.listRow(R.drawable.ic_shapes, on ? ACCENT : MUTED, names[i], "", on ? ui.text("✓", 16, 700, ACCENT) : null, () -> { shape = id; board.tool(id); paintTools(); pick.dismiss(); }), true);
         }
+        pick.body.addView(group);
+        pick.body.addView(ui.sectionHeader("계산해서 그리기"));
+        LinearLayout made = ui.group();
+        ui.addRow(made, ui.listRow(R.drawable.ic_board, BLUE, "함수 그래프", "식을 적으면 좌표축에 정확히 그려요", ui.chevron(), () -> { pick.dismiss(); graph(); }), true);
+        ui.addRow(made, ui.listRow(R.drawable.ic_layers, GREEN, "표", "칸 수를 정해 빈 표를 넣어요", ui.chevron(), () -> { pick.dismiss(); table(); }), true);
+        pick.body.addView(made); show(pick);
+    }
+    private EditText field(Ui.Sheet into, String hint, String value, int lines, int limit) {
+        EditText edit = ui.input(hint, lines, limit); edit.setText(value); edit.setContentDescription(hint);
+        LinearLayout.LayoutParams around = new LinearLayout.LayoutParams(-1, -2); around.leftMargin = around.rightMargin = ui.dp(16); around.bottomMargin = ui.dp(10); into.body.addView(edit, around);
+        return edit;
+    }
+    /** Where something made by a tool goes: under everything on the board. */
+    private float below() { float bottom = Board.bottom(board.items(), board.measure); return bottom <= 0 ? Board.MARGIN : bottom + 40; }
+    private void place(List<JSONObject> made) {
+        for (JSONObject item : made) { dev.jun.gyeot.core.Jsons.put(item, "by", Board.ME); Board.handwritten(item, board.handwriting()); }
+        board.addAll(made); paintHistory(); board.scrollToEnd();
+    }
+    private void graph() {
+        Ui.Sheet ask = ui.selectionSheet("함수 그래프", "x로 된 식을 적어 주세요 · 예: x^2 - 4x + 3, 2sin(x), 1/x");
+        EditText expr = field(ask, "함수식", "", 1, 120), from = field(ask, "x 시작 (기본 −5)", "", 1, 12), to = field(ask, "x 끝 (기본 5)", "", 1, 12);
+        ask.primary.setText("그리기"); ask.primary.setOnClickListener(v -> {
+            String text = expr.getText().toString().strip();
+            try { dev.jun.gyeot.core.BoardPlot.function(text); } catch (IllegalArgumentException unreadable) { toast(unreadable.getMessage()); return; }
+            double low = number(from.getText().toString(), -5), high = number(to.getText().toString(), 5);
+            JSONObject spec = dev.jun.gyeot.core.Jsons.obj("x", dev.jun.gyeot.core.Jsons.arr(low, high), "functions", dev.jun.gyeot.core.Jsons.arr(dev.jun.gyeot.core.Jsons.obj("expr", text, "label", "y = " + text.replace("^2", "²").replace("^3", "³").replace("*", "×").replace("-", "−"))));
+            place(dev.jun.gyeot.core.BoardPlot.graph(spec, below(), 460, board.textScale)); ask.dismiss();
+        });
+        show(ask); expr.requestFocus();
+    }
+    private static double number(String text, double otherwise) { try { return Double.parseDouble(text.strip().replace("−", "-")); } catch (RuntimeException none) { return otherwise; } }
+    private void table() {
+        Ui.Sheet ask = ui.selectionSheet("표", "줄과 칸 수를 적어 주세요");
+        EditText rows = field(ask, "줄 수 (1~12)", "3", 1, 2), columns = field(ask, "칸 수 (1~8)", "3", 1, 1);
+        ask.primary.setText("넣기"); ask.primary.setOnClickListener(v -> {
+            int r = (int) Math.max(1, Math.min(dev.jun.gyeot.core.BoardPlot.ROWS, number(rows.getText().toString(), 3))), c = (int) Math.max(1, Math.min(dev.jun.gyeot.core.BoardPlot.COLUMNS, number(columns.getText().toString(), 3)));
+            JSONArray cells = new JSONArray(); for (int i = 0; i < r; i++) { JSONArray row = new JSONArray(); for (int k = 0; k < c; k++) row.put(""); cells.put(row); }
+            // An empty table as wide as the page: every column the same width.
+            float size = Board.SMALL * board.textScale * 1.2f, each = (Board.WIDTH - 2 * Board.MARGIN) / (float) c - size * 1.4f;
+            place(dev.jun.gyeot.core.BoardPlot.table(cells, false, below(), size, (words, s, bold, room) -> new float[]{each, s * 1.4f})); ask.dismiss();
+        });
+        show(ask);
+    }
+    private void textSizes() {
+        Ui.Sheet pick = ui.selectionSheet("글자 크기", "AI 판서와 글자 도구가 새로 쓰는 글에 적용돼요"); pick.primary.setVisibility(View.GONE);
+        LinearLayout group = ui.group(); int now = Math.max(0, Math.min(TEXT_NAMES.length - 1, store.settings.getInt("boardText", 1)));
+        for (int i = 0; i < TEXT_NAMES.length; i++) {
+            int level = i;
+            ui.addRow(group, ui.listRow(R.drawable.ic_text, i == now ? ACCENT : MUTED, TEXT_NAMES[i], "", i == now ? ui.text("✓", 16, 700, ACCENT) : null, () -> {
+                store.settings.edit().putInt("boardText", level).apply(); board.textScale = textScale(); teacher.textScale = textScale(); pick.dismiss();
+            }), true);
+        }
+        pick.body.addView(group); show(pick);
+    }
+    private void fonts() {
+        Ui.Sheet pick = ui.selectionSheet("글씨체", "AI 판서와 글자 도구가 새로 쓰는 글에 적용돼요"); pick.primary.setVisibility(View.GONE);
+        LinearLayout group = ui.group(); boolean hand = board.handwriting();
+        ui.addRow(group, ui.listRow(R.drawable.ic_text, !hand ? ACCENT : MUTED, "또박또박", "또렷한 인쇄 글씨", !hand ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putBoolean("boardHand", false).apply(); board.handwriting(false); teacher.hand = false; pick.dismiss(); }), true);
+        ui.addRow(group, ui.listRow(R.drawable.ic_pen, hand ? ACCENT : MUTED, "손글씨", "선생님이 펜으로 쓴 듯한 글씨", hand ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putBoolean("boardHand", true).apply(); board.handwriting(true); teacher.hand = board.handwriting(); pick.dismiss(); }), true);
         pick.body.addView(group); show(pick);
     }
     private void writeText(float x, float y) {
@@ -376,30 +476,84 @@ public final class BoardActivity extends Activity {
                 String kind = file.optString("kind");
                 if (!(WorkBook.IMAGE.equals(kind) || WorkBook.PDF.equals(kind) || "text".equals(kind))) { store.attachmentFile(file.optString("id")).delete(); file = null; problem = "사진, PDF, 글 파일을 붙일 수 있어요."; }
             } catch (Exception failed) { problem = failed.getMessage() == null || failed.getMessage().isBlank() ? "파일을 읽지 못했어요." : failed.getMessage(); }
-            JSONObject added = file; String why = problem;
-            foreground(() -> { if (destroyed) { if (added != null) store.attachmentFile(added.optString("id")).delete(); return; } if (added != null) { attached.add(added); paintFiles(); } else toast(why); });
+            // A picture or a document goes onto the board itself, to be written on; a text file rides with the question.
+            List<float[]> sizes = new ArrayList<>(); List<String> names = new ArrayList<>(); String note = null;
+            if (file != null && !"text".equals(file.optString("kind"))) {
+                java.io.File stored = store.attachmentFile(file.optString("id"));
+                try { note = WorkBook.PDF.equals(file.optString("kind")) ? pages(stored, names, sizes) : photo(stored, "image/png".equals(file.optString("mime")), names, sizes); }
+                catch (Exception failed) { for (String name : names) { java.io.File made = boards.picture(name); if (made != null) made.delete(); } names.clear(); problem = "자료를 판에 올리지 못했어요."; }
+                finally { stored.delete(); }
+                file = null;
+            }
+            JSONObject added = file; String why = problem, told = note;
+            foreground(() -> {
+                if (destroyed) { if (added != null) store.attachmentFile(added.optString("id")).delete(); return; }
+                if (added != null) { attached.add(added); paintFiles(); return; }
+                if (why != null) { toast(why); return; }
+                float y = below(), width = Board.WIDTH - 2 * Board.MARGIN; List<JSONObject> made = new ArrayList<>();
+                for (int i = 0; i < names.size(); i++) { float height = width * sizes.get(i)[1] / Math.max(1, sizes.get(i)[0]); made.add(Board.image(names.get(i), Board.MARGIN, y, width, height, Board.ME)); y += height + 30; }
+                board.addAll(made); paintHistory(); if (!made.isEmpty()) board.follow((float) made.get(0).optDouble("y") + board.shown() * .4f);
+                if (told != null) toast(told);
+            });
         });
+    }
+    /** Copies a picked picture into the board's own files; adds its name and size. */
+    private String photo(java.io.File stored, boolean png, List<String> names, List<float[]> sizes) throws Exception {
+        android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options(); bounds.inJustDecodeBounds = true; android.graphics.BitmapFactory.decodeFile(stored.getPath(), bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw new java.io.IOException("not a picture");
+        String name = boards.pictureName(boardId, png); names.add(name);
+        java.nio.file.Files.copy(stored.toPath(), boards.picture(name).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        sizes.add(new float[]{bounds.outWidth, bounds.outHeight});
+        return null;
+    }
+    /** Draws a PDF's first pages as pictures in the board's own files; says so when it has more pages than are shown. */
+    private String pages(java.io.File stored, List<String> names, List<float[]> sizes) throws Exception {
+        try (android.os.ParcelFileDescriptor descriptor = android.os.ParcelFileDescriptor.open(stored, android.os.ParcelFileDescriptor.MODE_READ_ONLY);
+             android.graphics.pdf.PdfRenderer pdf = new android.graphics.pdf.PdfRenderer(descriptor)) {
+            int count = Math.min(PDF_PAGES, pdf.getPageCount());
+            for (int i = 0; i < count; i++) {
+                try (android.graphics.pdf.PdfRenderer.Page page = pdf.openPage(i)) {
+                    int width = PAGE_PIXELS, height = Math.max(1, Math.round(PAGE_PIXELS * page.getHeight() / (float) Math.max(1, page.getWidth())));
+                    if (height > 4000) { width = Math.max(1, Math.round(width * 4000f / height)); height = 4000; }
+                    Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888); bitmap.eraseColor(android.graphics.Color.WHITE);
+                    page.render(bitmap, null, null, android.graphics.pdf.PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+                    String name = boards.pictureName(boardId, false); names.add(name);
+                    try (OutputStream out = new java.io.FileOutputStream(boards.picture(name))) { if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 88, out)) throw new java.io.IOException("not written"); }
+                    sizes.add(new float[]{width, height}); bitmap.recycle();
+                }
+            }
+            return pdf.getPageCount() > count ? "문서가 길어서 앞의 " + count + "쪽만 판에 올렸어요." : null;
+        }
+    }
+    private TextView chip(String label, String description, Runnable action) {
+        TextView chip = ui.text(label, FOOTNOTE, 560, TEXT); chip.setSingleLine(true); chip.setMaxWidth(ui.dp(220)); chip.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        chip.setBackground(surface(PILL)); ui.lift(chip, 4); chip.setPadding(ui.dp(14), ui.dp(9), ui.dp(14), ui.dp(9)); chip.setContentDescription(description);
+        chip.setOnClickListener(v -> action.run()); Ui.pressable(chip, true);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(6); p.topMargin = p.bottomMargin = ui.dp(3); files.addView(chip, p);
+        return chip;
     }
     private void paintFiles() {
         files.removeAllViews();
+        // The newest lesson can be watched again from its start; a line of it, from the hand tool's tap.
+        String again = teacher.busy() ? "" : teacher.latest();
+        if (!again.isEmpty()) chip("▶ 다시 보기", "방금 판서를 처음부터 다시 보기", () -> teacher.replay(again, 0)).setTextColor(ACCENT);
         for (JSONObject file : new ArrayList<>(attached)) {
-            TextView chip = ui.text(file.optString("name") + "  ✕", FOOTNOTE, 560, TEXT); chip.setSingleLine(true); chip.setMaxWidth(ui.dp(220)); chip.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-            chip.setBackground(surface(PILL)); ui.lift(chip, 4); chip.setPadding(ui.dp(14), ui.dp(9), ui.dp(14), ui.dp(9)); chip.setContentDescription(file.optString("name") + " 첨부 빼기");
-            chip.setOnClickListener(v -> { attached.remove(file); store.attachmentFile(file.optString("id")).delete(); paintFiles(); }); Ui.pressable(chip, true);
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(6); p.topMargin = p.bottomMargin = ui.dp(3); files.addView(chip, p);
+            chip(file.optString("name") + "  ✕", file.optString("name") + " 첨부 빼기", () -> { attached.remove(file); store.attachmentFile(file.optString("id")).delete(); paintFiles(); });
         }
     }
     private void dropFiles() { for (JSONObject file : attached) store.attachmentFile(file.optString("id")).delete(); attached.clear(); }
     private boolean handDrawn() {
         JSONArray items = board.items();
-        for (int i = 0; i < items.length(); i++) { JSONObject item = items.optJSONObject(i); if (item != null && Board.ME.equals(item.optString("by")) && !Board.TEXT.equals(item.optString("t"))) return true; }
+        for (int i = 0; i < items.length(); i++) { JSONObject item = items.optJSONObject(i); if (item != null && Board.ME.equals(item.optString("by")) && !Board.TEXT.equals(item.optString("t")) && !Board.IMAGE.equals(item.optString("t"))) return true; }
         return false;
     }
     /** Sends the question with its files, and with a picture of the board when the user drew on it by hand. */
     private void send() {
         if (teacher.busy()) return;
         String words = input.getText().toString().strip();
-        if (words.isEmpty() && attached.isEmpty()) { toast("풀 문제나 배우고 싶은 것을 적어 주세요."); return; }
+        // The board's pictures (the newest few) go with every question, in the order the model numbers them.
+        List<String> shownPictures = new ArrayList<>(); for (JSONObject picture : dev.jun.gyeot.core.BoardScript.shown(board.items())) shownPictures.add(picture.optString("id"));
+        if (words.isEmpty() && attached.isEmpty() && shownPictures.isEmpty()) { toast("풀 문제나 배우고 싶은 것을 적어 주세요."); return; }
         if (brain == null && ScopedModels.main(store).readyEngine().isBlank()) { toast("메인 대화에서 쓸 AI를 먼저 연결해 주세요."); return; }
         List<JSONObject> sending = new ArrayList<>(attached); attached.clear(); paintFiles();
         Bitmap drawn = null;
@@ -411,6 +565,13 @@ public final class BoardActivity extends Activity {
         background(() -> {
             List<MainRequest.Attachment> out = new ArrayList<>(); StringBuilder text = new StringBuilder(words); String problem = null; long bytes = 0;
             try {
+                int number = 0;
+                for (String name : shownPictures) {
+                    java.io.File file = boards.picture(name); if (file == null || !file.isFile()) throw new java.io.FileNotFoundException("판에 올린 자료를 찾지 못했어요. 지우고 다시 붙여 주세요.");
+                    bytes += file.length(); if (bytes > FILE_BYTES) throw new IllegalArgumentException("판에 올린 자료가 너무 커요. 몇 장을 지우고 다시 보내 주세요.");
+                    out.add(new MainRequest.Attachment("자료 " + (++number) + (name.endsWith(".png") ? ".png" : ".jpg"), name.endsWith(".png") ? "image/png" : "image/jpeg", Base64.getEncoder().encodeToString(java.nio.file.Files.readAllBytes(file.toPath()))));
+                }
+                if (number > 0) text.append("\n\n(사진 1").append(number > 1 ? "~" + number : "").append("번은 판에 올라가 있는 자료예요. 번호는 판의 위에서부터예요.)");
                 for (JSONObject file : sending) {
                     java.io.File stored = store.attachmentFile(file.optString("id"));
                     if ("text".equals(file.optString("kind"))) {
@@ -424,7 +585,7 @@ public final class BoardActivity extends Activity {
                 if (snapshot != null) {
                     ByteArrayOutputStream png = new ByteArrayOutputStream(); snapshot.compress(Bitmap.CompressFormat.PNG, 100, png); snapshot.recycle();
                     out.add(new MainRequest.Attachment("내가 판에 쓴 것.png", "image/png", Base64.getEncoder().encodeToString(png.toByteArray())));
-                    text.append("\n\n(마지막 사진은 지금 판의 모습이에요. 내가 손으로 쓴 것도 보고 답해 주세요.)");
+                    text.append("\n\n(마지막 사진은 지금 판의 모습이에요. 내가 손으로 쓴 것도 보고 답해 주세요. 이 사진에는 표시할 수 없어요.)");
                 }
             } catch (Exception failed) { problem = failed.getMessage() == null || failed.getMessage().isBlank() ? "첨부한 자료를 읽지 못했어요." : failed.getMessage(); }
             finally { for (JSONObject file : sending) store.attachmentFile(file.optString("id")).delete(); }
