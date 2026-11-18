@@ -441,7 +441,10 @@ public final class BoardPlot {
         float size = Math.max(18, Board.SMALL * scale), padX = size * .7f, padY = size * .45f, room = Board.WIDTH - 2 * Board.MARGIN, gap = size * 1.5f;
         boolean across = spec.optString("direction").toLowerCase(Locale.ROOT).startsWith("r") && texts.size() <= 4;
         if (across) {
-            float each = (room - gap * (texts.size() - 1)) / texts.size(), tallest = 0; float[] heights = new float[texts.size()];
+            // Boxes as wide as what they say, all alike: on a wide page they do not stretch from edge to edge.
+            float share = (room - gap * (texts.size() - 1)) / texts.size(), widest = 0, tallest = 0; float[] heights = new float[texts.size()];
+            for (String text : texts) widest = Math.max(widest, ruler.size(text, size, false, share - 2 * padX)[0]);
+            float each = Math.min(share, Math.max(size * 4, widest + 2 * padX));
             for (int i = 0; i < texts.size(); i++) { heights[i] = ruler.size(texts.get(i), size, false, each - 2 * padX)[1]; tallest = Math.max(tallest, heights[i]); }
             for (int i = 0; i < texts.size(); i++) {
                 float left = Board.MARGIN + i * (each + gap);
@@ -452,7 +455,7 @@ public final class BoardPlot {
             return new Made(out, tallest + 2 * padY);
         }
         float widest = 0; for (String text : texts) widest = Math.max(widest, ruler.size(text, size, false, room - 2 * padX)[0]);
-        float width = Math.min(room, Math.max(size * 8, widest + 2 * padX)), left = Board.MARGIN + (room - width) / 2, y = top;
+        float width = Math.min(room, Math.max(size * 8, widest + 2 * padX)), left = Board.MARGIN, y = top;
         for (int i = 0; i < texts.size(); i++) {
             float height = ruler.size(texts.get(i), size, false, width - 2 * padX)[1];
             out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, left, y, left + width, y + height + 2 * padY, colors.get(i), 2, false, Board.AI)), Math.min(24, (height + 2 * padY) / 2)));

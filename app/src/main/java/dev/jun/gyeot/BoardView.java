@@ -90,7 +90,37 @@ final class BoardView extends View {
         // The pen font's letters are small for their size: they are drawn a quarter larger to read like the print ones.
         TextPaint paint = new TextPaint(letters); paint.setTextSize(pen != null ? size * PEN_SCALE : size); paint.setTypeface(Typeface.create(pen != null ? pen : Typeface.DEFAULT, bold ? Typeface.BOLD : Typeface.NORMAL));
         if (pen != null && bold) paint.setFakeBoldText(true);
-        return StaticLayout.Builder.obtain(text, 0, text.length(), paint, Math.max(1, Math.round(maxWidth))).setAlignment(Layout.Alignment.ALIGN_NORMAL).setLineSpacing(0, 1.18f).setIncludePad(false).build();
+        CharSequence written = pen != null ? penned(text) : text;
+        return StaticLayout.Builder.obtain(written, 0, written.length(), paint, Math.max(1, Math.round(maxWidth))).setAlignment(Layout.Alignment.ALIGN_NORMAL).setLineSpacing(0, 1.18f).setIncludePad(false).build();
+    }
+    private static final String RAISED = "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁿ", RAISED_AS = "0123456789+-=()n", LOWERED = "₀₁₂₃₄₅₆₇₈₉₊₋", LOWERED_AS = "0123456789+-";
+    /**
+     * A line as the pen font writes it. The font draws a raised 2 and the signs of arithmetic as wide as a whole
+     * letter of Hangul, which pulls x² apart into "x 2": a raised or lowered figure is written as a small one of the
+     * pen's own, close to what it belongs to, and a sign in the system's letters, which are as wide as a sign is.
+     */
+    private static CharSequence penned(String text) {
+        android.text.SpannableStringBuilder out = null;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i); int up = RAISED.indexOf(c), down = up < 0 ? LOWERED.indexOf(c) : -1;
+            boolean sign = c == '×' || c == '÷' || c == '±' || (c >= 0x2200 && c <= 0x22ff);
+            if (up < 0 && down < 0 && !sign) continue;
+            if (out == null) out = new android.text.SpannableStringBuilder(text);
+            if (!sign) out.replace(i, i + 1, String.valueOf(up >= 0 ? RAISED_AS.charAt(up) : LOWERED_AS.charAt(down)));
+            out.setSpan(sign ? new Sign() : new Small(up >= 0), i, i + 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        return out == null ? text : out;
+    }
+    private static final class Small extends android.text.style.MetricAffectingSpan {
+        private final boolean raised; Small(boolean raised) { this.raised = raised; }
+        @Override public void updateDrawState(TextPaint paint) { apply(paint); }
+        @Override public void updateMeasureState(TextPaint paint) { apply(paint); }
+        private void apply(TextPaint paint) { float size = paint.getTextSize(); paint.setTextSize(size * .62f); paint.baselineShift += raised ? -Math.round(size * .36f) : Math.round(size * .12f); }
+    }
+    private static final class Sign extends android.text.style.MetricAffectingSpan {
+        @Override public void updateDrawState(TextPaint paint) { apply(paint); }
+        @Override public void updateMeasureState(TextPaint paint) { apply(paint); }
+        private void apply(TextPaint paint) { paint.setTypeface(Typeface.DEFAULT); paint.setTextSize(paint.getTextSize() / PEN_SCALE); }
     }
 
     void pictures(Pictures value) { pictures = value; loaded.clear(); invalidate(); }
@@ -202,7 +232,8 @@ final class BoardView extends View {
     static final String NOTE = "note", CHALK = "chalk";
     private String style = NOTE;
     /** Chalk's grain: an alpha-only speckle that a paint in chalk draws through, so lines and letters come out dusty. */
-    private android.graphics.BitmapShader grain;
+    private android.graphics.BitmapShader grain, softGrain;
+    private final Paint scrim = new Paint(); private android.graphics.Shader topFade, bottomFade; private long fadeKey;
     void style(String value) { String wanted = CHALK.equals(value) ? CHALK : NOTE; if (wanted.equals(style)) return; style = wanted; layouts.clear(); invalidate(); }
     String style() { return style; }
     boolean chalk() { return CHALK.equals(style); }
@@ -219,16 +250,28 @@ final class BoardView extends View {
         if (item.optBoolean("hl")) return ((!chalk() && "yellow".equals(item.optString("c")) ? 0xffffd84a : base) & 0x00ffffff) | (chalk() ? 0x42000000 : 0x5c000000);
         return item.optBoolean("faint") ? (base & 0x00ffffff) | (chalk() ? 0x38000000 : 0x26000000) : base;
     }
-    private android.graphics.Shader grain() {
-        if (grain == null) {
-            int size = 96; byte[] alpha = new byte[size * size]; java.util.Random random = new java.util.Random(7);
-            // Mostly solid, with gaps where the chalk skipped over the board's tooth.
-            for (int i = 0; i < alpha.length; i++) { int roll = random.nextInt(100); alpha[i] = (byte) (roll < 9 ? 40 + random.nextInt(60) : roll < 30 ? 150 + random.nextInt(60) : 215 + random.nextInt(40)); }
-            Bitmap speckle = Bitmap.createBitmap(size, size, Bitmap.Config.ALPHA_8); speckle.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(alpha));
-            grain = new android.graphics.BitmapShader(speckle, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT);
-            android.graphics.Matrix coarse = new android.graphics.Matrix(); coarse.setScale(1.6f, 1.6f); grain.setLocalMatrix(coarse);
+    /**
+     * The dust of chalk, for a line or for letters. A line is dustier; letters keep nearly all of their chalk, so a
+     * thin stroke of one (a minus sign, a small figure) is never broken in two and stays easy to read.
+     */
+    private android.graphics.Shader grain(boolean letters) {
+        android.graphics.BitmapShader made = letters ? softGrain : grain; if (made != null) return made;
+        int size = 96; byte[] alpha = new byte[size * size]; java.util.Random random = new java.util.Random(letters ? 11 : 7);
+        for (int i = 0; i < alpha.length; i++) {
+            int roll = random.nextInt(100);
+            alpha[i] = (byte) (letters ? (roll < 6 ? 178 + random.nextInt(30) : roll < 24 ? 212 + random.nextInt(24) : 240 + random.nextInt(16))
+                : (roll < 8 ? 112 + random.nextInt(50) : roll < 30 ? 172 + random.nextInt(44) : 224 + random.nextInt(32)));
         }
-        return grain;
+        Bitmap speckle = Bitmap.createBitmap(size, size, Bitmap.Config.ALPHA_8); speckle.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(alpha));
+        made = new android.graphics.BitmapShader(speckle, android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT);
+        android.graphics.Matrix coarse = new android.graphics.Matrix(); coarse.setScale(1.6f, 1.6f); made.setLocalMatrix(coarse);
+        if (letters) softGrain = made; else grain = made;
+        return made;
+    }
+    /** Whether a marker's band lies on a picture: there it stays a band, on a blackboard too. */
+    private boolean onPicture(float x, float y) {
+        for (int i = 0; i < items.length(); i++) { JSONObject item = items.optJSONObject(i); if (item == null || !Board.IMAGE.equals(item.optString("t"))) continue; float[] b = Board.bounds(item, measure); if (x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3]) return true; }
+        return false;
     }
 
     @Override protected void onDraw(Canvas canvas) {
@@ -238,10 +281,20 @@ final class BoardView extends View {
         canvas.save(); canvas.translate(0, insetTop); canvas.scale(scale, scale); canvas.translate(-left, -top);
         paint(canvas, top - insetTop / scale, top + (getHeight() - insetTop) / scale, true);
         canvas.restore();
+        // What scrolls toward the bars fades into the paper before it reaches them: nothing is half-read under a bar.
+        int paper = paper(); float fade = getResources().getDisplayMetrics().density * 22, edge = getHeight() - insetBottom;
+        long key = ((long) paper << 32) ^ ((long) insetTop << 20) ^ ((long) insetBottom << 8) ^ getHeight();
+        if (key != fadeKey || topFade == null) {
+            fadeKey = key;
+            topFade = new android.graphics.LinearGradient(0, insetTop - fade, 0, insetTop, paper, paper & 0x00ffffff, android.graphics.Shader.TileMode.CLAMP);
+            bottomFade = new android.graphics.LinearGradient(0, edge, 0, edge + fade, paper & 0x00ffffff, paper, android.graphics.Shader.TileMode.CLAMP);
+        }
+        if (insetTop > 0) { scrim.setShader(topFade); canvas.drawRect(0, 0, getWidth(), insetTop, scrim); }
+        if (insetBottom > 0) { scrim.setShader(bottomFade); canvas.drawRect(0, edge, getWidth(), getHeight(), scrim); }
     }
     /** Every item between two heights of the page, in board units. */
     private void paint(Canvas canvas, float from, float to, boolean live) {
-        ink.setShader(chalk() ? grain() : null);
+        ink.setShader(chalk() ? grain(false) : null);
         // Pictures lie under everything written, and a marker's band under the ink it colors, wherever they are in the
         // order of things: words stay as dark as they were written.
         for (int pass = 0; pass < 3; pass++) for (int i = 0; i < items.length(); i++) {
@@ -285,16 +338,27 @@ final class BoardView extends View {
             StaticLayout layout;
             if (shown >= 1) { layout = layouts.get(item); if (layout == null) { layout = layout(text, size, item.optBoolean("b"), room, item.optBoolean("hand")); layouts.put(item, layout); } }
             else { int count = Math.max(1, Math.min(text.length(), Math.round(text.length() * shown))); if (count < text.length() && Character.isHighSurrogate(text.charAt(count - 1))) count++; layout = layout(text.substring(0, Math.min(text.length(), count)), size, item.optBoolean("b"), room, item.optBoolean("hand")); }
-            layout.getPaint().setColor(argb(item)); layout.getPaint().setShader(chalk() ? grain() : null);
+            TextPaint written = layout.getPaint(); written.setColor(argb(item)); written.setShader(chalk() ? grain(true) : null);
+            // Chalk is thick: its letters are drawn a little heavier than a pen's, so small writing reads from afar.
+            if (chalk()) { written.setStyle(Paint.Style.FILL_AND_STROKE); written.setStrokeJoin(Paint.Join.ROUND); written.setStrokeWidth(written.getTextSize() * .026f); }
+            else { written.setStyle(Paint.Style.FILL); written.setStrokeWidth(0); }
             canvas.save(); canvas.translate((float) item.optDouble("x"), (float) item.optDouble("y")); layout.draw(canvas); canvas.restore();
             return;
         }
-        ink.setStyle(Paint.Style.STROKE); ink.setColor(argb(item)); ink.setStrokeWidth((float) item.optDouble("w", 6));
+        float pen = (float) item.optDouble("w", 6); boolean band = item.optBoolean("hl");
+        // A thin line of chalk is still a line of chalk: never a hair that its dust breaks into dots.
+        ink.setStyle(Paint.Style.STROKE); ink.setColor(argb(item)); ink.setStrokeWidth(chalk() && !band && !item.optBoolean("faint") ? Math.max(pen, 2.2f) : pen);
         ink.setPathEffect(item.optBoolean("d") ? new android.graphics.DashPathEffect(new float[]{16, 13}, 0) : null);
         path.reset();
         if (Board.STROKE.equals(type)) {
             JSONArray p = item.optJSONArray("p"); int count = p == null ? 0 : p.length() / 2; if (count == 0) return;
             float px = (float) p.optDouble(0), py = (float) p.optDouble(1);
+            if (chalk() && band && count == 2 && Math.abs(p.optDouble(3) - py) < 1 && !onPicture((px + (float) p.optDouble(2)) / 2, py)) {
+                // On a blackboard nobody highlights: what a marker's band would color is underlined in colored chalk,
+                // and the words above it stay light on the dark board.
+                float end = px + ((float) p.optDouble(2) - px) * Math.min(1, shown), under = py + pen * .5f + 1;
+                ink.setColor(ink(item.optString("c")) & 0x00ffffff | 0xd0000000); ink.setStrokeWidth(Math.max(3, Math.min(7, pen * .13f))); canvas.drawLine(px, under, end, under, ink); return;
+            }
             if (count == 1) { ink.setStyle(Paint.Style.FILL); canvas.drawCircle(px, py, ink.getStrokeWidth() / 2, ink); return; }
             path.moveTo(px, py); boolean sharp = item.optBoolean("sharp");
             for (int i = 1; i < count; i++) {
@@ -326,7 +390,8 @@ final class BoardView extends View {
             whole.getSegment(0, whole.getLength() * shown, part, true); canvas.drawPath(part, ink);
         } else {
             // A tinted inside (a bar, a slice, a shaded region, a diagram's box) under its own outline.
-            if (item.optBoolean("fill")) { int line = ink.getColor(); ink.setPathEffect(null); ink.setStyle(Paint.Style.FILL); ink.setColor((line & 0x00ffffff) | (chalk() ? 0x3a000000 : 0x2e000000)); canvas.drawPath(path, ink); ink.setStyle(Paint.Style.STROKE); ink.setColor(line); }
+            // On a blackboard the tint is faint and even: writing on it must read as well as writing beside it.
+            if (item.optBoolean("fill")) { int line = ink.getColor(); android.graphics.Shader dust = ink.getShader(); ink.setShader(null); ink.setPathEffect(null); ink.setStyle(Paint.Style.FILL); ink.setColor((line & 0x00ffffff) | (chalk() ? 0x24000000 : 0x2e000000)); canvas.drawPath(path, ink); ink.setStyle(Paint.Style.STROKE); ink.setColor(line); ink.setShader(dust); }
             if (!(item.optBoolean("fill") && item.optBoolean("bare"))) canvas.drawPath(path, ink);
         }
     }
