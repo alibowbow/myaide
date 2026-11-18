@@ -6,12 +6,14 @@ import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
 import dev.jun.gyeot.core.GeminiProtocol;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Consumer;
 
 /**
  * 판서's narration. A step's words are read by the Gemini Live voice the assistant speaks with (one quiet connection
- * that only reads aloud) when the chosen Live model reads word for word; otherwise, and when Live cannot be used or
- * fails, by Gemini's speech model, and then by the device's own voice. Main thread only. Nothing is read during a call, a recording or while a microphone is listening.
+ * that only reads aloud; a model that would shorten a passage is handed it a sentence at a time); when that cannot be
+ * used or fails, by Gemini's speech model, and then by the device's own voice. Main thread only. Nothing is read during a call, a recording or while a microphone is listening.
  */
 final class BoardVoice {
     /** Makes the voice for a rung of the ladder (LIVE, SPEECH or DEVICE); tests pass their own. */
@@ -29,18 +31,21 @@ final class BoardVoice {
     }
     /** Whether anything would hear the reading as speech to answer (a call, a recording, an open microphone). */
     boolean blocked() { return store.voiceActive || store.recording || ComposerDictation.listening() || store.talk != null && store.talk.listening(); }
+    /** The first rung to try now: the chosen Live model's voice with a Gemini key and a network, the device's voice otherwise. */
+    String first() { return hasKey() && Speech.online(context) ? LIVE : DEVICE; }
     /**
-     * The first rung to try now. With a Gemini key and a network: the Live voice when the chosen Live model reads a
-     * script as written, and Gemini's speech model when it is one that says the script in its own, shorter words (2.5
-     * Flash native audio does), since narration that leaves the script falls out of step with the writing. Without
-     * them, the device's voice.
+     * A step's words as they are handed to a Live model. One that reads a script word for word gets the whole step at
+     * once. One that would say a passage in its own shorter words (2.5 Flash native audio) gets it a sentence at a time:
+     * a single sentence is read as it is, and the narration stays in step with the writing.
      */
-    String first() {
-        if (!(hasKey() && Speech.online(context))) return DEVICE;
-        return readsAsWritten(store.liveModel()) ? LIVE : SPEECH;
+    static List<String> pieces(String text, String liveModel) {
+        List<String> out = new ArrayList<>(); String whole = text == null ? "" : text.strip();
+        if (whole.isEmpty()) return out;
+        if (GeminiProtocol.readsAsWritten(liveModel)) { out.add(whole); return out; }
+        for (String sentence : dev.jun.gyeot.core.SpeechText.sentences(whole)) if (!sentence.isBlank()) out.add(sentence.strip());
+        if (out.isEmpty()) out.add(whole);
+        return out;
     }
-    /** Whether a Live model, asked to read a script aloud, says it word for word. */
-    static boolean readsAsWritten(String liveModel) { return !GeminiProtocol.FLASH_25.equals(GeminiProtocol.liveModel(liveModel)); }
     private boolean hasKey() { try { return store.secrets.hasKey(); } catch (RuntimeException unknown) { return false; } }
     private static String next(String kind) { return LIVE.equals(kind) ? SPEECH : SPEECH.equals(kind) ? DEVICE : ""; }
     String kind() { return kind; }
@@ -100,11 +105,13 @@ final class BoardVoice {
         private final Context context; private final AppStore store;
         private final Handler main = new Handler(Looper.getMainLooper());
         private GeminiSession session; private Speaker speaker; private boolean ready, closed; private int epoch;
-        private String waiting; private Consumer<String> done; private Runnable patience;
+        private Consumer<String> done; private Runnable patience;
+        /** The step's pieces not yet sent, whether one is being said, and the model's ways (set when it connects). */
+        private final java.util.ArrayDeque<String> pieces = new java.util.ArrayDeque<>(); private boolean awaiting, extended; private String model = "";
         LiveVoice(Context context, AppStore store) { this.context = context; this.store = store; }
         @Override public void say(String text, Consumer<String> done) {
             if (closed) { done.accept("closed"); return; }
-            int mine = ++epoch; this.done = done; waiting = text;
+            int mine = ++epoch; this.done = done; pieces.clear(); awaiting = false; pieces.addAll(BoardVoice.pieces(text, session == null ? store.liveModel() : model));
             patience = () -> fail(mine, "읽는 데 너무 오래 걸렸어요.");
             main.postDelayed(patience, LIVE_PATIENCE_MS);
             try {
@@ -114,7 +121,7 @@ final class BoardVoice {
         private void connect(int mine) throws Exception {
             String key = store.secrets.get();
             if (key.isBlank()) throw new IllegalStateException("no key");
-            GeminiProtocol.Options options = store.options(false);
+            GeminiProtocol.Options options = store.options(false); model = options.model; extended = GeminiProtocol.extended(model);
             GeminiSession[] self = new GeminiSession[1];
             self[0] = new GeminiSession(key, GeminiProtocol.NARRATOR, options, new GeminiSession.Listener() {
                 @Override public void ready() { main.post(() -> { if (session != self[0] || closed) return; ready = true; send(); }); }
@@ -122,27 +129,30 @@ final class BoardVoice {
                     // Played from the connection's own thread, in order; a stop flushes what is queued.
                     Speaker out = speaker; if (out != null && session == self[0]) out.play(pcm);
                 }
-                // The step was said: utteranceComplete on every model, turnComplete as well where the turn ends with it.
-                @Override public void utteranceComplete() { main.post(() -> { if (session == self[0]) heard(); }); }
-                @Override public void turnComplete() { main.post(() -> { if (session == self[0]) heard(); }); }
+                // A piece was said. One signal a turn: the utterance's end where turns end later (extended thinking), the turn's end elsewhere.
+                @Override public void utteranceComplete() { if (extended) main.post(() -> { if (session == self[0]) heard(); }); }
+                @Override public void turnComplete() { if (!extended) main.post(() -> { if (session == self[0]) heard(); }); }
                 @Override public void failed(String reason, boolean retryable) { main.post(() -> { if (session == self[0]) fail(epoch, reason == null ? "" : reason); }); }
             });
             session = self[0]; speaker = new Speaker(context);
             session.connect();
         }
         private void send() {
-            String text = waiting; if (text == null || session == null) return;
-            waiting = null; session.text(text);
+            if (session == null || !ready || awaiting) return;
+            String piece = pieces.poll(); if (piece == null) return;
+            awaiting = true; session.text(GeminiProtocol.narration(piece, model));
         }
-        /** The model finished the step: done once the queued sound has played. */
+        /** The model finished a piece: the next one goes out at once (its sound queues behind), and after the last the step is done once the sound has played. */
         private void heard() {
-            Consumer<String> finished = done; int mine = epoch; if (finished == null || waiting != null) return;
+            Consumer<String> finished = done; int mine = epoch; if (finished == null || !awaiting) return;
+            awaiting = false;
+            if (!pieces.isEmpty()) { send(); return; }
             Speaker out = speaker; if (out == null) return;
             out.finish(() -> main.post(() -> { if (mine != epoch || done != finished) return; done = null; main.removeCallbacks(patience); finished.accept(null); }));
         }
         private void fail(int mine, String why) {
             if (mine != epoch) return;
-            Consumer<String> failed = done; done = null; waiting = null; main.removeCallbacks(patience);
+            Consumer<String> failed = done; done = null; pieces.clear(); awaiting = false; main.removeCallbacks(patience);
             drop();
             if (failed != null) failed.accept(why);
         }
@@ -153,7 +163,7 @@ final class BoardVoice {
             if (out != null) { out.flush(); out.close(); }
         }
         /** Silence now. The connection would go on speaking the step, so it is closed; the next step opens a new one. */
-        @Override public void stop() { epoch++; done = null; waiting = null; if (patience != null) main.removeCallbacks(patience); drop(); }
+        @Override public void stop() { epoch++; done = null; pieces.clear(); awaiting = false; if (patience != null) main.removeCallbacks(patience); drop(); }
         @Override public void close() { stop(); closed = true; }
     }
 }

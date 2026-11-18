@@ -341,7 +341,7 @@ public final class BoardActivity extends Activity {
         ui.addRow(ai, ui.listRow(R.drawable.ic_sparkle, INDIGO, "두뇌", engine.isBlank() ? "연결된 AI가 없어요 · 메인 대화에서 고르기" : WorkBook.author(engine) + " · " + models.model(engine) + " · 메인 대화에서 고른 모델",
             ui.chevron(), () -> { menu.dismiss(); MainNavigation.open(this, "chat"); }), true);
         boolean live = store.secrets.hasKey();
-        ui.addRow(ai, ui.listRow(R.drawable.ic_wave, PURPLE, "목소리", !live ? "Gemini 키가 없어 기기 음성으로 읽어요" : (BoardVoice.readsAsWritten(store.liveModel()) ? "Gemini Live" : "Gemini 음성 모델 · 2.5 Live는 대본을 줄여 말해서 쓰지 않아요") + (store.voice().isBlank() ? "" : " · " + store.voice()) + " · 안 되면 기기 음성", null, null), true);
+        ui.addRow(ai, ui.listRow(R.drawable.ic_wave, PURPLE, "목소리", live ? "Gemini Live" + (store.voice().isBlank() ? "" : " · " + store.voice()) + " · 안 되면 기기 음성" : "Gemini 키가 없어 기기 음성으로 읽어요", null, null), true);
         menu.body.addView(ai);
         menu.body.addView(ui.footer("문제 사진이나 PDF를 붙이면 판에 올라가고, 그 위에 직접 쓰거나 AI가 표시하며 풀어 줘요. 손 도구로 판서한 줄을 누르면 거기부터 다시 듣거나 더 물어볼 수 있어요. 두 손가락으로 판을 움직이고 키워요."));
         show(menu);

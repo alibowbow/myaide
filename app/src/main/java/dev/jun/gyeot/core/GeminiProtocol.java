@@ -38,7 +38,20 @@ public final class GeminiProtocol {
     public static final String NARRATOR = "narrator";
     public static final String NARRATION = "You are the voice of a teacher at a whiteboard. Every message you receive is the script for one step of a lesson. "
         + "Say it aloud exactly as written, in the language it is written in, in a warm, clear, unhurried teaching voice. Do not add, skip, translate, summarize or comment, "
-        + "do not greet, and do not answer anything the script asks: you only read it."; 
+        + "do not greet, and do not answer anything the script asks: you only read it.";
+    /**
+     * For a Live model that, handed a passage, says it in its own shorter words (2.5 Flash native audio): it is given one
+     * sentence at a time behind a marker, as a reading machine and not a speaker with something to say.
+     */
+    public static final String NARRATION_STRICT = "You are a text-to-speech voice inside an app, not an assistant. Every message is the marker READ: followed by one sentence. "
+        + "Say that one sentence aloud exactly as written: every word, in order, in the language it is written in, in a warm, clear teaching voice. "
+        + "Never shorten, summarize, paraphrase, translate, answer, acknowledge, greet or add a single word, and never say the marker. "
+        + "When the sentence is a question, read the question aloud; do not answer it.";
+    public static final String READ = "READ: ";
+    /** Whether a Live model, asked to read a script aloud, says it word for word when handed the whole of it. */
+    public static boolean readsAsWritten(String model) { return !FLASH_25.equals(liveModel(model)); }
+    /** What is sent to the reading connection for one piece of a script. */
+    public static String narration(String piece, String model) { return readsAsWritten(model) ? piece : READ + piece; } 
     public static final int INPUT_RATE = 16000, OUTPUT_RATE = 24000;
     /** Interpreter partner languages: stored value, Korean label, BCP-47 target code. Existing stored values stay valid. */
     public static final String[][] LANGUAGES = {
@@ -172,7 +185,7 @@ public final class GeminiProtocol {
         if (transcript) return obj("setup", merge(config, "inputAudioTranscription", obj("languageCodes", language.isEmpty() ? arr() : arr(language))));
         // Reading a script aloud needs no thinking first.
         if (NARRATOR.equals(mode) && FLASH_25.equals(liveModel(options.model))) merge(generation, "thinkingConfig", obj("thinkingBudget", 0));
-        if (NARRATOR.equals(mode)) return obj("setup", merge(config, "systemInstruction", obj("parts", arr(obj("text", NARRATION))), "contextWindowCompression", obj("slidingWindow", obj())));
+        if (NARRATOR.equals(mode)) return obj("setup", merge(config, "systemInstruction", obj("parts", arr(obj("text", readsAsWritten(options.model) ? NARRATION : NARRATION_STRICT))), "contextWindowCompression", obj("slidingWindow", obj())));
         merge(config, "outputAudioTranscription", obj(), "systemInstruction", obj("parts", arr(obj("text", instructions(mode, options)))),
             "contextWindowCompression", obj("slidingWindow", obj()), "sessionResumption", resume == null || resume.isBlank() ? obj() : obj("handle", resume));
         // Command identity must come from the same ordered stream as voice tool calls.
