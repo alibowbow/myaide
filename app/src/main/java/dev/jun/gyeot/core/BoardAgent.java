@@ -37,9 +37,23 @@ Use neutral formulae or a neutral equation here. Explain ionic charge separately
 {"op":"diagram","preset":"plantCell","as":"cell","title":"식물 세포","focus":"chloroplast"}
 Presets: plantCell (wall,membrane,vacuole,nucleus,mitochondrion,chloroplast), animalCell (membrane,nucleus,mitochondrion),
 neuron (dendrite,soma,axon,terminal), earthLayers (crust,mantle,outerCore,innerCore).
-For any other biological structure, circuit, force diagram, cross section, etc., build your own editable layers:
+For a static labelled cross section or illustration, build your own editable layers:
 {"op":"diagram","title":"힘의 방향","height":340,"layers":[{"id":"force","label":"작용하는 힘","at":[610,120],"shapes":[{"kind":"arrow","from":[230,140],"to":[600,140],"color":"blue"}]}]}.
 Layers use the figure shape schema, up to 12 layers and 18 shapes each. focus takes a layer id.
+For parts that move, dock, pair, or stay aligned, choose scene. Keep one scene through the lesson and update it at the start of later steps.
+{"op":"scene","as":"demo","height":300,"objects":{"track":{"kind":"row","at":[500,220],"size":[540,54],"tokens":["A","B","C"],"active":1},"marker":{"kind":"box","text":"위치","size":[110,52],"attach":"track.1.top","pin":"bottom","color":"pink"}}}
+{"op":"update","target":"demo","set":{"objects":{"track":{"active":2},"marker":{"attach":"track.2.top"}}}}
+Use named objects (up to 24): box, oval, text, row, or path (points in its own 0..100 box; closed/fill for silhouettes, sharp for corners).
+Scene width is 1000; height 80..1200. at is a root's center by default; size=[width,height]. Set attach to another object's id.side
+or row.1.side (1-based). pin is the attaching object's side; sides are center, top, bottom, left, right. offset=[dx,dy].
+A label is a text object attached by its edge; dependent objects and links follow the parent. Set z for back-to-front drawing.
+Rows lay out tokens (1..24) in equal cells. group adds space every N cells, reveal shows the first N, active and span highlight a range.
+links is a map like {"alignment":{"from":"topRow.bottom","to":"bottomRow.top","pairwise":true,"dashed":true,"color":"blue"}};
+omit pairwise for a single connector or add arrow:true. Hidden objects hide attached children and links. Update by id, preserving other objects.
+For a general lesson on transcription and translation use {"op":"scene","as":"protein","preset":"proteinSynthesis","stage":1}.
+Its five stages show first base pairing, completed mRNA, AUG start, GCU elongation, UAA stop. Advance with {"op":"update","target":"protein","set":{"stage":2}}.
+Use the built-in sequence only for that example (template 3′-TAC CGA ATT-5′); build a custom scene for a different sequence.
+{"op":"scene","as":"push","preset":"force","stage":1} is a two-stage force diagram. For other subjects build a scene from their actual data.
 {"op":"reading","title":"문장 구조","source":"연습용 창작 예문","lines":[{"text":"The stars faded as the sun rose.","note":"as절은 시간을 나타낸다."}],"reveal":true}
 For excerpts preserve the wording and distinguish supplied, paraphrased and invented material; never invent an attribution.
 {"op":"graph","points":[{"at":[1,5],"label":"P"}]} draws standalone scatter points; functions are optional.
@@ -107,6 +121,11 @@ Only use the documented operations and field names. Replaying steps must make se
                                     ? data
                                     : summary.substring(0, Math.min(1800, summary.length()))
                                             + " (partial)");
+            if (BoardWidget.SCENE.equals(item.optString("kind")) && item.optJSONObject("spec") != null && (item.optJSONObject("spec").has("preset") || data.length() > 3200)) {
+                try {
+                    value += " objects: " + BoardScene.inventory(item.optJSONObject("spec"));
+                } catch (IllegalArgumentException ignored) { /* An older saved drawing may have an unknown preset. */ }
+            }
             if (value.length() > available) break;
             lines.add(value);
             available -= value.length();
@@ -117,7 +136,7 @@ Only use the documented operations and field names. Replaying steps must make se
 
     private record Target(String id, String kind, JSONObject spec) {}
 
-    private static JSONObject merge(JSONObject original, JSONObject changes) {
+    static JSONObject merge(JSONObject original, JSONObject changes) {
         JSONObject out = BoardWidget.copy(original);
         for (var it = changes.keys(); it.hasNext(); ) {
             String key = it.next();

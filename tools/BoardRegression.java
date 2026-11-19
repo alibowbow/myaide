@@ -16,6 +16,7 @@ final class BoardRegression {
     public static void main(String[] args) throws Exception {
         schoolTools();
         agentTools();
+        connectedScenes();
         graph();
         cartesianScales();
         tableAndFigure();
@@ -100,6 +101,85 @@ final class BoardRegression {
         check(BoardIllustration.reading(reading,1,Board.ROUGH).items().stream().noneMatch(i->"계절의 변화".equals(i.optString("text"))),"reading notes can be hidden");
         put(reading,"reveal",true);check(BoardIllustration.reading(reading,1,Board.ROUGH).items().stream().anyMatch(i->"계절의 변화".equals(i.optString("text"))),"reading notes revealed");
     }
+    private static List<JSONObject> sceneInk(JSONObject spec) {
+        JSONObject scene = BoardWidget.make(BoardWidget.SCENE, spec, 0, .85f, Board.AI, Board.ROUGH);
+        return BoardWidget.render(scene, Board.ROUGH);
+    }
+
+    private static JSONObject textItem(List<JSONObject> items, String word) {
+        return items.stream().filter(o -> word.equals(o.optString("text"))).findFirst().orElseThrow();
+    }
+
+    private static void connectedScenes() throws Exception {
+        var create = obj("op", "scene", "as", "track", "height", 300, "objects", obj(
+                "label", obj("kind", "text", "text", "표식", "attach", "row.2.top", "pin", "bottom", "size", arr(100, 48)),
+                "row", obj("kind", "row", "at", arr(420, 180), "size", arr(450, 56), "tokens", arr("가","나","다"), "reveal", 1),
+                "lower", obj("kind", "row", "attach", "row.bottom", "pin", "top", "offset", arr(0, 32),
+                        "size", arr(450, 56), "tokens", arr("1","2","3"))),
+                "links", obj("pairs", obj("from", "row.bottom", "to", "lower.top", "pairwise", true, "dashed", true)));
+        var update = obj("op", "update", "target", "track", "set", obj("objects",
+                obj("row", obj("reveal", 3, "at", arr(500, 150)), "label", obj("attach", "row.3.top"))));
+        var lesson = BoardAgent.checked(obj("steps",arr(obj("draw",arr(create)),obj("draw",arr(update)))).toString(), arr(), "기호 대응");
+        var flow = new BoardScript.Flow(arr(), Board.ROUGH, .85f);
+        var first = flow.place(lesson.steps().get(0)).get(0);
+        var before = BoardWidget.render(first, Board.ROUGH);
+        check(before.stream().noneMatch(o -> "표식".equals(o.optString("text"))), "unrevealed cells also hide docked labels");
+        check(before.stream().filter(o -> o.optBoolean("d")).count() == 1, "only revealed corresponding cells connect");
+        var saved = Board.clean(arr(first));
+        var edited = BoardAgent.update(saved, lesson.steps().get(1).draw().get(0), Board.ROUGH).getJSONObject(0);
+        check(edited.getString("wid").equals(first.getString("wid")), "a stage updates the same saved scene");
+        var after = BoardWidget.render(edited, Board.ROUGH);
+        check(after.stream().filter(o -> o.optBoolean("d")).count() == 3, "revealing the full row reveals all three connectors");
+        for (JSONObject line : after) if (line.optBoolean("d"))
+            check(line.getDouble("x1") == line.getDouble("x2") && line.getDouble("y2") - line.getDouble("y1") == 32, "paired row endpoints follow both edges");
+        check(Math.abs(textItem(after,"가").getDouble("x") - textItem(before,"가").getDouble("x") - 80) < .2,
+                "row moves without redistributing revealed cells");
+        float[] cell = Board.bounds(textItem(after,"다"), Board.ROUGH), label = Board.bounds(textItem(after,"표식"), Board.ROUGH);
+        check(Math.abs(cell[0]+cell[2]-label[0]-label[2]) < .4 && label[3] < cell[1], "label is docked to the third cell");
+        JSONObject record = obj();
+        BoardReplay.remember(record, first, 0);
+        BoardReplay.remember(record, edited, 1);
+        JSONArray frames = BoardReplay.clean(record, 2);
+        check(sceneInk(frames.getJSONObject(0).getJSONObject("spec")).stream().filter(o->o.optBoolean("d")).count()==1
+                && sceneInk(frames.getJSONObject(1).getJSONObject("spec")).stream().filter(o->o.optBoolean("d")).count()==3,
+                "replay restores two distinct poses after saving");
+
+        var spec = BoardWidget.spec(edited);
+        check("row".equals(BoardScene.hit(spec, .85f, Board.ROUGH, (cell[0]+cell[2])/2, (cell[1]+cell[3])/2)), "editor picks the visible token row");
+        check(BoardScene.move(spec, "row", 30, 12, .85f, Board.ROUGH), "editor moves a connected group");
+        check(Math.abs(textItem(sceneInk(spec),"표식").getDouble("x") - textItem(after,"표식").getDouble("x") - 30)<.2, "child follows editor drag");
+        String previous = spec.toString();
+        check(!BoardScene.move(spec, "row", 1000, 0, .85f, Board.ROUGH) && previous.equals(spec.toString()), "invalid drag is atomic");
+        for (String bad : List.of("missing.top", "row.4.top", "row.0.top", "row.corner", "label.center")) {
+            JSONObject badSpec = BoardWidget.copy(spec);
+            put(badSpec.getJSONObject("objects").getJSONObject("label"), "attach", bad);
+            reject(() -> sceneInk(badSpec), "invalid or cyclic attachment rejected: " + bad);
+        }
+        JSONObject badPair = BoardWidget.copy(spec);
+        put(badPair.getJSONObject("objects").getJSONObject("lower"), "tokens", arr("1", "2"));
+        reject(() -> sceneInk(badPair), "unequal row lengths rejected for pairwise links");
+
+        for (String preset : List.of("proteinSynthesis", "force")) {
+            var stages = BoardScene.stages(preset);
+            for (int i=1; i<=stages.size(); i++) {
+                JSONObject input = obj("preset", preset, "stage", i);
+                var items = sceneInk(input);
+                check(!items.isEmpty() && items.get(0).optString("text").endsWith(stages.get(i-1)), "preset has visible native stage heading");
+                if (preset.equals("force")) {
+                    var arrow = items.stream().filter(o -> o.optBoolean("arrow")).findFirst().orElseThrow();
+                    check(arrow.optDouble("x1") == (i==1 ? 393 : 573) && arrow.optDouble("x2")-arrow.optDouble("x1")==205, "force arrow follows moving block");
+                } else if (i<=2) {
+                    check(items.stream().filter(o->o.optBoolean("d")).count()==(i==1?1:9), "DNA pairs appear with actual mRNA bases");
+                } else {
+                    boolean carrier = items.stream().anyMatch(o -> "운반 RNA".equals(o.optString("text")));
+                    check(carrier == (i < 5), "no tRNA or amino acid gets assigned to the stop codon");
+                    check(items.stream().filter(o -> "green".equals(o.optString("c")) && o.optBoolean("b")).count()==3, "one triplet is highlighted");
+                }
+            }
+        }
+        reject(() -> sceneInk(obj("preset","proteinSynthesis","stage",6)), "unknown preset stage rejected");
+    }
+
     private static void reject(Runnable action,String why) {
         try{action.run();}catch(IllegalArgumentException expected){check(true,why);return;}
         throw new AssertionError(why);

@@ -524,10 +524,10 @@ public final class BoardActivity extends Activity {
         ui.addRow(curriculum,ui.listRow(R.drawable.ic_book,INDIGO,"교과 수업",classroom.length()==0?"중1~고3 · 아홉 교과의 성취기준과 주제":BoardClassroom.summary(classroom),ui.chevron(),()->{pick.dismiss();classroom();}),false);
         pick.body.addView(curriculum);pick.body.addView(ui.sectionHeader("판서 도구"));
         String[] kinds = {BoardWidget.GRAPH, BoardWidget.TABLE, BoardWidget.CHART, BoardWidget.GEOMETRY,
-            BoardWidget.SOLID, BoardWidget.NUMBER_LINE, BoardWidget.FLOW, BoardWidget.TIMELINE, BoardWidget.TREE,BoardWidget.RELATION,BoardWidget.FIELD,BoardWidget.MAP,BoardWidget.CHEM,BoardWidget.DIAGRAM,BoardWidget.READING};
+            BoardWidget.SOLID, BoardWidget.NUMBER_LINE, BoardWidget.FLOW, BoardWidget.TIMELINE, BoardWidget.TREE,BoardWidget.RELATION,BoardWidget.FIELD,BoardWidget.MAP,BoardWidget.CHEM,BoardWidget.DIAGRAM,BoardWidget.SCENE,BoardWidget.READING};
         String[] descriptions = {"함수식, 축 범위, 변수 슬라이더", "행과 셀을 입력하거나 붙여넣기", "막대·선·원형 차트",
             "꼭짓점을 끌어 길이와 각도 측정", "회전하고 전개도 펼치기", "범위와 열린·닫힌 점",
-            "단계를 화살표로 연결", "날짜와 단계 정리", "중심 주제와 가지 정리","방정식·매개변수·극좌표 곡선","작은 소수에서 타원곡선의 점 표시","지도에 장소를 찍고 경로 연결","원자 수와 계수 검산","구조 모식도와 부위별 강조","지문과 사료의 원문·해설"};
+            "단계를 화살표로 연결", "날짜와 단계 정리", "중심 주제와 가지 정리","방정식·매개변수·극좌표 곡선","작은 소수에서 타원곡선의 점 표시","지도에 장소를 찍고 경로 연결","원자 수와 계수 검산","구조 모식도와 부위별 강조","물체와 이름표 연결 · 단계별 이동","지문과 사료의 원문·해설"};
         LinearLayout group = ui.group();
         for (int i = 0; i < kinds.length; i++) {
             String kind = kinds[i];
