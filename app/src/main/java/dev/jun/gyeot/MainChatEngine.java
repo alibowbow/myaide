@@ -56,7 +56,8 @@ final class MainChatEngine implements AutoCloseable {
      */
     interface Listener { void text(String delta); void ended(); }
     /** What the screen shows of a reply still being written: its answer and its thinking summary so far. */
-    record Live(String text,String thinking){}
+    /** What the screen shows of a reply being written; status is what its tools are doing ("브라우저 · …"), "" when nothing. */
+    record Live(String text,String thinking,String status){Live(String text,String thinking){this(text,thinking,"");}}
     /** One notification for main-chat answers, clear of the app's other ids (10 to 3823, 4110 to 4141). */
     static final int NOTIFICATION=4090;
     /** At most this much of the answer in its notification; a locked screen shows only ARRIVED. */
@@ -151,7 +152,7 @@ final class MainChatEngine implements AutoCloseable {
      */
     private final class Deltas {
         final long reply;final Listener listener;private final long stamp=epoch.get();
-        private final StreamBatch batch=new StreamBatch();private final StringBuilder text=new StringBuilder(),thinking=new StringBuilder();
+        private final StreamBatch batch=new StreamBatch();private final StringBuilder text=new StringBuilder(),thinking=new StringBuilder();private volatile String status="";
         private boolean open=true;private int handing;private Thread hand;private Live shown;
         private MainChatStore.Turn turn;private Runnable guard;
         Deltas(long reply,Listener listener){this.reply=reply;this.listener=listener;}
@@ -176,6 +177,12 @@ final class MainChatEngine implements AutoCloseable {
             synchronized(this){if(!valid())throw new CancellationException();if(thinking.length()+delta.length()>MainRequest.THINKING)return;thinking.append(delta);due=batch.piece(SystemClock.uptimeMillis());}
             if(due>=0)main.postDelayed(this::flush,due);
         }
+        /** What the reply's tools are doing, shown under it while it is written; never part of its text. */
+        void status(String value){
+            String now=value==null?"":value.strip();if(now.length()>120)now=now.substring(0,120);
+            synchronized(this){if(!valid()||now.equals(status))return;status=now;}
+            main.post(this::flush);
+        }
         /** A retry with less history starts the answer over on the screen. */
         synchronized void restart(){if(valid()){text.setLength(0);thinking.setLength(0);shown=null;}}
         synchronized String thought(){return thinking.toString();}
@@ -190,7 +197,7 @@ final class MainChatEngine implements AutoCloseable {
         }
         /** On the main thread: what gathered goes to the screen, unless the gate shut meanwhile. */
         private void flush(){
-            synchronized(this){batch.took(SystemClock.uptimeMillis());if(!valid())return;shown=new Live(text.toString(),thinking.toString());}
+            synchronized(this){batch.took(SystemClock.uptimeMillis());if(!valid())return;shown=new Live(text.toString(),thinking.toString(),status);}
             for(java.util.function.LongConsumer watcher:watchers)watcher.accept(reply);
         }
         /** The text so far into the partial column, after the reply's own guard (account, model, memory, its run still live). */
@@ -383,10 +390,10 @@ final class MainChatEngine implements AutoCloseable {
         WorkTools pages=provider.pages(selection,connected!=null||subject!=null||dev.jun.gyeot.core.PageTools.wanted(pageWords(turn,question)),()->question);
         // A reply whose functions ran is never sent a second time (below): a save would be made twice.
         java.util.concurrent.atomic.AtomicBoolean ran=new java.util.concurrent.atomic.AtomicBoolean();
-        // Background work (작업창 with a browser): offered only when this question's words are about it.
-        WorkTools background=BackgroundWork.wanted(question)?background(turn,question):null;
-        WorkTools tools=counted(WorkTools.combine(WorkTools.combine(connected,pages),background),ran);
-        String instructions=instructions(memory)+(web.any()?WEB:"")+(connected!=null?TOOLS:pages!=null?PAGE_TOOLS:"")+(subject!=null&&pages!=null?aboutPage(subject):"")+(background!=null?BackgroundWork.INSTRUCTIONS:"");
+        // The browser and the 들퍼레 folder, run by this reply itself: offered only when this question's words are about them.
+        MainBrowsing browsing=MainBrowser.wanted(question)?new MainBrowsing(context,app,turn.run(),question,()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},deltas::status):null;
+        WorkTools tools=counted(WorkTools.combine(WorkTools.combine(connected,pages),browsing==null?null:browsing.tools()),ran);
+        String instructions=instructions(memory)+(web.any()?WEB:"")+(connected!=null?TOOLS:pages!=null?PAGE_TOOLS:"")+(subject!=null&&pages!=null?aboutPage(subject):"")+(browsing!=null?MainBrowser.INSTRUCTIONS:"");
         boolean summary=memory&&app.settings.getBoolean("mainSummaryOn",true);int budget=budget(app,selection);
         // The notes related to this question first, within 2% of the window; the chosen ones are marked used.
         String longTerm=memory?app.recallMemory(query,Memory.budget(budget)):"";
@@ -399,7 +406,7 @@ final class MainChatEngine implements AutoCloseable {
         // The photos and PDFs attached to the question go with it as the provider's file parts, every time it is answered;
         // a text file's text is in the input already.
         List<MainRequest.Attachment> attached=attachments(turn);
-        for(int attempt=0;;attempt++){
+        try{for(int attempt=0;;attempt++){
             String input=history.context(turn,new MainChatStore.Options(memory,summary,budget,longTerm,asked,events,video));
             if(attempt>0)deltas.restart();
             // Every reply streams through the gate, and its first piece is timed on the way in; the thinking summary rides
@@ -425,7 +432,7 @@ final class MainChatEngine implements AutoCloseable {
                 // The notes about the user shrink with the window they are 2% of.
                 if(memory)longTerm=app.recallMemory(query,Memory.budget(budget));
             }
-        }
+        }}finally{if(browsing!=null)browsing.close();}
     }
     /** The video the conversation last read a transcript for, and the conversation (generation) it was read in. */
     private volatile String lastVideo="";private volatile long lastVideoGeneration=-1;
@@ -443,34 +450,13 @@ final class MainChatEngine implements AutoCloseable {
         return block;
     }
     /** tools with ran set once any function was run; null stays null. */
-    /**
-     * background_task for one reply: a request the model writes goes to a new 작업창 job as 작업으로 보내기 sends one (delegate),
-     * tied to this question, at most BackgroundWork.PER_REPLY of them, and only when the question's own words ask for it.
-     */
-    private WorkTools background(MainChatStore.Turn turn,String words){
-        java.util.concurrent.atomic.AtomicInteger started=new java.util.concurrent.atomic.AtomicInteger();
-        return new WorkTools(){
-            @Override JSONArray declarations(){return BackgroundWork.declarations();}
-            @Override JSONObject run(String name,Object arguments){
-                if(!BackgroundWork.START.equals(name))return GitHubFunctions.failure("이 도구는 없어요.");
-                if(!BackgroundWork.asked(words))return GitHubFunctions.failure(BackgroundWork.NOT_ASKED);
-                JSONObject args;try{args=arguments instanceof JSONObject given?given:new JSONObject(String.valueOf(arguments));}catch(JSONException unreadable){args=new JSONObject();}
-                String request=args.optString("request").strip();
-                if(request.isEmpty())return GitHubFunctions.failure("작업 지시가 비어 있어요.");
-                if(request.length()>MainChatContext.INPUT)return GitHubFunctions.failure("작업 지시는 "+MainChatContext.INPUT+"자까지예요. 줄여서 다시 맡겨 주세요.");
-                if(started.get()>=BackgroundWork.PER_REPLY)return GitHubFunctions.failure("이 답변에서 이미 작업을 "+BackgroundWork.PER_REPLY+"개 맡겼어요. 더 필요하면 사용자에게 먼저 물어보세요.");
-                try{String job=delegate(turn.user(),request);started.incrementAndGet();
-                    return Jsons.obj("ok",true,"started",true,"job",job,"note","The job runs in 작업창 on its own; its result comes back into this conversation when it ends.");}
-                catch(RuntimeException failed){return GitHubFunctions.failure(failed.getMessage()==null?"작업창에 맡기지 못했어요.":failed.getMessage());}
-            }
-        };
-    }
     private static WorkTools counted(WorkTools tools,java.util.concurrent.atomic.AtomicBoolean ran){
         if(tools==null)return null;
         return new WorkTools(){
             @Override JSONArray declarations(){return tools.declarations();}
             @Override JSONObject run(String name,Object arguments){ran.set(true);return tools.run(name,arguments);}
             @Override String instructions(){return tools.instructions();}
+            @Override int rounds(){return tools.rounds();}
             @Override boolean write(){return tools.write();}
             @Override boolean inspectMerge(JSONArray turns){return tools.inspectMerge(turns);}
             @Override boolean mergeNeedsAction(){return tools.mergeNeedsAction();}

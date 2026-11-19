@@ -60,7 +60,8 @@ final class FolderWorkTools extends WorkTools {
         JSONObject args = arguments instanceof JSONObject given ? given : parse(arguments);
         try {
             if (FolderTools.LIST.equals(name)) return list(args);
-            if (FolderTools.SAVE.equals(name)) return save(args);
+            if (FolderTools.SAVE.equals(name)) return saveAll(args);
+            if (FolderTools.MAKE.equals(name)) return make(args);
             return GitHubFunctions.failure("이 도구는 없어요.");
         } catch (IOException | RuntimeException failed) {
             return GitHubFunctions.failure(failed.getMessage() == null || failed.getMessage().isBlank() ? "들퍼레 폴더를 다루지 못했어요." : failed.getMessage());
@@ -95,8 +96,33 @@ final class FolderWorkTools extends WorkTools {
         }
     }
 
-    private JSONObject save(JSONObject args) throws IOException {
+    private JSONObject make(JSONObject args) throws IOException {
         if (!FolderTools.asked(words.get())) return GitHubFunctions.failure(FolderTools.NOT_ASKED);
+        String folder = FolderTools.folder(args.optString("folder"));
+        if (folder == null || folder.isEmpty()) return GitHubFunctions.failure("들퍼레 안의 폴더 경로를 주세요. 예: 수능/2025");
+        try (ManagedSharedStorage.Access access = access(); ManagedSharedStorage.Node made = access.directory(path(folder), true)) { made.check(); }
+        return obj("ok", true, "folder", path(folder));
+    }
+    /** Every file of a folder_save call (files, or one file_id for the older form), each with its own result. */
+    private JSONObject saveAll(JSONObject args) throws IOException {
+        if (!FolderTools.asked(words.get())) return GitHubFunctions.failure(FolderTools.NOT_ASKED);
+        org.json.JSONArray files = args.optJSONArray("files");
+        if (files == null) return save(args);
+        if (files.length() == 0) return GitHubFunctions.failure("저장할 파일이 없어요.");
+        if (files.length() > FolderTools.BATCH) return GitHubFunctions.failure("한 번에 " + FolderTools.BATCH + "개까지 저장해요. 나눠서 다시 저장해 주세요.");
+        org.json.JSONArray results = new org.json.JSONArray(); int saved = 0, kept = 0, failed = 0;
+        for (int i = 0; i < files.length(); i++) {
+            if (stopped.getAsBoolean()) throw new IOException("작업을 멈췄어요.");
+            JSONObject one = files.optJSONObject(i); JSONObject result;
+            try { result = one == null ? GitHubFunctions.failure("파일 정보가 아니에요.") : save(one); }
+            catch (IOException | RuntimeException error) { result = GitHubFunctions.failure(error.getMessage() == null ? "저장하지 못했어요." : error.getMessage()); }
+            if (one != null) dev.jun.gyeot.core.Jsons.put(result, "file_id", one.optString("file_id"));
+            if (!result.optBoolean("ok")) failed++; else if (result.optBoolean("kept_already")) kept++; else saved++;
+            results.put(result);
+        }
+        return obj("ok", failed == 0, "saved", saved, "kept_already", kept, "failed", failed, "results", results);
+    }
+    private JSONObject save(JSONObject args) throws IOException {
         String id = args.optString("file_id").strip(); JSONObject file = downloads.find(id);
         if (file == null) return GitHubFunctions.failure("이 작업에서 브라우저로 받은 파일만 저장할 수 있어요. 브라우저 결과의 artifact id를 file_id로 주세요.");
         File source = downloads.bytes(id);

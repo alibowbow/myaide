@@ -186,7 +186,7 @@ final class MainAdapters {
         JSONArray found = new JSONArray(); String suggestions = ""; Usage used = null; int rounds = 0;
         while (true) {
             JSONObject request = GeminiWork.request(model, instructions, contents, r.search(), r.fetch(), false, tools == null ? null : tools.gemini(), effort, r.thinkingSummary(), true);
-            if (tools != null && rounds >= OpenAiClient.MAIN_ROUNDS) request.put("toolConfig", obj("functionCallingConfig", obj("mode", "NONE")));
+            if (tools != null && rounds >= (tools.rounds() > 0 ? tools.rounds() : OpenAiClient.MAIN_ROUNDS)) request.put("toolConfig", obj("functionCallingConfig", obj("mode", "NONE")));
             guard.run();
             GeminiWork.Stream stream = new GeminiWork.Stream();
             try (OpenAiAccount.Http.Exchange response = GeminiWorkClient.stream(key, model, request, 120_000, cancel)) {

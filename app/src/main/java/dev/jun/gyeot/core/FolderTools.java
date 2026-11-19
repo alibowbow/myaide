@@ -13,15 +13,18 @@ import static dev.jun.gyeot.core.Jsons.*;
  */
 public final class FolderTools {
     private FolderTools() {}
-    public static final String LIST = "folder_list", SAVE = "folder_save", ROOT = "들퍼레";
+    public static final String LIST = "folder_list", SAVE = "folder_save", MAKE = "folder_make", ROOT = "들퍼레";
+    /** Files one folder_save call may keep. */
+    public static final int BATCH = 24;
     public static final int DEPTH = 5, ENTRIES = 300, NAME = 120;
     /** The kinds of file that may be kept: documents, pictures, sound and video, and archives of them. */
     public static final Set<String> TYPES = Set.of("pdf", "png", "jpg", "jpeg", "webp", "gif", "txt", "md", "csv", "json", "hwp", "hwpx", "docx", "xlsx", "pptx", "zip", "mp3", "m4a", "wav", "mp4");
-    public static boolean is(String name) { return LIST.equals(name) || SAVE.equals(name); }
-    public static String stage(String name) { return SAVE.equals(name) ? "들퍼레 폴더에 저장하는 중" : "들퍼레 폴더를 살펴보는 중"; }
+    public static boolean is(String name) { return LIST.equals(name) || SAVE.equals(name) || MAKE.equals(name); }
+    public static String stage(String name) { return SAVE.equals(name) ? "들퍼레 폴더에 저장하는 중" : MAKE.equals(name) ? "들퍼레에 폴더를 만드는 중" : "들퍼레 폴더를 살펴보는 중"; }
 
-    public static final String INSTRUCTIONS = " The user's 들퍼레 folder (on this phone) is available: folder_list shows what a folder in it holds, "
-        + "folder_save copies a file this job downloaded with the browser (its artifact id from the browser result) into a folder in it, making the folder when needed. "
+    public static final String INSTRUCTIONS = " The user's 들퍼레 folder (on this phone) is available: folder_list shows what a folder in it holds, folder_make makes a folder in it, "
+        + "folder_save copies files downloaded with the browser (their artifact ids from the browser results) into folders in it, making the folders when needed; "
+        + "save a whole batch in one folder_save call (files: up to " + BATCH + "). "
         + "Save only when the user asked to save, keep or collect files there; use the folder and the file names the user asked for. "
         + "Nothing is ever overwritten: a file already there with the same name and size is reported as already kept, another with that name gets a number. "
         + "Check with folder_list before downloading what may already be there. Report only what folder_save said it saved.";
@@ -33,12 +36,18 @@ public final class FolderTools {
             obj("name", LIST, "description", "List a folder inside the user's 들퍼레 folder: names, which are folders, and sizes. An empty folder path is 들퍼레 itself.",
                 "parameters", obj("type", "object", "properties", obj(
                     "folder", obj("type", "string", "description", "A folder path inside 들퍼레, like 수능/2025; empty for 들퍼레 itself")), "additionalProperties", false)),
-            obj("name", SAVE, "description", "Copy one file this job downloaded with the browser into a folder inside 들퍼레 (made when missing). Never overwrites. "
+            obj("name", MAKE, "description", "Make a folder inside the user's 들퍼레 folder, with the folders above it (nothing happens when it is already there). "
+                    + "Only when the user asked for folders or for files to be kept there.",
+                "parameters", obj("type", "object", "required", arr("folder"), "properties", obj(
+                    "folder", obj("type", "string", "description", "A folder path inside 들퍼레, like 수능/2025")), "additionalProperties", false)),
+            obj("name", SAVE, "description", "Copy files downloaded with the browser into folders inside 들퍼레 (made when missing), up to " + BATCH + " in one call. Never overwrites. "
                     + "Only when the user asked to save or keep files there.",
-                "parameters", obj("type", "object", "required", arr("file_id", "folder"), "properties", obj(
-                    "file_id", obj("type", "string", "description", "The downloaded file's artifact id from the browser result"),
-                    "folder", obj("type", "string", "description", "A folder path inside 들퍼레, like 수능/2025"),
-                    "name", obj("type", "string", "description", "The file name to keep it under, with its extension; the downloaded name when empty")), "additionalProperties", false)));
+                "parameters", obj("type", "object", "required", arr("files"), "properties", obj(
+                    "files", obj("type", "array", "description", "The files to keep", "items", obj("type", "object", "required", arr("file_id", "folder"), "properties", obj(
+                        "file_id", obj("type", "string", "description", "The downloaded file's artifact id from the browser result"),
+                        "folder", obj("type", "string", "description", "A folder path inside 들퍼레, like 수능/2025"),
+                        "name", obj("type", "string", "description", "The file name to keep it under, with its extension; the downloaded name when empty")), "additionalProperties", false))),
+                    "additionalProperties", false)));
     }
 
     private static final Pattern KEEP = Pattern.compile("저장|보관|모아|모으|수집|넣어|담아|정리해|폴더|다운로드|내려받|받아\\s*(?:줘|주|서|놔|둬)|(?i:save|download|folder)");

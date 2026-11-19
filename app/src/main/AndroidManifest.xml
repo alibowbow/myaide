@@ -106,6 +106,7 @@
             </intent-filter>
         </activity>
         <service android:name=".BoardJobService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <service android:name=".MainBrowserService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name=".BrowserTaskService" android:exported="false" android:foregroundServiceType="dataSync" />
         <!-- 예약 작업: only this app's own alarm reaches it (no intent filter, not exported, no boot listener). -->
         <receiver android:name=".WorkScheduleAlarm" android:exported="false" />

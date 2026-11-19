@@ -714,7 +714,8 @@ final class MainChatPage implements AutoCloseable {
             thought.set(thinking); thought.view.setVisibility(thinking.isBlank() ? View.GONE : View.VISIBLE);
             if (!text.equals(content.text())) content.update(text);
             content.view().setVisibility(text.isBlank() ? View.GONE : View.VISIBLE);
-            status.setText(state.equals("queued") ? "답변 차례를 기다리는 중…" : !text.isBlank() ? "답을 쓰고 있어요…" : !thinking.isBlank() ? "생각하고 있어요…" : "답변을 생각하고 있어요…");
+            String doing = live == null ? "" : live.status();
+            status.setText(state.equals("queued") ? "답변 차례를 기다리는 중…" : !doing.isBlank() ? doing : !text.isBlank() ? "답을 쓰고 있어요…" : !thinking.isBlank() ? "생각하고 있어요…" : "답변을 생각하고 있어요…");
         }
     }
     /**

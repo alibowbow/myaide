@@ -304,6 +304,8 @@ final class OpenAiClient {
         boolean summary = onThinking != null, force = always;
         boolean search = webSearch, refreshed = false; String refusal = null, level = account.reasoningProfile(model).resolve(effort); Limits limits = Limits.NONE;
         long generation = account.workFormatGeneration();
+        // Browsing and saving many files takes more rounds than a lookup does.
+        int limit = tools != null && tools.rounds() > 0 ? tools.rounds() : MAIN_ROUNDS;
         Runnable guard = () -> {
             if (generation != account.workFormatGeneration()) throw new java.util.concurrent.CancellationException("GPT 연결이 바뀌어 이전 요청을 멈췄어요.");
             onActivity.run();
@@ -313,11 +315,11 @@ final class OpenAiClient {
             // The search is forced on the first round only: later rounds answer from what the functions returned.
             JSONObject payload;
             if (plans) payload = dev.jun.gyeot.core.WorkPlans.request(model, instructions.apply(false) + tools.instructions()
-                + (rounds >= MAIN_ROUNDS ? " You have used the functions enough: return tool=finish with your answer now." : "")
+                + (rounds >= limit ? " You have used the functions enough: return tool=finish with your answer now." : "")
                 + (repair ? " Your last reply was not one valid JSON command, so nothing from it ran. Return exactly one valid JSON command." : ""), conversation, functions, level, null);
             else {
                 payload = OpenAiProtocol.request(model, instructions.apply(search) + (tools == null ? "" : tools.instructions()), input, search, level, summary, force && rounds == 0, cacheKey);
-                if (tools != null) OpenAiProtocol.functions(payload, conversation, functions, rounds >= MAIN_ROUNDS);
+                if (tools != null) OpenAiProtocol.functions(payload, conversation, functions, rounds >= limit);
                 else if (attached) payload.put("input", conversation);
             }
             GptSpeed.apply(payload, account.describe().optString("mode"), model, account.models(), speed);

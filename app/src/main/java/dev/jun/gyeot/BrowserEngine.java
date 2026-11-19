@@ -196,7 +196,9 @@ final class BrowserEngine {
     boolean historyRestorePending() { return restorePending; }
     String brain() { return store.settings.getString("browserBrain", store.brain()); }
     String brainName() { return switch (brain()) { case "gpt" -> "GPT"; case "claude" -> "Claude"; case "gemini" -> "Gemini"; case "grok" -> "Grok"; case "nim" -> "NVIDIA NIM"; default -> "Live 직접 판단"; }; }
-    boolean connected() { return switch (brain()) { case "gpt" -> store.openai.connected(); case "claude" -> store.claude.connected(); case "grok" -> store.grok.connected(); case "nim" -> store.nim.connected(); case "gemini" -> store.gemini.connected() || store.secrets.hasKey(); default -> store.secrets.hasKey(); }; }
+    boolean connected() { return connected(brain()); }
+    /** Whether a browser AI can be used now: its connection is set up. */
+    boolean connected(String brain) { return switch (brain) { case "gpt" -> store.openai.connected(); case "claude" -> store.claude.connected(); case "grok" -> store.grok.connected(); case "nim" -> store.nim.connected(); case "gemini" -> store.gemini.connected() || store.secrets.hasKey(); default -> store.secrets.hasKey(); }; }
     Runnable observer;
 
     /** A lease owns one tab and one conversation for its entire lifetime. */

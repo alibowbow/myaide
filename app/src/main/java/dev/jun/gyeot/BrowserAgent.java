@@ -19,9 +19,10 @@ final class BrowserAgent {
     private final BrowserEngine engine;
     private final AppStore store;
     private final Consumer<JSONObject> result;
-    private final String brain, model, effort, speed, credentialStamp;
+    /** The AI deciding each step; when it reports its usage limit the task goes on with another the user connected (switchBrain). */
+    private String brain, model, effort, speed, credentialStamp; private final java.util.Set<String> limited = new java.util.HashSet<>();
     private final java.util.LinkedHashSet<String> speedNotices = new java.util.LinkedHashSet<>();
-    private final long lease, nimGeneration;
+    private final long lease; private long nimGeneration;
     private final boolean preexistingMutationFence;
     private boolean mutationDispatched, uncertainThisRun;
     private final BrowserLongTaskPolicy liveness;
@@ -304,6 +305,8 @@ final class BrowserAgent {
                 });
             } catch (Exception e) { engine.main.post(() -> {
                 if (!takeModel(attempt)) return;
+                // A usage limit is not the task's failure: the same step is decided again by the next AI the user connected.
+                if (limitReached(e) && switchBrain()) { step(); return; }
                 complete(BrowserEngine.error("두뇌 응답을 처리하지 못했어요. " + dev.jun.gyeot.core.Jsons.message(e, "")));
             }); }
         }, "browser-brain").start();
@@ -816,6 +819,31 @@ final class BrowserAgent {
             return key.append(']').toString();
         }
         return value instanceof String text ? JSONObject.quote(text) : String.valueOf(value);
+    }
+    /** Whether a model call failed on its provider's usage or rate limit. */
+    static boolean limitReached(Throwable error) {
+        for (Throwable e = error; e != null; e = e.getCause()) {
+            if (e instanceof dev.jun.gyeot.core.ModelLimit) return true;
+            String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase(java.util.Locale.ROOT);
+            if (message.contains("사용 한도") || message.contains("사용량 한도") || message.contains("usage limit") || message.contains("rate limit") || message.contains("quota") || message.contains("http 429")) return true;
+        }
+        return false;
+    }
+    /** The AIs a browser task may go on with, in order, when the one deciding reached its limit. */
+    static final String[] FALLBACK = {"gemini", "claude", "gpt", "grok", "nim"};
+    /** Goes on with the next connected AI that has not reached its limit in this task; false when there is none. */
+    private boolean switchBrain() {
+        limited.add(brain);
+        for (String next : FALLBACK) {
+            if (limited.contains(next) || !engine.connected(next)) continue;
+            String from = brain; BrowserModels selection = new BrowserModels(store);
+            brain = next; model = selection.model(next); effort = selection.effort(next, model); speed = "gpt".equals(next) ? selection.speed(model) : "standard";
+            nimGeneration = store.nim.generation(); credentialStamp = accountStamp();
+            engine.setTaskStatus(lease, from + " 사용 한도 도달 → " + next + "로 이어서");
+            history.put(obj("note", "The previous AI reached its usage limit; this step is decided again."));
+            return true;
+        }
+        return false;
     }
     private String accountStamp() {
         // Claude/Gemini currently have no account generation API. Compare only a digest of

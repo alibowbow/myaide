@@ -10,6 +10,8 @@ abstract class WorkTools {
     abstract JSONArray declarations();
     abstract JSONObject run(String name, Object arguments);
     String instructions() { return ""; }
+    /** The function rounds a main-chat reply may take with these tools; 0 for the usual (OpenAiClient.MAIN_ROUNDS). */
+    int rounds() { return 0; }
     boolean write() { return false; }
     boolean inspectMerge(JSONArray turns) { return false; }
     boolean mergeNeedsAction() { return false; }
@@ -29,7 +31,7 @@ abstract class WorkTools {
     final JSONArray openAi() { return GitHubFunctions.openAi(declarations()); }
     final JSONArray claude() { return GitHubFunctions.claude(declarations()); }
     final JSONObject gemini() { return GitHubFunctions.gemini(declarations()); }
-    static String stage(String name) { if (dev.jun.gyeot.core.FolderTools.is(name)) return dev.jun.gyeot.core.FolderTools.stage(name); if (dev.jun.gyeot.core.BackgroundWork.START.equals(name)) return "작업창에 맡기는 중"; if (dev.jun.gyeot.core.PageTools.is(name)) return dev.jun.gyeot.core.PageTools.stage(name); if (dev.jun.gyeot.core.MediaTools.is(name)) return dev.jun.gyeot.core.MediaTools.stage(name); if (dev.jun.gyeot.core.GoogleDrive.is(name)) return dev.jun.gyeot.core.GoogleDrive.stage(name); if (dev.jun.gyeot.core.CalendarQuery.is(name)) return dev.jun.gyeot.core.CalendarQuery.stage(name); return dev.jun.gyeot.core.BrowserWorkJobs.RUN.equals(name) ? "브라우저에서 작업하는 중" : TeamPlan.TOOL.equals(name) ? "에이전트 팀에 작업을 나누는 중" : TeamPlan.APPLY_FILES.equals(name) ? "팀 파일 제안을 브랜치에 반영하는 중" : TeamPlan.SUBMIT_FILES.equals(name) ? "팀 파일 제안을 보관하는 중" : GitHubFunctions.stage(name); }
+    static String stage(String name) { if (dev.jun.gyeot.core.FolderTools.is(name)) return dev.jun.gyeot.core.FolderTools.stage(name); if (dev.jun.gyeot.core.PageTools.is(name)) return dev.jun.gyeot.core.PageTools.stage(name); if (dev.jun.gyeot.core.MediaTools.is(name)) return dev.jun.gyeot.core.MediaTools.stage(name); if (dev.jun.gyeot.core.GoogleDrive.is(name)) return dev.jun.gyeot.core.GoogleDrive.stage(name); if (dev.jun.gyeot.core.CalendarQuery.is(name)) return dev.jun.gyeot.core.CalendarQuery.stage(name); return dev.jun.gyeot.core.BrowserWorkJobs.RUN.equals(name) ? "브라우저에서 작업하는 중" : TeamPlan.TOOL.equals(name) ? "에이전트 팀에 작업을 나누는 중" : TeamPlan.APPLY_FILES.equals(name) ? "팀 파일 제안을 브랜치에 반영하는 중" : TeamPlan.SUBMIT_FILES.equals(name) ? "팀 파일 제안을 보관하는 중" : GitHubFunctions.stage(name); }
     /** Tools with effects outside the phone (and the user's usage), and changes to the user's 페이지: journaled before they run and never repeated in a turn. */
     static boolean startsWork(String name) { return dev.jun.gyeot.core.PageTools.effect(name) || dev.jun.gyeot.core.MediaTools.is(name) || dev.jun.gyeot.core.GoogleDrive.effect(name) || dev.jun.gyeot.core.CalendarQuery.ADD.equals(name) || dev.jun.gyeot.core.BrowserWorkJobs.RUN.equals(name) || TeamPlan.TOOL.equals(name) || TeamPlan.APPLY_FILES.equals(name) || TeamPlan.SUBMIT_FILES.equals(name) || GitHubFunctions.changes(name); }
     static WorkTools combine(WorkTools primary, WorkTools extra) {
@@ -50,6 +52,7 @@ abstract class WorkTools {
                 return GitHubFunctions.failure("현재 팀에 허용되지 않은 도구입니다.");
             }
             String instructions() { return primary.instructions() + extra.instructions(); }
+            int rounds() { return Math.max(primary.rounds(), extra.rounds()); }
             boolean write() { return primary.write(); }
             boolean inspectMerge(JSONArray turns) { return primary.inspectMerge(turns); }
             boolean mergeNeedsAction() { return primary.mergeNeedsAction(); }
