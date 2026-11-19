@@ -25,7 +25,7 @@ public final class Board {
     /** Who put an item on the board. */
     public static final String ME = "me", AI = "ai";
     public static final String INK = "ink";
-    public static final String[] COLORS = {INK, "red", "pink", "orange", "yellow", "green", "blue", "purple"};
+    public static final String[] COLORS = {INK, "rust", "teal", "ochre", "indigo", "red", "pink", "orange", "yellow", "green", "blue", "purple"};
     /** Text sizes in board units: a phone shows WIDTH units across, so NORMAL reads like body text. */
     public static final float TITLE = 68, BIG = 56, NORMAL = 46, SMALL = 36;
     /** The thickest and thinnest line, the longest text of one item, the most points of one stroke and the most items. */
@@ -78,6 +78,7 @@ public final class Board {
     }
     /** Copies what marks an item as part of a lesson, and its dashes, from a stored item. */
     private static JSONObject tagged(JSONObject made, JSONObject from) {
+        BoardInk.restore(made, from);
         if (WIDGET.equals(made.optString("t")) && from.optString("wid").matches("[a-zA-Z0-9_-]{1,40}")) Jsons.put(made,"wid",from.optString("wid"));
         String lesson = from.optString("ls");
         if (lesson.matches("[a-z0-9]{1,12}")) { Jsons.put(made, "ls", lesson); Jsons.put(made, "st", Math.max(0, Math.min(999, from.optInt("st")))); }
@@ -243,6 +244,11 @@ public final class Board {
             return l > r ? new float[]{0, 0, 0, 0} : new float[]{l - half, t - half, r + half, b + half};
         }
         float x1 = (float) item.optDouble("x1"), y1 = (float) item.optDouble("y1"), x2 = (float) item.optDouble("x2"), y2 = (float) item.optDouble("y2"), half = (float) item.optDouble("w", 6) / 2;
+        if (BoardInk.DOUBLE.equals(item.optString("rule"))) {
+            float[] d = BoardInk.doubleOffset(x1, y1, x2, y2, half * 2);
+            return new float[]{Math.min(x1,x2)+Math.min(0,d[0])-half, Math.min(y1,y2)+Math.min(0,d[1])-half,
+                Math.max(x1,x2)+Math.max(0,d[0])+half, Math.max(y1,y2)+Math.max(0,d[1])+half};
+        }
         return new float[]{Math.min(x1, x2) - half, Math.min(y1, y2) - half, Math.max(x1, x2) + half, Math.max(y1, y2) + half};
     }
     /** The lowest point anything reaches; 0 for an empty board. */
@@ -298,7 +304,14 @@ public final class Board {
             return nearest;
         }
         float x1 = (float) item.optDouble("x1"), y1 = (float) item.optDouble("y1"), x2 = (float) item.optDouble("x2"), y2 = (float) item.optDouble("y2");
-        if (LINE.equals(type)) return distance(px, py, x1, y1, x2, y2);
+        if (LINE.equals(type)) {
+            float nearest = distance(px, py, x1, y1, x2, y2);
+            if (BoardInk.DOUBLE.equals(item.optString("rule"))) {
+                float[] d = BoardInk.doubleOffset(x1, y1, x2, y2, (float) item.optDouble("w", 6));
+                nearest = Math.min(nearest, distance(px, py, x1+d[0], y1+d[1], x2+d[0], y2+d[1]));
+            }
+            return nearest;
+        }
         if (RECT.equals(type)) return Math.min(Math.min(distance(px, py, x1, y1, x2, y1), distance(px, py, x2, y1, x2, y2)), Math.min(distance(px, py, x2, y2, x1, y2), distance(px, py, x1, y2, x1, y1)));
         float cx = (x1 + x2) / 2, cy = (y1 + y2) / 2, rx = Math.max(1, Math.abs(x2 - x1) / 2), ry = Math.max(1, Math.abs(y2 - y1) / 2);
         // An oval's outline: how far the point is from the rim along its own direction from the centre.

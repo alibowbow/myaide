@@ -29,6 +29,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import dev.jun.gyeot.core.Board;
+import dev.jun.gyeot.core.BoardInk;
 import dev.jun.gyeot.core.BoardPlot;
 import dev.jun.gyeot.core.BoardWidget;
 import dev.jun.gyeot.core.Jsons;
@@ -71,9 +72,15 @@ public final class BoardActivity extends Activity {
     private JSONObject classroom=new JSONObject(); private BoardClassroom classroomPicker;
     private Ui ui; private AppStore store; private BoardStore boards; private MainNavigation navigation;
     private FrameLayout root; private BoardView board; private BoardTeacher teacher; private BoardVoice narration;
-    private LinearLayout chrome, palette, askBar, lessonBar, files, hint, topBar; private View gapView, toolBar; private TextView hintLead, hintHow; private ImageView hintMark; private TextView titleView, caption, progress; private EditText input;
-    private ImageView undo, redo, sound, pause, next, colorDot; private final List<ImageView> toolIcons = new ArrayList<>(); private final List<String> toolIds = new ArrayList<>();
-    private String boardId = "", title = "", shape = BoardView.LINE; private final List<JSONObject> attached = new ArrayList<>();
+    private LinearLayout chrome, askBar, lessonBar, files, hint, topBar; private View gapView; private BoardPenShelf toolBar; private TextView hintLead, hintHow; private ImageView hintMark; private TextView titleView, caption, progress; private EditText input;
+    private ImageView undo, redo, sound, pause, next, toolToggle, widthButton;
+    private final List<ImageView> toolIcons = new ArrayList<>(), swatches = new ArrayList<>();
+    private final List<String> toolIds = new ArrayList<>();
+    private static final String[] QUICK_COLORS = {"ink", "rust", "teal", "ochre", "indigo"};
+    private static final String[] MARKER_COLORS = {"yellow", "pink", "green", "blue", "purple"};
+    private static final String[] MARK_IDS = {BoardInk.DOUBLE, BoardInk.DOTTED, BoardInk.WAVY, BoardInk.BRACKET, BoardInk.CHECK, BoardView.LINE, BoardView.ARROW, BoardView.RECT, BoardView.OVAL};
+    private static final String[] MARK_NAMES = {"이중 밑줄", "점선", "물결 밑줄", "여백 괄호", "체크", "직선", "화살표", "네모", "타원"};
+    private String boardId = "", title = ""; private final List<JSONObject> attached = new ArrayList<>();
     private boolean destroyed, preparing, exporting;
     private String previousTool; private BoardJobs jobs; private boolean resumed;
     private final BoardJobs.Listener jobListener = this::jobFinished; private Ui.Sheet sheet;
@@ -243,8 +250,8 @@ public final class BoardActivity extends Activity {
         titleView = ui.text("", HEADLINE, 680, TEXT); titleView.setSingleLine(true); titleView.setEllipsize(TextUtils.TruncateAt.END); titleView.setPadding(ui.dp(4), 0, ui.dp(8), 0);
         titleView.setOnClickListener(v -> rename()); Ui.pressable(titleView, true);
         top.addView(titleView, new LinearLayout.LayoutParams(0, ui.dp(48), 1)); titleView.setGravity(Gravity.CENTER_VERTICAL);
-        undo = icon(R.drawable.ic_undo, "되돌리기", () -> { board.undo(); paintHistory(); }); redo = icon(R.drawable.ic_redo, "다시 하기", () -> { board.redo(); paintHistory(); });
-        top.addView(undo, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(48))); top.addView(redo, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(48)));
+        toolToggle = icon(R.drawable.ic_pen, "필기 도구 열기", () -> showTools(!tools()));
+        top.addView(toolToggle, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(48)));
         top.addView(icon(R.drawable.ic_layers, "판 목록", this::listBoards), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(48)));
         top.addView(icon(R.drawable.ic_more, "더 보기", this::more), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(48)));
         topBar = top;
@@ -286,51 +293,113 @@ public final class BoardActivity extends Activity {
         askBar.addView(input, new LinearLayout.LayoutParams(0, -2, 1));
         ImageView sendButton = ui.iconButton(R.drawable.ic_send, ACCENT, ON_ACCENT, "판서로 설명 듣기", this::send);
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(ui.dp(38), ui.dp(38)); sp.leftMargin = ui.dp(2); askBar.addView(sendButton, sp);
-        ui.add(chrome, askBar, 8);
-
-        palette = ui.row(); palette.setGravity(Gravity.CENTER); palette.setBackground(bar()); ui.lift(palette, 8); palette.setPadding(ui.dp(6), ui.dp(3), ui.dp(6), ui.dp(3));
-        tool(BoardView.HAND, R.drawable.ic_hand, "판 움직이기"); tool(BoardView.PEN, R.drawable.ic_pen, "펜"); tool(BoardView.MARKER, R.drawable.ic_marker, "형광펜"); tool(BoardView.ERASER, R.drawable.ic_eraser, "지우개");
-        tool("shape", R.drawable.ic_shapes, "도형"); tool(BoardView.TEXT, R.drawable.ic_text, "글자");
-        colorDot = new ImageView(this); colorDot.setContentDescription("색 고르기"); colorDot.setOnClickListener(v -> colors()); Ui.pressable(colorDot, true); colorDot.setPadding(ui.dp(10), ui.dp(10), ui.dp(10), ui.dp(10));
-        palette.addView(colorDot, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
-        HorizontalScrollView scroller = new HorizontalScrollView(this);
-        scroller.setHorizontalScrollBarEnabled(false); scroller.addView(palette); toolBar = scroller;
-        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-2, -2); pp.gravity = Gravity.CENTER_HORIZONTAL; chrome.addView(scroller, pp);
+        toolBar = new BoardPenShelf(this);
+        toolBar.setBackground(surface(R_SHEET)); ui.lift(toolBar, 5);
+        toolBar.setPadding(ui.dp(4), ui.dp(2), ui.dp(4), ui.dp(2));
+        tool(BoardView.HAND, R.drawable.ic_hand, "판 움직이기");
+        tool(BoardInk.PEN, R.drawable.ic_pen, "파인라이너");
+        tool(BoardInk.PENCIL, R.drawable.ic_pen, "연필");
+        tool(BoardInk.BRUSH, R.drawable.ic_pen, "붓펜");
+        tool(BoardInk.MARKER, R.drawable.ic_marker, "형광펜");
+        tool(BoardView.ERASER, R.drawable.ic_eraser, "지우개");
+        tool("shape", R.drawable.ic_shapes, "기호와 도형");
+        tool(BoardView.TEXT, R.drawable.ic_text, "글자");
+        for (int i=0; i<QUICK_COLORS.length; i++) {
+            int slot = i;
+            ImageView dot = icon(R.drawable.ic_pen, colorName(QUICK_COLORS[i]), () -> setInkColor(quickColors()[slot]));
+            dot.setImageTintList(null); dot.setPadding(ui.dp(2),ui.dp(2),ui.dp(2),ui.dp(2));
+            swatches.add(dot); shelfButton(toolBar.options, dot);
+            if (i == 3) toolBar.optionalSwatch = dot;
+        }
+        shelfButton(toolBar.options, icon(R.drawable.ic_more, "모든 잉크 색", this::colors));
+        widthButton = icon(R.drawable.ic_tune, "획 굵기", this::widths);
+        shelfButton(toolBar.options, widthButton);
+        undo = icon(R.drawable.ic_undo, "되돌리기", () -> { board.undo(); paintHistory(); });
+        redo = icon(R.drawable.ic_redo, "다시 하기", () -> { board.redo(); paintHistory(); });
+        shelfButton(toolBar.options, undo); shelfButton(toolBar.options, redo);
+        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-2,-2); pp.gravity = Gravity.CENTER_HORIZONTAL;
+        chrome.addView(toolBar, pp); ui.add(chrome, askBar, 6);
+        if (tools()) resumeInk();
         paintTools(); paintHistory(); paintSound(); toolBar.setVisibility(tools() ? View.VISIBLE : View.GONE);
+    }
+    private void shelfButton(LinearLayout row, View view) {
+        row.addView(view, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
     }
     private void tool(String id, int drawable, String name) {
         ImageView view = icon(drawable, name, () -> choose(id));
-        toolIds.add(id); toolIcons.add(view); palette.addView(view, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
+        if (BoardInk.freehand(id)) {
+            view.setPadding(ui.dp(4),ui.dp(4),ui.dp(4),ui.dp(4));
+            view.setOnLongClickListener(v -> { activate(id); widths(); return true; });
+        }
+        toolIds.add(id); toolIcons.add(view); shelfButton(toolBar.pens, view);
     }
-    private boolean isShape(String tool) { return tool.equals(BoardView.LINE) || tool.equals(BoardView.ARROW) || tool.equals(BoardView.RECT) || tool.equals(BoardView.OVAL); }
-    /** A tap on a tool takes it; a second tap on the pen or the shapes opens what they offer. */
-    private void choose(String id) {
-        String now = board.tool();
-        if (id.equals("shape")) { if (isShape(now)) shapes(); else board.tool(shape); }
-        else if (id.equals(BoardView.PEN) && now.equals(BoardView.PEN)) widths();
-        else board.tool(id);
+    private boolean isShape(String id) { return java.util.Arrays.asList(MARK_IDS).contains(id); }
+    private String inkKey(String tool) { return isShape(tool) ? "shape" : tool; }
+    private String inkColor(String tool) {
+        String fallback = switch (tool) { case BoardInk.BRUSH -> "indigo"; case BoardInk.MARKER -> "yellow"; case "shape" -> "rust"; default -> Board.INK; };
+        return Board.color(store.settings.getString("boardInkColor:" + tool, fallback));
+    }
+    private void activate(String id) {
+        String key = inkKey(id);
+        board.tool(id); board.color(inkColor(key));
+        board.penWidth(store.settings.getFloat("boardInkWidth:" + key, BoardView.WIDTHS[1]));
+        store.settings.edit().putString("boardInkTool", id).apply();
         paintTools();
+    }
+    private void resumeInk() {
+        String saved = store.settings.getString("boardInkTool", BoardInk.PEN);
+        activate(isShape(saved) || toolIds.contains(saved) && !"shape".equals(saved) ? saved : BoardInk.PEN);
+    }
+    private boolean writesInk() { return !BoardView.HAND.equals(board.tool()) && !BoardView.ERASER.equals(board.tool()); }
+    private String[] quickColors() { return BoardInk.MARKER.equals(board.tool()) ? MARKER_COLORS : QUICK_COLORS; }
+    private void setInkColor(String name) {
+        if (!writesInk()) activate(BoardInk.PEN);
+        board.color(name);
+        store.settings.edit().putString("boardInkColor:" + inkKey(board.tool()), name).apply();
+        paintTools();
+    }
+    private void choose(String id) {
+        if ("shape".equals(id)) shapes();
+        else if (id.equals(board.tool()) && BoardInk.freehand(id)) widths();
+        else activate(id);
     }
     private void paintTools() {
         String now = board.tool();
+        toolToggle.setSelected(tools());
+        String action = tools() ? "필기 도구 닫기" : "필기 도구 열기";
+        toolToggle.setContentDescription(action); toolToggle.setTooltipText(action);
+        toolToggle.setImageTintList(ColorStateList.valueOf(tools() ? ACCENT : TEXT));
         for (int i = 0; i < toolIcons.size(); i++) {
             String id = toolIds.get(i); boolean on = id.equals(now) || id.equals("shape") && isShape(now); ImageView view = toolIcons.get(i);
-            view.setBackground(on ? ui.shape(ACCENT_SOFT, PILL) : null); view.setImageTintList(ColorStateList.valueOf(on ? ACCENT : TEXT)); view.setSelected(on);
+            view.setBackground(on ? ui.shape(ACCENT_SOFT, 13) : null); view.setSelected(on);
+            if (BoardInk.freehand(id) || on && "shape".equals(id)) {
+                view.setImageTintList(null);
+                view.setImageDrawable(new BoardInkIcon("shape".equals(id) ? now : id,board.ink(inkColor(id)),TEXT,on,0));
+            } else {
+                if ("shape".equals(id)) view.setImageResource(R.drawable.ic_shapes);
+                view.setImageTintList(ColorStateList.valueOf(on ? ACCENT : TEXT));
+            }
         }
-        GradientDrawable dot = new GradientDrawable(); dot.setShape(GradientDrawable.OVAL); dot.setColor(board.ink(board.color())); dot.setStroke(ui.dp(2), SEPARATOR);
-        colorDot.setImageDrawable(dot);
+        for (int i = 0; i < swatches.size(); i++) {
+            String name = quickColors()[i]; boolean selected = writesInk() && name.equals(board.color());
+            ImageView dot = swatches.get(i); dot.setSelected(selected);
+            dot.setContentDescription(colorName(name)); dot.setTooltipText(colorName(name));
+            dot.setImageDrawable(new BoardInkIcon("swatch",board.ink(name),TEXT,selected,0));
+        }
+        boolean adjustable = BoardInk.freehand(now) || isShape(now);
+        widthButton.setEnabled(adjustable); widthButton.setAlpha(adjustable ? 1f : .35f);
     }
     private void paintHistory() {
         if (hint != null) hint.setVisibility(board.items().length() == 0 && !busy() ? View.VISIBLE : View.GONE);
         undo.setEnabled(board.canUndo()); undo.setAlpha(board.canUndo() ? 1f : .3f); redo.setEnabled(board.canRedo()); redo.setAlpha(board.canRedo() ? 1f : .3f);
-        // Undo and redo belong to writing by hand: they show with its tools.
-        undo.setVisibility(tools() && !busy() ? View.VISIBLE : View.GONE); redo.setVisibility(tools() && !busy() ? View.VISIBLE : View.GONE);
+        toolToggle.setVisibility(busy() ? View.GONE : View.VISIBLE);
     }
     /** Whether the tools for writing by hand are out. They are put away unless asked for: the board is the AI's to write on. */
     private boolean tools() { return store.settings.getBoolean("boardTools", false); }
     private void showTools(boolean on) {
+        if (busy()) return;
         store.settings.edit().putBoolean("boardTools", on).apply();
-        if (!on) board.tool(BoardView.HAND);
+        if (on) resumeInk(); else board.tool(BoardView.HAND);
         paintTools(); paintHistory(); toolBar.setVisibility(on && !busy() ? View.VISIBLE : View.GONE); root.requestApplyInsets();
     }
     /** The board's look as it is chosen: notes or a blackboard, and the letters new writing is in (chalk is always written by hand). */
@@ -340,6 +409,7 @@ public final class BoardActivity extends Activity {
         board.handwriting(hand);
         if (teacher != null) { teacher.hand = board.handwriting(); teacher.chalk = board.chalk(); }
         if (root != null) root.setBackgroundColor(board.paper());
+        if (toolBar != null) paintTools();
         if (hintLead != null) { hintLead.setTextColor(board.ink(Board.INK)); hintHow.setTextColor((board.ink(Board.INK) & 0x00ffffff) | 0xa0000000); hintMark.setImageTintList(ColorStateList.valueOf((board.ink(Board.INK) & 0x00ffffff) | 0x90000000)); }
     }
     private void paintSound() { sound.setImageResource(teacher.muted() ? R.drawable.ic_sound_off : R.drawable.ic_sound); sound.setContentDescription(teacher.muted() ? "소리 켜기" : "소리 끄기"); }
@@ -482,36 +552,55 @@ public final class BoardActivity extends Activity {
 
     // ── Tools that ask ──────────────────────────────────────────────────────────────────────────────────
 
+    private static String colorName(String name) {
+        return switch (name) {
+            case "rust" -> "적갈색"; case "teal" -> "청록"; case "ochre" -> "황토";
+            case "indigo" -> "남색"; case "red" -> "빨강"; case "pink" -> "분홍"; case "orange" -> "주황";
+            case "yellow" -> "노랑"; case "green" -> "초록"; case "blue" -> "파랑"; case "purple" -> "보라"; default -> "기본 잉크";
+        };
+    }
     private void colors() {
-        Ui.Sheet pick = ui.selectionSheet("색", ""); pick.primary.setVisibility(View.GONE);
-        String[] names = {"기본", "빨강", "분홍", "주황", "노랑", "초록", "파랑", "보라"};
-        LinearLayout row = ui.row(); row.setGravity(Gravity.CENTER); row.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), ui.dp(16));
+        Ui.Sheet pick = ui.selectionSheet("잉크 색", ""); pick.primary.setVisibility(View.GONE);
+        LinearLayout row = null;
         for (int i = 0; i < Board.COLORS.length; i++) {
-            String color = Board.COLORS[i]; boolean on = color.equals(board.color());
-            GradientDrawable dot = new GradientDrawable(); dot.setShape(GradientDrawable.OVAL); dot.setColor(board.ink(color)); dot.setStroke(ui.dp(on ? 3 : 1), on ? ACCENT : SEPARATOR);
-            ImageView view = new ImageView(this); view.setImageDrawable(dot); view.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)); view.setContentDescription(names[i] + (on ? ", 선택됨" : ""));
-            view.setOnClickListener(v -> { board.color(color); paintTools(); pick.dismiss(); }); Ui.pressable(view, true);
-            row.addView(view, new LinearLayout.LayoutParams(0, ui.dp(48), 1));
+            if (i % 4 == 0) { row = ui.row(); pick.body.addView(row); }
+            String color = Board.COLORS[i]; boolean on = writesInk() && color.equals(board.color());
+            inkChoice(row, "swatch", colorName(color), board.ink(color), on, 0, () -> { setInkColor(color); pick.dismiss(); });
         }
-        pick.body.addView(row); show(pick);
+        show(pick);
     }
     private void widths() {
-        Ui.Sheet pick = ui.selectionSheet("펜 굵기", ""); pick.primary.setVisibility(View.GONE);
-        String[] names = {"가늘게", "보통", "굵게"}; LinearLayout group = ui.group();
+        Ui.Sheet pick = ui.selectionSheet("획 굵기", ""); pick.primary.setVisibility(View.GONE);
+        String[] names = {"가늘게", "보통", "굵게"}; LinearLayout group = ui.row();
         for (int i = 0; i < BoardView.WIDTHS.length; i++) {
             float width = BoardView.WIDTHS[i]; boolean on = width == board.penWidth();
-            ui.addRow(group, ui.listRow(R.drawable.ic_pen, on ? ACCENT : MUTED, names[i], "", on ? ui.text("✓", 16, 700, ACCENT) : null, () -> { board.penWidth(width); pick.dismiss(); }), true);
+            inkChoice(group, "width", names[i], board.ink(board.color()), on, width, () -> {
+                board.penWidth(width);
+                store.settings.edit().putFloat("boardInkWidth:" + inkKey(board.tool()), width).apply();
+                pick.dismiss();
+            });
         }
         pick.body.addView(group); show(pick);
     }
+    private void inkChoice(LinearLayout row, String kind, String name, int color, boolean selected, float width, Runnable choose) {
+        LinearLayout option = ui.column(); option.setGravity(Gravity.CENTER);
+        if (selected) option.setBackground(ui.shape(ACCENT_SOFT, 12));
+        ImageView sample = new ImageView(this);
+        sample.setImageDrawable(new BoardInkIcon(kind, color, TEXT, selected, width));
+        option.addView(sample, new LinearLayout.LayoutParams(ui.dp(38), ui.dp(38)));
+        option.addView(ui.text(name, FOOTNOTE, selected ? 680 : 500, selected ? ACCENT : TEXT));
+        option.setContentDescription(name); option.setSelected(selected); option.setFocusable(true);
+        option.setOnClickListener(v -> choose.run()); Ui.pressable(option, true);
+        row.addView(option, new LinearLayout.LayoutParams(0, ui.dp(69), 1));
+    }
     private void shapes() {
-        Ui.Sheet pick = ui.selectionSheet("도형", "끌어서 그려요"); pick.primary.setVisibility(View.GONE);
-        String[] ids = {BoardView.LINE, BoardView.ARROW, BoardView.RECT, BoardView.OVAL}, names = {"선", "화살표", "네모", "동그라미"}; LinearLayout group = ui.group();
-        for (int i = 0; i < ids.length; i++) {
-            String id = ids[i]; boolean on = id.equals(board.tool());
-            ui.addRow(group, ui.listRow(R.drawable.ic_shapes, on ? ACCENT : MUTED, names[i], "", on ? ui.text("✓", 16, 700, ACCENT) : null, () -> { shape = id; board.tool(id); paintTools(); pick.dismiss(); }), true);
+        Ui.Sheet pick = ui.selectionSheet("기호와 도형", "끌어서 그리세요. 체크는 한 번 눌러도 찍혀요."); pick.primary.setVisibility(View.GONE);
+        LinearLayout row = null;
+        for (int i = 0; i < MARK_IDS.length; i++) {
+            if (i % 3 == 0) { row = ui.row(); pick.body.addView(row); }
+            String id = MARK_IDS[i];
+            inkChoice(row, id, MARK_NAMES[i], board.ink(inkColor("shape")), id.equals(board.tool()), 0, () -> { activate(id); pick.dismiss(); });
         }
-        pick.body.addView(group);
         pick.body.addView(ui.sectionHeader("계산해서 그리기"));
         LinearLayout made = ui.group();
         ui.addRow(made, ui.listRow(R.drawable.ic_board, BLUE, "함수 그래프", "식과 변수를 바꾸며 그래프를 그려요", ui.chevron(), () -> { pick.dismiss(); editWidget(BoardWidget.GRAPH, null); }), true);
@@ -575,7 +664,7 @@ public final class BoardActivity extends Activity {
     }
 
     private static boolean penStroke(JSONObject item) {
-        return item != null && Board.ME.equals(item.optString("by")) && Board.STROKE.equals(item.optString("t")) && !item.optBoolean("hl");
+        return item != null && Board.ME.equals(item.optString("by")) && Board.STROKE.equals(item.optString("t")) && !item.optBoolean("hl") && !item.has("mark");
     }
     private boolean formulaInk() {
         JSONArray items = board.items();

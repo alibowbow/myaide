@@ -311,6 +311,13 @@ public final class BoardScene {
                 JSONArray tokens = data.optJSONArray("tokens");
                 int active = integer(data, "active", 0, 0, node.count);
                 int span = integer(data, "span", 1, 1, active > 0 ? node.count - active + 1 : node.count);
+                boolean tiles = "tiles".equals(data.optString("style"));
+                if (!tiles && node.visible && active > 0 && active <= node.shown) {
+                    Box first = node.cell(active), last = node.cell(Math.min(node.shown, active+span-1));
+                    float y = first.top+first.h*.76f;
+                    ink.add(Board.stroke(color, Math.max(5,first.h*.23f), true,
+                            new float[]{first.left+3,y, last.left+last.w-3,y}, Board.AI));
+                }
                 for (int i = 1; i <= node.count; i++) {
                     Box cell = node.cell(i);
                     Object token = tokens.opt(i - 1);
@@ -318,7 +325,7 @@ public final class BoardScene {
                         throw new IllegalArgumentException("각 칸에 빈칸이 아닌 글자나 기호를 넣어 주세요.");
                     if (!node.visible || i > node.shown) continue;
                     boolean selected = active > 0 && i >= active && i < active + span;
-                    outline(cell, "box", color, selected, selected ? 4 : 1.5f);
+                    if (tiles) outline(cell, "box", color, selected, selected ? 4 : 1.5f);
                     words(cell, word, color, selected);
                 }
             } else if (kind.equals("path")) {
