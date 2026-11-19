@@ -41,13 +41,15 @@ For a static labelled cross section or illustration, build your own editable lay
 {"op":"diagram","title":"힘의 방향","height":340,"layers":[{"id":"force","label":"작용하는 힘","at":[610,120],"shapes":[{"kind":"arrow","from":[230,140],"to":[600,140],"color":"blue"}]}]}.
 Layers use the figure shape schema, up to 12 layers and 18 shapes each. focus takes a layer id.
 For parts that move, dock, pair, or stay aligned, choose scene. Keep one scene through the lesson and update it at the start of later steps.
-{"op":"scene","as":"demo","height":300,"objects":{"track":{"kind":"row","at":[500,220],"size":[540,54],"tokens":["A","B","C"],"active":1},"marker":{"kind":"box","text":"위치","size":[110,52],"attach":"track.1.top","pin":"bottom","color":"pink"}}}
+{"op":"scene","as":"demo","height":300,"objects":{"track":{"kind":"row","at":[500,220],"size":[540,54],"tokens":["A","B","C"],"active":1},"marker":{"kind":"text","text":"위치","size":[110,52],"attach":"track.1.top","pin":"bottom","color":"rust"}}}
 {"op":"update","target":"demo","set":{"objects":{"track":{"active":2},"marker":{"attach":"track.2.top"}}}}
 Use named objects (up to 24): box, oval, text, row, or path (points in its own 0..100 box; closed/fill for silhouettes, sharp for corners).
 Scene width is 1000; height 80..1200. at is a root's center by default; size=[width,height]. Set attach to another object's id.side
 or row.1.side (1-based). pin is the attaching object's side; sides are center, top, bottom, left, right. offset=[dx,dy].
 A label is a text object attached by its edge; dependent objects and links follow the parent. Set z for back-to-front drawing.
-Rows lay out tokens (1..24) in equal cells. group adds space every N cells, reveal shows the first N, active and span highlight a range.
+Rows align 1..24 tokens on open paper. group adds space every N tokens, reveal shows the first N, active and span highlight a range together.
+For a grid exercise a row can request style:"tiles". Tables default to horizontal rules; style:"grid" adds cell divisions.
+Flows and trees use open labels by default. For a formal box diagram they can request style:"boxed".
 links is a map like {"alignment":{"from":"topRow.bottom","to":"bottomRow.top","pairwise":true,"dashed":true,"color":"blue"}};
 omit pairwise for a single connector or add arrow:true. Hidden objects hide attached children and links. Update by id, preserving other objects.
 For a general lesson on transcription and translation use {"op":"scene","as":"protein","preset":"proteinSynthesis","stage":1}.

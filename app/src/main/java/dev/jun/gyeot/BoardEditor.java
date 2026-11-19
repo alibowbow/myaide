@@ -407,6 +407,13 @@ final class BoardEditor {
         }, source, 5, Math.max(12000, source.length() + 2000));
         CheckBox header = TABLE.equals(kind) ? check("첫 줄을 머리글로", original.optBoolean("header", true), checked -> {}) : null;
         if (header != null) sheet.body.addView(header);
+        if (TABLE.equals(kind) || FLOW.equals(kind) || TREE.equals(kind)) {
+            String style = TABLE.equals(kind) ? "grid" : "boxed";
+            String label = TABLE.equals(kind) ? "셀 테두리 표시" : "항목 테두리 표시";
+            sheet.body.addView(check(label, style.equals(original.optString("style")), checked -> {
+                if (checked) put(spec, "style", style); else spec.remove("style");
+            }));
+        }
         if (header != null && original.optJSONArray("rows") == null) {
             sheet.body.addView(ui.button("빈 3×3 표", false, () -> rows.setText(" | | \n | | \n | | ")));
         }

@@ -462,6 +462,9 @@ public final class BoardPlot {
         return tableLayout(rows, header, top, size, measure).items();
     }
     public static Made tableLayout(JSONArray rows, boolean header, float top, float size, Board.Measure measure) {
+        return tableLayout(rows, header, top, size, measure, false);
+    }
+    static Made tableLayout(JSONArray rows, boolean header, float top, float size, Board.Measure measure, boolean grid) {
         List<JSONObject> out = new ArrayList<>(); Board.Measure ruler = measure == null ? Board.ROUGH : measure;
         int rowCount = rows == null ? 0 : Math.min(ROWS, rows.length()), columns = 0;
         for (int r = 0; r < rowCount; r++) { JSONArray row = rows.optJSONArray(r); if (row != null) columns = Math.max(columns, Math.min(COLUMNS, row.length())); }
@@ -473,7 +476,7 @@ public final class BoardPlot {
             float widest = minimum;
             for (int r = 0; r < rowCount; r++) {
                 JSONArray row = rows.optJSONArray(r); String cell = row == null ? "" : row.optString(c);
-                widest = Math.max(widest, ruler.size(cell, size, header && r == 0, room)[0] + 2 * pad);
+                widest = Math.max(widest, labelWidth(ruler, cell, size, header && r == 0, room) + 2 * pad);
             }
             widths[c] = widest; total += widest;
         }
@@ -498,14 +501,18 @@ public final class BoardPlot {
             edges[r + 1] = edges[r] + rowHeight;
         }
         float bottom = edges[rowCount];
-        // Ruled like a table in a tidy notebook: a tinted band under the header, pale rules between rows and columns,
-        // and one thin rounded frame around it all.
         float frame = Math.max(1.5f, Math.min(3, size / 15)), corner = Math.min(16, size * .57f);
-        if (header) out.add(Board.rounded(Board.bare(Board.filled(Board.shape(Board.RECT, left + frame, top + frame, left + total - frame, edges[1], "blue", 1, false, Board.AI))), Math.max(0, corner - frame)));
-        for (int r = 1; r < rowCount; r++) out.add(Board.faint(Board.shape(Board.LINE, left + 4, edges[r], left + total - 4, edges[r], Board.INK, Math.max(1.6f, frame * .85f), false, Board.AI)));
+        for (int r = 0; r <= rowCount; r++) {
+            boolean headRule = header && r == 1;
+            JSONObject rule = Board.shape(Board.LINE, left, edges[r], left+total, edges[r],
+                    headRule ? "teal" : Board.INK, headRule ? frame : frame*.80f, false, Board.AI);
+            out.add(headRule ? rule : Board.faint(rule));
+        }
         float x = left;
-        for (int c = 0; c < columns; c++) { if (c > 0) out.add(Board.faint(Board.shape(Board.LINE, x, top + 4, x, bottom - 4, Board.INK, Math.max(1.2f, frame * .7f), false, Board.AI))); x += widths[c]; }
-        out.add(Board.rounded(Board.shape(Board.RECT, left, top, left + total, bottom, Board.INK, frame, false, Board.AI), corner));
+        if (grid) {
+            for (int c=1; c<columns; c++) { x += widths[c-1]; out.add(Board.faint(Board.shape(Board.LINE, x, top, x, bottom, Board.INK, frame, false, Board.AI))); }
+            out.add(Board.rounded(Board.shape(Board.RECT, left, top, left+total, bottom, Board.INK, frame, false, Board.AI), corner*.45f));
+        }
         for (int r = 0; r < rowCount; r++) {
             JSONArray row = rows.optJSONArray(r); x = left;
             for (int c = 0; c < columns; c++) {
@@ -514,7 +521,8 @@ public final class BoardPlot {
                 if (!cell.isEmpty()) {
                     float inner = Math.max(Board.MIN_TEXT_WIDTH, widths[c] - 2 * pad);
                     float[] box = boxes[r][c];
-                    out.add(Board.text(x + pad + Math.max(0, (inner - box[0]) / 2), edges[r] + Math.max(0, (edges[r + 1] - edges[r] - box[1]) / 2), cell, size, Board.INK, bold, inner, Board.AI));
+                    float offset = grid ? Math.max(0, (inner - box[0]) / 2) : 0;
+                    out.add(Board.text(x + pad + offset, edges[r] + Math.max(0, (edges[r + 1] - edges[r] - box[1]) / 2), cell, size, bold ? "teal" : Board.INK, bold, inner, Board.AI));
                 }
                 x += widths[c];
             }
@@ -565,6 +573,10 @@ public final class BoardPlot {
     public record Made(List<JSONObject> items, float height) {}
     public static final int BARS = 10, SLICES = 8, BOXES = 10, EVENTS = 14, BRANCHES = 6, LEAVES = 6;
     private static Board.Measure ruler(Board.Measure measure) { return measure == null ? Board.ROUGH : measure; }
+    /** Leave room for Android to snap glyph advances and the stored text size to its layout pixels. */
+    private static float labelWidth(Board.Measure measure, String text, float size, boolean bold, float room) {
+        return (float) Math.ceil(measure.size(text,size,bold,room)[0]) + Math.max(2, size*.12f);
+    }
     private static String color(JSONObject spec, int index) { return spec != null && !spec.optString("color").isBlank() ? spec.optString("color") : COLORS[index % COLORS.length]; }
     /** A text centred in a box (at most as wide as the box), and the height it takes. */
     private static float centred(List<JSONObject> out, String text, float left, float top, float width, float size, String color, boolean bold, Board.Measure measure) {
@@ -636,14 +648,15 @@ public final class BoardPlot {
     }
 
     /**
-     * Steps in order, each in a tinted box with an arrow to the next: {"steps":["…", {"text":"…","color":"red"}],
+     * Steps in order with an arrow to the next: {"steps":["…", {"text":"…","color":"red"}],
      * "direction":"down|right"}. Across the page when asked and there are few enough short steps; down it otherwise.
      */
     public static Made flow(JSONObject spec, float top, float scale, Board.Measure measure) {
         List<JSONObject> out = new ArrayList<>(); Board.Measure ruler = ruler(measure); JSONArray steps = spec.optJSONArray("steps");
         List<String> texts = new ArrayList<>(), colors = new ArrayList<>();
-        for (int i = 0; steps != null && i < steps.length() && texts.size() < BOXES; i++) { JSONObject one = steps.optJSONObject(i); String text = (one == null ? steps.optString(i) : one.optString("text")).strip(); if (text.isEmpty()) continue; texts.add(text); colors.add(one == null || one.optString("color").isBlank() ? "blue" : one.optString("color")); }
+        for (int i = 0; steps != null && i < steps.length() && texts.size() < BOXES; i++) { JSONObject one = steps.optJSONObject(i); String text = (one == null ? steps.optString(i) : one.optString("text")).strip(); if (text.isEmpty()) continue; texts.add(text); colors.add(one == null || one.optString("color").isBlank() ? "teal" : one.optString("color")); }
         if (texts.isEmpty()) return new Made(out, 0);
+        boolean boxed = "boxed".equals(spec.optString("style"));
         float size = Math.max(18, Board.SMALL * scale), padX = size * .7f, padY = size * .45f, room = Board.WIDTH - 2 * Board.MARGIN, gap = Math.max(37, size * 1.5f);
         boolean across = spec.optString("direction").toLowerCase(Locale.ROOT).startsWith("r") && texts.size() <= 4;
         if (across) {
@@ -651,27 +664,33 @@ public final class BoardPlot {
             for (String text : texts) if (ruler.size(text, size, false, share - 2 * padX)[1] > size * 2.8f) { across = false; break; }
         }
         if (across) {
-            // Boxes as wide as what they say, all alike: on a wide page they do not stretch from edge to edge.
+            // Keep short labels together, leaving the rest of the page free for writing.
             float share = (room - gap * (texts.size() - 1)) / texts.size(), widest = 0, tallest = 0; float[] heights = new float[texts.size()];
-            for (String text : texts) widest = Math.max(widest, ruler.size(text, size, false, share - 2 * padX)[0]);
+            for (String text : texts) widest = Math.max(widest, labelWidth(ruler,text,size,false,share-2*padX));
             float each = Math.min(share, Math.max(size * 4, widest + 2 * padX));
             for (int i = 0; i < texts.size(); i++) { heights[i] = ruler.size(texts.get(i), size, false, each - 2 * padX)[1]; tallest = Math.max(tallest, heights[i]); }
             for (int i = 0; i < texts.size(); i++) {
                 float left = Board.MARGIN + i * (each + gap);
-                out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, left, top, left + each, top + tallest + 2 * padY, colors.get(i), 2, false, Board.AI)), Math.min(24, (tallest + 2 * padY) / 2)));
-                centred(out, texts.get(i), left + padX, top + padY + (tallest - heights[i]) / 2, each - 2 * padX, size, Board.INK, false, ruler);
-                if (i + 1 < texts.size()) out.add(Board.shape(Board.LINE, left + each + 6, top + padY + tallest / 2, left + each + gap - 6, top + padY + tallest / 2, Board.INK, 2.4f, true, Board.AI));
+                if (boxed) out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, left, top, left + each, top + tallest + 2 * padY, colors.get(i), 2, false, Board.AI)), Math.min(24, (tallest + 2 * padY) / 2)));
+                centred(out, texts.get(i), left + padX, top + padY + (tallest - heights[i]) / 2, each - 2 * padX, size, boxed ? Board.INK : colors.get(i), false, ruler);
+                if (i + 1 < texts.size()) out.add(Board.shape(Board.LINE, left + each + 4, top + padY + tallest / 2, left + each + gap - 4, top + padY + tallest / 2, boxed ? Board.INK : "indigo", 2.6f, true, Board.AI));
             }
             return new Made(out, tallest + 2 * padY);
         }
-        float widest = 0; for (String text : texts) widest = Math.max(widest, ruler.size(text, size, false, room - 2 * padX)[0]);
+        float widest = 0; for (String text : texts) widest = Math.max(widest, labelWidth(ruler,text,size,false,room-2*padX));
         float width = Math.min(room, Math.max(size * 8, widest + 2 * padX)), left = Board.MARGIN, y = top;
         for (int i = 0; i < texts.size(); i++) {
             float height = ruler.size(texts.get(i), size, false, width - 2 * padX)[1];
-            out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, left, y, left + width, y + height + 2 * padY, colors.get(i), 2, false, Board.AI)), Math.min(24, (height + 2 * padY) / 2)));
-            centred(out, texts.get(i), left + padX, y + padY, width - 2 * padX, size, Board.INK, false, ruler);
+            if (boxed) {
+                out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, left, y, left + width, y + height + 2 * padY, colors.get(i), 2, false, Board.AI)), Math.min(24, (height + 2 * padY) / 2)));
+                centred(out, texts.get(i), left + padX, y + padY, width - 2 * padX, size, Board.INK, false, ruler);
+            } else {
+                out.add(Board.stroke(colors.get(i), size*.22f, false, new float[]{left+padX*.35f,y+padY+size*.65f}, Board.AI));
+                out.add(Board.text(left+padX*2, y+padY, texts.get(i), size, colors.get(i), false, width-2*padX, Board.AI));
+            }
             y += height + 2 * padY;
-            if (i + 1 < texts.size()) { out.add(Board.shape(Board.LINE, left + width / 2, y + 5, left + width / 2, y + gap - 5, Board.INK, 2.4f, true, Board.AI)); y += gap; }
+            float rail = left + (boxed ? width/2 : padX*.35f);
+            if (i + 1 < texts.size()) { out.add(Board.shape(Board.LINE, rail, y + 3, rail, y + gap - 3, boxed ? Board.INK : "indigo", 2.4f, true, Board.AI)); y += gap; }
         }
         return new Made(out, y - top);
     }
@@ -703,30 +722,33 @@ public final class BoardPlot {
         List<JSONObject> out = new ArrayList<>(); Board.Measure ruler = ruler(measure); String root = spec.optString("root").strip(); JSONArray children = spec.optJSONArray("children");
         float size = Math.max(18, Board.SMALL * scale), padX = size * .7f, padY = size * .45f, room = Board.WIDTH - 2 * Board.MARGIN, y = top;
         if (root.isEmpty()) return new Made(out, 0);
-        float rootWidth = Math.min(room, Math.max(size * 7, ruler.size(root, size * 1.05f, true, room - 2 * padX)[0] + 2 * padX)), rootLeft = Board.MARGIN + (room - rootWidth) / 2, rootHeight = ruler.size(root, size * 1.05f, true, rootWidth - 2 * padX)[1];
-        out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, rootLeft, y, rootLeft + rootWidth, y + rootHeight + 2 * padY, "purple", 2.4f, false, Board.AI)), 20));
+        boolean boxed = "boxed".equals(spec.optString("style"));
+        float rootWidth = Math.min(room, Math.max(size * 7, labelWidth(ruler, root, size * 1.05f, true, room - 2 * padX) + 2 * padX)), rootLeft = Board.MARGIN + (room - rootWidth) / 2, rootHeight = ruler.size(root, size * 1.05f, true, rootWidth - 2 * padX)[1];
+        if (boxed) out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, rootLeft, y, rootLeft + rootWidth, y + rootHeight + 2 * padY, "purple", 2.4f, false, Board.AI)), 20));
+        else out.add(Board.shape(Board.LINE, rootLeft+padX, y+rootHeight+2*padY, rootLeft+rootWidth-padX, y+rootHeight+2*padY, "indigo", 3, false, Board.AI));
         centred(out, root, rootLeft + padX, y + padY, rootWidth - 2 * padX, size * 1.05f, Board.INK, true, ruler);
         y += rootHeight + 2 * padY; float trunk = Board.WIDTH / 2f;
         List<JSONObject> branches = new ArrayList<>();
         for (int i = 0; children != null && i < children.length() && branches.size() < BRANCHES; i++) { JSONObject child = children.optJSONObject(i); if (child == null && !children.optString(i).isBlank()) child = Jsons.obj("text", children.optString(i)); if (child != null && !child.optString("text").isBlank()) branches.add(child); }
+        float side = Board.MARGIN * .65f, previousBus = y;
         for (int start = 0; start < branches.size(); start += 3) {
             int count = Math.min(3, branches.size() - start); float gap = size, each = (room - gap * (count - 1)) / count, bus = y + size * .9f, rowTop = bus + size * .9f, tallest = 0;
-            out.add(Board.shape(Board.LINE, trunk, y, trunk, bus, Board.INK, 2, false, Board.AI));
+            float stem = start == 0 ? trunk : side;
+            out.add(Board.shape(Board.LINE, stem, start == 0 ? y : previousBus, stem, bus, Board.INK, 2, false, Board.AI));
             float first = Board.MARGIN + each / 2, last = Board.MARGIN + (count - 1) * (each + gap) + each / 2;
-            out.add(Board.shape(Board.LINE, Math.min(first, trunk), bus, Math.max(last, trunk), bus, Board.INK, 2, false, Board.AI));
+            out.add(Board.shape(Board.LINE, branches.size()>3 ? side : Math.min(first,trunk), bus, Math.max(last,stem), bus, Board.INK, 2, false, Board.AI));
             for (int k = 0; k < count; k++) {
                 JSONObject child = branches.get(start + k); String text = child.optString("text").strip(), color = color(child, start + k);
                 float left = Board.MARGIN + k * (each + gap), height = ruler.size(text, size, false, each - 2 * padX)[1], bottom = rowTop + height + 2 * padY;
                 out.add(Board.shape(Board.LINE, left + each / 2, bus, left + each / 2, rowTop, Board.INK, 2, false, Board.AI));
-                out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, left, rowTop, left + each, bottom, color, 2, false, Board.AI)), 16));
-                centred(out, text, left + padX, rowTop + padY, each - 2 * padX, size, Board.INK, false, ruler);
+                if (boxed) out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, left, rowTop, left + each, bottom, color, 2, false, Board.AI)), 16));
+                else out.add(Board.stroke(color, 7, false, new float[]{left+each/2,rowTop}, Board.AI));
+                centred(out, text, left + padX, rowTop + padY, each - 2 * padX, size, boxed ? Board.INK : color, false, ruler);
                 JSONArray leaves = child.optJSONArray("children"); float leafY = bottom + size * .35f;
                 for (int n = 0; leaves != null && n < leaves.length() && n < LEAVES; n++) { String leaf = leaves.optString(n).strip(); if (leaf.isEmpty()) continue; String line = "· " + leaf; out.add(Board.text(left + 6, leafY, line, size * .88f, Board.INK, false, each - 6, Board.AI)); leafY += ruler.size(line, size * .88f, false, each - 6)[1] + size * .15f; }
                 tallest = Math.max(tallest, leafY - rowTop);
             }
-            y = rowTop + tallest + size * .2f; trunk = Board.WIDTH / 2f;
-            // A further row hangs from the same trunk: it runs down the page's middle between the boxes of this row.
-            if (start + 3 < branches.size()) out.add(Board.faint(Board.shape(Board.LINE, trunk, bus, trunk, y, Board.INK, 2, false, Board.AI)));
+            y = rowTop + tallest + size * .2f; previousBus = bus;
         }
         return new Made(out, y - top);
     }

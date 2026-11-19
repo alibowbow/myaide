@@ -14,6 +14,7 @@ import android.text.TextPaint;
 import android.view.MotionEvent;
 import android.view.View;
 import dev.jun.gyeot.core.Board;
+import dev.jun.gyeot.core.BoardInk;
 import dev.jun.gyeot.core.BoardWidget;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -33,7 +34,7 @@ final class BoardView extends View {
     static final String PEN = "pen", MARKER = "marker", ERASER = "eraser", LINE = "line", ARROW = "arrow", RECT = "rect", OVAL = "oval", TEXT = "text", HAND = "hand";
     /** The pen's three widths in board units, and the marker's. */
     static final float[] WIDTHS = {4, 7, 12};
-    static final float MARKER_WIDTH = 34, MAX_ZOOM = 4;
+    static final float MAX_ZOOM = 4;
     interface Listener {
         /** The items changed by the user's own hand (not by reveal). */
         void changed();
@@ -67,6 +68,7 @@ final class BoardView extends View {
     private float left, top, zoom = 1;
     // The gesture in progress.
     private final List<Float> points = new ArrayList<>();
+    private JSONArray pressure;
     private float downX, downY, downSx, downSy, lastX, lastY, lastSpan, lastMidX, lastMidY; private boolean drawing, moving, erased; private long touchedAt;
     private JSONObject preview;
 
@@ -296,15 +298,22 @@ final class BoardView extends View {
     int paper() { return chalk() ? 0xff28463b : Ui.DARK ? Ui.BG : 0xfffbf8f1; }
     /** A named color as this board's pen or chalk has it. */
     int ink(String color) {
-        if (chalk()) return switch (Board.color(color)) { case "red" -> 0xfff59a90; case "pink" -> 0xfff9add0; case "orange" -> 0xfff9b872; case "yellow" -> 0xfffde27a; case "green" -> 0xffa3e3ad; case "blue" -> 0xffa3ccff; case "purple" -> 0xffd4b9ff; default -> 0xfff4f1e7; };
-        return switch (Board.color(color)) { case "red" -> 0xffe5566a; case "pink" -> 0xffee6fa8; case "orange" -> 0xfff0953a; case "yellow" -> 0xffeebb1c; case "green" -> 0xff2aa873; case "blue" -> 0xff4484e6; case "purple" -> 0xff8b6be0; default -> Ui.DARK ? Ui.TEXT : 0xff37322f; };
+        color = Board.color(color);
+        switch (color) {
+            case "teal": return chalk() || Ui.DARK ? 0xff85d4c6 : 0xff367e78;
+            case "rust": return chalk() || Ui.DARK ? 0xffffaa92 : 0xffad5038;
+            case "ochre": return chalk() || Ui.DARK ? 0xffefd080 : 0xffa7771a;
+            case "indigo": return chalk() || Ui.DARK ? 0xffb6c5ff : 0xff4a5b9f;
+        }
+        if (chalk()) return switch (color) { case "red" -> 0xfff59a90; case "pink" -> 0xfff9add0; case "orange" -> 0xfff9b872; case "yellow" -> 0xfffde27a; case "green" -> 0xffa3e3ad; case "blue" -> 0xffa3ccff; case "purple" -> 0xffd4b9ff; default -> 0xfff4f1e7; };
+        return switch (color) { case "red" -> 0xffe5566a; case "pink" -> 0xffee6fa8; case "orange" -> 0xfff0953a; case "yellow" -> 0xffeebb1c; case "green" -> 0xff2aa873; case "blue" -> 0xff4484e6; case "purple" -> 0xff8b6be0; default -> Ui.DARK ? Ui.TEXT : 0xff37322f; };
     }
     private int textInk(JSONObject item) {
         if (chalk() || Ui.DARK) return argb(item);
         return switch (Board.color(item.optString("c"))) {
             case "red" -> 0xffa83248; case "pink" -> 0xffa03767; case "orange" -> 0xff944611;
             case "yellow" -> 0xff795d00; case "green" -> 0xff176641; case "blue" -> 0xff275a9d;
-            case "purple" -> 0xff624a9b; default -> argb(item);
+            case "purple" -> 0xff624a9b; case "ochre" -> 0xff78550f; case "teal" -> 0xff28665f; default -> argb(item);
         };
     }
     private int argb(JSONObject item) {
@@ -360,25 +369,26 @@ final class BoardView extends View {
         ink.setShader(chalk() ? grain(false) : null);
         // Pictures lie under everything written, and a marker's band under the ink it colors, wherever they are in the
         // order of things: words stay as dark as they were written.
-        for (int pass = 0; pass < 3; pass++) for (int i = 0; i < items.length(); i++) {
-            JSONObject item = items.optJSONObject(i); if (item == null || (Board.IMAGE.equals(item.optString("t")) ? 0 : item.optBoolean("hl") ? 1 : 2) != pass) continue;
-            Float shown = live ? revealing.get(item) : null;
-            if (shown != null && shown <= 0) continue;
-            float[] b = Board.bounds(item, measure);
-            if (b[3] < from - 40 || b[1] > to + 40) continue;
-            if (pass == 0) picture(canvas, item, b, shown == null ? 1 : shown);
-            else if(live && playback.containsKey(item)){
-                JSONObject frame=playback.get(item);
-                float fit=(float)Math.min(1,item.optDouble("h")/Math.max(1,frame.optDouble("h")));
-                canvas.save();canvas.translate(0,(float)item.optDouble("y"));canvas.scale(fit,fit);
-                paint(canvas,frame,shown==null?1:shown);canvas.restore();
-            } else paint(canvas, item, shown == null ? 1 : shown);
+        boolean liveStroke = live && drawing && !points.isEmpty() && BoardInk.freehand(tool);
+        for (int pass = 0; pass < 3; pass++) {
+            if (pass == 2 && liveStroke && MARKER.equals(tool)) paint(canvas, currentStroke(), 1);
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject item = items.optJSONObject(i); if (item == null || (Board.IMAGE.equals(item.optString("t")) ? 0 : item.optBoolean("hl") ? 1 : 2) != pass) continue;
+                Float shown = live ? revealing.get(item) : null;
+                if (shown != null && shown <= 0) continue;
+                float[] b = Board.bounds(item, measure);
+                if (b[3] < from - 40 || b[1] > to + 40) continue;
+                if (pass == 0) picture(canvas, item, b, shown == null ? 1 : shown);
+                else if(live && playback.containsKey(item)){
+                    JSONObject frame=playback.get(item);
+                    float fit=(float)Math.min(1,item.optDouble("h")/Math.max(1,frame.optDouble("h")));
+                    canvas.save();canvas.translate(0,(float)item.optDouble("y"));canvas.scale(fit,fit);
+                    paint(canvas,frame,shown==null?1:shown);canvas.restore();
+                } else paint(canvas, item, shown == null ? 1 : shown);
+            }
         }
         if (live && preview != null) paint(canvas, preview, 1);
-        if (live && drawing && points.size() >= 2 && (tool.equals(PEN) || tool.equals(MARKER))) {
-            float[] flat = new float[points.size()]; for (int i = 0; i < flat.length; i++) flat[i] = points.get(i);
-            paint(canvas, Board.stroke(color, tool.equals(MARKER) ? MARKER_WIDTH : width, tool.equals(MARKER), flat, Board.ME), 1);
-        }
+        if (liveStroke && !MARKER.equals(tool)) paint(canvas, currentStroke(), 1);
     }
     private Bitmap bitmap(String name) {
         Bitmap kept = loaded.get(name); if (kept != null && !kept.isRecycled()) return kept;
@@ -423,13 +433,23 @@ final class BoardView extends View {
             return;
         }
         float pen = (float) item.optDouble("w", 6); boolean band = item.optBoolean("hl");
+        String nib = item.optString("nib"), rule = item.optString("rule");
+        boolean pencil = BoardInk.PENCIL.equals(nib);
+        ink.setShader(chalk() || pencil ? grain(false) : null);
+        ink.setStrokeCap(BoardInk.MARKER.equals(nib) ? Paint.Cap.BUTT : Paint.Cap.ROUND);
         // A thin line of chalk is still a line of chalk: never a hair that its dust breaks into dots.
         ink.setStyle(Paint.Style.STROKE); ink.setColor(argb(item)); ink.setStrokeWidth(chalk() && !band && !item.optBoolean("faint") ? Math.max(pen, 2.2f) : pen);
-        ink.setPathEffect(item.optBoolean("d") ? new android.graphics.DashPathEffect(new float[]{16, 13}, 0) : null);
+        if (pencil) ink.setAlpha(192);
+        ink.setPathEffect(BoardInk.DOTTED.equals(rule) ? new android.graphics.DashPathEffect(new float[]{.1f, Math.max(5,pen*2.8f)},0)
+                : item.optBoolean("d") ? new android.graphics.DashPathEffect(new float[]{16, 13}, 0) : null);
         path.reset();
         if (Board.STROKE.equals(type)) {
             JSONArray p = item.optJSONArray("p"); int count = p == null ? 0 : p.length() / 2; if (count == 0) return;
             float px = (float) p.optDouble(0), py = (float) p.optDouble(1);
+            if (BoardInk.BRUSH.equals(nib)) { BoardBrush.draw(canvas, ink, path, p, item.optJSONArray("pressure"), pen, shown); return; }
+            if (count == 1 && BoardInk.MARKER.equals(nib)) {
+                ink.setStyle(Paint.Style.FILL); canvas.drawRect(px-pen*.19f, py-pen*.5f, px+pen*.19f, py+pen*.5f, ink); return;
+            }
             if (chalk() && band && count == 2 && Math.abs(p.optDouble(3) - py) < 1 && !onPicture((px + (float) p.optDouble(2)) / 2, py)) {
                 // On a blackboard nobody highlights: what a marker's band would color is underlined in colored chalk,
                 // and the words above it stay light on the dark board.
@@ -446,6 +466,13 @@ final class BoardView extends View {
             }
         } else {
             float x1 = (float) item.optDouble("x1"), y1 = (float) item.optDouble("y1"), x2 = (float) item.optDouble("x2"), y2 = (float) item.optDouble("y2");
+            if (Board.LINE.equals(type) && BoardInk.DOUBLE.equals(rule)) {
+                float[] d = BoardInk.doubleOffset(x1,y1,x2,y2,pen);
+                float first = Math.min(1,shown*2), second = Math.max(0,shown*2-1);
+                canvas.drawLine(x1,y1,x1+(x2-x1)*first,y1+(y2-y1)*first,ink);
+                if (second>0) canvas.drawLine(x1+d[0],y1+d[1],x1+d[0]+(x2-x1)*second,y1+d[1]+(y2-y1)*second,ink);
+                return;
+            }
             if (Board.RECT.equals(type)) { float corner = (float) Math.min(item.optDouble("r", 6), Math.min(Math.abs(x2 - x1), Math.abs(y2 - y1)) / 2); path.addRoundRect(new RectF(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)), corner, corner, Path.Direction.CW); }
             else if (Board.OVAL.equals(type)) path.addOval(new RectF(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)), Path.Direction.CW);
             else {
@@ -493,7 +520,20 @@ final class BoardView extends View {
 
     // ── Touch ───────────────────────────────────────────────────────────────────────────────────────────
 
-    private void cancelGesture() { drawing = false; points.clear(); preview = null; invalidate(); }
+    private void cancelGesture() { drawing = false; points.clear(); pressure = null; preview = null; invalidate(); }
+    private JSONObject currentStroke() {
+        float[] flat = new float[points.size()];
+        for (int i=0;i<flat.length;i++) flat[i]=points.get(i);
+        return BoardInk.stroke(tool, color, width, flat, pressure);
+    }
+    private JSONObject dragged(float x, float y) {
+        if (RECT.equals(tool) || OVAL.equals(tool)) return Board.shape(tool, downX, downY, x, y, color, width, false, Board.ME);
+        if (BoardInk.BRACKET.equals(tool)) {
+            float hook = Math.min(Math.max(6, Math.abs(x-downX)), Math.min(36, Math.max(8, Math.abs(y-downY)*.28f)));
+            x = downX + (x<downX ? -hook : hook);
+        }
+        return BoardInk.mark(tool, downX, downY, x, y, color, width, Board.ME);
+    }
     @Override public boolean onTouchEvent(MotionEvent event) {
         touchedAt = System.currentTimeMillis();
         int action = event.getActionMasked();
@@ -518,36 +558,38 @@ final class BoardView extends View {
             case MotionEvent.ACTION_DOWN -> {
                 getParent().requestDisallowInterceptTouchEvent(true);
                 moving = false; drawing = true; erased = false; points.clear(); downX = x; downY = y; lastX = sx; lastY = sy; downSx = sx; downSy = sy;
-                if (tool.equals(PEN) || tool.equals(MARKER)) { points.add(x); points.add(y); }
+                pressure = BoardInk.BRUSH.equals(tool) && event.getToolType(0)==MotionEvent.TOOL_TYPE_STYLUS ? new JSONArray() : null;
+                if (BoardInk.freehand(tool)) addPoint(x, y, event.getPressure());
                 else if (tool.equals(ERASER)) erase(x, y);
             }
             case MotionEvent.ACTION_MOVE -> {
                 if (moving || !drawing) { lastX = sx; lastY = sy; return true; }
                 if (tool.equals(HAND)) { top -= (sy - lastY) / scale(); left -= (sx - lastX) / scale(); clampPage(); }
-                else if (tool.equals(PEN) || tool.equals(MARKER)) {
-                    for (int i = 0; i < event.getHistorySize(); i++) addPoint(boardX(event.getHistoricalX(i)), boardY(event.getHistoricalY(i)));
-                    addPoint(x, y);
+                else if (BoardInk.freehand(tool)) {
+                    for (int i = 0; i < event.getHistorySize(); i++) addPoint(boardX(event.getHistoricalX(i)), boardY(event.getHistoricalY(i)), event.getHistoricalPressure(i));
+                    addPoint(x, y, event.getPressure());
                 }
                 else if (tool.equals(ERASER)) erase(x, y);
-                else if (!tool.equals(TEXT)) preview = Board.shape(tool.equals(RECT) ? Board.RECT : tool.equals(OVAL) ? Board.OVAL : Board.LINE, downX, downY, x, y, color, width, tool.equals(ARROW), Board.ME);
+                else if (!tool.equals(TEXT)) preview = dragged(x,y);
                 lastX = sx; lastY = sy; invalidate();
             }
             case MotionEvent.ACTION_UP -> {
                 if (moving) { moving = false; drawing = false; return true; }
                 if (!drawing) return true;
                 drawing = false;
-                if (tool.equals(PEN) || tool.equals(MARKER)) {
+                if (BoardInk.freehand(tool)) {
+                    addPoint(x,y,event.getPressure());
                     if (points.size() >= 2) {
-                        float[] flat = new float[points.size()]; for (int i = 0; i < flat.length; i++) flat[i] = points.get(i);
-                        boolean added = add(Board.stroke(color, tool.equals(MARKER) ? MARKER_WIDTH : width, tool.equals(MARKER), flat, Board.ME), false);
-                        points.clear(); if (added) changed(); else invalidate();
+                        boolean added = add(currentStroke(), false);
+                        points.clear(); pressure = null; if (added) changed(); else invalidate();
                     }
                 } else if (tool.equals(TEXT)) { if (listener != null && Math.hypot(x - downX, y - downY) < 30) listener.textAt(Math.max(Board.MARGIN / 2f, downX), downY); }
                 else if (tool.equals(HAND)) { if (listener != null && Math.hypot(sx - downSx, sy - downSy) < 14) listener.tapped(Board.hit(items, x, y, 12 / zoom + 8, measure, true), x, y); }
                 else if (tool.equals(ERASER)) { if (erased) changed(); }
-                else if (preview != null) {
-                    JSONObject made = preview; preview = null;
-                    if (Math.hypot(x - downX, y - downY) >= 8 && add(made, false)) changed(); else invalidate();
+                else {
+                    preview = null; boolean tap = Math.hypot(x-downX,y-downY)<8;
+                    if (tap && BoardInk.CHECK.equals(tool)) { x=downX+32; y=downY+27; tap=false; }
+                    if (!tap && add(dragged(x,y), false)) changed(); else invalidate();
                 }
                 performClick();
             }
@@ -557,10 +599,13 @@ final class BoardView extends View {
         return true;
     }
     @Override public boolean performClick() { return super.performClick(); }
-    private void addPoint(float x, float y) {
+    private void addPoint(float x, float y, float force) {
         int size = points.size();
         if (size >= 2 && Math.hypot(x - points.get(size - 2), y - points.get(size - 1)) < 1.5f) return;
-        if (size / 2 < Board.POINTS) { points.add(x); points.add(y); }
+        if (size / 2 < Board.POINTS) {
+            points.add(x); points.add(y);
+            if (pressure != null) pressure.put(Math.max(0, Math.min(100, Math.round(force*100))));
+        }
     }
     private void erase(float x, float y) {
         int index = Board.hit(items, x, y, 14 / zoom + 6, measure); if (index < 0) return;

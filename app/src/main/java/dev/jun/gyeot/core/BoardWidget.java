@@ -18,8 +18,8 @@ public final class BoardWidget {
     public static final float GEOMETRY_LEFT = 120, GEOMETRY_TOP = 42, GEOMETRY_UNIT = 76;
     private static final Map<String, List<String>> FIELDS = Map.ofEntries(
         Map.entry(GRAPH, List.of("height", "x", "y", "grid", "equalUnits", "functions", "points", "vlines", "hlines", "shade", "parameters")),
-        Map.entry(TABLE,List.of("rows","header")),Map.entry(CHART,List.of("kind","title","labels","values","unit","color")),
-        Map.entry(FLOW,List.of("steps","direction")),Map.entry(TIMELINE,List.of("events")),Map.entry(TREE,List.of("root","children")),
+        Map.entry(TABLE,List.of("rows","header","style")),Map.entry(CHART,List.of("kind","title","labels","values","unit","color")),
+        Map.entry(FLOW,List.of("steps","direction","style")),Map.entry(TIMELINE,List.of("events")),Map.entry(TREE,List.of("root","children","style")),
         Map.entry(NUMBER_LINE,List.of("from","to","marks","ranges")),Map.entry(GEOMETRY,List.of("vertices")),Map.entry(SOLID,List.of("kind","yaw","pitch","net","vertices","faces")),
         Map.entry(MAP,List.of("title","region","bounds","route","places")),Map.entry(CHEM,List.of("formula")),
         Map.entry(DIAGRAM,List.of("title","preset","layers","height","focus")),
@@ -131,7 +131,7 @@ public final class BoardWidget {
                 yield new BoardPlot.Made(graph, graph.size() == 1 ? 62 * scale : height);
             }
             case TABLE -> BoardPlot.tableLayout(spec.optJSONArray("rows"), spec.optBoolean("header", true), 0,
-                Math.max(24, Board.SMALL * scale), measure);
+                Math.max(24, Board.SMALL * scale), measure, "grid".equals(spec.optString("style")));
             case CHART -> BoardPlot.chart(spec, 0, scale, measure);
             case FLOW -> BoardPlot.flow(spec, 0, scale, measure);
             case TIMELINE -> BoardPlot.timeline(spec, 0, scale, measure);

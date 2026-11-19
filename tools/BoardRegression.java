@@ -14,6 +14,7 @@ final class BoardRegression {
     }
 
     public static void main(String[] args) throws Exception {
+        notebookInk();
         schoolTools();
         agentTools();
         connectedScenes();
@@ -23,6 +24,58 @@ final class BoardRegression {
         roundTrip();
         pagesAndGeometry();
         System.out.println("Board regression checks passed: " + checked);
+    }
+
+    private static void notebookInk() throws Exception {
+        var flow = new BoardScript.Flow(arr(), Board.ROUGH);
+        var notes = flow.place(new BoardScript.Step("", List.of(
+                obj("op","heading","text","정보의 흐름"),
+                obj("op","note","kind","tip","text","세 개씩 읽기"),
+                obj("op","write","text","전사와 번역","underline","dotted"),
+                obj("op","mark","text","번역","kind","double","color","rust"))));
+        check(notes.stream().noneMatch(o -> Board.RECT.equals(o.optString("t"))), "notes, headings and key phrases stay open");
+        check(notes.stream().anyMatch(o -> "bracket".equals(o.optString("mark"))) &&
+              notes.stream().anyMatch(o -> "dotted".equals(o.optString("rule"))), "margin and inline annotations use their own geometry");
+        var dual = notes.stream().filter(o -> "double".equals(o.optString("rule"))).findFirst().orElseThrow();
+        float x = (float)dual.optDouble("x1"), y = (float)dual.optDouble("y1");
+        float offset = BoardInk.doubleOffset(x,y,(float)dual.optDouble("x2"),y,(float)dual.optDouble("w"))[1];
+        check(Board.bounds(dual,Board.ROUGH)[3] >= y+offset && Board.distance(dual,x+3,y+offset,Board.ROUGH) < 1,
+                "the companion underline is measured and erasable");
+        var block = flow.place(new BoardScript.Step("",List.of(obj("op","box","text","빈칸"))));
+        check(block.stream().anyMatch(o -> Board.RECT.equals(o.optString("t"))), "an explicit box remains available");
+        for (String kind : List.of("flow","tree","table")) {
+            var spec = switch(kind) {
+                case "flow" -> obj("steps",arr("DNA","RNA","단백질"),"direction","right");
+                case "tree" -> obj("root","핵산","children",arr("DNA","RNA"));
+                default -> obj("rows",arr(arr("구분","내용"),arr("전사","RNA")));
+            };
+            for(boolean borders : List.of(false,true)) {
+                if(borders) put(spec,"style","table".equals(kind)?"grid":"boxed");
+                var item=BoardWidget.make(kind,spec,24,.85f,Board.ME,Board.ROUGH);
+                var restored=Board.clean(arr(item)).getJSONObject(0);
+                check(BoardWidget.render(restored,Board.ROUGH).stream().anyMatch(o->Board.RECT.equals(o.optString("t")))==borders,
+                        kind+" keeps the selected border style after saving");
+            }
+        }
+        var row=obj("kind","row","at",arr(400,100),"size",arr(500,60),"tokens",arr("A","U","G","G","C","U"),
+                "group",3,"active",2,"span",3,"reveal",3);
+        var scene=obj("height",200,"objects",obj("bases",row));
+        var children=BoardWidget.render(BoardWidget.make("scene",scene,0,1,Board.AI,Board.ROUGH),Board.ROUGH);
+        check(children.stream().filter(o->o.optBoolean("hl")).count()==1 &&
+                children.stream().noneMatch(o->Board.RECT.equals(o.optString("t"))),"one marker sweep covers revealed part of an active group");
+        put(row,"style","tiles");
+        children=BoardWidget.render(BoardWidget.make("scene",scene,0,1,Board.AI,Board.ROUGH),Board.ROUGH);
+        check(children.stream().filter(o->Board.RECT.equals(o.optString("t"))).count()==3,"tile exercises keep cells and respect reveal");
+        var paths=flow.place(new BoardScript.Step("",List.of(obj("op","figure","shapes",arr(
+                obj("kind","path","nib","brush","color","indigo","width",9,"points",arr(arr(20,60),arr(60,30),arr(80,35))),
+                obj("kind","path","nib","marker","color","ochre","points",arr(arr(20,80),arr(100,80))))))));
+        var brush=Board.clean(arr(paths.get(0),paths.get(1))).getJSONObject(0);
+        check("brush".equals(brush.optString("nib")) && Board.AI.equals(brush.optString("by")) && "indigo".equals(brush.optString("c")),
+                "tutor can use the same nib and ink color");
+        check(paths.get(1).optBoolean("hl"),"tutor's marker uses the underlay");
+        var legacy=Board.stroke("blue",7,false,new float[]{10,10,30,20},Board.ME);
+        var kept=Board.clean(arr(legacy)).getJSONObject(0);
+        check(!kept.has("nib") && kept.getDouble("w")==7 && kept.getString("c").equals("blue"), "existing ink keeps its original width and color");
     }
 
     private static void cartesianScales() {
