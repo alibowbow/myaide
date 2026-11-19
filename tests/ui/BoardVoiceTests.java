@@ -11,6 +11,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.LongConsumer;
+import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
@@ -24,6 +25,10 @@ import static org.robolectric.Shadows.shadowOf;
 @Config(sdk = 35, application = Application.class)
 @LooperMode(LooperMode.Mode.PAUSED)
 public class BoardVoiceTests {
+    private AppStore store;
+    @After public void closeDatabases() {
+        if (store != null) { store.mainChat.close(); store.usage.close(); }
+    }
     private static void idle() { shadowOf(Looper.getMainLooper()).idle(); }
     private static void seconds(int count) { shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(count)); }
     private static final String FIRST = "첫 문장이에요.", NEXT = "다음 단계예요.";
@@ -150,7 +155,7 @@ public class BoardVoiceTests {
         context.getSharedPreferences("secret", Context.MODE_PRIVATE).edit().putString(SecretStore.GEMINI, "fixture").apply();
     }
     @Test public void displayedSourceTracksPlaybackFromTheSelectedLiveReader() {
-        Application context = RuntimeEnvironment.getApplication(); AppStore store = new AppStore(context); keyPresent(context);
+        Application context = RuntimeEnvironment.getApplication(); store = new AppStore(context); keyPresent(context);
         store.settings.edit().putString("boardLiveModel", GeminiProtocol.FLASH_25).apply();
         Reader reader = new Reader(); List<String> updates = new ArrayList<>(), results = new ArrayList<>();
         BoardVoice voice = new BoardVoice(context, store, kind -> reader.live); voice.onStatus = updates::add;
@@ -162,7 +167,7 @@ public class BoardVoiceTests {
         assertEquals(3, updates.size()); assertNull(results.get(0)); voice.close();
     }
     @Test public void explicitAndInheritedLiveSelectionsKeepTheirRouteEvenWithoutValidatedInternet() {
-        Application context = RuntimeEnvironment.getApplication(); AppStore store = new AppStore(context);
+        Application context = RuntimeEnvironment.getApplication(); store = new AppStore(context);
         assertFalse(Speech.online(context));
         ScriptVoice live = new ScriptVoice(); List<String> created = new ArrayList<>(), results = new ArrayList<>();
         BoardVoice voice = new BoardVoice(context, store, kind -> { created.add(kind); return live; });
@@ -181,7 +186,7 @@ public class BoardVoiceTests {
         voice.close();
     }
     @Test public void lessonResumeAndUnmuteRetryTheCurrentStepAfterLiveFailure() {
-        Application context = RuntimeEnvironment.getApplication(); AppStore store = new AppStore(context); keyPresent(context);
+        Application context = RuntimeEnvironment.getApplication(); store = new AppStore(context); keyPresent(context);
         store.settings.edit().putString("boardLiveModel", GeminiProtocol.FLASH_25).apply();
         ScriptVoice live = new ScriptVoice(); List<String> notices = new ArrayList<>();
         BoardVoice voice = new BoardVoice(context, store, kind -> { assertEquals(BoardVoice.LIVE, kind); return live; });
