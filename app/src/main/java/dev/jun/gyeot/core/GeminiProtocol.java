@@ -478,9 +478,13 @@ public final class GeminiProtocol {
     public static boolean serverAudioDrop(int code, String reason) {
         return code == 1007 && reason != null && reason.toLowerCase(Locale.ROOT).contains("content_type_audio");
     }
-    public static boolean transientClose(int code, String reason) {
+    /** A new connection with the same request cannot resolve a key, quota, model or validation failure. */
+    public static boolean permanentError(String reason) {
         String lower = reason == null ? "" : reason.toLowerCase(Locale.ROOT);
-        if (AUTH.matcher(lower).find() || QUOTA.matcher(lower).find() || MODEL.matcher(lower).find() || lower.contains("invalid")) return false;
+        return AUTH.matcher(lower).find() || quotaError(lower) || MODEL.matcher(lower).find() || lower.contains("invalid");
+    }
+    public static boolean transientClose(int code, String reason) {
+        if (permanentError(reason)) return false;
         return code == -1 || code == 1000 || code == 1001 || code == 1006 || code == 1011 || code == 1012 || code == 1013 || code == 1014;
     }
     /** Whether an error message from the server describes a temporary server-side condition. */

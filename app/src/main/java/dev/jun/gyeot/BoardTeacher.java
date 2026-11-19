@@ -102,8 +102,12 @@ final class BoardTeacher {
     boolean muted() { return muted; }
     /** Sound off: steps are held long enough to read their words. Takes effect at once. */
     void mute(boolean value) {
+        if (muted == value) return;
         muted = value;
-        if (muted && state.equals(PLAYING) && !heard) { voice.stop(); heard = false; }
+        if (!muted) { voiceless = false; voiceNoticed = false; }
+        if (!state.equals(PLAYING) || betweenSteps || heard || lesson == null) return;
+        if (muted) voice.stop();
+        else speak(lesson.steps().get(index));
     }
     private void tell() { BoardScript.Step step = lesson != null && index < lesson.steps().size() ? lesson.steps().get(index) : null; watcher.state(state, lesson == null ? 0 : index + 1, lesson == null ? 0 : lesson.steps().size(), step == null ? "" : step.say()); }
 
@@ -264,7 +268,7 @@ final class BoardTeacher {
         main.removeCallbacks(nextStep); main.postDelayed(nextStep, BETWEEN_STEPS_MS);
     }
     private void finish() {
-        main.removeCallbacks(frame); main.removeCallbacks(nextStep); betweenSteps = false; board.revealAll(); voice.stop();
+        main.removeCallbacks(frame); main.removeCallbacks(nextStep); betweenSteps = false; board.revealAll(); voice.reset();
         boolean again = replaying;
         state = IDLE; lesson = null; placed = new ArrayList<>(); replaying = false; epoch++; tell(); if (!again) watcher.wrote(null);
     }
@@ -274,6 +278,7 @@ final class BoardTeacher {
     /** Goes on: the step's words are read again from their start while its writing continues. */
     void resume() {
         if (!state.equals(PAUSED) || lesson == null) return;
+        voiceless = false; voiceNoticed = false;
         state = PLAYING; tell();
         if (betweenSteps) { nextStep.run(); return; }
         if (index < lesson.steps().size()) { lastFrame = stepStarted = SystemClock.uptimeMillis(); speak(lesson.steps().get(index)); main.post(frame); } else finish();
@@ -291,7 +296,7 @@ final class BoardTeacher {
         // The worker is inside the request: what aborts it runs on a thread of its own (it closes a connection).
         if (abort != null) { Thread stopper = new Thread(abort, "board-teacher-stop"); stopper.setDaemon(true); stopper.start(); }
         boolean wrote = lesson != null && !replaying;
-        main.removeCallbacks(frame); main.removeCallbacks(nextStep); betweenSteps = false; board.revealAll(); voice.stop();
+        main.removeCallbacks(frame); main.removeCallbacks(nextStep); betweenSteps = false; board.revealAll(); voice.reset();
         state = IDLE; lesson = null; placed = new ArrayList<>(); replaying = false; epoch++; tell();
         if (wrote) watcher.wrote(null);
     }
