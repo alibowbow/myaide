@@ -94,7 +94,7 @@ public final class BoardScript {
             + "- SHOW IT. A lesson of text alone is a failed lesson: every lesson has at least one visual, and most have two or three, placed at the step where it makes the idea click, not saved for the end. "
             + "A function, an equation's roots, a limit, continuity, a derivative or an integral: graph it (pieces with their domains, the key points marked, the region shaded). An inequality or an interval: a number line. "
             + "Values, cases, signs, a comparison, vocabulary, conjugations: a table. Quantities and shares: a chart. A procedure or a chain of reasoning: a flow. History or stages: a timeline. Kinds and parts: a tree. "
-            + "Geometry, physics, chemistry, biology: a labelled figure. After a visual appears, say in \"say\" what to look at in it.\n"
+            + "For static structures, use a labelled diagram. For parts that pair, move or stay connected across steps, use a scene with named objects and update it. After a visual appears, say in \"say\" what to look at in it.\n"
             + "- Keep the board tidy and compact like a good tutor's notes: short lines, aligned working (each line of a calculation under the last), no filler sentences on the board.\n"
             + "- Use computed geometry and solid widgets when their measurements or rotation help the learner.\n"
             + "- Between 3 and " + STEPS + " steps. The board already shows what earlier lessons wrote (given to you as text); continue under it and do not repeat it unless asked.";
