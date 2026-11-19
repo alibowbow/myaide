@@ -42,6 +42,61 @@ public class BoardSchoolTests {
     }
 
     @Test
+    public void connectedSceneDragsAndRendersWithAndroidTextMetrics() throws Exception {
+        try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
+            Activity activity = controller.get();
+            BoardView board = new BoardView(activity);
+            JSONObject force = obj("preset", "force");
+            AtomicReference<JSONObject> applied = new AtomicReference<>();
+            Ui.Sheet sheet = new BoardEditor(activity, new Ui(activity), board)
+                    .open(BoardWidget.SCENE, force, applied::set, null);
+            sheet.show();
+            View preview = find(sheet.body, v -> v.getClass().getSimpleName().equals("Preview"));
+            assertNotNull(preview);
+            preview.measure(View.MeasureSpec.makeMeasureSpec(1000, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY));
+            preview.layout(0, 0, 1000, 480);
+            var bitmap = android.graphics.Bitmap.createBitmap(1000, 480, android.graphics.Bitmap.Config.ARGB_8888);
+            preview.draw(new android.graphics.Canvas(bitmap));
+            var widget = BoardWidget.make(BoardWidget.SCENE, force, 0, .85f, Board.ME, board.measure);
+            var label = BoardWidget.render(widget, board.measure).stream()
+                    .filter(o -> "물체".equals(o.optString("text"))).findFirst().orElseThrow();
+            float[] bounds = Board.bounds(label, board.measure);
+            float y = (bounds[1] + bounds[3]) / 2 + (480 - (float) widget.optDouble("h") - 28) / 2;
+            long now = android.os.SystemClock.uptimeMillis();
+            for (int action : new int[]{android.view.MotionEvent.ACTION_DOWN,
+                    android.view.MotionEvent.ACTION_MOVE, android.view.MotionEvent.ACTION_UP}) {
+                var event = android.view.MotionEvent.obtain(now, now + 10, action, action == 0 ? 310 : 355, y, 0);
+                assertTrue(preview.onTouchEvent(event));
+                event.recycle();
+            }
+            sheet.primary.performClick();
+            assertEquals(45, applied.get().getJSONObject("objects").getJSONObject("block").getJSONArray("offset").getDouble(0), .2);
+            assertFalse(force.has("objects"));
+
+            JSONArray panels = arr();
+            float bottom = 10;
+            for (int step : new int[]{2, 4, 5}) {
+                var panel = BoardWidget.make(BoardWidget.SCENE, obj("preset","proteinSynthesis","stage",step),
+                        bottom, .85f, Board.AI, board.measure);
+                assertTrue(BoardWidget.render(panel, board.measure).size() > 10);
+                panels.put(panel);
+                bottom = Board.bounds(panel, board.measure)[3] + 16;
+            }
+            board.show(Board.clean(panels));
+            var image = board.render(1000, 0, bottom);
+            int background = image.getPixel(2,2), marks = 0;
+            for (int y1=0; y1<image.getHeight(); y1+=6)
+                for (int x=24; x<image.getWidth()-24; x+=6)
+                    if (image.getPixel(x,y1) != background) marks++;
+            assertTrue(marks > 700);
+            try (var out = new FileOutputStream(Path.of(System.getProperty("ui.output"), "board-scene-protein.png").toFile())) {
+                assertTrue(image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out));
+            }
+        }
+    }
+
+    @Test
     public void fieldUsesRealAndroidRendererAndExports() throws Exception {
         try (var controller = Robolectric.buildActivity(Activity.class).setup()) {
             Activity a = controller.get();

@@ -14,7 +14,7 @@ public final class BoardWidget {
     private BoardWidget() {}
 
     public static final String GRAPH = "graph", TABLE = "table", CHART = "chart", FLOW = "flow",
-        TIMELINE = "timeline", TREE = "tree", NUMBER_LINE = "numberline", GEOMETRY = "geometry", SOLID = "solid", MAP = "map", CHEM = "chemistry", DIAGRAM = "diagram", READING = "reading", FIELD = "finitefield", RELATION = "relation";
+        TIMELINE = "timeline", TREE = "tree", NUMBER_LINE = "numberline", GEOMETRY = "geometry", SOLID = "solid", MAP = "map", CHEM = "chemistry", DIAGRAM = "diagram", SCENE = "scene", READING = "reading", FIELD = "finitefield", RELATION = "relation";
     public static final float GEOMETRY_LEFT = 120, GEOMETRY_TOP = 42, GEOMETRY_UNIT = 76;
     private static final Map<String, List<String>> FIELDS = Map.ofEntries(
         Map.entry(GRAPH, List.of("height", "x", "y", "grid", "equalUnits", "functions", "points", "vlines", "hlines", "shade", "parameters")),
@@ -22,7 +22,8 @@ public final class BoardWidget {
         Map.entry(FLOW,List.of("steps","direction")),Map.entry(TIMELINE,List.of("events")),Map.entry(TREE,List.of("root","children")),
         Map.entry(NUMBER_LINE,List.of("from","to","marks","ranges")),Map.entry(GEOMETRY,List.of("vertices")),Map.entry(SOLID,List.of("kind","yaw","pitch","net","vertices","faces")),
         Map.entry(MAP,List.of("title","region","bounds","route","places")),Map.entry(CHEM,List.of("formula")),
-        Map.entry(DIAGRAM,List.of("title","preset","layers","height","focus")),Map.entry(READING,List.of("title","source","lines","reveal")),
+        Map.entry(DIAGRAM,List.of("title","preset","layers","height","focus")),
+        Map.entry(SCENE,List.of("title","height","preset","stage","objects","links")),Map.entry(READING,List.of("title","source","lines","reveal")),
         Map.entry(RELATION,List.of("mode","expr","xt","yt","t","x","y","points")),Map.entry(FIELD,List.of("p","a","b","points")));
 
     public static boolean supports(String kind) { return FIELDS.containsKey(kind); }
@@ -33,7 +34,7 @@ public final class BoardWidget {
             case GRAPH -> "함수 그래프"; case TABLE -> "표"; case CHART -> "차트"; case FLOW -> "순서도";
             case TIMELINE -> "타임라인"; case TREE -> "개념 트리"; case NUMBER_LINE -> "수직선";
             case RELATION -> "음함수·매개·극좌표"; case MAP -> "장소와 경로 지도"; case CHEM -> "화학식·반응식"; case DIAGRAM -> "과학 일러스트";
-            case READING -> "지문·사료 분석"; case FIELD -> "유한체 점 그래프"; case GEOMETRY -> "평면 도형"; case SOLID -> "입체도형"; default -> "시각 자료";
+            case SCENE -> "연결 도해"; case READING -> "지문·사료 분석"; case FIELD -> "유한체 점 그래프"; case GEOMETRY -> "평면 도형"; case SOLID -> "입체도형"; default -> "시각 자료";
         };
     }
 
@@ -141,6 +142,7 @@ public final class BoardWidget {
             case RELATION -> { float h=530*BoardPlot.compact(scale); yield new BoardPlot.Made(BoardPlot.graph(spec,0,h,scale,true),h); }
             case MAP -> BoardMap.draw(spec,scale,measure); case FIELD -> BoardField.draw(spec,scale,measure);
             case CHEM -> BoardChemistry.draw(spec,scale,measure); case DIAGRAM -> BoardIllustration.draw(spec,scale,measure);
+            case SCENE -> BoardScene.draw(spec,scale,measure);
             case READING -> BoardIllustration.reading(spec,scale,measure);
             default -> new BoardPlot.Made(List.of(), 0);
         };
@@ -194,6 +196,7 @@ public final class BoardWidget {
             case RELATION -> spec.optString("mode")+" "+spec.optString("expr")+" "+spec.optString("xt")+" "+spec.optString("yt");
             case CHEM -> spec.optString("formula"); case FIELD -> "p="+spec.optInt("p",17)+", a="+spec.optInt("a",0)+", b="+spec.optInt("b",7);
             case DIAGRAM -> spec.optString("title")+" "+spec.optString("preset")+" "+spec.optString("focus");
+            case SCENE -> spec.optString("title") + " " + spec.optString("preset") + " · " + spec.optInt("stage", 1) + " · " + String.join(", ", BoardScene.ids(spec.optJSONObject("objects")));
             case READING -> spec.optString("title")+" "+spec.optString("source")+" "+asText(spec.optJSONArray("lines"));
             case TABLE -> asText(spec.optJSONArray("rows"));
             case CHART -> spec.optString("title") + " " + asText(spec.optJSONArray("labels")) + " " + asText(spec.optJSONArray("values"));

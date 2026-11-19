@@ -226,7 +226,7 @@ public final class BoardScript {
                     case "tree", "mindmap" -> widget(out, BoardWidget.TREE, op);
                     case "geometry" -> widget(out, BoardWidget.GEOMETRY, op);
                     case "solid" -> widget(out, BoardWidget.SOLID, op);
-                    case "relation","map","diagram","chemistry","reading","finitefield" -> widget(out, op.optString("op"), op);
+                    case "relation","map","diagram","scene","chemistry","reading","finitefield" -> widget(out, op.optString("op"), op);
                     case "update" -> {} // applied to existing material by the teacher before placement
                     default -> missing(out, "이 단계의 그리기 도구를 사용할 수 없어요.");
                 }

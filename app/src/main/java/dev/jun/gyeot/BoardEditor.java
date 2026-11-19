@@ -15,6 +15,7 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import dev.jun.gyeot.core.Board;
 import dev.jun.gyeot.core.BoardPlot;
+import dev.jun.gyeot.core.BoardScene;
 import dev.jun.gyeot.core.BoardWidget;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -39,6 +40,7 @@ final class BoardEditor {
 
     Ui.Sheet open(String kind, JSONObject original, Consumer<JSONObject> apply, InkReader inkReader) {
         return switch (kind) {
+            case SCENE -> scene(original, apply);
             case GRAPH -> new GraphEdit(original, apply, inkReader).sheet;
             case RELATION, FIELD, MAP, CHEM, DIAGRAM, READING -> subjectTool(kind,original,apply);
             case GEOMETRY, SOLID -> figure(kind, original, apply);
@@ -224,6 +226,50 @@ final class BoardEditor {
         sheet.primary.setText("판에 적용");
         sheet.primary.setOnClickListener(v -> { apply.accept(spec); sheet.dismiss(); });
         refresh.run();
+        return sheet;
+    }
+
+    private Ui.Sheet scene(JSONObject original, Consumer<JSONObject> apply) {
+        Ui.Sheet sheet = ui.selectionSheet(name(SCENE), "그림 속 물체를 끌면 연결된 이름표와 선도 함께 움직여요.");
+        JSONObject spec = BoardWidget.copy(original);
+        boolean inserting = spec.length() == 0;
+        if (inserting) put(spec, "preset", "proteinSynthesis");
+        Preview preview = new Preview(SCENE);
+        sheet.body.addView(preview, new LinearLayout.LayoutParams(-1, ui.dp(232)));
+        LinearLayout controls = ui.column();
+        TextView status = notice(sheet);
+        Runnable refresh = () -> {
+            try {
+                preview.update(spec);
+                status.setVisibility(View.GONE);
+                sheet.primary.setEnabled(true);
+            } catch (IllegalArgumentException invalid) {
+                preview.spec = null;
+                status.setText(invalid.getMessage());
+                status.setVisibility(View.VISIBLE);
+                sheet.primary.setEnabled(false);
+            }
+        };
+        Runnable stages = () -> {
+            controls.removeAllViews();
+            List<String> stages = BoardScene.stages(spec.optString("preset"));
+            if (!stages.isEmpty()) controls.addView(ui.spinner("수업 단계", stages.toArray(new String[0]),
+                    spec.optInt("stage", 1) - 1, i -> { put(spec, "stage", i + 1); refresh.run(); }));
+        };
+        if (inserting) {
+            sheet.body.addView(ui.spinner("도해 예시", new String[]{"전사와 번역", "물체에 작용하는 힘"}, 0, i -> {
+                put(spec, "preset", i == 0 ? "proteinSynthesis" : "force");
+                spec.remove("stage");
+                spec.remove("objects");
+                stages.run();
+                refresh.run();
+            }));
+        }
+        sheet.body.addView(controls);
+        stages.run();
+        refresh.run();
+        sheet.primary.setText("판에 적용");
+        sheet.primary.setOnClickListener(v -> { apply.accept(BoardWidget.copy(spec)); sheet.dismiss(); });
         return sheet;
     }
 
@@ -555,6 +601,7 @@ final class BoardEditor {
         private JSONObject spec;
         private float height = 560, x0, y0, scale, lastX, lastY;
         private int vertex = -1;
+        private String dragged = "";
 
         Preview(String kind) {
             super(activity); this.kind = kind;
@@ -564,8 +611,8 @@ final class BoardEditor {
         }
 
         void update(JSONObject source) {
-            spec = source;
             JSONObject item = BoardWidget.make(kind, source, 0, .85f, Board.ME, renderer.measure);
+            spec = source;
             if (item != null) {
                 renderer.show(arr(item)); height = (float) item.optDouble("h", 560) + 28;
                 setContentDescription(BoardWidget.description(item));
@@ -582,7 +629,9 @@ final class BoardEditor {
         }
 
         @Override public boolean onTouchEvent(MotionEvent event) {
-            if (spec == null || scale <= 0 || (!GEOMETRY.equals(kind) && !SOLID.equals(kind))) return false;
+            if (spec == null || scale <= 0) return false;
+            if (SCENE.equals(kind)) return dragScene(event);
+            if (!GEOMETRY.equals(kind) && !SOLID.equals(kind)) return false;
             boolean solid = SOLID.equals(kind);
             if (solid && spec.optBoolean("net")) return false;
             float x = (event.getX() - x0) / scale, y = (event.getY() - y0) / scale;
@@ -620,6 +669,31 @@ final class BoardEditor {
                 }
                 default -> { return true; }
             }
+        }
+
+        private boolean dragScene(MotionEvent event) {
+            float x = (event.getX() - x0) / scale, y = (event.getY() - y0) / scale;
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN -> {
+                    dragged = BoardScene.hit(spec, .85f, renderer.measure, x, y);
+                    if (dragged.isEmpty()) return false;
+                    getParent().requestDisallowInterceptTouchEvent(true);
+                }
+                case MotionEvent.ACTION_MOVE -> {
+                    if (dragged.isEmpty()) return false;
+                    if (BoardScene.move(spec, dragged, x - lastX, y - lastY, .85f, renderer.measure)) update(spec);
+                }
+                case MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (dragged.isEmpty()) return false;
+                    dragged = "";
+                    getParent().requestDisallowInterceptTouchEvent(false);
+                    if (event.getActionMasked() == MotionEvent.ACTION_UP) performClick();
+                }
+                default -> { return false; }
+            }
+            lastX = x;
+            lastY = y;
+            return true;
         }
 
         @Override public boolean performClick() { return super.performClick(); }

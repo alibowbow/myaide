@@ -1,0 +1,52 @@
+{
+  "proteinSynthesis": {
+    "base": {
+      "title": "전사와 번역",
+      "height": 207,
+      "objects": {
+        "dna": {"kind":"row","at":[546,58],"size":[580,54],"tokens":["T","A","C","C","G","A","A","T","T"],"group":3,"color":"blue"},
+        "dnaLabel": {"kind":"text","attach":"dna.left","pin":"right","offset":[-8,0],"size":[210,50],"text":"DNA 주형 3′","color":"blue"},
+        "dnaEnd": {"kind":"text","attach":"dna.right","pin":"left","offset":[5,0],"size":[55,45],"text":"5′","color":"blue"},
+        "rna": {"kind":"row","attach":"dna.bottom","pin":"top","offset":[0,32],"size":[580,54],"tokens":["A","U","G","G","C","U","U","A","A"],"group":3,"color":"green","reveal":1},
+        "rnaLabel": {"kind":"text","attach":"rna.left","pin":"right","offset":[-8,0],"size":[195,48],"text":"mRNA 5′","color":"green"},
+        "rnaEnd": {"kind":"text","attach":"rna.right","pin":"left","offset":[5,0],"size":[55,45],"text":"3′","color":"green"},
+        "ribosome": {"kind":"path","attach":"rna.2.center","size":[306,104],"offset":[0,-19],"closed":true,"color":"blue","z":-3,"hidden":true,"points":[[0,79],[0,51],[7,24],[24,8],[35,1],[50,9],[60,34],[74,24],[90,37],[99,67],[100,89],[81,97],[66,88],[38,82],[15,95]]},
+        "smallSubunit": {"kind":"path","attach":"ribosome.bottom","pin":"top","offset":[0,-5],"size":[282,32],"closed":true,"color":"blue","z":-2,"points":[[0,22],[19,4],[48,12],[81,2],[100,30],[93,77],[65,99],[23,88],[4,61]]},
+        "ribosomeLabel": {"kind":"text","attach":"smallSubunit.bottom","pin":"top","offset":[0,2],"size":[140,39],"text":"리보솜","color":"blue"},
+        "anti": {"kind":"row","attach":"rna.2.top","pin":"bottom","offset":[0,-4],"size":[184,42],"tokens":["U","A","C"],"color":"purple","hidden":true},
+        "carrier": {"kind":"path","attach":"anti.top","pin":"bottom","size":[83,77],"color":"purple","z":1,"points":[[38,0],[38,36],[18,28],[0,37],[4,55],[20,62],[37,55],[33,82],[38,97],[59,100],[67,82],[62,55],[80,60],[96,50],[100,34],[83,25],[60,36],[60,0]]},
+        "carrierLabel": {"kind":"text","attach":"carrier.right","pin":"left","offset":[7,0],"size":[150,39],"text":"운반 RNA","color":"purple"},
+        "cargo": {"kind":"oval","attach":"carrier.top","pin":"bottom","size":[152,48],"text":"메싸이오닌","color":"pink","z":2},
+        "previous": {"kind":"oval","attach":"cargo.left","pin":"right","offset":[-28,0],"size":[152,48],"text":"메싸이오닌","color":"pink","hidden":true},
+        "product": {"kind":"box","at":[510,80],"size":[390,64],"text":"메싸이오닌–알라닌","color":"pink","hidden":true}
+      },
+      "links": {
+        "pairing": {"from":"dna.bottom","to":"rna.top","pairwise":true,"dashed":true,"color":"blue"},
+        "peptide": {"from":"previous.right","to":"cargo.left","color":"pink"}
+      }
+    },
+    "stages": [
+      {"label":"첫 염기의 짝"},
+      {"label":"완성된 mRNA","objects":{"rna":{"reveal":9}}},
+      {"label":"AUG에서 번역 시작","height":382,"objects":{"dna":{"hidden":true},"rna":{"attach":null,"at":[546,258],"offset":[0,0],"pin":"center","active":1,"span":3},"ribosome":{"hidden":false},"anti":{"hidden":false}}},
+      {"label":"GCU에서 알라닌 연결","objects":{"rna":{"active":4},"ribosome":{"attach":"rna.5.center"},"anti":{"attach":"rna.5.top","tokens":["C","G","A"]},"cargo":{"text":"알라닌"},"previous":{"hidden":false}}},
+      {"label":"UAA에서 번역 종료","objects":{"rna":{"active":7},"ribosome":{"attach":"rna.8.center"},"anti":{"hidden":true},"product":{"hidden":false}}}
+    ]
+  },
+  "force": {
+    "base": {
+      "title": "물체에 작용하는 힘",
+      "height": 244,
+      "objects": {
+        "block": {"kind":"box","at":[310,146],"size":[166,94],"text":"물체","color":"blue"},
+        "tip": {"kind":"text","attach":"block.right","pin":"left","offset":[205,0],"size":[100,48],"text":"힘 F","color":"orange"},
+        "floor": {"kind":"path","at":[500,206],"size":[810,22],"sharp":true,"points":[[0,0],[100,0]],"color":"ink"}
+      },
+      "links": {"force":{"from":"block.right","to":"tip.left","arrow":true,"color":"orange"}}
+    },
+    "stages": [
+      {"label":"힘의 방향"},
+      {"label":"물체를 옮긴 뒤","objects":{"block":{"at":[490,146]}}}
+    ]
+  }
+}
