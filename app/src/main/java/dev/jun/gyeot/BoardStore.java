@@ -23,7 +23,9 @@ import static dev.jun.gyeot.core.Jsons.*;
 final class BoardStore {
     static final int MOST = 60, TITLE = 40, LESSONS = 40;
     /** A board as it is kept: what is on it, and its lessons [{id, title, says: [..]}]. */
-    record Doc(JSONArray items, JSONArray lessons) {}
+    record Doc(JSONArray items, JSONArray lessons, JSONObject classroom) {
+        Doc(JSONArray items,JSONArray lessons){this(items,lessons,obj());}
+    }
     record Entry(String id, String title, long updated, String summary) {}
     private final File dir;
     BoardStore(Context context) { this(new File(context.getFilesDir(), "boards")); }
@@ -85,7 +87,7 @@ final class BoardStore {
             String text = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8).strip();
             if (text.startsWith("[")) return new Doc(Board.clean(new JSONArray(text)), arr());
             JSONObject root = new JSONObject(text);
-            return new Doc(Board.clean(root.optJSONArray("items")), lessons(root.optJSONArray("lessons")));
+            return new Doc(Board.clean(root.optJSONArray("items")), lessons(root.optJSONArray("lessons")),dev.jun.gyeot.core.BoardWidget.copy(root.optJSONObject("classroom")));
         } catch (Exception unreadable) { return new Doc(arr(), arr()); }
     }
     /** Lessons as they are kept: an id, a title and what each step said; the newest LESSONS of them. */
@@ -95,7 +97,7 @@ final class BoardStore {
             JSONObject lesson = stored.optJSONObject(i); if (lesson == null || !lesson.optString("id").matches("[a-z0-9]{1,12}")) continue;
             JSONArray says = arr(), from = lesson.optJSONArray("says");
             for (int k = 0; from != null && k < from.length() && k < dev.jun.gyeot.core.BoardScript.STEPS; k++) says.put(from.optString(k));
-            out.put(obj("id", lesson.optString("id"), "title", title(lesson.optString("title")), "says", says));
+            out.put(obj("id", lesson.optString("id"), "title", title(lesson.optString("title")), "says", says, "frames",dev.jun.gyeot.core.BoardReplay.clean(lesson,says.length())));
         }
         return out;
     }
@@ -103,12 +105,15 @@ final class BoardStore {
     synchronized void save(String id, JSONArray items, String newTitle, long now) throws IOException { save(id, items, load(id).lessons(), newTitle, now); }
     /** As above, with the board's lessons. */
     synchronized void save(String id, JSONArray items, JSONArray lessons, String newTitle, long now) throws IOException {
+        save(id,items,lessons,load(id).classroom(),newTitle,now);
+    }
+    synchronized void save(String id, JSONArray items, JSONArray lessons, JSONObject classroom, String newTitle, long now) throws IOException {
         if (!named(id)) throw new IOException("판을 찾지 못했어요.");
         List<Entry> entries = list(); Entry old = null;
         for (Entry entry : entries) if (entry.id().equals(id)) old = entry;
         if (old == null) return;
         JSONArray clean = Board.clean(items);
-        write(file(id), obj("v", 2, "items", clean, "lessons", lessons(lessons)).toString());
+        write(file(id), obj("v", 2, "items", clean, "lessons", lessons(lessons), "classroom",classroom).toString());
         entries.remove(old); entries.add(0, new Entry(id, newTitle == null ? old.title() : title(newTitle), now, Board.summary(clean)));
         saveIndex(entries);
     }

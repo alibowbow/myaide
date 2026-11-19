@@ -63,21 +63,24 @@
         <activity android:name=".SearchActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".BoardActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".BrowserActivity" android:exported="false" android:launchMode="singleTop" android:windowSoftInputMode="adjustResize" />
-        <!-- singleTask: opening 들퍼레 again from its icon or by Bixby reaches the running screen (onNewIntent), so
-             "앱을 열면 바로 대화" can start voice; coming back from recent apps sends no new intent. -->
+        <!-- Explicit navigation, shortcut and sign-in intents keep a single main window. -->
         <activity android:name=".MainChatActivity" android:exported="true" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" />
-        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask"
+            android:alwaysRetainTaskState="true" android:windowSoftInputMode="adjustResize">
             <!-- "Back to 곁" link on the ChatGPT sign-in completion page; it only opens settings. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="gyeot" android:host="openai-done" />
+            </intent-filter>
+        </activity>
+        <!-- A plain icon tap can bring the live board task forward without clearing its activity stack. -->
+        <activity android:name=".LauncherActivity" android:exported="true" android:taskAffinity=""
+            android:excludeFromRecents="true" android:noHistory="true" android:theme="@style/QuickTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
             <!-- Long-press 곁's icon: "바로 대화". -->
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
@@ -102,6 +105,7 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+        <service android:name=".BoardJobService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name=".BrowserTaskService" android:exported="false" android:foregroundServiceType="dataSync" />
         <!-- 예약 작업: only this app's own alarm reaches it (no intent filter, not exported, no boot listener). -->
         <receiver android:name=".WorkScheduleAlarm" android:exported="false" />

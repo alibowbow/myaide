@@ -37,3 +37,7 @@ No Nuri (https://github.com/lsszz2100/Nuri, MIT) code is included. Its scheduled
 ## GeckoView and browser dependencies
 
 GeckoView 158.0.20261021001945 is distributed unmodified under MPL 2.0. Its corresponding source is [Mozilla release e4ce606692cd81e6898547e2edd7c552fefcbb04](https://hg.mozilla.org/releases/mozilla-release/rev/e4ce606692cd81e6898547e2edd7c552fefcbb04). The app bundles the source link and notices in `assets/legal/GECKOVIEW-NOTICE.txt`. AndroidX and Kotlin dependencies use Apache License 2.0. Engine-contained notices are retained.
+
+## Classroom standards and coastlines
+
+The classroom uses Ministry of Education Notices 2015-74, 2018-162 and 2022-33. Selected records from greatsong’s k-curriculum-2022 are adapted under CC BY 4.0. The offline coastline is simplified from public domain Natural Earth vectors. Sources, attribution and adaptations are included in [the board data notice](app/src/main/assets/legal/BOARD-DATA-NOTICE.txt).

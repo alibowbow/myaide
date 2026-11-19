@@ -6,6 +6,11 @@ import android.os.Bundle;
 
 public final class GyeotApp extends Application {
     private AppStore store;
+    private BoardJobs boardJobs;
+    BoardJobs boardJobs() {
+        if (boardJobs == null) boardJobs = new BoardJobs(this);
+        return boardJobs;
+    }
     private int startedActivities;
     @Override public void onCreate() {
         super.onCreate();

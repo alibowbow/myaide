@@ -14,6 +14,8 @@ import android.text.TextPaint;
 import android.view.MotionEvent;
 import android.view.View;
 import dev.jun.gyeot.core.Board;
+import dev.jun.gyeot.core.BoardInk;
+import dev.jun.gyeot.core.BoardWidget;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -32,7 +34,7 @@ final class BoardView extends View {
     static final String PEN = "pen", MARKER = "marker", ERASER = "eraser", LINE = "line", ARROW = "arrow", RECT = "rect", OVAL = "oval", TEXT = "text", HAND = "hand";
     /** The pen's three widths in board units, and the marker's. */
     static final float[] WIDTHS = {4, 7, 12};
-    static final float MARKER_WIDTH = 34, MAX_ZOOM = 4;
+    static final float MAX_ZOOM = 4;
     interface Listener {
         /** The items changed by the user's own hand (not by reveal). */
         void changed();
@@ -40,6 +42,7 @@ final class BoardView extends View {
         void textAt(float x, float y);
         /** The hand tapped (without moving the page) on the item at this index, a picture included; -1 for bare page. */
         default void tapped(int index, float x, float y) {}
+        default void full() {}
     }
     /** Gives a picture's file as a bitmap (null when it is gone); asked on the main thread, kept for a few pictures. */
     interface Pictures { Bitmap load(String name); }
@@ -53,6 +56,8 @@ final class BoardView extends View {
     private final Deque<Object[]> undo = new ArrayDeque<>(), redo = new ArrayDeque<>();
     private final Map<JSONObject, Float> revealing = new IdentityHashMap<>();
     private final Map<JSONObject, StaticLayout> layouts = new IdentityHashMap<>();
+    private final Map<JSONObject, JSONObject> playback = new IdentityHashMap<>();
+    private final Map<JSONObject, List<JSONObject>> widgets = new IdentityHashMap<>();
     private final Paint ink = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint letters = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
@@ -63,6 +68,7 @@ final class BoardView extends View {
     private float left, top, zoom = 1;
     // The gesture in progress.
     private final List<Float> points = new ArrayList<>();
+    private JSONArray pressure;
     private float downX, downY, downSx, downSy, lastX, lastY, lastSpan, lastMidX, lastMidY; private boolean drawing, moving, erased; private long touchedAt;
     private JSONObject preview;
 
@@ -78,6 +84,21 @@ final class BoardView extends View {
             StaticLayout layout = layout(text, size, bold, maxWidth, hand);
             float widest = 0; for (int i = 0; i < layout.getLineCount(); i++) widest = Math.max(widest, layout.getLineWidth(i));
             return new float[]{widest, layout.getHeight()};
+        }
+        @Override public List<float[]> spans(String text, float size, boolean bold, float maxWidth, boolean hand, int start, int end) {
+            StaticLayout placed = layout(text, size, bold, maxWidth, hand);
+            List<float[]> rows = new ArrayList<>();
+            Path selection = new Path();
+            RectF box = new RectF();
+            for (int i = 0; i < placed.getLineCount(); i++) {
+                int from = Math.max(start, placed.getLineStart(i)), to = Math.min(end, placed.getLineVisibleEnd(i));
+                if (from >= to) continue;
+                selection.reset();
+                placed.getSelectionPath(from, to, selection);
+                selection.computeBounds(box, true);
+                if (box.width() > 0) rows.add(new float[]{box.left, placed.getLineTop(i), box.right, placed.getLineBottom(i)});
+            }
+            return rows;
         }
     };
     /** The pen font, read once; null when it cannot be (then handwriting is drawn in print letters). */
@@ -132,15 +153,27 @@ final class BoardView extends View {
     // ── What is on the board ────────────────────────────────────────────────────────────────────────────
 
     JSONArray items() { return items; }
-    void show(JSONArray stored) { items = stored == null ? new JSONArray() : stored; undo.clear(); redo.clear(); revealing.clear(); layouts.clear(); loaded.clear(); left = 0; top = 0; zoom = 1; invalidate(); }
+    void show(JSONArray stored) { playback.clear(); items = stored == null ? new JSONArray() : stored; undo.clear(); redo.clear(); revealing.clear(); layouts.clear(); widgets.clear(); loaded.clear(); left = 0; top = 0; zoom = 1; invalidate(); }
     /** Puts a picture on the page under what is there; undo takes it off again. */
-    void addPicture(JSONObject picture) { add(picture, false); changed(); }
-    /** Shows another arrangement of the board (a picture made larger or smaller); undo brings the one before back. */
-    void replace(JSONArray next) { if (next == null || next == items) return; undo.push(new Object[]{"clear", items}); redo.clear(); items = next; revealing.clear(); layouts.clear(); changed(); }
+    void addPicture(JSONObject picture) { if (add(picture, false)) changed(); }
+    /** Shows another arrangement of the board as a single undoable edit. */
+    void replace(JSONArray next) {
+        if (next == null || next == items) return;
+        if (Board.bottom(next, measure) > Board.DEEPEST) { if (listener != null) listener.full(); return; }
+        undo.push(new Object[]{"clear", items}); redo.clear(); items = next; revealing.clear(); layouts.clear(); widgets.clear(); changed();
+    }
     /** Takes an item off the board (the hand's 지우기 for a picture or a line); undo puts it back in its place. */
     void remove(int index) {
         JSONObject gone = items.optJSONObject(index); if (gone == null) return;
-        removeAt(index); revealing.remove(gone); layouts.remove(gone); undo.push(new Object[]{"remove", index, gone}); redo.clear(); changed();
+        if (Board.IMAGE.equals(gone.optString("t"))) {
+            JSONArray next = new JSONArray();
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject item = items.optJSONObject(i);
+                if (i != index && item != null && !gone.optString("id").equals(item.optString("on"))) next.put(item);
+            }
+            replace(next); return;
+        }
+        removeAt(index); revealing.remove(gone); layouts.remove(gone); widgets.remove(gone); undo.push(new Object[]{"remove", index, gone}); redo.clear(); changed();
     }
     String tool() { return tool; }
     void tool(String value) { tool = value; cancelGesture(); }
@@ -152,17 +185,29 @@ final class BoardView extends View {
     boolean canRedo() { return !redo.isEmpty(); }
 
     /** Puts an item on the board. hidden: nothing of it shows until reveal() says how much. */
-    void add(JSONObject item, boolean hidden) {
+    boolean fits(List<JSONObject> additions) {
+        return items.length() + additions.size() <= Board.ITEMS && additions.stream().allMatch(i -> Board.bounds(i, measure)[3] <= Board.DEEPEST);
+    }
+    boolean add(JSONObject item, boolean hidden) {
+        if (!fits(List.of(item))) { if (listener != null) listener.full(); return false; }
         items.put(item); undo.push(new Object[]{"add", item}); redo.clear();
         if (hidden) revealing.put(item, 0f);
         invalidate();
+        return true;
     }
     /** How much of an item shows, 0 to 1; at 1 it is whole and no longer tracked. */
     void reveal(JSONObject item, float fraction) {
         if (fraction >= 1) revealing.remove(item); else if (revealing.containsKey(item) || fraction < 1) revealing.put(item, Math.max(0, fraction));
         invalidate();
     }
-    void revealAll() { revealing.clear(); invalidate(); }
+    void revealAll() { revealing.clear();for(JSONObject item:playback.values())widgets.remove(item);playback.clear();invalidate(); }
+    void showFrame(JSONObject item,JSONObject spec) {
+        if(item==null || spec==null)return;
+        try {
+            JSONObject frame=BoardWidget.make(item.optString("kind"),spec,0,(float)item.optDouble("scale",.85),item.optString("by"),measure);
+            if(frame!=null){widgets.remove(playback.put(item,frame));invalidate();}
+        } catch(IllegalArgumentException ignored) { /* Older saved input can still use the current drawing. */ }
+    }
     private int indexOf(JSONObject item) { for (int i = items.length() - 1; i >= 0; i--) if (items.opt(i) == item) return i; return -1; }
     private void removeAt(int index) { items.remove(index); }
     private void insert(int index, JSONObject item) {
@@ -177,7 +222,7 @@ final class BoardView extends View {
         else if ("many".equals(step[0])) { for (Object one : (List<?>) step[1]) { int index = indexOf((JSONObject) one); if (index >= 0) removeAt(index); } }
         else if ("remove".equals(step[0])) insert((Integer) step[1], (JSONObject) step[2]);
         else { JSONArray now = items; items = (JSONArray) step[1]; step = new Object[]{"clear", now}; }
-        redo.push(step); changed();
+        redo.push(step); widgets.clear(); layouts.clear(); changed();
     }
     void redo() {
         Object[] step = redo.poll(); if (step == null) return;
@@ -185,21 +230,24 @@ final class BoardView extends View {
         else if ("many".equals(step[0])) { for (Object one : (List<?>) step[1]) items.put((JSONObject) one); }
         else if ("remove".equals(step[0])) { int index = indexOf((JSONObject) step[2]); if (index >= 0) removeAt(index); }
         else { JSONArray now = items; items = (JSONArray) step[1]; step = new Object[]{"clear", now}; }
-        undo.push(step); changed();
+        undo.push(step); widgets.clear(); layouts.clear(); changed();
     }
     /** Empties the board; undo brings everything back. */
-    void clear() { if (items.length() == 0) return; undo.push(new Object[]{"clear", items}); redo.clear(); items = new JSONArray(); revealing.clear(); top = 0; changed(); }
+    void clear() { if (items.length() == 0) return; undo.push(new Object[]{"clear", items}); redo.clear(); items = new JSONArray(); revealing.clear(); widgets.clear(); layouts.clear(); top = 0; changed(); }
     /** What the text tool writes at (the board's 글자 크기). */
     float textScale = 1;
     void addText(float x, float y, String text) {
         if (text == null || text.isBlank()) return;
-        add(Board.handwritten(Board.text(x, y, text, Board.NORMAL * textScale, color, false, Math.max(160, Board.WIDTH - Board.MARGIN - x), Board.ME), hand), false); changed();
+        float left = Math.min(Board.WIDTH - Board.MARGIN - 96, x);
+        if (add(Board.handwritten(Board.text(left, y, text, Board.NORMAL * textScale, color, false, Board.WIDTH - Board.MARGIN - left, Board.ME), hand), false)) changed();
     }
     /** Puts several items on the board as one thing: one undo takes all of them off. */
-    void addAll(List<JSONObject> made) {
-        if (made == null || made.isEmpty()) return;
+    boolean addAll(List<JSONObject> made) {
+        if (made == null || made.isEmpty()) return false;
+        if (!fits(made)) { if (listener != null) listener.full(); return false; }
         for (JSONObject item : made) items.put(item);
         undo.push(new Object[]{"many", new ArrayList<>(made)}); redo.clear(); changed();
+        return true;
     }
     private void changed() { invalidate(); if (listener != null) listener.changed(); }
 
@@ -209,6 +257,15 @@ final class BoardView extends View {
     private float boardX(float screenX) { return left + screenX / scale(); }
     private float boardY(float screenY) { return top + (screenY - insetTop) / scale(); }
     float top() { return top; }
+    void saveViewport(android.os.Bundle state) {
+        state.putFloat("boardTop", top); state.putFloat("boardLeft", left); state.putFloat("boardZoom", zoom);
+    }
+    boolean restoreViewport(android.os.Bundle state) {
+        if (!state.containsKey("boardTop")) return false;
+        zoom = Math.max(1, Math.min(MAX_ZOOM, state.getFloat("boardZoom", 1)));
+        top = state.getFloat("boardTop"); left = state.getFloat("boardLeft");
+        clampPage(); invalidate(); return true;
+    }
     /** The page's height shown clear of the bars at once, in board units. */
     float shown() { return Math.max(1, getHeight() - insetTop - insetBottom) / scale(); }
     private void clampPage() {
@@ -241,8 +298,23 @@ final class BoardView extends View {
     int paper() { return chalk() ? 0xff28463b : Ui.DARK ? Ui.BG : 0xfffbf8f1; }
     /** A named color as this board's pen or chalk has it. */
     int ink(String color) {
-        if (chalk()) return switch (Board.color(color)) { case "red" -> 0xfff59a90; case "pink" -> 0xfff9add0; case "orange" -> 0xfff9b872; case "yellow" -> 0xfffde27a; case "green" -> 0xffa3e3ad; case "blue" -> 0xffa3ccff; case "purple" -> 0xffd4b9ff; default -> 0xfff4f1e7; };
-        return switch (Board.color(color)) { case "red" -> 0xffe5566a; case "pink" -> 0xffee6fa8; case "orange" -> 0xfff0953a; case "yellow" -> 0xffeebb1c; case "green" -> 0xff2aa873; case "blue" -> 0xff4484e6; case "purple" -> 0xff8b6be0; default -> Ui.DARK ? Ui.TEXT : 0xff37322f; };
+        color = Board.color(color);
+        switch (color) {
+            case "teal": return chalk() || Ui.DARK ? 0xff85d4c6 : 0xff367e78;
+            case "rust": return chalk() || Ui.DARK ? 0xffffaa92 : 0xffad5038;
+            case "ochre": return chalk() || Ui.DARK ? 0xffefd080 : 0xffa7771a;
+            case "indigo": return chalk() || Ui.DARK ? 0xffb6c5ff : 0xff4a5b9f;
+        }
+        if (chalk()) return switch (color) { case "red" -> 0xfff59a90; case "pink" -> 0xfff9add0; case "orange" -> 0xfff9b872; case "yellow" -> 0xfffde27a; case "green" -> 0xffa3e3ad; case "blue" -> 0xffa3ccff; case "purple" -> 0xffd4b9ff; default -> 0xfff4f1e7; };
+        return switch (color) { case "red" -> 0xffe5566a; case "pink" -> 0xffee6fa8; case "orange" -> 0xfff0953a; case "yellow" -> 0xffeebb1c; case "green" -> 0xff2aa873; case "blue" -> 0xff4484e6; case "purple" -> 0xff8b6be0; default -> Ui.DARK ? Ui.TEXT : 0xff37322f; };
+    }
+    private int textInk(JSONObject item) {
+        if (chalk() || Ui.DARK) return argb(item);
+        return switch (Board.color(item.optString("c"))) {
+            case "red" -> 0xffa83248; case "pink" -> 0xffa03767; case "orange" -> 0xff944611;
+            case "yellow" -> 0xff795d00; case "green" -> 0xff176641; case "blue" -> 0xff275a9d;
+            case "purple" -> 0xff624a9b; case "ochre" -> 0xff78550f; case "teal" -> 0xff28665f; default -> argb(item);
+        };
     }
     private int argb(JSONObject item) {
         int base = ink(item.optString("c"));
@@ -297,19 +369,26 @@ final class BoardView extends View {
         ink.setShader(chalk() ? grain(false) : null);
         // Pictures lie under everything written, and a marker's band under the ink it colors, wherever they are in the
         // order of things: words stay as dark as they were written.
-        for (int pass = 0; pass < 3; pass++) for (int i = 0; i < items.length(); i++) {
-            JSONObject item = items.optJSONObject(i); if (item == null || (Board.IMAGE.equals(item.optString("t")) ? 0 : item.optBoolean("hl") ? 1 : 2) != pass) continue;
-            Float shown = live ? revealing.get(item) : null;
-            if (shown != null && shown <= 0) continue;
-            float[] b = Board.bounds(item, measure);
-            if (b[3] < from - 40 || b[1] > to + 40) continue;
-            if (pass == 0) picture(canvas, item, b, shown == null ? 1 : shown); else paint(canvas, item, shown == null ? 1 : shown);
+        boolean liveStroke = live && drawing && !points.isEmpty() && BoardInk.freehand(tool);
+        for (int pass = 0; pass < 3; pass++) {
+            if (pass == 2 && liveStroke && MARKER.equals(tool)) paint(canvas, currentStroke(), 1);
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject item = items.optJSONObject(i); if (item == null || (Board.IMAGE.equals(item.optString("t")) ? 0 : item.optBoolean("hl") ? 1 : 2) != pass) continue;
+                Float shown = live ? revealing.get(item) : null;
+                if (shown != null && shown <= 0) continue;
+                float[] b = Board.bounds(item, measure);
+                if (b[3] < from - 40 || b[1] > to + 40) continue;
+                if (pass == 0) picture(canvas, item, b, shown == null ? 1 : shown);
+                else if(live && playback.containsKey(item)){
+                    JSONObject frame=playback.get(item);
+                    float fit=(float)Math.min(1,item.optDouble("h")/Math.max(1,frame.optDouble("h")));
+                    canvas.save();canvas.translate(0,(float)item.optDouble("y"));canvas.scale(fit,fit);
+                    paint(canvas,frame,shown==null?1:shown);canvas.restore();
+                } else paint(canvas, item, shown == null ? 1 : shown);
+            }
         }
         if (live && preview != null) paint(canvas, preview, 1);
-        if (live && drawing && points.size() >= 2 && (tool.equals(PEN) || tool.equals(MARKER))) {
-            float[] flat = new float[points.size()]; for (int i = 0; i < flat.length; i++) flat[i] = points.get(i);
-            paint(canvas, Board.stroke(color, tool.equals(MARKER) ? MARKER_WIDTH : width, tool.equals(MARKER), flat, Board.ME), 1);
-        }
+        if (liveStroke && !MARKER.equals(tool)) paint(canvas, currentStroke(), 1);
     }
     private Bitmap bitmap(String name) {
         Bitmap kept = loaded.get(name); if (kept != null && !kept.isRecycled()) return kept;
@@ -333,12 +412,20 @@ final class BoardView extends View {
     }
     private void paint(Canvas canvas, JSONObject item, float shown) {
         String type = item.optString("t");
+        if (Board.WIDGET.equals(type)) {
+            canvas.save();
+            canvas.translate(0, (float) item.optDouble("y", 0));
+            if (shown < 1) canvas.clipRect(0, 0, Board.WIDTH, (float) item.optDouble("h", 48) * shown);
+            for (JSONObject child : widgets.computeIfAbsent(item, key -> BoardWidget.render(key, measure))) paint(canvas, child, 1);
+            canvas.restore();
+            return;
+        }
         if (Board.TEXT.equals(type)) {
             String text = item.optString("text"); float size = (float) item.optDouble("s", Board.NORMAL), room = (float) item.optDouble("mw", Board.WIDTH);
             StaticLayout layout;
             if (shown >= 1) { layout = layouts.get(item); if (layout == null) { layout = layout(text, size, item.optBoolean("b"), room, item.optBoolean("hand")); layouts.put(item, layout); } }
             else { int count = Math.max(1, Math.min(text.length(), Math.round(text.length() * shown))); if (count < text.length() && Character.isHighSurrogate(text.charAt(count - 1))) count++; layout = layout(text.substring(0, Math.min(text.length(), count)), size, item.optBoolean("b"), room, item.optBoolean("hand")); }
-            TextPaint written = layout.getPaint(); written.setColor(argb(item)); written.setShader(chalk() ? grain(true) : null);
+            TextPaint written = layout.getPaint(); written.setColor(textInk(item)); written.setShader(chalk() ? grain(true) : null);
             // Chalk is thick: its letters are drawn a little heavier than a pen's, so small writing reads from afar.
             if (chalk()) { written.setStyle(Paint.Style.FILL_AND_STROKE); written.setStrokeJoin(Paint.Join.ROUND); written.setStrokeWidth(written.getTextSize() * .026f); }
             else { written.setStyle(Paint.Style.FILL); written.setStrokeWidth(0); }
@@ -346,13 +433,23 @@ final class BoardView extends View {
             return;
         }
         float pen = (float) item.optDouble("w", 6); boolean band = item.optBoolean("hl");
+        String nib = item.optString("nib"), rule = item.optString("rule");
+        boolean pencil = BoardInk.PENCIL.equals(nib);
+        ink.setShader(chalk() || pencil ? grain(false) : null);
+        ink.setStrokeCap(BoardInk.MARKER.equals(nib) ? Paint.Cap.BUTT : Paint.Cap.ROUND);
         // A thin line of chalk is still a line of chalk: never a hair that its dust breaks into dots.
         ink.setStyle(Paint.Style.STROKE); ink.setColor(argb(item)); ink.setStrokeWidth(chalk() && !band && !item.optBoolean("faint") ? Math.max(pen, 2.2f) : pen);
-        ink.setPathEffect(item.optBoolean("d") ? new android.graphics.DashPathEffect(new float[]{16, 13}, 0) : null);
+        if (pencil) ink.setAlpha(192);
+        ink.setPathEffect(BoardInk.DOTTED.equals(rule) ? new android.graphics.DashPathEffect(new float[]{.1f, Math.max(5,pen*2.8f)},0)
+                : item.optBoolean("d") ? new android.graphics.DashPathEffect(new float[]{16, 13}, 0) : null);
         path.reset();
         if (Board.STROKE.equals(type)) {
             JSONArray p = item.optJSONArray("p"); int count = p == null ? 0 : p.length() / 2; if (count == 0) return;
             float px = (float) p.optDouble(0), py = (float) p.optDouble(1);
+            if (BoardInk.BRUSH.equals(nib)) { BoardBrush.draw(canvas, ink, path, p, item.optJSONArray("pressure"), pen, shown); return; }
+            if (count == 1 && BoardInk.MARKER.equals(nib)) {
+                ink.setStyle(Paint.Style.FILL); canvas.drawRect(px-pen*.19f, py-pen*.5f, px+pen*.19f, py+pen*.5f, ink); return;
+            }
             if (chalk() && band && count == 2 && Math.abs(p.optDouble(3) - py) < 1 && !onPicture((px + (float) p.optDouble(2)) / 2, py)) {
                 // On a blackboard nobody highlights: what a marker's band would color is underlined in colored chalk,
                 // and the words above it stay light on the dark board.
@@ -369,6 +466,13 @@ final class BoardView extends View {
             }
         } else {
             float x1 = (float) item.optDouble("x1"), y1 = (float) item.optDouble("y1"), x2 = (float) item.optDouble("x2"), y2 = (float) item.optDouble("y2");
+            if (Board.LINE.equals(type) && BoardInk.DOUBLE.equals(rule)) {
+                float[] d = BoardInk.doubleOffset(x1,y1,x2,y2,pen);
+                float first = Math.min(1,shown*2), second = Math.max(0,shown*2-1);
+                canvas.drawLine(x1,y1,x1+(x2-x1)*first,y1+(y2-y1)*first,ink);
+                if (second>0) canvas.drawLine(x1+d[0],y1+d[1],x1+d[0]+(x2-x1)*second,y1+d[1]+(y2-y1)*second,ink);
+                return;
+            }
             if (Board.RECT.equals(type)) { float corner = (float) Math.min(item.optDouble("r", 6), Math.min(Math.abs(x2 - x1), Math.abs(y2 - y1)) / 2); path.addRoundRect(new RectF(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)), corner, corner, Path.Direction.CW); }
             else if (Board.OVAL.equals(type)) path.addOval(new RectF(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2)), Path.Direction.CW);
             else {
@@ -398,16 +502,38 @@ final class BoardView extends View {
 
     /** The page between two heights as a picture widthPx wide, on the board's own paper. */
     Bitmap render(int widthPx, float from, float to) {
-        float scale = widthPx / (float) Board.WIDTH; int height = Math.max(1, Math.round((to - from) * scale));
+        float scale = widthPx / (float) Board.WIDTH; int height = Math.max(1, (int) Math.ceil((to - from) * scale));
         Bitmap bitmap = Bitmap.createBitmap(widthPx, height, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap); canvas.drawColor(paper()); canvas.scale(scale, scale); canvas.translate(0, -from);
-        paint(canvas, from, to, false); ink.setPathEffect(null);
+        renderPage(new Canvas(bitmap), widthPx, from, to);
         return bitmap;
+    }
+
+    void renderPage(Canvas canvas, float width, float from, float to) {
+        float scale = width / Board.WIDTH;
+        canvas.save();
+        canvas.clipRect(0, 0, width, (to - from) * scale);
+        canvas.drawColor(paper()); canvas.scale(scale, scale); canvas.translate(0, -from);
+        paint(canvas, from, to, false);
+        ink.setPathEffect(null);
+        canvas.restore();
     }
 
     // ── Touch ───────────────────────────────────────────────────────────────────────────────────────────
 
-    private void cancelGesture() { drawing = false; points.clear(); preview = null; invalidate(); }
+    private void cancelGesture() { drawing = false; points.clear(); pressure = null; preview = null; invalidate(); }
+    private JSONObject currentStroke() {
+        float[] flat = new float[points.size()];
+        for (int i=0;i<flat.length;i++) flat[i]=points.get(i);
+        return BoardInk.stroke(tool, color, width, flat, pressure);
+    }
+    private JSONObject dragged(float x, float y) {
+        if (RECT.equals(tool) || OVAL.equals(tool)) return Board.shape(tool, downX, downY, x, y, color, width, false, Board.ME);
+        if (BoardInk.BRACKET.equals(tool)) {
+            float hook = Math.min(Math.max(6, Math.abs(x-downX)), Math.min(36, Math.max(8, Math.abs(y-downY)*.28f)));
+            x = downX + (x<downX ? -hook : hook);
+        }
+        return BoardInk.mark(tool, downX, downY, x, y, color, width, Board.ME);
+    }
     @Override public boolean onTouchEvent(MotionEvent event) {
         touchedAt = System.currentTimeMillis();
         int action = event.getActionMasked();
@@ -432,35 +558,38 @@ final class BoardView extends View {
             case MotionEvent.ACTION_DOWN -> {
                 getParent().requestDisallowInterceptTouchEvent(true);
                 moving = false; drawing = true; erased = false; points.clear(); downX = x; downY = y; lastX = sx; lastY = sy; downSx = sx; downSy = sy;
-                if (tool.equals(PEN) || tool.equals(MARKER)) { points.add(x); points.add(y); }
+                pressure = BoardInk.BRUSH.equals(tool) && event.getToolType(0)==MotionEvent.TOOL_TYPE_STYLUS ? new JSONArray() : null;
+                if (BoardInk.freehand(tool)) addPoint(x, y, event.getPressure());
                 else if (tool.equals(ERASER)) erase(x, y);
             }
             case MotionEvent.ACTION_MOVE -> {
                 if (moving || !drawing) { lastX = sx; lastY = sy; return true; }
                 if (tool.equals(HAND)) { top -= (sy - lastY) / scale(); left -= (sx - lastX) / scale(); clampPage(); }
-                else if (tool.equals(PEN) || tool.equals(MARKER)) {
-                    for (int i = 0; i < event.getHistorySize(); i++) addPoint(boardX(event.getHistoricalX(i)), boardY(event.getHistoricalY(i)));
-                    addPoint(x, y);
+                else if (BoardInk.freehand(tool)) {
+                    for (int i = 0; i < event.getHistorySize(); i++) addPoint(boardX(event.getHistoricalX(i)), boardY(event.getHistoricalY(i)), event.getHistoricalPressure(i));
+                    addPoint(x, y, event.getPressure());
                 }
                 else if (tool.equals(ERASER)) erase(x, y);
-                else if (!tool.equals(TEXT)) preview = Board.shape(tool.equals(RECT) ? Board.RECT : tool.equals(OVAL) ? Board.OVAL : Board.LINE, downX, downY, x, y, color, width, tool.equals(ARROW), Board.ME);
+                else if (!tool.equals(TEXT)) preview = dragged(x,y);
                 lastX = sx; lastY = sy; invalidate();
             }
             case MotionEvent.ACTION_UP -> {
                 if (moving) { moving = false; drawing = false; return true; }
                 if (!drawing) return true;
                 drawing = false;
-                if (tool.equals(PEN) || tool.equals(MARKER)) {
+                if (BoardInk.freehand(tool)) {
+                    addPoint(x,y,event.getPressure());
                     if (points.size() >= 2) {
-                        float[] flat = new float[points.size()]; for (int i = 0; i < flat.length; i++) flat[i] = points.get(i);
-                        add(Board.stroke(color, tool.equals(MARKER) ? MARKER_WIDTH : width, tool.equals(MARKER), flat, Board.ME), false); points.clear(); changed();
+                        boolean added = add(currentStroke(), false);
+                        points.clear(); pressure = null; if (added) changed(); else invalidate();
                     }
                 } else if (tool.equals(TEXT)) { if (listener != null && Math.hypot(x - downX, y - downY) < 30) listener.textAt(Math.max(Board.MARGIN / 2f, downX), downY); }
                 else if (tool.equals(HAND)) { if (listener != null && Math.hypot(sx - downSx, sy - downSy) < 14) listener.tapped(Board.hit(items, x, y, 12 / zoom + 8, measure, true), x, y); }
                 else if (tool.equals(ERASER)) { if (erased) changed(); }
-                else if (preview != null) {
-                    JSONObject made = preview; preview = null;
-                    if (Math.hypot(x - downX, y - downY) >= 8) { add(made, false); changed(); } else invalidate();
+                else {
+                    preview = null; boolean tap = Math.hypot(x-downX,y-downY)<8;
+                    if (tap && BoardInk.CHECK.equals(tool)) { x=downX+32; y=downY+27; tap=false; }
+                    if (!tap && add(dragged(x,y), false)) changed(); else invalidate();
                 }
                 performClick();
             }
@@ -470,14 +599,17 @@ final class BoardView extends View {
         return true;
     }
     @Override public boolean performClick() { return super.performClick(); }
-    private void addPoint(float x, float y) {
+    private void addPoint(float x, float y, float force) {
         int size = points.size();
         if (size >= 2 && Math.hypot(x - points.get(size - 2), y - points.get(size - 1)) < 1.5f) return;
-        if (size / 2 < Board.POINTS) { points.add(x); points.add(y); }
+        if (size / 2 < Board.POINTS) {
+            points.add(x); points.add(y);
+            if (pressure != null) pressure.put(Math.max(0, Math.min(100, Math.round(force*100))));
+        }
     }
     private void erase(float x, float y) {
         int index = Board.hit(items, x, y, 14 / zoom + 6, measure); if (index < 0) return;
-        JSONObject gone = items.optJSONObject(index); removeAt(index); revealing.remove(gone); layouts.remove(gone);
+        JSONObject gone = items.optJSONObject(index); removeAt(index); revealing.remove(gone); layouts.remove(gone); widgets.remove(gone);
         undo.push(new Object[]{"remove", index, gone}); redo.clear(); erased = true; invalidate();
     }
 }

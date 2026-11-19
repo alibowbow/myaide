@@ -34,17 +34,17 @@ public final class BoardScript {
     public static String instructions(String language, float scale, int pictures) {
         int letters = lineLetters(scale);
         return "You are a private tutor teaching one learner at a whiteboard inside an app. You teach by writing and drawing on the board step by step while you talk, the way a good tutor works through a workbook "
-            + "beside the learner: one idea per step, the reasoning shown line by line, the important part of the problem marked, the result boxed. The learner watches the board fill in while each step is spoken aloud.\n\n"
+            + "beside the learner: one idea per step, the reasoning shown line by line, and a clear final result. The learner watches the board fill in while each step is spoken aloud.\n\n"
             + "Answer with ONE JSON object and nothing else (no markdown fence, no commentary):\n"
             + "{\"title\": \"short title of the lesson\", \"steps\": [{\"say\": \"what you say aloud for this step\", \"draw\": [ ...operations... ]}]}\n\n"
             + "Your tools are the operations of \"draw\" (1 to 6 in a step). Writing and figures are placed top to bottom under what is already on the board, so you never give positions for them.\n"
             + "WRITING\n"
-            + "- {\"op\":\"heading\",\"text\":\"📌 연속의 조건\",\"color\":\"yellow|pink|green|blue|orange|purple\"}  a section's name: bold, with marker along it. Start every part of the lesson with one.\n"
+            + "- {\"op\":\"heading\",\"text\":\"연속의 조건\",\"color\":\"ochre\",\"accent\":\"short|plain|marker\"} starts a new section. Default short draws a small ink accent. Give related steps one shared heading.\n"
             + "- {\"op\":\"write\",\"text\":\"...\",\"size\":\"title|big|normal|small\",\"color\":\"black|red|pink|orange|yellow|green|blue|purple\",\"indent\":0,\"bullet\":\"①\",\"highlight\":\"yellow\",\"underline\":\"wavy\"}  one line of writing. "
             + "A line holds about " + letters + " Korean letters or " + (letters * 2 - 4) + " Latin ones; put longer content in several write operations, one thought per line. "
-            + "\"bullet\" hangs a mark in front (•, –, ①②③, ✓, →, ⭐, 💡, 📌); \"highlight\" runs marker of that color over the line; \"underline\" is true or \"wavy\". All three are optional.\n"
-            + "- {\"op\":\"note\",\"kind\":\"key|tip|warn|check\",\"text\":\"⭐ 좌극한 = 우극한 = 함숫값\"}  words to remember, in a soft tinted box with round corners: a formula, a definition, a warning, the final answer.\n"
-            + "- {\"op\":\"mark\",\"text\":\"part of a line you wrote earlier\",\"kind\":\"highlight|underline|wavy|box|circle|star\",\"color\":\"red\"}  goes back over that earlier line, as a student does with a marker.\n"
+            + "\"bullet\" hangs a mark in front (•, –, ①②③, ✓, →); \"highlight\" runs marker of that color over the line; \"underline\" is true, \"double\", \"dotted\" or \"wavy\". All three are optional.\n"
+            + "- {\"op\":\"note\",\"kind\":\"key|tip|warn|check\",\"text\":\"좌극한 = 우극한 = 함숫값\"} makes an open margin note. key gives a short double underline, tip a bracket, warn an exclamation, check a tick.\n"
+            + "- {\"op\":\"mark\",\"text\":\"part of a line you wrote earlier\",\"kind\":\"highlight|underline|double|dotted|wavy|bracket|check|box|circle|star\",\"color\":\"teal\"} marks just the matched phrase. Notebook inks include rust, teal, ochre and indigo.\n"
             + "- {\"op\":\"divider\"}  a soft dashed line between parts.   {\"op\":\"space\",\"height\":40}  extra room.\n"
             + "COMPUTED VISUALS (the app calculates and draws these exactly; prefer them to drawing by hand)\n"
             + "- {\"op\":\"graph\",\"height\":460,\"x\":[-2,6],\"y\":[-3,7],\"functions\":[{\"expr\":\"x^2-5x+6\",\"label\":\"y = x² − 5x + 6\",\"color\":\"blue\"}],\"points\":[{\"at\":[2,0],\"label\":\"(2, 0)\"},{\"at\":[1,2],\"open\":true}],\"vlines\":[2.5],\"hlines\":[],"
@@ -54,17 +54,21 @@ public final class BoardScript {
             + "A PIECEWISE function is one entry per piece with its domain: {\"expr\":\"3x-2\",\"to\":1,\"toOpen\":true} and {\"expr\":\"x^2-3x+3\",\"from\":1} draw each piece only on its side, "
             + "with a hollow dot where an end is excluded and a filled dot where it is included, so continuity or a jump is seen at a glance.\n"
             + "- {\"op\":\"chart\",\"kind\":\"bar|line|pie\",\"title\":\"...\",\"labels\":[\"A\",\"B\",\"C\"],\"values\":[12,30,18],\"unit\":\"명\"}  numbers as bars, a line over time, or shares of a whole (up to " + BoardPlot.BARS + " values).\n"
-            + "- {\"op\":\"flow\",\"steps\":[\"조건 확인\",\"식 세우기\",{\"text\":\"답 구하기\",\"color\":\"red\"}],\"direction\":\"down|right\"}  a process, an algorithm, a chain of cause and effect, the plan of a solution, as boxes joined by arrows.\n"
+            + "- {\"op\":\"flow\",\"steps\":[\"조건 확인\",\"식 세우기\",{\"text\":\"답 구하기\",\"color\":\"rust\"}],\"direction\":\"right\"} writes a sequence as words joined by arrows. Longer sequences can run down.\n"
             + "- {\"op\":\"timeline\",\"events\":[{\"when\":\"1392\",\"what\":\"...\"}]}  events or stages in order down a line.\n"
             + "- {\"op\":\"tree\",\"root\":\"...\",\"children\":[{\"text\":\"...\",\"children\":[\"...\",\"...\"]}]}  one idea and its branches (a classification, a concept map, cases of a proof), up to " + BoardPlot.BRANCHES + " branches each with a few points.\n"
             + "- {\"op\":\"table\",\"header\":true,\"rows\":[[\"x\",\"−1\",\"0\",\"1\"],[\"f(x)\",\"3\",\"2\",\"1\"]]}  a ruled table (up to " + BoardPlot.ROWS + " rows, " + BoardPlot.COLUMNS + " columns): values, a sign chart, a comparison, a schedule, vocabulary.\n"
             + "- {\"op\":\"numberline\",\"from\":-3,\"to\":6,\"marks\":[{\"at\":1,\"label\":\"1\",\"open\":true}],\"ranges\":[{\"from\":1,\"to\":6,\"color\":\"red\"}]}  a number line for inequalities, intervals and ordering; "
             + "a range without \"from\" or \"to\" runs off that end.\n"
+            + "- For a graph with user-adjustable coefficients, add \"parameters\":{\"a\":{\"value\":1,\"min\":-3,\"max\":3,\"step\":0.1}} for expr such as \"a*x^2\", and a suitable \"y\" range. Parameter names are single letters other than x and e.\n"
+            + "- {\"op\":\"geometry\",\"vertices\":[[2,1],[8,1],[4.3,4.4]]} makes an editable polygon with side lengths, angles and area. Use a simple outline in order, x from 0 to 10 and y from 0 to 5 increasing upward.\n"
+            + "- {\"op\":\"solid\",\"kind\":\"cube\"} makes a rotatable cube, or use \"box\" for a rectangular prism. Set \"net\":true to unfold its faces.\n"
             + "FREE DRAWING\n"
             + "- {\"op\":\"figure\",\"height\":400,\"shapes\":[ ... ]}  a drawing in its own box 1000 units wide and `height` units tall (200 to 1200), origin at its top left. Shapes: "
             + "{\"kind\":\"line\",\"from\":[x,y],\"to\":[x,y]}, {\"kind\":\"arrow\",...}, {\"kind\":\"rect\",\"from\":[x,y],\"to\":[x,y]}, {\"kind\":\"oval\",\"from\":[x,y],\"to\":[x,y]} (fills that box), "
             + "{\"kind\":\"polygon\",\"points\":[[x,y],...]} (closed: triangles, quadrilaterals), {\"kind\":\"path\",\"points\":[[x,y],...]} (a free curve), {\"kind\":\"point\",\"at\":[x,y]}, "
             + "{\"kind\":\"arc\",\"center\":[x,y],\"radius\":40,\"from\":0,\"to\":60} (an angle's mark or part of a circle; degrees counter-clockwise from the right), {\"kind\":\"label\",\"at\":[x,y],\"text\":\"...\",\"size\":\"small\"}. "
+            + "Paths accept \"nib\":\"pen|pencil|brush|marker\" and a stroke \"width\" of 2–16. Use pencil for a construction line, brush for an expressive contour, marker for a transparent sweep. A line may use kind double, dotted, wavy or bracket. "
             + "Every shape may have \"color\" and \"dashed\":true; rect, oval and polygon may have \"fill\":true (tinted inside). Use it for geometry (label every vertex, side length and angle), force and circuit diagrams, "
             + "cells and apparatus, maps and anything the computed visuals cannot make. Keep a figure only as tall as it needs.\n"
             + (pictures > 0
@@ -72,7 +76,7 @@ public final class BoardScript {
                 + "- The board shows " + pictures + " picture" + (pictures > 1 ? "s" : "") + " (the problem photo or document pages you are given, numbered 1 to " + pictures + " from the top). "
                 + "{\"op\":\"annotate\",\"image\":1,\"shapes\":[ ... ]} draws ON that picture, as a tutor marks a workbook. Coordinates are in the picture's own box: 0 to 1000 across its width and 0 to 1000 down its height. "
                 + "Shapes: {\"kind\":\"circle\",\"box\":[x1,y1,x2,y2]} (an oval around something), {\"kind\":\"underline\",\"from\":[x,y],\"to\":[x,y]}, {\"kind\":\"box\",\"box\":[x1,y1,x2,y2]}, {\"kind\":\"highlight\",\"from\":[x,y],\"to\":[x,y]}, "
-                + "{\"kind\":\"arrow\",\"from\":[x,y],\"to\":[x,y]}, {\"kind\":\"cross\",\"box\":[x1,y1,x2,y2]}, {\"kind\":\"check\",\"at\":[x,y]}, {\"kind\":\"label\",\"at\":[x,y],\"text\":\"short note\"}. "
+                + "{\"kind\":\"arrow\",\"from\":[x,y],\"to\":[x,y]}, {\"kind\":\"cross\",\"box\":[x1,y1,x2,y2]}, {\"kind\":\"check\",\"at\":[x,y]}, {\"kind\":\"label\",\"at\":[x,y],\"text\":\"short note\"}. Lines on a picture also accept double, dotted, wavy or bracket as kind. "
                 + "Begin by marking on the picture what the problem gives and asks (circle the key numbers, underline the condition, note the unknown), then write the solution under it. "
                 + "Mark the answer choice on the picture at the end when there are choices. Keep notes on the picture short and in its margins or blank space so they do not cover its print.\n"
                 : "")
@@ -82,17 +86,18 @@ public final class BoardScript {
             + "Say what you are doing and why; do not just read the board aloud.\n"
             + "- The board carries what should stay (givens, each line of working, the answer); the voice carries the explanation.\n"
             + "- STYLE: this board is the notebook of a top student with beautiful handwriting, the kind classmates ask to borrow: neat, pretty and easy on the eye. "
-            + "Give it a clear shape (a heading for each part, numbered steps ①②③, a boxed note for what to remember, the answer in a note at the end). "
+            + "Group writing with spacing and alignment. Use open labels and arrows for relationships, a margin bracket for a side note, and a double underline on the answer. Use a frame when the learner requests it or its boundary carries meaning. "
             + "Use two or three colors with purpose and keep to them: black for working, blue for what is given or defined, pink or red for the key point and the answer, green for a check; marker (highlight) only on what must be remembered, "
-            + "a wavy underline for a condition that is easy to miss. A few emojis help the eye find things (📌 ⭐ 💡 ✅ ❗ 👉 ✏️) in headings, bullets and notes, one at a time, never in the middle of mathematics. "
+            + "a wavy underline for a condition that is easy to miss. Use an emoji sparingly and only away from mathematics. "
             + "Leave air between parts, and never decorate so much that the content is hard to read.\n"
-            + "- Solve problems completely and correctly: what is asked, every step of the working, a check where one is quick, and the answer boxed. With several problems, solve them in order, each starting with its number as a \"big\" line.\n"
+            + "- Solve problems completely and correctly: what is asked, every step of the working, a check where one is quick, and the final answer. With several problems, solve them in order, each starting with its number as a \"big\" line.\n"
             + "- For a lesson on a topic or a document, go from the big picture to the details: the outline first, then each part with an example and a visual where one helps, then a short recap.\n"
             + "- SHOW IT. A lesson of text alone is a failed lesson: every lesson has at least one visual, and most have two or three, placed at the step where it makes the idea click, not saved for the end. "
             + "A function, an equation's roots, a limit, continuity, a derivative or an integral: graph it (pieces with their domains, the key points marked, the region shaded). An inequality or an interval: a number line. "
             + "Values, cases, signs, a comparison, vocabulary, conjugations: a table. Quantities and shares: a chart. A procedure or a chain of reasoning: a flow. History or stages: a timeline. Kinds and parts: a tree. "
-            + "Geometry, physics, chemistry, biology: a labelled figure. After a visual appears, say in \"say\" what to look at in it.\n"
+            + "For static structures, use a labelled diagram. For parts that pair, move or stay connected across steps, use a scene with named objects and update it. After a visual appears, say in \"say\" what to look at in it.\n"
             + "- Keep the board tidy and compact like a good tutor's notes: short lines, aligned working (each line of a calculation under the last), no filler sentences on the board.\n"
+            + "- Use computed geometry and solid widgets when their measurements or rotation help the learner.\n"
             + "- Between 3 and " + STEPS + " steps. The board already shows what earlier lessons wrote (given to you as text); continue under it and do not repeat it unless asked.";
     }
     /** As above for a phone-sized board with no pictures. */
@@ -151,14 +156,14 @@ public final class BoardScript {
             y = bottom <= 0 ? Board.MARGIN : bottom + 3 * gap;
         }
         public float y() { return y; }
+        public void reflow(JSONArray items) {
+            y=Board.bottom(items,measure)+3*gap;
+            written.clear(); pictures.clear(); pictures.addAll(shown(items));
+            for(int i=0;i<items.length();i++) { JSONObject item=items.optJSONObject(i); if(item!=null && Board.TEXT.equals(item.optString("t"))) written.add(item); }
+        }
 
         /** The Board items of one step, in the order they are drawn. Operations the board does not know are left out. */
         public List<JSONObject> place(Step step) {
-            List<JSONObject> out = placed(step);
-            for (JSONObject item : out) Board.handwritten(item, hand);
-            return out;
-        }
-        private List<JSONObject> placed(Step step) {
             List<JSONObject> out = new ArrayList<>();
             for (JSONObject op : step.draw()) {
                 if (y > Board.DEEPEST - 2000) break;
@@ -171,73 +176,122 @@ public final class BoardScript {
                         String bullet = op.optString("bullet").strip(); if (bullet.codePointCount(0, bullet.length()) > 3) bullet = "";
                         if (!bullet.isEmpty()) { JSONObject mark = Board.handwritten(Board.text(left, y, bullet, size, op.optString("bulletColor").isBlank() ? op.optString("color") : op.optString("bulletColor"), false, 200, Board.AI), hand); out.add(mark); left = Board.bounds(mark, measure)[2] + size * .35f; }
                         float room = Board.WIDTH - Board.MARGIN - left;
-                        JSONObject item = Board.handwritten(Board.text(left, y, text, size, op.optString("color"), "title".equalsIgnoreCase(op.optString("size").strip()), room, Board.AI), hand);
+                        JSONObject item = Board.text(left, y, text, size, op.optString("color"), "title".equalsIgnoreCase(op.optString("size").strip()), room, Board.AI);
                         float[] b = Board.bounds(item, measure); written.add(item); out.add(item);
                         // Marker over the words, or a line under them, drawn after they are written as a student goes back over a note.
                         String marker = op.optString("highlight").strip();
-                        if (!marker.isEmpty() && !marker.equals("false")) out.add(band(b, marker.equals("true") ? "yellow" : marker, .78f));
+                        if (!marker.isEmpty() && !marker.equals("false")) for (float[] row : spans(item, 0, item.optString("text").length())) out.add(band(row, marker.equals("true") ? "yellow" : marker, .68f));
                         String under = op.opt("underline") == null ? "" : String.valueOf(op.opt("underline")).strip().toLowerCase(Locale.ROOT);
-                        if (under.equals("true") || under.equals("wavy")) { JSONObject line = Board.shape(Board.LINE, b[0], b[3] + 2, b[2], b[3] + 2, op.optString("underlineColor").isBlank() ? "red" : op.optString("underlineColor"), Math.max(2, size / 16), false, Board.AI); out.add(under.equals("wavy") ? Board.wavy(line) : line); }
-                        y = b[3] + gap + (under.isEmpty() || under.equals("false") ? 0 : size * .12f);
+                        if (List.of("true","double","dotted","wavy").contains(under)) for (float[] row : spans(item, 0, item.optString("text").length())) {
+                            out.add(BoardInk.mark(under, row[0], row[3] + 2, row[2], row[3] + 2, op.optString("underlineColor", "rust"), Math.max(2, size / 16), Board.AI));
+                        }
+                        y = b[3] + gap + (under.equals("double") ? size * .28f : under.isEmpty() || under.equals("false") ? 0 : size * .12f);
                     }
                     case "heading", "title" -> {
-                        // A section's name as it stands in a pretty notebook: bold, with marker along its lower half.
                         String text = op.optString("text").strip(); if (text.isEmpty()) continue;
                         float size = Board.BIG * scale; if (!out.isEmpty() || !written.isEmpty()) y += gap * 1.2f;
                         JSONObject item = Board.handwritten(Board.text(Board.MARGIN, y, text, size, op.optString("ink"), true, Board.WIDTH - 2 * Board.MARGIN, Board.AI), hand);
                         float[] b = Board.bounds(item, measure); written.add(item); out.add(item);
-                        float height = b[3] - b[1];
-                        out.add(Board.stroke(op.optString("color").isBlank() ? "yellow" : op.optString("color"), Math.min(Board.THICK, height * .46f), true, new float[]{b[0] - 4, b[1] + height * .7f, b[2] + 6, b[1] + height * .7f}, Board.AI));
+                        String accent = op.optString("accent", "short"), color = op.optString("color", "ochre");
+                        if (accent.equals("marker")) {
+                            for (float[] row : spans(item, 0, item.optString("text").length())) out.add(band(row, color, .74f));
+                        } else if (!accent.equals("plain")) {
+                            float end = Math.min(b[2], b[0] + size * 1.8f);
+                            out.add(Board.shape(Board.LINE, b[0], b[3]+1, end, b[3]-1, color, Math.max(2, size*.10f), false, Board.AI));
+                        }
                         y = b[3] + gap * 1.3f;
                     }
                     case "note", "callout", "box" -> {
-                        // Words to remember in a soft tinted box with round corners.
                         String text = op.optString("text").strip(); if (text.isEmpty()) continue;
-                        String kind = op.optString("kind").strip().toLowerCase(Locale.ROOT), color = op.optString("color").isBlank() ? (kind.equals("warn") ? "red" : kind.equals("tip") ? "green" : kind.equals("check") ? "blue" : "orange") : op.optString("color");
+                        String kind = op.optString("kind").strip().toLowerCase(Locale.ROOT);
+                        String color = op.optString("color", switch(kind) { case "tip", "check" -> "teal"; case "warn" -> "rust"; default -> "indigo"; });
                         float size = Board.NORMAL * scale * .95f, pad = size * .55f, top = y + gap * .6f, room = Board.WIDTH - 2 * Board.MARGIN - 2 * pad;
-                        JSONObject item = Board.handwritten(Board.text(Board.MARGIN + pad, top + pad * .7f, text, size, op.optString("ink"), false, room, Board.AI), hand);
+                        JSONObject item = Board.text(Board.MARGIN + pad, top + pad * .7f, text, size, op.optString("ink"), false, room, Board.AI);
                         float[] b = Board.bounds(item, measure);
-                        out.add(Board.rounded(Board.filled(Board.shape(Board.RECT, Board.MARGIN, top, Math.min(Board.WIDTH - Board.MARGIN, b[2] + pad), b[3] + pad * .7f, color, Math.max(1.5f, size / 22), false, Board.AI)), Math.min(22, size * .5f)));
+                        float x = Board.MARGIN, pen = Math.max(2, size / 12);
+                        if ("box".equalsIgnoreCase(op.optString("op"))) {
+                            out.add(Board.rounded(Board.shape(Board.RECT, x, top, Math.min(Board.WIDTH-x,b[2]+pad), b[3]+pad*.7f, color, pen*.62f, false, Board.AI), 8));
+                        } else if ("tip".equals(kind)) {
+                            out.add(BoardInk.mark("bracket", x, b[1]+2, x+pad*.52f, b[3]-2, color, pen, Board.AI));
+                        } else if ("check".equals(kind)) {
+                            out.add(BoardInk.mark("check", x-pad*.24f, b[1]+size*.22f, x+pad*.65f, b[1]+size*.80f, color, pen, Board.AI));
+                        } else if ("warn".equals(kind)) {
+                            out.add(Board.text(x-pad*.2f, b[1], "!", size, color, true, pad, Board.AI));
+                        } else {
+                            List<float[]> rows = spans(item, 0, item.optString("text").length());
+                            if (!rows.isEmpty()) {
+                                float[] last = rows.get(rows.size()-1);
+                                out.add(BoardInk.mark("double", last[0], last[3]+1, Math.min(last[2], last[0]+size*7), last[3]+1, color, Math.max(1.6f, pen*.65f), Board.AI));
+                            }
+                        }
                         written.add(item); out.add(item); y = b[3] + pad * .7f + gap * 1.2f;
                     }
                     case "divider", "line" -> { float at = y + gap * .8f; out.add(Board.dashed(Board.faint(Board.shape(Board.LINE, Board.MARGIN, at, Board.WIDTH - Board.MARGIN, at, Board.INK, 2.5f, false, Board.AI)))); y = at + gap * 1.4f; }
-                    case "figure", "draw" -> {
-                        float height = Math.max(120, Math.min(1200, (float) op.optDouble("height", 400))), top = y + figureGap; JSONArray shapes = op.optJSONArray("shapes");
-                        for (int i = 0; shapes != null && i < shapes.length() && i < FIGURE_SHAPES; i++) { JSONObject item = shape(shapes.optJSONObject(i), top, height); if (item != null) out.add(item); }
-                        y = top + height + figureGap;
+                    case "figure", "draw" -> figure(out, op);
+                    case "mark" -> out.addAll(mark(op));
+                    case "annotate" -> {
+                        List<JSONObject> marks = annotate(op);
+                        if (marks.isEmpty()) missing(out, "자료에 표시할 위치를 찾지 못했어요."); else out.addAll(marks);
                     }
-                    case "mark" -> { JSONObject item = mark(op); if (item != null) out.add(item); }
-                    case "graph", "plot" -> {
-                        // The asked height is the plot's own; its legend's rows come on top of it.
-                        float height = Math.max(260, Math.min(900, (float) op.optDouble("height", 460))) * BoardPlot.compact(scale) + BoardPlot.legendHeight(op, scale), top = y + figureGap;
-                        out.addAll(BoardPlot.graph(op, top, height, scale)); y = top + height + figureGap;
-                    }
-                    case "table" -> {
-                        JSONArray rows = op.optJSONArray("rows"); float size = Board.SMALL * scale, top = y + gap;
-                        List<JSONObject> made = BoardPlot.table(rows, op.optBoolean("header", true), top, size, (words, s, bold, room) -> measure.size(words, s, bold, room, hand));
-                        if (!made.isEmpty()) { out.addAll(made); y = top + BoardPlot.tableHeight(rows.length(), size) + figureGap; }
-                    }
-                    case "numberline", "number_line" -> { float top = y + gap; out.addAll(BoardPlot.numberLine(op, top, scale)); y = top + BoardPlot.LINE_HEIGHT + gap; }
-                    case "annotate" -> out.addAll(annotate(op));
                     case "space" -> y += Math.max(0, Math.min(400, (float) op.optDouble("height", 40))) * Math.max(.45f, Math.min(1.4f, scale));
-                    case "chart" -> flowed(out, BoardPlot.chart(op, y + figureGap, scale, handMeasure()));
-                    case "flow", "steps" -> flowed(out, BoardPlot.flow(op, y + figureGap, scale, handMeasure()));
-                    case "timeline" -> flowed(out, BoardPlot.timeline(op, y + figureGap, scale, handMeasure()));
-                    case "tree", "mindmap" -> flowed(out, BoardPlot.tree(op, y + figureGap, scale, handMeasure()));
-                    default -> { }
+                    case "graph", "plot" -> widget(out, BoardWidget.GRAPH, op);
+                    case "table" -> widget(out, BoardWidget.TABLE, op);
+                    case "numberline", "number_line" -> widget(out, BoardWidget.NUMBER_LINE, op);
+                    case "chart" -> widget(out, BoardWidget.CHART, op);
+                    case "flow", "steps" -> widget(out, BoardWidget.FLOW, op);
+                    case "timeline" -> widget(out, BoardWidget.TIMELINE, op);
+                    case "tree", "mindmap" -> widget(out, BoardWidget.TREE, op);
+                    case "geometry" -> widget(out, BoardWidget.GEOMETRY, op);
+                    case "solid" -> widget(out, BoardWidget.SOLID, op);
+                    case "relation","map","diagram","scene","chemistry","reading","finitefield" -> widget(out, op.optString("op"), op);
+                    case "update" -> {} // applied to existing material by the teacher before placement
+                    default -> missing(out, "이 단계의 그리기 도구를 사용할 수 없어요.");
                 }
             }
             return out;
         }
-        /** The board's measure in the letters this lesson is written in. */
-        private Board.Measure handMeasure() { return (words, s, bold, room) -> measure.size(words, s, bold, room, hand); }
-        private void flowed(List<JSONObject> out, BoardPlot.Made made) { if (made.items().isEmpty()) return; out.addAll(made.items()); y += figureGap + made.height() + figureGap; }
+        private void widget(List<JSONObject> out, String kind, JSONObject op) {
+            JSONObject item = BoardWidget.make(kind, op, y + figureGap, scale, Board.AI, measure);
+            if (item == null) { missing(out, BoardWidget.name(kind) + "에 그릴 내용이 없어요."); return; }
+            if (op.has("_wid")) Jsons.put(item,"wid",op.optString("_wid"));
+            out.add(item); y = Board.bounds(item, measure)[3] + figureGap;
+        }
+        private void missing(List<JSONObject> out, String text) {
+            JSONObject item = Board.text(Board.MARGIN, y, text, Board.SMALL * scale, "red", false, Board.WIDTH - 2 * Board.MARGIN, Board.AI);
+            out.add(item); y = Board.bounds(item, measure)[3] + gap;
+        }
+        private void figure(List<JSONObject> out, JSONObject op) {
+            float height = Math.max(120, Math.min(1200, (float) op.optDouble("height", 400)));
+            JSONArray shapes = op.optJSONArray("shapes");
+            List<JSONObject> made = new ArrayList<>();
+            float top = Float.POSITIVE_INFINITY, bottom = Float.NEGATIVE_INFINITY;
+            for (int i = 0; shapes != null && i < Math.min(shapes.length(), FIGURE_SHAPES); i++) {
+                JSONObject item = shape(shapes.optJSONObject(i), 0, height);
+                if (item == null) continue;
+                float[] bounds = Board.bounds(item, measure);
+                top = Math.min(top, bounds[1]); bottom = Math.max(bottom, bounds[3]); made.add(item);
+            }
+            if (made.isEmpty()) { missing(out, "도식에 그릴 내용이 없어요."); return; }
+            float offset = y + figureGap - top;
+            for (JSONObject item : made) Board.shift(item, offset);
+            out.addAll(made);
+            y += bottom - top + 2 * figureGap;
+        }
+        private List<float[]> spans(JSONObject item, int start, int end) {
+            float left = (float) item.optDouble("x"), top = (float) item.optDouble("y");
+            List<float[]> result = new ArrayList<>();
+            for (float[] row : measure.spans(item.optString("text"), (float) item.optDouble("s"), item.optBoolean("b"),
+                (float) item.optDouble("mw"), item.optBoolean("hand"), start, end)) {
+                result.add(new float[]{left + row[0], top + row[1], left + row[2], top + row[3]});
+            }
+            return result;
+        }
         /** A stroke of marker across a text's box, at part of its height. */
         private static JSONObject band(float[] b, String color, float share) {
             float height = b[3] - b[1], middle = (b[1] + b[3]) / 2;
             return Board.stroke(color, Math.min(Board.THICK, height * share), true, new float[]{b[0] - 3, middle, b[2] + 3, middle}, Board.AI);
         }
-        private JSONObject shape(JSONObject shape, float top, float height) {
+        JSONObject shape(JSONObject shape, float top, float height) {
             if (shape == null) return null;
             String kind = shape.optString("kind").strip().toLowerCase(Locale.ROOT), color = shape.optString("color");
             JSONArray from = shape.optJSONArray("from"), to = shape.optJSONArray("to");
@@ -248,7 +302,9 @@ public final class BoardScript {
         }
         private JSONObject shaped(JSONObject shape, String kind, String color, JSONArray from, JSONArray to, float x1, float y1, float x2, float y2, float top, float height) {
             switch (kind) {
-                case "line", "arrow" -> { return from == null || to == null ? null : Board.shape(Board.LINE, x1, y1, x2, y2, color, 5, kind.equals("arrow"), Board.AI); }
+                case "line", "arrow", "double", "dotted", "wavy", "bracket", "check" -> {
+                    return from == null || to == null ? null : BoardInk.mark(kind, x1, y1, x2, y2, color, strokeWidth(shape), Board.AI);
+                }
                 case "rect", "box" -> { return from == null || to == null ? null : Board.shape(Board.RECT, x1, y1, x2, y2, color, 5, false, Board.AI); }
                 case "oval", "circle", "ellipse" -> { return from == null || to == null ? null : Board.shape(Board.OVAL, x1, y1, x2, y2, color, 5, false, Board.AI); }
                 case "path", "curve", "polygon" -> {
@@ -256,15 +312,18 @@ public final class BoardScript {
                     boolean closed = kind.equals("polygon") && points.length() >= 3; int count = Math.min(points.length(), 600); float[] flat = new float[(count + (closed ? 1 : 0)) * 2];
                     for (int i = 0; i < count; i++) { JSONArray point = points.optJSONArray(i); flat[2 * i] = inside(number(point, 0), Board.WIDTH); flat[2 * i + 1] = top + inside(number(point, 1), height); }
                     if (closed) { flat[2 * count] = flat[0]; flat[2 * count + 1] = flat[1]; }
-                    JSONObject made = Board.stroke(color, 5, false, flat, Board.AI);
+                    String nib = shape.optString("nib", BoardInk.PEN);
+                    if (closed || !BoardInk.freehand(nib)) nib = BoardInk.PEN;
+                    JSONObject made = BoardInk.stroke(nib, color, strokeWidth(shape), flat, null, Board.AI);
                     // A polygon's corners stay corners: it is drawn with straight sides.
                     if (kind.equals("polygon")) Jsons.put(made, "sharp", true);
                     return made;
                 }
                 case "label", "text" -> {
                     String text = shape.optString("text").strip(); JSONArray at = shape.optJSONArray("at"); if (text.isEmpty() || at == null) return null;
-                    float left = inside(number(at, 0), Board.WIDTH), size = (shape.optString("size").isBlank() ? Board.SMALL : size(shape.optString("size"))) * scale;
-                    return Board.text(left, top + inside(number(at, 1), height), text, size, color, false, Math.max(120, Board.WIDTH - left), Board.AI);
+                    float left = Math.max(Board.MARGIN, Math.min(Board.WIDTH - Board.MARGIN - 100, inside(number(at, 0), Board.WIDTH)));
+                    float size = (shape.optString("size").isBlank() ? Board.SMALL : size(shape.optString("size"))) * scale;
+                    return Board.text(left, top + inside(number(at, 1), height), text, size, color, false, Board.WIDTH - Board.MARGIN - left, Board.AI);
                 }
                 case "point", "dot" -> {
                     JSONArray at = shape.optJSONArray("at"); if (at == null) return null;
@@ -283,6 +342,9 @@ public final class BoardScript {
             }
         }
         private static float inside(float value, float most) { return Float.isNaN(value) ? 0 : Math.max(0, Math.min(most, value)); }
+        private float strokeWidth(JSONObject shape) {
+            return (float) Math.max(2, Math.min(16, shape.optDouble("width", 5)));
+        }
         /**
          * Marks on one of the board's pictures. A shape's coordinates run 0 to 1000 across the picture and 0 to 1000
          * down it, whatever its size on the board; a picture number the board does not have draws nothing.
@@ -300,7 +362,7 @@ public final class BoardScript {
                 switch (kind) {
                     case "circle", "oval" -> { if (box != null) out.add(Board.shape(Board.OVAL, x1 - 6, y1 - 6, x2 + 6, y2 + 6, color, pen, false, Board.AI)); }
                     case "box", "rect" -> { if (box != null) out.add(Board.shape(Board.RECT, x1 - 4, y1 - 4, x2 + 4, y2 + 4, color, pen, false, Board.AI)); }
-                    case "underline", "line" -> { if (from != null && to != null) out.add(Board.shape(Board.LINE, x1, y1, x2, y2, color, pen, false, Board.AI)); }
+                    case "underline", "line", "double", "dotted", "wavy", "bracket" -> { if (from != null && to != null) out.add(BoardInk.mark(kind, x1, y1, x2, y2, color, pen, Board.AI)); }
                     case "arrow" -> { if (from != null && to != null) out.add(Board.shape(Board.LINE, x1, y1, x2, y2, color, pen, true, Board.AI)); }
                     case "highlight" -> { if (from != null && to != null) out.add(Board.stroke(shape.optString("color").isBlank() ? "orange" : color, Math.max(16, Math.min(Board.THICK, h / 28)), true, new float[]{x1, y1, x2, y2}, Board.AI)); }
                     case "cross" -> { if (box != null) { out.add(Board.shape(Board.LINE, x1, y1, x2, y2, color, pen, false, Board.AI)); out.add(Board.shape(Board.LINE, x1, y2, x2, y1, color, pen, false, Board.AI)); } }
@@ -314,23 +376,38 @@ public final class BoardScript {
                     default -> { }
                 }
             }
+            for (JSONObject item : out) Jsons.put(item, "on", pictures.get(number - 1).optString("id"));
             return out;
         }
-        /** The most recent line of this lesson that holds the words, underlined, boxed or highlighted. */
-        private JSONObject mark(JSONObject op) {
-            String words = op.optString("text").strip(), kind = op.optString("kind").strip().toLowerCase(Locale.ROOT); if (words.isEmpty()) return null;
+        /** Marks only the matching phrase, one line at a time when the phrase wraps. */
+        private List<JSONObject> mark(JSONObject op) {
+            String words = op.optString("text").strip(), kind = op.optString("kind").strip().toLowerCase(Locale.ROOT); if (words.isEmpty()) return List.of();
             for (int i = written.size() - 1; i >= 0; i--) {
-                JSONObject line = written.get(i); if (!line.optString("text").contains(words)) continue;
-                float[] b = Board.bounds(line, measure); String color = op.optString("color").isBlank() ? "red" : op.optString("color");
-                float pad = Math.max(4, (b[3] - b[1]) * .16f), pen = Math.max(2, Math.min(4, (b[3] - b[1]) / 14));
-                if (kind.equals("box")) return Board.rounded(Board.shape(Board.RECT, b[0] - pad * 1.6f, b[1] - pad * .5f, b[2] + pad * 1.6f, b[3] + pad * .4f, color, pen, false, Board.AI), Math.min(18, (b[3] - b[1]) * .3f));
-                if (kind.equals("highlight")) return band(b, op.optString("color").isBlank() ? "yellow" : color, .78f);
-                if (kind.equals("circle")) return Board.shape(Board.OVAL, b[0] - pad * 2, b[1] - pad * .7f, b[2] + pad * 2, b[3] + pad * .7f, color, pen, false, Board.AI);
-                if (kind.equals("star")) return Board.handwritten(Board.text(b[2] + pad * 2, b[1], "⭐", (float) line.optDouble("s", Board.NORMAL) * .9f, color, false, 120, Board.AI), hand);
-                JSONObject under = Board.shape(Board.LINE, b[0], b[3] + 2, b[2], b[3] + 2, color, pen, false, Board.AI);
-                return kind.equals("wavy") ? Board.wavy(under) : under;
+                JSONObject line = written.get(i);
+                int match = line.optString("text").lastIndexOf(words);
+                if (match < 0) continue;
+                List<JSONObject> out = new ArrayList<>();
+                String color = op.optString("color").isBlank() ? "red" : op.optString("color");
+                List<float[]> rows = spans(line, match, match + words.length());
+                if (!rows.isEmpty() && (kind.equals("bracket") || kind.equals("check"))) {
+                    float[] first = rows.get(0), last = rows.get(rows.size()-1);
+                    float size = (float) line.optDouble("s", Board.NORMAL), left = (float) line.optDouble("x") - size*.53f;
+                    return List.of(BoardInk.mark(kind, left, first[1]+size*.15f, left+size*.33f,
+                        kind.equals("bracket") ? last[3]-size*.08f : first[1]+size*.72f, color, Math.max(2.1f,size/12), Board.AI));
+                }
+                for (float[] b : rows) {
+                    float pad = Math.max(4, (b[3] - b[1]) * .16f), pen = Math.max(2, Math.min(4, (b[3] - b[1]) / 14));
+                    out.add(switch (kind) {
+                        case "box" -> Board.rounded(Board.shape(Board.RECT, b[0] - pad, b[1] - pad * .5f, b[2] + pad, b[3] + pad * .4f, color, pen, false, Board.AI), 14);
+                        case "highlight" -> band(b, op.optString("color").isBlank() ? "yellow" : color, .62f);
+                        case "circle" -> Board.shape(Board.OVAL, b[0] - pad * 2, b[1] - pad * .7f, b[2] + pad * 2, b[3] + pad * .7f, color, pen, false, Board.AI);
+                        case "star" -> Board.text(Math.min(Board.WIDTH - Board.MARGIN, b[2] + pad), b[1], "★", (float) line.optDouble("s", Board.NORMAL) * .9f, color, false, 80, Board.AI);
+                        default -> BoardInk.mark(kind, b[0], b[3]+2, b[2], b[3]+2, color, pen, Board.AI);
+                    });
+                }
+                return out;
             }
-            return null;
+            return List.of();
         }
     }
 
@@ -341,6 +418,7 @@ public final class BoardScript {
         return Math.max(300, Math.min(20_000, total));
     }
     public static long itemMillis(JSONObject item) {
+        if (Board.WIDGET.equals(item.optString("t"))) return 850;
         if (Board.TEXT.equals(item.optString("t"))) return Math.max(250, Math.min(6_000, item.optString("text").length() * 55L));
         if (Board.STROKE.equals(item.optString("t"))) { JSONArray p = item.optJSONArray("p"); return Math.max(350, Math.min(2_500, (p == null ? 0 : p.length() / 2) * 25L)); }
         return 450;

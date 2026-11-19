@@ -1,6 +1,7 @@
 package dev.jun.gyeot.core;
 
 import java.util.Locale;
+import java.util.List;
 import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -18,17 +19,17 @@ public final class Board {
     public static final int WIDTH = 1000;
     /** The page's side margin, and how far one step of indent moves text. */
     public static final int MARGIN = 48, INDENT = 48;
-    public static final String STROKE = "stroke", TEXT = "text", LINE = "line", RECT = "rect", OVAL = "oval", IMAGE = "image";
+    public static final String STROKE = "stroke", TEXT = "text", LINE = "line", RECT = "rect", OVAL = "oval", IMAGE = "image", WIDGET = "widget";
     /** A picture's file name inside the boards folder: the board's id, a number, and its kind. */
     public static final java.util.regex.Pattern IMAGE_NAME = java.util.regex.Pattern.compile("[a-z0-9]{6,16}-[0-9]{1,4}\\.(jpg|png)");
     /** Who put an item on the board. */
     public static final String ME = "me", AI = "ai";
     public static final String INK = "ink";
-    public static final String[] COLORS = {INK, "red", "pink", "orange", "yellow", "green", "blue", "purple"};
+    public static final String[] COLORS = {INK, "rust", "teal", "ochre", "indigo", "red", "pink", "orange", "yellow", "green", "blue", "purple"};
     /** Text sizes in board units: a phone shows WIDTH units across, so NORMAL reads like body text. */
     public static final float TITLE = 68, BIG = 56, NORMAL = 46, SMALL = 36;
     /** The thickest and thinnest line, the longest text of one item, the most points of one stroke and the most items. */
-    public static final float THIN = 1, THICK = 60;
+    public static final float THIN = 1, THICK = 60, MIN_TEXT_WIDTH = 18;
     public static final int TEXT_LIMIT = 2000, POINTS = 4000, ITEMS = 6000;
     /** The board never grows past this. */
     public static final float DEEPEST = 200_000;
@@ -39,6 +40,13 @@ public final class Board {
         float[] size(String text, float size, boolean bold, float maxWidth);
         /** As above for text in the handwriting letters (hand) or the print ones; a measure with one kind of letters has one answer. */
         default float[] size(String text, float size, boolean bold, float maxWidth, boolean hand) { return size(text, size, bold, maxWidth); }
+        default List<float[]> spans(String text, float size, boolean bold, float maxWidth, boolean hand, int start, int end) {
+            float[] whole = size(text, size, bold, maxWidth, hand);
+            float[] before = size(text.substring(0, start), size, bold, maxWidth, hand);
+            float[] selected = size(text.substring(start, end), size, bold, maxWidth, hand);
+            if (whole[1] > selected[1] || before[0] + selected[0] > maxWidth) return List.of(new float[]{0, 0, whole[0], whole[1]});
+            return List.of(new float[]{before[0], 0, before[0] + selected[0], selected[1]});
+        }
     }
     /** A measure for places without a screen: every letter is 0.6 of the size wide (0.95 for wide scripts), lines 1.4 apart. */
     public static final Measure ROUGH = (text, size, bold, maxWidth) -> {
@@ -70,6 +78,8 @@ public final class Board {
     }
     /** Copies what marks an item as part of a lesson, and its dashes, from a stored item. */
     private static JSONObject tagged(JSONObject made, JSONObject from) {
+        BoardInk.restore(made, from);
+        if (WIDGET.equals(made.optString("t")) && from.optString("wid").matches("[a-zA-Z0-9_-]{1,40}")) Jsons.put(made,"wid",from.optString("wid"));
         String lesson = from.optString("ls");
         if (lesson.matches("[a-z0-9]{1,12}")) { Jsons.put(made, "ls", lesson); Jsons.put(made, "st", Math.max(0, Math.min(999, from.optInt("st")))); }
         if (from.optBoolean("d") && !TEXT.equals(made.optString("t")) && !IMAGE.equals(made.optString("t"))) Jsons.put(made, "d", true);
@@ -80,6 +90,7 @@ public final class Board {
         if (from.optBoolean("bare") && made.optBoolean("fill")) Jsons.put(made, "bare", true);
         if (RECT.equals(made.optString("t")) && from.optDouble("r", 0) > 0) Jsons.put(made, "r", round(clamp(from.optDouble("r"), 0, 80)));
         if (from.optBoolean("wavy") && LINE.equals(made.optString("t"))) Jsons.put(made, "wavy", true);
+        if (IMAGE_NAME.matcher(from.optString("on")).matches()) Jsons.put(made, "on", from.optString("on"));
         return made;
     }
     /** Marks an item as written in a lesson's step. */
@@ -111,7 +122,9 @@ public final class Board {
         for (int i = 0; i < out.length(); i++) {
             JSONObject item = out.optJSONObject(i); float[] b = bounds(items.optJSONObject(i), measure); float cx = (b[0] + b[2]) / 2, cy = (b[1] + b[3]) / 2;
             if (i == index) { Jsons.put(item, "w", round(width * f)); Jsons.put(item, "h", round(height * f)); continue; }
-            boolean on = !IMAGE.equals(item.optString("t")) && cx >= box[0] - 12 && cx <= box[2] + 12 && cy >= box[1] - 12 && cy <= box[3] + 12;
+            String target = item.optString("on");
+            boolean on = !IMAGE.equals(item.optString("t")) && !WIDGET.equals(item.optString("t"))
+                && (!target.isEmpty() ? picture.optString("id").equals(target) : cx >= box[0] - 12 && cx <= box[2] + 12 && cy >= box[1] - 12 && cy <= box[3] + 12);
             if (on) scale(item, box[0], box[1], f); else if (b[1] >= box[3] - 2) shift(item, down);
         }
         return out;
@@ -124,18 +137,38 @@ public final class Board {
             Jsons.put(item, "p", next); Jsons.put(item, "w", round(clamp(item.optDouble("w", 6) * f, THIN, THICK)));
         } else if (TEXT.equals(type)) {
             Jsons.put(item, "x", round(ox + ((float) item.optDouble("x") - ox) * f)); Jsons.put(item, "y", round(oy + ((float) item.optDouble("y") - oy) * f));
-            Jsons.put(item, "s", round(clamp(item.optDouble("s", NORMAL) * f, 16, 160))); Jsons.put(item, "mw", round(clamp(item.optDouble("mw", WIDTH) * f, 80, WIDTH)));
+            Jsons.put(item, "s", round(clamp(item.optDouble("s", NORMAL) * f, 16, 160))); Jsons.put(item, "mw", round(clamp(item.optDouble("mw", WIDTH) * f, MIN_TEXT_WIDTH, WIDTH)));
         } else {
             for (String key : new String[]{"x1", "x2"}) Jsons.put(item, key, round(ox + ((float) item.optDouble(key) - ox) * f));
             for (String key : new String[]{"y1", "y2"}) Jsons.put(item, key, round(oy + ((float) item.optDouble(key) - oy) * f));
             Jsons.put(item, "w", round(clamp(item.optDouble("w", 6) * f, THIN, THICK)));
         }
     }
-    private static void shift(JSONObject item, float down) {
+    static void shift(JSONObject item, float down) {
         String type = item.optString("t");
         if (STROKE.equals(type)) { JSONArray p = item.optJSONArray("p"), next = arr(); for (int k = 0; p != null && k + 1 < p.length(); k += 2) { put(next, p.optDouble(k)); put(next, round(y((float) p.optDouble(k + 1) + down))); } Jsons.put(item, "p", next); }
-        else if (TEXT.equals(type) || IMAGE.equals(type)) Jsons.put(item, "y", round(y((float) item.optDouble("y") + down)));
+        else if (TEXT.equals(type) || IMAGE.equals(type) || WIDGET.equals(type)) Jsons.put(item, "y", round(y((float) item.optDouble("y") + down)));
         else { Jsons.put(item, "y1", round(y((float) item.optDouble("y1") + down))); Jsons.put(item, "y2", round(y((float) item.optDouble("y2") + down))); }
+    }
+
+    /** Keeps the lesson link and pushes items below an edited widget out of the way. */
+    public static JSONArray editedWidget(JSONArray items, JSONObject old, JSONObject updated, Measure measure) {
+        if (old == null || updated == null || !WIDGET.equals(old.optString("t"))) return items;
+        float bottom = bounds(old, measure)[3], delta = bounds(updated, measure)[3] - bottom;
+        tagged(updated, old);
+        JSONArray next = arr();
+        boolean found = false;
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject item = items.optJSONObject(i);
+            if (item == null) continue;
+            if (item == old) { next.put(updated); found = true; }
+            else if (Math.abs(delta) > .5f && bounds(item, measure)[1] >= bottom - .5f) {
+                JSONObject moved = BoardWidget.copy(item);
+                shift(moved, delta);
+                next.put(moved);
+            } else next.put(item);
+        }
+        return found ? next : items;
     }
 
     /** Marks a text as written in the handwriting letters. */
@@ -150,7 +183,7 @@ public final class Board {
         String clean = text == null ? "" : text.replace("\r", "").strip();
         if (clean.length() > TEXT_LIMIT) clean = clean.substring(0, TEXT_LIMIT);
         return obj("t", TEXT, "x", round(x(left)), "y", round(y(top)), "text", clean, "s", round(clamp(size, 16, 160)), "c", color(color), "b", bold,
-            "mw", round(clamp(maxWidth, 80, WIDTH)), "by", who(by));
+            "mw", round(clamp(maxWidth, MIN_TEXT_WIDTH, WIDTH)), "by", who(by));
     }
     /** type is LINE, RECT or OVAL; arrow gives a LINE an arrowhead at its second point. */
     public static JSONObject shape(String type, float x1, float y1, float x2, float y2, String color, float width, boolean arrow, String by) {
@@ -182,6 +215,10 @@ public final class Board {
             } else if (IMAGE.equals(type)) {
                 if (!IMAGE_NAME.matcher(item.optString("id")).matches()) continue;
                 out.put(tagged(image(item.optString("id"), (float) item.optDouble("x", MARGIN), (float) item.optDouble("y", 0), (float) item.optDouble("w", WIDTH - 2 * MARGIN), (float) item.optDouble("h", 400), by), item));
+            } else if (WIDGET.equals(type)) {
+                JSONObject made = BoardWidget.stored(item.optString("kind"), item.optJSONObject("spec"),
+                    (float) item.optDouble("y", 0), (float) item.optDouble("scale", .85), (float) item.optDouble("h", 48), by);
+                if (made != null) out.put(tagged(made, item));
             }
         }
         return out;
@@ -190,6 +227,10 @@ public final class Board {
     /** {left, top, right, bottom} of one item. */
     public static float[] bounds(JSONObject item, Measure measure) {
         String type = item.optString("t");
+        if (WIDGET.equals(type)) {
+            float top = (float) item.optDouble("y", 0);
+            return new float[]{MARGIN / 2f, top, WIDTH - MARGIN / 2f, top + (float) item.optDouble("h", 48)};
+        }
         if (IMAGE.equals(type)) { float left = (float) item.optDouble("x"), top = (float) item.optDouble("y"); return new float[]{left, top, left + (float) item.optDouble("w"), top + (float) item.optDouble("h")}; }
         if (TEXT.equals(type)) {
             float left = (float) item.optDouble("x"), top = (float) item.optDouble("y");
@@ -203,6 +244,11 @@ public final class Board {
             return l > r ? new float[]{0, 0, 0, 0} : new float[]{l - half, t - half, r + half, b + half};
         }
         float x1 = (float) item.optDouble("x1"), y1 = (float) item.optDouble("y1"), x2 = (float) item.optDouble("x2"), y2 = (float) item.optDouble("y2"), half = (float) item.optDouble("w", 6) / 2;
+        if (BoardInk.DOUBLE.equals(item.optString("rule"))) {
+            float[] d = BoardInk.doubleOffset(x1, y1, x2, y2, half * 2);
+            return new float[]{Math.min(x1,x2)+Math.min(0,d[0])-half, Math.min(y1,y2)+Math.min(0,d[1])-half,
+                Math.max(x1,x2)+Math.max(0,d[0])+half, Math.max(y1,y2)+Math.max(0,d[1])+half};
+        }
         return new float[]{Math.min(x1, x2) - half, Math.min(y1, y2) - half, Math.max(x1, x2) + half, Math.max(y1, y2) + half};
     }
     /** The lowest point anything reaches; 0 for an empty board. */
@@ -210,6 +256,30 @@ public final class Board {
         float lowest = 0;
         for (int i = 0; items != null && i < items.length(); i++) { JSONObject item = items.optJSONObject(i); if (item != null) lowest = Math.max(lowest, bounds(item, measure)[3]); }
         return lowest;
+    }
+
+    /** Page boundaries cover the whole board and prefer a gap over splitting a regular-sized item. */
+    public static List<Float> pageEnds(JSONArray items, Measure measure, float span) {
+        List<Float> pages = new java.util.ArrayList<>();
+        List<float[]> boxes = new java.util.ArrayList<>();
+        float height = bottom(items, measure) + MARGIN;
+        if (span < 16 || !Float.isFinite(span) || height <= MARGIN) return pages;
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject item = items.optJSONObject(i);
+            if (item != null) boxes.add(bounds(item, measure));
+        }
+        for (float top = 0; top < height;) {
+            float bottom = Math.min(height, top + span);
+            if (bottom < height) {
+                float candidate = bottom;
+                for (float[] box : boxes) if (box[1] > top + span * .38f && box[1] < bottom && box[3] > bottom) {
+                    candidate = Math.min(candidate, box[1] - 5);
+                }
+                bottom = candidate;
+            }
+            pages.add(bottom); top = bottom;
+        }
+        return pages;
     }
 
     private static float distance(float px, float py, float ax, float ay, float bx, float by) {
@@ -221,7 +291,7 @@ public final class Board {
     /** How far a point is from an item's ink: 0 inside a text's box, the distance to the nearest part of a line otherwise. */
     public static float distance(JSONObject item, float px, float py, Measure measure) {
         String type = item.optString("t");
-        if (TEXT.equals(type) || IMAGE.equals(type)) {
+        if (TEXT.equals(type) || IMAGE.equals(type) || WIDGET.equals(type)) {
             float[] b = bounds(item, measure);
             float dx = Math.max(0, Math.max(b[0] - px, px - b[2])), dy = Math.max(0, Math.max(b[1] - py, py - b[3]));
             return (float) Math.sqrt(dx * dx + dy * dy);
@@ -234,7 +304,14 @@ public final class Board {
             return nearest;
         }
         float x1 = (float) item.optDouble("x1"), y1 = (float) item.optDouble("y1"), x2 = (float) item.optDouble("x2"), y2 = (float) item.optDouble("y2");
-        if (LINE.equals(type)) return distance(px, py, x1, y1, x2, y2);
+        if (LINE.equals(type)) {
+            float nearest = distance(px, py, x1, y1, x2, y2);
+            if (BoardInk.DOUBLE.equals(item.optString("rule"))) {
+                float[] d = BoardInk.doubleOffset(x1, y1, x2, y2, (float) item.optDouble("w", 6));
+                nearest = Math.min(nearest, distance(px, py, x1+d[0], y1+d[1], x2+d[0], y2+d[1]));
+            }
+            return nearest;
+        }
         if (RECT.equals(type)) return Math.min(Math.min(distance(px, py, x1, y1, x2, y1), distance(px, py, x2, y1, x2, y2)), Math.min(distance(px, py, x2, y2, x1, y2), distance(px, py, x1, y2, x1, y1)));
         float cx = (x1 + x2) / 2, cy = (y1 + y2) / 2, rx = Math.max(1, Math.abs(x2 - x1) / 2), ry = Math.max(1, Math.abs(y2 - y1) / 2);
         // An oval's outline: how far the point is from the rim along its own direction from the centre.
@@ -262,10 +339,14 @@ public final class Board {
     /** The board's words from top to bottom, for a model that cannot see it; at most limit characters, the newest kept. */
     public static String words(JSONArray items, int limit) {
         java.util.List<JSONObject> texts = new java.util.ArrayList<>();
-        for (int i = 0; items != null && i < items.length(); i++) { JSONObject item = items.optJSONObject(i); if (item != null && TEXT.equals(item.optString("t")) && !item.optString("text").isBlank()) texts.add(item); }
+        for (int i = 0; items != null && i < items.length(); i++) {
+            JSONObject item = items.optJSONObject(i);
+            if (item != null && (WIDGET.equals(item.optString("t")) || TEXT.equals(item.optString("t")) && !item.optString("text").isBlank())) texts.add(item);
+        }
         texts.sort((a, b) -> { int byRow = Double.compare(a.optDouble("y"), b.optDouble("y")); return byRow != 0 ? byRow : Double.compare(a.optDouble("x"), b.optDouble("x")); });
         StringBuilder out = new StringBuilder();
-        for (JSONObject text : texts) out.append(out.length() == 0 ? "" : "\n").append(text.optString("text"));
+        for (JSONObject text : texts) out.append(out.length() == 0 ? "" : "\n")
+            .append(WIDGET.equals(text.optString("t")) ? BoardWidget.description(text) : text.optString("text"));
         return out.length() <= limit ? out.toString() : "…" + out.substring(out.length() - Math.max(0, limit - 1));
     }
     /** "자료 1 · 글 12 · 그림 30" for a list of boards; "빈 판" when there is nothing. */

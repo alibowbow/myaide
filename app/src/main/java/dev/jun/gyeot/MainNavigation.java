@@ -23,7 +23,7 @@ final class MainNavigation extends LinearLayout {
     MainNavigation(Activity activity,View content,String selected,Consumer<String> route){this(activity,content,selected,route,true);}
     /** Secondary screens keep their existing toolbar/insets; only tablet navigation is added. */
     MainNavigation(Activity activity,View content,String selected,Consumer<String> route,boolean primaryScreen){
-        super(activity);this.activity=activity;this.route=route;this.selected=selected;this.primaryScreen=primaryScreen;ui=new Ui(activity);setOrientation(VERTICAL);setBackgroundColor(BG);
+        super(activity);this.activity=activity;this.route=route;this.selected=selected;this.primaryScreen=primaryScreen;ui=new Ui(activity);setOrientation(HORIZONTAL);setBackgroundColor(BG);
         top=ui.row();top.setGravity(Gravity.CENTER_VERTICAL);top.setPadding(ui.dp(8),ui.dp(4),ui.dp(12),ui.dp(4));
         // The canvas color with a bottom hairline that fades in only while content scrolls beneath the bar.
         topRule.setColor(SEPARATOR);topRule.setAlpha(0);
@@ -32,18 +32,22 @@ final class MainNavigation extends LinearLayout {
         // A quiet icon button, not a filled capsule: the menu is always there but never competes with the screen.
         menu=ui.chip("",this::open);menu.setContentDescription("앱 메뉴 열기");menu.setTooltipText("앱 메뉴");menu.setPadding(ui.dp(12),0,ui.dp(12),0);menu.setBackground(ui.shape(android.graphics.Color.TRANSPARENT,PILL));
         android.graphics.drawable.Drawable menuIcon=activity.getDrawable(R.drawable.ic_menu).mutate();menuIcon.setTint(TEXT);menuIcon.setBounds(0,0,ui.dp(24),ui.dp(24));menu.setCompoundDrawablesRelative(menuIcon,null,null,null);
-        menu.setMinHeight(ui.dp(48));top.addView(menu,new LayoutParams(ui.dp(48),ui.dp(48)));
-        current=ui.text(label(selected),HEADLINE,700,TEXT);current.setLetterSpacing(-0.015f);current.setSingleLine(true);current.setEllipsize(android.text.TextUtils.TruncateAt.END);current.setPadding(ui.dp(6),0,0,0);top.addView(current,new LayoutParams(0,-2,1));addView(top,new LayoutParams(-1,-2));top.setVisibility(primaryScreen?VISIBLE:GONE);
-        LinearLayout row=ui.row();row.setGravity(Gravity.TOP);addView(row,new LayoutParams(-1,0,1));
+        menu.setMinHeight(ui.dp(48));
+        LayoutParams menuSize=new LayoutParams(ui.dp(48),ui.dp(48));
+        menuSize.gravity=Gravity.TOP;top.addView(menu,menuSize);
+        current=ui.text(label(selected),HEADLINE,700,TEXT);current.setLetterSpacing(-0.015f);current.setSingleLine(true);current.setEllipsize(android.text.TextUtils.TruncateAt.END);current.setPadding(ui.dp(6),0,0,0);top.addView(current,new LayoutParams(0,-2,1));top.setVisibility(primaryScreen?VISIBLE:GONE);
+        LinearLayout column=ui.column();
         rail=new ScrollView(activity);rail.setFillViewport(false);rail.setVerticalScrollBarEnabled(false);
         // Same canvas as the content, divided by a hairline; the open destination is a tonal capsule, not a different panel.
         android.graphics.drawable.GradientDrawable railRule=new android.graphics.drawable.GradientDrawable();railRule.setColor(SEPARATOR);
         android.graphics.drawable.LayerDrawable railSurface=new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{new android.graphics.drawable.ColorDrawable(BG),railRule});
         railSurface.setLayerGravity(1,Gravity.END|Gravity.FILL_VERTICAL);railSurface.setLayerWidth(1,Math.max(1,ui.dp(.5f)));rail.setBackground(railSurface);
-        railItems=ui.column();railItems.setPadding(0,ui.dp(6),0,ui.dp(8));rail.addView(railItems);row.addView(rail,new LayoutParams(ui.dp(RAIL_WIDTH_DP),-1));rail.setVisibility(GONE);row.addView(content,new LayoutParams(0,-1,1));renderRail();
+        railItems=ui.column();railItems.setPadding(0,ui.dp(6),0,ui.dp(8));rail.addView(railItems);addView(rail,new LayoutParams(ui.dp(RAIL_WIDTH_DP),-1));rail.setVisibility(GONE);
+        addView(column,new LayoutParams(0,-1,1));column.addView(top,new LayoutParams(-1,-2));
+        column.addView(content,new LayoutParams(-1,0,1));renderRail();
         setOnApplyWindowInsetsListener((v,insets)->{Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
             // Own horizontal safe areas once, outside the 50dp rail and content; keep full touch targets clear of cutouts.
-            setPadding(bars.left,0,bars.right,0);rail.setPadding(0,primaryScreen?0:bars.top,0,Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom));
+            setPadding(bars.left,0,bars.right,0);rail.setPadding(0,bars.top,0,Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom));
             top.setPadding(ui.dp(12),ui.dp(4)+(primaryScreen?bars.top:0),ui.dp(12),ui.dp(4));
             Insets system=insets.getInsets(WindowInsets.Type.systemBars()),cutout=insets.getInsets(WindowInsets.Type.displayCutout());
             // Secondary chrome still receives its original vertical insets; only a primary header consumes the top.
@@ -69,9 +73,14 @@ final class MainNavigation extends LinearLayout {
         current.setVisibility(custom==null?VISIBLE:GONE);
     }
     private View bar;
+    private static int railScrollDp;
+    @Override public void onWindowFocusChanged(boolean focus) {
+        super.onWindowFocusChanged(focus);
+        if (focus && wide) rail.post(() -> rail.scrollTo(0, ui.dp(railScrollDp)));
+    }
     String selected(){return selected;}boolean wide(){return wide;}void onResize(Runnable callback){resize=callback;}
     // Beside the rail, the ≡ menu would only repeat it: it shows where the rail does not (a phone's width).
-    @Override protected void onMeasure(int widthSpec,int heightSpec){boolean next=tablet(activity)||(primaryScreen&&MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight()>=ui.dp(680));if(next!=wide){wide=next;rail.setVisibility(wide?VISIBLE:GONE);menu.setVisibility(wide?GONE:VISIBLE);resize.run();}super.onMeasure(widthSpec,heightSpec);}
+    @Override protected void onMeasure(int widthSpec,int heightSpec){boolean next=tablet(activity)||MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight()>=ui.dp(680);if(next!=wide){wide=next;rail.setVisibility(wide?VISIBLE:GONE);menu.setVisibility(wide?GONE:VISIBLE);resize.run();}super.onMeasure(widthSpec,heightSpec);}
     private void renderRail(){
         railItems.removeAllViews();
         for(int i=0;i<IDS.length;i++){
@@ -116,7 +125,7 @@ final class MainNavigation extends LinearLayout {
     }
     private int drawerWidth(){int width=getWidth()>0?getWidth():getResources().getDisplayMetrics().widthPixels;return Math.max(1,Math.min(ui.dp(320),Math.round(width*.82f)));}
     private int drawerHeightLimit(){int height=getHeight()>0?getHeight():getResources().getDisplayMetrics().heightPixels;return Math.max(1,Math.min(height-ui.dp(24),Math.round(height*.86f)));}
-    private void choose(String id){close();if(!selected.equals(id)||id.equals("voice"))route.accept(id);}
+    private void choose(String id){if (wide) railScrollDp=Math.round(rail.getScrollY()/getResources().getDisplayMetrics().density);close();if(!selected.equals(id)||id.equals("voice"))route.accept(id);}
     boolean close(){if(drawer==null)return false;Dialog old=drawer;drawer=null;old.dismiss();return true;}
     @Override protected void onDetachedFromWindow(){close();super.onDetachedFromWindow();}
     static void open(Activity activity,String target){

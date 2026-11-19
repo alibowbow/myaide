@@ -156,6 +156,15 @@ def javac(args):
         run(['java', '-m', 'jdk.compiler/com.sun.tools.javac.Main', *args])
 
 
+def test_board(json_jar):
+    output = BUILD / 'board-checks'
+    output.mkdir(parents=True, exist_ok=True)
+    core = ROOT / 'app/src/main/java/dev/jun/gyeot/core'
+    sources = [*sorted(core.glob('Board*.java')), core / 'Jsons.java']
+    javac(['-encoding', 'UTF-8', '-d', output, '-cp', json_jar, *sources, ROOT / 'tools/BoardRegression.java'])
+    run(['java', '-ea', '-cp', os.pathsep.join(map(str, (output, json_jar, ROOT / 'app/src/main/resources'))), 'dev.jun.gyeot.core.BoardRegression'])
+
+
 def test(jars):
     output = BUILD / 'tests'; output.mkdir(parents=True, exist_ok=True)
     sources = list((ROOT / 'app/src/main/java/dev/jun/gyeot/core').glob('*.java')) + [ROOT / 'app/src/main/java/dev/jun/gyeot/BrowserDecisionEvidence.java', ROOT / 'app/src/main/java/dev/jun/gyeot/GeminiSession.java', ROOT / 'app/src/main/java/dev/jun/gyeot/TranslationSession.java', ROOT / 'app/src/main/java/dev/jun/gyeot/ApkDelta.java', ROOT / 'app/src/main/java/dev/jun/gyeot/GeminiAudioClient.java'] + list((ROOT / 'tests').glob('*.java'))
@@ -362,8 +371,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
     CACHE.mkdir(parents=True, exist_ok=True); BUILD.mkdir(parents=True, exist_ok=True)
     jars = dependencies()
-    # The checks run where the tests folder is present; without it only the app is compiled and built.
-    if (ROOT / 'tests').is_dir(): test(jars)
+    test_board(jars[-1])
+    # The optional larger suites run when their tests folder is present.
+    if (ROOT / 'tests/CoreTests.java').is_file(): test(jars)
     if args.test_only and (args.compile_app or os.environ.get('GITHUB_EVENT_NAME') == 'pull_request'):
         compile_app()
     if not args.test_only:
