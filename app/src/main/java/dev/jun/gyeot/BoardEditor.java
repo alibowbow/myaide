@@ -250,7 +250,7 @@ final class BoardEditor {
                 sheet.primary.setEnabled(false);
             }
         };
-        Runnable stages = () -> {
+        Runnable showStages = () -> {
             controls.removeAllViews();
             List<String> stages = BoardScene.stages(spec.optString("preset"));
             if (!stages.isEmpty()) controls.addView(ui.spinner("수업 단계", stages.toArray(new String[0]),
@@ -261,12 +261,12 @@ final class BoardEditor {
                 put(spec, "preset", i == 0 ? "proteinSynthesis" : "force");
                 spec.remove("stage");
                 spec.remove("objects");
-                stages.run();
+                showStages.run();
                 refresh.run();
             }));
         }
         sheet.body.addView(controls);
-        stages.run();
+        showStages.run();
         refresh.run();
         sheet.primary.setText("판에 적용");
         sheet.primary.setOnClickListener(v -> { apply.accept(BoardWidget.copy(spec)); sheet.dismiss(); });
