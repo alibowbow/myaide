@@ -435,12 +435,16 @@ public final class BoardActivity extends Activity {
         menu.body.addView(looks);
         menu.body.addView(ui.sectionHeader("AI"));
         // 판서's own choices: the model that prepares lessons, and the Live model and voice that read them. None of them changes the main chat or the assistant.
-        LinearLayout ai = ui.group(); ScopedModels models = ScopedModels.board(store); String engine = models.engine(); boolean live = store.secrets.hasKey();
+        LinearLayout ai = ui.group(); ScopedModels models = ScopedModels.board(store); String engine = models.engine();
         ui.addRow(ai, ui.listRow(R.drawable.ic_sparkle, INDIGO, "두뇌", (engine.isBlank() ? "AI를 골라 주세요" : WorkBook.author(engine) + " · " + new TeamRoster(store, models).label(engine, models.model(engine)) + (store.ready(engine) ? "" : " · 연결 필요")) + " · 판서를 준비하는 모델",
             ui.chevron(), () -> { menu.dismiss(); brains(); }), true);
-        ui.addRow(ai, ui.listRow(R.drawable.ic_wave, PURPLE, "Live 모델", live ? liveName(BoardVoice.liveModel(store)) + " · 설명을 읽는 모델" : "Gemini 키가 없어 기기 음성으로 읽어요", ui.chevron(), () -> { menu.dismiss(); liveModels(); }), true);
-        ui.addRow(ai, ui.listRow(R.drawable.ic_sound, PINK, "목소리", (BoardVoice.voice(store).isBlank() ? "기본 목소리" : BoardVoice.voice(store)) + (live ? " · 안 되면 기기 음성" : ""), ui.chevron(), () -> { menu.dismiss(); voiceNames(); }), true);
+        ui.addRow(ai, ui.listRow(R.drawable.ic_wave, PURPLE, "판서 음성", narration.sourceName(), ui.chevron(), () -> { menu.dismiss(); liveModels(); }), true);
+        if (BoardVoice.LIVE.equals(narration.selected())) ui.addRow(ai, ui.listRow(R.drawable.ic_sound, PINK, "목소리", BoardVoice.voice(store).isBlank() ? "모델 기본 목소리" : BoardVoice.voice(store), ui.chevron(), () -> { menu.dismiss(); voiceNames(); }), true);
         menu.body.addView(ai);
+        TextView result = ui.footer(narration.status());
+        java.util.function.Consumer<String> display = text -> { result.setText(text); result.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE); };
+        display.accept(narration.status()); narration.onStatus = display; menu.body.addView(result);
+        menu.setOnDismissListener(dialog -> { if (narration.onStatus == display) narration.onStatus = null; });
         menu.body.addView(ui.footer("두뇌·Live 모델·목소리는 판서에서만 쓰는 선택이에요. 메인 대화와 음성 비서의 설정은 바뀌지 않아요."));
         menu.body.addView(ui.footer("문제 사진이나 PDF를 붙이면 판에 올라가고, AI가 그 위에 표시하며 풀어 줘요. 판서한 줄을 누르면 거기부터 다시 듣거나 더 물어볼 수 있어요. 한 손가락으로 판을 움직이고 두 손가락으로 키워요."));
         show(menu);
@@ -617,17 +621,19 @@ public final class BoardActivity extends Activity {
         });
     }
 
-    private static String liveName(String id) { for (String[] model : dev.jun.gyeot.core.GeminiProtocol.LIVE_MODELS) if (model[0].equals(id)) return model[1].replace(" (기본)", ""); return id; }
     /** A choice of how lessons are read takes effect at once: a lesson that is on pauses, and reads on in the new voice when continued. */
     private void voiceChanged() { if (teacher.state().equals(BoardTeacher.PLAYING)) teacher.pause(); narration.reset(); }
     private void liveModels() {
-        Ui.Sheet pick = ui.selectionSheet("Live 모델", "판서의 설명을 읽는 모델 · 음성 비서의 모델은 바뀌지 않아요"); pick.primary.setVisibility(View.GONE);
+        Ui.Sheet pick = ui.selectionSheet("판서 음성", "수업 설명을 읽을 음성을 선택하세요."); pick.primary.setVisibility(View.GONE);
         LinearLayout group = ui.group(); String now = BoardVoice.liveModel(store);
+        boolean device = BoardVoice.DEVICE.equals(narration.selected());
         for (String[] model : dev.jun.gyeot.core.GeminiProtocol.LIVE_MODELS) {
-            boolean on = model[0].equals(now);
+            boolean on = !device && model[0].equals(now);
             ui.addRow(group, ui.listRow(R.drawable.ic_wave, on ? ACCENT : MUTED, model[1].replace(" (기본)", ""), dev.jun.gyeot.core.GeminiProtocol.readsAsWritten(model[0]) ? "단계의 말을 한 번에 읽어요" : "한 문장씩 그대로 읽어요",
-                on ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putString("boardLiveModel", model[0]).apply(); voiceChanged(); pick.dismiss(); }), true);
+                on ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().remove("boardDeviceVoice").putString("boardLiveModel", model[0]).apply(); voiceChanged(); pick.dismiss(); }), true);
         }
+        ui.addRow(group, ui.listRow(R.drawable.ic_sound, device ? ACCENT : MUTED, "기기 TTS", "Android에 설정된 음성으로 읽어요",
+            device ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putBoolean("boardDeviceVoice", true).apply(); voiceChanged(); pick.dismiss(); }), true);
         pick.body.addView(group); show(pick);
     }
     private void voiceNames() {
