@@ -383,8 +383,10 @@ final class MainChatEngine implements AutoCloseable {
         WorkTools pages=provider.pages(selection,connected!=null||subject!=null||dev.jun.gyeot.core.PageTools.wanted(pageWords(turn,question)),()->question);
         // A reply whose functions ran is never sent a second time (below): a save would be made twice.
         java.util.concurrent.atomic.AtomicBoolean ran=new java.util.concurrent.atomic.AtomicBoolean();
-        WorkTools tools=counted(WorkTools.combine(connected,pages),ran);
-        String instructions=instructions(memory)+(web.any()?WEB:"")+(connected!=null?TOOLS:pages!=null?PAGE_TOOLS:"")+(subject!=null&&pages!=null?aboutPage(subject):"");
+        // Background work (작업창 with a browser): offered only when this question's words are about it.
+        WorkTools background=BackgroundWork.wanted(question)?background(turn,question):null;
+        WorkTools tools=counted(WorkTools.combine(WorkTools.combine(connected,pages),background),ran);
+        String instructions=instructions(memory)+(web.any()?WEB:"")+(connected!=null?TOOLS:pages!=null?PAGE_TOOLS:"")+(subject!=null&&pages!=null?aboutPage(subject):"")+(background!=null?BackgroundWork.INSTRUCTIONS:"");
         boolean summary=memory&&app.settings.getBoolean("mainSummaryOn",true);int budget=budget(app,selection);
         // The notes related to this question first, within 2% of the window; the chosen ones are marked used.
         String longTerm=memory?app.recallMemory(query,Memory.budget(budget)):"";
@@ -441,6 +443,28 @@ final class MainChatEngine implements AutoCloseable {
         return block;
     }
     /** tools with ran set once any function was run; null stays null. */
+    /**
+     * background_task for one reply: a request the model writes goes to a new 작업창 job as 작업으로 보내기 sends one (delegate),
+     * tied to this question, at most BackgroundWork.PER_REPLY of them, and only when the question's own words ask for it.
+     */
+    private WorkTools background(MainChatStore.Turn turn,String words){
+        java.util.concurrent.atomic.AtomicInteger started=new java.util.concurrent.atomic.AtomicInteger();
+        return new WorkTools(){
+            @Override JSONArray declarations(){return BackgroundWork.declarations();}
+            @Override JSONObject run(String name,Object arguments){
+                if(!BackgroundWork.START.equals(name))return GitHubFunctions.failure("이 도구는 없어요.");
+                if(!BackgroundWork.asked(words))return GitHubFunctions.failure(BackgroundWork.NOT_ASKED);
+                JSONObject args;try{args=arguments instanceof JSONObject given?given:new JSONObject(String.valueOf(arguments));}catch(JSONException unreadable){args=new JSONObject();}
+                String request=args.optString("request").strip();
+                if(request.isEmpty())return GitHubFunctions.failure("작업 지시가 비어 있어요.");
+                if(request.length()>MainChatContext.INPUT)return GitHubFunctions.failure("작업 지시는 "+MainChatContext.INPUT+"자까지예요. 줄여서 다시 맡겨 주세요.");
+                if(started.get()>=BackgroundWork.PER_REPLY)return GitHubFunctions.failure("이 답변에서 이미 작업을 "+BackgroundWork.PER_REPLY+"개 맡겼어요. 더 필요하면 사용자에게 먼저 물어보세요.");
+                try{String job=delegate(turn.user(),request);started.incrementAndGet();
+                    return Jsons.obj("ok",true,"started",true,"job",job,"note","The job runs in 작업창 on its own; its result comes back into this conversation when it ends.");}
+                catch(RuntimeException failed){return GitHubFunctions.failure(failed.getMessage()==null?"작업창에 맡기지 못했어요.":failed.getMessage());}
+            }
+        };
+    }
     private static WorkTools counted(WorkTools tools,java.util.concurrent.atomic.AtomicBoolean ran){
         if(tools==null)return null;
         return new WorkTools(){
