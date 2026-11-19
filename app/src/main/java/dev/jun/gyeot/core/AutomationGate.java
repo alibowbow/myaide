@@ -341,6 +341,27 @@ public final class AutomationGate {
     /** Whether the user's own goal was a forbidden step ("결제해 줘", "이 메일 삭제해 줘"); mentioning one ("결제 내역 보여 줘") is not. */
     public static boolean requestsForbidden(String userWords) { return asks(FORBIDDEN_ASK, userWords); }
 
+    // ── Deleting what the user asked to delete ───────────────────────────────────────────────────
+
+    private static final Pattern DELETE_WORDS = Regex.unicode("(?i)삭제(?:하기)?|지우기|지워|지울|지우|제거(?:하기)?|휴지통(?:으로|에)\\s*(?:이동|보내기?|버리기?)|\\b(?:delete|remove|erase|discard)\\b|\\bmove\\s+to\\s+(?:the\\s+)?(?:trash|bin)\\b");
+    // What an item's deletion never covers: an account or a membership, the phone or its data, an app, a store emptied at once.
+    private static final Pattern WIPE_WORDS = Regex.unicode("(?i)탈퇴|해지|계정|회원|초기화|포맷|언인스톨|비우|비워|모두|전체|일괄|\\b(?:account|reset|format|uninstall|empty|all|everything)\\b");
+    private static final Pattern DELETE_ASK = Regex.unicode("(?i)(?:삭제|제거)\\s*(?:해|하|시켜|좀)|(?:삭제|제거)[\\s.!~]*$|지워|지우|\\b(?:delete|remove|erase)\\b");
+    /**
+     * A control whose only forbidden part is deleting an item ("삭제", "대화 삭제", "Delete", "Remove"): no price or coin, no
+     * money step, no account, no wipe, no "delete all". Such a control may run when the user asked to delete (browser only).
+     */
+    public static boolean deletionOnly(String label) {
+        if (label == null || label.isBlank() || moneyText(label) || WIPE_WORDS.matcher(label).find() || !DELETE_WORDS.matcher(label).find()) return false;
+        String rest = DELETE_WORDS.matcher(label).replaceAll(" ").replaceAll("\\s+", " ").strip();
+        return rest.isEmpty() || !forbiddenText(rest) && !FORBIDDEN_VERB.matcher(rest.replaceAll("\\s+", "")).find() && !FORBIDDEN_VERB.matcher(rest.toLowerCase(Locale.ROOT)).find();
+    }
+    /** Whether the user's own words ask to delete something ("최근 대화 10개 삭제해 줘", "지워"), outside a "don't", and not an account, the phone or everything. */
+    public static boolean requestsDeletion(String userWords) {
+        if (userWords == null || !asks(DELETE_ASK, userWords)) return false;
+        return !Regex.unicode("(?i)탈퇴|해지|계정|회원|초기화|포맷|언인스톨|\\b(?:account|reset|format|uninstall)\\b").matcher(userWords).find();
+    }
+
     // ── A generation site's own create control ───────────────────────────────────────────────────
 
     private static final Set<String> CHAT_SITES = Set.of("gemini.google.com", "chatgpt.com", "chat.openai.com", "claude.ai", "grok.com", "aistudio.google.com");

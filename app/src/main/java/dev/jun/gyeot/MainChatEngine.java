@@ -391,7 +391,9 @@ final class MainChatEngine implements AutoCloseable {
         // A reply whose functions ran is never sent a second time (below): a save would be made twice.
         java.util.concurrent.atomic.AtomicBoolean ran=new java.util.concurrent.atomic.AtomicBoolean();
         // The browser and the 들퍼레 folder, run by this reply itself: offered only when this question's words are about them.
-        MainBrowsing browsing=MainBrowser.wanted(question)?new MainBrowsing(context,app,turn.run(),question,()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},deltas::status):null;
+        // Offered also for two follow-ups after a question about them ("이 주소에도 있어", "맡겨 줘"), and those words are the user's too.
+        String browsingWords=MainBrowser.wanted(question)?question:pageWords(turn,question);
+        MainBrowsing browsing=MainBrowser.wanted(browsingWords)?new MainBrowsing(context,app,turn.run(),browsingWords,()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},deltas::status):null;
         WorkTools tools=counted(WorkTools.combine(WorkTools.combine(connected,pages),browsing==null?null:browsing.tools()),ran);
         String instructions=instructions(memory)+(web.any()?WEB:"")+(connected!=null?TOOLS:pages!=null?PAGE_TOOLS:"")+(subject!=null&&pages!=null?aboutPage(subject):"")+(browsing!=null?MainBrowser.INSTRUCTIONS:"");
         boolean summary=memory&&app.settings.getBoolean("mainSummaryOn",true);int budget=budget(app,selection);

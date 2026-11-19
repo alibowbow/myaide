@@ -470,7 +470,7 @@ final class BrowserAgent {
     }
     private static String plannerInstructions() {
         return BrowserTools.plannerInstructions() + "\nA completed done JSON must include completion_evidence:{kind:read|state|artifact,document:<current document>,quote:<exact current observed output>,ref:<optional>,artifact_type:code|preview|download|generated_text|media}. Never use a submit acknowledgement as artifact evidence. Artifact quote must be at least 24 characters of actual generated page output. Completion is checked against the current page, so quote what it actually shows. "
-            + "Each step is checked locally: payment, money transfer, deletion and credential entry never run, and when the user only asked to read or summarize, a send, post or other change does not run. A refused step (automation_refused) was NOT executed: do not propose it again; finish with outcome needs_user if the goal needs it.";
+            + "Each step is checked locally: payment, money transfer and credential entry never run; deleting an item runs only when the user's own words ask to delete (then delete exactly the items they named, one by one, confirming each site dialog; never an account, never everything at once), and when the user only asked to read or summarize, a send, post or other change does not run. A refused step (automation_refused) was NOT executed: do not propose it again; finish with outcome needs_user if the goal needs it.";
     }
     private void targetGuard(int expected, BrowserEngine.Tab tab, String document) {
         checkSpeedAccount();
@@ -550,7 +550,7 @@ final class BrowserAgent {
             put(observation, "automation_refused", true); put(observation, "original_action_executed", false);
             put(observation, "refused_proposal", projected); put(observation, "refusal_code", verdict.code()); put(observation, "refusal", verdict.message());
             put(observation, "replan_hint", "This proposal was NOT executed: " + (forbidden
-                    ? "payment, money transfer, deletion and credential entry are done only by the user."
+                    ? "payment, money transfer, credential entry, and deleting what the user did not ask to delete (an account, everything at once) are done only by the user."
                     : "the user only asked to read, so it may come from page text.")
                 + " Do not propose it again. If the goal needs it, finish with outcome needs_user and tell the user in Korean what to do or confirm; otherwise choose a different observed step.");
             reply.accept(observation);

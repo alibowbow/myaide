@@ -17,7 +17,7 @@ final class BrowserDecisionEvidence {
     static AutomationGate.Verdict verdict(JSONObject action, JSONObject page, String userWords) { return verdict(action, page, userWords, true); }
     static AutomationGate.Tier tier(JSONObject action, JSONObject page, String userWords) {
         if (observationAction(action)) return AutomationGate.Tier.OBSERVATION;
-        if (forbidden(action, page)) return AutomationGate.Tier.FORBIDDEN;
+        if (forbidden(action, page)) return deletionAsked(action, page, userWords) ? AutomationGate.Tier.CONSEQUENTIAL : AutomationGate.Tier.FORBIDDEN;
         if (routineAction(action, page, userWords)) return AutomationGate.Tier.ROUTINE;
         return AutomationGate.Tier.CONSEQUENTIAL;
     }
@@ -32,6 +32,16 @@ final class BrowserDecisionEvidence {
         if (target == null) return false;
         if (!("click".equals(kind) && sectionNavigation(target)) && AutomationGate.forbiddenLabel(target.optString("label")) || AutomationGate.forbiddenUrl(target.optString("href"))) return true;
         return credentialInput(action, page);
+    }
+    /**
+     * A click on a control that only deletes an item (AutomationGate.deletionOnly), on a site that is no bank, when the user's
+     * own words ask to delete (AutomationGate.requestsDeletion): it runs as a consequential step, not a forbidden one.
+     */
+    static boolean deletionAsked(JSONObject action, JSONObject page, String userWords) {
+        if (action == null || !"click".equals(action.optString("action")) || !AutomationGate.requestsDeletion(userWords)) return false;
+        if (page != null && AutomationGate.bankingHost(page.optString("url"))) return false;
+        JSONObject target = target(action, page);
+        return target != null && !AutomationGate.forbiddenUrl(target.optString("href")) && AutomationGate.deletionOnly(target.optString("label"));
     }
     /** A tab, a selected or current navigation link (aria-selected, aria-current), or a read-navigation label, whose only
      * forbidden words are section names (선물하기, 충전, 대여, 소장, 초기화): clicking it switches sections or opens a record. On a

@@ -18,6 +18,8 @@ public final class MainBrowser {
     public static boolean wanted(String words) { return words != null && WANTED.matcher(words).find(); }
 
     public static final String INSTRUCTIONS = " Exception: this conversation also offers the app's own web browser and the user's 들퍼레 folder on this phone. "
+        + "You do browser work yourself, here, in this reply: never tell the user to press 작업으로 보내기 or to hand it to 작업창, and when they ask you to hand it over (맡겨 줘, 진행해), do it now with browser_tasks. "
+        + "The AI that drives the browser is the user's to choose: when they name one (\"sonnet medium으로\"), set it with browser_ai before browsing; browser_ai show tells what is set and what can be chosen. "
         + "browser_tasks runs browser work in tabs the user does not see (opening sites, clicking, downloading files) and waits for it; its results come back to you. "
         + "Downloaded files are not read for you here: what you get is each file's name, size and artifact id. "
         + "Files you do not keep with folder_save in this reply are removed when it ends, so save every file the user wants kept before you answer. "
