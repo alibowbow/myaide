@@ -166,6 +166,8 @@ final class BrowserEngine {
         long pdfEpoch = -1, pdfAskedAt = Long.MIN_VALUE / 2;
         boolean pdfAsking;
         int pdfSaving;
+        // The label of the page's link a file being handed to workDownload came from ("" when unknown); untrusted page text.
+        String downloadLabel = "";
     }
     final Handler main = new Handler(Looper.getMainLooper());
     final List<Tab> tabs = new ArrayList<>();
@@ -862,7 +864,7 @@ final class BrowserEngine {
             @Override public void onExternalResponse(GeckoSession session, WebResponse response) {
                 if (!live(tab)) { try { if (response.body != null) response.body.close(); } catch (java.io.IOException ignored) { } return; }
                 if (workEngine) {
-                    if (!disposed && workDownload != null) workDownload.accept(tab, response);
+                    if (!disposed && workDownload != null) handOver(tab, response, linkLabel(tab, response.uri));
                     else { try { if (response.body != null) response.body.close(); } catch (java.io.IOException ignored) { } }
                 } else { final long downloadLease = lane(tab).id;
                     BrowserMusicDownloads.save(context, response, result -> {
@@ -1043,11 +1045,74 @@ final class BrowserEngine {
         persistTask(p.tab, saved -> {
             if (!isPending(p) || !valid(p.generation)) return;
             if (!saved) { finish(p, error("읽기 이동 복구 기록을 저장하지 못해 실행하지 않았어요.")); return; }
+            if (keepsFile(destination)) { fileLink(p, destination); return; }
             p.dispatched = true; p.sent = false; p.port = null; p.tab.port = null;
             p.tab.url = destination; p.tab.needsLoad = true; p.tab.loadFailed = false;
             record(p.generation, "확인된 공개 링크로 이동하는 중"); activate(p.tab);
             if (isPending(p) && valid(p.generation)) sendWhenReady(p, obj("action", "read"), p.deadline);
         });
+    }
+    /** File addresses a Work browser keeps instead of opening: documents, sound, video and archives (not pages, not pictures). */
+    private static final Set<String> FILE_TYPES = Set.of("pdf", "hwp", "hwpx", "zip", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "mp3", "m4a", "wav", "mp4");
+    /** Whether this Work browser keeps the address as a file: the path names one of FILE_TYPES. */
+    private boolean keepsFile(String url) {
+        if (!workEngine || workDownload == null || disposed) return false;
+        try {
+            String path = URI.create(BrowserTools.url(url)).getPath();
+            int dot = path == null ? -1 : path.lastIndexOf('.');
+            return dot > path.lastIndexOf('/') && FILE_TYPES.contains(path.substring(dot + 1).toLowerCase(Locale.ROOT));
+        } catch (RuntimeException invalid) { return false; }
+    }
+    /**
+     * An observed public link to a file, in a Work browser: the GET the click proposed is made here, as the job's download,
+     * and the tab stays on its page (its document and refs unchanged), so the next link can follow at once.
+     */
+    private void fileLink(Pending p, String destination) {
+        Tab tab = p.tab; String before = tab.task.snapshot();
+        if (!tab.task.settleReadNavigation(p.readReceiptId, navigationHash(destination), navigationHash("file:" + destination + ":" + p.previousDocument))) {
+            finish(p, error("파일 링크 기록이 바뀌어 받지 않았어요. 동작을 반복하지 않았어요.")); return;
+        }
+        p.recoveryChecked = true; p.settlingMutation = true;
+        persistTask(tab, saved -> {
+            p.settlingMutation = false;
+            if (!saved) tab.task.restoreMutationFence(before); else activeWorkReceipts.remove(p.readReceiptId);
+            if (!isPending(p) || !valid(p.generation)) return;
+            if (!saved) { finish(p, error("파일 링크 기록을 저장하지 못해 받지 않았어요.")); return; }
+            p.dispatched = true; record(p.generation, "파일을 받는 중");
+            JSONObject result = fetchFile(tab, destination);
+            put(result, "public_get_navigation_verified", true); finish(p, result);
+        });
+    }
+    /** Fetches a file address with the browser's own network and hands the response to the job as a download. */
+    private JSONObject fetchFile(Tab tab, String url) {
+        String label = linkLabel(tab, url);
+        GeckoResult<WebResponse> fetched;
+        try { fetched = new GeckoWebExecutor(runtime).fetch(new WebRequest.Builder(url).referrer(tab.url).build()); }
+        catch (RuntimeException failed) { return obj("ok", false, "error", "파일을 받기 시작하지 못했어요."); }
+        if (fetched == null) return obj("ok", false, "error", "파일을 받기 시작하지 못했어요.");
+        fetched.accept(response -> main.post(() -> handOver(tab, response, label)),
+            failed -> main.post(() -> handOver(tab, new WebResponse.Builder(url).statusCode(0).body(new java.io.ByteArrayInputStream(new byte[0])).build(), label)));
+        return obj("ok", true, "file_download", true, "download_started", true, "tab", tab.id, "url", safeUrl(url), "document", tab.document, "link_text", label,
+            "message", "파일 주소라 페이지를 옮기지 않고 이 작업의 파일로 받고 있어요. 탭은 지금 페이지에 그대로 있고, 지금 요소 ref도 그대로 쓸 수 있어요. 같은 파일을 다시 받지 말고 다음 링크로 이어 가세요.");
+    }
+    private void handOver(Tab tab, WebResponse response, String label) {
+        if (disposed || workDownload == null || !live(tab)) {
+            try { if (response.body != null) response.body.close(); } catch (java.io.IOException ignored) { }
+            return;
+        }
+        tab.downloadLabel = label == null ? "" : label;
+        try { workDownload.accept(tab, response); } finally { tab.downloadLabel = ""; }
+    }
+    /** The label of the link to this address on the tab's last read page; "" when it showed none. Untrusted page text. */
+    private static String linkLabel(Tab tab, String url) {
+        JSONArray elements = tab.lastReadObservation == null ? null : tab.lastReadObservation.optJSONArray("elements");
+        for (int i = 0; elements != null && i < elements.length(); i++) {
+            JSONObject element = elements.optJSONObject(i);
+            if (element == null || element.optString("href").isBlank() || !sameNavigationUrl(element.optString("href"), url)) continue;
+            String label = element.optString("label").replaceAll("\\s+", " ").strip();
+            return label.length() > 120 ? label.substring(0, 120) : label;
+        }
+        return "";
     }
     /** Exact receipt, fresh document and native URL only; arbitrary reads cannot settle effects. */
     private boolean recoverReadNavigation(Pending p, JSONObject result) {
@@ -1293,6 +1358,7 @@ final class BrowserEngine {
         // Only explicit native UI selection changes the visible conversation.
         if (action.equals("close")) { close(tab); callback.accept(tabList()); return; }
         if (!extensionError.isBlank()) { callback.accept(obj("ok", false, "error_code", "bridge_install_failed", "error", extensionError)); return; }
+        if (action.equals("open") && keepsFile(args.optString("url"))) { record(lease, "파일을 받는 중"); callback.accept(fetchFile(tab, args.optString("url"))); return; }
         if (action.equals("back") && !tab.back) { callback.accept(obj("ok", false, "error_code", "no_history", "action_executed", false, "retryable", false, "error", "돌아갈 이전 페이지가 없어요. 이동할 공개 HTTPS 홈페이지 주소를 알려 주세요.")); return; }
         Pending p = new Pending(); p.id = Long.toString(++sequence); p.tab = tab; p.generation = lease; p.callback = callback; p.action = action; p.readReceiptId = tab.task.pendingMutation().optString("id");
         if (args.optBoolean("navigation_only") && Set.of("open", "back").contains(action)) {
@@ -1423,7 +1489,7 @@ final class BrowserEngine {
         };
         WebResponse.Builder copy = new WebResponse.Builder(response.uri).statusCode(response.statusCode).body(watched);
         if (response.headers != null) for (Map.Entry<String, String> header : response.headers.entrySet()) copy.addHeader(header.getKey(), header.getValue());
-        workDownload.accept(tab, copy.build());
+        handOver(tab, copy.build(), linkLabel(tab, tab.url));
     }
     /** Only a plain way back: never past a change whose outcome is unknown (that stays for the user to check). */
     private boolean returnsFromPdf(Tab tab, long epoch) {

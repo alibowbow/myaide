@@ -29,6 +29,9 @@ final class BrowserWorkArtifacts {
         JSONObject origin = obj("room_id", provenance.optString("room_id"), "run_id", provenance.optString("run_id"),
             "job_id", provenance.optString("job_id"), "tab_id", provenance.optString("tab_id"),
             "source_url", BrowserEngine.safeUrl(response.uri), "page_url", BrowserEngine.safeUrl(provenance.optString("page_url")), "saved_at", System.currentTimeMillis());
+        // The label of the page's link the file came from, to tell files apart (untrusted page text, one short line).
+        String link = provenance.optString("link_text").replaceAll("[\\p{Cntrl}\\s]+", " ").strip();
+        if (!link.isEmpty()) put(origin, "link_text", link.length() > 120 ? link.substring(0, 120) : link);
         long requestedAt = System.nanoTime();
         java.util.concurrent.atomic.AtomicBoolean timedOut = new java.util.concurrent.atomic.AtomicBoolean();
         ScheduledFuture<?> watch = WATCH.scheduleWithFixedDelay(() -> {

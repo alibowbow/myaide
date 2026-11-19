@@ -376,13 +376,18 @@
   connection.postMessage({ready:true,document:documentId});
   }
   addEventListener('pagehide',()=>{away=true});
-  addEventListener('pageshow',()=>{away=false;retries=0;if(!port)connect()});
+  // A page restored from the back-forward cache gets a fresh bridge: the native side dropped the old one when it left.
+  addEventListener('pageshow',event=>{away=false;retries=0;if(event.persisted&&port){const old=port;port=null;try{old.disconnect()}catch(_){}}if(!port)connect()});
   // At document_end, interactive can mean DOMContentLoaded already fired while
   // slow images are still loading. Do not wait for a past event or window load.
   // Connecting is not a page observation. Existing snapshot, authentication
   // and document/reference checks remain in place.
   const ready=()=>{if(!away&&!port)connect()};
+  // Deferred page scripts run just before DOMContentLoaded and often fill the page in (links, states): when it has not
+  // begun yet, wait for it (or a short while), so the first read sees the page as its scripts left it.
+  const begun=()=>{try{const n=performance.getEntriesByType('navigation')[0];return !n||n.domContentLoadedEventStart>0}catch(_){return true}};
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',ready,{once:true});
+  else if(!begun()){document.addEventListener('DOMContentLoaded',ready,{once:true});setTimeout(ready,1200);}
   else ready();
 })();
 

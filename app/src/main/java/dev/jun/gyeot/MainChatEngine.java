@@ -393,7 +393,7 @@ final class MainChatEngine implements AutoCloseable {
         // The browser and the 들퍼레 folder, run by this reply itself: offered only when this question's words are about them.
         // Offered also for two follow-ups after a question about them ("이 주소에도 있어", "맡겨 줘"), and those words are the user's too.
         String browsingWords=MainBrowser.wanted(question)?question:pageWords(turn,question);
-        MainBrowsing browsing=MainBrowser.wanted(browsingWords)?new MainBrowsing(context,app,turn.run(),browsingWords,pageWords(turn,question),()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},deltas::status):null;
+        MainBrowsing browsing=MainBrowser.wanted(browsingWords)?new MainBrowsing(context,app,turn.run(),browsingWords,userWords(turn,question,6),()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},deltas::status):null;
         WorkTools tools=counted(WorkTools.combine(WorkTools.combine(connected,pages),browsing==null?null:browsing.tools()),ran);
         String instructions=instructions(memory)+(web.any()?WEB:"")+(connected!=null?TOOLS:pages!=null?PAGE_TOOLS:"")+(subject!=null&&pages!=null?aboutPage(subject):"")+(browsing!=null?MainBrowser.INSTRUCTIONS:"");
         boolean summary=memory&&app.settings.getBoolean("mainSummaryOn",true);int budget=budget(app,selection);
@@ -471,10 +471,12 @@ final class MainChatEngine implements AutoCloseable {
      * The words that decide whether 페이지's functions are offered: the question and the user's two messages before it, so
      * follow-ups ("거기에 한 줄 더 넣어 줘", "제목도 바꿔 줘") right after a save still have them. They allow nothing by themselves.
      */
-    private String pageWords(MainChatStore.Turn turn,String query){
+    private String pageWords(MainChatStore.Turn turn,String query){return userWords(turn,query,2);}
+    /** The question with the user's own last messages before it (up to count of them), newest first. */
+    private String userWords(MainChatStore.Turn turn,String query,int count){
         StringBuilder words=new StringBuilder(query==null?"":query);int taken=0;
-        try{JSONArray before=history.page(turn.user(),8);
-            for(int i=before.length()-1;i>=0&&taken<2;i--){JSONObject m=before.optJSONObject(i);if(m!=null&&"user".equals(m.optString("role"))){words.append('\n').append(m.optString("text"));taken++;}}}
+        try{JSONArray before=history.page(turn.user(),Math.max(8,count*3));
+            for(int i=before.length()-1;i>=0&&taken<count;i--){JSONObject m=before.optJSONObject(i);if(m!=null&&"user".equals(m.optString("role"))){words.append('\n').append(m.optString("text"));taken++;}}}
         catch(RuntimeException unreadable){/* the question alone */}
         return words.toString();
     }

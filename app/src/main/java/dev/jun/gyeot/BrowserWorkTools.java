@@ -113,7 +113,7 @@ final class BrowserWorkTools extends WorkTools implements AutoCloseable {
                         task.downloads.put(obj("ok",false,"error","작업이 끝났거나 첨부 개수 한도를 넘어 파일을 저장하지 않았어요.")); return;
                     }
                     task.saving++; task.received++;
-                    JSONObject provenance = obj("room_id",room,"run_id",run,"job_id",task.job.optString("job_id"),"tab_id",tab.id,"source_url",BrowserEngine.safeUrl(response.uri),"page_url",BrowserEngine.safeUrl(tab.url));
+                    JSONObject provenance = obj("room_id",room,"run_id",run,"job_id",task.job.optString("job_id"),"tab_id",tab.id,"source_url",BrowserEngine.safeUrl(response.uri),"page_url",BrowserEngine.safeUrl(tab.url),"link_text",tab.downloadLabel);
                     BrowserWorkArtifacts.save(context, store, response, provenance, this::stopped, value -> {
                         task.saving--;
                         if (!stopped()) {
