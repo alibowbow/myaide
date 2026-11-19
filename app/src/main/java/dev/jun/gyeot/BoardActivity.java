@@ -129,7 +129,7 @@ public final class BoardActivity extends Activity {
         hint = ui.column(); hint.setGravity(Gravity.CENTER_HORIZONTAL); hint.setPadding(ui.dp(40), 0, ui.dp(40), ui.dp(60));
         ImageView mark = new ImageView(this); hintMark = mark; mark.setImageResource(R.drawable.ic_board); mark.setImageTintList(ColorStateList.valueOf(MUTED)); mark.setAlpha(.55f); hint.addView(mark, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         TextView lead = ui.text("AI 선생님의 판서로 배워요", TITLE2, 700, TEXT); hintLead = lead; lead.setGravity(Gravity.CENTER); lead.setPadding(0, ui.dp(14), 0, ui.dp(6)); hint.addView(lead);
-        TextView how = hintHow = ui.text("주제나 문제 사진을 보내세요. 아래 +에서 교과와 단원을 골라 수업을 시작할 수도 있어요.", SUBHEAD, 450, MUTED); how.setGravity(Gravity.CENTER); how.setLineSpacing(ui.dp(3), 1); hint.addView(how);
+        TextView how = hintHow = ui.text("주제나 문제 사진을 보내세요. 아래 +에서 교과·단원이나 수능 기출을 골라 시작할 수도 있어요.", SUBHEAD, 450, MUTED); how.setGravity(Gravity.CENTER); how.setLineSpacing(ui.dp(3), 1); hint.addView(how);
         hint.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(-1, -2); hp.gravity = Gravity.CENTER; root.addView(hint, hp);
         teacher.textScale = textScale(); look();
@@ -187,6 +187,7 @@ public final class BoardActivity extends Activity {
     }
     @Override public void onBackPressed() {
         if (navigation != null && navigation.close()) return;
+        if (examBusy) { stopLesson(); return; }
         if (teacher.busy()) { teacher.stop(); return; }
         super.onBackPressed();
     }
@@ -486,6 +487,7 @@ public final class BoardActivity extends Activity {
         Ui.Sheet menu = ui.selectionSheet("판서", ""); menu.primary.setVisibility(View.GONE);
         LinearLayout group = ui.group();
         ui.addRow(group, ui.listRow(R.drawable.ic_add, ACCENT, "새 판", "빈 판에서 시작해요", null, () -> { menu.dismiss(); newBoard(); }), true);
+        ui.addRow(group, ui.listRow(R.drawable.ic_file, ORANGE, "수능 기출 풀기", "들퍼레/수능 폴더의 문제지에서 연도·과목·번호로 골라요", ui.chevron(), () -> { menu.dismiss(); exams(null); }), true);
         ui.addRow(group, ui.listRow(R.drawable.ic_pen, BLUE, "이름 바꾸기", title.isBlank() ? "아직 이름이 없어요" : title, null, () -> { menu.dismiss(); rename(); }), true);
         ui.addRow(group, ui.listRow(R.drawable.ic_share, TEAL, "사진으로 공유", "짧은 판은 한 장으로, 긴 판은 PDF로 저장해요", null, () -> { menu.dismiss(); share(false); }), true);
         ui.addRow(group, ui.listRow(R.drawable.ic_text, TEAL, "판 내용 읽기", "글과 시각 자료의 데이터를 텍스트로 읽거나 복사해요", null, () -> { menu.dismiss(); readBoard(); }), true);
@@ -615,6 +617,7 @@ public final class BoardActivity extends Activity {
         Ui.Sheet pick = ui.selectionSheet("시각 자료 넣기", "넣은 자료를 탭하면 다시 편집할 수 있어요."); pick.primary.setVisibility(View.GONE);
         LinearLayout curriculum=ui.group();
         ui.addRow(curriculum,ui.listRow(R.drawable.ic_book,INDIGO,"교과 수업",classroom.length()==0?"중1~고3 · 아홉 교과의 성취기준과 주제":BoardClassroom.summary(classroom),ui.chevron(),()->{pick.dismiss();classroom();}),false);
+        ui.addRow(curriculum,ui.listRow(R.drawable.ic_file,ORANGE,"수능 기출 풀기","들퍼레/수능 폴더의 문제지에서 연도·과목·번호로 골라요",ui.chevron(),()->{pick.dismiss();exams(null);}),true);
         pick.body.addView(curriculum);pick.body.addView(ui.sectionHeader("판서 도구"));
         String[] kinds = {BoardWidget.GRAPH, BoardWidget.TABLE, BoardWidget.CHART, BoardWidget.GEOMETRY,
             BoardWidget.SOLID, BoardWidget.NUMBER_LINE, BoardWidget.FLOW, BoardWidget.TIMELINE, BoardWidget.TREE,BoardWidget.RELATION,BoardWidget.FIELD,BoardWidget.MAP,BoardWidget.CHEM,BoardWidget.DIAGRAM,BoardWidget.SCENE,BoardWidget.READING};
@@ -929,9 +932,16 @@ public final class BoardActivity extends Activity {
         for (int i = 0; i < items.length(); i++) { JSONObject item = items.optJSONObject(i); if (item != null && Board.ME.equals(item.optString("by")) && !Board.TEXT.equals(item.optString("t")) && !Board.IMAGE.equals(item.optString("t")) && !Board.WIDGET.equals(item.optString("t"))) return true; }
         return false;
     }
-    private boolean busy() { return preparing || teacher.busy(); }
+    private boolean busy() { return preparing || examBusy || teacher.busy(); }
+    /** A 기출 search under way (finding a paper's questions, cutting one out), its turn, and its stop. */
+    private boolean examBusy; private int examRun; private final java.util.concurrent.atomic.AtomicReference<Runnable> examStop = new java.util.concurrent.atomic.AtomicReference<>();
 
     private void stopLesson() {
+        if (examBusy) {
+            examRun++; examBusy = false; Runnable stop = examStop.getAndSet(null);
+            if (stop != null) try { stop.run(); } catch (RuntimeException ignored) { /* already over */ }
+            lesson(BoardTeacher.IDLE, 0, 0, ""); return;
+        }
         if (preparing) {
             if (!jobs.cancel(boardId)) return;
             preparing = false;
@@ -939,8 +949,32 @@ public final class BoardActivity extends Activity {
         } else teacher.stop();
     }
 
-    /** Sends the question with its files and a snapshot when there is hand-drawn work. */
+    /**
+     * Sends what was typed. A request for a numbered question of a 기출 paper ("2025 수능 수학 22번 풀어 줘") is looked up in
+     * 들퍼레/수능 first: one paper that fits is cut out and solved, several open the 기출 sheet narrowed to them, none
+     * send the request as it is.
+     */
     private void send() {
+        if (busy()) return;
+        String words = input.getText().toString().strip(); dev.jun.gyeot.core.ExamPapers.Ask ask = dev.jun.gyeot.core.ExamPapers.ask(words);
+        if (ask == null || !attached.isEmpty()) { sendNow(); return; }
+        BoardExams.Shelf shelf = BoardExams.shelf(this);
+        if (!shelf.allowed()) { sendNow(); return; }
+        background(() -> {
+            List<BoardExams.Entry> entries; try { entries = BoardExams.entries(getApplicationContext(), shelf); } catch (Exception unreadable) { entries = List.of(); }
+            List<dev.jun.gyeot.core.ExamPapers.Paper> papers = new ArrayList<>(); for (BoardExams.Entry entry : entries) papers.add(entry.paper());
+            List<dev.jun.gyeot.core.ExamPapers.Paper> fit = dev.jun.gyeot.core.ExamPapers.matching(papers, ask); List<BoardExams.Entry> all = entries;
+            foreground(() -> {
+                if (destroyed) return;
+                if (fit.isEmpty()) { sendNow(); return; }
+                if (fit.size() > 1) { exams(ask); return; }
+                for (BoardExams.Entry entry : all) if (entry.paper() == fit.get(0)) { input.setText(""); solve(entry, ask.number(), ask.section(), words); return; }
+                sendNow();
+            });
+        });
+    }
+    /** Sends the question with its files and a snapshot when there is hand-drawn work. */
+    private void sendNow() {
         if (busy()) return;
         String words = input.getText().toString().strip();
         // The board's pictures (the newest few) go with every question, in the order the model numbers them.
@@ -1024,6 +1058,176 @@ public final class BoardActivity extends Activity {
     }
 
     /** The lesson from 판서's own model (더 보기 → 두뇌). */
+    // ── 수능 기출 ───────────────────────────────────────────────────────────────────────────────────
+
+    /** Reading 들퍼레/수능 needs Android's 모든 파일 접근: said once, with the way to it. */
+    private void allowFiles() {
+        Ui.Sheet ask = ui.selectionSheet("수능 기출", "들퍼레/수능 폴더를 읽으려면 권한이 필요해요");
+        TextView why = ui.text("Android 설정에서 들퍼레의 '모든 파일 접근'을 허용하면, 들퍼레/수능 폴더에 넣어 둔 문제지 PDF를 판서에서 골라 풀 수 있어요.", BODY, 450, TEXT);
+        why.setLineSpacing(ui.dp(4), 1); why.setPadding(ui.dp(4), ui.dp(2), ui.dp(4), ui.dp(6)); ask.body.addView(why);
+        ask.primary.setText("허용하러 가기");
+        ask.primary.setOnClickListener(v -> { ask.dismiss(); try { startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:" + getPackageName()))); } catch (RuntimeException none) { toast("설정 화면을 열지 못했어요."); } });
+        show(ask);
+    }
+    /** 수능 기출: the papers in 들퍼레/수능 by exam and subject, then a question's number; narrowed to what a request named. */
+    private void exams(dev.jun.gyeot.core.ExamPapers.Ask narrow) {
+        // A lesson being read may go on while a paper is chosen; one being prepared, or another search, may not.
+        if (preparing || examBusy) return;
+        BoardExams.Shelf shelf = BoardExams.shelf(this);
+        if (!shelf.allowed()) { allowFiles(); return; }
+        background(() -> {
+            List<BoardExams.Entry> entries; String problem = null;
+            try { entries = BoardExams.entries(getApplicationContext(), shelf); } catch (Exception failed) { entries = List.of(); problem = failed.getMessage(); }
+            List<BoardExams.Entry> found = entries; String why = problem;
+            foreground(() -> { if (!destroyed) examSheet(shelf, found, narrow, why); });
+        });
+    }
+    private static int rank(String exam) { return exam.equals(dev.jun.gyeot.core.ExamPapers.SUNEUNG) ? 0 : exam.equals(dev.jun.gyeot.core.ExamPapers.SEPTEMBER) ? 1 : exam.equals(dev.jun.gyeot.core.ExamPapers.JUNE) ? 2 : 3; }
+    private void examSheet(BoardExams.Shelf shelf, List<BoardExams.Entry> entries, dev.jun.gyeot.core.ExamPapers.Ask narrow, String problem) {
+        List<BoardExams.Entry> papers = new ArrayList<>(), unknown = new ArrayList<>();
+        for (BoardExams.Entry entry : entries) { if (entry.paper().answers()) continue; if (entry.paper().known()) papers.add(entry); else unknown.add(entry); }
+        papers.sort(java.util.Comparator.comparingInt((BoardExams.Entry e) -> -e.paper().year()).thenComparingInt(e -> rank(e.paper().exam())).thenComparing(e -> e.paper().course()));
+        Ui.Sheet pick = ui.selectionSheet("수능 기출", papers.isEmpty() ? "들퍼레/수능 폴더" : "들퍼레/수능 폴더의 문제지 " + papers.size() + "개 · 번호를 누르면 판서로 풀어요");
+        pick.primary.setVisibility(View.GONE);
+        if (problem != null && !problem.isBlank()) pick.body.addView(ui.footer(problem));
+        if (papers.isEmpty()) {
+            TextView how = ui.text(entries.isEmpty() ? "들퍼레 폴더 안 '수능' 폴더에 문제지 PDF를 넣어 주세요. 연도별 폴더로 나눠도 돼요." : "이름으로 알아본 문제지가 아직 없어요.", BODY, 450, TEXT);
+            how.setLineSpacing(ui.dp(4), 1); how.setPadding(ui.dp(4), ui.dp(2), ui.dp(4), ui.dp(8)); pick.body.addView(how);
+            if (entries.isEmpty()) { pick.primary.setVisibility(View.VISIBLE); pick.primary.setText("수능 폴더 만들기"); pick.primary.setOnClickListener(v -> { pick.dismiss(); makeFolder(shelf); }); }
+        } else {
+            List<String> sittings = new ArrayList<>(); for (BoardExams.Entry e : papers) if (!sittings.contains(e.paper().sitting())) sittings.add(e.paper().sitting());
+            int[] at = {0};
+            if (narrow != null) for (int i = 0; i < sittings.size(); i++) { dev.jun.gyeot.core.ExamPapers.Paper p = first(papers, sittings.get(i)); if ((narrow.year() == 0 || p.year() == narrow.year()) && (narrow.exam().isEmpty() || p.exam().equals(narrow.exam()))) { at[0] = i; break; } }
+            LinearLayout courses = ui.column(), parts = ui.column(), numbers = ui.column(); String[] course = {""}; String[] part = {""};
+            Runnable[] fill = new Runnable[2];
+            // The subjects of the chosen exam, then the elective part (수학·국어) and the numbers of the chosen subject.
+            fill[0] = () -> {
+                courses.removeAllViews(); List<BoardExams.Entry> sitting = new ArrayList<>(); for (BoardExams.Entry e : papers) if (e.paper().sitting().equals(sittings.get(at[0]))) sitting.add(e);
+                String[] names = new String[sitting.size()]; int chosen = 0;
+                for (int i = 0; i < names.length; i++) {
+                    names[i] = sitting.get(i).paper().course();
+                    if (names[i].equals(course[0]) || narrow != null && course[0].isEmpty() && (names[i].equals(narrow.subject()) || narrow.subject().isEmpty() && sitting.get(i).paper().area().equals(narrow.area()))) chosen = i;
+                }
+                course[0] = names[chosen];
+                courses.addView(ui.pills(names, chosen, index -> { course[0] = names[index]; fill[1].run(); }));
+                fill[1].run();
+            };
+            fill[1] = () -> {
+                parts.removeAllViews(); numbers.removeAllViews();
+                BoardExams.Entry entry = null; for (BoardExams.Entry e : papers) if (e.paper().sitting().equals(sittings.get(at[0])) && e.paper().course().equals(course[0])) { entry = e; break; }
+                if (entry == null) return;
+                dev.jun.gyeot.core.ExamPapers.Paper paper = entry.paper(); List<String> electives = dev.jun.gyeot.core.ExamPapers.sections(paper.area());
+                dev.jun.gyeot.core.ExamPapers.Index index = entry.indexed() ? BoardExams.cached(getApplicationContext(), entry.file()) : null;
+                boolean split = !electives.isEmpty() && !electives.contains(paper.subject()) && (paper.year() >= 2022 && paper.year() <= 2027 || index != null && index.sections(paper.area().equals("수학") ? 23 : 35).size() > 1);
+                part[0] = "";
+                if (split) {
+                    String remembered = store.settings.getString("examSection_" + paper.area(), "");
+                    if (narrow != null && electives.contains(narrow.section())) remembered = narrow.section();
+                    int chosen = Math.max(0, electives.indexOf(remembered)); part[0] = electives.get(chosen); String area = paper.area();
+                    TextView label = ui.text("선택과목 · " + (area.equals("수학") ? "23" : "35") + "번부터", FOOTNOTE, 600, MUTED); label.setPadding(ui.dp(4), ui.dp(14), 0, ui.dp(6)); parts.addView(label);
+                    String[] names = electives.toArray(new String[0]);
+                    parts.addView(ui.pills(names, chosen, index2 -> { part[0] = names[index2]; store.settings.edit().putString("examSection_" + area, names[index2]).apply(); }));
+                }
+                int count = dev.jun.gyeot.core.ExamPapers.questions(paper.area()); if (index != null && !index.numbers().isEmpty()) count = Math.max(count, index.numbers().get(index.numbers().size() - 1));
+                TextView label = ui.text("문제 번호", FOOTNOTE, 600, MUTED); label.setPadding(ui.dp(4), ui.dp(16), 0, ui.dp(8)); numbers.addView(label);
+                int columns = getResources().getConfiguration().screenWidthDp >= 600 ? 10 : 5; LinearLayout line = null; BoardExams.Entry chosenEntry = entry;
+                for (int n = 1; n <= count; n++) {
+                    if ((n - 1) % columns == 0) { line = ui.row(); LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.bottomMargin = ui.dp(6); numbers.addView(line, lp); }
+                    int number = n; boolean asked = narrow != null && narrow.number() == n;
+                    TextView cell = ui.text(String.valueOf(n), CALLOUT, asked ? 700 : 560, asked ? BG : TEXT); cell.setGravity(Gravity.CENTER); cell.setMinimumHeight(ui.dp(46));
+                    cell.setBackground(ui.shape(asked ? TEXT : FILL, 12)); cell.setContentDescription(n + "번 풀기");
+                    cell.setOnClickListener(v -> { pick.dismiss(); solve(chosenEntry, number, dev.jun.gyeot.core.ExamPapers.elective(chosenEntry.paper().area(), number) ? part[0] : "", ""); }); Ui.pressable(cell, true);
+                    LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, -2, 1); if ((n - 1) % columns > 0) cp.leftMargin = ui.dp(6); line.addView(cell, cp);
+                }
+                for (int rest = count % columns == 0 ? 0 : columns - count % columns; rest > 0 && line != null; rest--) { View empty = new View(this); LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(0, 1, 1); ep.leftMargin = ui.dp(6); line.addView(empty, ep); }
+            };
+            String[] labels = sittings.toArray(new String[0]);
+            TextView label = ui.text("시험", FOOTNOTE, 600, MUTED); label.setPadding(ui.dp(4), 0, 0, ui.dp(6)); pick.body.addView(label);
+            pick.body.addView(ui.pills(labels, at[0], index -> { at[0] = index; course[0] = ""; fill[0].run(); }));
+            TextView subject = ui.text("과목", FOOTNOTE, 600, MUTED); subject.setPadding(ui.dp(4), ui.dp(14), 0, ui.dp(6)); pick.body.addView(subject);
+            pick.body.addView(courses); pick.body.addView(parts); pick.body.addView(numbers);
+            fill[0].run();
+        }
+        if (!unknown.isEmpty()) {
+            pick.body.addView(ui.sectionHeader("이름으로 알아보지 못한 파일"));
+            LinearLayout group = ui.group();
+            for (BoardExams.Entry entry : unknown) ui.addRow(group, ui.listRow(R.drawable.ic_file, MUTED, entry.file().path(), "눌러서 첫 쪽을 읽고 알아봐요", ui.chevron(), () -> { pick.dismiss(); recognize(entry); }), true);
+            pick.body.addView(group);
+        }
+        pick.body.addView(ui.footer("파일 이름은 연도_시험_과목.pdf로 두면 바로 알아봐요. 예: 2025_수능_수학.pdf · 2025_6모_국어.pdf · 2025_9모_물리1.pdf. 문제를 처음 풀 때 문제지의 쪽을 읽어 문제 위치를 찾아 두고, 다음부터는 바로 잘라 올려요."));
+        show(pick);
+    }
+    private static dev.jun.gyeot.core.ExamPapers.Paper first(List<BoardExams.Entry> papers, String sitting) { for (BoardExams.Entry e : papers) if (e.paper().sitting().equals(sitting)) return e.paper(); return papers.get(0).paper(); }
+    private void makeFolder(BoardExams.Shelf shelf) {
+        background(() -> { String why = null; try { shelf.make(); } catch (Exception failed) { why = failed.getMessage() == null ? "폴더를 만들지 못했어요." : failed.getMessage(); }
+            String problem = why; foreground(() -> toast(problem != null ? problem : "들퍼레/수능 폴더를 만들었어요. 문제지 PDF를 넣어 주세요.")); });
+    }
+    /** A paper whose name says too little: its pages are read (as for its first question) and what its first page says is kept. */
+    private void recognize(BoardExams.Entry entry) { find(entry, 0, "", "", true); }
+    /** Solves a question of a paper: finds it (once per paper), cuts it out, puts it on a fresh board and asks for the lesson. */
+    private void solve(BoardExams.Entry entry, int number, String section, String words) { find(entry, number, section, words, false); }
+    private void find(BoardExams.Entry entry, int number, String section, String words, boolean onlyRecognize) {
+        if (preparing || examBusy) return;
+        // A new question ends the lesson being read.
+        if (teacher.busy()) teacher.stop();
+        if (brain == null && ScopedModels.board(store).readyEngine().isBlank()) { toast("판서에 쓸 AI를 먼저 골라 주세요. 더 보기 → 두뇌"); return; }
+        BoardExams.Shelf shelf = BoardExams.shelf(this); int run = ++examRun; examBusy = true;
+        java.util.concurrent.atomic.AtomicReference<Runnable> cancel = new java.util.concurrent.atomic.AtomicReference<>(); examStop.set(() -> { Runnable stop = cancel.get(); if (stop != null) stop.run(); });
+        lesson(BoardTeacher.THINKING, 0, 0, ""); progress.setText(BoardExams.cached(getApplicationContext(), entry.file()) == null ? "문제지를 읽는 중…" : "문제를 자르는 중…");
+        background(() -> {
+            String problem = null, chosen = section; List<String> choices = List.of(); List<Bitmap> pictures = new ArrayList<>(); dev.jun.gyeot.core.ExamPapers.Paper paper = entry.paper();
+            try {
+                dev.jun.gyeot.core.ExamPapers.Index index = BoardExams.index(getApplicationContext(), shelf, entry.file(), brain != null ? brain : this::askModel, cancel,
+                    (done, all) -> foreground(() -> { if (examBusy && run == examRun && !destroyed) progress.setText("문제 위치를 찾는 중 · " + done + "/" + all + "쪽"); }));
+                paper = dev.jun.gyeot.core.ExamPapers.known(paper, index);
+                if (!onlyRecognize) {
+                    List<String> found = new ArrayList<>(index.sections(number)); found.remove("");
+                    if (chosen.isEmpty() && found.size() > 1) {
+                        String remembered = store.settings.getString("examSection_" + paper.area(), "");
+                        if (found.contains(remembered)) chosen = remembered; else choices = found;
+                    }
+                    if (choices.isEmpty()) {
+                        List<dev.jun.gyeot.core.ExamPapers.Cut> cuts = dev.jun.gyeot.core.ExamPapers.cuts(index, number, chosen);
+                        if (cuts.isEmpty()) problem = number + "번을 이 문제지에서 찾지 못했어요.";
+                        else pictures = BoardExams.pictures(shelf, entry.file(), cuts);
+                    }
+                }
+            } catch (java.util.concurrent.CancellationException stopped) { problem = ""; }
+            catch (Exception failed) { problem = failed.getMessage() == null || failed.getMessage().isBlank() ? "문제지를 읽지 못했어요." : failed.getMessage(); }
+            String why = problem, part = chosen; List<String> options = choices; List<Bitmap> made = pictures; dev.jun.gyeot.core.ExamPapers.Paper known = paper;
+            foreground(() -> {
+                if (destroyed || run != examRun) { for (Bitmap b : made) b.recycle(); return; }
+                examBusy = false; examStop.set(null); lesson(BoardTeacher.IDLE, 0, 0, "");
+                if (why != null) { for (Bitmap b : made) b.recycle(); if (!why.isEmpty()) toast(why); return; }
+                if (onlyRecognize) { toast(known.known() ? "알아봤어요: " + known.title() : "첫 쪽에서 시험을 알아보지 못했어요. 파일 이름을 바꿔 주세요."); exams(null); return; }
+                if (!options.isEmpty()) { chooseSection(new BoardExams.Entry(known, entry.file(), true), number, options, words); return; }
+                place(known, number, part, made, words);
+            });
+        });
+    }
+    private void chooseSection(BoardExams.Entry entry, int number, List<String> options, String words) {
+        Ui.Sheet which = ui.selectionSheet(number + "번", "어느 선택과목의 문제인가요?"); which.primary.setVisibility(View.GONE);
+        LinearLayout group = ui.group();
+        for (String option : options) ui.addRow(group, ui.listRow(R.drawable.ic_book, ORANGE, option, entry.paper().title() + " " + number + "번", ui.chevron(), () -> {
+            which.dismiss(); store.settings.edit().putString("examSection_" + entry.paper().area(), option).apply(); solve(entry, number, option, words); }), true);
+        which.body.addView(group); show(which);
+    }
+    /** The question's pictures on a fresh board, named after it, then the lesson asked for. */
+    private void place(dev.jun.gyeot.core.ExamPapers.Paper paper, int number, String section, List<Bitmap> pictures, String words) {
+        if (board.items().length() > 0) newBoard();
+        List<String> names = new ArrayList<>(); List<float[]> sizes = new ArrayList<>();
+        try { for (Bitmap picture : pictures) keep(boardId, picture, false, names, sizes); }
+        catch (Exception failed) { for (String name : names) { java.io.File made = boards.picture(name); if (made != null) made.delete(); } toast("문제를 판에 올리지 못했어요."); return; }
+        finally { for (Bitmap picture : pictures) picture.recycle(); }
+        float y = below(), width = (Board.WIDTH - 2 * Board.MARGIN) * dev.jun.gyeot.core.BoardPlot.compact(textScale()); List<JSONObject> made = new ArrayList<>();
+        for (int i = 0; i < names.size(); i++) { float height = width * sizes.get(i)[1] / Math.max(1, sizes.get(i)[0]); made.add(Board.image(names.get(i), Board.MARGIN, y, width, height, Board.ME)); y += height + 30; }
+        board.addAll(made); paintHistory();
+        String named = paper.title() + (section.isEmpty() ? "" : " " + section) + " " + number + "번";
+        title = named; paintTitle(); saveSoon();
+        input.setText((words.isBlank() ? "" : words + "\n\n") + "판에 올린 자료는 " + named + " 문제예요. 이 문제를 판서로 차근차근 풀어 줘.");
+        sendNow();
+    }
+
     private String askModel(String instructions, String request, List<MainRequest.Attachment> with, java.util.concurrent.atomic.AtomicReference<Runnable> cancel) throws Exception {
         ScopedModels models = ScopedModels.board(store);
         if (models.readyEngine().isBlank()) throw new IllegalStateException("판서에 쓸 AI를 먼저 골라 주세요. 더 보기 → 두뇌");
