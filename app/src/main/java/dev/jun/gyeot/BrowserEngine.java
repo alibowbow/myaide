@@ -162,6 +162,10 @@ final class BrowserEngine {
         WebExtension.Port port;
         GeckoDisplay display;
         android.media.ImageReader surface;
+        // A PDF opens in Gecko's own viewer, where the page bridge never runs (askPdf).
+        long pdfEpoch = -1, pdfAskedAt = Long.MIN_VALUE / 2;
+        boolean pdfAsking;
+        int pdfSaving;
     }
     final Handler main = new Handler(Looper.getMainLooper());
     final List<Tab> tabs = new ArrayList<>();
@@ -382,6 +386,7 @@ final class BrowserEngine {
         String dispatchId = "", readReceiptId = "", dispatchDocument = "";
         boolean actionAcknowledged;
         boolean navigationProposalAccepted, recoveryChecked;
+        boolean pdfAnswered; // pdfOpened answers it; the readiness loop stops
         String action = "", navigationAction = "", previousDocument = "", previousUrl = "", navigationTarget = "", committedUrl = "";
         int sends;
         long deadline;
@@ -1313,7 +1318,7 @@ final class BrowserEngine {
     }
     private boolean isPending(Pending p){Lane l=lane(p.generation);return l!=null&&l.pending==p;}
     private void sendWhenReady(Pending p, JSONObject args, long deadline) {
-        if (!isPending(p) || !valid(p.generation)) return;
+        if (!isPending(p) || !valid(p.generation) || p.pdfAnswered) return;
         if (lane(p.generation).paused) { finish(p,error("브라우저 작업이 중지됐어요.")); return; }
         if (!extensionError.isBlank()) { finish(p,obj("ok", false, "error_code", "bridge_install_failed", "error", extensionError)); return; }
         if (p.tab.loadFailed) { finish(p,readinessFailure(p, "page_load_failed", "페이지를 열지 못했어요. 주소와 연결을 확인해 주세요.")); return; }
@@ -1339,8 +1344,100 @@ final class BrowserEngine {
                     else finish(p,obj("ok", false, "action_may_have_run", p.dispatched, "error", "페이지 응답을 확인하지 못했어요. 동작을 반복하지 말고 먼저 페이지를 다시 읽어 주세요."));
                 }
             }, 6000);
-        } else if (android.os.SystemClock.uptimeMillis() >= deadline) finish(p,readinessFailure(p, extension == null ? "bridge_not_ready" : "page_not_ready", "아직 페이지를 읽을 수 없어요. 로딩이 끝난 뒤 다시 요청해 주세요."));
-        else main.postDelayed(() -> sendWhenReady(p, args, deadline), 150);
+        } else if (p.tab.port == null && p.tab.pdfEpoch == p.tab.navigationEpoch && p.tab.pdfSaving == 0) finish(p, pdfResult(p.tab, false));
+        // A PDF still being kept turns back to its page when kept: wait for that a while longer than for a page.
+        else if (android.os.SystemClock.uptimeMillis() >= (p.tab.pdfSaving > 0 && p.tab.pdfEpoch == p.tab.navigationEpoch ? deadline + 90_000 : deadline)) finish(p,readinessFailure(p, extension == null ? "bridge_not_ready" : "page_not_ready", "아직 페이지를 읽을 수 없어요. 로딩이 끝난 뒤 다시 요청해 주세요."));
+        else { if (p.tab.port == null) askPdf(p.tab); main.postDelayed(() -> sendWhenReady(p, args, deadline), 150); }
+    }
+    /**
+     * A PDF opens in Gecko's own PDF viewer, where the page bridge never runs, so a read would wait for nothing. While a
+     * tab has no bridge, ask Gecko (at most every 700 ms) whether its document is that viewer.
+     */
+    private void askPdf(Tab tab) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (tab.pdfAsking || now - tab.pdfAskedAt < 700 || tab.needsLoad || tab.loadFailed || tab.pdfEpoch == tab.navigationEpoch || !tab.session.isOpen()) return;
+        tab.pdfAsking = true; tab.pdfAskedAt = now; long epoch = tab.navigationEpoch;
+        GeckoResult<Boolean> asked;
+        try { asked = tab.session.isPdfJs(); } catch (RuntimeException unavailable) { tab.pdfAsking = false; return; }
+        if (asked == null) { tab.pdfAsking = false; return; }
+        asked.accept(pdf -> main.post(() -> {
+            tab.pdfAsking = false;
+            if (Boolean.TRUE.equals(pdf) && live(tab) && tab.navigationEpoch == epoch && tab.port == null && tab.pdfEpoch != epoch) pdfOpened(tab, epoch);
+        }), failed -> main.post(() -> tab.pdfAsking = false));
+    }
+    /**
+     * The tab's document is a PDF in Gecko's viewer. A Work browser keeps the PDF itself as the job's download (the
+     * same as a file the site sends to be saved) and, once it is kept, goes back to the page it came from so the job
+     * goes on from a page it can read; the operation waiting on this tab is answered now instead of timing out.
+     */
+    private void pdfOpened(Tab tab, long epoch) {
+        tab.pdfEpoch = epoch;
+        boolean saving = false;
+        if (workEngine && workDownload != null && !disposed) {
+            GeckoResult<WebResponse> kept;
+            try { kept = tab.session.getPdfFileSaver().save(); } catch (RuntimeException unavailable) { kept = null; }
+            if (kept != null) {
+                saving = true; tab.pdfSaving++;
+                kept.accept(response -> main.post(() -> deliverPdf(tab, epoch, response)),
+                    failed -> main.post(() -> { tab.pdfSaving = Math.max(0, tab.pdfSaving - 1); changed(); }));
+            }
+        }
+        Pending p = pending(tab);
+        if (p == null || p.tab != tab || !valid(p.generation)) { changed(); return; }
+        p.pdfAnswered = true;
+        // An observed public link that opened a PDF arrived where it was proposed to go: the viewer is the new document there.
+        if (p.navigationAction.equals("read_get") && !p.readReceiptId.isBlank() && !p.recoveryChecked && sameNavigationUrl(tab.url, p.navigationTarget)) {
+            String before = tab.task.snapshot();
+            if (tab.task.settleReadNavigation(p.readReceiptId, navigationHash(p.navigationTarget), navigationHash("pdf:" + epoch + ":" + tab.url))) {
+                p.recoveryChecked = true; p.settlingMutation = workEngine;
+                JSONObject result = pdfResult(tab, saving);
+                persistTask(tab, saved -> {
+                    p.settlingMutation = false;
+                    if (!saved) tab.task.restoreMutationFence(before);
+                    else if (workEngine) activeWorkReceipts.remove(p.readReceiptId);
+                    if (!isPending(p) || !valid(p.generation)) return;
+                    if (!saved) { finish(p, error("PDF 문서는 열렸지만 복구 기록 저장을 확인하지 못했어요.")); return; }
+                    put(result, "public_get_navigation_verified", true); finish(p, result);
+                });
+                return;
+            }
+        }
+        finish(p, pdfResult(tab, saving));
+    }
+    private void deliverPdf(Tab tab, long epoch, WebResponse response) {
+        Runnable kept = () -> main.post(() -> {
+            tab.pdfSaving = Math.max(0, tab.pdfSaving - 1);
+            // Back to the page the PDF was opened from, once the file is kept; a PDF opened directly has none and stays.
+            if (live(tab) && tab.pdfSaving == 0 && returnsFromPdf(tab, epoch)) { tab.loadFailed = false; tab.port = null; tab.session.goBack(); }
+            changed();
+        });
+        java.io.InputStream body = response.body;
+        if (disposed || workDownload == null || !live(tab) || body == null) {
+            try { if (body != null) body.close(); } catch (java.io.IOException ignored) { }
+            kept.run(); return;
+        }
+        try { response.setReadTimeoutMillis(30_000); } catch (RuntimeException ignored) { }
+        java.io.InputStream watched = new java.io.FilterInputStream(body) {
+            private boolean closed;
+            @Override public void close() throws java.io.IOException { try { super.close(); } finally { if (!closed) { closed = true; kept.run(); } } }
+        };
+        WebResponse.Builder copy = new WebResponse.Builder(response.uri).statusCode(response.statusCode).body(watched);
+        if (response.headers != null) for (Map.Entry<String, String> header : response.headers.entrySet()) copy.addHeader(header.getKey(), header.getValue());
+        workDownload.accept(tab, copy.build());
+    }
+    /** Only a plain way back: never past a change whose outcome is unknown (that stays for the user to check). */
+    private boolean returnsFromPdf(Tab tab, long epoch) {
+        return tab.navigationEpoch == epoch && tab.back && tab.session.isOpen() && !tab.task.mutationUnresolved();
+    }
+    private JSONObject pdfResult(Tab tab, boolean saving) {
+        String url = safeUrl(tab.url);
+        if (saving) return obj("ok", true, "pdf", true, "tab", tab.id, "url", url, "download_started", true, "returns_to_previous_page", returnsFromPdf(tab, tab.navigationEpoch),
+            "message", "이 주소는 PDF 문서예요. PDF 보기 화면은 읽을 수 없어서 문서를 이 작업의 파일로 받고 있어요. "
+                + (returnsFromPdf(tab, tab.navigationEpoch) ? "다 받으면 이 탭은 PDF를 연 이전 페이지로 돌아가요. 다음 동작 전에 read로 지금 페이지를 확인하세요. " : "이 탭에는 돌아갈 이전 페이지가 없어요. 다음 페이지는 open 하세요. ")
+                + "같은 PDF를 다시 열지 마세요.");
+        return obj("ok", false, "pdf", true, "tab", tab.id, "url", url, "error_code", "pdf_viewer", "retryable", false,
+            "error", workEngine ? "이 탭은 PDF 문서를 보여 주고 있어서 읽을 수 없어요. 이 PDF는 이미 받았거나 받지 못했어요(작업 결과의 artifacts 확인). 다른 페이지를 open 하세요."
+                : "PDF 문서가 PDF 보기 화면으로 열렸어요. 이 화면의 내용은 읽을 수 없어요. 뒤로 가거나 다른 페이지로 이동해 주세요.");
     }
     // Readiness recovery is never permission to replay a dispatched action or a mutation.
     private static JSONObject readinessFailure(Pending p, String code, String message) {

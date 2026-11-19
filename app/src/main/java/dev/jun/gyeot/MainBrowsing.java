@@ -24,11 +24,13 @@ import org.json.JSONObject;
 final class MainBrowsing implements AutoCloseable {
     private final Context context; private final AppStore store;
     private final Map<String, JSONObject> downloads = new ConcurrentHashMap<>(); private final List<String> copies = new CopyOnWriteArrayList<>();
-    private final BrowserWorkTools browser; private final FolderWorkTools folders; private final String said; private boolean held, closed;
+    private final BrowserWorkTools browser; private final FolderWorkTools folders; private final String said, recent; private boolean held, closed;
 
-    MainBrowsing(Context context, AppStore store, String run, String words, BooleanSupplier stopped, Consumer<String> status) {
+    /** words: the user's words this browsing works under; recent: those with the user's last messages, where a browser AI they named may be. */
+    MainBrowsing(Context context, AppStore store, String run, String words, String recent, BooleanSupplier stopped, Consumer<String> status) {
         this.context = context.getApplicationContext(); this.store = store;
         said = words == null ? "" : words.strip();
+        this.recent = recent == null ? said : recent.strip();
         String authority = AutomationGate.AUTHORITY_LINE + said.replace("\n", "\n" + AutomationGate.AUTHORITY_LINE) + "\n";
         browser = new BrowserWorkTools(this.context, store, "main", run == null || run.isBlank() ? "main" : run, () -> authority, stopped, () -> false, status, value -> {
             JSONObject artifact = value.optJSONObject("artifact"), attachment = value.optJSONObject("attachment");
@@ -88,7 +90,7 @@ final class MainBrowsing implements AutoCloseable {
             return dev.jun.gyeot.core.Jsons.obj("ok", true, "ai", current, "model", model, "effort", models.effort(current, model), "connected", choices);
         }
         if (!"set".equals(args.optString("action"))) return GitHubFunctions.failure("action은 show 또는 set이에요.");
-        if (!MODEL_WORDS.matcher(said).find()) return GitHubFunctions.failure("Nothing was changed: the user's own words did not name an AI or a model for the browser.");
+        if (!MODEL_WORDS.matcher(said).find() && !MODEL_WORDS.matcher(recent).find()) return GitHubFunctions.failure("Nothing was changed: the user's own recent words did not name an AI or a model for the browser.");
         String brain = args.optString("ai").strip();
         if (!java.util.Arrays.asList(AIS).contains(brain)) return GitHubFunctions.failure("ai는 gpt, claude, gemini, grok, nim 중 하나예요.");
         if (!connected(brain)) return GitHubFunctions.failure(brain + " 연결이 없어요. 설정에서 먼저 연결해 주세요.");
