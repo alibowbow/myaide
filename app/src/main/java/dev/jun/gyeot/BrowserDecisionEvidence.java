@@ -138,6 +138,9 @@ final class BrowserDecisionEvidence {
             if(!java.util.Set.of("scripted","fragment").contains(target.optString("navigation_kind")))return false;
         }
         if("tab".equals(role))return true;
+        // A control named for a file ("국어영역_문제지.pdf"), or a download control when the user asked for files, fetches a
+        // file: a read of the page's own documents, as a link to one is.
+        if(fileControl(label) || downloadControl(label) && asksFiles(words))return true;
         // The whole command names exactly this control as a destination ("공지 탭으로 들어가죠").
         if(dev.jun.gyeot.core.BrowserNavigationCompletion.onlyOpen(words,label))return true;
         String lower=label.strip().toLowerCase(java.util.Locale.ROOT);
@@ -181,8 +184,23 @@ final class BrowserDecisionEvidence {
         return target != null && "a".equalsIgnoreCase(target.optString("tag")) && url.equals(target.optString("href"))
             && AutomationGate.readNavigationLabel(target.optString("label")) && !AutomationGate.forbiddenUrl(url);
     }
+    private static final java.util.regex.Pattern FILE_NAME = java.util.regex.Pattern.compile("(?i)[^\\s/\\\\]+\\.(?:pdf|hwp|hwpx|zip|docx?|xlsx?|pptx?|mp3|m4a|wav|mp4)(?![a-z0-9])");
+    /** A control whose name is a file's name: a document, sound, video or archive. */
+    static boolean fileControl(String label) {
+        String plain = label == null ? "" : label.strip();
+        return !plain.isEmpty() && plain.length() <= 160 && FILE_NAME.matcher(plain).find();
+    }
+    /** A control that only says it downloads ("다운로드", "파일 받기", "Download"). */
+    static boolean downloadControl(String label) {
+        String plain = label == null ? "" : label.strip().toLowerCase(java.util.Locale.ROOT);
+        return plain.length() <= 40 && plain.matches("(?:(?:첨부\\s*)?파일\\s*)?(?:다운로드|내려\\s*받기|받기)(?:\\s*하기)?|download(?:\\s+(?:file|pdf))?");
+    }
+    /** Whether the user's own words ask for files to be downloaded, kept or collected. */
+    static boolean asksFiles(String words) {
+        return words != null && words.matches("(?is).*(다운로드|내려\\s*받|받아|받기|저장|수집|모아|모으|download|save).*");
+    }
     private static boolean dangerous(String value) {
-        return value.toLowerCase(java.util.Locale.ROOT).matches("(?s).*(password|passwd|otp|verification|login|sign.in|sign.out|log.out|api.?key|token|secret|credential|purchase|checkout|payment|delete|remove|publish|share|invite|invitation|collaborator|upload|transfer|withdraw|unsubscribe|terminal|console|비밀번호|비번|인증|로그인|로그아웃|결제|구매|삭제|게시|공유|초대|공동작업|송금|탈퇴|구독취소).*");
+        return value.toLowerCase(java.util.Locale.ROOT).matches("(?s).*(password|passwd|otp|verification|login|sign.in|sign.out|log.out|api.?key|token|secret|credential|purchase|checkout|payment|delete|remove|publish|share|invite|invitation|collaborator|upload|transfer|withdraw|unsubscribe|terminal|console|비밀번호|비번|인증|로그인|로그아웃|결제|구매|삭제|게시(?!판|글|물)|공유|초대|공동작업|송금|탈퇴|구독취소).*");
     }
     private static boolean hasSearch(JSONArray elements) {
         if(elements!=null)for(int i=0;i<elements.length();i++){JSONObject e=elements.optJSONObject(i);if(e!=null&&"search".equals(fieldKind(e)))return true;}

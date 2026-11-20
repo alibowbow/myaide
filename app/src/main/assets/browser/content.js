@@ -115,7 +115,9 @@
   function publicReadUrl(raw) {
     if (!raw || !String(raw).trim() || String(raw).trim().startsWith('#')) return '';
         try { const u = new URL(raw, document.baseURI || location.href);
-          const readKeys = new Set(['id','no','page','p','pg','article','article_id','articleid','board','board_id','bid','bo_table','wr_id','news_id','nid','idx','index','category','cat','section','type','recommend','exception_mode','q','query','search','keyword','s','s_type','s_keyword','sort','order','list_num','offset','limit','date','from','to','lang','hl','gl','utm_source','utm_medium','utm_campaign','utm_content','utm_term']);
+          const readKeys = new Set(['id','no','page','p','pg','article','article_id','articleid','board','board_id','bid','bo_table','wr_id','news_id','nid','idx','index','category','cat','section','type','recommend','exception_mode','q','query','search','keyword','s','s_type','s_keyword','sort','order','list_num','offset','limit','date','from','to','lang','hl','gl','utm_source','utm_medium','utm_campaign','utm_content','utm_term',
+            // Korean public sites' board, menu, search and paging keys (boardID, nttId, m, searchStr, pageIndex …).
+            'boardid','boardseq','bbsid','bbs_id','bbsno','nttid','ntt_id','nttsn','articleseq','seq','menuid','menu_id','menuno','menu_no','mid','m','searchstr','searchtype','searchcnd','searchwrd','searchkeyword','searchcondition','pageindex','pageunit','currpage','cpage','curpage','pageno','page_no','lev','year','statusyn']);
           const path = decodeURIComponent(u.pathname);
           const types=new Set(['best','all','list','view','read','article','news','search','title','subject','content','latest','new','recommend','recommendation','popular','gallery','1','0']);
           const host=u.hostname.toLowerCase();
@@ -190,7 +192,9 @@
       refs.set(ref, {element:e, fingerprint:fingerprint(e)});
       const safeLabel = node => node && !protectedComment(node,regions) && !secret(node) ? node.textContent : '';
       const labelled = (e.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean).map(id=>safeLabel(document.getElementById(id))).join(' ').trim();
-      const label = tidy(labelled || e.getAttribute('aria-label') || safeLabel(e.labels?.[0]) || e.innerText || e.getAttribute('placeholder') || e.getAttribute('title'));
+      // The first source with visible words: a link holding only an icon and a no-break space is named by its title or icon text.
+      const label = [labelled, e.getAttribute('aria-label'), safeLabel(e.labels?.[0]), e.innerText, e.getAttribute('placeholder'), e.getAttribute('title'),
+        [...e.querySelectorAll('img[alt]')].map(i=>i.getAttribute('alt')).join(' ')].map(v=>tidy(v)).find(Boolean) || '';
       const publicHref = e.tagName === 'A' && !e.hasAttribute('download') && sameTab(e) ? anchorReadUrl(e) : '';
       const navigationKind=e.tagName!=='A' ? '' : publicHref ? 'public_get' : /^javascript:/i.test(e.getAttribute('href') || '') ? 'scripted' : (e.getAttribute('href') || '').startsWith('#') ? 'fragment' : 'other';
       elements.push({...(publicHref ? {href:publicHref} : {}), ...(navigationKind ? {navigation_kind:navigationKind} : {}), ref, tag:e.tagName.toLowerCase(), type:e.type || '', label, disabled:!!e.disabled, role:e.getAttribute('role') || '',
