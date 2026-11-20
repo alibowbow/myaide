@@ -219,8 +219,10 @@ final class BoardExams {
             for (int x = from; x < to; x += 2) { int p = row[x]; if (((p >> 16) & 255) + ((p >> 8) & 255) + (p & 255) < 3 * 170) dark++; }
             ink[y] = dark >= 2 ? dark : 0;
         }
-        int top = ExamPapers.snap(ink, Math.round(cut.top() * height + height * .012f), Math.round(height * .05f));
-        int bottom = ExamPapers.snap(ink, Math.round(cut.bottom() * height) - 2, Math.round(height * .04f));
+        // Edges sit in blank bands between lines, not in the hairline gaps inside a raised exponent or a fraction.
+        int gap = Math.max(6, height / 160);
+        int top = ExamPapers.topEdge(ink, Math.round(cut.top() * height + height * .012f), Math.round(height * .05f), gap);
+        int bottom = ExamPapers.bottomEdge(ink, Math.round(cut.bottom() * height) - 2, Math.round(height * .04f), gap);
         if (bottom - top < height / 30) { top = Math.round(cut.top() * height); bottom = Math.round(cut.bottom() * height); }
         bottom = Math.max(top + 1, Math.min(height, bottom)); top = Math.max(0, Math.min(top, height - 1));
         return Bitmap.createBitmap(page, left, top, right - left, bottom - top);

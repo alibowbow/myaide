@@ -320,4 +320,31 @@ public final class ExamPapers {
         for (int y = from; y >= Math.max(0, from - reach); y--) if (ink[y] == 0) return y;
         return from;
     }
+    /**
+     * The nearest band of blank rows at least gap rows tall above at (within reach rows), as {its top row, its bottom row};
+     * null when there is none. A raised exponent, a fraction or a root index leaves only a row or two blank inside a line,
+     * so a band this tall lies between lines, never through one.
+     */
+    static int[] band(int[] ink, int at, int reach, int gap) {
+        if (ink == null || ink.length == 0) return null;
+        int from = Math.max(0, Math.min(ink.length - 1, at)), stop = Math.max(0, from - reach), run = 0;
+        for (int y = from; y >= stop; y--) {
+            if (ink[y] != 0) { run = 0; continue; }
+            if (++run < gap) continue;
+            int bottom = y + run - 1, top = y;
+            while (top - 1 >= stop && ink[top - 1] == 0) top--;
+            return new int[]{top, bottom};
+        }
+        return null;
+    }
+    /** Where a question's piece starts: in the blank band above its first line, close to it (snap when there is none). */
+    public static int topEdge(int[] ink, int at, int reach, int gap) {
+        int[] b = band(ink, at, reach, gap);
+        return b == null ? snap(ink, at, reach) : b[1] - Math.min(8, (b[1] - b[0]) / 2);
+    }
+    /** Where a question's piece ends: in the blank band above whatever comes next, close to the question (snap when there is none). */
+    public static int bottomEdge(int[] ink, int at, int reach, int gap) {
+        int[] b = band(ink, at, reach, gap);
+        return b == null ? snap(ink, at, reach) : b[0] + Math.min(8, (b[1] - b[0]) / 2);
+    }
 }
