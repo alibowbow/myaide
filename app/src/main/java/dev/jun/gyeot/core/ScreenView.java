@@ -38,6 +38,8 @@ public final class ScreenView {
         if (!(s.contains("화면") || s.contains("스크린") || s.contains("screen"))) return false;
         for (String deny : new String[]{"보지마", "보지말", "보지않", "안봐", "보지못", "하지마", "하지말", "꺼줘", "끄고", "누르면", "버튼", "설정", "방법", "기능", "don't", "dont", "stopsharing"}) if (s.contains(deny)) return false;
         for (String action : new String[]{"눌러", "클릭", "열어", "입력", "스크롤", "내려", "올려", "실행", "이동"}) if (s.contains(action)) return false;
+        // 판서 takes the screen itself (VoiceBoard): a look here would only talk about it instead.
+        if (VoiceBoard.asked(speech)) return false;
         if ((s.contains("보면서") || s.contains("보며")) && (s.contains("이야기") || s.contains("얘기") || s.contains("대화"))) return true;
         for (String ask : new String[]{"봐줘", "봐주세요", "봐줄래", "봐봐", "좀봐", "같이봐", "함께봐", "보고이야기", "보고얘기", "보고대화", "읽어줘", "읽어주세요", "설명해", "뭐가보여", "확인해줘", "화면보자", "lookatmyscreen", "readmyscreen", "explainthisscreen"}) if (s.contains(ask)) return true;
         return s.equals("화면보기") || s.equals("화면공유");

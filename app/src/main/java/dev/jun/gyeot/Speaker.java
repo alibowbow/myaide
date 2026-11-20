@@ -52,6 +52,24 @@ final class Speaker implements AutoCloseable {
     private volatile boolean running = true;
     /** Estimated uptime (ms) at which everything written so far has finished playing. */
     private volatile long audibleUntil;
+    /**
+     * How loud each recent write plays, and when (uptime ms): the microphone's echo is measured against it (core/BargeIn).
+     * Written by the writer thread, read by the microphone's.
+     */
+    private final long[] levelFrom = new long[64], levelTo = new long[64];
+    private final double[] levels = new double[64];
+    private int levelNext;
+    private synchronized void playsAt(long from, long to, double level) {
+        int i = levelNext; levelNext = (levelNext + 1) % levels.length;
+        levelFrom[i] = from; levelTo[i] = to; levels[i] = level;
+    }
+    /** The loudest speech playing around now (the last 300 ms to the next 100 ms), as 16-bit RMS; 0 when nothing plays. */
+    synchronized double level() {
+        long now = SystemClock.uptimeMillis(); double loudest = 0;
+        for (int i = 0; i < levels.length; i++) if (levelTo[i] >= now - 300 && levelFrom[i] <= now + 100) loudest = Math.max(loudest, levels[i]);
+        return loudest;
+    }
+    private synchronized void forgetLevels() { java.util.Arrays.fill(levelTo, 0); java.util.Arrays.fill(levelFrom, 0); java.util.Arrays.fill(levels, 0); }
     Speaker(Context context) {
         manager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         AudioAttributes attributes = new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
@@ -125,8 +143,9 @@ final class Speaker implements AutoCloseable {
                     if (written <= 0) break;
                     offset += written; frames += written / 2;
                     if (packet.epoch != epoch.get()) { discardStale(); playing = false; break; }
-                    long now = SystemClock.uptimeMillis();
-                    audibleUntil = Math.max(now, audibleUntil) + written * 1000L / BYTES_PER_SECOND;
+                    long now = SystemClock.uptimeMillis(), from = Math.max(now, audibleUntil);
+                    audibleUntil = from + written * 1000L / BYTES_PER_SECOND;
+                    playsAt(from, audibleUntil, dev.jun.gyeot.core.BargeIn.rms(java.util.Arrays.copyOfRange(packet.bytes, offset - written, offset)));
                 }
             }
         } catch (Exception ignored) {
@@ -156,7 +175,7 @@ final class Speaker implements AutoCloseable {
         epoch.incrementAndGet();
         Packet pending;
         while ((pending = queue.poll()) != null) { queuedBytes.addAndGet(-pending.bytes.length); if (pending.done != null) main.post(pending.done); }
-        audibleUntil = 0;
+        audibleUntil = 0; forgetLevels();
         // Silences now and unblocks a pending write; the writer thread restarts playback for the next epoch itself.
         try { track.pause(); track.flush(); } catch (Exception ignored) {}
         manager.abandonAudioFocusRequest(focus);

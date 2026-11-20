@@ -58,7 +58,7 @@ import static dev.jun.gyeot.Ui.*;
  */
 public final class BoardActivity extends Activity {
     /** Opens this board; asks this at once. */
-    static final String OPEN = "gyeot.board_id", ASK = "gyeot.board_ask";
+    static final String OPEN = "gyeot.board_id", ASK = "gyeot.board_ask", INTAKE = "gyeot.board_intake";
     static final int PICK = 71, FILES = 4, SNAPSHOT_UNITS = 3000, PDF_PAGES = 10, PAGE_PIXELS = 1600;
     /** 글자 크기: how much of the device's own text scale each choice is. */
     static final String[] TEXT_NAMES = {"작게", "보통", "크게", "아주 크게"}; static final float[] TEXT_LEVELS = {.8f, 1f, 1.25f, 1.55f};
@@ -161,13 +161,16 @@ public final class BoardActivity extends Activity {
         }
         open(wanted == null ? "" : wanted, position);
         String ask = state == null ? getIntent().getStringExtra(ASK) : null;
-        if (ask != null && !ask.isBlank()) main.post(() -> asked(ask));
+        BoardIntake.Item intake = state == null ? BoardIntake.take(getIntent().getStringExtra(INTAKE)) : null;
+        if (intake != null) main.post(() -> fromVoice(intake));
+        else if (ask != null && !ask.isBlank()) main.post(() -> asked(ask));
     }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent); setIntent(intent);
         String id = intent.getStringExtra(OPEN), ask = intent.getStringExtra(ASK);
         if (id != null && !id.equals(boardId)) { teacher.stop(); saveNow(); open(id); }
-        asked(ask);
+        BoardIntake.Item intake = BoardIntake.take(intent.getStringExtra(INTAKE));
+        if (intake != null) fromVoice(intake); else asked(ask);
     }
     @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putString("board", boardId); board.saveViewport(state); state.putString("boardDraft", input.getText().toString()); }
     @Override protected void onResume() { super.onResume(); resumed = true; AppNavigator.inFront("board");
@@ -1213,18 +1216,37 @@ public final class BoardActivity extends Activity {
         which.body.addView(group); show(which);
     }
     /** The question's pictures on a fresh board, named after it, then the lesson asked for. */
+    /**
+     * The voice assistant asked for 판서 (AssistantService, BoardIntake): the phone screens it took, top to bottom, go on a new
+     * board, and the board explains them; with none, the request alone. A lesson running here stops for it: the user asked.
+     */
+    private void fromVoice(BoardIntake.Item item) {
+        if (busy()) stopLesson();
+        String request = item.request().strip();
+        if (item.pictures().isEmpty()) { if (board.items().length() > 0) newBoard(); input.setText(request.isEmpty() ? "판서로 설명해 줘." : request); sendNow(); return; }
+        List<Bitmap> pictures = new ArrayList<>();
+        for (byte[] jpeg : item.pictures()) { Bitmap decoded = android.graphics.BitmapFactory.decodeByteArray(jpeg, 0, jpeg.length); if (decoded != null) pictures.add(decoded); }
+        if (pictures.isEmpty()) { toast("화면 그림을 열지 못했어요."); return; }
+        int count = pictures.size();
+        String about = "판에 올린 자료는 사용자가 보던 휴대폰 화면" + (count > 1 ? " " + count + "장이에요(위에서 아래로 스크롤한 차례). 처음부터 차례로" : "이에요. 이 내용을") + " 판서로 차근차근 설명해 줘.";
+        placePictures(pictures, count > 1 ? "화면 판서 (" + count + "장)" : "화면 판서", (request.isEmpty() ? "" : request + "\n\n") + about);
+    }
     private void place(dev.jun.gyeot.core.ExamPapers.Paper paper, int number, String section, List<Bitmap> pictures, String words) {
+        String named = paper.title() + (section.isEmpty() ? "" : " " + section) + " " + number + "번";
+        placePictures(pictures, named, (words.isBlank() ? "" : words + "\n\n") + "판에 올린 자료는 " + named + " 문제예요. 이 문제를 판서로 차근차근 풀어 줘.");
+    }
+    /** Pictures go on a new board, one under another, titled; then the request is sent. The bitmaps are recycled. */
+    private void placePictures(List<Bitmap> pictures, String named, String request) {
         if (board.items().length() > 0) newBoard();
         List<String> names = new ArrayList<>(); List<float[]> sizes = new ArrayList<>();
         try { for (Bitmap picture : pictures) keep(boardId, picture, false, names, sizes); }
-        catch (Exception failed) { for (String name : names) { java.io.File made = boards.picture(name); if (made != null) made.delete(); } toast("문제를 판에 올리지 못했어요."); return; }
+        catch (Exception failed) { for (String name : names) { java.io.File made = boards.picture(name); if (made != null) made.delete(); } toast("자료를 판에 올리지 못했어요."); return; }
         finally { for (Bitmap picture : pictures) picture.recycle(); }
         float y = below(), width = (Board.WIDTH - 2 * Board.MARGIN) * dev.jun.gyeot.core.BoardPlot.compact(textScale()); List<JSONObject> made = new ArrayList<>();
         for (int i = 0; i < names.size(); i++) { float height = width * sizes.get(i)[1] / Math.max(1, sizes.get(i)[0]); made.add(Board.image(names.get(i), Board.MARGIN, y, width, height, Board.ME)); y += height + 30; }
         board.addAll(made); paintHistory();
-        String named = paper.title() + (section.isEmpty() ? "" : " " + section) + " " + number + "번";
         title = named; paintTitle(); saveSoon();
-        input.setText((words.isBlank() ? "" : words + "\n\n") + "판에 올린 자료는 " + named + " 문제예요. 이 문제를 판서로 차근차근 풀어 줘.");
+        input.setText(request);
         sendNow();
     }
 

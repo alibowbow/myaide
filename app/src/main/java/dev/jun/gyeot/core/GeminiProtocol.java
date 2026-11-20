@@ -220,6 +220,7 @@ public final class GeminiProtocol {
                 function("get_current_time", "Read the device's current local date, time and time zone.", obj()),
                 obj("name", PhoneLogActions.FUNCTION, "description", "Clear only this app's recent phone-control diagnostic log when the user explicitly requested that exact scope, or said 지워줘 referring to that scope. Use this internal command, never phone_action on this app's 지우기 button. No repeated confirmation for already explicit consent. It preserves new logs and provides a five-minute undo; never clears files, chats or other apps.", "parameters", obj("type", "OBJECT", "properties", obj())),
                 AppNavigation.declaration(),
+                VoiceBoard.declaration(),
                 BrowserTools.voiceDeclaration(),
                 AppImages.declaration(),
                 AppVideos.declaration(AppVideos.GENERATE),

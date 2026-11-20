@@ -265,6 +265,16 @@ public final class AssistantService extends Service {
     private int reportsPlaying;
     /** Per-session snapshot: captionsOn means the separate Transcribe connection supplies the captions. */
     private volatile boolean captionsOn, echoGuard, privateOutput;
+    /**
+     * Speaking over the answer through the phone's own speaker (core/BargeIn): the call's microphone rests while it speaks,
+     * so the user's voice is told from its echo here. Then the answer stops, the call hears the user from just before they
+     * began (bargeRoll), and the rest of the stopped answer is not played (bargeHoldUntil, uptime ms) until Live has heard.
+     */
+    private volatile dev.jun.gyeot.core.BargeIn barge;
+    private final java.util.ArrayDeque<byte[]> bargeRoll = new java.util.ArrayDeque<>();
+    private volatile long bargeHoldUntil;
+    private static final int BARGE_ROLL_BYTES = 16000 * 2 * 8 / 10;
+    private static final long BARGE_HOLD_MS = 3000;
     private long connectionRevision;
     private boolean resumeConflictRecovered;
     private int foregroundTypes = -1, lastStartId;
@@ -351,6 +361,7 @@ public final class AssistantService extends Service {
         store.stopReading("음성 대화를 시작해서 읽기를 멈췄어요.");
         store.startSession(mode, store.language()); endAfterTurn = false;
         captionsOn = ASSISTANT.equals(mode) && store.captions(); echoGuard = INTERPRETER.equals(mode) || store.echoGuard();
+        barge = ASSISTANT.equals(mode) ? new dev.jun.gyeot.core.BargeIn() : null; bargeHoldUntil = 0; synchronized (bargeRoll) { bargeRoll.clear(); }
         // The outputs as they are now (a car that connected before this service began, a Bluetooth permission given since).
         routeChanged();
         if (echoGuard && !privateOutput && echoTailMs > dev.jun.gyeot.core.VoiceRoute.ROOM_TAIL_MS) store.phoneLog("  · 블루투스 스피커·차로 들려요 · 대답하는 동안 마이크를 쉬어요");
@@ -535,6 +546,8 @@ public final class AssistantService extends Service {
                     touch();
                     if (phoneReport.holding()) { phoneReportAudio.add(pcm); turnHeld += pcm.length; return; }
                     Speaker output = speaker;
+                    // The user spoke over this answer: the rest of it is not played while Live takes in their words.
+                    if (SystemClock.uptimeMillis() < bargeHoldUntil) { turnQuiet += pcm.length; return; }
                     if (output == null || self[0].browserQuietOutput()) { turnQuiet += pcm.length; return; }
                     recordFirstVoiceAudio(); voiceAskedAt = 0; turnPlayed += pcm.length;
                     if (!output.play(pcm, audibleWatch())) { output.flush(); store.status("응답 음성이 너무 길어 일부를 건너뛰었어요"); }
@@ -607,6 +620,7 @@ public final class AssistantService extends Service {
             @Override public void turnComplete() {
                 main.post(() -> {
                     if (!live(epoch, self[0])) return;
+                    bargeHoldUntil = 0;
                     logTurn("턴 끝 (turnComplete)");
                     answered();
                     // While a check runs, its report is decided there: a further turn does not start a second check.
@@ -648,7 +662,7 @@ public final class AssistantService extends Service {
                 });
             }
             @Override public void interrupted() {
-                main.post(() -> { if (!live(epoch, self[0])) return; logTurn("말 끊김 (interrupted)"); Speaker output = speaker; boolean playing = output != null && output.isPlaying(); if (output != null) output.flush(); if (callLatency != null) callLatency.silenced(playing); if (phoneReport.holding()) answer.setLength(0); phoneReportAudio.clear(); commitAnswer(answer, true); browserInputTurnReady = true; browserVoiceInterrupted(); userSpoke(); });
+                main.post(() -> { if (!live(epoch, self[0])) return; bargeHoldUntil = 0; logTurn("말 끊김 (interrupted)"); Speaker output = speaker; boolean playing = output != null && output.isPlaying(); if (output != null) output.flush(); if (callLatency != null) callLatency.silenced(playing); if (phoneReport.holding()) answer.setLength(0); phoneReportAudio.clear(); commitAnswer(answer, true); browserInputTurnReady = true; browserVoiceInterrupted(); userSpoke(); });
             }
             @Override public void tools(JSONArray calls) { main.post(() -> { if (live(epoch, self[0])) { commitHeard(heard, heardInput[0]); handleTools(self[0], calls); } }); }
             @Override public void toolsCancelled(JSONArray ids) {
@@ -2724,9 +2738,9 @@ public final class AssistantService extends Service {
                 Speaker output = speaker;
                 // Through the phone speaker the model would hear itself and cut its own answer short.
                 if (echoGuard && !privateOutput && output != null && output.isAudible()) {
-                    TranslationSession current = interpreter; if (current != null) current.send(GeminiProtocol.audioStreamEnd());
-                    return;
-                }
+                    TranslationSession current = interpreter; if (current != null) { current.send(GeminiProtocol.audioStreamEnd()); return; }
+                    if (!bargedIn(epoch, output, pcm)) return;
+                } else synchronized (bargeRoll) { if (!bargeRoll.isEmpty()) bargeRoll.clear(); }
                 // The floating button's bars show what the call hears.
                 FloatingButton shown = bubble; if (shown != null) shown.heard(pcm);
                 GeminiSession v = voice, t = transcriber;
@@ -2738,6 +2752,30 @@ public final class AssistantService extends Service {
             }
             @Override public void error(String message) { main.post(() -> voiceError(epoch, message)); }
         };
+    }
+    /**
+     * Microphone thread, while the call's answer plays through the phone speaker: whether the user is speaking over it
+     * (core/BargeIn). Not through a car or a Bluetooth speaker, whose late echo is not measured. When they are, the answer
+     * stops, Live gets the words from just before they began, and this frame goes on to the call. Otherwise the frame waits
+     * in bargeRoll, the last 0.8 s.
+     */
+    private boolean bargedIn(long epoch, Speaker output, byte[] pcm) {
+        dev.jun.gyeot.core.BargeIn listening = barge; GeminiSession v = voice;
+        boolean heard = listening != null && v != null && v.ready && !store.muted && echoTailMs <= dev.jun.gyeot.core.VoiceRoute.ROOM_TAIL_MS
+            && listening.hear(dev.jun.gyeot.core.BargeIn.rms(pcm), output.level(), pcm.length / 32);
+        byte[][] before;
+        synchronized (bargeRoll) {
+            if (!heard) {
+                bargeRoll.addLast(pcm); int bytes = 0; for (byte[] held : bargeRoll) bytes += held.length;
+                while (bytes > BARGE_ROLL_BYTES && !bargeRoll.isEmpty()) bytes -= bargeRoll.removeFirst().length;
+                return false;
+            }
+            before = bargeRoll.toArray(new byte[0][]); bargeRoll.clear();
+        }
+        listening.reset(); bargeHoldUntil = SystemClock.uptimeMillis() + BARGE_HOLD_MS; output.flush();
+        for (byte[] held : before) v.audio(held);
+        main.post(() -> { if (epoch == voiceEpoch) { store.phoneLog("  · 말씀하셔서 대답을 멈추고 들어요"); logTurn("끼어들기 (스피커)"); } });
+        return true;
     }
     private String listeningStatus() {
         if (store.muted) return "마이크 음소거 중 · 연결은 유지돼요";
@@ -3703,6 +3741,7 @@ public final class AssistantService extends Service {
             if (AppGallery.STATUS.equals(name)) { touch(); session.tool(id, name, imageState(args)); continue; }
             if (AppGallery.SHOW.equals(name)) { showVoiceImage(session, id, name, args); continue; }
             if (AppNavigation.FUNCTION.equals(name)) { openAppScreen(session, id, name, args.optString("screen")); continue; }
+            if (dev.jun.gyeot.core.VoiceBoard.FUNCTION.equals(name)) { boardExplain(session, id, name, args); continue; }
             if (DeviceActions.NAMES.contains(name)) { deviceAction(session, id, name, args); continue; }
             if (dev.jun.gyeot.core.CalendarQuery.VOICE.contains(name)) { calendarFor(session, id, name, args); continue; }
             if (VoiceWork.NAMES.contains(name)) {
@@ -4359,6 +4398,58 @@ public final class AssistantService extends Service {
                 : "  ✗ 화면을 열지 못함 · " + result.optString("error_code", "cancelled"));
             touch(); session.tool(id, calledFunction, result);
         });
+    }
+    /**
+     * board_explain (core/VoiceBoard): the screens the user means are taken here, scrolling down between them with phone control
+     * (until the screen's text stops changing or VoiceBoard.PAGES), and go to 판서 with the request (BoardIntake). The call then
+     * ends after one short sentence, so that only the board speaks.
+     */
+    private void boardExplain(GeminiSession session, String id, String name, JSONObject args) {
+        touch();
+        int pages = dev.jun.gyeot.core.VoiceBoard.pages(args); String request = args.optString("request").strip();
+        if (pages > 0 && !store.screenView()) { session.tool(id, name, obj("ok", false, "error", "화면을 판서에 올리려면 설정에서 ‘화면 보기 허용’을 켜 주세요.")); return; }
+        long epoch = voiceEpoch; List<byte[]> shots = new ArrayList<>(); String[] lastText = {null};
+        java.util.function.BooleanSupplier current = () -> live(epoch, session) && !cancelledAppCalls.contains(id);
+        store.phoneLog("→ 판서로 설명 · " + (pages > 0 ? "화면 " + pages + "장까지" : "요청만"));
+        store.status(pages > 0 ? "판서에 올릴 화면을 가져오는 중…" : "판서를 여는 중…");
+        Runnable done = () -> { if (current.getAsBoolean()) handToBoard(session, id, name, request, shots, epoch); };
+        Runnable[] take = new Runnable[1];
+        take[0] = () -> PhoneService.look(() -> { if (!current.getAsBoolean()) throw new IllegalStateException("판서 요청을 취소했어요."); },
+            (jpeg, app, text, error) -> main.post(() -> {
+                if (!current.getAsBoolean()) return;
+                if (error != null || jpeg == null) {
+                    if (shots.isEmpty()) { store.phoneLog("  ✗ " + error); session.tool(id, name, obj("ok", false, "error", error == null ? "화면을 가져오지 못했어요." : error)); return; }
+                    done.run(); return;
+                }
+                // The same screen after a scroll: the page ended.
+                if (!shots.isEmpty() && text != null && !text.isBlank() && text.equals(lastText[0])) { done.run(); return; }
+                try { shots.add(java.util.Base64.getDecoder().decode(jpeg)); } catch (IllegalArgumentException unreadable) { done.run(); return; }
+                lastText[0] = text;
+                if (shots.size() >= pages) { done.run(); return; }
+                store.status("판서에 올릴 화면 " + shots.size() + "장 · 아래로 넘기는 중…");
+                PhoneService.run("phone_action", obj("action", "scroll_down"), value -> main.post(() -> {
+                    if (!current.getAsBoolean()) return;
+                    if (value == null || !value.optBoolean("ok")) { store.phoneLog("  · 더 넘기지 못해 화면 " + shots.size() + "장으로 설명해요"); done.run(); return; }
+                    main.postDelayed(take[0], 700);
+                }));
+            }));
+        if (pages > 0) take[0].run(); else done.run();
+    }
+    private void handToBoard(GeminiSession session, String id, String name, String request, List<byte[]> shots, long epoch) {
+        Intent intent = new Intent(this, BoardActivity.class).putExtra(BoardActivity.INTAKE, BoardIntake.put(request, shots))
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        String route;
+        try { route = DeviceActionRunner.start(this, intent, bubble != null && bubble.visible()); } catch (RuntimeException refused) { route = "notification"; }
+        boolean started = DeviceActionRunner.started(route);
+        // Android would not start it from the background now: a tap on the notification (the user's own action) opens it.
+        if (!started) DeviceActionRunner.post(this, intent, "판서에서 설명을 시작하려면 누르세요");
+        store.phoneLog(started ? "  ✓ 판서를 열었어요 · 화면 " + shots.size() + "장" : "  · 판서를 바로 띄우지 못해 탭해서 여는 알림을 보냈어요");
+        // The board speaks now: one short sentence from the call, then it ends (as end_voice_session does).
+        endAfterTurn = true;
+        touch(); session.tool(id, name, obj("ok", true, "opened", started, "screens", shots.size(),
+            "say", started ? "판서 화면에서 설명을 시작했어요. 한 문장으로만 알리고 말을 마치세요. 이 통화는 곧 끝나요."
+                : "판서를 바로 띄우지 못했어요. 알림을 누르면 판서가 열려 설명을 시작한다고 한 문장으로 알리세요. 이 통화는 곧 끝나요."));
+        main.postDelayed(() -> { if (endAfterTurn) endByVoice(epoch); }, 8000);
     }
     /** The in-app screen open still waiting for its screen (AppNavigator keeps one at a time). */
     private record ScreenOpen(String screen, GeminiSession session) {}
