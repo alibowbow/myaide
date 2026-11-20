@@ -37,6 +37,11 @@ public final class BrowserTaskContext {
     }
     /** Only a native receipt-bound user confirmation may use this; it makes no success claim. */
     public boolean confirmMutationInspected(String id) { return settleMutation(id, "user_inspected"); }
+    /**
+     * A routine step (a link, tab, menu or file control, as the gate classified it) is not fenced: repeating it changes
+     * nothing, so its outcome is simply whatever the next read shows. It makes no success claim.
+     */
+    public boolean settleRoutine(String id) { return settleMutation(id, "routine_step"); }
     private boolean settleMutation(String id, String resolution) {
         if (pendingMutation == null || !pendingMutation.optString("id").equals(id)) return false;
         lastMutation = obj("id", id, "action", pendingMutation.optString("action"),
@@ -102,7 +107,7 @@ public final class BrowserTaskContext {
         if (!(row.opt("id") instanceof String) || !row.getString("id").matches("[A-Za-z0-9_-]{1,80}")
                 || !java.util.Set.of("click", "type", "select", "press", "vault_fill").contains(row.optString("action"))
                 || !(pending ? row.optString("state").equals("awaiting_acknowledgement")
-                    : java.util.Set.of("acknowledged_once", "definitely_not_dispatched", "user_inspected", "observed_read_navigation").contains(row.optString("state"))))
+                    : java.util.Set.of("acknowledged_once", "definitely_not_dispatched", "user_inspected", "observed_read_navigation", "routine_step").contains(row.optString("state"))))
             throw new IllegalArgumentException("Invalid mutation receipt");
         JSONObject copy = obj("id", row.getString("id"), "action", row.getString("action"), "state", row.getString("state"));
         if (row.has("request") || row.has("url")) {

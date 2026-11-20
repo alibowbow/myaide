@@ -391,6 +391,7 @@ final class BrowserEngine {
         boolean actionAcknowledged;
         boolean navigationProposalAccepted, recoveryChecked;
         boolean pdfAnswered; // pdfOpened answers it; the readiness loop stops
+        boolean routine; // the gate classified this step routine (BrowserAgent): it leaves no fence
         String action = "", navigationAction = "", previousDocument = "", previousUrl = "", navigationTarget = "", committedUrl = "";
         int sends;
         long deadline;
@@ -1187,6 +1188,8 @@ final class BrowserEngine {
             }
             p.mutationSaved = true; dispatch.run();
         };
+        // A routine step needs no durable record: if the app stops mid-step, nothing is left that must not be repeated.
+        if (p.routine) { ready.accept(true); return; }
         if (!workEngine) { persistTask(p.tab, ready); return; }
         if (workScope.isEmpty() || !workTaskWritable || restorePending || p.tab != restoreTab) { ready.accept(false); return; }
         // Reserve globally, then dispatch only after both encrypted records commit. Serial Work IO
@@ -1194,7 +1197,7 @@ final class BrowserEngine {
         String snapshot = p.tab.task.snapshot();
         JSONObject record = obj("version", 1, "receipt_id", p.dispatchId, "job_id", workScope,
             "request", request, "url", safeWorkUrl(p.tab.url), "reason", "awaiting_acknowledgement",
-            "action", p.action, "state", "awaiting_acknowledgement");
+            "action", p.action, "state", "awaiting_acknowledgement", "tier", "consequential");
         reserveWorkDispatch(p, snapshot, record, ready);
     }
     private void reserveWorkDispatch(Pending p, String snapshot, JSONObject record, Consumer<Boolean> ready) {
@@ -1203,6 +1206,11 @@ final class BrowserEngine {
             boolean saved = false, blocked = false, waiting = false;
             try {
                 JSONObject existing = readWorkPending(store);
+                // Records from before steps were tiered fenced every click, links and file buttons included: one that no
+                // running job holds is released, so an ordinary click does not stop all later browser work.
+                if (existing != null && !existing.has("tier") && !activeWorkReceipts.contains(existing.optString("receipt_id"))) {
+                    store.secrets.put(WORK_PENDING_KEY, ""); existing = null;
+                }
                 if (existing != null) {
                     waiting = activeWorkReceipts.contains(existing.optString("receipt_id")); blocked = !waiting;
                 }
@@ -1350,7 +1358,12 @@ final class BrowserEngine {
             : !sameNavigationUrl(url, p.previousUrl);
         p.committedUrl = expected ? url : "";
     }
-    void execute(JSONObject input, long lease, Consumer<JSONObject> callback) {
+    void execute(JSONObject input, long lease, Consumer<JSONObject> callback) { execute(input, lease, false, callback); }
+    /**
+     * routine: the agent's own gate classified this step routine (a link, tab, menu or file control: repeating it changes
+     * nothing). Such a step is never fenced: not across Work jobs, and not after it ends. Only app code passes true.
+     */
+    void execute(JSONObject input, long lease, boolean routine, Consumer<JSONObject> callback) {
         if (!valid(lease)) { callback.accept(error("작업이 중지됐어요.")); return; }
         Lane l=lane(lease);
         if (restorePending) { main.postDelayed(() -> execute(input, lease, callback), 50); return; }
@@ -1381,6 +1394,7 @@ final class BrowserEngine {
         if (action.equals("back") && !tab.back) { callback.accept(obj("ok", false, "error_code", "no_history", "action_executed", false, "retryable", false, "error", "돌아갈 이전 페이지가 없어요. 이동할 공개 HTTPS 홈페이지 주소를 알려 주세요.")); return; }
         if (action.equals("click")) tab.clickLabel = elementLabel(tab, args.optString("ref"));
         Pending p = new Pending(); p.id = Long.toString(++sequence); p.tab = tab; p.generation = lease; p.callback = callback; p.action = action; p.readReceiptId = tab.task.pendingMutation().optString("id");
+        p.routine = routine;
         if (args.optBoolean("navigation_only") && Set.of("open", "back").contains(action)) {
             p.navigationAction = action; p.previousDocument = tab.document; p.previousUrl = tab.url; p.navigationTarget = args.optString("url");
         }
@@ -1620,6 +1634,9 @@ final class BrowserEngine {
         if(p==null||!isPending(p))return;
         if (recoverReadNavigation(p, result)) return;
         settleUnsent(p);lane(p.generation).pending=null;
+        if (p.routine && p.mutation && p.dispatched && !p.dispatchId.isEmpty() && p.tab.task.settleRoutine(p.dispatchId)) {
+            activeWorkReceipts.remove(p.dispatchId); p.tab.taskChanged = true; persistTask(p.tab, null);
+        }
         if (result.optBoolean("ok") && !result.optBoolean("requires_user") && !result.optString("document").isBlank()
                 && result.optString("document").equals(p.tab.document) && result.optJSONArray("elements") != null)
             p.tab.lastReadObservation = copy(result);

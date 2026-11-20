@@ -144,7 +144,7 @@ final class BrowserDecisionEvidence {
         // The whole command names exactly this control as a destination ("공지 탭으로 들어가죠").
         if(dev.jun.gyeot.core.BrowserNavigationCompletion.onlyOpen(words,label))return true;
         String lower=label.strip().toLowerCase(java.util.Locale.ROOT);
-        if(lower.matches("(?:canvas|캔버스|tools?|도구|menu|메뉴|more|더보기|더\\s*보기|close|닫기|뒤로|back|forward|다음|advanced|고급|개념\\s*글|최신순|전체|공지|베스트|인기\\s*글?|추천\\s*글?|최신\\s*글?|펼치기|접기|이전\\s*페이지|다음\\s*페이지|show more|load more|see more)"))return true;
+        if(MENU_LABEL.matcher(lower).matches())return true;
         if(lower.equals("search")||lower.equals("검색"))return hasSearch(elements);
         // A generation site's own submit (a composer's send, a music or image generator's Create/Generate): the user's own
         // generation request is its authority, and nothing else's.
@@ -183,6 +183,27 @@ final class BrowserDecisionEvidence {
         JSONObject target = target(action, page);
         return target != null && "a".equalsIgnoreCase(target.optString("tag")) && url.equals(target.optString("href"))
             && AutomationGate.readNavigationLabel(target.optString("label")) && !AutomationGate.forbiddenUrl(url);
+    }
+    private static final java.util.regex.Pattern MENU_LABEL = java.util.regex.Pattern.compile("(?:canvas|캔버스|tools?|도구|menu|메뉴|more|더보기|더\\s*보기|close|닫기|뒤로|back|forward|다음|advanced|고급|개념\\s*글|최신순|전체|공지|베스트|인기\\s*글?|추천\\s*글?|최신\\s*글?|펼치기|접기|이전\\s*페이지|다음\\s*페이지|show more|load more|see more)");
+    /**
+     * A routine step that changes nothing when repeated, so the engine keeps no fence for it: a click on a link, a tab, a
+     * menu or a file control, or Tab/Escape. A generation submit, Enter and typing stay fenced even when routine.
+     */
+    static boolean unfenced(JSONObject action, JSONObject page, String words) {
+        if (action == null || page == null || !routineAction(action, page, words)) return false;
+        String kind = action.optString("action");
+        if (kind.equals("press")) return java.util.Set.of("Tab", "Escape").contains(action.optString("text"));
+        if (!kind.equals("click")) return false;
+        JSONArray elements = page.optJSONArray("elements"); JSONObject target = null;
+        for (int i = 0; elements != null && i < elements.length() && target == null; i++) {
+            JSONObject item = elements.optJSONObject(i);
+            if (item != null && action.optString("ref").equals(item.optString("ref"))) target = item;
+        }
+        if (target == null) return false;
+        String label = target.optString("label");
+        if (generationSubmit(page, label, words, elements)) return false;
+        return "a".equalsIgnoreCase(target.optString("tag")) || "tab".equals(target.optString("role")) || fileControl(label)
+            || downloadControl(label) && asksFiles(words) || MENU_LABEL.matcher(label.strip().toLowerCase(java.util.Locale.ROOT)).matches();
     }
     private static final java.util.regex.Pattern FILE_NAME = java.util.regex.Pattern.compile("(?i)[^\\s/\\\\]+\\.(?:pdf|hwp|hwpx|zip|docx?|xlsx?|pptx?|mp3|m4a|wav|mp4)(?![a-z0-9])");
     /** A control whose name is a file's name: a document, sound, video or archive. */

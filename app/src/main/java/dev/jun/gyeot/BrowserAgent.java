@@ -699,7 +699,9 @@ final class BrowserAgent {
         // The same trusted classification that made this click a tier 1 step.
         final boolean routineClick = "click".equals(action.optString("action")) && page != null
             && BrowserDecisionEvidence.routineAction(action, page, userWords());
-        engine.execute(action, lease, value -> {
+        // The gate's own classification (never the planner's say) tells the engine a step needs no fence.
+        final boolean routineStep = BrowserDecisionEvidence.unfenced(action, page, userWords());
+        engine.execute(action, lease, routineStep, value -> {
             // A canceled read can still reply from a native bridge. It owns no newer operation.
             if (activePage != operation) return;
             boolean notExecuted = Boolean.FALSE.equals(value.opt("action_executed")) || value.optBoolean("stale_observation");
