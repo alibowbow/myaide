@@ -392,6 +392,7 @@ final class BrowserEngine {
         boolean navigationProposalAccepted, recoveryChecked;
         boolean pdfAnswered; // pdfOpened answers it; the readiness loop stops
         boolean routine; // the gate classified this step routine (BrowserAgent): it leaves no fence
+        JSONObject fileStarted; // the file a click on a file control started fetching instead of navigating (scriptedFile)
         String action = "", navigationAction = "", previousDocument = "", previousUrl = "", navigationTarget = "", committedUrl = "";
         int sends;
         long deadline;
@@ -804,6 +805,7 @@ final class BrowserEngine {
                     // Redirects can fail before location commit, without a second PageStart.
                     // Record accepted targets without replacing a newer explicit loading URL.
                     if (request.isRedirect && tab.loading) tab.acceptedRedirectUrls.add(request.uri);
+                    if (scriptedFile(tab, request)) return GeckoResult.fromValue(AllowOrDeny.DENY);
                     return GeckoResult.fromValue(AllowOrDeny.ALLOW);
                 }
                 catch (Exception e) {
@@ -1082,13 +1084,12 @@ final class BrowserEngine {
             if (!isPending(p) || !valid(p.generation)) return;
             if (!saved) { finish(p, error("파일 링크 기록을 저장하지 못해 받지 않았어요.")); return; }
             p.dispatched = true; record(p.generation, "파일을 받는 중");
-            JSONObject result = fetchFile(tab, destination);
+            JSONObject result = fetchFile(tab, destination, linkLabel(tab, destination));
             put(result, "public_get_navigation_verified", true); finish(p, result);
         });
     }
     /** Fetches a file address with the browser's own network and hands the response to the job as a download. */
-    private JSONObject fetchFile(Tab tab, String url) {
-        String label = linkLabel(tab, url);
+    private JSONObject fetchFile(Tab tab, String url, String label) {
         GeckoResult<WebResponse> fetched;
         try { fetched = new GeckoWebExecutor(runtime).fetch(new WebRequest.Builder(url).referrer(tab.url).build()); }
         catch (RuntimeException failed) { return obj("ok", false, "error", "파일을 받기 시작하지 못했어요."); }
@@ -1097,6 +1098,27 @@ final class BrowserEngine {
             failed -> main.post(() -> handOver(tab, new WebResponse.Builder(url).statusCode(0).body(new java.io.ByteArrayInputStream(new byte[0])).build(), label)));
         return obj("ok", true, "file_download", true, "download_started", true, "tab", tab.id, "url", safeUrl(url), "document", tab.document, "link_text", label,
             "message", "파일 주소라 페이지를 옮기지 않고 이 작업의 파일로 받고 있어요. 탭은 지금 페이지에 그대로 있고, 지금 요소 ref도 그대로 쓸 수 있어요. 같은 파일을 다시 받지 말고 다음 링크로 이어 가세요.");
+    }
+    /**
+     * A click on a control named for a file ("국어영역_문제지.pdf") whose script then sends the page to the file's address: in
+     * a Work browser that address is fetched as the job's download and the page stays where it is, as with a link to a file,
+     * so no PDF viewer opens and the next button follows at once. The click's own answer reports the file (fileInto).
+     */
+    private boolean scriptedFile(Tab tab, GeckoSession.NavigationDelegate.LoadRequest request) {
+        Pending p = pending(tab);
+        if (!workEngine || workDownload == null || disposed || request.isRedirect || request.isDirectNavigation
+                || request.target != GeckoSession.NavigationDelegate.TARGET_WINDOW_CURRENT
+                || p == null || p.tab != tab || !valid(p.generation) || !"click".equals(p.action) || !p.dispatched
+                || !p.navigationAction.isEmpty() || p.fileStarted != null || !BrowserDecisionEvidence.fileControl(tab.clickLabel)) return false;
+        p.fileStarted = fetchFile(tab, request.uri, tab.clickLabel);
+        record(p.generation, "파일을 받는 중");
+        return true;
+    }
+    private static void fileInto(JSONObject value, JSONObject started) {
+        if (!started.optBoolean("ok")) { put(value, "file_download_error", started.optString("error")); return; }
+        put(value, "file_download", true); put(value, "download_started", true); put(value, "file_url", started.optString("url"));
+        put(value, "link_text", started.optString("link_text"));
+        put(value, "file_message", "누른 버튼이 파일을 열려고 해서, 페이지를 옮기지 않고 이 작업의 파일로 받고 있어요. 탭은 지금 페이지에 그대로 있어요. 같은 파일을 다시 받지 말고 다음 버튼으로 이어 가세요.");
     }
     private void handOver(Tab tab, WebResponse response, String label) {
         if (disposed || workDownload == null || !live(tab)) {
@@ -1304,6 +1326,7 @@ final class BrowserEngine {
                                 sendWhenReady(p, obj("action", "read"), p.deadline); return;
                             }
                             if (p.rereadRejected) put(value, "previous_action_rejected", true);
+                            if (p.fileStarted != null) fileInto(value, p.fileStarted);
                             if (value.optBoolean("requires_user")) setTaskStatus(p.generation,BrowserTools.observationError(value));
                             put(value, "tab", tab.id); put(value, "desktop", tab.desktop); put(value, "zoom", tab.zoomPercent); finish(p,value); changed();
                         }
@@ -1390,7 +1413,7 @@ final class BrowserEngine {
         // Only explicit native UI selection changes the visible conversation.
         if (action.equals("close")) { close(tab); callback.accept(tabList()); return; }
         if (!extensionError.isBlank()) { callback.accept(obj("ok", false, "error_code", "bridge_install_failed", "error", extensionError)); return; }
-        if (action.equals("open") && keepsFile(args.optString("url"))) { record(lease, "파일을 받는 중"); callback.accept(fetchFile(tab, args.optString("url"))); return; }
+        if (action.equals("open") && keepsFile(args.optString("url"))) { record(lease, "파일을 받는 중"); callback.accept(fetchFile(tab, args.optString("url"), linkLabel(tab, args.optString("url")))); return; }
         if (action.equals("back") && !tab.back) { callback.accept(obj("ok", false, "error_code", "no_history", "action_executed", false, "retryable", false, "error", "돌아갈 이전 페이지가 없어요. 이동할 공개 HTTPS 홈페이지 주소를 알려 주세요.")); return; }
         if (action.equals("click")) tab.clickLabel = elementLabel(tab, args.optString("ref"));
         Pending p = new Pending(); p.id = Long.toString(++sequence); p.tab = tab; p.generation = lease; p.callback = callback; p.action = action; p.readReceiptId = tab.task.pendingMutation().optString("id");
