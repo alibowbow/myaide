@@ -168,6 +168,8 @@ final class BrowserEngine {
         int pdfSaving;
         // The label of the page's link a file being handed to workDownload came from ("" when unknown); untrusted page text.
         String downloadLabel = "";
+        // The label of the element the last click pressed: a file its script sends has no link address to name it by.
+        String clickLabel = "";
     }
     final Handler main = new Handler(Looper.getMainLooper());
     final List<Tab> tabs = new ArrayList<>();
@@ -864,7 +866,7 @@ final class BrowserEngine {
             @Override public void onExternalResponse(GeckoSession session, WebResponse response) {
                 if (!live(tab)) { try { if (response.body != null) response.body.close(); } catch (java.io.IOException ignored) { } return; }
                 if (workEngine) {
-                    if (!disposed && workDownload != null) handOver(tab, response, linkLabel(tab, response.uri));
+                    if (!disposed && workDownload != null) handOver(tab, response, fileLabel(tab, response.uri));
                     else { try { if (response.body != null) response.body.close(); } catch (java.io.IOException ignored) { } }
                 } else { final long downloadLease = lane(tab).id;
                     BrowserMusicDownloads.save(context, response, result -> {
@@ -1103,14 +1105,31 @@ final class BrowserEngine {
         tab.downloadLabel = label == null ? "" : label;
         try { workDownload.accept(tab, response); } finally { tab.downloadLabel = ""; }
     }
+    /** The label of the element with this ref on the tab's last read page; "" when there is none. Untrusted page text. */
+    private static String elementLabel(Tab tab, String ref) {
+        JSONArray elements = tab.lastReadObservation == null ? null : tab.lastReadObservation.optJSONArray("elements");
+        for (int i = 0; elements != null && i < elements.length() && ref != null && !ref.isBlank(); i++) {
+            JSONObject element = elements.optJSONObject(i);
+            if (element != null && ref.equals(element.optString("ref"))) return clip(element.optString("label"));
+        }
+        return "";
+    }
+    private static String clip(String label) {
+        String plain = label == null ? "" : label.replaceAll("\\s+", " ").strip();
+        return plain.length() > 120 ? plain.substring(0, 120) : plain;
+    }
+    /** What a file arriving at this address is called on the page: its link's label, else the label of the element last clicked. */
+    private static String fileLabel(Tab tab, String url) {
+        String label = linkLabel(tab, url);
+        return label.isEmpty() ? tab.clickLabel : label;
+    }
     /** The label of the link to this address on the tab's last read page; "" when it showed none. Untrusted page text. */
     private static String linkLabel(Tab tab, String url) {
         JSONArray elements = tab.lastReadObservation == null ? null : tab.lastReadObservation.optJSONArray("elements");
         for (int i = 0; elements != null && i < elements.length(); i++) {
             JSONObject element = elements.optJSONObject(i);
             if (element == null || element.optString("href").isBlank() || !sameNavigationUrl(element.optString("href"), url)) continue;
-            String label = element.optString("label").replaceAll("\\s+", " ").strip();
-            return label.length() > 120 ? label.substring(0, 120) : label;
+            return clip(element.optString("label"));
         }
         return "";
     }
@@ -1360,6 +1379,7 @@ final class BrowserEngine {
         if (!extensionError.isBlank()) { callback.accept(obj("ok", false, "error_code", "bridge_install_failed", "error", extensionError)); return; }
         if (action.equals("open") && keepsFile(args.optString("url"))) { record(lease, "파일을 받는 중"); callback.accept(fetchFile(tab, args.optString("url"))); return; }
         if (action.equals("back") && !tab.back) { callback.accept(obj("ok", false, "error_code", "no_history", "action_executed", false, "retryable", false, "error", "돌아갈 이전 페이지가 없어요. 이동할 공개 HTTPS 홈페이지 주소를 알려 주세요.")); return; }
+        if (action.equals("click")) tab.clickLabel = elementLabel(tab, args.optString("ref"));
         Pending p = new Pending(); p.id = Long.toString(++sequence); p.tab = tab; p.generation = lease; p.callback = callback; p.action = action; p.readReceiptId = tab.task.pendingMutation().optString("id");
         if (args.optBoolean("navigation_only") && Set.of("open", "back").contains(action)) {
             p.navigationAction = action; p.previousDocument = tab.document; p.previousUrl = tab.url; p.navigationTarget = args.optString("url");
@@ -1489,7 +1509,7 @@ final class BrowserEngine {
         };
         WebResponse.Builder copy = new WebResponse.Builder(response.uri).statusCode(response.statusCode).body(watched);
         if (response.headers != null) for (Map.Entry<String, String> header : response.headers.entrySet()) copy.addHeader(header.getKey(), header.getValue());
-        handOver(tab, copy.build(), linkLabel(tab, tab.url));
+        handOver(tab, copy.build(), fileLabel(tab, tab.url));
     }
     /** Only a plain way back: never past a change whose outcome is unknown (that stays for the user to check). */
     private boolean returnsFromPdf(Tab tab, long epoch) {

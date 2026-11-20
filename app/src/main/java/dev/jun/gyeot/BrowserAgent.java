@@ -138,6 +138,8 @@ final class BrowserAgent {
     private GeminiSession live;
     private int steps, pending;
     private int repairs;
+    /** Format repairs per proposal before the task stops: each tells the planner what was wrong with its reply. */
+    static final int FORMAT_REPAIRS = 2;
     private long progressGeneration;
     private Runnable progressTimeout;
     private String taskContext = "";
@@ -289,11 +291,15 @@ final class BrowserAgent {
                 JSONObject action;
                 try { action = BrowserTools.plan(text); }
                 catch (IllegalArgumentException invalid) {
-                    // Repairing the format executes nothing; at most one repair per proposal.
+                    // Repairing the format executes nothing; the planner is told what was wrong, at most twice per proposal.
+                    String reason = dev.jun.gyeot.core.Jsons.message(invalid, "형식 오류");
+                    String said = text == null ? "" : text.strip();
                     engine.main.post(() -> {
                         if (!takeModel(attempt)) return;
-                        if (++repairs > 1) { complete(BrowserEngine.error("두뇌 동작 형식을 확인하지 못했어요.")); return; }
-                        history.put(obj("format_error", "Return one executable action JSON or an observed result."));
+                        if (++repairs > FORMAT_REPAIRS) { complete(BrowserEngine.error("두뇌 동작 형식을 확인하지 못했어요. (" + reason + ")")); return; }
+                        history.put(obj("format_error", reason, "your_reply_began", said.length() > 300 ? said.substring(0, 300) : said,
+                            "rule", "Nothing was executed. Reply with exactly one JSON object and nothing else: one supported action with its required fields "
+                                + "(click/type/select/press need the current document and an observed ref; open needs a full https URL), or a done JSON with outcome and answer."));
                         step();
                     });return;
                 }

@@ -88,13 +88,29 @@ public final class BrowserTools {
         String s = raw == null ? "" : raw.strip();
         if (s.startsWith("```")) { int line = s.indexOf('\n'); if (line >= 0 && s.endsWith("```")) s = s.substring(line + 1, s.length() - 3).strip(); }
         JSONObject result;
-        try { result = new JSONObject(s); } catch (Exception e) { throw new IllegalArgumentException("두뇌가 브라우저 동작 형식으로 응답하지 않았어요."); }
+        try { result = new JSONObject(s); }
+        catch (Exception e) {
+            // A sentence around the JSON object (or a fence in the middle) still names a step: its first object, as a bare reply's is.
+            String only = onlyObject(s);
+            if (only == null) throw new IllegalArgumentException(s.isEmpty() ? "두뇌가 빈 답을 보냈어요." : "두뇌가 JSON 하나로 응답하지 않았어요.");
+            try { result = new JSONObject(only); } catch (Exception unreadable) { throw new IllegalArgumentException("두뇌가 보낸 JSON을 읽지 못했어요."); }
+        }
         if (result.optBoolean("done")) {
             if (result.optString("answer").isBlank() || promise(result.optString("answer"))) throw new IllegalArgumentException("실행 결과 없이 계획만 답했어요.");
             if (!Set.of("completed", "blocked", "needs_user").contains(result.optString("outcome"))) throw new IllegalArgumentException("완료·실패·사용자 확인 중 실제 결과를 구분해 주세요.");
             return result;
         }
         return validate(result);
+    }
+    /** The text's first whole top-level {…} (quotes respected), or null when it has none or it is not closed. */
+    static String onlyObject(String text) {
+        int start = text.indexOf('{'), end = -1, depth = 0; boolean quoted = false, escaped = false;
+        for (int i = start; start >= 0 && i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (quoted) { if (escaped) escaped = false; else if (c == '\\') escaped = true; else if (c == '"') quoted = false; continue; }
+            if (c == '"') quoted = true; else if (c == '{') depth++; else if (c == '}' && --depth == 0) { end = i; break; }
+        }
+        return end < 0 ? null : text.substring(start, end + 1);
     }
     /** A fresh, whole user request may leave a guarded page; it never resumes the interrupted task. */
     public static JSONObject explicitNavigation(String request) {
