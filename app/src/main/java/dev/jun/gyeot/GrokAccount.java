@@ -30,14 +30,44 @@ final class GrokAccount implements GrokWorkClient.Session {
         this.context = context.getApplicationContext(); this.secrets = secrets; this.changed = changed;
         try { JSONObject saved = load(); if (saved != null) accountId = saved.optString("accountId"); }
         catch (Exception e) { notice = "저장된 Grok 로그인을 읽지 못했어요. 다시 로그인해 주세요."; }
+        try { GrokWork.detected(new org.json.JSONArray(prefs().getString("models", "[]"))); } catch (Exception ignored) {}
     }
+    private android.content.SharedPreferences prefs() { return context.getSharedPreferences("grok-work", Context.MODE_PRIVATE); }
     boolean connected() { return !accountId.isBlank(); }
     public String accountId() { return accountId; }
     /** Local consent identity also changes when the same account reconnects. */
     String connectionEpoch() { synchronized(state) { return accountId + ":" + epoch; } }
-    String model() { return GrokWork.MODEL; }
+    /** The Grok model chosen here, while xAI still lists it; else Grok 4.7. */
+    String model() { String chosen = prefs().getString("model", ""); return GrokWork.listed(chosen) ? chosen : GrokWork.MODEL; }
+    /** Grok 4.7 and the newer chat models xAI lists (read once a day at most, refreshModelsIfDue). */
     org.json.JSONArray models() { return GrokWork.models(); }
-    void model(String value) { GrokWork.model(value); changed.run(); }
+    void model(String value) { GrokWork.model(value); prefs().edit().putString("model", value).apply(); changed.run(); }
+    private volatile long modelsTried;
+    /**
+     * Reads xAI's model list at most once a day (ModelWatch.due) on a thread of its own, so a newer Grok shows up in every
+     * picker without an app update. Quiet: a failed read keeps the list there was and tries again after ten minutes at the
+     * earliest.
+     */
+    void refreshModelsIfDue() {
+        long now = System.currentTimeMillis();
+        if (!connected() || !dev.jun.gyeot.core.ModelWatch.due(prefs().getLong("modelsAt", 0), now) || now - modelsTried < 10 * 60_000L) return;
+        modelsTried = now;
+        Thread read = new Thread(() -> {
+            try {
+                String expected = accountId; if (expected.isBlank()) return;
+                String token = session(expected, null).getString("accessToken");
+                JSONObject body;
+                try (OpenAiAccount.Http.Exchange response = OpenAiAccount.Http.open("GET", GrokWork.MODELS, Map.of("Authorization", "Bearer " + token, "Accept", "application/json"), null, 20_000, null)) {
+                    if (response.status >= 300) return;
+                    body = new JSONObject(OpenAiAccount.Http.read(response.body, 4 * 1024 * 1024));
+                }
+                org.json.JSONArray found = dev.jun.gyeot.core.ModelWatch.grok(body, GrokWork.MODEL, GrokWork.NAME);
+                prefs().edit().putString("models", found.toString()).putLong("modelsAt", System.currentTimeMillis()).apply();
+                GrokWork.detected(found); main.post(changed);
+            } catch (Exception quiet) { /* the saved list stays */ }
+        }, "gyeot-grok-models");
+        read.setDaemon(true); read.start();
+    }
     Reasoning.Profile profile(String model) { GrokWork.model(model); return GrokWork.profile(); }
     String effort(String model) { return profile(model).normalize(context.getSharedPreferences("grok-work", Context.MODE_PRIVATE).getString("effort", "")); }
     void effort(String model, String value) {

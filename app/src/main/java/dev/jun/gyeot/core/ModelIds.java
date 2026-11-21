@@ -54,10 +54,10 @@ public final class ModelIds {
         return (WorkBook.CHATGPT.equals(engine) || "gpt".equals(engine)) && gptOld(id);
     }
 
-    /** The id to show and send for engine's saved id: NIM has one model; a replaced or retired Claude or GPT id becomes its successor. */
+    /** The id to show and send for engine's saved id: NIM keeps a model NVIDIA lists, else Nemotron Ultra; a replaced or retired Claude or GPT id becomes its successor. */
     public static String current(String engine, String id) {
         if (id == null || id.isBlank()) return id == null ? "" : id;
-        if (WorkBook.NIM.equals(engine)) return NimProtocol.MODEL;
+        if (WorkBook.NIM.equals(engine)) return NimProtocol.listed(id) ? id : NimProtocol.MODEL;
         if (WorkBook.CLAUDE.equals(engine)) {
             if (CLAUDE_REPLACED.containsKey(id)) return CLAUDE_REPLACED.get(id);
             if (!claudeOld(id)) return id;

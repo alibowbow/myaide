@@ -23,7 +23,7 @@ final class GeminiWorkAccount {
     /** Progress or problem of the latest key check or model list, shown in settings; empty when there is nothing to say. */
     volatile String notice = "";
 
-    GeminiWorkAccount(SecretStore secrets, SharedPreferences settings, Runnable changed) { this.secrets = secrets; this.settings = settings; this.changed = changed; }
+    GeminiWorkAccount(SecretStore secrets, SharedPreferences settings, Runnable changed) { this.secrets = secrets; this.settings = settings; this.changed = changed; restoreLive(); }
     /** 작업창 Gemini can answer: a key is saved. */
     boolean connected() { return secrets.hasWorkKey(); }
     /** An API key is saved (voice, speech, transcription and the key's model list need one). */
@@ -96,20 +96,46 @@ final class GeminiWorkAccount {
         notice("키를 확인하고 모델 목록을 불러오는 중이에요…");
         network.execute(() -> {
             try {
-                JSONArray models = GeminiWorkClient.models(key);
+                JSONObject list = GeminiWorkClient.list(key); JSONArray models = GeminiWork.models(list);
                 synchronized (this) { secrets.putWork(key); label = null; }
-                keepModels(models); notice("");
+                keepModels(models); keepLive(list); notice("");
             } catch (Exception error) { notice(error instanceof java.io.IOException ? Net.explain(error) : error.getMessage() == null ? "키를 확인하지 못했어요." : error.getMessage()); }
         });
     }
     /** Reads the key's model list again (after a key change, or from the model picker). */
     void refreshModelsAsync() { network.execute(this::refresh); }
+    private volatile long modelsTried;
+    /**
+     * Reads the key's model list at most once a day (ModelWatch.due), quietly, so a newer Gemini text or Live model shows
+     * up in the pickers without an app update; a failed read keeps the lists there were.
+     */
+    void refreshModelsIfDue() {
+        long now = System.currentTimeMillis();
+        if (!hasKey() || !dev.jun.gyeot.core.ModelWatch.due(settings.getLong("geminiWorkModelsAt", 0), now) || now - modelsTried < 10 * 60_000L) return;
+        modelsTried = now;
+        network.execute(() -> { try { JSONObject list = GeminiWorkClient.list(apiKey()); keepModels(GeminiWork.models(list)); keepLive(list); } catch (Exception quiet) { /* kept */ } });
+    }
     private void refresh() {
-        try { if (hasKey()) { keepModels(GeminiWorkClient.models(apiKey())); notice(""); } }
+        try { if (hasKey()) { JSONObject list = GeminiWorkClient.list(apiKey()); keepModels(GeminiWork.models(list)); keepLive(list); notice(""); } }
         catch (Exception error) { notice(error instanceof java.io.IOException ? Net.explain(error) : error.getMessage() == null ? "모델 목록을 불러오지 못했어요." : error.getMessage()); }
     }
+    /** The Live models newer than the app's own (for 음성 비서·판서 voice choices), kept with the list. */
+    private void keepLive(JSONObject list) {
+        java.util.List<String[]> found = dev.jun.gyeot.core.ModelWatch.geminiLive(list, dev.jun.gyeot.core.GeminiProtocol.LIVE);
+        JSONArray saved = new JSONArray(); for (String[] model : found) saved.put(new JSONArray().put(model[0]).put(model[1]));
+        settings.edit().putString("geminiLiveDetected", saved.toString()).apply();
+        dev.jun.gyeot.core.GeminiProtocol.detectedLive(found); changed.run();
+    }
+    /** The newer Live models a list read earlier showed, put back among the choices when the app starts. */
+    private void restoreLive() {
+        try {
+            JSONArray saved = new JSONArray(settings.getString("geminiLiveDetected", "[]")); java.util.List<String[]> found = new java.util.ArrayList<>();
+            for (int i = 0; i < saved.length(); i++) { JSONArray m = saved.optJSONArray(i); if (m != null && m.length() == 2) found.add(new String[]{m.optString(0), m.optString(1)}); }
+            dev.jun.gyeot.core.GeminiProtocol.detectedLive(found);
+        } catch (Exception ignored) {}
+    }
     private void keepModels(JSONArray models) {
-        settings.edit().putString("geminiWorkModels", models.toString()).putInt("geminiWorkListVersion", LIST_VERSION).apply();
+        settings.edit().putString("geminiWorkModels", models.toString()).putInt("geminiWorkListVersion", LIST_VERSION).putLong("geminiWorkModelsAt", System.currentTimeMillis()).apply();
         String keyModel = settings.getString("geminiWorkModel", GeminiWork.DEFAULT_MODELS[0][0]);
         boolean kept = listed(models, keyModel) || keyModel.equals(settings.getString("geminiWorkCustom", ""));
         if (!kept && models.length() > 0) settings.edit().putString("geminiWorkModel", models.optJSONObject(0).optString("id")).apply();

@@ -74,14 +74,16 @@ final class GeminiWorkClient {
         return new OpenAiClient.Result(turn.text, turn.sources, turn.searchDropped ? turn.note : null, "", turn.usage(), Limits.NONE);
     }
     /** The models this key can use for 작업창 (GeminiWork.models). */
-    static JSONArray models(String key) throws Exception {
+    static JSONArray models(String key) throws Exception { return GeminiWork.models(list(key)); }
+    /** The key's whole model list as Google sends it (the text models and the Live models are both read from it). */
+    static JSONObject list(String key) throws Exception {
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("x-goog-api-key", apiKey(key)); headers.put("Accept", "application/json");
         try (OpenAiAccount.Http.Exchange response = OpenAiAccount.Http.open("GET", GeminiWork.modelsUrl(), headers, null, 30_000, null)) {
             String body = OpenAiAccount.Http.read(response.body, 4 * 1024 * 1024);
             JSONObject json; try { json = new JSONObject(body); } catch (Exception e) { json = new JSONObject(); }
             if (response.status >= 300) throw new IllegalStateException(GeminiWork.explain(response.status, GeminiWork.message(json)));
-            return GeminiWork.models(json);
+            return json;
         }
     }
 

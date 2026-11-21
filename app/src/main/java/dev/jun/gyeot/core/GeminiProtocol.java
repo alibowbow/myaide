@@ -24,11 +24,20 @@ public final class GeminiProtocol {
      * Live models the user can pick when one is unavailable to their project (a free-tier limit of 0 reports as "quota exceeded"
      * even before first use). Ids from Google's Live API model listings; the first is the default.
      */
-    public static final String[][] LIVE_MODELS = {
+    public static final String[][] BUILT_IN_LIVE = {
         {EXTENDED, "Gemini 3.8 Live Extended Thinking (기본)"},
         {LIVE, "Gemini 3.8 Live"},
         {"gemini-3.1-flash-live-preview", "Gemini 3.1 Flash Live (미리보기)"},
         {FLASH_25, "Gemini 2.5 Flash 네이티브 오디오 (미리보기)"}};
+    /** The choices: newer Live models the key's list has shown (ModelWatch.geminiLive, "(새 모델)") first, then BUILT_IN_LIVE. */
+    public static volatile String[][] LIVE_MODELS = BUILT_IN_LIVE;
+    /** Sets the newer Live models found in the key's model list (none puts the choices back to BUILT_IN_LIVE). */
+    public static void detectedLive(java.util.List<String[]> found) {
+        java.util.List<String[]> all = new java.util.ArrayList<>();
+        if (found != null) for (String[] model : found) if (model != null && model.length == 2 && !model[0].isBlank()) all.add(model);
+        for (String[] model : BUILT_IN_LIVE) if (all.stream().noneMatch(m -> m[0].equals(model[0]))) all.add(model);
+        LIVE_MODELS = all.toArray(new String[0][]);
+    }
     public static final String TRANSCRIBE = "gemini-3.5-transcribe-live";
     /** The language this app speaks and listens in (its UI, instructions and on-device dictation are Korean). */
     public static final String KOREAN = "ko-KR";
@@ -278,7 +287,7 @@ public final class GeminiProtocol {
         for (String[] model : LIVE_MODELS) if (model[0].equals(id)) return id;
         return DEFAULT_LIVE;
     }
-    public static boolean extended(String model) { return EXTENDED.equals(liveModel(model)); }
+    public static boolean extended(String model) { String id = liveModel(model); return EXTENDED.equals(id) || id.endsWith("-live-extended-thinking"); }
     /** Whether this connection turns 2.5 Flash's thinking off: voice calls only (not background work or the browser's Live control). */
     public static boolean quickAnswer(String mode, Options options) {
         return ASSISTANT.equals(mode) && !options.browserOnly && options.quickAnswer && FLASH_25.equals(liveModel(options.model));

@@ -20,7 +20,33 @@ final class NimAccount implements NimClient.Session {
     private volatile long revision;
     volatile String notice = "";
     volatile boolean busy;
-    NimAccount(SecretStore secrets, SharedPreferences settings, Runnable changed) { this.secrets = secrets; this.settings = settings; this.changed = changed; }
+    NimAccount(SecretStore secrets, SharedPreferences settings, Runnable changed) {
+        this.secrets = secrets; this.settings = settings; this.changed = changed;
+        try { NimProtocol.detected(new JSONArray(settings.getString("nimModels", "[]"))); } catch (Exception ignored) {}
+    }
+    private volatile long modelsTried;
+    /**
+     * Reads NVIDIA's model list at most once a day (ModelWatch.due) on this account's own thread, so a newer Nemotron shows
+     * up in every picker without an app update. Quiet: a failed read keeps the list there was.
+     */
+    void refreshModelsIfDue() {
+        long now = System.currentTimeMillis();
+        if (!connected() || !dev.jun.gyeot.core.ModelWatch.due(settings.getLong("nimModelsAt", 0), now) || now - modelsTried < 10 * 60_000L) return;
+        modelsTried = now;
+        network.execute(() -> {
+            try {
+                String key = secrets.get(SecretStore.NIM); if (key == null || key.isBlank()) return;
+                JSONObject body;
+                try (OpenAiAccount.Http.Exchange response = OpenAiAccount.Http.open("GET", NimProtocol.MODELS, Map.of("Authorization", "Bearer " + key, "Accept", "application/json"), null, 20_000, null)) {
+                    if (response.status >= 300) return;
+                    body = new JSONObject(OpenAiAccount.Http.read(response.body, 4 * 1024 * 1024));
+                }
+                JSONArray found = dev.jun.gyeot.core.ModelWatch.nim(body, NimProtocol.MODEL, NimProtocol.LABEL);
+                settings.edit().putString("nimModels", found.toString()).putLong("nimModelsAt", System.currentTimeMillis()).apply();
+                NimProtocol.detected(found); changed.run();
+            } catch (Exception quiet) { /* the saved list stays */ }
+        });
+    }
     boolean connected() { return secrets.has(SecretStore.NIM); }
     /** The one NIM model. DEPRECATED setting "nimModel" (the DeepSeek/MiniMax choice of older versions) is no longer read. */
     String model() { return NimProtocol.MODEL; }

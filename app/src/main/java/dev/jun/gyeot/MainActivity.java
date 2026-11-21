@@ -326,7 +326,7 @@ public final class MainActivity extends Activity {
         }
     }
     @Override protected void onPause() { hostResumed=false;if(mainChat!=null)mainChat.pause(); if (composerDictation != null) composerDictation.pause(); if (videoDialog != null) videoDialog.background(); super.onPause(); }
-    @Override protected void onResume() { super.onResume();hostResumed=true;AppNavigator.inFront("main");WorkScheduleAlarm.refresh(this, store);if(showingMainChat&&mainChat!=null)mainChat.resume(); if (videoDialog != null) videoDialog.foreground(); BrowserRuntime.prepareWhenIdle(this);
+    @Override protected void onResume() { super.onResume();hostResumed=true;AppNavigator.inFront("main");store.refreshModelListsIfDue();WorkScheduleAlarm.refresh(this, store);if(showingMainChat&&mainChat!=null)mainChat.resume(); if (videoDialog != null) videoDialog.foreground(); BrowserRuntime.prepareWhenIdle(this);
         if(isLauncher(getIntent())&&StorageSetupActivity.maybeOffer(this))return;
         if(pendingLaunchVoice){pendingLaunchVoice=false;if(store.voiceOnOpen()&&!store.voiceActive){mode=ASSISTANT;recordingPage=false;showTab(0);startVoice();}}
     }

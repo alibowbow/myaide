@@ -25,14 +25,30 @@ public final class NimProtocol {
     public static final long RETRY_MS = 2000;
     public static final int MAX_RESPONSE = 2_000_000, MAX_EVENT = 1_000_000;
     private NimProtocol() {}
-    public static boolean supported(String model) { return MODEL.equals(model) || RETIRED.contains(model); }
-    /** The id a request sends: MODEL, also for a retired id saved earlier. */
+    public static final String MODELS = "https://integrate.api.nvidia.com/v1/models";
+    /** Newer Nemotron chat models NVIDIA lists (ModelWatch.nim), set by the account from its saved list; empty until read. */
+    private static volatile JSONArray detected = arr();
+    public static void detected(JSONArray models) { detected = models == null ? arr() : models; }
+    private static JSONObject found(String model) {
+        JSONArray list = detected;
+        for (int i = 0; i < list.length(); i++) { JSONObject item = list.optJSONObject(i); if (item != null && item.optString("id").equals(model)) return item; }
+        return null;
+    }
+    /** MODEL, or a newer Nemotron NVIDIA has listed since. */
+    public static boolean listed(String model) { return MODEL.equals(model) || found(model) != null; }
+    public static boolean supported(String model) { return listed(model) || RETIRED.contains(model); }
+    /** The id a request sends: the model itself, or MODEL for a retired id saved earlier. */
     public static String model(String model) {
         if (!supported(model)) throw new IllegalArgumentException("NVIDIA NIM에서는 " + LABEL + "를 사용해요.");
-        return MODEL;
+        return listed(model) ? model : MODEL;
     }
-    public static String label(String model) { return LABEL; }
-    public static JSONArray models() { return arr(obj("id", MODEL, "name", LABEL)); }
+    public static String label(String model) { JSONObject item = found(model); return item == null || MODEL.equals(model) ? LABEL : item.optString("name", LABEL); }
+    /** Nemotron Ultra and the newer Nemotron chat models NVIDIA has listed since, newest first. */
+    public static JSONArray models() {
+        JSONArray list = detected;
+        if (list.length() == 0) return arr(obj("id", MODEL, "name", LABEL));
+        try { return new JSONArray(list.toString()); } catch (Exception e) { return arr(obj("id", MODEL, "name", LABEL)); }
+    }
     /** Whether a refused request is sent once more (NimClient): before any answer, so nothing runs twice. */
     public static boolean retries(int status) { return status == 502 || status == 429; }
     // No common reasoning-control field is documented for the hosted model: server defaults, no effort names.

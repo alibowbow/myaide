@@ -7,12 +7,26 @@ import static dev.jun.gyeot.core.Jsons.*;
 
 /** xAI Responses format, separate from Imagine video generation and OpenAI credentials. */
 public final class GrokWork {
-    public static final String MODEL = "grok-4.7", RESPONSES = "https://api.x.ai/v1/responses";
+    public static final String MODEL = "grok-4.7", NAME = "Grok 4.7", RESPONSES = "https://api.x.ai/v1/responses", MODELS = "https://api.x.ai/v1/models";
     private GrokWork() {}
+    /** Newer chat models xAI lists (ModelWatch.grok), set by the account from its saved list; empty until one has been read. */
+    private static volatile JSONArray detected = arr();
+    public static void detected(JSONArray models) { detected = models == null ? arr() : models; }
     public static Reasoning.Profile profile() { return Reasoning.Profile.of(List.of("low", "medium", "high", "xhigh"), "high"); }
-    public static JSONArray models() { return arr(obj("id", MODEL, "name", "Grok 4.7")); }
+    /** Grok 4.7 and the newer chat models xAI has listed since, newest first. */
+    public static JSONArray models() {
+        JSONArray found = detected;
+        if (found.length() == 0) return arr(obj("id", MODEL, "name", NAME));
+        try { return new JSONArray(found.toString()); } catch (Exception e) { return arr(obj("id", MODEL, "name", NAME)); }
+    }
+    public static boolean listed(String model) {
+        if (MODEL.equals(model)) return true;
+        JSONArray found = detected;
+        for (int i = 0; i < found.length(); i++) { JSONObject item = found.optJSONObject(i); if (item != null && item.optString("id").equals(model)) return true; }
+        return false;
+    }
     public static String model(String model) {
-        if (!MODEL.equals(model)) throw new IllegalArgumentException("작업창에서 Grok 4.7을 선택해 주세요.");
+        if (!listed(model)) throw new IllegalArgumentException("작업창에서 Grok 모델을 다시 선택해 주세요.");
         return model;
     }
     public static JSONObject request(String model, String instructions, JSONArray input, boolean search, boolean code,

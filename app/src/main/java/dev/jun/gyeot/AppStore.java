@@ -317,6 +317,18 @@ final class AppStore {
     }
     /** Live model for voice and research; falls back to the default if the stored id is no longer offered. */
     String liveModel() { return GeminiProtocol.liveModel(settings.getString("liveModel", GeminiProtocol.DEFAULT_LIVE)); }
+    /**
+     * Each connected AI's model list read again once it is old (a day; GPT and Claude every 6 hours, as before), so newer
+     * models show up in every picker without an app update. Called when the app comes to the front; every account checks
+     * its own date first, so this is a few settings reads, and at most one small request per AI a day on its own thread.
+     */
+    void refreshModelListsIfDue() {
+        try { if (openai.connected()) openai.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
+        try { if (claude.connected()) claude.models(); } catch (RuntimeException ignored) {}
+        try { gemini.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
+        try { grok.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
+        try { nim.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
+    }
     String liveThinkingLevel() { return GeminiProtocol.thinkingLevel(settings.getString("liveThinkingLevel", "MEDIUM")); }
     boolean translateToKorean() { return settings.getBoolean("translateToKorean", true); }
     InterpreterConfig interpreterConfig() {
