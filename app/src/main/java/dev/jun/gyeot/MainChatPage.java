@@ -96,7 +96,7 @@ final class MainChatPage implements AutoCloseable {
             down.setTint(MUTED); down.setBounds(0, 0, ui.dp(14), ui.dp(14)); subtitle.setCompoundDrawablesRelative(null, null, down, null); subtitle.setCompoundDrawablePadding(ui.dp(3));
         }
         subtitle.setPadding(0, ui.dp(2), 0, 0);
-        title.addView(name); title.addView(subtitle, new LinearLayout.LayoutParams(-2, -2)); title.setContentDescription("메인 대화 모델 선택"); title.setOnClickListener(v -> models()); Ui.pressable(title, true);
+        title.addView(name); title.addView(subtitle, new LinearLayout.LayoutParams(-2, -2)); title.setContentDescription("메인 대화 모델 선택"); title.setOnClickListener(this::modelMenu); Ui.pressable(title, true);
         header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
         header.addView(ui.iconButton(R.drawable.ic_more, BG, MUTED, "대화 메뉴", this::menu), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
         root.addView(header);
@@ -1182,6 +1182,33 @@ final class MainChatPage implements AutoCloseable {
         } catch (Exception e) { error(e); }
     }
     /** The picker from the header or menu; as before, only this entry asks for a catalog refresh when one is due. */
+    /**
+     * The model button's small menu (ModelPopover, as in 작업창): the models with a check, 생각 깊이 in a card beside it, 다른 AI
+     * and 모든 모델·설정 (the full sheet). A change that would stop replies being prepared is asked about first.
+     */
+    private void modelMenu(View anchor) {
+        try { if (store.openai.connected()) store.openai.refreshModelsIfDue(); } catch (Exception e) { error(e); return; }
+        boolean any = false; for (String e : TeamPlan.ENGINES) if (store.ready(e)) any = true;
+        if (!any) { showModels(""); return; }
+        ScopedModels scoped = ScopedModels.main(store); TeamRoster roster = new TeamRoster(store, scoped);
+        new ModelPopover(activity, ui, store, scoped, new ModelPopover.Catalog() {
+            @Override public JSONArray models(String engine) { return roster.catalog(engine); }
+            @Override public String label(String engine, String model) { return roster.label(engine, model); }
+            @Override public Reasoning.Profile profile(String engine, String model) { return roster.profile(engine, model); }
+            @Override public String effortLabel(String engine, String effort) { return level(engine, effort); }
+            @Override public String effortHint(String effort, String fallback) { return MainActivity.effortHint(effort, fallback); }
+            @Override public String team() { return ""; }
+        }, engine -> {
+            if (!store.ready(engine)) { openMain(2); return; }
+            try { scoped.chooseEngine(engine); } catch (Exception e) { error(e); return; }
+            refresh();
+        }, () -> showModels(""), null, this::refresh).guarded(change -> {
+            int pending = 0; try { if (store.mainChat.available()) pending = store.mainChat.pendingCount(); } catch (Exception ignored) {}
+            if (pending == 0) { change.run(); return; }
+            dialog().setTitle("설정을 바꿀까요?").setMessage("준비 중인 답변 " + pending + "개가 멈춰요. 이미 보낸 요청을 새 설정으로 다시 보내지는 않아요.")
+                .setNegativeButton("취소", null).setPositiveButton("바꾸기", (d, w) -> change.run()).show();
+        }).show(anchor);
+    }
     private void models() {
         try { if (store.openai.connected()) store.openai.refreshModelsIfDue(); } catch (Exception e) { error(e); return; }
         showModels("");

@@ -1,15 +1,10 @@
 package dev.jun.gyeot;
 
 import android.app.Activity;
-import android.content.Context;
 import android.content.res.ColorStateList;
-import android.graphics.Canvas;
-import android.graphics.Paint;
-import android.graphics.RectF;
 import android.graphics.drawable.ColorDrawable;
 import android.text.TextUtils;
 import android.view.Gravity;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
@@ -27,7 +22,7 @@ import static dev.jun.gyeot.Ui.*;
 
 /**
  * The model menu that opens over 작업창's model chip, the way Claude's and ChatGPT's apps do it: a small card above the
- * chip, no icons. It lists the AI's models with a check, then 생각 깊이 (a slider with one stop per level, like ChatGPT's),
+ * chip, no icons. It lists the AI's models with a check, then 생각 깊이 (its levels in a small card beside the menu, as Claude's),
  * 다른 AI, 모든 모델·설정 (the full sheet: search, speed, refresh) and 에이전트 팀. Choices go to the room's own
  * selection (ScopedModels), exactly as the full sheet does.
  */
@@ -51,7 +46,11 @@ final class ModelPopover {
     private final Consumer<String> chooseEngine;
     private final Runnable more, team, changed;
     private final LinearLayout card;
-    private PopupWindow window;
+    private PopupWindow window, flyout;
+    /** The 생각 깊이 row of the menu: its levels open beside it (flyout). */
+    private View depthRow;
+    /** Every change goes through this (the main chat asks first when replies being prepared would stop); by default at once. */
+    private Consumer<Runnable> confirm = Runnable::run;
     /** The chip it opened from: every page is placed against it again, so a shorter page does not float away from it. */
     private View anchor;
     private boolean below;
@@ -59,20 +58,23 @@ final class ModelPopover {
     ModelPopover(Activity activity, Ui ui, AppStore store, ScopedModels selection, Catalog catalog, Consumer<String> chooseEngine, Runnable more, Runnable team, Runnable changed) {
         this.activity = activity; this.ui = ui; this.store = store; this.selection = selection; this.catalog = catalog;
         this.chooseEngine = chooseEngine; this.more = more; this.team = team; this.changed = changed;
-        card = ui.column(); card.setBackground(ui.shape(CARD, 20)); card.setPadding(0, ui.dp(6), 0, ui.dp(6)); card.setElevation(ui.dp(14));
+        card = ui.column(); card.setBackground(ui.shape(CARD, 18)); card.setPadding(0, ui.dp(4), 0, ui.dp(4)); card.setElevation(ui.dp(14));
         card.setClipToOutline(true);
     }
 
+    /** Changes go through confirm (it runs them, at once or after asking). */
+    ModelPopover guarded(Consumer<Runnable> confirm) { this.confirm = confirm == null ? Runnable::run : confirm; return this; }
     void show(View anchor) {
         main();
         ScrollView scroll = new ScrollView(activity); scroll.setVerticalScrollBarEnabled(false); scroll.addView(card);
-        int width = Math.min(ui.dp(300), activity.getResources().getDisplayMetrics().widthPixels - ui.dp(24));
+        int width = Math.min(ui.dp(264), activity.getResources().getDisplayMetrics().widthPixels - ui.dp(24));
         window = new PopupWindow(scroll, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
         window.setBackgroundDrawable(new ColorDrawable(0)); window.setOutsideTouchable(true); window.setElevation(ui.dp(14));
         window.setAnimationStyle(android.R.style.Animation_Dialog);
+        window.setOnDismissListener(() -> { if (flyout != null) flyout.dismiss(); });
         place(anchor, width);
     }
-    void dismiss() { if (window != null) window.dismiss(); }
+    void dismiss() { if (flyout != null) flyout.dismiss(); if (window != null) window.dismiss(); }
     /** Above the chip, right edges lined up, inside the screen; below it when there is no room above. */
     private void place(View anchor, int width) {
         this.anchor = anchor;
@@ -116,11 +118,11 @@ final class ModelPopover {
             if (shown == SHOWN - 1 && !currentShown && !id.equals(current) && contains(models, current)) continue;
             shown++; currentShown |= id.equals(current);
             card.addView(choice(catalog.label(engine, id), id.equals(current), () -> {
-                if (!id.equals(selection.model(engine))) {
+                dismiss();
+                if (!id.equals(selection.model(engine))) confirm.accept(() -> {
                     try { selection.model(engine, id); } catch (Exception e) { store.error(e.getMessage()); return; }
                     changed.run();
-                }
-                dismiss();
+                });
             }));
         }
         if (!currentShown && !current.isBlank()) card.addView(choice(catalog.label(engine, current), true, this::dismiss));
@@ -128,7 +130,7 @@ final class ModelPopover {
         Reasoning.Profile profile = catalog.profile(engine, current);
         if (!current.isBlank() && !profile.efforts.isEmpty()) {
             String saved = selection.effort(engine, current);
-            card.addView(row("생각 깊이", catalog.effortLabel(engine, saved.isEmpty() ? profile.defaultEffort : saved), true, this::depth));
+            depthRow = row("생각 깊이", catalog.effortLabel(engine, saved.isEmpty() ? profile.defaultEffort : saved), true, this::flyout); card.addView(depthRow);
         }
         card.addView(row("다른 AI", WorkBook.author(engine), true, this::engines));
         card.addView(row(models.length() > SHOWN ? "더 많은 모델·설정" : "모델 설정", "", true, () -> { dismiss(); more.run(); }));
@@ -136,38 +138,65 @@ final class ModelPopover {
         if (team != null) { card.addView(divider()); card.addView(row("에이전트 팀", catalog.team(), true, () -> { dismiss(); team.run(); })); }
         resize();
     }
-    /** Like ChatGPT's: the level in large type over the model's name, a slider with one stop per level, and what it means. */
-    private void depth() {
-        card.removeAllViews();
+    /**
+     * 생각 깊이, as Claude's app does it: a small card beside the menu (on a narrow screen just above its row), a line on what
+     * depth costs, then each level with 추천 on the default and a check on the chosen one. The menu stays where it is.
+     */
+    private void flyout() {
+        if (flyout != null && flyout.isShowing()) { flyout.dismiss(); return; }
         String engine = selection.engine(), model = selection.model(engine);
         Reasoning.Profile profile = catalog.profile(engine, model);
-        List<String> levels = profile.efforts;
+        List<String> levels = profile.efforts; if (levels.isEmpty() || depthRow == null) return;
         String saved = selection.effort(engine, model), shown = saved.isEmpty() ? profile.defaultEffort : saved;
-        LinearLayout top = ui.row(); top.setPadding(ui.dp(4), 0, ui.dp(4), 0);
-        top.addView(icon(R.drawable.ic_back, MUTED, "뒤로", this::main), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
-        String fallback = profile.defaultEffort.isEmpty() ? "기본" : "기본 · " + catalog.effortLabel(engine, profile.defaultEffort);
-        TextView level = ui.text(saved.isEmpty() ? fallback : catalog.effortLabel(engine, saved), 20, 700, TEXT); level.setGravity(Gravity.CENTER); level.setMaxLines(1); level.setEllipsize(TextUtils.TruncateAt.END);
-        top.addView(level, new LinearLayout.LayoutParams(0, -2, 1));
-        ImageView reset = icon(R.drawable.ic_refresh, saved.isEmpty() ? SEPARATOR : MUTED, "기본 깊이로 되돌리기", () -> { if (!selection.effort(engine, model).isEmpty()) set(engine, model, ""); });
-        reset.setEnabled(!saved.isEmpty());
-        top.addView(reset, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
-        card.addView(top);
-        TextView name = ui.text(catalog.label(engine, model), 13, 500, MUTED); name.setGravity(Gravity.CENTER); name.setMaxLines(1); name.setEllipsize(TextUtils.TruncateAt.END); name.setPadding(ui.dp(52), 0, ui.dp(52), 0);
-        card.addView(name, new LinearLayout.LayoutParams(-1, -2));
-        Slider slider = new Slider(activity, levels.size(), Math.max(0, levels.indexOf(shown)), index -> set(engine, model, levels.get(index)));
-        slider.setContentDescription("생각 깊이, 지금 " + catalog.effortLabel(engine, shown));
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, ui.dp(44)); sp.setMargins(ui.dp(16), ui.dp(10), ui.dp(16), ui.dp(4)); card.addView(slider, sp);
-        LinearLayout ends = ui.row(); ends.setPadding(ui.dp(18), 0, ui.dp(18), 0);
-        TextView first = ui.text(catalog.effortLabel(engine, levels.get(0)), 11.5f, 500, MUTED), last = ui.text(catalog.effortLabel(engine, levels.get(levels.size() - 1)), 11.5f, 500, MUTED);
-        ends.addView(first, new LinearLayout.LayoutParams(0, -2, 1)); last.setGravity(Gravity.END); ends.addView(last, new LinearLayout.LayoutParams(0, -2, 1));
-        card.addView(ends);
-        TextView hint = ui.text(catalog.effortHint(saved, profile.defaultEffort), 12.5f, 450, MUTED); hint.setPadding(ui.dp(18), ui.dp(10), ui.dp(18), ui.dp(10)); hint.setLineSpacing(ui.dp(2), 1);
-        card.addView(hint);
-        resize();
+        LinearLayout box = ui.column(); box.setBackground(ui.shape(CARD, 18)); box.setPadding(0, ui.dp(6), 0, ui.dp(6)); box.setClipToOutline(true);
+        TextView hint = ui.text("깊이 생각할수록 답이 철저해지지만, 시간이 더 걸리고 사용량이 늘어요.", 12, 450, MUTED);
+        hint.setPadding(ui.dp(14), ui.dp(4), ui.dp(14), ui.dp(6)); hint.setLineSpacing(ui.dp(1.5f), 1); box.addView(hint);
+        for (String level : levels) {
+            boolean on = level.equals(shown);
+            LinearLayout row = ui.row(); row.setMinimumHeight(ui.dp(38)); row.setPadding(ui.dp(14), 0, ui.dp(12), 0); row.setGravity(Gravity.CENTER_VERTICAL);
+            String name = catalog.effortLabel(engine, level);
+            row.addView(ui.text(name, 14.5f, on ? 650 : 500, TEXT), new LinearLayout.LayoutParams(-2, -2));
+            if (level.equals(profile.defaultEffort)) {
+                TextView badge = ui.text("추천", 10.5f, 600, MUTED); badge.setBackground(ui.shape(FILL, PILL)); badge.setPadding(ui.dp(7), ui.dp(1), ui.dp(7), ui.dp(2));
+                LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-2, -2); at.leftMargin = ui.dp(7); row.addView(badge, at);
+            }
+            row.addView(new View(activity), new LinearLayout.LayoutParams(0, 1, 1));
+            TextView check = ui.text(on ? "✓" : "", 15, 700, ACCENT); check.setGravity(Gravity.END); row.addView(check, new LinearLayout.LayoutParams(ui.dp(20), -2));
+            row.setSelected(on); row.setContentDescription("생각 깊이 " + name + (level.equals(profile.defaultEffort) ? ", 추천" : "") + (on ? ", 선택됨" : ""));
+            row.setOnClickListener(v -> set(engine, model, level)); Ui.pressable(row, true);
+            box.addView(row);
+        }
+        int width = Math.min(ui.dp(236), activity.getResources().getDisplayMetrics().widthPixels - ui.dp(24));
+        box.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int height = box.getMeasuredHeight();
+        flyout = new PopupWindow(box, width, height, true);
+        flyout.setBackgroundDrawable(new ColorDrawable(0)); flyout.setOutsideTouchable(true); flyout.setElevation(ui.dp(16));
+        flyout.setAnimationStyle(android.R.style.Animation_Dialog);
+        int[] xy = flyoutAt(width, height);
+        flyout.showAtLocation(anchor.getRootView(), Gravity.NO_GRAVITY, xy[0], xy[1]);
+    }
+    /** Beside the menu on its left, level with the 생각 깊이 row, when there is room; else just above that row (below when no room above). */
+    int[] flyoutAt(int width, int height) {
+        int screenWidth = activity.getResources().getDisplayMetrics().widthPixels, screenHeight = activity.getResources().getDisplayMetrics().heightPixels;
+        int[] menu = new int[2], row = new int[2]; card.getLocationInWindow(menu); depthRow.getLocationInWindow(row);
+        int x, y;
+        if (menu[0] - width - ui.dp(8) >= ui.dp(8)) {
+            x = menu[0] - width - ui.dp(8);
+            y = Math.max(ui.dp(12), Math.min(row[1] + depthRow.getHeight() - height, screenHeight - height - ui.dp(12)));
+        } else {
+            x = Math.max(ui.dp(12), Math.min(menu[0] + card.getWidth() - width, screenWidth - width - ui.dp(12)));
+            y = row[1] - height - ui.dp(4);
+            if (y < ui.dp(12)) y = Math.min(row[1] + depthRow.getHeight() + ui.dp(4), screenHeight - height - ui.dp(12));
+        }
+        return new int[]{x, y};
     }
     private void set(String engine, String model, String effort) {
-        try { selection.effort(engine, model, effort); } catch (Exception e) { store.error(e.getMessage()); return; }
-        changed.run(); depth();
+        if (flyout != null) flyout.dismiss();
+        if (effort.equals(selection.effort(engine, model))) return;
+        confirm.accept(() -> {
+            try { selection.effort(engine, model, effort); } catch (Exception e) { store.error(e.getMessage()); return; }
+            changed.run(); if (window != null && window.isShowing()) main();
+        });
     }
     /** The five AIs: the one answering checked, each with its model or what it still needs. */
     private void engines() {
@@ -179,7 +208,7 @@ final class ModelPopover {
             String detail = store.ready(option) ? (model.isBlank() ? "" : catalog.label(option, model)) : "연결 필요";
             card.addView(row(WorkBook.author(option), detail, false, option.equals(engine), () -> {
                 dismiss();
-                if (!option.equals(selection.engine())) chooseEngine.accept(option);
+                if (!option.equals(selection.engine())) confirm.accept(() -> chooseEngine.accept(option));
             }));
         }
         resize();
@@ -207,8 +236,8 @@ final class ModelPopover {
     }
     /** A model: its name and a check when it answers now. */
     private View choice(String name, boolean on, Runnable action) {
-        LinearLayout row = ui.row(); row.setMinimumHeight(ui.dp(46)); row.setPadding(ui.dp(18), 0, ui.dp(16), 0);
-        TextView label = ui.text(name, 15.5f, on ? 600 : 450, TEXT); label.setMaxLines(1); label.setEllipsize(TextUtils.TruncateAt.END);
+        LinearLayout row = ui.row(); row.setMinimumHeight(ui.dp(40)); row.setPadding(ui.dp(16), 0, ui.dp(14), 0);
+        TextView label = ui.text(name, 14.5f, on ? 600 : 450, TEXT); label.setMaxLines(1); label.setEllipsize(TextUtils.TruncateAt.END);
         row.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
         TextView check = ui.text(on ? "✓" : "", 17, 700, ACCENT); check.setGravity(Gravity.END); row.addView(check, new LinearLayout.LayoutParams(ui.dp(28), -2));
         row.setSelected(on); row.setContentDescription(name + (on ? ", 선택됨" : "")); row.setOnClickListener(v -> action.run()); Ui.pressable(row, true);
@@ -217,9 +246,9 @@ final class ModelPopover {
     private View row(String title, String value, boolean arrow, Runnable action) { return row(title, value, arrow, false, action); }
     /** A setting: its name in bold, its value quiet on the right, a chevron when it opens more, a check when chosen. */
     private View row(String title, String value, boolean arrow, boolean on, Runnable action) {
-        LinearLayout row = ui.row(); row.setMinimumHeight(ui.dp(46)); row.setPadding(ui.dp(18), 0, ui.dp(16), 0);
-        row.addView(ui.text(title, 15, 600, TEXT), new LinearLayout.LayoutParams(-2, -2));
-        TextView detail = ui.text(value, 13.5f, 450, MUTED); detail.setMaxLines(1); detail.setEllipsize(TextUtils.TruncateAt.END); detail.setGravity(Gravity.END);
+        LinearLayout row = ui.row(); row.setMinimumHeight(ui.dp(40)); row.setPadding(ui.dp(16), 0, ui.dp(14), 0);
+        row.addView(ui.text(title, 14.5f, 600, TEXT), new LinearLayout.LayoutParams(-2, -2));
+        TextView detail = ui.text(value, 13, 450, MUTED); detail.setMaxLines(1); detail.setEllipsize(TextUtils.TruncateAt.END); detail.setGravity(Gravity.END);
         detail.setPadding(ui.dp(12), 0, ui.dp(6), 0); row.addView(detail, new LinearLayout.LayoutParams(0, -2, 1));
         TextView end = ui.text(on ? "✓" : arrow ? "›" : "", on ? 17 : 20, on ? 700 : 500, on ? ACCENT : MUTED); end.setGravity(Gravity.END);
         row.addView(end, new LinearLayout.LayoutParams(ui.dp(18), -2));
@@ -237,55 +266,4 @@ final class ModelPopover {
         return false;
     }
 
-    /**
-     * ChatGPT's level slider: a rounded track with a dot per level, filled up to the white thumb on the chosen one. Tap or
-     * drag; it settles on the nearest level and reports it once it changes. Each level is also reachable by accessibility
-     * actions (scroll forward/backward).
-     */
-    static final class Slider extends View {
-        private final int count; private final Consumer<Integer> picked;
-        private int index; private float drag = -1;
-        private final Paint track = new Paint(Paint.ANTI_ALIAS_FLAG), fill = new Paint(Paint.ANTI_ALIAS_FLAG), dot = new Paint(Paint.ANTI_ALIAS_FLAG), thumb = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final RectF box = new RectF();
-        Slider(Context context, int count, int index, Consumer<Integer> picked) {
-            super(context); this.count = Math.max(1, count); this.index = Math.max(0, Math.min(this.count - 1, index)); this.picked = picked;
-            track.setColor(FILL); fill.setColor(TEXT); dot.setColor(MUTED); thumb.setColor(0xffffffff);
-            thumb.setShadowLayer(dp(3), 0, dp(1), 0x40000000); setLayerType(LAYER_TYPE_SOFTWARE, thumb);
-            setFocusable(true); setClickable(true);
-        }
-        private float dp(float v) { return v * getResources().getDisplayMetrics().density; }
-        private float stop(int i) { float r = getHeight() / 2f; return count == 1 ? getWidth() / 2f : r + (getWidth() - 2 * r) * i / (count - 1); }
-        @Override protected void onDraw(Canvas canvas) {
-            float h = getHeight(), r = h / 2f;
-            box.set(0, 0, getWidth(), h); canvas.drawRoundRect(box, r, r, track);
-            float x = drag >= 0 ? Math.max(r, Math.min(getWidth() - r, drag)) : stop(index);
-            box.set(0, 0, x + r, h); canvas.drawRoundRect(box, r, r, fill);
-            for (int i = 0; i < count; i++) if (stop(i) > x + r * 0.6f) canvas.drawCircle(stop(i), r, dp(2.5f), dot);
-            canvas.drawCircle(x, r, r - dp(3), thumb);
-        }
-        @Override public boolean onTouchEvent(MotionEvent e) {
-            switch (e.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> { getParent().requestDisallowInterceptTouchEvent(true); drag = e.getX(); invalidate(); return true; }
-                case MotionEvent.ACTION_UP -> { settle(e.getX()); performClick(); return true; }
-                case MotionEvent.ACTION_CANCEL -> { drag = -1; invalidate(); return true; }
-                default -> { return super.onTouchEvent(e); }
-            }
-        }
-        @Override public boolean performClick() { return super.performClick(); }
-        private void settle(float x) {
-            int best = 0; for (int i = 1; i < count; i++) if (Math.abs(stop(i) - x) < Math.abs(stop(best) - x)) best = i;
-            drag = -1; choose(best);
-        }
-        private void choose(int next) { if (next == index) { invalidate(); return; } index = next; invalidate(); picked.accept(next); }
-        @Override public void onInitializeAccessibilityNodeInfo(android.view.accessibility.AccessibilityNodeInfo info) {
-            super.onInitializeAccessibilityNodeInfo(info); info.setClassName("android.widget.SeekBar");
-            if (index < count - 1) info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_FORWARD);
-            if (index > 0) info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_BACKWARD);
-        }
-        @Override public boolean performAccessibilityAction(int action, android.os.Bundle args) {
-            if (action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD && index < count - 1) { choose(index + 1); return true; }
-            if (action == android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD && index > 0) { choose(index - 1); return true; }
-            return super.performAccessibilityAction(action, args);
-        }
-    }
 }
