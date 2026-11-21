@@ -83,6 +83,8 @@ final class VoiceChat {
     private volatile WebSocketClient socket;
     private volatile Microphone mic;
     private volatile Speaker speaker;
+    /** The realtime conversation's sound route, as a call's (GPT-Live's call keeps its own). */
+    private CallRoute route;
     private volatile boolean ready, ended, muted;
     /** After the user stopped an answer: the microphone goes up whole until the next answer plays. */
     private volatile boolean open;
@@ -151,6 +153,7 @@ final class VoiceChat {
         main.removeCallbacksAndMessages(null);
         Microphone m = mic; mic = null; if (m != null) m.close();
         Speaker s = speaker; speaker = null; if (s != null) s.close();
+        CallRoute r = route; route = null; if (r != null) r.close();
         WebSocketClient w = socket; socket = null; if (w != null) shutdown(w);
         closeLive();
         for (Map.Entry<String, StringBuilder> unfinished : answers.entrySet()) log.answered(unfinished.getKey(), unfinished.getValue().toString(), true, SystemClock.uptimeMillis());
@@ -212,7 +215,9 @@ final class VoiceChat {
             @Override public void opened() { main.post(() -> { if (!ended && call == made[0] && !ready) ready(); }); }
             @Override public void message(String json) { if (call == made[0]) receiveLive(json); }
             @Override public void failed(String why, int status) { main.post(() -> liveFailed(made[0], token, why, status)); }
+            @Override public void stage(String text) { if (call == made[0]) store.phoneLog("  · GPT 최신 음성 · " + text); }
         });
+        store.phoneLog("→ GPT 최신 음성 연결 · " + RealtimeVoice.voiceName(chosen));
         if (ended) { c.close(); return; }
         call = c; c.mute(muted || held);
         c.start(token, account, RealtimeVoice.liveSession(instructions, chosen));
@@ -240,7 +245,9 @@ final class VoiceChat {
     private void fallBack(String why) {
         LiveCall.refused = true; live = false; closeLive();
         WebSocketClient old = socket; socket = null; if (old != null) shutdown(old);
-        words = "최신 음성(GPT-Live)이 열리지 않아 " + voice + " 목소리로 이어요" + (why == null || why.isBlank() ? "" : " · " + why); changed();
+        note = "최신 음성이 안 열려 " + voice + " 목소리로 대화 중" + (why == null || why.isBlank() ? "" : " · " + why);
+        store.phoneLog("  ✗ GPT 최신 음성이 열리지 않음 · " + voice + " 목소리로 이어요" + (why == null || why.isBlank() ? "" : " · " + why));
+        words = note; changed();
         main.removeCallbacksAndMessages(null); deadline();
         work.execute(this::connect);
     }
@@ -431,7 +438,9 @@ final class VoiceChat {
         ready = true;
         if (live) { state = State.LISTENING; words = ""; changed(); return; }
         try {
-            speaker = new Speaker(context);
+            // As a call: the phone's echo cancelling takes the answer out of the microphone, so speaking over it works at an ordinary voice.
+            if (route == null) { route = new CallRoute(context, main); route.begin(); }
+            speaker = new Speaker(context, true);
             Microphone m = new Microphone(false); m.muted(muted);
             m.start(new Microphone.Sink() {
                 @Override public void audio(byte[] pcm) { hear(pcm); }
@@ -478,6 +487,9 @@ final class VoiceChat {
     }
     /** Which voice speaks now, for the bar: GPT-Live's chosen one, or the Realtime voice. */
     String speaking() { return live ? RealtimeVoice.voiceName(chosen) : voice; }
+    /** Why the chosen voice is not the one speaking (GPT-Live did not open); "" when it is. */
+    String note() { return note; }
+    private volatile String note = "";
 
     // ── the chat ──────────────────────────────────────────────────────────
     /** Writes what is settled; a turn still waiting for its words is looked at again in a second. */

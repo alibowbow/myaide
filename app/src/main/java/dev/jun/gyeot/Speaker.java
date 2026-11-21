@@ -70,9 +70,14 @@ final class Speaker implements AutoCloseable {
         return loudest;
     }
     private synchronized void forgetLevels() { java.util.Arrays.fill(levelTo, 0); java.util.Arrays.fill(levelFrom, 0); java.util.Arrays.fill(levels, 0); }
-    Speaker(Context context) {
+    Speaker(Context context) { this(context, false); }
+    /**
+     * call: played as a call's voice (with CallRoute), so the phone's echo cancelling hears it and takes it out of the
+     * microphone, and a user speaking over it is heard at an ordinary voice; otherwise as an assistant's speech.
+     */
+    Speaker(Context context, boolean call) {
         manager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-        AudioAttributes attributes = new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
+        AudioAttributes attributes = new AudioAttributes.Builder().setUsage(call ? AudioAttributes.USAGE_VOICE_COMMUNICATION : AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
         focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).setAudioAttributes(attributes)
             .setOnAudioFocusChangeListener(change -> { if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) flush(); }, main).build();
         track = new AudioTrack.Builder().setAudioAttributes(attributes)

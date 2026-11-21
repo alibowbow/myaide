@@ -1,9 +1,6 @@
 package dev.jun.gyeot;
 
 import android.content.Context;
-import android.media.AudioDeviceCallback;
-import android.media.AudioDeviceInfo;
-import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
@@ -19,7 +16,6 @@ import dev.jun.gyeot.core.RealtimeVoice;
 import java.net.URI;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.Comparator;
 import java.util.Map;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.drafts.Draft_6455;
@@ -47,6 +43,8 @@ final class LiveCall {
         void failed(String why, int status);
         /** Bridged: the answer's sound, 24 kHz 16-bit mono PCM (silence left out). */
         default void audio(byte[] pcm) {}
+        /** How far the call got, in words for the phone log and the connection test (any thread). */
+        default void stage(String text) {}
     }
     /** GPT-Live did not open in this process: the voices that can go on without it use their Realtime voice instead. */
     static volatile boolean refused;
@@ -56,7 +54,7 @@ final class LiveCall {
     private static final String ORIGIN = "https://live.gyeot.local/";
     private final Context context; private final Listener listener;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final Route route; private final boolean bridged;
+    private final CallRoute route; private final boolean bridged;
     private WebView web;
     private volatile String token = "", account = ""; private volatile JSONObject session;
     private final String sessionId = java.util.UUID.randomUUID().toString();
@@ -69,12 +67,14 @@ final class LiveCall {
     LiveCall(Context context, Listener listener) { this(context, listener, false); }
     LiveCall(Context context, Listener listener, boolean bridged) {
         this.context = context.getApplicationContext(); this.listener = listener; this.bridged = bridged;
-        route = new Route(this.context, main);
+        route = new CallRoute(this.context, main);
     }
     private void fail(String why, int status) {
         if (closed || failed) return;
-        failed = true; listener.failed(why == null || why.isBlank() ? "음성 연결이 끊겼어요." : why, status);
+        failed = true; String said = why == null || why.isBlank() ? "음성 연결이 끊겼어요." : why;
+        stage("실패 · " + said); listener.failed(said, status);
     }
+    private void stage(String text) { if (!closed) try { listener.stage(text); } catch (RuntimeException ignored) {} }
 
     /** Opens the call's page: it asks for the microphone, makes the offer, and the server answers it with this session. */
     void start(String token, String account, JSONObject session) {
@@ -82,8 +82,9 @@ final class LiveCall {
         main.post(() -> {
             if (closed) return;
             if (!bridged) route.begin();
+            stage("통화 페이지를 여는 중");
             try { web = new WebView(context); }
-            catch (RuntimeException unavailable) { fail("이 휴대폰의 WebView로 음성 연결을 열지 못했어요.", 0); return; }
+            catch (RuntimeException unavailable) { fail("이 휴대폰의 WebView로 음성 연결을 열지 못했어요: " + unavailable.getClass().getSimpleName(), 0); return; }
             WebSettings settings = web.getSettings();
             settings.setJavaScriptEnabled(true); settings.setMediaPlaybackRequiresUserGesture(false);
             settings.setAllowFileAccess(false); settings.setAllowContentAccess(false);
@@ -94,31 +95,52 @@ final class LiveCall {
                     boolean ours = origin != null && "live.gyeot.local".equals(origin.getHost());
                     for (String resource : request.getResources())
                         if (ours && PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) { request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE}); return; }
+                    stage("마이크 요청을 거절함 · " + (origin == null ? "" : origin.getHost()));
                     request.deny();
                 }
+                @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage message) {
+                    if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR) stage("페이지 오류 · " + message.message());
+                    return true;
+                }
             });
+            String page = PAGE.replace("__MUTED__", String.valueOf(muted)).replace("__BRIDGED__", String.valueOf(bridged));
             web.setWebViewClient(new WebViewClient() {
                 @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return true; }
+                // The page is served at a real https address of its own (a secure context, which the microphone and WebRTC need).
+                @Override public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                    Uri url = request.getUrl();
+                    if (url != null && "live.gyeot.local".equals(url.getHost()))
+                        return new android.webkit.WebResourceResponse("text/html", "utf-8", new java.io.ByteArrayInputStream(page.getBytes(StandardCharsets.UTF_8)));
+                    return null;
+                }
+                @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+                    if (view == web) { web = null; fail("통화 페이지가 멈췄어요.", 0); }
+                    try { view.destroy(); } catch (RuntimeException ignored) {}
+                    return true;
+                }
             });
             web.addJavascriptInterface(new Bridge(), "GyeotLive");
-            web.loadDataWithBaseURL(ORIGIN, PAGE.replace("__MUTED__", String.valueOf(muted)).replace("__BRIDGED__", String.valueOf(bridged)), "text/html", "utf-8", null);
+            web.loadUrl(ORIGIN);
         });
     }
     /** What the page tells (on WebView's bridge thread). */
     private final class Bridge {
         @JavascriptInterface public void offer(String sdp) {
             if (closed) return;
+            stage("연결 제안을 서버에 보내는 중");
             Thread post = new Thread(() -> {
                 try {
                     String answer = post(sdp);
                     if (answer == null || !answer.startsWith("v=")) { fail("GPT-Live가 연결 답을 주지 않았어요.", 0); return; }
+                    stage("서버가 연결 답을 줌 · 통화를 맞추는 중");
                     js("answer(" + JSONObject.quote(answer) + ")");
                 } catch (Refused refused) { fail(refused.getMessage(), refused.status); }
                 catch (Exception error) { fail(error.getMessage() == null ? "GPT-Live에 연결하지 못했어요." : error.getMessage(), 0); }
             }, "gyeot-live-offer");
             post.setDaemon(true); post.start();
         }
-        @JavascriptInterface public void opened() { if (!closed) listener.opened(); }
+        @JavascriptInterface public void opened() { if (!closed) { stage("이벤트 통로 열림"); listener.opened(); } }
+        @JavascriptInterface public void stage(String text) { LiveCall.this.stage(text); }
         @JavascriptInterface public void message(String json) { deliver(1, json); }
         @JavascriptInterface public void failed(String why) { fail(why, 0); }
         @JavascriptInterface public void level(double value) { if (value > 0.04) lastLoud = SystemClock.uptimeMillis(); }
@@ -144,6 +166,7 @@ final class LiveCall {
             String reply = in == null ? "" : new String(in.readAllBytes(), StandardCharsets.UTF_8);
             if (status >= 300) { String why = RealtimeVoice.liveRefusal(reply); throw new Refused("GPT-Live " + status + (why.isEmpty() ? "" : " · " + why), status); }
             String id = RealtimeVoice.liveCallId(http.getHeaderField("Location"));
+            stage("서버 응답 " + status + (id.isEmpty() ? " · 통화 id 없음" : " · 통화 " + id));
             if (!id.isEmpty()) sideband(id);
             return RealtimeVoice.liveAnswer(reply);
         } finally { http.disconnect(); }
@@ -168,10 +191,13 @@ final class LiveCall {
         if (closed || json == null) return;
         RealtimeVoice.Type type = RealtimeVoice.parseLive(json).type();
         if (type == RealtimeVoice.Type.OTHER || type == RealtimeVoice.Type.AUDIO) return;
+        boolean first = false;
         synchronized (this) {
-            if (source == 0) { if (type == RealtimeVoice.Type.ERROR && from != 1) return; if (type != RealtimeVoice.Type.ERROR) source = from; }
+            if (source == 0) { if (type == RealtimeVoice.Type.ERROR && from != 1) return; if (type != RealtimeVoice.Type.ERROR) { source = from; first = true; } }
             else if (source != from) return;
         }
+        if (first) stage("첫 이벤트 받음 · " + (from == 1 ? "데이터 채널" : "사이드밴드") + " · " + type);
+        if (type == RealtimeVoice.Type.ERROR) stage("서버 오류 · " + RealtimeVoice.parseLive(json).text());
         listener.message(json);
     }
 
@@ -180,6 +206,35 @@ final class LiveCall {
         WebSocketClient w = side;
         if (source == 2 && w != null && w.isOpen()) { try { w.send(json); } catch (Exception dropped) {} return; }
         js("send(" + JSONObject.quote(json) + ")");
+    }
+    /**
+     * 최신 음성 연결 시험: a bridged call (no microphone) with a silent session, every step told to line, ending at the
+     * session's first event (true) or a failure or 25 seconds (false). The call is returned so the caller can end it early.
+     */
+    static LiveCall test(Context context, AppStore store, String voice, java.util.function.Consumer<String> line, java.util.function.Consumer<Boolean> done) {
+        Handler main = new Handler(Looper.getMainLooper());
+        java.util.concurrent.atomic.AtomicBoolean over = new java.util.concurrent.atomic.AtomicBoolean();
+        LiveCall[] made = new LiveCall[1];
+        java.util.function.Consumer<Boolean> finish = ok -> { if (over.compareAndSet(false, true)) { main.post(() -> done.accept(ok)); main.postDelayed(() -> { LiveCall c = made[0]; if (c != null) c.close(); }, 1500); } };
+        made[0] = new LiveCall(context, new Listener() {
+            @Override public void opened() {}
+            @Override public void message(String json) {
+                RealtimeVoice.Event e = RealtimeVoice.parseLive(json);
+                if (e.type() == RealtimeVoice.Type.READY) { line.accept("세션이 시작됐어요 · " + RealtimeVoice.voiceName(voice) + " 목소리로 열려요"); finish.accept(true); }
+            }
+            @Override public void failed(String why, int status) { finish.accept(false); }
+            @Override public void stage(String text) { line.accept(text); }
+        }, true);
+        main.postDelayed(() -> { if (!over.get()) { line.accept("25초 안에 열리지 않았어요"); finish.accept(false); } }, 25_000);
+        Thread start = new Thread(() -> {
+            if (!store.codexImages.connected()) { line.accept("Codex 로그인이 없어요 · 최신 음성은 Codex 로그인(ChatGPT 구독)으로만 열려요"); finish.accept(false); return; }
+            String token, account;
+            try { token = store.codexImages.voiceToken(null); account = store.codexImages.voiceAccount(); line.accept("Codex 로그인 확인 · 계정 " + (account.isBlank() ? "없음" : "있음")); }
+            catch (Exception error) { line.accept("Codex 로그인 토큰을 받지 못했어요 · " + error.getMessage()); finish.accept(false); return; }
+            made[0].start(token, account, RealtimeVoice.liveSession("This is a connection test. Stay silent and say nothing.", voice));
+        }, "gyeot-live-test");
+        start.setDaemon(true); start.start();
+        return made[0];
     }
     /** Bridged: 24 kHz 16-bit mono PCM for the call to send as the user's voice (any thread). */
     void push(byte[] pcm24k) {
@@ -216,7 +271,10 @@ final class LiveCall {
         let pc = null, dc = null, mic = null, queue = [], muted = __MUTED__, lost = 0;
         const bridged = __BRIDGED__; let ctx = null, fed = [], at = 0;
         function fail(e) { try { GyeotLive.failed(String((e && e.message) || e)); } catch (_) {} }
+        function stage(t) { try { GyeotLive.stage(String(t)); } catch (_) {} }
         async function start() {
+          if (typeof RTCPeerConnection === 'undefined') { fail('이 휴대폰의 WebView가 WebRTC를 지원하지 않아요.'); return; }
+          if (!bridged && !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) { fail('WebView에서 마이크를 쓸 수 없어요 (보안 주소: ' + window.isSecureContext + ').'); return; }
           if (bridged) {
             // The app's own voice goes up: its PCM plays into a stream of this page, with no microphone of its own.
             ctx = new AudioContext({sampleRate: 24000}); try { await ctx.resume(); } catch (_) {}
@@ -228,9 +286,11 @@ final class LiveCall {
             };
             feed.connect(dest); feed.connect(hush); hush.connect(ctx.destination);
             mic = dest.stream;
+            stage('앱 소리를 통화에 연결함 · ' + ctx.sampleRate + 'Hz');
           } else {
             try { mic = await navigator.mediaDevices.getUserMedia({audio: {echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1}}); }
             catch (e) { fail('마이크를 열지 못했어요 (' + e.name + ').'); return; }
+            stage('마이크 열림');
           }
           const track = mic.getAudioTracks()[0]; track.enabled = !muted;
           pc = new RTCPeerConnection();
@@ -240,6 +300,7 @@ final class LiveCall {
             if (bridged) { out.muted = true; out.play().catch(() => {}); tap(stream); } else { out.play().catch(() => {}); watch(stream); }
           };
           pc.onconnectionstatechange = () => {
+            stage('통화 연결 상태 · ' + pc.connectionState);
             if (pc.connectionState === 'failed') fail('음성 연결이 끊겼어요.');
             lost = pc.connectionState === 'disconnected' ? (lost || Date.now()) : 0;
           };
@@ -294,45 +355,4 @@ final class LiveCall {
         </script></body></html>
         """;
 
-    /** The call's sound route: a headset (Bluetooth, then wired) before the phone's speaker; as it was afterwards. */
-    private static final class Route {
-        private final AudioManager manager; private final Handler handler;
-        private int previousMode; private boolean started;
-        private final AudioDeviceCallback devices = new AudioDeviceCallback() {
-            @Override public void onAudioDevicesAdded(AudioDeviceInfo[] values) { select(); }
-            @Override public void onAudioDevicesRemoved(AudioDeviceInfo[] values) { select(); }
-        };
-        Route(Context context, Handler handler) { manager = context.getSystemService(AudioManager.class); this.handler = handler; }
-        void begin() {
-            if (manager == null || started) return;
-            try {
-                previousMode = manager.getMode(); started = true;
-                manager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-                manager.registerAudioDeviceCallback(devices, handler); select();
-            } catch (RuntimeException refused) { /* Android's own route stays. */ }
-        }
-        static int priority(int type) {
-            return switch (type) {
-                case AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> 0;
-                case AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_USB_HEADSET -> 1;
-                case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> 2;
-                default -> 99;
-            };
-        }
-        private void select() {
-            if (!started) return;
-            try {
-                AudioDeviceInfo preferred = manager.getAvailableCommunicationDevices().stream().filter(d -> priority(d.getType()) < 99)
-                    .min(Comparator.comparingInt(d -> priority(d.getType()))).orElse(null);
-                if (preferred != null && !manager.setCommunicationDevice(preferred)) manager.clearCommunicationDevice();
-            } catch (RuntimeException ignored) { /* Android's own route stays. */ }
-        }
-        void close() {
-            if (!started) return;
-            started = false;
-            try { manager.unregisterAudioDeviceCallback(devices); manager.clearCommunicationDevice(); } catch (RuntimeException ignored) {}
-            // A phone call's or another app's new mode is left alone.
-            if (manager.getMode() == AudioManager.MODE_IN_COMMUNICATION) manager.setMode(previousMode);
-        }
-    }
 }

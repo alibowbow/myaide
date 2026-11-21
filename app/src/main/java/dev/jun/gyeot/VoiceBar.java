@@ -152,10 +152,12 @@ final class VoiceBar {
             case SPEAKING -> "말하는 중 · 말씀하시면 멈춰요";
             case ENDED -> "끝났어요";
         };
-        title.setText(c.kind.spoken() + " · " + doing);
+        // The voice that really speaks (a GPT-Live voice, or the Realtime one standing in for it).
+        title.setText(c.kind.label + " · " + c.speaking() + " · " + doing);
         title.setContentDescription(c.kind.spoken() + " " + c.speaking() + " · " + doing);
         String said = c.words();
-        words.setText(c.held() ? "화면이 말하는 동안 잠시 듣지 않아요" : said.isBlank() ? state == VoiceChat.State.CONNECTING ? "대화 기록과 기억을 이어서 연결해요" : "말씀하시면 대답해요 · 대화는 " + c.target.label() + "에 남아요" : said);
+        words.setText(c.held() ? "화면이 말하는 동안 잠시 듣지 않아요" : said.isBlank() ? state == VoiceChat.State.CONNECTING ? "대화 기록과 기억을 이어서 연결해요"
+            : !c.note().isEmpty() ? c.note() : "말씀하시면 대답해요 · 대화는 " + c.target.label() + "에 남아요" : said);
         mute.on(c.muted() ? R.drawable.ic_mic_off : R.drawable.ic_mic, c.muted() ? "마이크 켜기" : "마이크 끄기", c.muted());
     }
 
@@ -203,9 +205,36 @@ final class VoiceBar {
                 grok ? null : ui.chevron(), grok ? null : () -> { sheet.dismiss(); store.grok.signIn(); }), false);
             keyRow(sign, sheet, SecretStore.XAI_VOICE, "xAI API 키 (선택)", "구독 로그인이 거절되면 이 키로 연결해요", "xai-로 시작하는 키");
         }
+        if (current == RealtimeVoice.Kind.GPT) ui.addRow(sign, ui.listRow(0, 0, "최신 음성 연결 시험", "GPT-Live(한울·햇살)가 열리는지 단계별로 확인해요 · 마이크는 쓰지 않아요", ui.chevron(), () -> { sheet.dismiss(); liveTest(); }), false);
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.topMargin = ui.dp(12); sheet.body.addView(sign, p);
         TextView about = ui.text(here.about() + " 말하는 중에 말씀하시면 대답을 멈추고 들어요.", FOOTNOTE, 450, MUTED);
         about.setPadding(ui.dp(6), ui.dp(12), ui.dp(6), 0); sheet.body.addView(about);
+        sheet.show();
+    }
+    /**
+     * 최신 음성 연결 시험: a GPT-Live call without the microphone, each step shown as it happens; on success GPT-Live is
+     * tried again everywhere (VoiceChat.retryLive). Closing the sheet ends the call.
+     */
+    private void liveTest() {
+        String voice = RealtimeVoice.live(store.pickedVoice(RealtimeVoice.Kind.GPT)) ? store.pickedVoice(RealtimeVoice.Kind.GPT) : "hanul";
+        Ui.Sheet sheet = ui.selectionSheet("최신 음성 연결 시험", RealtimeVoice.voiceName(voice) + " · 단계마다 결과가 아래에 쌓여요. 결과를 복사해서 보내 주시면 바로 고칠게요.");
+        tracker.accept(sheet);
+        TextView log = ui.text("", FOOTNOTE, 450, TEXT); log.setTextIsSelectable(true); log.setPadding(ui.dp(8), ui.dp(4), ui.dp(8), ui.dp(4));
+        sheet.body.addView(log);
+        StringBuilder lines = new StringBuilder();
+        java.util.function.Consumer<String> add = text -> activity.runOnUiThread(() -> {
+            lines.append(lines.length() == 0 ? "" : "\n").append("• ").append(text); log.setText(lines);
+            store.phoneLog("  · 최신 음성 시험 · " + text);
+        });
+        sheet.primary.setText("복사"); sheet.primary.setOnClickListener(v -> {
+            android.content.ClipboardManager clip = activity.getSystemService(android.content.ClipboardManager.class);
+            if (clip != null) clip.setPrimaryClip(android.content.ClipData.newPlainText("최신 음성 연결 시험", lines.toString())); toast("복사했어요.");
+        });
+        LiveCall call = LiveCall.test(activity, store, voice, add, ok -> {
+            add.accept(ok ? "성공 · 이제 최신 음성으로 대화할 수 있어요" : "실패 · 위 기록이 막힌 곳이에요");
+            if (ok) VoiceChat.retryLive();
+        });
+        sheet.setOnDismissListener(d -> call.close());
         sheet.show();
     }
     private void keyRow(LinearLayout group, Ui.Sheet parent, String name, String title, String subtitle, String hint) {

@@ -70,6 +70,7 @@ final class GptLiveSession implements LiveVoiceSession {
             @Override public void opened() { main.post(() -> { if (call == made[0]) becomeReady(); }); }
             @Override public void message(String json) { if (call == made[0]) event(json); }
             @Override public void failed(String why, int status) { main.post(() -> callFailed(made[0], token, account, why, status)); }
+            @Override public void stage(String text) { if (call == made[0]) store.phoneLog("  · GPT 최신 음성 · " + text); }
             @Override public void audio(byte[] pcm) {
                 if (call != made[0] || stopped || System.nanoTime() / 1_000_000 < quietUntil) return;
                 VoiceLatency.Call measured = latency; if (measured != null) measured.output();
@@ -113,7 +114,8 @@ final class GptLiveSession implements LiveVoiceSession {
     private void fallBack(String why) {
         if (stopped || fallback != null || ready) return;
         LiveCall.refused = true; closeParts();
-        store.phoneLog("  · GPT 최신 음성이 열리지 않아 실시간 목소리로 이어요" + (why == null || why.isBlank() ? "" : " · " + why));
+        store.phoneLog("  ✗ GPT 최신 음성이 열리지 않아 " + store.assistantVoice(RealtimeVoice.Kind.GPT) + " 목소리로 이어요" + (why == null || why.isBlank() ? "" : " · " + why));
+        store.status("최신 음성이 안 열려 " + store.assistantVoice(RealtimeVoice.Kind.GPT) + " 목소리로 이어요" + (why == null || why.isBlank() ? "" : " · " + why));
         RealtimeSession next = new RealtimeSession(store, RealtimeVoice.Kind.GPT, store.assistantVoice(RealtimeVoice.Kind.GPT), options, listener);
         next.keepStartupAudio(startupAudio);
         VoiceLatency.Call measured = latency; if (measured != null) next.latency(measured);

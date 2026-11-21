@@ -46,6 +46,7 @@ final class BoardRealtime implements BoardVoice.LiveVoice.Line {
                 }
                 @Override public void failed(String why, int status) { fail(why); }
                 @Override public void audio(byte[] pcm) { if (!closed) events.audio(pcm); }
+                @Override public void stage(String text) { store.phoneLog("  · 판서 GPT 최신 음성 · " + text); }
             }, true);
             Thread start = new Thread(() -> {
                 try { call.start(store.codexImages.voiceToken(null), store.codexImages.voiceAccount(), RealtimeVoice.liveSession(GeminiProtocol.NARRATION + RealtimeVoice.LIVE_READ, voice)); }
