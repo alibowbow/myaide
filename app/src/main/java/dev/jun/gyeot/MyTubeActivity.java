@@ -322,25 +322,26 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         });
         gripView = grip; videoPane.addView(grip, new LinearLayout.LayoutParams(-1, ui.dp(14)));
         // The picture quality, as chosen and as it plays now.
-        qualityChip = withIcon(ui.smallChip("화질", this::chooseQuality), R.drawable.ic_tune);
+        qualityChip = ui.smallChip("화질", this::chooseQuality);
         LinearLayout qualityRow = ui.row(); qualityRow.setGravity(Gravity.CENTER); qualityRow.setPadding(0, ui.dp(6), 0, 0);
         qualityRow.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        heart = withIcon(ui.smallChip("좋아요", () -> player.like()), R.drawable.ic_heart); qualityRow.addView(heart, new LinearLayout.LayoutParams(-2, -2));
+        // 좋아요 is not offered here any more (the AI learns from 안 볼래요 and what is watched); kept off the row.
+        heart = withIcon(ui.smallChip("좋아요", () -> player.like()), R.drawable.ic_heart); heart.setVisibility(View.GONE);
         skipChip = withIcon(ui.smallChip("안 볼래요", () -> player.skip()), R.drawable.ic_close); skipChip.setContentDescription("안 볼래요 · 다음 추천에서 빼고 다음 영상");
-        LinearLayout.LayoutParams skipAt = new LinearLayout.LayoutParams(-2, -2); skipAt.leftMargin = ui.dp(6); qualityRow.addView(skipChip, skipAt);
+        qualityRow.addView(skipChip, new LinearLayout.LayoutParams(-2, -2));
         LinearLayout.LayoutParams qualityAt = new LinearLayout.LayoutParams(-2, -2); qualityAt.leftMargin = ui.dp(6); qualityRow.addView(qualityChip, qualityAt);
         // 배속: 0.5× to 2×, kept for the next videos.
         speedChip = withIcon(ui.smallChip("1×", this::chooseSpeed), R.drawable.ic_bolt);
         LinearLayout.LayoutParams speedAt = new LinearLayout.LayoutParams(-2, -2); speedAt.leftMargin = ui.dp(6); qualityRow.addView(speedChip, speedAt);
-        // 캡처: the frame now, into 들퍼레/마이튜브 캡처. 내용 정리: what the video says, by the main chat's AI.
+        // 캡처: the frame now, into 들퍼레/마이튜브 캡처. 영상 요약: what this video says, by the main chat's AI.
         captureChip = withIcon(ui.smallChip("캡처", () -> player.capture(this::toast)), R.drawable.ic_gallery);
-        summaryChip = withIcon(ui.smallChip("내용 정리", () -> { MyTube.Video v = player.current(); if (v != null) summarize(v); }), R.drawable.ic_sparkle);
+        summaryChip = withIcon(ui.smallChip("영상 요약", () -> { MyTube.Video v = player.current(); if (v != null) summarize(v); }), R.drawable.ic_sparkle);
         LinearLayout.LayoutParams chipGapLeft = new LinearLayout.LayoutParams(-2, -2); chipGapLeft.leftMargin = ui.dp(6);
         qualityRow.addView(captureChip, chipGapLeft);
         LinearLayout.LayoutParams chipGapLeft2 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft2.leftMargin = ui.dp(6);
         qualityRow.addView(summaryChip, chipGapLeft2);
-        // 저장: into the feed it fits (the main chat's AI chooses, or proposes a new feed).
-        saveChip = withIcon(ui.smallChip("저장", this::saveCurrent), R.drawable.ic_add);
+        // 나중에 보기: into 저장한 영상, the first feed chip, to watch again whenever (the AI never replaces what is there).
+        saveChip = withIcon(ui.smallChip("나중에 보기", this::saveCurrent), R.drawable.ic_add); saveChip.setContentDescription("나중에 보기 · 저장한 영상에 넣기");
         LinearLayout.LayoutParams chipGapLeft3 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft3.leftMargin = ui.dp(6);
         qualityRow.addView(saveChip, chipGapLeft3);
         HorizontalScrollView qualityScroll = new HorizontalScrollView(this); qualityScroll.setHorizontalScrollBarEnabled(false); qualityScroll.addView(qualityRow);
@@ -439,7 +440,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         previous.setEnabled(player.index() > 0); previous.setAlpha(player.index() > 0 ? 1f : 0.35f);
         next.setEnabled(player.active());
         speedChip.setText(speedLabel(player.rate())); speedChip.setContentDescription("배속 " + speedLabel(player.rate()) + ", 눌러서 바꾸기");
-        for (View chip : new View[]{heart, skipChip, speedChip}) chip.setVisibility(player.active() ? View.VISIBLE : View.GONE);
+        for (View chip : new View[]{skipChip, speedChip}) chip.setVisibility(player.active() ? View.VISIBLE : View.GONE);
         String chosen = MyTube.QUALITY_LABELS[MyTube.qualityIndex(player.quality())], playingAt = player.qualityNow();
         qualityChip.setText("화질 · " + chosen + (playingAt.isEmpty() || playingAt.equals(chosen) ? "" : " · 지금 " + playingAt));
         qualityChip.setContentDescription("화질, " + chosen + (playingAt.isEmpty() ? "" : ", 지금 " + playingAt) + ", 눌러서 바꾸기");
@@ -457,7 +458,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     }
     private void render() {
         renderLiveChannels();
-        List<MyTube.Feed> feeds = book.feeds(); MyTube.Feed shown = searched != null ? null : feed();
+        List<MyTube.Feed> feeds = new ArrayList<>(book.feeds()); MyTube.Feed shown = searched != null ? null : feed();
+        // 저장한 영상 (나중에 보기) first, where it is easy to find again.
+        feeds.sort(java.util.Comparator.comparing((MyTube.Feed f) -> !MyTube.SAVED_FEED_NAME.equals(f.name())));
         if (shown != null) { feedId = shown.id(); store.settings.edit().putString("mytubeFeed", feedId).apply(); }
         chips.removeAllViews();
         for (MyTube.Feed f : feeds) {
@@ -468,7 +471,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         }
         Button add = ui.smallChip("＋ 피드", () -> editFeed(null)); chips.addView(add);
         // 정리: 마이튜브 AI puts the feeds in order (it also does this by itself when a feed is added).
-        if (feeds.size() >= 2) { Button tidy = withIcon(ui.smallChip("AI 정리", () -> organize(this::toast)), R.drawable.ic_sparkle); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.leftMargin = ui.dp(8); chips.addView(tidy, p); }
+        if (feeds.size() >= 2) { Button tidy = withIcon(ui.smallChip("피드 정리", () -> organize(this::toast)), R.drawable.ic_sparkle); tidy.setContentDescription("피드 정리 · AI가 피드 순서와 이름을 정리"); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.leftMargin = ui.dp(8); chips.addView(tidy, p); }
         list.removeAllViews();
         searchActions.setVisibility(searched != null && !searching ? View.VISIBLE : View.GONE);
         searchPlayAll.setVisibility(found.isEmpty() ? View.GONE : View.VISIBLE);
@@ -645,21 +648,14 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         work.execute(() -> {
             String said;
             try {
+                // 나중에 보기: always 저장한 영상, a list of its own that 새로 고르기 never replaces (no AI picks where it goes).
                 List<MyTube.Feed> feeds = book.feeds(); MyTube.Feed target = null; boolean made = false;
-                try {
-                    MyTube.SavePick pick = MyTube.savePick(MyTubeClient.ask(store, MyTube.SAVE, MyTube.saveInput(feeds, v), cancel), feeds);
-                    if (pick != null && pick.feed() != null) target = pick.feed();
-                    else if (pick != null && pick.made() != null) { target = book.save(pick.made()); made = true; }
-                } catch (java.util.concurrent.CancellationException stop) { throw stop; }
-                catch (Exception noAi) { /* chosen below without the AI */ }
-                if (target == null && from != null && !MyTube.SEARCH_FEED.equals(from.id()) && book.feed(from.id()) != null) target = book.feed(from.id());
-                if (target == null) for (MyTube.Feed f : feeds) if (MyTube.SAVED_FEED_NAME.equals(f.name())) { target = f; break; }
+                for (MyTube.Feed f : feeds) if (MyTube.SAVED_FEED_NAME.equals(f.name())) { target = f; break; }
                 if (target == null) { target = book.save(new MyTube.Feed("", MyTube.SAVED_FEED_NAME, MyTube.Kind.VIDEOS, "직접 찾아 저장한 영상", "", 0)); made = true; }
                 book.keep(target.id(), v.because("직접 저장"));
                 // A broadcast kept (or anything kept in a live feed): its channel too, so each 새로 고르기 finds its broadcast on air then.
                 if (target.liveOnly() || v.live()) { MyTube.Channel from2 = MyTubeClient.channelOf(v.id(), cancel); if (from2 != null) book.addSource(target.id(), from2); }
-                said = (made ? "새 피드 ‘" + target.name() + "’를 만들어 " : "‘" + target.name() + "’에 ") + "저장했어요";
-                if (made) main.post(this::organizeSoon);
+                said = "‘" + target.name() + "’에 넣었어요 · 피드 줄 맨 앞 ‘" + target.name() + "’에서 다시 봐요";
             } catch (Exception e) { said = "저장하지 못했어요" + (e.getMessage() == null ? "." : " · " + e.getMessage()); }
             String told = said;
             main.post(() -> { if (destroyed) return; status(""); if (done != null) done.accept(told); else toast(told); render(); });
@@ -861,13 +857,13 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
      * a sheet; kept for the run, so it opens again at once. The video goes on playing meanwhile.
      */
     private void summarize(MyTube.Video v) {
-        Ui.Sheet sheet = ui.selectionSheet("내용 정리", v.title());
+        Ui.Sheet sheet = ui.selectionSheet("영상 요약", v.title());
         sheet.primary.setVisibility(View.GONE); dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet));
         TextView body = ui.text("", BODY, 450, TEXT); body.setTextIsSelectable(true); body.setLineSpacing(ui.dp(3), 1);
         sheet.body.addView(body);
         String[] made = {SUMMARIES.get(v.id())};
         LinearLayout actions = ui.row(); actions.setPadding(0, ui.dp(12), 0, 0);
-        Button copy = ui.chip("복사", () -> { if (made[0] != null) { getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("내용 정리", made[0])); toast("복사했어요"); } });
+        Button copy = ui.chip("복사", () -> { if (made[0] != null) { getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("영상 요약", made[0])); toast("복사했어요"); } });
         Button transcript = ui.chip("대본 보기", () -> YouTubeTranscriptUi.show(this, MyTube.watch(v.id())));
         Button again = ui.chip("다시 정리", null);
         for (Button b : new Button[]{copy, transcript, again}) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(8); actions.addView(b, p); }

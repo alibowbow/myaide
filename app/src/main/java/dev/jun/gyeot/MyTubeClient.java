@@ -34,6 +34,8 @@ final class MyTubeClient {
     /** Chooses the feed's videos afresh and keeps them; progress says what it is doing. Blocking. */
     static List<MyTube.Video> refresh(Context context, AppStore store, MyTube.Feed feed, Consumer<String> progress, AtomicReference<Runnable> cancel) throws Exception {
         MyTubeBook book = book(context);
+        // 저장한 영상 (나중에 보기) is the user's own list: 새로 고르기 shows it as it is, nothing chosen in.
+        if (MyTube.SAVED_FEED_NAME.equals(feed.name())) { List<MyTube.Video> kept = book.pinned(feed.id()); book.videos(feed.id(), kept, System.currentTimeMillis()); return kept; }
         MyTube.Taste taste = book.taste(feed.id());
         String today = java.time.LocalDate.now().toString();
         // The channel a VIDEOS feed is measured against: its newest videos tell what "like it" means, and are never chosen.

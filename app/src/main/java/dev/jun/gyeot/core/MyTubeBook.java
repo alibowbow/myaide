@@ -130,7 +130,7 @@ public final class MyTubeBook {
         List<MyTube.Video> list = videos(feed); list.removeIf(v -> v.id().equals(video.id())); list.add(0, video);
         videos(feed, list, refreshedAt(feed));
         List<MyTube.Video> pins = pinned(feed); pins.removeIf(v -> v.id().equals(video.id())); pins.add(0, video);
-        while (pins.size() > 30) pins.remove(pins.size() - 1);
+        while (pins.size() > 200) pins.remove(pins.size() - 1);
         JSONArray out = new JSONArray(); for (MyTube.Video v : pins) out.put(v.json());
         JSONObject file = read("pins-" + feed + ".json"); put(file, "videos", out); write("pins-" + feed + ".json", file);
         mark(feed, video, true);
