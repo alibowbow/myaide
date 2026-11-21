@@ -11,6 +11,9 @@ public final class GyeotApp extends Application {
         if (boardJobs == null) boardJobs = new BoardJobs(this);
         return boardJobs;
     }
+    boolean deferSecurityCheck() {
+        return store.voiceActive || store.voiceChat != null || (boardJobs != null && boardJobs.activeBoard() != null);
+    }
     private int startedActivities;
     /** The activity of this app in front now, if any (main thread). */
     private java.lang.ref.WeakReference<Activity> resumed = new java.lang.ref.WeakReference<>(null);

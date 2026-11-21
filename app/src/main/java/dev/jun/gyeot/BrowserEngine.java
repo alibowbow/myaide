@@ -919,7 +919,9 @@ final class BrowserEngine {
         showTaskState(); activate(current); persist(); changed();
     }
     void navigate(String value) {
-        String url = BrowserTools.url(value); if (current == restoreTab) restoreTabReplaced = true;
+        String url = BrowserTools.url(value);
+        if (blockSecurityLink(url)) return;
+        if (current == restoreTab) restoreTabReplaced = true;
         restoring = false; manual(); current.url = url;
         current.needsLoad = true; activate(current); changed();
     }

@@ -58,6 +58,7 @@
         <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="geo" /></intent>
         <intent><action android:name="android.accessibilityservice.AccessibilityService" /></intent>
         <intent><action android:name="android.service.notification.NotificationListenerService" /></intent>
+        <intent><action android:name="android.app.action.DEVICE_ADMIN_ENABLED" /></intent>
         <package android:name="com.android.vending" />
         <package android:name="com.android.settings" />
     </queries>

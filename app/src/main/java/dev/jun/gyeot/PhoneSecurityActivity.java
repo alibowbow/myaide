@@ -82,13 +82,14 @@ public final class PhoneSecurityActivity extends Activity {
         long at=SecurityWatch.prefs(this).getLong("last",0);
         text(at==0?"첫 점검을 하면 변경 비교를 시작해요.":"마지막 변경 비교 · "+date(at));
         if (!notice.isEmpty()) text(notice);
-        action("보안 설정 점검",this::settings);
+        ui.add(body,ui.button("보안 설정 점검",true,this::settings),8);
         action("최근 변경 · "+SecurityWatch.history(this).length()+"건",this::history);
         action("앱 권한 및 인터넷 차단 · 차단 "+AppFirewall.blocked().size()+"개",this::apps);
         action("링크 검사",()->linkDialog(this,""));
         action("설치 파일(APK) 확인",this::pickApk);
         action("전체 검사 및 AI 설명",()->PhoneCheckUi.show(this,()->startActivity(new Intent(this,FileExplorerActivity.class).putExtra(FileExplorerActivity.EXPLORER,true)),null));
         boolean watch=SecurityWatch.enabled(this);
+        text("변경 알림을 켜면 설치 앱과 민감 권한을 비교해요. 기기에서 약 6시간 간격으로 점검하며 배터리가 부족하면 미뤄요.");
         action("변경 알림 · "+(watch?"켜짐":"꺼짐"),()-> {
             if (watch) { SecurityWatch.setEnabled(this,false); home(); }
             else if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
@@ -117,9 +118,10 @@ public final class PhoneSecurityActivity extends Activity {
         int token=generation;
         worker.execute(()->{
             try {
-                var device=PhoneCheck.device(this);
-                var apps=PhoneCheck.userApps(this);
-                int alerts=SecurityWatch.scan(this,apps,device);
+                var scan=SecurityWatch.refresh(this,()->Thread.currentThread().isInterrupted());
+                if(scan==null) return;
+                var device=scan.device();
+                int alerts=scan.alerts();
                 runOnUiThread(()->{ if(!current(token)) return;
                     screen("settings","보안 설정 점검");
                     for (PhoneRisk.Finding f:PhoneRisk.sorted(PhoneRisk.device(device))) {
@@ -157,9 +159,10 @@ public final class PhoneSecurityActivity extends Activity {
             List<PhoneRisk.App> installed;
             try { installed=PhoneCheck.userApps(this); }
             catch(RuntimeException error) { runOnUiThread(()->{ if(current(token)) text("앱 목록을 가져올 수 없어요."); }); return; }
+            Set<String> blocked=AppFirewall.blocked();
             var list=installed.stream().filter(a->!a.system()&&!a.self()).sorted(Comparator
-                    .comparing((PhoneRisk.App a)->!AppFirewall.blocked().contains(a.id()))
-                    .thenComparing(a->SecurityWatch.powers(a).isEmpty()).thenComparing(PhoneRisk.App::label)).toList();
+                    .comparing((PhoneRisk.App a)->!blocked.contains(a.id()))
+                    .thenComparing(a->SecurityWatch.powers(a).isEmpty()).thenComparing(PhoneRisk.App::label)).collect(java.util.stream.Collectors.toList());
             runOnUiThread(()->{ if(!current(token)) return;
                 screen("apps","앱 권한 및 인터넷 차단");
                 text("Android가 보여주는 앱 "+list.size()+"개 · 민감 권한과 차단 앱 우선");
@@ -187,6 +190,8 @@ public final class PhoneSecurityActivity extends Activity {
         text(name+"\n"+id);
         boolean blocked=AppFirewall.blocked().contains(id);
         text(blocked?"인터넷 차단 중 · Wi-Fi 및 모바일 데이터":"들퍼레 인터넷 차단 꺼짐");
+        if (!id.equals(getPackageName())) action("Play 스토어에서 같은 패키지 확인",()->open(new Intent(Intent.ACTION_VIEW,
+                Uri.parse("https://play.google.com/store/apps/details").buildUpon().appendQueryParameter("id",id).build()).setPackage("com.android.vending")));
         if(AppFirewall.eligible(this,id)) action(blocked?"인터넷 차단 해제":"이 앱 인터넷 차단",()->{
             if(blocked) command(AppFirewall.REMOVE,id);
             else ask("이 앱의 인터넷을 차단할까요?","이 앱의 Wi-Fi와 모바일 데이터를 기기 안에서 차단해요. 같은 프로필의 다른 VPN은 연결이 종료될 수 있어요. VPN이 중단되면 차단도 풀려요.","차단",()->prepareVpn(id));
@@ -225,7 +230,7 @@ public final class PhoneSecurityActivity extends Activity {
             if(result==RESULT_OK && !pending.isEmpty()) command(AppFirewall.ADD,pending); else message("VPN 승인이 취소됐어요.");
         } else if(request==UNINSTALL) {
             notice=result==RESULT_OK?"Android에서 앱 삭제를 확인했어요 · "+pending:"삭제가 완료되지 않았어요 · "+pending;
-            home();
+            if(result==RESULT_OK) { message(notice); settings(); } else home();
         } else if(request==PICK && result==RESULT_OK && data!=null && data.getData()!=null) inspectFile(data.getData());
     }
     private void inspectFile(Uri uri) {

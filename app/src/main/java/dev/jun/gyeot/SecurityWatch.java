@@ -27,6 +27,7 @@ final class SecurityWatch {
         prefs(c).edit().putBoolean("paused", pause).apply();
         AppStore store = ((GyeotApp)c.getApplicationContext()).store();
         if (pause) {
+            if (store.voiceChat!=null) store.voiceChat.end(PAUSE_MESSAGE);
             PhoneService.stopByUser();
             BrowserEngine.stopForProtection();
             WorkScheduleAlarm.cancel(c);
@@ -52,8 +53,16 @@ final class SecurityWatch {
     private static void record(JSONArray history, long time, String id, String message, boolean alert) throws JSONException {
         history.put(new JSONObject().put("at", time).put("pkg", id).put("message", message).put("alert", alert));
     }
-    /** Serializes automatic and manual comparisons so a simultaneous scan cannot report the same change twice. */
-    static synchronized int scan(Context c, List<PhoneRisk.App> apps, PhoneRisk.Device device) throws JSONException {
+    record Snapshot(PhoneRisk.Device device, int alerts) {}
+    /** Capture and commit in the same order, even if an automatic and manual scan overlap. */
+    static synchronized Snapshot refresh(Context c, java.util.function.BooleanSupplier cancelled) throws JSONException {
+        if (cancelled.getAsBoolean()) return null;
+        var device=PhoneCheck.device(c);
+        var apps=PhoneCheck.userApps(c);
+        if (cancelled.getAsBoolean()) return null;
+        return new Snapshot(device, compare(c,apps,device));
+    }
+    private static int compare(Context c,List<PhoneRisk.App> apps,PhoneRisk.Device device) throws JSONException {
         if (apps.isEmpty()) throw new IllegalStateException("앱 목록을 읽지 못했어요.");
         SharedPreferences p = prefs(c);
         boolean first = !p.contains("baseline");
@@ -76,15 +85,20 @@ final class SecurityWatch {
                     if (!current.contains(power)) lost.add(power);
                 }
             }
-            if (previous == null || !gained.isEmpty() || !lost.isEmpty()) {
+            boolean sourceChanged=previous!=null && !app.installer().equals(previous.optString("source"));
+            if (previous == null || !gained.isEmpty() || !lost.isEmpty() || sourceChanged) {
                 String source = app.installer().isBlank() ? "설치 출처 미확인" : PhoneRisk.fromStore(app) ? "스토어 설치" : "스토어 외 설치";
-                String message = app.label() + (previous == null ? " · 새로 확인 · " + source : " · 권한 변경")
+                String message = app.label() + (previous == null ? " · 새로 확인 · " + source : sourceChanged ? " · 설치 출처 변경 · " + source : " · 권한 변경")
                         + (gained.isEmpty() ? "" : " · " + String.join(", ", gained) + " 사용")
                         + (lost.isEmpty() ? "" : " · " + String.join(", ",lost) + " 해제");
-                boolean alert = !gained.isEmpty();
+                boolean alert = !gained.isEmpty() || ((previous==null || sourceChanged) && !app.installer().isBlank() && !PhoneRisk.fromStore(app));
                 record(events, now, app.id(), message, alert);
                 if (alert) alerts++;
             }
+        }
+        for (Iterator<String> ids=old.keys(); ids.hasNext();) {
+            String id=ids.next();
+            if (!next.has(id)) record(events,now,id,old.getJSONObject(id).optString("name",id)+" · 현재 앱 목록에서 사라짐",false);
         }
         if (!first && p.getBoolean("lock",device.lock()) && !device.lock()) {
             record(events,now,"","화면 잠금이 해제됐어요",true); alerts++;
@@ -146,7 +160,7 @@ final class SecurityWatch {
         PendingIntent open=PendingIntent.getActivity(c,ALERT,new Intent(c,PhoneSecurityActivity.class).putExtra("changes",true),
                 PendingIntent.FLAG_IMMUTABLE|PendingIntent.FLAG_UPDATE_CURRENT);
         nm.notify(ALERT,new Notification.Builder(c,CHANNEL).setSmallIcon(R.drawable.ic_lock).setContentTitle("휴대폰 보안 변경")
-                .setContentText("확인할 권한 또는 설정 변경 "+count+"건").setVisibility(Notification.VISIBILITY_PRIVATE)
+                .setContentText("확인할 앱 또는 보안 설정 변경 "+count+"건").setVisibility(Notification.VISIBILITY_PRIVATE)
                 .setContentIntent(open).setAutoCancel(true).build());
     }
 }
