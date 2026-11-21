@@ -41,8 +41,7 @@ final class ClaudeAccount {
      */
     JSONArray models() {
         JSONArray saved; try { saved = new JSONArray(settings.getString("claudeModels", "[]")); } catch (Exception e) { saved = new JSONArray(); }
-        // A list saved before the catalog carried each model's context size (contextTokens) is read again at once.
-        refreshIfStale(saved.length() > 0 && saved.optJSONObject(0) != null && !saved.optJSONObject(0).has("contextTokens"));
+        refreshIfStale();
         JSONArray result = new JSONArray();
         for (int i = 0; i < saved.length(); i++) { JSONObject item = saved.optJSONObject(i); if (item != null && !dev.jun.gyeot.core.ModelIds.retired(dev.jun.gyeot.core.WorkBook.CLAUDE, item.optString("id"))) result.put(item); }
         return result;
@@ -50,9 +49,9 @@ final class ClaudeAccount {
     static final long MODELS_FRESH_MS = dev.jun.gyeot.core.ModelWatch.DAY, MODELS_RETRY_MS = 10L * 60 * 1000;
     /** When the last background read of the catalog started (memory only), so a failing one is not repeated on every draw. */
     private volatile long modelsTried;
-    private void refreshIfStale(boolean outdated) {
+    private void refreshIfStale() {
         long now = System.currentTimeMillis();
-        if ((!outdated && now - settings.getLong("claudeModelsAt", 0) < MODELS_FRESH_MS) || now - modelsTried < MODELS_RETRY_MS || !connected()) return;
+        if (now - settings.getLong("claudeModelsAt", 0) < MODELS_FRESH_MS || now - modelsTried < MODELS_RETRY_MS || !connected()) return;
         modelsTried = now;
         // Quiet: a failed read keeps the saved list and says nothing; the key check in settings still reports problems.
         network.execute(() -> { try { keepModels(fetchModels(key())); } catch (Exception ignored) {} });

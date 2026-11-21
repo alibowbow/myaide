@@ -50,7 +50,11 @@ final class UsageUi {
      * One connected account: its name and route, its lines (a window each, then when they were seen), none for 모름, and
      * the settings page it is connected on (MainActivity.openSettings).
      */
-    record Account(String name, List<String> lines, String page) {}
+    record Account(String name, List<String> lines, String page, List<Limits.Window> windows, long now) {
+        Account(String name, List<String> lines, String page) { this(name, lines, page, List.of(), 0); }
+        /** The lines that are not a window: when it was seen, why a read failed, a hint. */
+        List<String> notes() { return lines.subList(Math.min(windows.size(), lines.size()), lines.size()); }
+    }
 
     private static ExecutorService reader() { return reader("gyeot-usage-page"); }
     private static ExecutorService reader(String name) {
@@ -80,12 +84,13 @@ final class UsageUi {
         for (String engine : ENGINES) {
             if (!store.ready(engine)) continue;
             String route = store.usageRoute(engine);
-            List<String> lines = lines(store, engine, route, now, zone);
+            Limits limits = store.usage.limits(engine, route, store.usageIdentity(engine));
+            List<String> lines = lines(limits, now, zone);
             if (WorkBook.GROK.equals(engine)) problem(lines, GROK_PAGE);
             // The ChatGPT sign-in's own tokens cannot read Codex's usage page; the Codex sign-in can (the row below).
             if (WorkBook.CHATGPT.equals(engine) && UsageLedger.PLAN.equals(route) && lines.isEmpty() && !store.codexImages.connected())
                 lines.add("5시간·주간 한도는 설정 → ChatGPT의 ‘이미지용 Codex로 로그인’을 하면 여기에 보여요");
-            accounts.add(new Account(WorkBook.author(engine) + " · " + (UsageLedger.PLAN.equals(route) ? "구독" : "API 키"), lines, page(engine)));
+            accounts.add(new Account(WorkBook.author(engine) + " · " + (UsageLedger.PLAN.equals(route) ? "구독" : "API 키"), lines, page(engine), limits.empty() ? List.of() : limits.current(now), now));
             if (WorkBook.CHATGPT.equals(engine) && store.codexImages.connected()) accounts.add(codex(store, now, zone));
         }
         if (!store.ready(WorkBook.CHATGPT) && store.codexImages.connected()) accounts.add(0, codex(store, now, zone));
@@ -109,10 +114,11 @@ final class UsageUi {
     }
     /** The Codex sign-in's row: what its usage page last said, for that same ChatGPT account. */
     static Account codex(AppStore store, long now, ZoneId zone) {
-        List<String> lines = lines(store.usage.limits(WorkBook.CHATGPT, PlanUsage.CODEX_ROUTE, store.codexImages.usageIdentity()), now, zone);
+        Limits limits = store.usage.limits(WorkBook.CHATGPT, PlanUsage.CODEX_ROUTE, store.codexImages.usageIdentity());
+        List<String> lines = lines(limits, now, zone);
         problem(lines, CODEX);
         // The Codex sign-in (이미지용 Codex로 로그인) is on the ChatGPT page.
-        return new Account("ChatGPT · Codex 한도", lines, "chatgpt");
+        return new Account("ChatGPT · Codex 한도", lines, "chatgpt", limits.empty() ? List.of() : limits.current(now), now);
     }
     /** Why the last read of that usage page failed, or that it is being read, after what is known. */
     private static void problem(List<String> lines, String page) {
@@ -188,20 +194,51 @@ final class UsageUi {
         box.addView(ui.footer("메인 대화·작업창·예약·누르고 말하기에서 받은 답만 세요."));
     }
     /**
-     * One row per connected account: its name and route, then a line per limit window and when it was seen, or 모름; with
-     * open, a chevron and a tap that opens the account's page.
+     * A card per connected account: its name (and when it was seen), then each limit as a heading, "4시간 29분 후
+     * 초기화됩니다" with "49% 남음" across from it and a bar filled by what is left; or 남은 한도 모름. With open, a tap
+     * opens the account's page.
      */
     private LinearLayout limits(List<Account> accounts, Consumer<String> open) {
-        LinearLayout group = ui.group();
+        LinearLayout cards = ui.column();
         for (Account account : accounts) {
-            String shown = account.lines().isEmpty() ? "남은 한도 모름" : String.join("\n", account.lines());
-            LinearLayout row = ui.listRow(R.drawable.ic_history, Ui.BLUE, account.name(), shown, open == null ? null : ui.chevron(), open == null ? null : () -> open.accept(account.page()));
-            TextView detail = ((Ui.ListRow) row).parts.subtitle();
-            if (detail != null) { detail.setSingleLine(false); detail.setMaxLines(8); }
-            row.setContentDescription(account.name() + ", " + shown.replace('\n', ','));
-            ui.addRow(group, row, true);
+            LinearLayout card = ui.column();
+            android.graphics.drawable.GradientDrawable surface = ui.shape(Ui.CARD, 18); surface.setStroke(Math.max(1, ui.dp(.5f)), Ui.SEPARATOR);
+            card.setBackground(surface); card.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(14));
+            LinearLayout head = ui.row(); head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            head.addView(ui.text(account.name(), 13, 600, Ui.MUTED), new LinearLayout.LayoutParams(0, -2, 1));
+            if (open != null) head.addView(ui.text("›", 18, 500, Ui.MUTED));
+            card.addView(head);
+            for (Limits.Window window : account.windows()) card.addView(window(window, account.now()));
+            List<String> notes = account.windows().isEmpty() ? account.lines() : account.notes();
+            if (account.lines().isEmpty()) notes = List.of("남은 한도 모름");
+            for (String note : notes) {
+                TextView line = ui.text(note, 12, 450, Ui.MUTED); line.setPadding(0, ui.dp(8), 0, 0); card.addView(line);
+            }
+            String shown = account.lines().isEmpty() ? "남은 한도 모름" : String.join(", ", account.lines());
+            card.setContentDescription(account.name() + ", " + shown);
+            if (open != null) { card.setOnClickListener(v -> open.accept(account.page())); Ui.pressable(card, true); }
+            LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-1, -2); if (cards.getChildCount() > 0) at.topMargin = ui.dp(10);
+            cards.addView(card, at);
         }
-        return group;
+        return cards;
+    }
+    /** One limit: its heading, when it resets and how much is left, and a rounded bar filled by what is left. */
+    private LinearLayout window(Limits.Window window, long now) {
+        LinearLayout box = ui.column(); box.setPadding(0, ui.dp(12), 0, 0);
+        box.addView(ui.text(Limits.heading(window), 15, 650, Ui.TEXT));
+        LinearLayout line = ui.row(); line.setPadding(0, ui.dp(4), 0, ui.dp(8));
+        line.addView(ui.text(Limits.until(window, now), 13, 450, Ui.MUTED), new LinearLayout.LayoutParams(0, -2, 1));
+        line.addView(ui.text(Limits.remaining(window), 13, 500, Ui.TEXT));
+        box.addView(line);
+        double left = Math.max(0, Math.min(1, window.left()));
+        int ink = left < 0.1 ? Ui.ERROR : left < 0.25 ? Ui.WARNING : Ui.TEXT;
+        LinearLayout track = ui.row(); track.setBackground(ui.shape(Ui.FILL, Ui.PILL)); track.setClipToOutline(true);
+        android.view.View filled = new android.view.View(box.getContext()); filled.setBackground(ui.shape(ink, Ui.PILL));
+        track.addView(filled, new LinearLayout.LayoutParams(0, -1, (float) left));
+        track.addView(new android.view.View(box.getContext()), new LinearLayout.LayoutParams(0, -1, (float) (1 - left)));
+        box.addView(track, new LinearLayout.LayoutParams(-1, ui.dp(8)));
+        box.setContentDescription(Limits.heading(window) + ", " + Limits.remaining(window) + ", " + Limits.until(window, now));
+        return box;
     }
     /** One row per company with requests in the last seven days, most requests first. */
     private LinearLayout recent(JSONArray totals) {

@@ -436,6 +436,15 @@ public final class PhoneSecurityActivity extends Activity {
         boolean blocked=AppFirewall.blocked().contains(id);
         boolean review=assessment.level()==PhoneRisk.Level.DANGER || assessment.level()==PhoneRisk.Level.CAUTION;
         status(assessment.title(),assessment.detail(),review?R.drawable.ic_eye:R.drawable.ic_info,review?Ui.WARNING:Ui.MUTED);
+        // Android lets no app take another app's permission away: this opens that app's own page, where 권한 turns it off.
+        java.util.List<String> held=PhoneRisk.messagePermissions(app);
+        if(!held.isEmpty() && !id.equals(getPackageName())) {
+            LinearLayout perms=section(body,"권한 끄기");
+            row(perms,R.drawable.ic_chat,"문자·통화 기록 권한 끄기","켜져 있음: "+String.join(" · ",held)+"\n앱 정보 → 권한 → SMS·통화 기록 → ‘허용 안 함’",()->{
+                open(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.fromParts("package",id,null)));
+                message("권한 → SMS·통화 기록을 눌러 ‘허용 안 함’으로 바꿔 주세요. 돌아오면 다시 확인해요.");
+            });
+        }
         LinearLayout net=section(body,"들퍼레 인터넷 차단");
         String netTitle=blocked?"현재 차단 중":"현재 차단 안 함";
         if(id.equals(lastNetworkApp) && blocked==AppFirewall.ADD.equals(lastNetworkAction))

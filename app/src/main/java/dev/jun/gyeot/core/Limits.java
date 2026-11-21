@@ -108,15 +108,40 @@ public record Limits(List<Window> windows, long at) {
      * 14:03 초기화". A window whose reset time has passed is no longer known (the next response tells again).
      */
     public List<String> lines(long now, ZoneId zone) {
-        List<String> lines = new ArrayList<>(); Window tightest = null;
-        for (Window window : windows) {
-            if (window.reset > 0 ? window.reset <= now : now - at > FRESH_MS) continue;
-            if (!window.rate) { lines.add(window.name + " · " + left(window, now, zone)); continue; }
-            if (tightest == null || window.left < tightest.left) tightest = window;
-        }
-        if (tightest != null) lines.add("속도 한도 · " + left(tightest, now, zone));
+        List<String> lines = new ArrayList<>();
+        for (Window window : current(now)) lines.add(window.name + " · " + left(window, now, zone));
         return lines;
     }
+    /** The windows lines() shows, in its order: each current window, then the tightest rate window named "속도 한도". */
+    public List<Window> current(long now) {
+        List<Window> shown = new ArrayList<>(); Window tightest = null;
+        for (Window window : windows) {
+            if (window.reset > 0 ? window.reset <= now : now - at > FRESH_MS) continue;
+            if (!window.rate) { shown.add(window); continue; }
+            if (tightest == null || window.left < tightest.left) tightest = window;
+        }
+        if (tightest != null) shown.add(new Window("속도 한도", tightest.left, tightest.reset, true));
+        return shown;
+    }
+    /** A window's heading on the usage page: "5시간 단위 한도", "주간 사용 한도", "속도 한도". */
+    public static String heading(Window window) {
+        String name = window.name.strip();
+        if (window.rate || name.endsWith("한도")) return name;
+        if (name.endsWith("시간") || name.endsWith("분")) return name + " 단위 한도";
+        if (name.endsWith("주간") || name.endsWith("하루") || name.endsWith("월간") || name.endsWith("일")) return name + " 사용 한도";
+        return name + " 한도";
+    }
+    /** "4시간 29분 후 초기화됩니다", "4일 22시간 후 초기화됩니다", "곧 초기화됩니다"; "초기화 시간 모름" without a reset time. */
+    public static String until(Window window, long now) {
+        if (window.reset <= 0) return "초기화 시간 모름";
+        long minutes = (window.reset - now + 59_999) / 60_000;
+        if (minutes < 1) return "곧 초기화됩니다";
+        long days = minutes / 1_440, hours = minutes % 1_440 / 60, rest = minutes % 60;
+        String span = days > 0 ? days + "일" + (hours > 0 ? " " + hours + "시간" : "") : hours > 0 ? hours + "시간" + (rest > 0 ? " " + rest + "분" : "") : rest + "분";
+        return span + " 후 초기화됩니다";
+    }
+    /** "49% 남음". */
+    public static String remaining(Window window) { return (int) Math.floor(window.left * 100 + 1e-9) + "% 남음"; }
     /**
      * When the provider said it: "방금 전 기준", "3분 전 기준", "2시간 전 기준", "5일 전 기준"; "" when that is not known. A
      * weekly window seen days ago is still shown until its reset, so its age is shown with it.

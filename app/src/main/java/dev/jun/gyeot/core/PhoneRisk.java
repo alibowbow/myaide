@@ -44,6 +44,13 @@ public final class PhoneRisk {
     private static final long DAY = 24L * 60 * 60 * 1000;
 
     public static boolean fromStore(App app) { return app.system() || STORES.contains(app.installer()); }
+    /** The message and call log permissions this app holds now, in words ("문자 읽기", "통화 기록 읽기"); empty when none. */
+    public static java.util.List<String> messagePermissions(App app) {
+        java.util.List<String> held = new java.util.ArrayList<>();
+        for (String[] each : new String[][]{{"SEND_SMS", "문자 보내기"}, {"RECEIVE_SMS", "문자 받기"}, {"READ_SMS", "문자 읽기"}, {"READ_CALL_LOG", "통화 기록 읽기"}})
+            if (app.granted().contains(each[0])) held.add(each[1]);
+        return held;
+    }
 
     public static List<Finding> device(Device d) {
         List<Finding> out = new ArrayList<>();
