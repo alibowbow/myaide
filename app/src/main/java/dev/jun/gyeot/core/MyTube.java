@@ -92,10 +92,30 @@ public final class MyTube {
     public static String frame(String id) { return "https://i.ytimg.com/vi/" + id + "/hq2.jpg"; }
     /** The phone page that plays the video. */
     public static String watch(String id) { return "https://m.youtube.com/watch?v=" + id; }
-    /** A YouTube video id from a watch address, or "" (the page the player is on). */
+    /** A YouTube video id from a watch address (also a Shorts one, where YouTube may send a short video), or "". */
     public static String idOf(String url) {
-        Matcher m = Pattern.compile("[?&]v=([A-Za-z0-9_-]{11})").matcher(url == null ? "" : url);
+        Matcher m = Pattern.compile("(?:[?&]v=|/shorts/|youtu\\.be/)([A-Za-z0-9_-]{11})").matcher(url == null ? "" : url);
         return m.find() ? m.group(1) : "";
+    }
+
+    // ── picture quality ─────────────────────────────────────────────────────
+    /** The choices: YouTube's own (자동), the best the video has (최고), or a height (the best under it when the video lacks it). */
+    public static final String[] QUALITY_CODES = {"auto", "max", "hd1080", "hd720", "large", "medium"};
+    public static final String[] QUALITY_LABELS = {"자동", "최고 화질", "1080p", "720p", "480p", "360p"};
+    /** The choice's place in QUALITY_CODES (자동 for an unknown one). */
+    public static int qualityIndex(String code) {
+        for (int i = 0; i < QUALITY_CODES.length; i++) if (QUALITY_CODES[i].equals(code)) return i;
+        return 0;
+    }
+    /** How YouTube's quality name reads (hd720 → 720p); "" for none. */
+    public static String qualityName(String level) {
+        if (level == null) return "";
+        return switch (level) {
+            case "highres" -> "4K 이상"; case "hd2880" -> "2880p"; case "hd2160" -> "2160p"; case "hd1440" -> "1440p";
+            case "hd1080" -> "1080p"; case "hd720" -> "720p"; case "large" -> "480p"; case "medium" -> "360p";
+            case "small" -> "240p"; case "tiny" -> "144p"; case "auto" -> "자동"; case "max" -> "최고 화질";
+            default -> "";
+        };
     }
 
     // ── what a page lists ───────────────────────────────────────────────────

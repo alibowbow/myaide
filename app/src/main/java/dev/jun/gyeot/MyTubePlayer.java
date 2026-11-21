@@ -29,6 +29,8 @@ final class MyTubePlayer {
     static synchronized MyTubePlayer get(Context context) { if (instance == null) instance = new MyTubePlayer(context.getApplicationContext()); return instance; }
     /** The setting: go on playing with the screen off or another app in front (for YouTube Premium members). */
     static final String BACKGROUND = "mytubeBackground";
+    /** The setting: the picture quality (core/MyTube's QUALITY_CODES). */
+    static final String QUALITY = "mytubeQuality";
 
     private final Context context; private final AppStore store; private final MyTubeBook book;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -36,7 +38,11 @@ final class MyTubePlayer {
     private GeckoSession session; private WebExtension.Port port; private GeckoView view;
     private MyTube.Feed feed; private final List<MyTube.Video> queue = new ArrayList<>(); private int at = -1;
     private boolean playing, wantPlay, refilling, onScreen;
+    /** The page bridge is bound to this page: until then a load waits (the page would load with no one to start it). */
+    private boolean bound; private String pendingUri;
     private String status = "";
+    /** What the page said of the picture: the quality playing, those the video has, and whether it can be changed there. */
+    private String qualityNow = ""; private List<String> levels = List.of(); private boolean qualitySettable = true;
     private final AtomicReference<Runnable> cancel = new AtomicReference<>();
 
     private MyTubePlayer(Context context) {
@@ -55,6 +61,18 @@ final class MyTubePlayer {
     String status() { return status; }
     boolean background() { return store.settings.getBoolean(BACKGROUND, false); }
     boolean liked() { MyTube.Video v = current(); return v != null && feed != null && book.liked(feed.id(), v.id()); }
+    /** The chosen quality (a QUALITY_CODES code). */
+    String quality() { String q = store.settings.getString(QUALITY, "auto"); return q == null ? "auto" : q; }
+    /** What plays now, for the screen: "720p", or "" before the page said. */
+    String qualityNow() { return MyTube.qualityName(qualityNow); }
+    boolean qualitySettable() { return qualitySettable; }
+    /** The qualities this video has, as they read (1080p, 720p, …). */
+    List<String> levels() { List<String> out = new ArrayList<>(); for (String l : levels) { String n = MyTube.qualityName(l); if (!n.isEmpty() && !"자동".equals(n)) out.add(n); } return out; }
+    /** A new quality: kept, and applied to what plays. */
+    void quality(String code) {
+        store.settings.edit().putString(QUALITY, code).apply();
+        sendQuality("quality"); changed();
+    }
 
     // ── the page ─────────────────────────────────────────────────────────────
     private GeckoSession session() {
@@ -75,14 +93,14 @@ final class MyTubePlayer {
         });
         BrowserRuntime shared = BrowserRuntime.get(context);
         s.open(shared.runtime);
-        shared.bridge().accept(extension -> s.getWebExtensionController().setMessageDelegate(extension, new WebExtension.MessageDelegate() {
+        shared.bridge().accept(extension -> { s.getWebExtensionController().setMessageDelegate(extension, new WebExtension.MessageDelegate() {
             @Override public void onConnect(WebExtension.Port connected) {
                 if (connected.sender.session != s || !connected.sender.isTopLevel()) { connected.disconnect(); return; }
                 connected.setDelegate(new WebExtension.PortDelegate() {
                     @Override public void onPortMessage(Object message, WebExtension.Port source) {
                         if (!(message instanceof JSONObject json)) return;
                         main.post(() -> {
-                            if (json.optBoolean("ready")) { port = source; if (active()) send(wantPlay ? "watch" : "pause"); }
+                            if (json.optBoolean("ready")) { port = source; if (active()) { if (wantPlay) sendQuality("watch"); else send("pause"); } }
                             JSONObject event = json.optJSONObject("mytube");
                             if (event != null && source == port) heard(event);
                         });
@@ -90,13 +108,30 @@ final class MyTubePlayer {
                     @Override public void onDisconnect(WebExtension.Port source) { main.post(() -> { if (port == source) port = null; }); }
                 });
             }
-        }, BrowserEngine.NATIVE), failed -> main.post(() -> { status = "플레이어를 준비하지 못했어요. 앱을 다시 열어 주세요."; changed(); }));
+        }, BrowserEngine.NATIVE);
+            // Bound before the first page loads: a page loaded earlier would have no one to start it.
+            main.post(() -> { bound = true; String uri = pendingUri; pendingUri = null; if (uri != null && session == s) s.loadUri(uri); });
+        }, failed -> main.post(() -> {
+            // Without the bridge the page still loads: its own ▶ plays it (the app cannot start or follow it).
+            bound = true; String uri = pendingUri; pendingUri = null; if (uri != null && session == s) s.loadUri(uri);
+            status = "플레이어 연결을 준비하지 못했어요 · 화면의 ▶로 재생할 수 있어요 · 앱을 다시 열면 고쳐져요"; changed();
+        }));
         session = s;
         return s;
     }
     private void send(String command) {
         WebExtension.Port p = port;
         if (p != null) try { p.postMessage(dev.jun.gyeot.core.Jsons.obj("mytube", command)); } catch (RuntimeException gone) {}
+    }
+    /** A command that carries the chosen quality (watch: start this page's video; quality: apply it now). */
+    private void sendQuality(String command) {
+        WebExtension.Port p = port;
+        if (p != null) try { p.postMessage(dev.jun.gyeot.core.Jsons.obj("mytube", dev.jun.gyeot.core.Jsons.obj("command", command, "quality", quality()))); } catch (RuntimeException gone) {}
+    }
+    /** Opens an address in the page once the bridge is bound to it. */
+    private void open(String uri) {
+        GeckoSession s = session(); s.setActive(true);
+        if (bound) s.loadUri(uri); else pendingUri = uri;
     }
     /** Shows the page in 마이튜브's screen (its GeckoView). */
     void attach(GeckoView shown) {
@@ -122,14 +157,14 @@ final class MyTubePlayer {
     }
     private void load(int index) {
         at = index; MyTube.Video v = current(); if (v == null) return;
-        wantPlay = true; playing = false; status = "불러오는 중";
-        GeckoSession s = session(); s.setActive(true);
-        s.loadUri(MyTube.watch(v.id()));
+        wantPlay = true; playing = false; status = "불러오는 중"; qualityNow = ""; levels = List.of(); qualitySettable = true;
+        open(MyTube.watch(v.id()));
         if (feed != null) try { book.playedNow(feed.id(), v.id()); } catch (Exception ignored) {}
         if (background()) MyTubeService.start(context);
         changed();
     }
-    void toggle() { if (wantPlay) pause(); else resume(); }
+    /** Pauses what plays (or is about to), else plays: as the page is, not as it was asked. */
+    void toggle() { if (playing || wantPlay && "불러오는 중".equals(status)) pause(); else resume(); }
     void pause() { wantPlay = false; send("pause"); status = "멈춤"; changed(); }
     void resume() { if (!active()) return; wantPlay = true; if (session != null) session.setActive(true); send("play"); status = "재생 중"; if (background()) MyTubeService.start(context); changed(); }
     void previous() { if (at > 0) load(at - 1); }
@@ -154,26 +189,41 @@ final class MyTubePlayer {
     void stop() {
         wantPlay = false; playing = false; queue.clear(); at = -1; status = "";
         Runnable abort = cancel.getAndSet(null); if (abort != null) abort.run();
+        pendingUri = null;
         if (session != null) { session.loadUri("about:blank"); session.setActive(onScreen); }
         MyTubeService.stop(context); changed();
     }
     /** Opens YouTube's sign-in in the player's page (the AI 브라우저 shares it). */
     void signIn() {
         wantPlay = false; queue.clear(); at = -1; status = "유튜브 로그인";
-        GeckoSession s = session(); s.setActive(true);
-        s.loadUri("https://accounts.google.com/ServiceLogin?service=youtube&continue=" + java.net.URLEncoder.encode("https://m.youtube.com/", java.nio.charset.StandardCharsets.UTF_8));
+        open("https://accounts.google.com/ServiceLogin?service=youtube&continue=" + java.net.URLEncoder.encode("https://m.youtube.com/", java.nio.charset.StandardCharsets.UTF_8));
         changed();
     }
 
     private void heard(JSONObject event) {
         String what = event.optString("event"); MyTube.Video v = current();
-        // Only the video this queue is on: an ad, or a video YouTube moved on to by itself, is not it.
-        if (v == null || !v.id().equals(MyTube.idOf(event.optString("url")))) return;
+        // Only the video this queue is on: an ad, or a video YouTube moved on to by itself, is not it. A start that never
+        // came is told from any page (a sign-in or check page has no video id).
+        if (v == null || !"stuck".equals(what) && !v.id().equals(MyTube.idOf(event.optString("url")))) return;
         switch (what) {
-            case "playing" -> { playing = true; status = "재생 중"; if (!wantPlay) send("pause"); changed(); }
-            case "paused" -> { playing = false; status = wantPlay ? "잠시 멈춤" : "멈춤"; changed(); }
+            // The page plays (by the app's word, by itself or by a tap on it): followed, never fought.
+            case "playing" -> { playing = true; wantPlay = true; status = event.optBoolean("ad") ? "광고 재생 중" : "재생 중"; changed(); }
+            case "paused" -> { playing = false; wantPlay = false; status = "멈춤"; changed(); }
             case "ended" -> next();
             case "error" -> { status = "재생할 수 없는 영상이라 다음으로 넘겨요"; changed(); main.postDelayed(() -> { if (current() == v) next(); }, 1500); }
+            case "stuck" -> {
+                status = "재생이 시작되지 않았어요 · 화면의 ▶를 눌러 보세요";
+                store.phoneLog("마이튜브 · 재생이 시작되지 않음 · " + event.optString("page") + " · 플레이어 " + (event.optBoolean("player") ? "있음" : "없음")
+                    + " · 상태 " + event.opt("state") + " · 영상 " + (event.optBoolean("video") ? "있음(" + event.optInt("ready") + ")" : "없음")
+                    + (event.optString("why").isEmpty() ? "" : " · " + event.optString("why")));
+                changed();
+            }
+            case "quality" -> {
+                qualityNow = event.optString("quality"); qualitySettable = event.optBoolean("settable", true);
+                List<String> got = new ArrayList<>(); org.json.JSONArray list = event.optJSONArray("levels");
+                for (int i = 0; list != null && i < list.length(); i++) got.add(list.optString(i));
+                levels = got; changed();
+            }
             default -> {}
         }
     }

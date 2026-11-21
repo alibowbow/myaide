@@ -274,7 +274,16 @@ public final class BoardActivity extends Activity {
             TextView all = ui.text(caption.getText().toString(), BODY, 450, TEXT);
             all.setTextIsSelectable(true); all.setLineSpacing(ui.dp(3), 1);
             if (teacher.state().equals(BoardTeacher.PLAYING)) teacher.pause();
-            words.body.addView(all); show(words);
+            words.body.addView(all);
+            // In another language: its Korean translation under it.
+            String said = caption.getText().toString();
+            if (dev.jun.gyeot.core.CaptionLanguage.foreign(said)) {
+                TextView korean = ui.text("한국어로 옮기는 중…", BODY, 500, TEXT); korean.setTextIsSelectable(true); korean.setLineSpacing(ui.dp(3), 1);
+                korean.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+                LinearLayout.LayoutParams under = new LinearLayout.LayoutParams(-1, -2); under.topMargin = ui.dp(12); words.body.addView(korean, under);
+                CaptionTranslator.translate(store, said, done -> { if (words.isShowing()) korean.setText(done); }, why -> { if (words.isShowing()) { korean.setText(why); korean.setTextColor(MUTED); } });
+            }
+            show(words);
         });
         ui.add(chrome, caption, 8);
 

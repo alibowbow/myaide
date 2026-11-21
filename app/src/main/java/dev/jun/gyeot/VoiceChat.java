@@ -113,6 +113,10 @@ final class VoiceChat {
     State state() { return state; }
     /** The words heard or spoken now: the user's as they are written down, then the answer's. */
     String words() { return words; }
+    /** Whose the shown words are: the user's (MINE), the AI's (THEIRS), or a note of the app's (NOTE). */
+    static final int NOTE = 0, MINE = 1, THEIRS = 2;
+    private volatile int wordsBy = NOTE;
+    int wordsBy() { return wordsBy; }
     /** Why it ended, when it did not end by the user's hand. */
     String failure() { return failure; }
     /** Whether it ended for a sign-in or key: missing, or turned down by the server. */
@@ -324,24 +328,24 @@ final class VoiceChat {
                 awaitingWords = true;
                 // The user began to speak: an answer still playing stops (the server stops making it).
                 Speaker out = speaker; if (out != null && out.isPlaying()) { stopped = playing; out.flush(); }
-                log.heard(e.item(), now); words = ""; state = State.HEARING; changed();
+                log.heard(e.item(), now); wordsBy = NOTE; words = ""; state = State.HEARING; changed();
             }
             case SPEECH_STOPPED -> { log.heard(e.item(), now); if (state == State.HEARING) { state = State.THINKING; changed(); } }
             case COMMITTED -> log.heard(e.item(), now);
-            case USER_PARTIAL -> { words = "full".equals(e.status()) ? e.text() : words + e.text(); changed(); }
-            case USER_TEXT -> { log.said(e.item(), e.text(), now); if (!e.text().isBlank()) { words = e.text(); heard = e.text(); } settle(); changed(); }
+            case USER_PARTIAL -> { words = "full".equals(e.status()) || wordsBy != MINE ? e.text() : words + e.text(); wordsBy = MINE; changed(); }
+            case USER_TEXT -> { log.said(e.item(), e.text(), now); if (!e.text().isBlank()) { words = e.text(); wordsBy = MINE; heard = e.text(); } settle(); changed(); }
             case ANSWER_STARTED -> answers.put(e.response(), new StringBuilder());
             case ANSWER_PARTIAL -> {
                 StringBuilder b = answers.computeIfAbsent(e.response(), k -> new StringBuilder()); b.append(e.text());
                 if (live && state != State.SPEAKING) state = State.SPEAKING;
-                if (!e.response().equals(stopped)) { words = b.toString(); changed(); }
+                if (!e.response().equals(stopped)) { words = b.toString(); wordsBy = THEIRS; changed(); }
             }
             case ANSWER_TEXT -> { if (!e.text().isBlank()) answers.put(e.response(), new StringBuilder(e.text())); }
             case DONE -> {
                 StringBuilder b = answers.remove(e.response());
                 boolean cut = e.response().equals(stopped) || "cancelled".equals(e.status()) || "incomplete".equals(e.status());
                 log.answered(e.response(), b == null ? "" : b.toString(), cut, now); settle();
-                if ("failed".equals(e.status()) && (b == null || b.length() == 0)) { words = "답을 만들지 못했어요 · 다시 말해 주세요"; changed(); }
+                if ("failed".equals(e.status()) && (b == null || b.length() == 0)) { wordsBy = NOTE; words = "답을 만들지 못했어요 · 다시 말해 주세요"; changed(); }
                 Speaker out = speaker;
                 if (state != State.SPEAKING) { state = State.LISTENING; changed(); }
                 else if (live) quiet();
@@ -351,14 +355,14 @@ final class VoiceChat {
                 if (RealtimeVoice.harmless(e)) return;
                 if (live && !ready) { liveFailed("서버 오류 · " + RealtimeVoice.masked(e.text())); return; }
                 if (!ready) { end(kind.label + " 음성 대화를 시작하지 못했어요: " + e.text()); return; }
-                words = e.text().isBlank() ? "음성 연결에 문제가 생겼어요" : e.text(); changed();
+                wordsBy = NOTE; words = e.text().isBlank() ? "음성 연결에 문제가 생겼어요" : e.text(); changed();
             }
             default -> {}
         }
     }
     /** A function the model called: run where the conversation belongs, its output sent back, then the model goes on. */
     private void call(String id, String name, String arguments) {
-        words = RealtimeVoice.SCREEN.equals(name) ? "화면을 보는 중…" : "하는 중: " + name; state = State.THINKING; changed();
+        wordsBy = NOTE; words = RealtimeVoice.SCREEN.equals(name) ? "화면을 보는 중…" : "하는 중: " + name; state = State.THINKING; changed();
         try {
             calls.execute(() -> {
                 String output;
@@ -388,7 +392,7 @@ final class VoiceChat {
             send(RealtimeVoice.respond().toString());
             return null;
         }
-        main.post(() -> { if (!ended) { words = "화면을 읽는 중…"; changed(); } });
+        main.post(() -> { if (!ended) { wordsBy = NOTE; words = "화면을 읽는 중…"; changed(); } });
         String asked = question == null || question.isBlank() ? heard : question;
         return VoiceScreen.told(shot, VoiceScreen.describe(store, shot, asked)).toString();
     }
@@ -433,7 +437,7 @@ final class VoiceChat {
     /** The session is set: the microphone opens and the answer's speaker is ready (GPT-Live's call has its own). */
     private void ready() {
         ready = true;
-        if (live) { state = State.LISTENING; words = ""; changed(); return; }
+        if (live) { state = State.LISTENING; wordsBy = NOTE; words = ""; changed(); return; }
         try {
             // As a call: the phone's echo cancelling takes the answer out of the microphone, so speaking over it works at an ordinary voice.
             if (route == null) { route = new CallRoute(context, main); route.begin(); }
@@ -445,7 +449,7 @@ final class VoiceChat {
             });
             mic = m;
         } catch (Exception error) { end(error.getMessage() == null ? "마이크를 열지 못했어요." : error.getMessage()); return; }
-        state = State.LISTENING; words = ""; changed();
+        state = State.LISTENING; wordsBy = NOTE; words = ""; changed();
     }
     /** Microphone thread: the user's voice goes up, except the answer's own echo while it plays. */
     private void hear(byte[] pcm) {
@@ -466,7 +470,7 @@ final class VoiceChat {
             // GPT-Live listens while it speaks and stops by itself; Realtime is told to stop.
             barge.reset(); open = true; stopped = playing; out.flush(); send(RealtimeVoice.cancel().toString());
             for (byte[] held : before) send(up(held));
-            main.post(() -> { if (!ended) { state = State.HEARING; words = ""; changed(); } });
+            main.post(() -> { if (!ended) { state = State.HEARING; wordsBy = NOTE; words = ""; changed(); } });
         }
         send(up(pcm));
     }

@@ -46,6 +46,8 @@ final class VoiceBar {
         title = ui.text("", SUBHEAD, 650, TEXT); title.setSingleLine(true); title.setEllipsize(TextUtils.TruncateAt.END);
         words = ui.text("", FOOTNOTE, 450, MUTED); words.setMaxLines(2); words.setEllipsize(TextUtils.TruncateAt.START);
         text.addView(title); text.addView(words);
+        // Words in another language: a tap shows them in Korean.
+        words.setOnClickListener(v -> { VoiceChat c = store.voiceChat; if (c != null && dev.jun.gyeot.core.CaptionLanguage.foreign(c.words())) translate(c.words(), c.wordsBy() == VoiceChat.MINE); });
         bar.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
         mute = ui.dial(R.drawable.ic_mic, "마이크 끄기", false, () -> { VoiceChat c = store.voiceChat; if (c != null) c.toggleMute(); });
         bar.addView(mute);
@@ -156,9 +158,28 @@ final class VoiceBar {
         title.setText(c.kind.label + " · " + c.speaking() + " · " + doing);
         title.setContentDescription(c.kind.spoken() + " " + c.speaking() + " · " + doing);
         String said = c.words();
+        // Whose words they are, at a glance: the user's in the accent after 나, the AI's in the text color, notes muted.
+        boolean spoken = !c.held() && !said.isBlank(); int by = spoken ? c.wordsBy() : VoiceChat.NOTE;
         words.setText(c.held() ? "화면이 말하는 동안 잠시 듣지 않아요" : said.isBlank() ? state == VoiceChat.State.CONNECTING ? "대화 기록과 기억을 이어서 연결해요"
-            : "말씀하시면 대답해요 · 대화는 " + c.target.label() + "에 남아요" : said);
+            : "말씀하시면 대답해요 · 대화는 " + c.target.label() + "에 남아요" : by == VoiceChat.MINE ? "나 · " + said : said);
+        words.setTextColor(by == VoiceChat.MINE ? ACCENT : by == VoiceChat.THEIRS ? TEXT : MUTED);
+        boolean foreign = spoken && by != VoiceChat.NOTE && dev.jun.gyeot.core.CaptionLanguage.foreign(said);
+        words.setClickable(foreign);
+        words.setContentDescription((by == VoiceChat.MINE ? "내 말: " : by == VoiceChat.THEIRS ? c.speaking() + "의 말: " : "") + words.getText() + (foreign ? ", 눌러서 한국어로 보기" : ""));
         mute.on(c.muted() ? R.drawable.ic_mic_off : R.drawable.ic_mic, c.muted() ? "마이크 켜기" : "마이크 끄기", c.muted());
+    }
+
+    /** The words in Korean, in a sheet: the original, then the translation once it comes (CaptionTranslator). */
+    private void translate(String said, boolean mine) {
+        Ui.Sheet sheet = ui.selectionSheet("한국어로 보기", mine ? "내가 한 말" : "AI가 한 말");
+        sheet.primary.setVisibility(View.GONE); tracker.accept(sheet);
+        TextView original = ui.text(said, BODY, 450, MUTED); original.setTextIsSelectable(true); original.setLineSpacing(ui.dp(3), 1);
+        TextView korean = ui.text("한국어로 옮기는 중…", BODY, 500, TEXT); korean.setTextIsSelectable(true); korean.setLineSpacing(ui.dp(3), 1);
+        korean.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        sheet.body.addView(original);
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, -2); gap.topMargin = ui.dp(12); sheet.body.addView(korean, gap);
+        CaptionTranslator.translate(store, said, done -> { if (sheet.isShowing()) korean.setText(done); }, why -> { if (sheet.isShowing()) { korean.setText(why); korean.setTextColor(MUTED); } });
+        sheet.show();
     }
 
     // ── settings ─────────────────────────────────────────────────────────

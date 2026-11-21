@@ -52,7 +52,7 @@ public final class MyTubeActivity extends Activity {
     private Ui ui; private MyTubeBook book; private MyTubePlayer player; private AppStore store;
     private MainNavigation navigation; private LinearLayout root, playerCard, list, chips; private GeckoView screen;
     private TextView nowTitle, nowLine, statusLine, header, about, when; private View feedActions;
-    private Ui.Dial previous, toggle, next, heart;
+    private Ui.Dial previous, toggle, next, heart; private Button qualityChip; private int videoHeight;
     private String feedId; private boolean refreshing, destroyed;
     private final AtomicReference<Runnable> cancel = new AtomicReference<>();
     private final Runnable playerChanged = () -> main.post(this::showPlayer);
@@ -113,7 +113,8 @@ public final class MyTubeActivity extends Activity {
         playerCard = ui.card(); playerCard.setVisibility(View.GONE);
         screen = new GeckoView(this);
         int width = getResources().getDisplayMetrics().widthPixels - ui.dp(64);
-        playerCard.addView(screen, new LinearLayout.LayoutParams(-1, Math.max(ui.dp(180), Math.min(ui.dp(420), width * 9 / 16))));
+        videoHeight = Math.max(ui.dp(180), Math.min(ui.dp(420), width * 9 / 16));
+        playerCard.addView(screen, new LinearLayout.LayoutParams(-1, videoHeight));
         nowTitle = ui.text("", 15, 650, TEXT); nowTitle.setMaxLines(2); nowTitle.setEllipsize(TextUtils.TruncateAt.END); nowTitle.setPadding(0, ui.dp(10), 0, 0);
         nowLine = ui.label("", 12, MUTED); nowLine.setMaxLines(2);
         playerCard.addView(nowTitle); playerCard.addView(nowLine);
@@ -126,6 +127,11 @@ public final class MyTubeActivity extends Activity {
         Ui.Dial end = ui.dial(R.drawable.ic_stop, "끝내기", true, () -> player.stop());
         for (View v : new View[]{previous, toggle, next, heart, skip, end}) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.leftMargin = ui.dp(4); p.rightMargin = ui.dp(4); controls.addView(v, p); }
         playerCard.addView(controls);
+        // The picture quality, as chosen and as it plays now.
+        qualityChip = withIcon(ui.chip("화질", this::chooseQuality), R.drawable.ic_tune);
+        LinearLayout qualityRow = ui.row(); qualityRow.setGravity(Gravity.CENTER); qualityRow.setPadding(0, ui.dp(8), 0, 0);
+        qualityRow.addView(qualityChip, new LinearLayout.LayoutParams(-2, -2));
+        playerCard.addView(qualityRow);
         content.addView(playerCard);
     }
     private void showPlayer() {
@@ -133,6 +139,9 @@ public final class MyTubeActivity extends Activity {
         MyTube.Video now = player.current();
         boolean signingIn = !player.active() && "유튜브 로그인".equals(player.status());
         playerCard.setVisibility(player.active() || signingIn ? View.VISIBLE : View.GONE);
+        // The sign-in page needs room to read and type; a video fills a 16:9 box.
+        int height = signingIn ? Math.max(videoHeight, getResources().getDisplayMetrics().heightPixels * 3 / 5) : videoHeight;
+        if (screen.getLayoutParams() != null && screen.getLayoutParams().height != height) { screen.getLayoutParams().height = height; screen.requestLayout(); }
         if (player.active() || signingIn) player.attach(screen);
         nowTitle.setText(now == null ? signingIn ? "유튜브 로그인 · 로그인한 뒤 ‘끝내기’를 누르면 목록으로 돌아와요" : "" : now.title());
         nowLine.setText(now == null ? "" : now.channel() + (player.status().isEmpty() ? "" : " · " + player.status()) + (now.reason().isEmpty() ? "" : "\n" + now.reason()));
@@ -140,6 +149,10 @@ public final class MyTubeActivity extends Activity {
         heart.on(player.liked() ? R.drawable.ic_heart_filled : R.drawable.ic_heart, player.liked() ? "좋아요 취소" : "좋아요", player.liked());
         previous.setEnabled(player.index() > 0);
         next.setEnabled(player.active());
+        String chosen = MyTube.QUALITY_LABELS[MyTube.qualityIndex(player.quality())], playingAt = player.qualityNow();
+        qualityChip.setText("화질 · " + chosen + (playingAt.isEmpty() || playingAt.equals(chosen) ? "" : " · 지금 " + playingAt));
+        qualityChip.setContentDescription("화질, " + chosen + (playingAt.isEmpty() ? "" : ", 지금 " + playingAt) + ", 눌러서 바꾸기");
+        qualityChip.setVisibility(player.active() ? View.VISIBLE : View.GONE);
         markPlaying();
     }
 
@@ -303,10 +316,22 @@ public final class MyTubeActivity extends Activity {
         content.addView(ui.sectionHeader("재생"));
         LinearLayout group = ui.group();
         ui.addRow(group, ui.listRow(R.drawable.ic_person, ACCENT, "유튜브 로그인", "AI 브라우저와 같은 로그인을 써요 · 프리미엄이면 광고 없이 재생돼요", ui.chevron(), () -> { player.signIn(); player.attach(screen); showPlayer(); }), true);
+        ui.addRow(group, ui.choiceRow("화질", "마이튜브 화질", "영상에 그 화질이 없으면 그보다 낮은 것 중 가장 좋은 화질로 틀어요", MyTube.QUALITY_LABELS,
+            MyTube.qualityIndex(player.quality()), i -> player.quality(MyTube.QUALITY_CODES[i])), true);
         ui.addRow(group, ui.switchRow("화면 꺼져도 계속 재생", "유튜브 프리미엄 회원용 · 음악 앱처럼 화면을 끄거나 다른 앱으로 가도 이어서 나와요", player.background(),
             value -> { store.settings.edit().putBoolean(MyTubePlayer.BACKGROUND, value).apply(); if (value && player.playing()) MyTubeService.start(this); if (!value) MyTubeService.stop(this); }), false);
         content.addView(group);
         content.addView(ui.footer("피드와 고른 목록, 좋아요는 이 휴대폰에만 저장돼요. 고르는 AI는 메인 대화의 AI예요. 재생은 유튜브 페이지 그대로라, 업로더가 막은 영상은 건너뛰어요."));
+    }
+
+    /** The quality sheet: the choices, and what this video has (or that it is chosen on the video itself). */
+    private void chooseQuality() {
+        List<String> has = player.levels();
+        String note = !player.qualitySettable() ? "이 영상은 앱에서 화질을 바꿀 수 없어요 · 영상 화면의 ⚙에서 바꿔 주세요"
+            : has.isEmpty() ? "영상에 그 화질이 없으면 그보다 낮은 것 중 가장 좋은 화질로 틀어요" : "이 영상: " + String.join(" · ", has);
+        Ui.Sheet sheet = ui.choices("화질", note, MyTube.QUALITY_LABELS, MyTube.qualityIndex(player.quality()), i -> player.quality(MyTube.QUALITY_CODES[i]));
+        dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet));
+        sheet.show();
     }
 
     // ── small things ─────────────────────────────────────────────────────────

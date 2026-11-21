@@ -180,6 +180,8 @@ public final class MainActivity extends Activity {
     /** What is on the home beside the call (the mode pills, the doors, recent work): out of the way while a call is on. */
     private final List<View> callAside = new ArrayList<>();
     private View liveActions; private String shownSaid = "";
+    /** Captions shown with their Korean translation (a tap on a foreign one), and why one could not be translated. */
+    private final java.util.Set<String> translatedTurns = new java.util.HashSet<>(); private final java.util.Map<String, String> untranslated = new java.util.HashMap<>();
     /** The call's conversation: chat bubbles in a list that scrolls inside the card, and the line for typing instead of speaking. */
     private ScrollView said; private LinearLayout saidList; private EditText sayInput; private Ui.Dial typeButton; private boolean typing;
     /** 카메라로 보며 대화: the running camera (null when off), its preview box in place of the orb, and the button that turns it on. */
@@ -594,17 +596,18 @@ public final class MainActivity extends Activity {
     /** Keeps the newest words in view: the conversation scrolled to its foot. */
     private void pinSaid() { if (said != null && saidList != null) said.scrollTo(0, Math.max(0, saidList.getHeight() + said.getPaddingTop() + said.getPaddingBottom() - said.getHeight())); }
     /**
-     * One turn of the call's conversation as a chat bubble: the user's on the right, filled with the
-     * accent under white words, everyone else's on the left on the card color, with the speaker's name over it when it is
-     * not the assistant's. The two fills are far apart on purpose: an earlier pale user bubble (Ui.BUBBLE_FILL) and the white
-     * one beside it both read as white on the phone. A notice
-     * (안내) is a small centered line, not a bubble. faint: words still being said or thought.
+     * One turn of the call's conversation as a chat bubble: the user's (나…, and 들린 말, the user's spoken words) on the
+     * right, filled with the accent under white words, everyone else's on the left on the card color, with the speaker's
+     * name over it when it is not the assistant's. The two fills are far apart on purpose: an earlier pale user bubble
+     * (Ui.BUBBLE_FILL) and the white one beside it both read as white on the phone. A notice
+     * (안내) is a small centered line, not a bubble. faint: words still being said or thought. Words mostly in another
+     * language show their Korean translation under the bubble on a tap (CaptionTranslator), and hide it on the next.
      */
     private View turn(String who, CharSequence text, boolean faint) {
         if ("안내".equals(who)) {
             TextView note = ui.text("", Ui.CAPTION, 450, MUTED); note.setText(text); note.setGravity(android.view.Gravity.CENTER); note.setPadding(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(4)); return note;
         }
-        boolean mine = who.startsWith("나");
+        boolean mine = who.startsWith("나") || AppStore.HEARD.equals(who);
         LinearLayout line = ui.column(); line.setGravity(mine ? android.view.Gravity.END : android.view.Gravity.START); line.setPadding(ui.dp(mine ? 40 : 0), ui.dp(3), ui.dp(mine ? 0 : 40), ui.dp(3));
         if (!mine && !Brand.NAME.equals(who)) { TextView name = ui.text(who, 11, 600, MUTED); name.setPadding(ui.dp(8), 0, 0, ui.dp(2)); line.addView(name, new LinearLayout.LayoutParams(-2, -2)); }
         TextView bubble = ui.text("", Ui.SUBHEAD, mine ? 500 : 400, mine ? ON_ACCENT : TEXT); bubble.setText(text); if (mine) bubble.setLinkTextColor(ON_ACCENT); bubble.setLineSpacing(ui.dp(2), 1); bubble.setPadding(ui.dp(12), ui.dp(7), ui.dp(12), ui.dp(8));
@@ -613,10 +616,30 @@ public final class MainActivity extends Activity {
         float round = ui.dp(17), tail = ui.dp(5); shape.setCornerRadii(mine ? new float[]{round, round, round, round, tail, tail, round, round} : new float[]{tail, tail, round, round, round, round, round, round});
         if (!mine) shape.setStroke(Math.max(1, ui.dp(1)), SEPARATOR);
         bubble.setBackground(shape); if (faint) bubble.setAlpha(0.62f);
-        String plain = text.toString(); bubble.setContentDescription(who + ": " + plain);
+        String plain = text.toString(); bubble.setContentDescription((mine ? "나" : who) + ": " + plain);
         bubble.setOnLongClickListener(v -> { copy(plain); return true; });
         line.addView(bubble, new LinearLayout.LayoutParams(-2, -2));
+        if (!faint && dev.jun.gyeot.core.CaptionLanguage.foreign(plain)) {
+            boolean open = translatedTurns.contains(plain);
+            bubble.setContentDescription(bubble.getContentDescription() + (open ? ", 눌러서 번역 닫기" : ", 눌러서 한국어로 보기"));
+            bubble.setOnClickListener(v -> toggleTranslation(plain));
+            if (open) {
+                String korean = CaptionTranslator.known(plain), why = untranslated.get(plain);
+                TextView under = ui.text(korean != null ? korean : why != null ? why : "한국어로 옮기는 중…", Ui.FOOTNOTE, 450, korean != null ? TEXT : MUTED);
+                under.setLineSpacing(ui.dp(2), 1); under.setPadding(ui.dp(12), ui.dp(4), ui.dp(12), 0); under.setTextIsSelectable(korean != null);
+                under.setContentDescription("한국어 번역: " + under.getText());
+                line.addView(under, new LinearLayout.LayoutParams(-2, -2));
+            }
+        }
         return line;
+    }
+    /** A foreign caption's translation: shown (translated once, then kept) or hidden again. */
+    private void toggleTranslation(String plain) {
+        if (translatedTurns.remove(plain)) { shownSaid = ""; refresh(); return; }
+        translatedTurns.add(plain); untranslated.remove(plain); shownSaid = ""; refresh();
+        if (CaptionTranslator.known(plain) != null) return;
+        CaptionTranslator.translate(store, plain, korean -> { if (!isDestroyed()) { shownSaid = ""; refresh(); } },
+            why -> { untranslated.put(plain, why); if (!isDestroyed()) { shownSaid = ""; refresh(); } });
     }
 
     // ── 비서 ─────────────────────────────────────────────────────────────────

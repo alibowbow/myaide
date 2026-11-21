@@ -1,0 +1,27 @@
+/* 마이튜브's player page: only the video, filling the app's player box. Inert on every other page: the app's player marks
+   its own watch pages with html.gyeot-mytube (content.js), nothing else does. */
+html.gyeot-mytube, html.gyeot-mytube body { overflow: hidden !important; background: #000 !important; }
+html.gyeot-mytube ytm-mobile-topbar-renderer,
+html.gyeot-mytube #header-bar,
+html.gyeot-mytube header.mobile-topbar-header,
+html.gyeot-mytube ytm-pivot-bar-renderer,
+html.gyeot-mytube ytm-mealbar-promo-renderer,
+html.gyeot-mytube .mealbar-promo-renderer { display: none !important; }
+html.gyeot-mytube #player-container-id,
+html.gyeot-mytube .player-container {
+  position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
+  width: 100vw !important; height: 100vh !important; min-height: 0 !important; max-height: none !important;
+  margin: 0 !important; padding: 0 !important; transform: none !important; z-index: 2147483646 !important; background: #000 !important;
+}
+html.gyeot-mytube #player,
+html.gyeot-mytube #player-control-container,
+html.gyeot-mytube #movie_player,
+html.gyeot-mytube .html5-video-player {
+  position: absolute !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important;
+  margin: 0 !important; padding: 0 !important;
+}
+html.gyeot-mytube .html5-video-container { width: 100% !important; height: 100% !important; }
+html.gyeot-mytube video.html5-main-video,
+html.gyeot-mytube video.video-stream {
+  width: 100% !important; height: 100% !important; top: 0 !important; left: 0 !important; object-fit: contain !important;
+}

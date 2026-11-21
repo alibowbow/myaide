@@ -360,31 +360,90 @@
     } else root.style.setProperty('zoom', String(baseZoom * percent / 100), 'important');
     refs = new Map(); revision++;
   }
-  // 마이튜브's player (only when the app asks, in its own player session): the page's video tells when it plays, pauses and
-  // ends (an ad's end is not the video's), and plays or pauses on the app's word.
-  let mytubeOn=false, mytubeVideo=null, mytubeWant='play';
-  function mytubeSay(connection, event) {
+  // 마이튜브's player (only when the app asks, in its own player session): the page shows only the video (mytube.css under
+  // html.gyeot-mytube), YouTube's own player is started (a video element alone can still be empty before its first play),
+  // the chosen picture quality is applied, and the page tells when it plays, pauses and ends (an ad's end is not the
+  // video's), or that it did not start, and why.
+  let mytubeOn=false, mytubeVideo=null, mytubeWant='play', mytubeQuality='auto', mytubeFor=null, mytubeStarted=false,
+    mytubeSince=0, mytubeStuck=false, mytubeShown='', mytubeQualityFor='', mytubeWhy='';
+  const MYTUBE_ORDER=['highres','hd2880','hd2160','hd1440','hd1080','hd720','large','medium','small','tiny'];
+  function mytubeSay(connection, event, more) {
     const v=mytubeVideo;
-    try { connection.postMessage({mytube:{event, url:location.href, time:v?v.currentTime||0:0, duration:v&&isFinite(v.duration)?v.duration:0, title:document.title}}); } catch(_) {}
+    try { connection.postMessage({mytube:{event, url:location.href, time:v?v.currentTime||0:0, duration:v&&isFinite(v.duration)?v.duration:0, title:document.title, ...(more||{})}}); } catch(_) {}
   }
   function mytubeAd() { return !!document.querySelector('.ad-showing, .ad-interrupting'); }
+  function mytubeId() {
+    try { const u=new URL(location.href); return u.searchParams.get('v') || (u.pathname.match(/^\/shorts\/([\w-]{6,})/)||[])[1] || ''; } catch(_) { return ''; }
+  }
+  // The page's own player (its functions live in the page, past the isolated world).
+  function mytubeApi() { const p=document.getElementById('movie_player'); if(!p) return null; try { return p.wrappedJSObject || p; } catch(_) { return p; } }
+  function mytubeCall(api, name, ...args) { try { return api && typeof api[name]==='function' ? api[name](...args) : undefined; } catch(_) { return undefined; } }
+  function mytubeLevels(api) { const l=mytubeCall(api,'getAvailableQualityLevels'); const out=[]; try { for (let i=0; l && i<l.length; i++) out.push(String(l[i])); } catch(_) {} return out; }
+  // The wished quality, or the best one under it this video has (최고: the best it has).
+  function mytubeLevel(levels, wish) {
+    const known=levels.filter(l=>MYTUBE_ORDER.includes(l)).sort((a,b)=>MYTUBE_ORDER.indexOf(a)-MYTUBE_ORDER.indexOf(b));
+    if (!known.length) return '';
+    if (wish==='max') return known[0];
+    const at=MYTUBE_ORDER.indexOf(wish); if (at<0) return '';
+    return known.find(l=>MYTUBE_ORDER.indexOf(l)>=at) || known[known.length-1];
+  }
+  function mytubeApplyQuality(connection) {
+    const api=mytubeApi(); if (!api) return;
+    const levels=mytubeLevels(api);
+    if (mytubeQuality==='auto') mytubeCall(api,'setPlaybackQualityRange','auto','auto');
+    else { const q=mytubeLevel(levels, mytubeQuality); if (q) { mytubeCall(api,'setPlaybackQualityRange',q,q); mytubeCall(api,'setPlaybackQuality',q); } }
+    mytubeQualityFor=mytubeFor; mytubeReport(connection);
+  }
+  function mytubeReport(connection) {
+    const api=mytubeApi(); if (!api) return;
+    const now=String(mytubeCall(api,'getPlaybackQuality')||''), levels=mytubeLevels(api), said=now+'|'+levels.join(',');
+    if (said!==mytubeShown) { mytubeShown=said; mytubeSay(connection,'quality',{quality:now, levels, settable:typeof api.setPlaybackQualityRange==='function'}); }
+  }
+  function mytubeStart(v) {
+    const api=mytubeApi();
+    if (api) {
+      if (mytubeCall(api,'isMuted')) mytubeCall(api,'unMute');
+      const state=mytubeCall(api,'getPlayerState');
+      if (state!==1 && state!==3) mytubeCall(api,'playVideo');
+    }
+    if (v && v.paused && !v.ended && v.readyState>0) { v.muted=false; const p=v.play(); if (p && p.catch) p.catch(e=>{ mytubeWhy=String((e&&e.name)||e); }); }
+  }
   function mytubeAttach(connection) {
+    const id=mytubeId();
+    if (id!==mytubeFor) { mytubeFor=id; mytubeStarted=false; mytubeStuck=false; mytubeShown=''; mytubeSince=Date.now(); mytubeWhy=''; }
+    // Only the video, filling the app's player: on a watch page (a sign-in page stays whole).
+    document.documentElement.classList.toggle('gyeot-mytube', !!id);
     const v=document.querySelector('video');
-    if (!v) return;
-    if (v!==mytubeVideo) {
+    if (v && v!==mytubeVideo) {
       mytubeVideo=v;
       v.addEventListener('ended',()=>{ if(!mytubeAd()) mytubeSay(connection,'ended'); });
-      v.addEventListener('playing',()=>mytubeSay(connection,'playing'));
-      v.addEventListener('pause',()=>{ if(!v.ended) mytubeSay(connection,'paused'); });
+      v.addEventListener('playing',()=>{
+        mytubeStarted=true;
+        if (!mytubeAd() && mytubeQualityFor!==mytubeFor) mytubeApplyQuality(connection);
+        mytubeSay(connection,'playing',{ad:mytubeAd()});
+      });
+      v.addEventListener('pause',()=>{ if(!v.ended) mytubeSay(connection,'paused',{ad:mytubeAd()}); });
       v.addEventListener('error',()=>mytubeSay(connection,'error'));
     }
-    if (mytubeWant==='play' && v.paused && !v.ended) { v.muted=false; v.play().catch(()=>{}); }
+    if (mytubeWant!=='play' || mytubeStarted) { if (mytubeStarted && !mytubeAd()) mytubeReport(connection); return; }
+    mytubeStart(v);
+    if (!mytubeStuck && Date.now()-mytubeSince>15000) {
+      mytubeStuck=true;
+      const api=mytubeApi();
+      mytubeSay(connection,'stuck',{page:location.hostname+location.pathname, player:!!api, state:api?mytubeCall(api,'getPlayerState'):null, video:!!v, ready:v?v.readyState:-1, why:mytubeWhy});
+    }
   }
-  function mytube(command, connection) {
-    if (command==='watch') { mytubeWant='play'; if(!mytubeOn){mytubeOn=true;setInterval(()=>mytubeAttach(connection),700);} mytubeAttach(connection); return; }
+  function mytube(message, connection) {
+    const command=typeof message==='string' ? message : message && message.command;
+    if (message && typeof message==='object' && typeof message.quality==='string') mytubeQuality=message.quality;
+    if (command==='watch') {
+      mytubeWant='play'; mytubeSince=Date.now(); mytubeStuck=false;
+      if(!mytubeOn){mytubeOn=true;setInterval(()=>mytubeAttach(connection),700);} mytubeAttach(connection); return;
+    }
     const v=document.querySelector('video');
-    if (command==='play') { mytubeWant='play'; if(v){v.muted=false;v.play().catch(()=>{});} }
-    else if (command==='pause') { mytubeWant='pause'; if(v) v.pause(); }
+    if (command==='play') { mytubeWant='play'; mytubeStarted=false; mytubeSince=Date.now(); mytubeStuck=false; mytubeStart(v); }
+    else if (command==='pause') { mytubeWant='pause'; mytubeCall(mytubeApi(),'pauseVideo'); if(v) v.pause(); }
+    else if (command==='quality') mytubeApplyQuality(connection);
   }
   function connect() {
   const connection=browser.runtime.connectNative('gyeot_browser'); port=connection;
