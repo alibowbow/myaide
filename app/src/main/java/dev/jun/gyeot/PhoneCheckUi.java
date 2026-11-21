@@ -36,10 +36,18 @@ final class PhoneCheckUi {
     static Ui.Sheet show(Activity activity, Runnable files, Runnable done) {
         Ui ui = new Ui(activity); Handler main = new Handler(Looper.getMainLooper());
         Ui.Sheet sheet = ui.selectionSheet("휴대폰 검사", "설정 · 설치된 앱 · 설치 파일의 위험 신호");
+        SecurityControls.style(ui, sheet.primary, true);
+        sheet.footer.removeView(sheet.primary);
+        Button ask = SecurityControls.button(ui, "AI에게 물어보기", false, () -> {});
+        ask.setContentDescription("AI에게 물어보기: 검사 결과를 메인 대화 입력칸에 넣어요. 보내기 전에는 아무것도 전송되지 않아요.");
+        sheet.footer.setGravity(Gravity.END);
+        sheet.footer.setPadding(ui.dp(16), 0, ui.dp(16), ui.dp(8));
+        sheet.footer.addView(SecurityControls.bar(ui, sheet.primary, ask));
         AtomicBoolean cancelled = new AtomicBoolean(); boolean[] busy = {false};
         Runnable[] check = new Runnable[1];
         check[0] = () -> {
             if (busy[0]) return; busy[0] = true;
+            ask.setVisibility(View.GONE);
             sheet.body.removeAllViews(); sheet.primary.setEnabled(false); sheet.primary.setText("검사하는 중…");
             TextView working = ui.text("휴대폰을 살펴보고 있어요…", CALLOUT, 450, MUTED); working.setGravity(Gravity.CENTER); working.setPadding(0, ui.dp(28), 0, ui.dp(28));
             working.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); sheet.body.addView(working);
@@ -52,7 +60,7 @@ final class PhoneCheckUi {
                     sheet.primary.setEnabled(true); sheet.primary.setText("다시 검사");
                     sheet.body.removeAllViews();
                     if (found == null) { sheet.body.addView(ui.banner("검사하지 못했어요." + (why == null ? "" : " " + why), ERROR)); return; }
-                    fill(activity, ui, sheet, found.findings(), files);
+                    fill(activity, ui, sheet, found.findings(), files, ask);
                 });
             });
         };
@@ -62,7 +70,7 @@ final class PhoneCheckUi {
         return sheet;
     }
 
-    private static void fill(Activity activity, Ui ui, Ui.Sheet sheet, List<PhoneRisk.Finding> findings, Runnable files) {
+    private static void fill(Activity activity, Ui ui, Ui.Sheet sheet, List<PhoneRisk.Finding> findings, Runnable files, Button ask) {
         int[] counts = PhoneRisk.counts(findings);
         TextView verdict = ui.text(PhoneRisk.summary(findings), TITLE2, 720, counts[0] > 0 ? ERROR : counts[1] > 0 ? WARNING : SUCCESS);
         verdict.setAccessibilityHeading(true); verdict.setPadding(ui.dp(4), 0, ui.dp(4), ui.dp(4)); sheet.body.addView(verdict);
@@ -83,15 +91,20 @@ final class PhoneCheckUi {
         TextView scope = ui.footer(PhoneRisk.SCOPE); LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2); sp.topMargin = ui.dp(12); sheet.body.addView(scope, sp);
         if (counts[0] + counts[1] > 0) {
             // The findings in words, for the user's own AI to look over: put in the main chat's message box, sent only if the user sends.
-            Button ask = ui.button("AI에게 물어보기", false, () -> { sheet.dismiss(); ((GyeotApp) activity.getApplication()).store().mainDraft = report(findings); MainNavigation.open(activity, "chat"); });
-            ask.setContentDescription("AI에게 물어보기: 검사 결과를 메인 대화 입력칸에 넣어요. 보내기 전에는 아무것도 전송되지 않아요.");
-            LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1, -2); ap.topMargin = ui.dp(10); sheet.body.addView(ask, ap);
+            ask.setVisibility(View.VISIBLE);
+            ask.setOnClickListener(v -> {
+                sheet.dismiss();
+                ((GyeotApp) activity.getApplication()).store().mainDraft = report(findings);
+                MainNavigation.open(activity, "chat");
+            });
         }
     }
     private static View item(Activity activity, Ui ui, Ui.Sheet sheet, PhoneRisk.Finding finding, Runnable files) {
         boolean danger = finding.level() == PhoneRisk.Level.DANGER, caution = finding.level() == PhoneRisk.Level.CAUTION;
         int tint = danger ? ERROR : caution ? WARNING : MUTED; String tag = danger ? "위험" : caution ? "주의" : "참고";
-        LinearLayout card = ui.column(); card.setBackground(ui.shape(FILL, R_BUTTON)); card.setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(12));
+        LinearLayout card = ui.column(); card.setPadding(ui.dp(4), 0, ui.dp(4), ui.dp(6));
+        View divider = new View(activity); divider.setBackgroundColor(SEPARATOR);
+        LinearLayout.LayoutParams rule = new LinearLayout.LayoutParams(-1, ui.dp(1)); rule.bottomMargin = ui.dp(8); card.addView(divider, rule);
         TextView label = ui.text(tag, CAPTION, 720, tint); card.addView(label);
         TextView title = ui.text(finding.title(), CALLOUT, 650, TEXT); title.setPadding(0, ui.dp(3), 0, 0); card.addView(title);
         if (!finding.detail().isEmpty()) { TextView detail = ui.text(finding.detail(), FOOTNOTE, 450, MUTED); detail.setPadding(0, ui.dp(4), 0, 0); card.addView(detail); }
@@ -99,11 +112,9 @@ final class PhoneCheckUi {
         String action = finding.action();
         if (!action.isEmpty()) {
             String name = action.startsWith("app:") ? "앱 정보 열기" : action.equals("files") ? "파일 탐색기 열기" : "설정 열기";
-            Button open = ui.chip(name, () -> act(activity, sheet, action, files)); open.setContentDescription(name + ": " + finding.title());
-            open.setBackground(ui.capsule(CARD)); // on the card's own fill a chip's usual fill would not show
-            LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-2, -2); bp.topMargin = ui.dp(8); card.addView(open, bp);
+            Button open = SecurityControls.button(ui, name, false, () -> act(activity, sheet, action, files)); open.setContentDescription(name + ": " + finding.title());
+            card.addView(SecurityControls.bar(ui, open));
         }
-        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, -2); cp.bottomMargin = ui.dp(8); card.setLayoutParams(cp);
         return card;
     }
     /** Opens the place to act: a settings page (all settings when that page is not on this phone), an app's info page, the explorer. */
