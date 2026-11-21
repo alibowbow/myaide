@@ -66,7 +66,8 @@ final class OpenAiAccount {
     private volatile String modelsError = "";
     private long modelsAttemptAt;
     private boolean modelsRefreshAgain;
-    private static final long MODELS_TTL_MS = 10 * 60_000L, MODELS_RETRY_MS = 60_000L;
+    /** The account's model list is read again once a day (ModelWatch.DAY); 목록 새로고침 reads it at once. */
+    private static final long MODELS_TTL_MS = dev.jun.gyeot.core.ModelWatch.DAY, MODELS_RETRY_MS = 60_000L;
 
     OpenAiAccount(Context context, SecretStore secrets, SharedPreferences settings, Runnable changed) {
         this.context = context.getApplicationContext(); this.secrets = secrets; this.settings = settings; this.changed = changed;

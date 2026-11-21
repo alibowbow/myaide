@@ -46,7 +46,7 @@ final class ClaudeAccount {
         for (int i = 0; i < saved.length(); i++) { JSONObject item = saved.optJSONObject(i); if (item != null && !dev.jun.gyeot.core.ModelIds.retired(dev.jun.gyeot.core.WorkBook.CLAUDE, item.optString("id"))) result.put(item); }
         return result;
     }
-    static final long MODELS_FRESH_MS = 6L * 60 * 60 * 1000, MODELS_RETRY_MS = 10L * 60 * 1000;
+    static final long MODELS_FRESH_MS = dev.jun.gyeot.core.ModelWatch.DAY, MODELS_RETRY_MS = 10L * 60 * 1000;
     /** When the last background read of the catalog started (memory only), so a failing one is not repeated on every draw. */
     private volatile long modelsTried;
     private void refreshIfStale() {

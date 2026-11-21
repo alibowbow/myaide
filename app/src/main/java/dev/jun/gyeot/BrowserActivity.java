@@ -208,9 +208,10 @@ public final class BrowserActivity extends Activity {
         resultBox.addView(resultText);
         // Under an answer: copy, share and run again, with how many steps and how long it took.
         resultActions = ui.row(); resultActions.setPadding(0, ui.dp(4), 0, 0); resultActions.setVisibility(View.GONE);
-        resultActions.addView(ui.ghost("복사", () -> copyText("브라우저 작업 결과", engine.status)));
-        resultActions.addView(ui.ghost("공유", () -> shareText(engine.status, "브라우저 작업 결과")));
-        resultActions.addView(ui.ghost("다시", this::again));
+        // Small quiet icons, as under an answer in the main chat and 작업창: copy, share, run again.
+        resultActions.addView(ui.quietIcon(R.drawable.ic_copy, "복사", () -> copyText("브라우저 작업 결과", engine.status)), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
+        resultActions.addView(ui.quietIcon(R.drawable.ic_share, "공유", () -> shareText(engine.status, "브라우저 작업 결과")), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
+        resultActions.addView(ui.quietIcon(R.drawable.ic_refresh, "다시", this::again), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
         statsText = ui.text("", 12, 450, MUTED); statsText.setGravity(Gravity.END | Gravity.CENTER_VERTICAL); statsText.setMaxLines(1);
         resultActions.addView(statsText, new LinearLayout.LayoutParams(0, -2, 1));
         resultBox.addView(resultActions);
@@ -226,7 +227,8 @@ public final class BrowserActivity extends Activity {
         request = ui.input("이 페이지에서 할 일", 2, 8000); request.setTextSize(15.5f); request.setMinLines(1); request.setMinimumHeight(0); request.setMinHeight(0); request.setMaxLines(wide ? 6 : 4); request.setBackgroundColor(android.graphics.Color.TRANSPARENT); request.setContentDescription("브라우저 AI에게 지시할 내용");
         request.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES); request.setPadding(ui.dp(6), ui.dp(12), ui.dp(6), ui.dp(12)); request.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         compose.addView(request, new LinearLayout.LayoutParams(0, -2, 1));
-        sendButton = ui.iconButton(R.drawable.ic_send, ACCENT, ON_ACCENT, "지시 실행", () -> { if (offersVoice()) startVoice(); else ask(); }); compose.addView(sendButton, square());
+        // The round send/voice button as in the other chats: a smaller disc inside the same 48dp target.
+        sendButton = ui.sendButton("지시 실행", () -> { if (offersVoice()) startVoice(); else ask(); }); compose.addView(sendButton, square());
         sendButton.setOnLongClickListener(v -> { if (!offersVoice()) return false; voice.settings(""); return true; });
         request.addTextChangedListener(new android.text.TextWatcher() {
             @Override public void beforeTextChanged(CharSequence t, int a, int b, int c) {}

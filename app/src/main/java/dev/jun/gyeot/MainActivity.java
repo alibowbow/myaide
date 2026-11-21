@@ -2684,19 +2684,19 @@ public final class MainActivity extends Activity {
         LinearLayout outer = ui.column();
         LinearLayout box = ui.column();
         android.graphics.drawable.GradientDrawable capsule = ui.glass(24, false);
-        box.setBackground(capsule); ui.lift(box, 4); box.setPadding(ui.dp(2), ui.dp(2), ui.dp(4), ui.dp(2));
+        box.setBackground(capsule); ui.lift(box, 4); box.setPadding(ui.dp(2), 0, ui.dp(2), 0);
         composerEngines = ui.row();
         android.widget.HorizontalScrollView files = new android.widget.HorizontalScrollView(this); files.setHorizontalScrollBarEnabled(false);
         composerFiles = ui.row(); composerFiles.setPadding(ui.dp(6), ui.dp(4), ui.dp(6), 0); files.addView(composerFiles);
         composerFilesRow = files; box.addView(files, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout bar = ui.row(); composerBar = bar; bar.setGravity(android.view.Gravity.BOTTOM);
-        bar.addView(ui.bareIcon(R.drawable.ic_add, TEXT, "사진 첨부, 이미지·동영상 생성", this::composerOptions), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
+        bar.addView(ui.bareIcon(R.drawable.ic_add, TEXT, "사진 첨부, 이미지·동영상 생성", this::composerOptions), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
         composerInput = new EditText(this); composerInput.setBackground(null); composerInput.setTextColor(TEXT); composerInput.setHintTextColor(MUTED); composerInput.setTextSize(16);
         composerInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         composerInput.setMaxLines(6); composerInput.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(WorkBook.TEXT_LIMIT)});
-        composerInput.setPadding(ui.dp(2), ui.dp(11), ui.dp(6), ui.dp(11)); composerInput.setMinimumHeight(ui.dp(44)); composerInput.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.START);
+        composerInput.setPadding(ui.dp(2), ui.dp(12), ui.dp(6), ui.dp(12)); composerInput.setMinimumHeight(ui.dp(48)); composerInput.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.START);
         bar.addView(composerInput, new LinearLayout.LayoutParams(0, -2, 1));
-        bar.addView(ui.bareIcon(R.drawable.ic_mic, TEXT, "Gemini 음성 입력 · 초안에만 넣기", this::speakInComposer), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
+        bar.addView(ui.bareIcon(R.drawable.ic_mic, TEXT, "Gemini 음성 입력 · 초안에만 넣기", this::speakInComposer), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
         composerSend = ui.sendButton("보내기", this::composerButton);
         composerSend.setOnLongClickListener(v -> { if (!composerOffersVoice() || workVoice == null) return false; workVoice.settings(""); return true; });
         composerInput.addTextChangedListener(new TextWatcher() {
@@ -2708,8 +2708,7 @@ public final class MainActivity extends Activity {
                 updateComposer();
             }
         });
-        LinearLayout.LayoutParams sendParams = new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)); sendParams.setMargins(ui.dp(2), ui.dp(2), 0, ui.dp(2));
-        bar.addView(composerSend, sendParams);
+        bar.addView(composerSend, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
         box.addView(bar, new LinearLayout.LayoutParams(-1, -2));
         outer.addView(box, new LinearLayout.LayoutParams(-1, -2));
         // Under the field, small and quiet: the repository this 작업창 works in (while GitHub is connected, refreshRepo) and
