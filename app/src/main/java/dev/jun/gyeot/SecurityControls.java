@@ -37,7 +37,7 @@ final class SecurityControls {
         button.setBackground(new InsetDrawable(fill, 0, ui.dp(7), 0, ui.dp(7)));
         button.setTextColor(new ColorStateList(new int[][] {disabled, {}},
                 new int[] {Ui.MUTED, primary ? Ui.ON_ACCENT : Ui.TEXT}));
-        button.setPadding(ui.dp(10), ui.dp(8), ui.dp(10), ui.dp(8));
+        button.setPadding(ui.dp(10), ui.dp(6), ui.dp(10), ui.dp(6));
     }
 
     /** Equal columns use the widest label, up to the space offered by this window. */

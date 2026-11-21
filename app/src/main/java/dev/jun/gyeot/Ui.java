@@ -180,16 +180,38 @@ final class Ui {
     /** A capsule drawn 40dp tall inside a 48dp touch target, so rows of them stay light without shrinking the target. */
     android.graphics.drawable.Drawable capsule(int color) { return new android.graphics.drawable.InsetDrawable(shape(color, PILL), 0, dp(4), 0, dp(4)); }
     /** A compact capsule for secondary actions on cards. */
+    /** An action chip: a slim 34dp capsule in 13.5sp, inside a 48dp touch target (the rest is transparent). */
     Button chip(String value, Runnable action) {
-        Button chip = new Button(context); chip.setText(value); chip.setAllCaps(false); chip.setTextSize(SUBHEAD); chip.setTypeface(weight(600)); chip.setTextColor(TEXT);
-        chip.setBackground(capsule(FILL)); chip.setStateListAnimator(null); chip.setElevation(0);
-        chip.setPadding(dp(16), 0, dp(16), 0); chip.setMinHeight(dp(48)); chip.setMinimumHeight(dp(48)); chip.setMinWidth(0); chip.setMinimumWidth(0);
+        Button chip = new Button(context); chip.setText(value); chip.setAllCaps(false); chip.setTextSize(13.5f); chip.setTypeface(weight(600)); chip.setTextColor(TEXT);
+        chip.setBackground(new android.graphics.drawable.InsetDrawable(shape(FILL, PILL), 0, dp(7), 0, dp(7))); chip.setStateListAnimator(null); chip.setElevation(0);
+        chip.setPadding(dp(14), 0, dp(14), 0); chip.setMinHeight(dp(48)); chip.setMinimumHeight(dp(48)); chip.setMinWidth(0); chip.setMinimumWidth(0);
         chip.setOnClickListener(v -> action.run()); pressable(chip, false); return chip;
     }
     /** A chip for a slim toolbar row: the same capsule, lower (36dp) and in smaller type. */
     Button smallChip(String value, Runnable action) {
-        Button chip = chip(value, action); chip.setTextSize(FOOTNOTE); chip.setPadding(dp(12), 0, dp(12), 0);
+        Button chip = chip(value, action); chip.setTextSize(FOOTNOTE); chip.setPadding(dp(12), 0, dp(12), 0); chip.setBackground(capsule(FILL));
         chip.setMinHeight(dp(36)); chip.setMinimumHeight(dp(36)); chip.setHeight(dp(36)); return chip;
+    }
+    /**
+     * A compact action pill (34dp, 13sp) with an optional leading icon: the soft fill, or the accent's soft wash for the one
+     * action a notice leads to. For the actions under a notice, grouped on one line with pills().
+     */
+    TextView pill(String value, int icon, boolean primary, Runnable action) {
+        int ink = primary ? ACCENT : TEXT;
+        TextView view = text(value, 13, 600, ink); view.setGravity(Gravity.CENTER); view.setSingleLine(true);
+        view.setBackground(shape(primary ? ACCENT_SOFT : FILL, PILL)); view.setPadding(dp(icon == 0 ? 14 : 11), 0, dp(14), 0);
+        view.setMinHeight(dp(34)); view.setMinimumHeight(dp(34)); view.setHeight(dp(34)); view.setIncludeFontPadding(false);
+        if (icon != 0) {
+            android.graphics.drawable.Drawable glyph = context.getDrawable(icon).mutate(); glyph.setTint(ink); glyph.setBounds(0, 0, dp(15), dp(15));
+            view.setCompoundDrawablesRelative(glyph, null, null, null); view.setCompoundDrawablePadding(dp(5));
+        }
+        view.setContentDescription(value); view.setOnClickListener(v -> action.run()); pressable(view, true); return view;
+    }
+    /** Pills side by side, 6dp apart, wrapping on a narrow screen; nulls are left out. */
+    ViewGroup pills(View... views) {
+        Flow flow = new Flow(context, dp(6), dp(6)); flow.setPadding(0, dp(8), 0, 0);
+        for (View view : views) if (view != null) flow.addView(view, new ViewGroup.LayoutParams(-2, -2));
+        return flow;
     }
     /** A quiet text button for the actions under an answer: muted, no fill, dims when pressed. */
     TextView ghost(String value, Runnable action) {

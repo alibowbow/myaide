@@ -19,6 +19,8 @@ public final class ClaudeProtocol {
         FILES = "https://" + HOST + "/v1/files/", VERSION = "2026-10-21";
     /** fallbacks:"default" is gated by the first header; the model list is read with the second, which publishes allowed_fallback_models. */
     public static final String FALLBACK_BETA = "server-side-fallback-2026-07-01", FALLBACK_LIST_BETA = "server-side-fallback-2026-06-01";
+    /** Context editing: the API clears old tool results itself once a long run grows large (contextEdits). */
+    public static final String CONTEXT_BETA = "context-management-2025-06-27";
     /** Server tools, newest first: dynamic-filtering web tools with the code runtime they pair with, then the basic versions older models take. */
     private static final String[][] TOOLS = {{"web_search_20260209", "web_fetch_20260209", "code_execution_20260521"}, {"web_search_20250305", "web_fetch_20250910", "code_execution_20250825"}};
     public static final int TOOL_LEVELS = TOOLS.length;
@@ -166,9 +168,11 @@ public final class ClaudeProtocol {
             JSONObject thinking = capabilities == null ? null : capabilities.optJSONObject("thinking"), types = thinking == null ? null : thinking.optJSONObject("types");
             JSONObject adaptive = types == null ? null : types.optJSONObject("adaptive");
             JSONArray fallbacks = model.optJSONArray("allowed_fallback_models");
+            JSONObject management = capabilities == null ? null : capabilities.optJSONObject("context_management"), clear = management == null ? null : management.optJSONObject("clear_tool_uses_20250919");
             found.add(obj("id", id, "name", model.optString("display_name", id).isBlank() ? id : model.optString("display_name", id), "created", model.optString("created_at"),
                 "maxTokens", Math.max(0, model.optInt("max_tokens", 0)), "adaptive", adaptive != null && adaptive.optBoolean("supported"),
-                "fallback", fallbacks != null && fallbacks.length() > 0, "supported_reasoning_efforts", levels));
+                "fallback", fallbacks != null && fallbacks.length() > 0, "supported_reasoning_efforts", levels,
+                "contextTokens", Math.max(0, model.optInt("max_input_tokens", 0)), "clearsToolUses", clear != null && clear.optBoolean("supported")));
         }
         // Newest first by release date (ISO timestamps sort as text); the API's own order breaks ties.
         found.sort((a, b) -> b.optString("created").compareTo(a.optString("created")));
@@ -184,6 +188,17 @@ public final class ClaudeProtocol {
     public static JSONObject find(JSONArray models, String id) {
         for (int i = 0; models != null && i < models.length(); i++) if (models.optJSONObject(i).optString("id").equals(id)) return models.optJSONObject(i);
         return null;
+    }
+    /**
+     * Old tool results cleared by the API once the request passes 60% of the model's context (its own placeholder stands in
+     * for each), the newest six kept and at least a tenth of the window freed each time, so a long run keeps going instead
+     * of stopping at a size. Null for a model whose catalog does not say it supports this.
+     */
+    public static JSONObject contextEdits(JSONObject info) {
+        if (info == null || !info.optBoolean("clearsToolUses")) return null;
+        int window = info.optInt("contextTokens", 0) > 0 ? info.optInt("contextTokens") : 200_000;
+        return obj("edits", arr(obj("type", "clear_tool_uses_20250919", "trigger", obj("type", "input_tokens", "value", Math.max(50_000, window / 10 * 6)),
+            "keep", obj("type", "tool_uses", "value", 6), "clear_at_least", obj("type", "input_tokens", "value", Math.max(20_000, window / 10)))));
     }
     public static List<String> efforts(JSONObject info) {
         List<String> levels = new ArrayList<>(); JSONArray values = info == null ? null : info.optJSONArray("supported_reasoning_efforts");
@@ -231,6 +246,8 @@ public final class ClaudeProtocol {
         else if (lower.contains("credit balance") || lower.contains("billing")) hint = "Claude API 크레딧이 부족해요. Anthropic Console → Billing에서 충전해 주세요.";
         else if (status == 403 || "permission_error".equals(type)) hint = "이 API 키로는 이 모델이나 기능을 쓸 수 없어요.";
         else if (status == 404 || "not_found_error".equals(type)) hint = "선택한 Claude 모델을 찾지 못했어요. 설정 → Claude에서 모델 새로고침 후 다시 골라 주세요.";
+        else if (lower.contains("prompt is too long") || lower.contains("context window") || lower.contains("too many tokens"))
+            hint = "작업 기록이 Claude가 한 번에 읽을 수 있는 크기를 넘었어요. 결과를 확인한 뒤 남은 작업을 새 지시로 이어 주세요.";
         else if (status == 413 || "request_too_large".equals(type)) hint = "보낼 내용이 너무 커요. 줄여서 다시 보내 주세요.";
         else if (status == 429 || "rate_limit_error".equals(type)) hint = "Claude 사용 한도에 걸렸어요. 잠시 후 다시 시도해 주세요.";
         else if (status == 529 || "overloaded_error".equals(type)) hint = "Claude가 지금 붐벼요. 잠시 후 다시 시도해 주세요.";
