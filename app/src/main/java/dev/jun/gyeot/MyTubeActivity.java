@@ -278,7 +278,7 @@ public final class MyTubeActivity extends Activity {
         work.execute(() -> {
             List<MyTube.Video> got; String why = null;
             try { got = linked.isEmpty() ? MyTubeClient.search(w, cancel) : List.of(MyTubeClient.video(linked, cancel)); }
-            catch (Exception e) { got = List.of(); why = e.getMessage() == null ? "찾지 못했어요." : e.getMessage(); }
+            catch (Exception e) { got = List.of(); why = friendly(e, "찾지 못했어요."); }
             List<MyTube.Video> result = got; String failure = why;
             main.post(() -> {
                 if (destroyed) return;
@@ -316,6 +316,13 @@ public final class MyTubeActivity extends Activity {
             String told = said;
             main.post(() -> { if (destroyed) return; status(""); toast(told); render(); });
         });
+    }
+    /** The app's own words for a failure; a network error's ("Connection refused", a timeout) becomes a Korean one. */
+    static String friendly(Exception e, String fallback) {
+        String said = e.getMessage();
+        if (said != null && said.codePoints().anyMatch(c -> Character.UnicodeScript.of(c) == Character.UnicodeScript.HANGUL)) return said;
+        if (e instanceof java.io.IOException) return "유튜브에 연결하지 못했어요. 인터넷 연결을 확인하고 다시 해 주세요.";
+        return fallback;
     }
     private void closeSearch() { searched = null; found = List.of(); searchBox.setText(""); status(""); render(); }
     /**
@@ -373,7 +380,7 @@ public final class MyTubeActivity extends Activity {
             String failure = null;
             try { MyTubeClient.refresh(this, store, f, step -> main.post(() -> status(step)), cancel); }
             catch (java.util.concurrent.CancellationException stopped) { failure = ""; }
-            catch (Exception e) { failure = e.getMessage() == null ? "고르지 못했어요." : e.getMessage(); }
+            catch (Exception e) { failure = friendly(e, "고르지 못했어요."); }
             String why = failure;
             main.post(() -> {
                 if (destroyed) return;
