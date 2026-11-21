@@ -266,6 +266,8 @@ final class BrowserEngine {
     private boolean rendering(Tab tab) { Lane l = tabLanes.get(tab); return l != null && l.onCancel != null; }
     boolean anyRunning() { return lanes.values().stream().anyMatch(BrowserEngine::taskRunning); }
     boolean running() { Lane l = selected(); return l != null && l.onCancel != null; }
+    /** An AI task works in this tab now (its tab shows the AI mark). */
+    boolean aiWorking(Tab tab) { return rendering(tab); }
     boolean running(long lease) { Lane l = lane(lease); return valid(lease) && l.onCancel != null; }
     Tab tabForLease(long lease) { Lane l = lane(lease); return valid(lease) ? l.owner : null; }
     Tab taskTab(long lease) { return tabForLease(lease); }

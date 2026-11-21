@@ -56,10 +56,14 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private static final LruCache<String, Bitmap> FRAMES = new LruCache<>(80);
     private Ui ui; private MyTubeBook book; private MyTubePlayer player; private AppStore store;
     private MainNavigation navigation; private LinearLayout root, playerCard, list, chips; private GeckoView screen;
-    private TextView nowTitle, nowLine, statusLine, header, about, when; private View feedActions;
+    private TextView nowTitle, nowLine, header, about, when; private ShimmerText statusLine; private View feedActions;
+    /** The screen's two parts: the player (pinned on top of a phone, on the left of an unfolded or wide screen) and the scrolling list. */
+    private LinearLayout body, playerPane; private ScrollView scroll, playerScroll; private boolean wide;
     private Ui.Dial previous, toggle, next, heart; private Button qualityChip, captureChip, summaryChip, saveChip; private int videoHeight;
     /** 직접 검색: the words searched (null when the feeds show), what YouTube found, and the box itself. */
-    private String searched; private List<MyTube.Video> found = List.of(); private EditText searchBox; private View searchActions;
+    private String searched; private List<MyTube.Video> found = List.of(); private EditText searchBox; private View searchActions; private Button searchPlayAll;
+    /** A search on its way (its results show in place, with the line that it is looking); the newest search wins. */
+    private boolean searching; private int searchTicket;
     /** The channels the words name (shown above the videos found); a channel opened shows its newest videos. */
     private List<MyTube.Channel> foundChannels = List.of();
     /** 라이브 채널: saved channels, one tap each to their broadcast on air now. */
@@ -77,10 +81,14 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         ui = new Ui(this); store = ((GyeotApp) getApplication()).store(); book = MyTubeClient.book(this); player = MyTubePlayer.get(this);
         feedId = state != null ? state.getString("feed") : store.settings.getString("mytubeFeed", null);
         root = ui.column(); root.setBackgroundColor(BG);
-        ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true);
+        // The player stays in sight while the list scrolls: pinned above it on a phone, beside it on a wide screen.
+        body = new LinearLayout(this);
+        playerPane = ui.column(); playerScroll = new ScrollView(this); playerScroll.addView(playerPane); playerScroll.setVisibility(View.GONE);
+        scroll = new ScrollView(this); scroll.setFillViewport(true);
         LinearLayout content = ui.column(); content.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(24));
         scroll.addView(content);
-        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        body.addView(playerScroll); body.addView(scroll);
+        root.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
         root.post(() -> {
             // Under the page: 음성 대화's bar while it talks, else the composer.
             LinearLayout.LayoutParams barAt = new LinearLayout.LayoutParams(-1, -2); barAt.setMargins(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(6));
@@ -106,7 +114,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         // 마이튜브 AI: say what to watch or do (typed below, or spoken with 음성 대화).
         chat = new MyTubeChat(this, ui, store, book, work, main, this);
         LinearLayout.LayoutParams chatGap = new LinearLayout.LayoutParams(-1, -2); chatGap.bottomMargin = ui.dp(12); content.addView(chat.card, chatGap);
-        buildPlayer(content);
+        buildPlayer(playerPane);
         chips = ui.row(); HorizontalScrollView chipScroll = new HorizontalScrollView(this); chipScroll.setHorizontalScrollBarEnabled(false); chipScroll.addView(chips);
         LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); chipGap.topMargin = ui.dp(14); content.addView(chipScroll, chipGap);
         header = ui.title("", 20); header.setPadding(0, ui.dp(16), 0, 0); content.addView(header);
@@ -114,13 +122,15 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         when = ui.label("", 12, MUTED); when.setPadding(0, ui.dp(2), 0, 0); content.addView(when);
         feedActions = ui.actions(withIcon(ui.chip("새로 고르기", this::refresh), R.drawable.ic_refresh), withIcon(ui.chip("모두 재생", () -> playFrom(0)), R.drawable.ic_play), ui.chip("피드 편집", () -> { MyTube.Feed f = feed(); if (f != null) editFeed(f); }));
         content.addView(feedActions);
-        searchActions = ui.actions(withIcon(ui.chip("모두 재생", () -> playFound(0)), R.drawable.ic_play), withIcon(ui.chip("검색 닫기", this::closeSearch), R.drawable.ic_close));
+        searchPlayAll = withIcon(ui.chip("모두 재생", () -> playFound(0)), R.drawable.ic_play);
+        searchActions = ui.actions(searchPlayAll, withIcon(ui.chip("검색 닫기", this::closeSearch), R.drawable.ic_close));
         searchActions.setVisibility(View.GONE); content.addView(searchActions);
-        statusLine = ui.label("", 13, ACCENT); statusLine.setPadding(0, ui.dp(8), 0, 0); statusLine.setVisibility(View.GONE); content.addView(statusLine);
+        statusLine = new ShimmerText(this, ACCENT, TEXT); statusLine.setTextSize(13); statusLine.setTypeface(Ui.weight(600)); statusLine.setPadding(0, ui.dp(8), 0, 0); statusLine.setVisibility(View.GONE); content.addView(statusLine);
         list = ui.column(); LinearLayout.LayoutParams listGap = new LinearLayout.LayoutParams(-1, -2); listGap.topMargin = ui.dp(10); content.addView(list, listGap);
         buildSettings(content);
         navigation = new MainNavigation(this, root, "mytube", target -> MainNavigation.open(this, target), false);
         setContentView(navigation); root.requestApplyInsets();
+        arrange();
         render();
         takeRequest();
         confirmShown();
@@ -129,6 +139,20 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     /** A voice request to open 마이튜브 (app_open_screen mytube) is answered once this screen is really in front. */
     private void confirmShown() { root.post(() -> { if (!destroyed && hasWindowFocus()) AppNavigator.shown(getIntent(), dev.jun.gyeot.core.AppNavigation.MYTUBE); }); }
     @Override public void onWindowFocusChanged(boolean focus) { super.onWindowFocusChanged(focus); if (focus) AppNavigator.shown(getIntent(), dev.jun.gyeot.core.AppNavigation.MYTUBE); }
+    @Override public void onConfigurationChanged(android.content.res.Configuration config) { super.onConfigurationChanged(config); arrange(); showPlayer(); }
+    /**
+     * Where the player goes: a screen 600dp or wider (a foldable opened, a tablet) puts it on the left with the list beside it,
+     * each scrolling on its own; a phone pins it on top, the list scrolling under it. Either way picking a video, searching or
+     * scrolling never takes the video out of sight.
+     */
+    private void arrange() {
+        wide = getResources().getConfiguration().screenWidthDp >= 600;
+        body.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        playerScroll.setLayoutParams(wide ? new LinearLayout.LayoutParams(0, -1, 1.15f) : new LinearLayout.LayoutParams(-1, -2));
+        scroll.setLayoutParams(wide ? new LinearLayout.LayoutParams(0, -1, 1f) : new LinearLayout.LayoutParams(-1, 0, 1));
+        playerPane.setPadding(ui.dp(wide ? 16 : 12), ui.dp(8), ui.dp(wide ? 4 : 12), ui.dp(wide ? 24 : 4));
+        nowTitle.setMaxLines(wide ? 2 : 1); nowLine.setMaxLines(wide ? 3 : 1);
+    }
     @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putString("feed", feedId); }
     @Override protected void onResume() {
         super.onResume(); AppNavigator.inFront("mytube"); front = new java.lang.ref.WeakReference<>(this); if (chat != null) chat.attach();
@@ -151,7 +175,13 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         playerCard = ui.card(); playerCard.setVisibility(View.GONE);
         screen = new GeckoView(this);
         int width = getResources().getDisplayMetrics().widthPixels - ui.dp(64);
-        videoHeight = Math.max(ui.dp(180), Math.min(ui.dp(420), width * 9 / 16));
+        videoHeight = Math.max(ui.dp(160), Math.min(ui.dp(420), width * 9 / 16));
+        // The video's 16:9 box follows the width the card really gets (half a wide screen, a phone's full width).
+        playerCard.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            int inner = r - l - v.getPaddingLeft() - v.getPaddingRight(); if (inner <= 0 || r - l == or - ol) return;
+            int fit = Math.max(ui.dp(160), Math.min(ui.dp(480), inner * 9 / 16));
+            if (fit != videoHeight) { videoHeight = fit; main.post(this::showPlayer); }
+        });
         playerCard.addView(screen, new LinearLayout.LayoutParams(-1, videoHeight));
         nowTitle = ui.text("", 15, 650, TEXT); nowTitle.setMaxLines(2); nowTitle.setEllipsize(TextUtils.TruncateAt.END); nowTitle.setPadding(0, ui.dp(10), 0, 0);
         nowLine = ui.label("", 12, MUTED); nowLine.setMaxLines(2);
@@ -189,13 +219,14 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         MyTube.Video now = player.current();
         boolean signingIn = !player.active() && player.signingIn();
         playerCard.setVisibility(player.active() || signingIn ? View.VISIBLE : View.GONE);
-        // The sign-in page needs room to read and type; a video fills a 16:9 box.
-        int height = signingIn ? Math.max(videoHeight, getResources().getDisplayMetrics().heightPixels * 3 / 5) : videoHeight;
+        playerScroll.setVisibility(playerCard.getVisibility());
+        // The sign-in page needs room to read and type (on a phone half the screen, so the list still shows); a video fills a 16:9 box.
+        int height = signingIn ? Math.max(videoHeight, (wide ? getResources().getDisplayMetrics().heightPixels * 3 / 5 : getResources().getDisplayMetrics().heightPixels / 2)) : videoHeight;
         if (screen.getLayoutParams() != null && screen.getLayoutParams().height != height) { screen.getLayoutParams().height = height; screen.requestLayout(); }
         if (player.active() || signingIn) player.attach(screen);
         nowTitle.setText(now == null ? signingIn ? "유튜브 로그인 · 로그인한 뒤 ‘끝내기’를 누르면 목록으로 돌아와요" : "" : now.title());
         nowLine.setText(now == null ? signingIn && !"유튜브 로그인".equals(player.status()) ? player.status() : ""
-            : now.channel() + (player.status().isEmpty() ? "" : " · " + player.status()) + (now.reason().isEmpty() ? "" : "\n" + now.reason()));
+            : now.channel() + (player.status().isEmpty() ? "" : " · " + player.status()) + (now.reason().isEmpty() || !wide ? "" : "\n" + now.reason()));
         toggle.on(player.playing() || "불러오는 중".equals(player.status()) ? R.drawable.ic_pause : R.drawable.ic_play, player.playing() ? "멈춤" : "재생", false);
         heart.on(player.liked() ? R.drawable.ic_heart_filled : R.drawable.ic_heart, player.liked() ? "좋아요 취소" : "좋아요", player.liked());
         previous.setEnabled(player.index() > 0);
@@ -230,18 +261,19 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         // 정리: 마이튜브 AI puts the feeds in order (it also does this by itself when a feed is added).
         if (feeds.size() >= 2) { Button tidy = withIcon(ui.chip("AI 정리", () -> organize(this::toast)), R.drawable.ic_sparkle); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.leftMargin = ui.dp(8); chips.addView(tidy, p); }
         list.removeAllViews();
-        searchActions.setVisibility(searched != null && !found.isEmpty() ? View.VISIBLE : View.GONE);
+        searchActions.setVisibility(searched != null && !searching ? View.VISIBLE : View.GONE);
+        searchPlayAll.setVisibility(found.isEmpty() ? View.GONE : View.VISIBLE);
         if (searched != null) {
             feedActions.setVisibility(View.GONE);
             header.setText(searched.endsWith(" 채널") ? "‘" + searched.substring(0, searched.length() - 3) + "’ 채널의 최신 영상" : "‘" + searched + "’ 검색 결과");
-            about.setText(found.isEmpty() ? "" : (searched.endsWith(" 채널") ? "영상 " : "유튜브에서 찾은 영상 ") + found.size() + "개 · 누르면 여기서부터 재생해요"); when.setText("");
+            about.setText(searching || found.isEmpty() ? "" : (searched.endsWith(" 채널") ? "영상 " : "유튜브에서 찾은 영상 ") + found.size() + "개 · 누르면 여기서부터 재생해요"); when.setText("");
             for (MyTube.Channel c : foundChannels) list.addView(channelRow(c));
             for (int i = 0; i < found.size(); i++) { int index = i; list.addView(videoRow(found.get(i), () -> playFound(index))); }
-            markPlaying();
+            markPlaying(); tidyHeadings();
             return;
         }
         feedActions.setVisibility(shown == null ? View.GONE : View.VISIBLE);
-        if (shown == null) { header.setText("피드를 만들어 볼까요?"); about.setText("볼 것을 정해 두면 AI가 유튜브에서 골라 와요. 하나를 눌러 바로 시작하세요."); when.setText(""); starters(); return; }
+        if (shown == null) { header.setText("피드를 만들어 볼까요?"); about.setText("볼 것을 정해 두면 AI가 유튜브에서 골라 와요. 하나를 눌러 바로 시작하세요."); when.setText(""); starters(); tidyHeadings(); return; }
         header.setText(shown.name() + " · " + shown.kind().label + (shown.kind() == MyTube.Kind.NEWS ? " (" + Math.max(1, shown.days()) + "일)" : ""));
         about.setText(shown.about() + (shown.kind() == MyTube.Kind.VIDEOS && !shown.channel().isBlank() ? "\n기준 채널 · " + shown.channel() : ""));
         long at = book.refreshedAt(shown.id());
@@ -249,8 +281,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         List<MyTube.Video> videos = book.videos(shown.id());
         if (videos.isEmpty() && !refreshing) { TextView empty = ui.label("‘새로 고르기’를 누르면 AI가 유튜브에서 골라 와요.", 14, MUTED); empty.setPadding(0, ui.dp(12), 0, 0); list.addView(empty); }
         for (int i = 0; i < videos.size(); i++) { int index = i; list.addView(videoRow(videos.get(i), () -> playFrom(index))); }
-        markPlaying();
+        markPlaying(); tidyHeadings();
     }
+    /** Lines with nothing to say take no room (a search has no 고른 때, a fresh one no count yet). */
+    private void tidyHeadings() { for (TextView t : new TextView[]{about, when}) t.setVisibility(t.getText().length() == 0 ? View.GONE : View.VISIBLE); }
     private void starters() {
         LinearLayout group = ui.group();
         for (MyTube.Feed s : MyTube.starters()) ui.addRow(group, ui.listRow(R.drawable.ic_add, ACCENT, s.name(), s.kind().label + " · " + s.about(), ui.chevron(), () -> {
@@ -308,7 +342,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         if (keyboard != null) keyboard.hideSoftInputFromWindow(searchBox.getWindowToken(), 0);
         searchBox.clearFocus();
         String linked = MyTube.linkedVideo(w);
-        status(linked.isEmpty() ? "유튜브에서 찾는 중 · " + w : "영상을 여는 중");
+        // At once: the results' place shows the search and that it is looking, scrolled into view.
+        int ticket = ++searchTicket; searching = true;
+        searched = linked.isEmpty() ? w : "영상 주소"; found = List.of(); foundChannels = List.of(); render();
+        status(linked.isEmpty() ? "‘" + w + "’ 찾는 중" : "영상을 여는 중"); revealResults();
         work.execute(() -> {
             List<MyTube.Video> got; String why = null;
             try { got = linked.isEmpty() ? MyTubeClient.search(w, cancel) : List.of(MyTubeClient.video(linked, cancel)); }
@@ -318,8 +355,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             List<MyTube.Video> result = got; String failure = why;
             main.post(() -> {
                 if (destroyed) return;
+                if (ticket != searchTicket) { if (done != null) done.accept("검색을 바꿨어요"); return; } // closed, or a newer search
+                searching = false;
                 status(failure != null ? failure : result.isEmpty() ? "찾은 영상이 없어요. 다른 말로 찾아보세요." : "");
-                searched = linked.isEmpty() ? w : "영상 주소"; found = result; foundChannels = channels; render();
+                searched = linked.isEmpty() ? w : "영상 주소"; found = result; foundChannels = channels; render(); revealResults();
                 boolean play = (!linked.isEmpty() || playFirst) && !result.isEmpty();
                 if (play) playFound(0);
                 if (done != null) done.accept(failure != null ? failure : result.isEmpty() ? "‘" + w + "’로 찾은 영상이 없어요"
@@ -468,7 +507,11 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     /** 음성 대화: a spoken line of the conversation was written; the card shows it. */
     void chatChanged() { if (chat != null && !destroyed) chat.render(); }
 
-    private void closeSearch() { searched = null; found = List.of(); foundChannels = List.of(); searchBox.setText(""); status(""); render(); }
+    private void closeSearch() { searchTicket++; searching = false; searched = null; found = List.of(); foundChannels = List.of(); searchBox.setText(""); status(""); render(); }
+    /** Brings the results' heading to the top of the list (the search box stays a short scroll up). */
+    private void revealResults() {
+        scroll.post(() -> { if (!destroyed) scroll.smoothScrollTo(0, Math.max(0, header.getTop() - ui.dp(6))); });
+    }
     /** A channel the search found: its picture, name, handle and subscribers; a tap shows its newest videos. */
     private View channelRow(MyTube.Channel c) {
         LinearLayout row = ui.row(); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(0, ui.dp(8), 0, ui.dp(8));
@@ -517,7 +560,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             main.post(() -> {
                 if (destroyed) return;
                 if (failure != null) { status(failure); if (done != null) done.accept(failure); return; }
-                searched = c.title() + " 채널"; found = result; foundChannels = List.of(); render();
+                searchTicket++; searching = false; searched = c.title() + " 채널"; found = result; foundChannels = List.of(); render(); revealResults();
                 int at = -1; for (int i = 0; i < result.size(); i++) if (result.get(i).live()) { at = i; break; }
                 if (at >= 0) { status(""); playFound(at); if (done != null) done.accept("라이브 재생: " + result.get(at).title()); }
                 else { String said = "‘" + c.title() + "’는 지금 라이브 방송 중이 아니에요 · 최신 영상을 보여 줄게요"; status(said); if (done != null) done.accept(said); }
@@ -534,7 +577,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             main.post(() -> {
                 if (destroyed) return;
                 status(failure != null ? failure : result.isEmpty() ? "이 채널에서 재생할 영상을 찾지 못했어요." : "");
-                if (failure == null) { searched = c.title() + " 채널"; found = result; foundChannels = List.of(); render(); }
+                if (failure == null) { searchTicket++; searching = false; searched = c.title() + " 채널"; found = result; foundChannels = List.of(); render(); revealResults(); }
             });
         });
     }
@@ -621,7 +664,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         });
     }
     private boolean playWhenReady;
-    private void status(String text) { statusLine.setText(text == null ? "" : text); statusLine.setVisibility(text == null || text.isEmpty() ? View.GONE : View.VISIBLE); }
+    private void status(String text) {
+        statusLine.setText(text == null ? "" : text); statusLine.setVisibility(text == null || text.isEmpty() ? View.GONE : View.VISIBLE);
+        statusLine.shimmer(text != null && !text.isEmpty() && (text.endsWith("중") || refreshing)); // still working: the line's light sweeps
+    }
 
     /** A voice request named a feed (or news / music): it shows, and plays (choosing first when it has nothing yet). */
     private void takeRequest() {

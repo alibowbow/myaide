@@ -11,7 +11,10 @@ import static dev.jun.gyeot.Ui.*;
 
 /** Persistent Chrome-style tabs. Selecting a title never triggers its separate close target. */
 final class BrowserTabStrip extends LinearLayout {
-    record Item(String id, String title, boolean selected, Runnable select, Runnable close) {}
+    /** ai: an AI task is working in this tab (its mark becomes the AI mark, in the accent, and it says so). */
+    record Item(String id, String title, boolean selected, boolean ai, Runnable select, Runnable close) {
+        Item(String id, String title, boolean selected, Runnable select, Runnable close) { this(id, title, selected, false, select, close); }
+    }
     final LinearLayout actions, navigation;
     private final Ui ui;
     private final HorizontalScrollView scroll;
@@ -76,7 +79,7 @@ final class BrowserTabStrip extends LinearLayout {
         List<String> state = new ArrayList<>(), ids = new ArrayList<>();
         String nextSelected = "";
         for (Item item : items) {
-            ids.add(item.id()); state.add(item.id()); state.add(item.title()); state.add(Boolean.toString(item.selected()));
+            ids.add(item.id()); state.add(item.id()); state.add(item.title()); state.add(Boolean.toString(item.selected())); state.add(Boolean.toString(item.ai()));
             if (item.selected()) nextSelected = item.id();
         }
         if (state.equals(rendered)) return;
@@ -96,12 +99,18 @@ final class BrowserTabStrip extends LinearLayout {
             TextView mark = ui.text(monogram(item.title()), 12, 650, item.selected() ? ACCENT : MUTED);
             mark.setTextSize(android.util.TypedValue.COMPLEX_UNIT_DIP,12); mark.setGravity(Gravity.CENTER); mark.setBackground(ui.shape(item.selected() ? ACCENT_SOFT : FILL, 6));
             mark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); mark.setOnClickListener(v -> item.select().run());
+            if (item.ai()) {
+                // The AI works here: its mark in place of the letter, so a tab it took is told apart at a glance.
+                AiMark ai = new AiMark(getResources().getDisplayMetrics().density); ai.setTint(ACCENT);
+                mark.setText(""); mark.setBackground(new android.graphics.drawable.LayerDrawable(new Drawable[]{ui.shape(ACCENT_SOFT, 6), ai}));
+                ((android.graphics.drawable.LayerDrawable) mark.getBackground()).setLayerInset(1, ui.dp(2), ui.dp(2), ui.dp(2), ui.dp(2));
+            }
             LayoutParams monogram = new LayoutParams(ui.dp(22), ui.dp(22)); monogram.leftMargin = ui.dp(12); monogram.rightMargin = ui.dp(8); tab.addView(mark, monogram);
             TextView title = ui.text(item.title(), 13, item.selected() ? 650 : 450, item.selected() ? TEXT : MUTED);
             title.setSingleLine(true); title.setEllipsize(android.text.TextUtils.TruncateAt.END);
             title.setGravity(Gravity.CENTER_VERTICAL); title.setPadding(0, 0, 0, 0);
             title.setTooltipText(item.title());
-            title.setSelected(item.selected()); title.setContentDescription(item.title() + (item.selected() ? ", 현재 탭" : ", 탭 전환"));
+            title.setSelected(item.selected()); title.setContentDescription(item.title() + (item.ai() ? ", AI 작업 중" : "") + (item.selected() ? ", 현재 탭" : ", 탭 전환"));
             title.setOnClickListener(v -> item.select().run()); Ui.pressable(title, false);
             tab.addView(title, new LayoutParams(0, -1, 1)); tabParts.put(tab,new TabParts(mark,title));
             ImageView close = ui.quietIcon(R.drawable.ic_close, item.title() + " 탭 닫기", item.close());
