@@ -80,7 +80,7 @@ final class MainNavigation extends LinearLayout {
     }
     String selected(){return selected;}boolean wide(){return wide;}void onResize(Runnable callback){resize=callback;}
     // Beside the rail, the ≡ menu would only repeat it: it shows where the rail does not (a phone's width).
-    @Override protected void onMeasure(int widthSpec,int heightSpec){boolean next=tablet(activity)||MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight()>=ui.dp(680);if(next!=wide){wide=next;rail.setVisibility(wide?VISIBLE:GONE);menu.setVisibility(wide?GONE:VISIBLE);resize.run();}super.onMeasure(widthSpec,heightSpec);}
+    @Override protected void onMeasure(int widthSpec,int heightSpec){boolean next=tablet(activity)||MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight()>=ui.dp(680);if(next!=wide){wide=next;rail.setVisibility(wide&&!immersive?VISIBLE:GONE);menu.setVisibility(wide?GONE:VISIBLE);resize.run();}super.onMeasure(widthSpec,heightSpec);}
     private void renderRail(){
         railItems.removeAllViews();
         for(int i=0;i<IDS.length;i++){
@@ -126,6 +126,9 @@ final class MainNavigation extends LinearLayout {
     private int drawerWidth(){int width=getWidth()>0?getWidth():getResources().getDisplayMetrics().widthPixels;return Math.max(1,Math.min(ui.dp(320),Math.round(width*.82f)));}
     private int drawerHeightLimit(){int height=getHeight()>0?getHeight():getResources().getDisplayMetrics().heightPixels;return Math.max(1,Math.min(height-ui.dp(24),Math.round(height*.86f)));}
     private void choose(String id){if (wide) railScrollDp=Math.round(rail.getScrollY()/getResources().getDisplayMetrics().density);close();if(!selected.equals(id)||id.equals("voice"))route.accept(id);}
+    private boolean immersive;
+    /** 전체화면 (마이튜브's video alone): no rail and no top bar while on; off brings them back as the width has them. */
+    void immersive(boolean on){if(immersive==on)return;immersive=on;rail.setVisibility(wide&&!on?VISIBLE:GONE);top.setVisibility(!on&&primaryScreen?VISIBLE:GONE);requestLayout();}
     boolean close(){if(drawer==null)return false;Dialog old=drawer;drawer=null;old.dismiss();return true;}
     @Override protected void onDetachedFromWindow(){close();super.onDetachedFromWindow();}
     static void open(Activity activity,String target){

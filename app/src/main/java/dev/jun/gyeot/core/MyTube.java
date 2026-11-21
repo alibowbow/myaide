@@ -27,7 +27,8 @@ public final class MyTube {
     public enum Kind {
         VIDEOS("영상 추천", "주제나 기준 채널과 비슷한, 볼 만한 영상"),
         NEWS("최신 소식", "정해 둔 기간 안에 올라온 영상만"),
-        MUSIC("음악", "취향에 맞는 노래를 이어서");
+        MUSIC("음악", "취향에 맞는 노래를 이어서"),
+        LIVE("라이브 방송", "지금 방송 중인 라이브만 (저장한 채널의 방송 먼저)");
         public final String label, about;
         Kind(String label, String about) { this.label = label; this.about = about; }
         public static Kind of(String name) { for (Kind k : values()) if (k.name().equalsIgnoreCase(name == null ? "" : name)) return k; return VIDEOS; }
@@ -41,7 +42,11 @@ public final class MyTube {
         }
         public Feed with(String newId) { return new Feed(newId, name, kind, about, channel, days); }
         /** How long a refresh stays fresh: news soon goes stale, the rest for a day. */
-        public long freshMs() { return kind == Kind.NEWS ? 3 * 3600_000L : 24 * 3600_000L; }
+        public long freshMs() { return liveOnly() ? 15 * 60_000L : kind == Kind.NEWS ? 3 * 3600_000L : 24 * 3600_000L; }
+        /** Only broadcasts on air now: a 라이브 방송 feed, or one named for live broadcasts (시황 라이브, 생방송 …). */
+        public boolean liveOnly() { return kind == Kind.LIVE || kind != Kind.MUSIC && name.matches("(?is).*(라이브|생방송|실시간 방송|\\blive\\b).*"); }
+        /** What the feed is, as shown: a live-only feed says so whatever kind it was made as. */
+        public String label() { return liveOnly() ? Kind.LIVE.label : kind.label; }
     }
 
     /** A video as a page lists it, with the reason the AI gave for choosing it. */
@@ -53,6 +58,8 @@ public final class MyTube {
         public Video because(String why) { return new Video(id, title, channel, published, length, views, why == null ? "" : why); }
         /** On air now (a live broadcast: it plays on until the channel ends it). */
         public boolean live() { return LIVE.equals(length); }
+        /** A Short (vertical, under a minute or three): it plays in YouTube's own Shorts screen. */
+        public boolean shortForm() { return SHORT.equals(length); }
         /** How old it is, in hours, from its "3일 전" / "3 days ago"; -1 when the page did not say. */
         public long ageHours() { return MyTube.ageHours(published); }
     }
@@ -111,6 +118,18 @@ public final class MyTube {
     }
     /** YouTube's own description of a video (its title and channel), for one opened by its link. */
     public static String oembedUrl(String id) { return "https://www.youtube.com/oembed?format=json&url=" + URLEncoder.encode("https://www.youtube.com/watch?v=" + id, StandardCharsets.UTF_8); }
+    /** The channel a video's oEmbed names (its name and page), or null when it names none. */
+    public static Channel channelFromOembed(JSONObject o) {
+        if (o == null) return null;
+        String name = o.optString("author_name").strip(), url = o.optString("author_url").strip();
+        String path = url.replaceFirst("^https?://(www\\.|m\\.)?youtube\\.com", "");
+        if (name.isEmpty() || !path.matches("/(@[^/?#]+|channel/UC[A-Za-z0-9_-]+|c/[^/?#]+|user/[^/?#]+)")) return null;
+        return new Channel("", name, path, path.startsWith("/@") ? path.substring(1) : "", "", "");
+    }
+    /** YouTube's search filtered to broadcasts on air now. */
+    public static String liveSearchUrl(String query) {
+        return "https://www.youtube.com/results?search_query=" + URLEncoder.encode(query == null ? "" : query.strip(), StandardCharsets.UTF_8) + "&sp=EgJAAQ%3D%3D";
+    }
     public static Video fromOembed(String id, JSONObject o) {
         String title = o == null ? "" : o.optString("title").strip(), channel = o == null ? "" : o.optString("author_name").strip();
         return new Video(id, title.isEmpty() ? "유튜브 영상" : title, channel, "", "", "", "");
@@ -413,8 +432,8 @@ public final class MyTube {
     // ── 저장 (the feed a video belongs in) ──────────────────────────────────
     public static final String SAVE = "The user saves one YouTube video into their own feeds (a page of chosen videos that replaces YouTube's algorithm). "
         + "Choose the one feed it belongs in by what each feed is for. When none fits, propose one new feed for it: a short Korean name, its kind "
-        + "(VIDEOS for videos on a topic, NEWS for the latest news, MUSIC for songs) and a sentence of what it gathers. Return JSON only: "
-        + "{\"feed\":\"<id>\"} or {\"new\":{\"name\":\"...\",\"kind\":\"VIDEOS|NEWS|MUSIC\",\"about\":\"...\"}}.";
+        + "(VIDEOS for videos on a topic, NEWS for the latest news, MUSIC for songs, LIVE for broadcasts on air now) and a sentence of what it gathers. Return JSON only: "
+        + "{\"feed\":\"<id>\"} or {\"new\":{\"name\":\"...\",\"kind\":\"VIDEOS|NEWS|MUSIC|LIVE\",\"about\":\"...\"}}.";
     public static String saveInput(List<Feed> feeds, Video video) {
         StringBuilder in = new StringBuilder("저장할 영상: ").append(video.title());
         if (!video.channel().isEmpty()) in.append(" · ").append(video.channel());
@@ -450,8 +469,8 @@ public final class MyTube {
         + "Actions (JSON objects): {\"do\":\"search\",\"query\":\"...\"} shows YouTube's results; {\"do\":\"play\",\"query\":\"...\"} finds and plays the best match at once "
         + "(or {\"do\":\"play\",\"video\":\"<id>\"} for one listed below, or {\"do\":\"play\",\"link\":\"<YouTube link>\"}); {\"do\":\"play_live\",\"channel\":\"name or @handle\"} plays that channel's live broadcast on air now; {\"do\":\"play_results\",\"from\":0} plays the shown results; "
         + "{\"do\":\"play_feed\",\"feed\":\"<id>\"} plays a feed (choosing its videos first when it has none); {\"do\":\"refresh\",\"feed\":\"<id>\"} has the feed chosen afresh; "
-        + "{\"do\":\"feed_create\",\"name\":\"...\",\"kind\":\"VIDEOS|NEWS|MUSIC\",\"about\":\"what it gathers\",\"channel\":\"@handle or empty\",\"days\":7,\"play\":false} makes a feed "
-        + "(VIDEOS for videos on a topic or like a channel, NEWS for the latest news within days, MUSIC for songs played on and on); {\"do\":\"organize_feeds\"} puts the feed list in a sensible order; "
+        + "{\"do\":\"feed_create\",\"name\":\"...\",\"kind\":\"VIDEOS|NEWS|MUSIC|LIVE\",\"about\":\"what it gathers\",\"channel\":\"@handle or empty\",\"days\":7,\"play\":false} makes a feed "
+        + "(VIDEOS for videos on a topic or like a channel, NEWS for the latest news within days, MUSIC for songs played on and on, LIVE for broadcasts on air now); {\"do\":\"organize_feeds\"} puts the feed list in a sensible order; "
         + "{\"do\":\"control\",\"action\":\"pause|resume|next|previous|stop|like|skip\"}; {\"do\":\"save\"} saves what plays into the feed it fits; {\"do\":\"capture\"} saves the frame on screen; "
         + "{\"do\":\"summary\"} sums up what plays; {\"do\":\"quality\",\"value\":\"auto|max|hd1080|hd720|large|medium\"}; {\"do\":\"background\",\"on\":true} plays on with the screen off (YouTube Premium). "
         + "Use only these. Prefer doing over asking: a song or video named means play it; a topic to keep up with means a feed. Never delete or change a feed's settings beyond these; "
@@ -537,6 +556,60 @@ public final class MyTube {
     public static final String LIVE = "LIVE";
     /** A channel's 라이브 tab (its broadcasts, the one on air now first). */
     public static String channelStreamsUrl(String path) { return channelVideosUrl(path).replaceFirst("/videos$", "/streams"); }
+    public static String channelShortsUrl(String path) { return channelVideosUrl(path).replaceFirst("/videos$", "/shorts"); }
+    /** A channel's own page on YouTube (its tabs, 인기순, playlists, all as YouTube shows them). */
+    public static String channelPage(String path) { return channelVideosUrl(path).replaceFirst("^https://www\\.", "https://m.").replaceFirst("/videos$", ""); }
+    /** YouTube's search filtered to Shorts. */
+    public static String shortsSearchUrl(String query) {
+        return "https://www.youtube.com/results?search_query=" + URLEncoder.encode(query == null ? "" : query.strip(), StandardCharsets.UTF_8) + "&sp=EgIQCQ%3D%3D";
+    }
+    /** YouTube's own results page for the words (every kind: videos, Shorts, channels, playlists). */
+    public static String resultsPage(String query) { return "https://m.youtube.com/results?search_query=" + URLEncoder.encode(query == null ? "" : query.strip(), StandardCharsets.UTF_8); }
+    /** A Short in YouTube's own Shorts screen (swipe for the next). */
+    public static String shortsPage(String id) { return "https://m.youtube.com/shorts/" + id; }
+    public static final String SHORT = "SHORTS";
+    /** The Shorts a page lists (a channel's Shorts tab, a Shorts search), in order, each once. */
+    public static List<Video> shorts(JSONObject data) {
+        Map<String, Video> found = new LinkedHashMap<>();
+        walkShorts(data, found, 0);
+        return new ArrayList<>(found.values());
+    }
+    private static void walkShorts(Object node, Map<String, Video> found, int depth) {
+        if (depth > 60 || found.size() >= 200) return;
+        if (node instanceof JSONObject o) {
+            for (java.util.Iterator<String> keys = o.keys(); keys.hasNext();) {
+                String key = keys.next(); Object value = o.opt(key);
+                if (("shortsLockupViewModel".equals(key) || "reelItemRenderer".equals(key)) && value instanceof JSONObject v) { Video s = shortItem(v); if (s != null) found.putIfAbsent(s.id(), s); continue; }
+                walkShorts(value, found, depth + 1);
+            }
+        } else if (node instanceof JSONArray a) for (int i = 0; i < a.length(); i++) walkShorts(a.opt(i), found, depth + 1);
+    }
+    private static Video shortItem(JSONObject v) {
+        JSONObject reel = path(v, "onTap", "innertubeCommand", "reelWatchEndpoint"); if (reel == null) reel = path(v, "navigationEndpoint", "reelWatchEndpoint");
+        String id = reel != null ? reel.optString("videoId") : v.optString("videoId");
+        if (id.isEmpty() && v.optString("entityId").startsWith("shorts-shelf-item-")) id = v.optString("entityId").substring("shorts-shelf-item-".length());
+        if (!id.matches("[A-Za-z0-9_-]{11}")) return null;
+        String title = path(v, "overlayMetadata", "primaryText") != null ? v.optJSONObject("overlayMetadata").optJSONObject("primaryText").optString("content") : text(v.optJSONObject("headline"));
+        String views = path(v, "overlayMetadata", "secondaryText") != null ? v.optJSONObject("overlayMetadata").optJSONObject("secondaryText").optString("content") : text(v.optJSONObject("viewCountText"));
+        if (title.isBlank()) { String said = v.optString("accessibilityText"); int cut = said.lastIndexOf(", "); title = cut > 0 ? said.substring(0, cut) : said; }
+        return title.isBlank() ? null : new Video(id, title.strip(), "", "", SHORT, views, "");
+    }
+    /** How many views a count line says ("조회수 9.9천회", "1.2만회", "3억회", "1,234회", "12K views"), or -1 when it says none. */
+    public static long viewCount(String said) {
+        if (said == null) return -1;
+        Matcher m = Pattern.compile("([0-9][0-9,]*(?:\\.[0-9]+)?)\\s*(천|만|억|[KkMmBb])?").matcher(said.replace("조회수", ""));
+        if (!m.find()) return -1;
+        double n; try { n = Double.parseDouble(m.group(1).replace(",", "")); } catch (NumberFormatException e) { return -1; }
+        String unit = m.group(2) == null ? "" : m.group(2).toUpperCase(Locale.ROOT);
+        double times = switch (unit) { case "천", "K" -> 1e3; case "만" -> 1e4; case "M" -> 1e6; case "억" -> 1e8; case "B" -> 1e9; default -> 1; };
+        return Math.round(n * times);
+    }
+    /** The list by its view counts, most first (those that say none last), the order kept among equals. */
+    public static List<Video> byViews(List<Video> list) {
+        List<Video> out = new ArrayList<>(list);
+        out.sort((a, b) -> Long.compare(viewCount(b.views()), viewCount(a.views())));
+        return out;
+    }
     /** Whether a videoRenderer is on air now (its LIVE badge or overlay), not a premiere or a past broadcast. */
     static boolean liveNow(JSONObject v) {
         if (v.has("upcomingEventData")) return false;

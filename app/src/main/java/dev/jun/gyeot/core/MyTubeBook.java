@@ -42,7 +42,7 @@ public final class MyTubeBook {
     }
     public synchronized void remove(String id) throws IOException {
         List<MyTube.Feed> all = feeds(); all.removeIf(f -> f.id().equals(id)); writeFeeds(all);
-        new File(dir, "feed-" + id + ".json").delete(); new File(dir, "taste-" + id + ".json").delete();
+        new File(dir, "feed-" + id + ".json").delete(); new File(dir, "taste-" + id + ".json").delete(); new File(dir, "pins-" + id + ".json").delete();
     }
     /** Moves a feed one place earlier (up) or later. */
     public synchronized void move(String id, boolean up) throws IOException {
@@ -125,11 +125,40 @@ public final class MyTubeBook {
         write("feed-" + feed + ".json", obj("at", at, "videos", list));
     }
 
-    /** 저장: the video at the top of the feed's list (once), and liked, so the feed's next choices lean toward it. */
+    /** 저장: the video at the top of the feed's list (once), liked, and kept there through every 새로 고르기. */
     public synchronized void keep(String feed, MyTube.Video video) throws IOException {
         List<MyTube.Video> list = videos(feed); list.removeIf(v -> v.id().equals(video.id())); list.add(0, video);
         videos(feed, list, refreshedAt(feed));
+        List<MyTube.Video> pins = pinned(feed); pins.removeIf(v -> v.id().equals(video.id())); pins.add(0, video);
+        while (pins.size() > 30) pins.remove(pins.size() - 1);
+        JSONArray out = new JSONArray(); for (MyTube.Video v : pins) out.put(v.json());
+        JSONObject file = read("pins-" + feed + ".json"); put(file, "videos", out); write("pins-" + feed + ".json", file);
         mark(feed, video, true);
+    }
+    /** The videos saved into the feed by hand: they stay at its top whatever the AI chooses next. */
+    public synchronized List<MyTube.Video> pinned(String feed) { return list(read("pins-" + feed + ".json").optJSONArray("videos")); }
+    public synchronized void unpin(String feed, String id) throws IOException {
+        List<MyTube.Video> pins = pinned(feed); pins.removeIf(v -> v.id().equals(id));
+        JSONArray out = new JSONArray(); for (MyTube.Video v : pins) out.put(v.json());
+        JSONObject file = read("pins-" + feed + ".json"); put(file, "videos", out); write("pins-" + feed + ".json", file);
+    }
+    /** The channels saved into a feed (a live broadcast kept there): each 새로 고르기 looks at them first. */
+    public synchronized List<MyTube.Channel> sources(String feed) {
+        List<MyTube.Channel> out = new ArrayList<>(); JSONArray list = read("pins-" + feed + ".json").optJSONArray("channels");
+        for (int i = 0; list != null && i < list.length(); i++) { JSONObject o = list.optJSONObject(i); if (o != null && !o.optString("path").isEmpty()) out.add(MyTube.Channel.of(o)); }
+        return out;
+    }
+    public synchronized void addSource(String feed, MyTube.Channel channel) throws IOException {
+        if (channel == null || channel.path().isEmpty()) return;
+        List<MyTube.Channel> all = sources(feed); all.removeIf(c -> c.path().equalsIgnoreCase(channel.path())); all.add(channel);
+        while (all.size() > 20) all.remove(0);
+        JSONArray out = new JSONArray(); for (MyTube.Channel c : all) out.put(c.json());
+        JSONObject file = read("pins-" + feed + ".json"); put(file, "channels", out); write("pins-" + feed + ".json", file);
+    }
+    public synchronized void removeSource(String feed, String path) throws IOException {
+        List<MyTube.Channel> all = sources(feed); all.removeIf(c -> c.path().equalsIgnoreCase(path));
+        JSONArray out = new JSONArray(); for (MyTube.Channel c : all) out.put(c.json());
+        JSONObject file = read("pins-" + feed + ".json"); put(file, "channels", out); write("pins-" + feed + ".json", file);
     }
     public synchronized MyTube.Taste taste(String feed) {
         JSONObject t = read("taste-" + feed + ".json");

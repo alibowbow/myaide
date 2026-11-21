@@ -657,7 +657,7 @@ final class Ui {
      * error color. The disc is 44dp in a 48dp target.
      */
     static final class Dial extends FrameLayout {
-        private final Ui ui; private final ImageView disc; private final boolean ending;
+        private final Ui ui; private final ImageView disc; private final boolean ending; private int side = 48;
         Dial(Ui ui, int icon, String name, boolean ending, Runnable action) {
             super(ui.context); this.ui = ui; this.ending = ending; setMinimumWidth(ui.dp(48)); setMinimumHeight(ui.dp(48));
             disc = new ImageView(ui.context); disc.setScaleType(ImageView.ScaleType.CENTER_INSIDE); disc.setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12));
@@ -668,7 +668,13 @@ final class Ui {
             });
             on(icon, name, false);
         }
-        @Override protected void onMeasure(int width, int height) { int side = MeasureSpec.makeMeasureSpec(ui.dp(48), MeasureSpec.EXACTLY); super.onMeasure(side, side); }
+        @Override protected void onMeasure(int width, int height) { int size = MeasureSpec.makeMeasureSpec(ui.dp(side), MeasureSpec.EXACTLY); super.onMeasure(size, size); }
+        /** The slim size (40dp, its disc 34dp) for a compact row of controls. */
+        Dial compact() {
+            side = 40; setMinimumWidth(ui.dp(40)); setMinimumHeight(ui.dp(40));
+            LayoutParams p = (LayoutParams) disc.getLayoutParams(); p.width = p.height = ui.dp(34); disc.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)); disc.setLayoutParams(p);
+            requestLayout(); return this;
+        }
         /** Shows this icon and name; active fills the disc. */
         void on(int icon, String name, boolean active) {
             int fill = ending ? ERROR : active ? ACCENT : FILL, glyph = ending ? Color.WHITE : active ? ON_ACCENT : TEXT;

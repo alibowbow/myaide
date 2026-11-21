@@ -446,6 +446,15 @@
     else if (command==='quality') mytubeApplyQuality(connection);
     else if (command==='account') mytubeAccount(connection, 0);
     else if (command==='frame') mytubeFrame(connection);
+    // 앞뒤 이동 (seconds from where it plays) and 배속 (0.25–2, kept for the next videos: the app sends it again as each one plays).
+    else if (command==='seek') {
+      const api=mytubeApi(), by=Number(message.by)||0, now=v?v.currentTime:(Number(mytubeCall(api,'getCurrentTime'))||0), to=Math.max(0,now+by);
+      if (api && typeof api.seekTo==='function') mytubeCall(api,'seekTo',to,true); else if (v) v.currentTime=to;
+    }
+    else if (command==='rate') {
+      const r=Math.min(2,Math.max(0.25,Number(message.rate)||1));
+      mytubeCall(mytubeApi(),'setPlaybackRate',r); if (v) v.playbackRate=r;
+    }
   }
   // The frame on screen now, at the video's own size (JPEG); the app saves it in 들퍼레/마이튜브 캡처.
   function mytubeFrame(connection) {

@@ -57,9 +57,22 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private Ui ui; private MyTubeBook book; private MyTubePlayer player; private AppStore store;
     private MainNavigation navigation; private LinearLayout root, playerCard, list, chips; private GeckoView screen;
     private TextView nowTitle, nowLine, header, about, when; private ShimmerText statusLine; private View feedActions;
-    /** The screen's two parts: the player (pinned on top of a phone, on the left of an unfolded or wide screen) and the scrolling list. */
-    private LinearLayout body, playerPane; private ScrollView scroll, playerScroll; private boolean wide;
-    private Ui.Dial previous, toggle, next, heart; private Button qualityChip, captureChip, summaryChip, saveChip; private int videoHeight;
+    /** The screen's two parts: the video with its play buttons, pinned on top across the full width, and the list scrolling under it. */
+    private LinearLayout body, videoPane, searchBar, listPane, controlsRow; private ScrollView scroll;
+    /**
+     * 보기: 가로 꽉 (the video across the width, the list under it), 나란히 (a wide screen: the video on the left, the list on the
+     * right; a Short always so) or 전체화면 (the video alone). The video sits on a stage, with the way out of 전체화면 on it.
+     */
+    static final String VIEW = "mytubeView";
+    private String viewMode = "wide", lastView = "wide", arranged = ""; private android.widget.FrameLayout stage; private View exitFull, sideToggle, gripView;
+    /** Under the video, one capsule: 이전 · 10초 뒤로 · 5초 뒤로 · 재생 · 5초 앞으로 · 10초 앞으로 · 다음; 끝내기 beside it (on a YouTube page, ← 목록으로). */
+    private ImageView previous, toggle, next; private View transport, backChip; private Ui.Dial endDial;
+    private Button heart, skipChip, speedChip, qualityChip, captureChip, summaryChip, saveChip; private int videoHeight;
+    /** What a search or a channel lists (videos · shorts · live), and whether by views; the channel shown, when one is. */
+    private String listKind = "videos"; private boolean byViews; private MyTube.Channel shownChannel; private LinearLayout listTools;
+    /** 크기 조절: the video's height as a share of the screen's, chosen by dragging the bar under the controls (0: fitted). */
+    static final String VIDEO_SIZE = "mytubeVideoSize";
+    private float sizeRatio, dragFrom; private int dragHeight; private boolean dragging;
     /** 직접 검색: the words searched (null when the feeds show), what YouTube found, and the box itself. */
     private String searched; private List<MyTube.Video> found = List.of(); private EditText searchBox; private View searchActions; private Button searchPlayAll;
     /** A search on its way (its results show in place, with the line that it is looking); the newest search wins. */
@@ -81,13 +94,15 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         ui = new Ui(this); store = ((GyeotApp) getApplication()).store(); book = MyTubeClient.book(this); player = MyTubePlayer.get(this);
         feedId = state != null ? state.getString("feed") : store.settings.getString("mytubeFeed", null);
         root = ui.column(); root.setBackgroundColor(BG);
-        // The player stays in sight while the list scrolls: pinned above it on a phone, beside it on a wide screen.
-        body = new LinearLayout(this);
-        playerPane = ui.column(); playerScroll = new ScrollView(this); playerScroll.addView(playerPane); playerScroll.setVisibility(View.GONE);
+        // The video stays in sight while the list scrolls: edge to edge on top (phone or unfolded), its play buttons under it.
+        body = ui.column();
+        videoPane = ui.column(); videoPane.setVisibility(View.GONE); videoPane.setBackgroundColor(BG);
+        searchBar = ui.column(); searchBar.setBackgroundColor(BG); searchBar.setPadding(ui.dp(12), ui.dp(6), ui.dp(12), ui.dp(6));
         scroll = new ScrollView(this); scroll.setFillViewport(true);
-        LinearLayout content = ui.column(); content.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(24));
+        LinearLayout content = ui.column(); content.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), ui.dp(24));
         scroll.addView(content);
-        body.addView(playerScroll); body.addView(scroll);
+        listPane = ui.column(); listPane.addView(searchBar, new LinearLayout.LayoutParams(-1, -2)); listPane.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        body.addView(videoPane, new LinearLayout.LayoutParams(-1, -2)); body.addView(listPane, new LinearLayout.LayoutParams(-1, 0, 1));
         root.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
         root.post(() -> {
             // Under the page: 음성 대화's bar while it talks, else the composer.
@@ -99,38 +114,44 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()), keys = insets.getInsets(WindowInsets.Type.ime());
             v.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, keys.bottom)); return insets;
         });
-        content.addView(ui.largeTitle("마이튜브"));
-        TextView lead = ui.label("알고리즘 대신 내가 정한 기준으로 AI가 골라요", 14, MUTED); lead.setPadding(0, ui.dp(2), 0, ui.dp(12)); content.addView(lead);
         // 직접 검색: words search YouTube; a YouTube link (watch, Shorts, youtu.be …) opens that very video.
         searchBox = ui.searchField(ui.input("유튜브 검색 · 영상 주소를 붙여넣어도 돼요", 1, 500));
         searchBox.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
         searchBox.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
         searchBox.setOnEditorActionListener((v, action, event) -> { if (action == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH || event != null && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER) { search(searchBox.getText().toString()); return true; } return false; });
         searchBox.setContentDescription("유튜브 검색. 영상 주소를 붙여넣으면 그 영상을 바로 틀어요");
-        LinearLayout.LayoutParams searchGap = new LinearLayout.LayoutParams(-1, -2); searchGap.bottomMargin = ui.dp(12); content.addView(searchBox, searchGap);
+        // Slim and round, pinned between the video and the lists: search is always at hand, whatever the list shows.
+        searchBox.setTextSize(14); searchBox.setMinHeight(ui.dp(40)); searchBox.setMinimumHeight(ui.dp(40)); searchBox.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8));
+        android.graphics.drawable.StateListDrawable pill = new android.graphics.drawable.StateListDrawable();
+        android.graphics.drawable.GradientDrawable focused = ui.shape(CARD, PILL); focused.setStroke(ui.dp(1), ACCENT);
+        pill.addState(new int[]{android.R.attr.state_focused}, focused); pill.addState(new int[]{}, ui.shape(FILL, PILL)); searchBox.setBackground(pill);
+        android.graphics.drawable.Drawable lens = searchBox.getCompoundDrawablesRelative()[0]; if (lens != null) lens.setBounds(0, 0, ui.dp(17), ui.dp(17));
+        searchBox.setCompoundDrawablePadding(ui.dp(8));
+        searchBar.addView(searchBox, new LinearLayout.LayoutParams(-1, -2));
         // 라이브 채널: the channels saved from a search, each straight to its live broadcast.
         liveChannels = ui.row(); HorizontalScrollView liveRow = new HorizontalScrollView(this); liveRow.setHorizontalScrollBarEnabled(false); liveRow.addView(liveChannels); liveScroll = liveRow;
-        LinearLayout.LayoutParams liveGap = new LinearLayout.LayoutParams(-1, -2); liveGap.bottomMargin = ui.dp(12); content.addView(liveRow, liveGap);
+        LinearLayout.LayoutParams liveGap = new LinearLayout.LayoutParams(-1, -2); liveGap.bottomMargin = ui.dp(8); content.addView(liveRow, liveGap);
         // 마이튜브 AI: say what to watch or do (typed below, or spoken with 음성 대화).
         chat = new MyTubeChat(this, ui, store, book, work, main, this);
-        LinearLayout.LayoutParams chatGap = new LinearLayout.LayoutParams(-1, -2); chatGap.bottomMargin = ui.dp(12); content.addView(chat.card, chatGap);
-        buildPlayer(playerPane);
+        LinearLayout.LayoutParams chatGap = new LinearLayout.LayoutParams(-1, -2); chatGap.bottomMargin = ui.dp(8); content.addView(chat.card, chatGap);
+        buildPlayer(content);
         chips = ui.row(); HorizontalScrollView chipScroll = new HorizontalScrollView(this); chipScroll.setHorizontalScrollBarEnabled(false); chipScroll.addView(chips);
-        LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); chipGap.topMargin = ui.dp(14); content.addView(chipScroll, chipGap);
-        header = ui.title("", 20); header.setPadding(0, ui.dp(16), 0, 0); content.addView(header);
+        LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); chipGap.topMargin = ui.dp(4); content.addView(chipScroll, chipGap);
+        header = ui.title("", 17); header.setPadding(0, ui.dp(12), 0, 0); content.addView(header);
         about = ui.label("", 13, MUTED); about.setPadding(0, ui.dp(2), 0, 0); content.addView(about);
         when = ui.label("", 12, MUTED); when.setPadding(0, ui.dp(2), 0, 0); content.addView(when);
-        feedActions = ui.actions(withIcon(ui.chip("새로 고르기", this::refresh), R.drawable.ic_refresh), withIcon(ui.chip("모두 재생", () -> playFrom(0)), R.drawable.ic_play), ui.chip("피드 편집", () -> { MyTube.Feed f = feed(); if (f != null) editFeed(f); }));
+        feedActions = ui.actions(withIcon(ui.smallChip("새로 고르기", this::refresh), R.drawable.ic_refresh), withIcon(ui.smallChip("모두 재생", () -> playFrom(0)), R.drawable.ic_play), ui.smallChip("피드 편집", () -> { MyTube.Feed f = feed(); if (f != null) editFeed(f); }));
         content.addView(feedActions);
-        searchPlayAll = withIcon(ui.chip("모두 재생", () -> playFound(0)), R.drawable.ic_play);
-        searchActions = ui.actions(searchPlayAll, withIcon(ui.chip("검색 닫기", this::closeSearch), R.drawable.ic_close));
-        searchActions.setVisibility(View.GONE); content.addView(searchActions);
+        searchPlayAll = withIcon(ui.smallChip("모두 재생", () -> playFound(0)), R.drawable.ic_play);
+        // A search's or a channel's tools in one slim row: 모두 재생 · 동영상|쇼츠(|라이브) · 최신|조회수 · 유튜브 화면 · 닫기.
+        listTools = ui.row(); listTools.setGravity(Gravity.CENTER_VERTICAL); listTools.setPadding(0, ui.dp(6), 0, 0);
+        HorizontalScrollView toolScroll = new HorizontalScrollView(this); toolScroll.setHorizontalScrollBarEnabled(false); toolScroll.addView(listTools);
+        searchActions = toolScroll; searchActions.setVisibility(View.GONE); content.addView(searchActions);
         statusLine = new ShimmerText(this, ACCENT, TEXT); statusLine.setTextSize(13); statusLine.setTypeface(Ui.weight(600)); statusLine.setPadding(0, ui.dp(8), 0, 0); statusLine.setVisibility(View.GONE); content.addView(statusLine);
         list = ui.column(); LinearLayout.LayoutParams listGap = new LinearLayout.LayoutParams(-1, -2); listGap.topMargin = ui.dp(10); content.addView(list, listGap);
         buildSettings(content);
         navigation = new MainNavigation(this, root, "mytube", target -> MainNavigation.open(this, target), false);
         setContentView(navigation); root.requestApplyInsets();
-        arrange();
         render();
         takeRequest();
         confirmShown();
@@ -139,20 +160,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     /** A voice request to open 마이튜브 (app_open_screen mytube) is answered once this screen is really in front. */
     private void confirmShown() { root.post(() -> { if (!destroyed && hasWindowFocus()) AppNavigator.shown(getIntent(), dev.jun.gyeot.core.AppNavigation.MYTUBE); }); }
     @Override public void onWindowFocusChanged(boolean focus) { super.onWindowFocusChanged(focus); if (focus) AppNavigator.shown(getIntent(), dev.jun.gyeot.core.AppNavigation.MYTUBE); }
-    @Override public void onConfigurationChanged(android.content.res.Configuration config) { super.onConfigurationChanged(config); arrange(); showPlayer(); }
-    /**
-     * Where the player goes: a screen 600dp or wider (a foldable opened, a tablet) puts it on the left with the list beside it,
-     * each scrolling on its own; a phone pins it on top, the list scrolling under it. Either way picking a video, searching or
-     * scrolling never takes the video out of sight.
-     */
-    private void arrange() {
-        wide = getResources().getConfiguration().screenWidthDp >= 600;
-        body.setOrientation(wide ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
-        playerScroll.setLayoutParams(wide ? new LinearLayout.LayoutParams(0, -1, 1.15f) : new LinearLayout.LayoutParams(-1, -2));
-        scroll.setLayoutParams(wide ? new LinearLayout.LayoutParams(0, -1, 1f) : new LinearLayout.LayoutParams(-1, 0, 1));
-        playerPane.setPadding(ui.dp(wide ? 16 : 12), ui.dp(8), ui.dp(wide ? 4 : 12), ui.dp(wide ? 24 : 4));
-        nowTitle.setMaxLines(wide ? 2 : 1); nowLine.setMaxLines(wide ? 3 : 1);
-    }
+    /** Folding or unfolding keeps this screen (and the video playing); the video's box follows the new width. */
+    @Override public void onConfigurationChanged(android.content.res.Configuration config) { super.onConfigurationChanged(config); videoPane.requestLayout(); showPlayer(); }
     @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putString("feed", feedId); }
     @Override protected void onResume() {
         super.onResume(); AppNavigator.inFront("mytube"); front = new java.lang.ref.WeakReference<>(this); if (chat != null) chat.attach();
@@ -168,69 +177,193 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         destroyed = true; Runnable abort = cancel.getAndSet(null); if (abort != null) abort.run();
         for (Dialog d : new ArrayList<>(dialogs)) d.dismiss(); work.shutdownNow(); super.onDestroy();
     }
-    @Override public void onBackPressed() { if (navigation != null && navigation.close()) return; super.onBackPressed(); }
+    @Override public void onBackPressed() { if (navigation != null && navigation.close()) return; if ("full".equals(viewMode)) { setView(lastView); return; } super.onBackPressed(); }
+    /** 보기 바꾸기: 가로 꽉 · 나란히 are remembered; 전체화면 lasts until it is left (✕ on the video, or back). */
+    private void setView(String mode) {
+        viewMode = mode; if (!"full".equals(mode)) { lastView = mode; store.settings.edit().putString(VIEW, mode).apply(); }
+        showPlayer();
+    }
+    /**
+     * Lays the screen out for the view: returns whether the video takes the whole height it is given (전체화면, or a Short or
+     * a YouTube page beside the list). Only what changed is laid out again.
+     */
+    private boolean arrange(boolean shown, boolean page) {
+        boolean wideScreen = getResources().getConfiguration().screenWidthDp >= 600;
+        boolean shorts = page && player.browseUrl().contains("/shorts/");
+        if (!shown && "full".equals(viewMode)) viewMode = lastView;
+        boolean full = shown && "full".equals(viewMode), side = shown && !full && wideScreen && ("side".equals(viewMode) || shorts), fill = full || side && page;
+        sideToggle.setVisibility(wideScreen ? View.VISIBLE : View.GONE); sideToggle.setAlpha(side ? 1f : 0.6f);
+        sideToggle.setContentDescription(side ? "가로 꽉 차게 보기 · 목록은 아래로" : "나란히 보기 · 왼쪽 영상, 오른쪽 목록");
+        String key = full + "/" + side + "/" + fill + "/" + shorts;
+        if (key.equals(arranged)) return fill;
+        arranged = key;
+        body.setOrientation(side ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        videoPane.setLayoutParams(side ? new LinearLayout.LayoutParams(0, -1, shorts ? 0.85f : 1.3f) : full ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
+        stage.setLayoutParams(fill ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
+        listPane.setLayoutParams(side ? new LinearLayout.LayoutParams(0, -1, 1) : new LinearLayout.LayoutParams(-1, 0, 1));
+        listPane.setVisibility(full ? View.GONE : View.VISIBLE);
+        controlsRow.setVisibility(full ? View.GONE : View.VISIBLE); gripView.setVisibility(fill ? View.GONE : View.VISIBLE); exitFull.setVisibility(full ? View.VISIBLE : View.GONE);
+        if (chat != null) chat.composer.setVisibility(full ? View.GONE : View.VISIBLE);
+        if (navigation != null) navigation.immersive(full);
+        android.view.WindowInsetsController bars = getWindow().getInsetsController();
+        if (bars != null) {
+            if (full) { bars.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE); bars.hide(WindowInsets.Type.systemBars()); }
+            else bars.show(WindowInsets.Type.systemBars());
+        }
+        return fill;
+    }
 
     // ── the player ───────────────────────────────────────────────────────────
+    /**
+     * The player in two parts: pinned on top, the video across the whole width (16:9, at most half the screen's height) with
+     * its play buttons under it; at the top of the list, what plays (title, channel, why) and 화질 · 캡처 · 내용 정리 · 저장.
+     */
     private void buildPlayer(LinearLayout content) {
-        playerCard = ui.card(); playerCard.setVisibility(View.GONE);
         screen = new GeckoView(this);
-        int width = getResources().getDisplayMetrics().widthPixels - ui.dp(64);
-        videoHeight = Math.max(ui.dp(160), Math.min(ui.dp(420), width * 9 / 16));
-        // The video's 16:9 box follows the width the card really gets (half a wide screen, a phone's full width).
-        playerCard.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
-            int inner = r - l - v.getPaddingLeft() - v.getPaddingRight(); if (inner <= 0 || r - l == or - ol) return;
-            int fit = Math.max(ui.dp(160), Math.min(ui.dp(480), inner * 9 / 16));
-            if (fit != videoHeight) { videoHeight = fit; main.post(this::showPlayer); }
+        videoHeight = videoFit(getResources().getDisplayMetrics().widthPixels);
+        videoPane.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (r - l <= 0 || r - l == or - ol) return;
+            int fit = videoFit(r - l); if (fit != videoHeight) { videoHeight = fit; main.post(this::showPlayer); }
         });
-        playerCard.addView(screen, new LinearLayout.LayoutParams(-1, videoHeight));
-        nowTitle = ui.text("", 15, 650, TEXT); nowTitle.setMaxLines(2); nowTitle.setEllipsize(TextUtils.TruncateAt.END); nowTitle.setPadding(0, ui.dp(10), 0, 0);
-        nowLine = ui.label("", 12, MUTED); nowLine.setMaxLines(2);
+        stage = new android.widget.FrameLayout(this); stage.setBackgroundColor(0xff000000);
+        stage.addView(screen, new android.widget.FrameLayout.LayoutParams(-1, videoHeight));
+        ImageView leave = ui.quietIcon(R.drawable.ic_close, "전체화면 끝내기", () -> setView(lastView)); leave.setImageTintList(android.content.res.ColorStateList.valueOf(0xffffffff));
+        leave.setBackground(ui.shape(0x66000000, PILL)); leave.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9)); leave.setVisibility(View.GONE); exitFull = leave;
+        android.widget.FrameLayout.LayoutParams leaveAt = new android.widget.FrameLayout.LayoutParams(ui.dp(38), ui.dp(38), Gravity.TOP | Gravity.END); leaveAt.setMargins(0, ui.dp(10), ui.dp(10), 0);
+        stage.addView(leave, leaveAt);
+        videoPane.addView(stage, new LinearLayout.LayoutParams(-1, -2));
+        viewMode = lastView = "side".equals(store.settings.getString(VIEW, "wide")) ? "side" : "wide";
+        playerCard = ui.column(); playerCard.setVisibility(View.GONE); playerCard.setPadding(0, ui.dp(2), 0, ui.dp(8));
+        nowTitle = ui.text("", 14, 650, TEXT); nowTitle.setMaxLines(2); nowTitle.setEllipsize(TextUtils.TruncateAt.END);
+        nowLine = ui.label("", 12, MUTED); nowLine.setMaxLines(3);
         playerCard.addView(nowTitle); playerCard.addView(nowLine);
-        LinearLayout controls = ui.row(); controls.setGravity(Gravity.CENTER); controls.setPadding(0, ui.dp(10), 0, 0);
-        previous = ui.dial(R.drawable.ic_previous, "이전", false, () -> player.previous());
-        toggle = ui.dial(R.drawable.ic_pause, "멈춤", false, () -> player.toggle());
-        next = ui.dial(R.drawable.ic_next, "다음", false, () -> player.next());
-        heart = ui.dial(R.drawable.ic_heart, "좋아요", false, () -> player.like());
-        Ui.Dial skip = ui.dial(R.drawable.ic_close, "안 볼래요 · 다음 추천에서 빼요", false, () -> player.skip());
-        Ui.Dial end = ui.dial(R.drawable.ic_stop, "끝내기", true, () -> player.stop());
-        for (View v : new View[]{previous, toggle, next, heart, skip, end}) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.leftMargin = ui.dp(4); p.rightMargin = ui.dp(4); controls.addView(v, p); }
-        playerCard.addView(controls);
+        LinearLayout controls = ui.row(); controls.setGravity(Gravity.CENTER); controls.setPadding(ui.dp(6), ui.dp(5), ui.dp(6), ui.dp(1));
+        LinearLayout capsule = ui.row(); capsule.setGravity(Gravity.CENTER_VERTICAL); capsule.setBackground(ui.shape(FILL, PILL)); capsule.setPadding(ui.dp(3), ui.dp(2), ui.dp(3), ui.dp(2));
+        previous = roundIcon(R.drawable.ic_previous, "이전 영상", () -> player.previous()); capsule.addView(previous, new LinearLayout.LayoutParams(ui.dp(34), ui.dp(34)));
+        capsule.addView(seekButton("−10", "10초 뒤로", -10)); capsule.addView(seekButton("−5", "5초 뒤로", -5));
+        toggle = roundIcon(R.drawable.ic_pause, "멈춤", () -> player.toggle()); toggle.setBackground(ui.shape(ACCENT, PILL)); toggle.setImageTintList(android.content.res.ColorStateList.valueOf(ON_ACCENT));
+        LinearLayout.LayoutParams playAt = new LinearLayout.LayoutParams(ui.dp(34), ui.dp(34)); playAt.leftMargin = ui.dp(2); playAt.rightMargin = ui.dp(2); capsule.addView(toggle, playAt);
+        capsule.addView(seekButton("+5", "5초 앞으로", 5)); capsule.addView(seekButton("+10", "10초 앞으로", 10));
+        next = roundIcon(R.drawable.ic_next, "다음 영상", () -> player.next()); capsule.addView(next, new LinearLayout.LayoutParams(ui.dp(34), ui.dp(34)));
+        transport = capsule; controls.addView(capsule, new LinearLayout.LayoutParams(-2, -2));
+        // 보기: 나란히 (a wide screen only) and 전체화면, one small group.
+        LinearLayout views = ui.row(); views.setGravity(Gravity.CENTER_VERTICAL); views.setBackground(ui.shape(FILL, PILL)); views.setPadding(ui.dp(3), ui.dp(2), ui.dp(3), ui.dp(2));
+        sideToggle = roundIcon(R.drawable.ic_layers, "나란히 보기 · 왼쪽 영상, 오른쪽 목록", () -> setView("side".equals(viewMode) ? "wide" : "side"));
+        views.addView(sideToggle, new LinearLayout.LayoutParams(ui.dp(34), ui.dp(34)));
+        views.addView(roundIcon(R.drawable.ic_expand, "전체화면 · 영상만", () -> setView("full")), new LinearLayout.LayoutParams(ui.dp(34), ui.dp(34)));
+        LinearLayout.LayoutParams viewsAt = new LinearLayout.LayoutParams(-2, -2); viewsAt.leftMargin = ui.dp(6); controls.addView(views, viewsAt);
+        // On a YouTube page (a channel, Shorts, the sign-in): YouTube's own controls play it; this goes back to the list.
+        backChip = withIcon(ui.smallChip("목록으로", () -> player.stop()), R.drawable.ic_back); backChip.setContentDescription("유튜브 화면 닫고 마이튜브 목록으로");
+        controls.addView(backChip, new LinearLayout.LayoutParams(-2, -2));
+        endDial = ui.dial(R.drawable.ic_stop, "끝내기", true, () -> player.stop()).compact();
+        LinearLayout.LayoutParams endAt = new LinearLayout.LayoutParams(-2, -2); endAt.leftMargin = ui.dp(6); controls.addView(endDial, endAt);
+        controlsRow = controls; videoPane.addView(controls);
+        // 크기 조절: a small bar under the controls; dragged down the video grows, up it shrinks; a double tap fits it again.
+        sizeRatio = store.settings.getFloat(VIDEO_SIZE, 0f);
+        android.widget.FrameLayout grip = new android.widget.FrameLayout(this);
+        View bar = new View(this); bar.setBackground(ui.shape(SEPARATOR, PILL));
+        grip.addView(bar, new android.widget.FrameLayout.LayoutParams(ui.dp(36), ui.dp(4), Gravity.CENTER));
+        grip.setContentDescription("영상 크기 조절 · 위아래로 끌기, 두 번 누르면 원래 크기"); grip.setTooltipText("끌어서 영상 크기 조절");
+        android.view.GestureDetector taps = new android.view.GestureDetector(this, new android.view.GestureDetector.SimpleOnGestureListener() {
+            @Override public boolean onDown(android.view.MotionEvent e) { return true; }
+            @Override public boolean onDoubleTap(android.view.MotionEvent e) { sizeRatio = 0f; store.settings.edit().remove(VIDEO_SIZE).apply(); showPlayer(); return true; }
+        });
+        grip.setOnTouchListener((v, e) -> {
+            taps.onTouchEvent(e);
+            int screenHeight = getResources().getDisplayMetrics().heightPixels;
+            switch (e.getActionMasked()) {
+                case android.view.MotionEvent.ACTION_DOWN -> { dragFrom = e.getRawY(); dragHeight = screen.getHeight(); dragging = false; v.getParent().requestDisallowInterceptTouchEvent(true); }
+                case android.view.MotionEvent.ACTION_MOVE -> {
+                    if (!dragging && Math.abs(e.getRawY() - dragFrom) < ui.dp(4)) return true;
+                    dragging = true; int h = clampVideo(dragHeight + Math.round(e.getRawY() - dragFrom), screenHeight);
+                    if (screen.getLayoutParams().height != h) { screen.getLayoutParams().height = h; screen.requestLayout(); }
+                }
+                case android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
+                    if (dragging) { sizeRatio = screen.getLayoutParams().height / (float) screenHeight; store.settings.edit().putFloat(VIDEO_SIZE, sizeRatio).apply(); }
+                    dragging = false;
+                }
+                default -> {}
+            }
+            return true;
+        });
+        gripView = grip; videoPane.addView(grip, new LinearLayout.LayoutParams(-1, ui.dp(14)));
         // The picture quality, as chosen and as it plays now.
-        qualityChip = withIcon(ui.chip("화질", this::chooseQuality), R.drawable.ic_tune);
-        LinearLayout qualityRow = ui.row(); qualityRow.setGravity(Gravity.CENTER); qualityRow.setPadding(0, ui.dp(8), 0, 0);
-        qualityRow.addView(qualityChip, new LinearLayout.LayoutParams(-2, -2));
+        qualityChip = withIcon(ui.smallChip("화질", this::chooseQuality), R.drawable.ic_tune);
+        LinearLayout qualityRow = ui.row(); qualityRow.setGravity(Gravity.CENTER); qualityRow.setPadding(0, ui.dp(6), 0, 0);
+        qualityRow.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        heart = withIcon(ui.smallChip("좋아요", () -> player.like()), R.drawable.ic_heart); qualityRow.addView(heart, new LinearLayout.LayoutParams(-2, -2));
+        skipChip = withIcon(ui.smallChip("안 볼래요", () -> player.skip()), R.drawable.ic_close); skipChip.setContentDescription("안 볼래요 · 다음 추천에서 빼고 다음 영상");
+        LinearLayout.LayoutParams skipAt = new LinearLayout.LayoutParams(-2, -2); skipAt.leftMargin = ui.dp(6); qualityRow.addView(skipChip, skipAt);
+        LinearLayout.LayoutParams qualityAt = new LinearLayout.LayoutParams(-2, -2); qualityAt.leftMargin = ui.dp(6); qualityRow.addView(qualityChip, qualityAt);
+        // 배속: 0.5× to 2×, kept for the next videos.
+        speedChip = withIcon(ui.smallChip("1×", this::chooseSpeed), R.drawable.ic_bolt);
+        LinearLayout.LayoutParams speedAt = new LinearLayout.LayoutParams(-2, -2); speedAt.leftMargin = ui.dp(6); qualityRow.addView(speedChip, speedAt);
         // 캡처: the frame now, into 들퍼레/마이튜브 캡처. 내용 정리: what the video says, by the main chat's AI.
-        captureChip = withIcon(ui.chip("캡처", () -> player.capture(this::toast)), R.drawable.ic_gallery);
-        summaryChip = withIcon(ui.chip("내용 정리", () -> { MyTube.Video v = player.current(); if (v != null) summarize(v); }), R.drawable.ic_sparkle);
-        LinearLayout.LayoutParams chipGapLeft = new LinearLayout.LayoutParams(-2, -2); chipGapLeft.leftMargin = ui.dp(8);
+        captureChip = withIcon(ui.smallChip("캡처", () -> player.capture(this::toast)), R.drawable.ic_gallery);
+        summaryChip = withIcon(ui.smallChip("내용 정리", () -> { MyTube.Video v = player.current(); if (v != null) summarize(v); }), R.drawable.ic_sparkle);
+        LinearLayout.LayoutParams chipGapLeft = new LinearLayout.LayoutParams(-2, -2); chipGapLeft.leftMargin = ui.dp(6);
         qualityRow.addView(captureChip, chipGapLeft);
-        LinearLayout.LayoutParams chipGapLeft2 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft2.leftMargin = ui.dp(8);
+        LinearLayout.LayoutParams chipGapLeft2 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft2.leftMargin = ui.dp(6);
         qualityRow.addView(summaryChip, chipGapLeft2);
         // 저장: into the feed it fits (the main chat's AI chooses, or proposes a new feed).
-        saveChip = withIcon(ui.chip("저장", this::saveCurrent), R.drawable.ic_add);
-        LinearLayout.LayoutParams chipGapLeft3 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft3.leftMargin = ui.dp(8);
+        saveChip = withIcon(ui.smallChip("저장", this::saveCurrent), R.drawable.ic_add);
+        LinearLayout.LayoutParams chipGapLeft3 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft3.leftMargin = ui.dp(6);
         qualityRow.addView(saveChip, chipGapLeft3);
         HorizontalScrollView qualityScroll = new HorizontalScrollView(this); qualityScroll.setHorizontalScrollBarEnabled(false); qualityScroll.addView(qualityRow);
         playerCard.addView(qualityScroll);
-        content.addView(playerCard);
+        content.addView(playerCard, 0);
     }
+    /** A round icon button for the controls capsule. */
+    private ImageView roundIcon(int icon, String name, Runnable action) {
+        ImageView b = ui.quietIcon(icon, name, action); b.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)); b.setImageTintList(android.content.res.ColorStateList.valueOf(TEXT)); return b;
+    }
+    /** 앞뒤 이동: −10 · −5 · +5 · +10, small figures in the capsule. */
+    private TextView seekButton(String label, String name, int seconds) {
+        TextView b = ui.text(label, 12.5f, 650, TEXT); b.setGravity(Gravity.CENTER); b.setMinWidth(ui.dp(30)); b.setMinimumWidth(ui.dp(30)); b.setHeight(ui.dp(34));
+        b.setPadding(ui.dp(3), 0, ui.dp(3), 0); b.setContentDescription(name); b.setTooltipText(name);
+        b.setOnClickListener(v -> { v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY); player.seek(seconds); }); Ui.pressable(b, false);
+        return b;
+    }
+    private static final float[] SPEEDS = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f};
+    private static String speedLabel(float r) { return (r == Math.rint(r) ? String.valueOf((int) r) : String.valueOf(r)) + "×"; }
+    private void chooseSpeed() {
+        String[] labels = new String[SPEEDS.length]; int at = 2;
+        for (int i = 0; i < SPEEDS.length; i++) { labels[i] = speedLabel(SPEEDS[i]); if (Math.abs(SPEEDS[i] - player.rate()) < 0.01f) at = i; }
+        Ui.Sheet sheet = ui.choices("배속", "다음 영상에도 같은 속도로 재생해요", labels, at, i -> player.rate(SPEEDS[i]));
+        dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet)); sheet.show();
+    }
+    /** A dragged height kept between a small strip (120dp) and most of the screen (80%). */
+    private int clampVideo(int height, int screenHeight) { return Math.max(ui.dp(120), Math.min(height, screenHeight * 80 / 100)); }
+    /** The video's height for a width: 16:9, never under 160dp nor over half the screen. */
+    private int videoFit(int width) { return Math.max(ui.dp(160), Math.min(width * 9 / 16, getResources().getDisplayMetrics().heightPixels / 2)); }
     private void showPlayer() {
         if (destroyed) return;
         MyTube.Video now = player.current();
-        boolean signingIn = !player.active() && player.signingIn();
-        playerCard.setVisibility(player.active() || signingIn ? View.VISIBLE : View.GONE);
-        playerScroll.setVisibility(playerCard.getVisibility());
-        // The sign-in page needs room to read and type (on a phone half the screen, so the list still shows); a video fills a 16:9 box.
-        int height = signingIn ? Math.max(videoHeight, (wide ? getResources().getDisplayMetrics().heightPixels * 3 / 5 : getResources().getDisplayMetrics().heightPixels / 2)) : videoHeight;
-        if (screen.getLayoutParams() != null && screen.getLayoutParams().height != height) { screen.getLayoutParams().height = height; screen.requestLayout(); }
-        if (player.active() || signingIn) player.attach(screen);
-        nowTitle.setText(now == null ? signingIn ? "유튜브 로그인 · 로그인한 뒤 ‘끝내기’를 누르면 목록으로 돌아와요" : "" : now.title());
-        nowLine.setText(now == null ? signingIn && !"유튜브 로그인".equals(player.status()) ? player.status() : ""
-            : now.channel() + (player.status().isEmpty() ? "" : " · " + player.status()) + (now.reason().isEmpty() || !wide ? "" : "\n" + now.reason()));
-        toggle.on(player.playing() || "불러오는 중".equals(player.status()) ? R.drawable.ic_pause : R.drawable.ic_play, player.playing() ? "멈춤" : "재생", false);
-        heart.on(player.liked() ? R.drawable.ic_heart_filled : R.drawable.ic_heart, player.liked() ? "좋아요 취소" : "좋아요", player.liked());
-        previous.setEnabled(player.index() > 0);
+        boolean signingIn = !player.active() && player.signingIn(), browsing = !player.active() && !signingIn && player.browsing();
+        playerCard.setVisibility(player.active() || signingIn || browsing ? View.VISIBLE : View.GONE);
+        videoPane.setVisibility(playerCard.getVisibility());
+        boolean fill = arrange(player.active() || signingIn || browsing, browsing);
+        // A YouTube page (a channel, Shorts, the sign-in) needs room to read and use; a video fills its 16:9 box.
+        int screenHeight = getResources().getDisplayMetrics().heightPixels;
+        int height = browsing ? Math.max(videoHeight, screenHeight * 64 / 100) : signingIn ? Math.max(videoHeight, screenHeight / 2) : videoHeight;
+        if (sizeRatio > 0f) height = clampVideo(Math.round(screenHeight * sizeRatio), screenHeight); // the size the user dragged it to
+        if (fill) height = -1; // 전체화면, or a Short / YouTube page beside the list: the whole height it has
+        if (!dragging && screen.getLayoutParams() != null && screen.getLayoutParams().height != height) { screen.getLayoutParams().height = height; screen.requestLayout(); }
+        if (player.active() || signingIn || browsing) player.attach(screen);
+        transport.setVisibility(player.active() ? View.VISIBLE : View.GONE); endDial.setVisibility(player.active() ? View.VISIBLE : View.GONE);
+        backChip.setVisibility(player.active() ? View.GONE : View.VISIBLE);
+        nowTitle.setText(now != null ? now.title() : signingIn ? "유튜브 로그인 · 로그인한 뒤 ‘목록으로’를 누르면 돌아와요" : browsing ? "유튜브 화면 · 채널·쇼츠·정렬을 유튜브 그대로" : "");
+        nowLine.setText(now == null ? signingIn && !"유튜브 로그인".equals(player.status()) ? player.status() : browsing ? "다 보면 영상 아래 ‘목록으로’" : ""
+            : now.channel() + (player.status().isEmpty() ? "" : " · " + player.status()) + (now.reason().isEmpty() ? "" : "\n" + now.reason()));
+        boolean going = player.playing() || "불러오는 중".equals(player.status());
+        toggle.setImageResource(going ? R.drawable.ic_pause : R.drawable.ic_play); toggle.setContentDescription(going ? "멈춤" : "재생");
+        heart.setText(player.liked() ? "좋아요 취소" : "좋아요");
+        android.graphics.drawable.Drawable mark = getDrawable(player.liked() ? R.drawable.ic_heart_filled : R.drawable.ic_heart);
+        if (mark != null) { mark = mark.mutate(); mark.setTint(player.liked() ? ACCENT : TEXT); mark.setBounds(0, 0, ui.dp(16), ui.dp(16)); heart.setCompoundDrawablesRelative(mark, null, null, null); }
+        previous.setEnabled(player.index() > 0); previous.setAlpha(player.index() > 0 ? 1f : 0.35f);
         next.setEnabled(player.active());
+        speedChip.setText(speedLabel(player.rate())); speedChip.setContentDescription("배속 " + speedLabel(player.rate()) + ", 눌러서 바꾸기");
+        for (View chip : new View[]{heart, skipChip, speedChip}) chip.setVisibility(player.active() ? View.VISIBLE : View.GONE);
         String chosen = MyTube.QUALITY_LABELS[MyTube.qualityIndex(player.quality())], playingAt = player.qualityNow();
         qualityChip.setText("화질 · " + chosen + (playingAt.isEmpty() || playingAt.equals(chosen) ? "" : " · 지금 " + playingAt));
         qualityChip.setContentDescription("화질, " + chosen + (playingAt.isEmpty() ? "" : ", 지금 " + playingAt) + ", 눌러서 바꾸기");
@@ -252,30 +385,37 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         if (shown != null) { feedId = shown.id(); store.settings.edit().putString("mytubeFeed", feedId).apply(); }
         chips.removeAllViews();
         for (MyTube.Feed f : feeds) {
-            Button chip = ui.chip(f.name(), () -> { searched = null; feedId = f.id(); render(); refreshIfStale(); });
+            Button chip = ui.smallChip(f.name(), () -> { searched = null; feedId = f.id(); render(); refreshIfStale(); });
             boolean on = searched == null && f.id().equals(feedId);
             chip.setBackground(ui.shape(on ? ACCENT : FILL, PILL)); chip.setTextColor(on ? ON_ACCENT : TEXT); chip.setSelected(on);
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(8); chips.addView(chip, p);
         }
-        Button add = ui.chip("＋ 피드", () -> editFeed(null)); chips.addView(add);
+        Button add = ui.smallChip("＋ 피드", () -> editFeed(null)); chips.addView(add);
         // 정리: 마이튜브 AI puts the feeds in order (it also does this by itself when a feed is added).
-        if (feeds.size() >= 2) { Button tidy = withIcon(ui.chip("AI 정리", () -> organize(this::toast)), R.drawable.ic_sparkle); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.leftMargin = ui.dp(8); chips.addView(tidy, p); }
+        if (feeds.size() >= 2) { Button tidy = withIcon(ui.smallChip("AI 정리", () -> organize(this::toast)), R.drawable.ic_sparkle); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.leftMargin = ui.dp(8); chips.addView(tidy, p); }
         list.removeAllViews();
         searchActions.setVisibility(searched != null && !searching ? View.VISIBLE : View.GONE);
         searchPlayAll.setVisibility(found.isEmpty() ? View.GONE : View.VISIBLE);
         if (searched != null) {
             feedActions.setVisibility(View.GONE);
-            header.setText(searched.endsWith(" 채널") ? "‘" + searched.substring(0, searched.length() - 3) + "’ 채널의 최신 영상" : "‘" + searched + "’ 검색 결과");
-            about.setText(searching || found.isEmpty() ? "" : (searched.endsWith(" 채널") ? "영상 " : "유튜브에서 찾은 영상 ") + found.size() + "개 · 누르면 여기서부터 재생해요"); when.setText("");
-            for (MyTube.Channel c : foundChannels) list.addView(channelRow(c));
-            for (int i = 0; i < found.size(); i++) { int index = i; list.addView(videoRow(found.get(i), () -> playFound(index))); }
+            String kindName = "shorts".equals(listKind) ? "쇼츠" : "live".equals(listKind) ? "라이브" : "동영상";
+            header.setText(shownChannel != null ? "‘" + shownChannel.title() + "’ 채널 · " + kindName : "‘" + searched + "’ " + ("shorts".equals(listKind) ? "쇼츠" : "검색 결과"));
+            about.setText(searching || found.isEmpty() ? "" : kindName + " " + found.size() + "개"
+                + (byViews ? " · 조회수 순" + (shownChannel != null ? "(최근 것 중)" : "") : "")
+                + ("shorts".equals(listKind) ? " · 누르면 유튜브 쇼츠 화면에서 넘겨 봐요" : " · 누르면 여기서부터 재생해요")); when.setText("");
+            renderListTools();
+            if (!"shorts".equals(listKind)) for (MyTube.Channel c : foundChannels) list.addView(channelRow(c));
+            List<MyTube.Video> rows = shownList();
+            for (int i = 0; i < rows.size(); i++) { int index = i; list.addView(videoRow(rows.get(i), () -> playFound(index))); }
             markPlaying(); tidyHeadings();
             return;
         }
         feedActions.setVisibility(shown == null ? View.GONE : View.VISIBLE);
         if (shown == null) { header.setText("피드를 만들어 볼까요?"); about.setText("볼 것을 정해 두면 AI가 유튜브에서 골라 와요. 하나를 눌러 바로 시작하세요."); when.setText(""); starters(); tidyHeadings(); return; }
-        header.setText(shown.name() + " · " + shown.kind().label + (shown.kind() == MyTube.Kind.NEWS ? " (" + Math.max(1, shown.days()) + "일)" : ""));
-        about.setText(shown.about() + (shown.kind() == MyTube.Kind.VIDEOS && !shown.channel().isBlank() ? "\n기준 채널 · " + shown.channel() : ""));
+        header.setText(shown.name() + " · " + shown.label() + (shown.kind() == MyTube.Kind.NEWS ? " (" + Math.max(1, shown.days()) + "일)" : ""));
+        StringBuilder sources = new StringBuilder(); for (MyTube.Channel c : book.sources(shown.id())) sources.append(sources.length() == 0 ? "" : " · ").append(c.title());
+        about.setText(shown.about() + (shown.kind() == MyTube.Kind.VIDEOS && !shown.channel().isBlank() ? "\n기준 채널 · " + shown.channel() : "")
+            + (sources.length() == 0 ? "" : "\n저장한 채널 · " + sources + (shown.liveOnly() ? " (방송 중이면 맨 위)" : "")));
         long at = book.refreshedAt(shown.id());
         when.setText(at == 0 ? "아직 고르지 않았어요" : "고른 때 · " + ago(at));
         List<MyTube.Video> videos = book.videos(shown.id());
@@ -302,7 +442,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         LinearLayout text = ui.column(); text.setPadding(ui.dp(12), 0, 0, 0);
         TextView title = ui.text(v.title(), 14, 600, TEXT); title.setMaxLines(2); title.setEllipsize(TextUtils.TruncateAt.END);
         // A broadcast on air: 실시간 in the accent where its length would be, with how many watch.
-        TextView line = ui.label(v.live() ? join(v.channel(), "● 실시간 방송", v.views()) : join(v.channel(), v.published(), v.length()), 12, v.live() ? ACCENT : MUTED);
+        TextView line = ui.label(v.live() ? join(v.channel(), "● 실시간 방송", v.views()) : v.shortForm() ? join(v.channel(), "쇼츠", v.views()) : join(v.channel(), v.published(), v.length(), byViews ? v.views() : ""), 12, v.live() ? ACCENT : MUTED);
         line.setSingleLine(true); line.setEllipsize(TextUtils.TruncateAt.END);
         text.addView(title); text.addView(line);
         if (!v.reason().isEmpty()) { TextView why = ui.label(v.reason(), 12, ACCENT); why.setMaxLines(2); text.addView(why); }
@@ -330,8 +470,56 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         player.play(f, videos, index); player.attach(screen); showPlayer();
     }
     private void playFound(int index) {
-        if (searched == null || found.isEmpty()) return;
-        player.play(MyTube.searchFeed(searched), found, index); player.attach(screen); showPlayer();
+        List<MyTube.Video> rows = shownList(); if (searched == null || rows.isEmpty() || index >= rows.size()) return;
+        // A Short opens in YouTube's own Shorts screen (vertical, swipe for the next).
+        if (rows.get(index).shortForm()) { player.browse(MyTube.shortsPage(rows.get(index).id())); player.attach(screen); showPlayer(); scroll.smoothScrollTo(0, 0); return; }
+        player.play(MyTube.searchFeed(searched), rows, index); player.attach(screen); showPlayer();
+    }
+    /** What the list shows: as found, or by views. */
+    private List<MyTube.Video> shownList() { return byViews ? MyTube.byViews(found) : found; }
+    /** The slim row over a search's or a channel's list: 모두 재생, 동영상|쇼츠(|라이브), 최신|조회수 (관련|조회수 for a search), 유튜브 화면, 닫기. */
+    private void renderListTools() {
+        listTools.removeAllViews();
+        if (!found.isEmpty() && !"shorts".equals(listKind)) addTool(searchPlayAll);
+        boolean channel = shownChannel != null;
+        String[] kinds = channel ? new String[]{"동영상", "쇼츠", "라이브"} : new String[]{"동영상", "쇼츠"};
+        int kindAt = "shorts".equals(listKind) ? 1 : "live".equals(listKind) ? 2 : 0;
+        addTool(ui.switcher(kinds, kindAt, i -> { String next = i == 1 ? "shorts" : i == 2 ? "live" : "videos"; if (!next.equals(listKind)) { listKind = next; reload(); } }));
+        addTool(ui.switcher(new String[]{channel ? "최신" : "관련", "조회수"}, byViews ? 1 : 0, i -> { boolean views = i == 1; if (views != byViews) { byViews = views; render(); } }));
+        // YouTube itself: the channel's own page (인기순, playlists, community …) or the full results (every kind).
+        Button youtube = withIcon(ui.smallChip(channel ? "채널 화면" : "유튜브에서", () -> {
+            player.browse(channel ? MyTube.channelPage(shownChannel.path()) : MyTube.resultsPage(searched)); player.attach(screen); showPlayer(); scroll.smoothScrollTo(0, 0);
+        }), R.drawable.ic_globe);
+        youtube.setContentDescription(channel ? "유튜브 채널 화면 열기 · 인기순·재생목록도 볼 수 있어요" : "유튜브 검색 화면 열기");
+        addTool(youtube);
+        Button close = withIcon(ui.smallChip("닫기", this::closeSearch), R.drawable.ic_close); close.setContentDescription(channel ? "채널 닫기" : "검색 닫기"); addTool(close);
+    }
+    private void addTool(View tool) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(6);
+        if (tool.getParent() instanceof android.view.ViewGroup g) g.removeView(tool);
+        listTools.addView(tool, p);
+    }
+    /** The list again for the kind chosen (a search's videos or Shorts; a channel's videos, Shorts or broadcasts). */
+    private void reload() {
+        String w = searched; MyTube.Channel c = shownChannel; String kind = listKind;
+        if (w == null) return;
+        int ticket = ++searchTicket; searching = true; found = List.of(); foundChannels = List.of(); render();
+        status((c != null ? "‘" + c.title() + "’ " : "‘" + w + "’ ") + ("shorts".equals(kind) ? "쇼츠" : "live".equals(kind) ? "라이브" : "영상") + " 불러오는 중"); revealResults();
+        work.execute(() -> {
+            List<MyTube.Video> got; String why = null;
+            try {
+                if (c != null) got = "shorts".equals(kind) ? MyTubeClient.channelShorts(c.path(), c.title(), cancel) : "live".equals(kind) ? MyTubeClient.channelLive(c.path(), cancel) : MyTubeClient.channelVideos(c.path(), cancel);
+                else got = "shorts".equals(kind) ? MyTubeClient.searchShorts(w, cancel) : MyTubeClient.search(w, cancel);
+            } catch (Exception e) { got = List.of(); why = friendly(e, "불러오지 못했어요."); }
+            List<MyTube.Channel> channels = c == null && "videos".equals(kind) && why == null ? MyTubeClient.channels(w, cancel) : List.of();
+            List<MyTube.Video> result = got; String failure = why;
+            main.post(() -> {
+                if (destroyed || ticket != searchTicket) return;
+                searching = false; found = result; foundChannels = channels;
+                status(failure != null ? failure : result.isEmpty() ? "보여 줄 영상이 없어요." : "");
+                render(); revealResults();
+            });
+        });
     }
     /** 직접 검색 (or a link: that video at once). */
     private void search(String words) { search(words, false, null); }
@@ -342,16 +530,18 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         if (keyboard != null) keyboard.hideSoftInputFromWindow(searchBox.getWindowToken(), 0);
         searchBox.clearFocus();
         String linked = MyTube.linkedVideo(w);
+        // A new search: no channel shown; Shorts stay Shorts if that is what was being looked at.
+        shownChannel = null; if ("live".equals(listKind)) listKind = "videos"; boolean shorts = "shorts".equals(listKind) && linked.isEmpty();
         // At once: the results' place shows the search and that it is looking, scrolled into view.
         int ticket = ++searchTicket; searching = true;
         searched = linked.isEmpty() ? w : "영상 주소"; found = List.of(); foundChannels = List.of(); render();
         status(linked.isEmpty() ? "‘" + w + "’ 찾는 중" : "영상을 여는 중"); revealResults();
         work.execute(() -> {
             List<MyTube.Video> got; String why = null;
-            try { got = linked.isEmpty() ? MyTubeClient.search(w, cancel) : List.of(MyTubeClient.video(linked, cancel)); }
+            try { got = !linked.isEmpty() ? List.of(MyTubeClient.video(linked, cancel)) : shorts ? MyTubeClient.searchShorts(w, cancel) : MyTubeClient.search(w, cancel); }
             catch (Exception e) { got = List.of(); why = friendly(e, "찾지 못했어요."); }
             // A channel's name searched: the channel too, above the videos.
-            List<MyTube.Channel> channels = linked.isEmpty() && why == null ? MyTubeClient.channels(w, cancel) : List.of();
+            List<MyTube.Channel> channels = linked.isEmpty() && !shorts && why == null ? MyTubeClient.channels(w, cancel) : List.of();
             List<MyTube.Video> result = got; String failure = why;
             main.post(() -> {
                 if (destroyed) return;
@@ -390,6 +580,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
                 if (target == null) for (MyTube.Feed f : feeds) if (MyTube.SAVED_FEED_NAME.equals(f.name())) { target = f; break; }
                 if (target == null) { target = book.save(new MyTube.Feed("", MyTube.SAVED_FEED_NAME, MyTube.Kind.VIDEOS, "직접 찾아 저장한 영상", "", 0)); made = true; }
                 book.keep(target.id(), v.because("직접 저장"));
+                // A broadcast kept (or anything kept in a live feed): its channel too, so each 새로 고르기 finds its broadcast on air then.
+                if (target.liveOnly() || v.live()) { MyTube.Channel from2 = MyTubeClient.channelOf(v.id(), cancel); if (from2 != null) book.addSource(target.id(), from2); }
                 said = (made ? "새 피드 ‘" + target.name() + "’를 만들어 " : "‘" + target.name() + "’에 ") + "저장했어요";
                 if (made) main.post(this::organizeSoon);
             } catch (Exception e) { said = "저장하지 못했어요" + (e.getMessage() == null ? "." : " · " + e.getMessage()); }
@@ -507,7 +699,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     /** 음성 대화: a spoken line of the conversation was written; the card shows it. */
     void chatChanged() { if (chat != null && !destroyed) chat.render(); }
 
-    private void closeSearch() { searchTicket++; searching = false; searched = null; found = List.of(); foundChannels = List.of(); searchBox.setText(""); status(""); render(); }
+    private void closeSearch() { searchTicket++; searching = false; searched = null; found = List.of(); foundChannels = List.of(); shownChannel = null; listKind = "videos"; byViews = false; searchBox.setText(""); status(""); render(); }
     /** Brings the results' heading to the top of the list (the search box stays a short scroll up). */
     private void revealResults() {
         scroll.post(() -> { if (!destroyed) scroll.smoothScrollTo(0, Math.max(0, header.getTop() - ui.dp(6))); });
@@ -527,9 +719,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         text.addView(name); text.addView(line);
         row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
         // ● 라이브: its broadcast on air now; 저장: one tap from the top of 마이튜브 from now on.
-        Button live = withIcon(ui.chip("라이브", () -> playLive(c, this::toast)), R.drawable.ic_play); live.setTextColor(ACCENT);
+        Button live = withIcon(ui.smallChip("라이브", () -> playLive(c, this::toast)), R.drawable.ic_play); live.setTextColor(ACCENT);
         boolean saved = book.channels().stream().anyMatch(k -> k.id().equals(c.id()));
-        Button keep = ui.chip(saved ? "저장됨" : "저장", () -> { try { if (book.channels().stream().anyMatch(k -> k.id().equals(c.id()))) book.removeChannel(c.id()); else book.saveChannel(c); } catch (Exception e) { toast(e.getMessage()); } render(); });
+        Button keep = ui.smallChip(saved ? "저장됨" : "저장", () -> { try { if (book.channels().stream().anyMatch(k -> k.id().equals(c.id()))) book.removeChannel(c.id()); else book.saveChannel(c); } catch (Exception e) { toast(e.getMessage()); } render(); });
         LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2); gap.leftMargin = ui.dp(6);
         row.addView(live, new LinearLayout.LayoutParams(-2, -2)); row.addView(keep, gap);
         row.setOnClickListener(v -> openChannel(c)); Ui.pressable(row, false);
@@ -541,7 +733,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         List<MyTube.Channel> saved = book.channels();
         liveChannels.removeAllViews(); liveScroll.setVisibility(saved.isEmpty() ? View.GONE : View.VISIBLE);
         for (MyTube.Channel c : saved) {
-            Button chip = ui.chip("● " + c.title(), () -> playLive(c, this::toast)); chip.setTextColor(ACCENT);
+            Button chip = ui.smallChip("● " + c.title(), () -> playLive(c, this::toast)); chip.setTextColor(ACCENT);
             chip.setContentDescription(c.title() + " 라이브 바로 보기, 길게 누르면 목록에서 빼기");
             chip.setOnLongClickListener(v -> { try { book.removeChannel(c.id()); toast("‘" + c.title() + "’를 라이브 채널에서 뺐어요"); } catch (Exception e) { toast(e.getMessage()); } render(); return true; });
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(8); liveChannels.addView(chip, p);
@@ -560,26 +752,17 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             main.post(() -> {
                 if (destroyed) return;
                 if (failure != null) { status(failure); if (done != null) done.accept(failure); return; }
-                searchTicket++; searching = false; searched = c.title() + " 채널"; found = result; foundChannels = List.of(); render(); revealResults();
+                searchTicket++; searching = false; shownChannel = c; listKind = "videos"; byViews = false; searched = c.title() + " 채널"; found = result; foundChannels = List.of(); render(); revealResults();
                 int at = -1; for (int i = 0; i < result.size(); i++) if (result.get(i).live()) { at = i; break; }
                 if (at >= 0) { status(""); playFound(at); if (done != null) done.accept("라이브 재생: " + result.get(at).title()); }
                 else { String said = "‘" + c.title() + "’는 지금 라이브 방송 중이 아니에요 · 최신 영상을 보여 줄게요"; status(said); if (done != null) done.accept(said); }
             });
         });
     }
-    /** A channel's newest videos in place of the search's (played the same way). */
+    /** A channel in place of the search: its 동영상 (then 쇼츠, 라이브 by the switch), newest first or by views, and 채널 화면 for YouTube's own page. */
     private void openChannel(MyTube.Channel c) {
-        status("‘" + c.title() + "’ 채널 영상을 불러오는 중");
-        work.execute(() -> {
-            List<MyTube.Video> got; String why = null;
-            try { got = MyTubeClient.channelVideos(c.path(), cancel); } catch (Exception e) { got = List.of(); why = friendly(e, "채널 영상을 읽지 못했어요."); }
-            List<MyTube.Video> result = got; String failure = why;
-            main.post(() -> {
-                if (destroyed) return;
-                status(failure != null ? failure : result.isEmpty() ? "이 채널에서 재생할 영상을 찾지 못했어요." : "");
-                if (failure == null) { searchTicket++; searching = false; searched = c.title() + " 채널"; found = result; foundChannels = List.of(); render(); revealResults(); }
-            });
-        });
+        shownChannel = c; listKind = "videos"; byViews = false; searched = c.title() + " 채널";
+        reload();
     }
     /** A picture from the web (a channel's), kept like the frames. */
     private void loadPicture(ImageView view, String url) {
@@ -676,7 +859,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         MyTube.Feed match = null; String w = wanted.toLowerCase(java.util.Locale.ROOT);
         for (MyTube.Feed f : book.feeds()) if (f.name().toLowerCase(java.util.Locale.ROOT).contains(w) || w.contains(f.name().toLowerCase(java.util.Locale.ROOT))) { match = f; break; }
         if (match == null) {
-            MyTube.Kind kind = w.contains("음악") || w.contains("노래") || w.contains("music") ? MyTube.Kind.MUSIC : w.contains("뉴스") || w.contains("소식") || w.contains("news") ? MyTube.Kind.NEWS : null;
+            MyTube.Kind kind = w.contains("음악") || w.contains("노래") || w.contains("music") ? MyTube.Kind.MUSIC : w.contains("라이브") || w.contains("생방송") || w.contains("live") ? MyTube.Kind.LIVE : w.contains("뉴스") || w.contains("소식") || w.contains("news") ? MyTube.Kind.NEWS : null;
             if (kind != null) for (MyTube.Feed f : book.feeds()) if (f.kind() == kind) { match = f; break; }
             if (match == null && kind != null) for (MyTube.Feed s : MyTube.starters()) if (s.kind() == kind) { try { match = book.save(s); } catch (Exception ignored) {} break; }
         }
@@ -711,6 +894,17 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         LinearLayout.LayoutParams gap2 = new LinearLayout.LayoutParams(-1, -2); gap2.topMargin = ui.dp(8); sheet.body.addView(what, gap2);
         LinearLayout.LayoutParams gap3 = new LinearLayout.LayoutParams(-1, -2); gap3.topMargin = ui.dp(8); sheet.body.addView(channel, gap3);
         sheet.body.addView(channelNote);
+        // 저장한 채널: the channels kept in this feed (a live feed shows their broadcasts first); ✕ takes one off.
+        if (!fresh && !book.sources(editing.id()).isEmpty()) {
+            sheet.body.addView(ui.sectionHeader("저장한 채널"));
+            LinearLayout kept = ui.row(); HorizontalScrollView keptScroll = new HorizontalScrollView(this); keptScroll.setHorizontalScrollBarEnabled(false); keptScroll.addView(kept);
+            for (MyTube.Channel c : book.sources(editing.id())) {
+                Button chip = withIcon(ui.smallChip(c.title(), () -> {}), R.drawable.ic_close); chip.setContentDescription(c.title() + " 저장한 채널에서 빼기");
+                chip.setOnClickListener(v -> { try { book.removeSource(editing.id(), c.path()); kept.removeView(chip); render(); toast("‘" + c.title() + "’를 뺐어요"); } catch (Exception e) { toast(e.getMessage()); } });
+                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(6); kept.addView(chip, p);
+            }
+            sheet.body.addView(keptScroll);
+        }
         shape.run();
         if (!fresh) sheet.body.addView(ui.actions(ui.chip("앞으로", () -> { try { book.move(editing.id(), true); render(); } catch (Exception ignored) {} }),
             ui.chip("뒤로", () -> { try { book.move(editing.id(), false); render(); } catch (Exception ignored) {} }),

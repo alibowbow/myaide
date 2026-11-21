@@ -44,6 +44,10 @@ final class MyTubePlayer {
     private boolean leftPaused;
     /** YouTube's sign-in is open in the page; the pages it went through (address without its query, for the phone log). */
     private boolean signingIn, sawAccounts, onYouTube; private final List<String> signInPath = new ArrayList<>();
+    /** 유튜브 화면: a YouTube page shown as YouTube shows it (a channel with its tabs and sorting, Shorts with their swipe). */
+    private boolean browsing; private String browseUrl = "";
+    /** 배속: the speed every video plays at (sent again as each one starts, since YouTube resets it). */
+    private float rate = 1f;
     /** YouTube's own sign-in: Google's, coming back through YouTube's sign-in handler so YouTube itself is signed in. */
     static final String SIGN_IN = "https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&hl=ko&continue="
         + java.net.URLEncoder.encode("https://www.youtube.com/signin?action_handle_signin=true&app=m&hl=ko&next=" + java.net.URLEncoder.encode("https://m.youtube.com/", java.nio.charset.StandardCharsets.UTF_8), java.nio.charset.StandardCharsets.UTF_8);
@@ -69,6 +73,9 @@ final class MyTubePlayer {
     boolean active() { return current() != null; }
     String status() { return status; }
     boolean signingIn() { return signingIn; }
+    boolean browsing() { return browsing; }
+    String browseUrl() { return browseUrl; }
+    float rate() { return rate; }
     /** On unless turned off: the screen left (home, another app, the screen off) keeps it playing. */
     boolean background() { return store.settings.getBoolean(BACKGROUND, true); }
     boolean liked() { MyTube.Video v = current(); return v != null && feed != null && book.liked(feed.id(), v.id()); }
@@ -188,6 +195,7 @@ final class MyTubePlayer {
             if (shown != null) { try { shown.releaseSession(); } catch (RuntimeException ignored) {} view = null; attach(shown); }
         }
         if (signingIn) open(SIGN_IN);
+        else if (browsing) open(browseUrl);
         else if (active()) { boolean resume = wantPlay || playing; load(at); if (!resume) { wantPlay = false; status = "멈춤"; changed(); } }
     }
 
@@ -199,7 +207,7 @@ final class MyTubePlayer {
     }
     private void load(int index) {
         at = index; MyTube.Video v = current(); if (v == null) return;
-        signingIn = false;
+        signingIn = false; browsing = false;
         // Off the screen without background play, the next video waits (paused) for the screen to come back.
         wantPlay = onScreen || background(); playing = false; qualityNow = ""; levels = List.of(); qualitySettable = true;
         status = wantPlay ? "불러오는 중" : "다음 영상 준비됨 · 돌아오면 재생해요"; if (!wantPlay) leftPaused = true;
@@ -213,6 +221,24 @@ final class MyTubePlayer {
     void pause() { wantPlay = false; send("pause"); status = "멈춤"; changed(); }
     void resume() { if (!active()) return; wantPlay = true; if (session != null) session.setActive(true); send("play"); status = "재생 중"; if (background()) MyTubeService.start(context); changed(); }
     void previous() { if (at > 0) load(at - 1); }
+    /** 앞뒤 이동: seconds forward (or back, negative) from where the video is. */
+    void seek(int seconds) { if (active()) post(dev.jun.gyeot.core.Jsons.obj("command", "seek", "by", seconds)); }
+    /** 배속: 0.25 to 2; it stays for the next videos too. */
+    void rate(float value) { rate = Math.max(0.25f, Math.min(2f, value)); if (active()) sendRate(); changed(); }
+    private void sendRate() { post(dev.jun.gyeot.core.Jsons.obj("command", "rate", "rate", (double) rate)); }
+    private void post(JSONObject command) {
+        WebExtension.Port p = port;
+        if (p != null) try { p.postMessage(dev.jun.gyeot.core.Jsons.obj("mytube", command)); } catch (RuntimeException gone) {}
+    }
+    /**
+     * 유튜브 화면: a YouTube page in the player's page, as YouTube shows it (a channel's page with its 동영상 · Shorts · 라이브 tabs
+     * and 인기순, a Short with its swipe to the next); what played stops. 끝내기 brings the list back.
+     */
+    void browse(String url) {
+        wantPlay = false; playing = false; queue.clear(); at = -1; leftPaused = false; signingIn = false;
+        browsing = true; browseUrl = url; status = "";
+        open(url); changed();
+    }
     void next() {
         if (at + 1 < queue.size()) { load(at + 1); return; }
         // A music feed goes on: more songs chosen afresh, away from what just played.
@@ -235,14 +261,14 @@ final class MyTubePlayer {
         wantPlay = false; playing = false; queue.clear(); at = -1; status = "";
         Runnable abort = cancel.getAndSet(null); if (abort != null) abort.run();
         pendingUri = null;
-        signingIn = false; leftPaused = false;
+        signingIn = false; browsing = false; leftPaused = false;
         if (session != null) { session.loadUri("about:blank"); session.setActive(onScreen); }
         MyTubeService.stop(context); changed();
     }
     /** Opens YouTube's sign-in in the player's page (the AI 브라우저 shares it). */
     void signIn() {
         wantPlay = false; playing = false; queue.clear(); at = -1; status = "유튜브 로그인"; leftPaused = false;
-        signingIn = true; sawAccounts = false; onYouTube = false; signInPath.clear();
+        signingIn = true; browsing = false; sawAccounts = false; onYouTube = false; signInPath.clear();
         store.phoneLog("마이튜브 · 유튜브 로그인 시작");
         open(SIGN_IN);
         changed();
@@ -260,7 +286,9 @@ final class MyTubePlayer {
             case "playing" -> {
                 // Off the screen without background play nothing plays (the page starting a video by itself included).
                 if (!onScreen && !background()) { send("pause"); leftPaused = true; return; }
-                playing = true; wantPlay = true; status = event.optBoolean("ad") ? "광고 재생 중" : "재생 중"; changed();
+                playing = true; wantPlay = true; status = event.optBoolean("ad") ? "광고 재생 중" : "재생 중";
+                if (rate != 1f && !event.optBoolean("ad")) sendRate(); // YouTube starts each video at 1×
+                changed();
             }
             case "paused" -> { playing = false; wantPlay = false; status = "멈춤"; changed(); }
             case "ended" -> next();
@@ -284,6 +312,7 @@ final class MyTubePlayer {
     /** The page went to another address: a video of the queue chosen on the page is followed; the start of a new load is not news. */
     private void followed(String url) {
         if (signingIn) { signInStep(url); return; }
+        if (browsing) { if (url != null && url.startsWith("http") && !url.equals(browseUrl)) { browseUrl = url; changed(); } return; }
         String id = MyTube.idOf(url);
         if (id.isEmpty()) return;
         for (int i = 0; i < queue.size(); i++) if (queue.get(i).id().equals(id) && i != at) { at = i; changed(); return; }
