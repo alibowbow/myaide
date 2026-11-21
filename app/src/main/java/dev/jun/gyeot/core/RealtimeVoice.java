@@ -205,8 +205,19 @@ public final class RealtimeVoice {
     /** The answer SDP from LIVE_CALLS' reply: its body, or its "sdp" field when it comes as JSON. */
     public static String liveAnswer(String body) {
         String text = body == null ? "" : body.strip();
-        if (text.startsWith("{")) try { return new JSONObject(text).optString("sdp"); } catch (Exception bad) { return ""; }
-        return text;
+        if (text.startsWith("{")) try { text = new JSONObject(text).optString("sdp"); } catch (Exception bad) { return ""; }
+        return sdp(text);
+    }
+    /**
+     * An SDP as WebRTC reads it: every line, the last one too, ends with CRLF (a last line without it is not read, and
+     * the answer is turned down).
+     */
+    public static String sdp(String text) {
+        String lines = (text == null ? "" : text).replace("\r\n", "\n").replace('\r', '\n').strip();
+        if (lines.isEmpty()) return "";
+        StringBuilder out = new StringBuilder();
+        for (String line : lines.split("\n")) if (!line.isBlank()) out.append(line.strip()).append("\r\n");
+        return out.toString();
     }
     /**
      * What came of a handed-off request, back into its delegation: in pieces of at most 500 bytes of UTF-8, as GPT-Live

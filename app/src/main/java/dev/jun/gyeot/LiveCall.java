@@ -318,7 +318,11 @@ final class LiveCall {
             GyeotLive.offer(pc.localDescription.sdp);
           } catch (e) { fail('음성 연결을 만들지 못했어요.'); }
         }
-        function answer(sdp) { pc.setRemoteDescription({type: 'answer', sdp: sdp}).catch(() => fail('음성 연결을 맞추지 못했어요.')); }
+        function answer(sdp) {
+          stage('연결 답 ' + sdp.split('\\r\\n').length + '줄 · 통화에 맞추는 중');
+          pc.setRemoteDescription({type: 'answer', sdp: sdp}).then(() => stage('연결 답을 맞춤 · 소리 연결을 기다리는 중'))
+            .catch((e) => fail('음성 연결을 맞추지 못했어요 · ' + (e && (e.name + ': ' + e.message) || e)));
+        }
         function send(json) { if (dc && dc.readyState === 'open') dc.send(json); else queue.push(json); }
         function mute(value) { muted = value; if (mic) mic.getAudioTracks().forEach((t) => { t.enabled = !value; }); }
         function hangup() { try { if (dc) dc.close(); if (pc) pc.close(); if (mic) mic.getTracks().forEach((t) => t.stop()); if (ctx) ctx.close(); } catch (_) {} }
