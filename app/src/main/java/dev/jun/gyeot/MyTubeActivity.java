@@ -60,6 +60,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private Ui.Dial previous, toggle, next, heart; private Button qualityChip, captureChip, summaryChip, saveChip; private int videoHeight;
     /** 직접 검색: the words searched (null when the feeds show), what YouTube found, and the box itself. */
     private String searched; private List<MyTube.Video> found = List.of(); private EditText searchBox; private View searchActions;
+    /** The channels the words name (shown above the videos found); a channel opened shows its newest videos. */
+    private List<MyTube.Channel> foundChannels = List.of();
+    /** 라이브 채널: saved channels, one tap each to their broadcast on air now. */
+    private LinearLayout liveChannels; private View liveScroll;
     /** 내용 정리 made in this run, by video. */
     private static final java.util.Map<String, String> SUMMARIES = new java.util.LinkedHashMap<>();
     private String feedId; private boolean refreshing, destroyed;
@@ -96,6 +100,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         searchBox.setOnEditorActionListener((v, action, event) -> { if (action == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH || event != null && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER) { search(searchBox.getText().toString()); return true; } return false; });
         searchBox.setContentDescription("유튜브 검색. 영상 주소를 붙여넣으면 그 영상을 바로 틀어요");
         LinearLayout.LayoutParams searchGap = new LinearLayout.LayoutParams(-1, -2); searchGap.bottomMargin = ui.dp(12); content.addView(searchBox, searchGap);
+        // 라이브 채널: the channels saved from a search, each straight to its live broadcast.
+        liveChannels = ui.row(); HorizontalScrollView liveRow = new HorizontalScrollView(this); liveRow.setHorizontalScrollBarEnabled(false); liveRow.addView(liveChannels); liveScroll = liveRow;
+        LinearLayout.LayoutParams liveGap = new LinearLayout.LayoutParams(-1, -2); liveGap.bottomMargin = ui.dp(12); content.addView(liveRow, liveGap);
         // 마이튜브 AI: say what to watch or do (typed below, or spoken with 음성 대화).
         chat = new MyTubeChat(this, ui, store, book, work, main, this);
         LinearLayout.LayoutParams chatGap = new LinearLayout.LayoutParams(-1, -2); chatGap.bottomMargin = ui.dp(12); content.addView(chat.card, chatGap);
@@ -209,6 +216,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         return feeds.isEmpty() ? null : feeds.get(0);
     }
     private void render() {
+        renderLiveChannels();
         List<MyTube.Feed> feeds = book.feeds(); MyTube.Feed shown = searched != null ? null : feed();
         if (shown != null) { feedId = shown.id(); store.settings.edit().putString("mytubeFeed", feedId).apply(); }
         chips.removeAllViews();
@@ -225,7 +233,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         searchActions.setVisibility(searched != null && !found.isEmpty() ? View.VISIBLE : View.GONE);
         if (searched != null) {
             feedActions.setVisibility(View.GONE);
-            header.setText("‘" + searched + "’ 검색 결과"); about.setText(found.isEmpty() ? "" : "유튜브에서 찾은 영상 " + found.size() + "개 · 누르면 여기서부터 재생해요"); when.setText("");
+            header.setText(searched.endsWith(" 채널") ? "‘" + searched.substring(0, searched.length() - 3) + "’ 채널의 최신 영상" : "‘" + searched + "’ 검색 결과");
+            about.setText(found.isEmpty() ? "" : (searched.endsWith(" 채널") ? "영상 " : "유튜브에서 찾은 영상 ") + found.size() + "개 · 누르면 여기서부터 재생해요"); when.setText("");
+            for (MyTube.Channel c : foundChannels) list.addView(channelRow(c));
             for (int i = 0; i < found.size(); i++) { int index = i; list.addView(videoRow(found.get(i), () -> playFound(index))); }
             markPlaying();
             return;
@@ -257,7 +267,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         loadFrame(frame, v.id());
         LinearLayout text = ui.column(); text.setPadding(ui.dp(12), 0, 0, 0);
         TextView title = ui.text(v.title(), 14, 600, TEXT); title.setMaxLines(2); title.setEllipsize(TextUtils.TruncateAt.END);
-        TextView line = ui.label(join(v.channel(), v.published(), v.length()), 12, MUTED); line.setSingleLine(true); line.setEllipsize(TextUtils.TruncateAt.END);
+        // A broadcast on air: 실시간 in the accent where its length would be, with how many watch.
+        TextView line = ui.label(v.live() ? join(v.channel(), "● 실시간 방송", v.views()) : join(v.channel(), v.published(), v.length()), 12, v.live() ? ACCENT : MUTED);
+        line.setSingleLine(true); line.setEllipsize(TextUtils.TruncateAt.END);
         text.addView(title); text.addView(line);
         if (!v.reason().isEmpty()) { TextView why = ui.label(v.reason(), 12, ACCENT); why.setMaxLines(2); text.addView(why); }
         row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
@@ -301,11 +313,13 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             List<MyTube.Video> got; String why = null;
             try { got = linked.isEmpty() ? MyTubeClient.search(w, cancel) : List.of(MyTubeClient.video(linked, cancel)); }
             catch (Exception e) { got = List.of(); why = friendly(e, "찾지 못했어요."); }
+            // A channel's name searched: the channel too, above the videos.
+            List<MyTube.Channel> channels = linked.isEmpty() && why == null ? MyTubeClient.channels(w, cancel) : List.of();
             List<MyTube.Video> result = got; String failure = why;
             main.post(() -> {
                 if (destroyed) return;
                 status(failure != null ? failure : result.isEmpty() ? "찾은 영상이 없어요. 다른 말로 찾아보세요." : "");
-                searched = linked.isEmpty() ? w : "영상 주소"; found = result; render();
+                searched = linked.isEmpty() ? w : "영상 주소"; found = result; foundChannels = channels; render();
                 boolean play = (!linked.isEmpty() || playFirst) && !result.isEmpty();
                 if (play) playFound(0);
                 if (done != null) done.accept(failure != null ? failure : result.isEmpty() ? "‘" + w + "’로 찾은 영상이 없어요"
@@ -392,6 +406,16 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
                 }
                 search(a.optString("query"), true, done);
             }
+            case "play_live" -> {
+                String named = a.optString("channel").strip();
+                MyTube.Channel saved = MyTube.channelNamed(book.channels(), named);
+                if (saved != null) { playLive(saved, done); return; }
+                if (named.isEmpty()) { done.accept("어느 채널의 라이브인지 몰라요"); return; }
+                work.execute(() -> {
+                    List<MyTube.Channel> channels = MyTubeClient.channels(named, cancel);
+                    main.post(() -> { if (destroyed) return; if (channels.isEmpty()) done.accept("‘" + named + "’ 채널을 찾지 못했어요"); else playLive(channels.get(0), done); });
+                });
+            }
             case "play_results" -> { if (searched == null || found.isEmpty()) { done.accept("보이는 검색 결과가 없어요"); return; } int at = Math.max(0, Math.min(found.size() - 1, a.optInt("from"))); playFound(at); done.accept("재생: " + found.get(at).title()); }
             case "play_feed", "refresh" -> {
                 MyTube.Feed f = MyTube.feedNamed(book.feeds(), a.optString("feed")); if (f == null) { done.accept("‘" + a.optString("feed") + "’ 피드를 찾지 못했어요"); return; }
@@ -444,7 +468,92 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     /** 음성 대화: a spoken line of the conversation was written; the card shows it. */
     void chatChanged() { if (chat != null && !destroyed) chat.render(); }
 
-    private void closeSearch() { searched = null; found = List.of(); searchBox.setText(""); status(""); render(); }
+    private void closeSearch() { searched = null; found = List.of(); foundChannels = List.of(); searchBox.setText(""); status(""); render(); }
+    /** A channel the search found: its picture, name, handle and subscribers; a tap shows its newest videos. */
+    private View channelRow(MyTube.Channel c) {
+        LinearLayout row = ui.row(); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(0, ui.dp(8), 0, ui.dp(8));
+        ImageView face = new ImageView(this); face.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        android.graphics.drawable.GradientDrawable round = new android.graphics.drawable.GradientDrawable(); round.setShape(android.graphics.drawable.GradientDrawable.OVAL); round.setColor(FILL);
+        face.setBackground(round); face.setClipToOutline(true); face.setContentDescription(c.title() + " 채널 사진");
+        LinearLayout.LayoutParams faceAt = new LinearLayout.LayoutParams(ui.dp(56), ui.dp(56)); faceAt.leftMargin = ui.dp(38); faceAt.rightMargin = ui.dp(50);
+        row.addView(face, faceAt);
+        if (!c.picture().isEmpty()) loadPicture(face, c.picture());
+        LinearLayout text = ui.column();
+        TextView name = ui.text(c.title(), 15, 650, TEXT); name.setSingleLine(true); name.setEllipsize(TextUtils.TruncateAt.END);
+        TextView line = ui.label(join(c.handle(), c.subscribers()), 12, MUTED); line.setSingleLine(true); line.setEllipsize(TextUtils.TruncateAt.END);
+        text.addView(name); text.addView(line);
+        row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
+        // ● 라이브: its broadcast on air now; 저장: one tap from the top of 마이튜브 from now on.
+        Button live = withIcon(ui.chip("라이브", () -> playLive(c, this::toast)), R.drawable.ic_play); live.setTextColor(ACCENT);
+        boolean saved = book.channels().stream().anyMatch(k -> k.id().equals(c.id()));
+        Button keep = ui.chip(saved ? "저장됨" : "저장", () -> { try { if (book.channels().stream().anyMatch(k -> k.id().equals(c.id()))) book.removeChannel(c.id()); else book.saveChannel(c); } catch (Exception e) { toast(e.getMessage()); } render(); });
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2); gap.leftMargin = ui.dp(6);
+        row.addView(live, new LinearLayout.LayoutParams(-2, -2)); row.addView(keep, gap);
+        row.setOnClickListener(v -> openChannel(c)); Ui.pressable(row, false);
+        row.setContentDescription(c.title() + " 채널, " + line.getText() + ". 누르면 이 채널의 최신 영상");
+        return row;
+    }
+    /** 라이브 채널 above the feeds: ● and the name, a tap to its broadcast; a long press takes it off. */
+    private void renderLiveChannels() {
+        List<MyTube.Channel> saved = book.channels();
+        liveChannels.removeAllViews(); liveScroll.setVisibility(saved.isEmpty() ? View.GONE : View.VISIBLE);
+        for (MyTube.Channel c : saved) {
+            Button chip = ui.chip("● " + c.title(), () -> playLive(c, this::toast)); chip.setTextColor(ACCENT);
+            chip.setContentDescription(c.title() + " 라이브 바로 보기, 길게 누르면 목록에서 빼기");
+            chip.setOnLongClickListener(v -> { try { book.removeChannel(c.id()); toast("‘" + c.title() + "’를 라이브 채널에서 뺐어요"); } catch (Exception e) { toast(e.getMessage()); } render(); return true; });
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(8); liveChannels.addView(chip, p);
+        }
+    }
+    /**
+     * A channel's live broadcast on air now, played at once (its 라이브 tab, then its videos after it); when it is not on air,
+     * its newest videos show instead and say so.
+     */
+    private void playLive(MyTube.Channel c, java.util.function.Consumer<String> done) {
+        status("‘" + c.title() + "’ 라이브를 찾는 중");
+        work.execute(() -> {
+            List<MyTube.Video> got; String why = null;
+            try { got = MyTubeClient.channelVideos(c.path(), cancel); } catch (Exception e) { got = List.of(); why = friendly(e, "채널을 읽지 못했어요."); }
+            List<MyTube.Video> result = got; String failure = why;
+            main.post(() -> {
+                if (destroyed) return;
+                if (failure != null) { status(failure); if (done != null) done.accept(failure); return; }
+                searched = c.title() + " 채널"; found = result; foundChannels = List.of(); render();
+                int at = -1; for (int i = 0; i < result.size(); i++) if (result.get(i).live()) { at = i; break; }
+                if (at >= 0) { status(""); playFound(at); if (done != null) done.accept("라이브 재생: " + result.get(at).title()); }
+                else { String said = "‘" + c.title() + "’는 지금 라이브 방송 중이 아니에요 · 최신 영상을 보여 줄게요"; status(said); if (done != null) done.accept(said); }
+            });
+        });
+    }
+    /** A channel's newest videos in place of the search's (played the same way). */
+    private void openChannel(MyTube.Channel c) {
+        status("‘" + c.title() + "’ 채널 영상을 불러오는 중");
+        work.execute(() -> {
+            List<MyTube.Video> got; String why = null;
+            try { got = MyTubeClient.channelVideos(c.path(), cancel); } catch (Exception e) { got = List.of(); why = friendly(e, "채널 영상을 읽지 못했어요."); }
+            List<MyTube.Video> result = got; String failure = why;
+            main.post(() -> {
+                if (destroyed) return;
+                status(failure != null ? failure : result.isEmpty() ? "이 채널에서 재생할 영상을 찾지 못했어요." : "");
+                if (failure == null) { searched = c.title() + " 채널"; found = result; foundChannels = List.of(); render(); }
+            });
+        });
+    }
+    /** A picture from the web (a channel's), kept like the frames. */
+    private void loadPicture(ImageView view, String url) {
+        Bitmap kept = FRAMES.get(url); view.setTag(url);
+        if (kept != null) { view.setImageBitmap(kept); return; }
+        work.execute(() -> {
+            try {
+                java.net.HttpURLConnection http = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                http.setConnectTimeout(10_000); http.setReadTimeout(15_000);
+                Bitmap bitmap;
+                try (java.io.InputStream in = http.getInputStream()) { bitmap = BitmapFactory.decodeStream(in); } finally { http.disconnect(); }
+                if (bitmap == null) return;
+                FRAMES.put(url, bitmap);
+                main.post(() -> { if (!destroyed && url.equals(view.getTag())) view.setImageBitmap(bitmap); });
+            } catch (Exception unavailable) { /* the gray circle stays */ }
+        });
+    }
     /**
      * 내용 정리: what the video says (its transcript, as the main chat reads a YouTube link), summed up by the main chat's AI in
      * a sheet; kept for the run, so it opens again at once. The video goes on playing meanwhile.

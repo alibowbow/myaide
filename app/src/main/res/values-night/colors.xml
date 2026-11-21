@@ -4,4 +4,8 @@
     <color name="bg">#121110</color>
     <color name="accent">#F08A63</color>
     <color name="accent_soft">#44F08A63</color>
+    <!-- The app's popups (AlertDialog): Ui.java's CARD, TEXT and MUTED. -->
+    <color name="card">#1D1C1A</color>
+    <color name="text">#F3F1EC</color>
+    <color name="muted">#A3A097</color>
 </resources>

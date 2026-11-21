@@ -338,7 +338,7 @@ final class VoiceTargets {
                 JSONObject action = obj("type", "object", "required", arr("do"), "properties", obj(
                     "do", obj("type", "string", "enum", new JSONArray(dev.jun.gyeot.core.MyTube.ACTIONS)),
                     "query", obj("type", "string", "description", "search / play: what to find"), "video", obj("type", "string", "description", "play: a listed video's id"),
-                    "link", obj("type", "string", "description", "play: a YouTube link"), "from", obj("type", "integer"), "feed", obj("type", "string", "description", "play_feed / refresh: the feed's id or name"),
+                    "link", obj("type", "string", "description", "play: a YouTube link"), "channel", obj("type", "string", "description", "play_live: the channel's name or @handle"), "from", obj("type", "integer"), "feed", obj("type", "string", "description", "play_feed / refresh: the feed's id or name"),
                     "name", obj("type", "string"), "kind", obj("type", "string", "enum", arr("VIDEOS", "NEWS", "MUSIC")), "about", obj("type", "string"), "channel", obj("type", "string"),
                     "days", obj("type", "integer"), "play", obj("type", "boolean"), "action", obj("type", "string", "enum", arr("pause", "resume", "next", "previous", "stop", "like", "skip")),
                     "value", obj("type", "string", "enum", arr("auto", "max", "hd1080", "hd720", "large", "medium")), "on", obj("type", "boolean")));

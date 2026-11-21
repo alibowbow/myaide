@@ -488,6 +488,37 @@ public final class PhoneService extends AccessibilityService {
         Point size = new Point(); getSystemService(DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY).getRealSize(size); return size;
     }
 
+    // ── 마이튜브 캡처 ─────────────────────────────────────────────────────
+    /**
+     * The screen as it shows, cut to area (screen pixels): what the phone itself draws, video included. A browser's own
+     * capture (GeckoView, a page's canvas) cannot see a video, which the phone's decoder draws on a layer of its own, and
+     * comes out black. done gets the picture, or null and why; on the main thread.
+     */
+    static void shootArea(android.graphics.Rect area, java.util.function.BiConsumer<Bitmap, String> done) {
+        android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        PhoneService service = instance;
+        if (service == null) { main.post(() -> done.accept(null, "폰 조작이 꺼져 있어요")); return; }
+        try {
+            service.takeScreenshot(Display.DEFAULT_DISPLAY, service.imaging, new TakeScreenshotCallback() {
+                @Override public void onSuccess(ScreenshotResult shot) {
+                    HardwareBuffer buffer = shot.getHardwareBuffer();
+                    try {
+                        Bitmap hardware = Bitmap.wrapHardwareBuffer(buffer, shot.getColorSpace());
+                        if (hardware == null) { main.post(() -> done.accept(null, "화면 이미지를 만들지 못했어요")); return; }
+                        Bitmap pixels = hardware.copy(Bitmap.Config.ARGB_8888, false); hardware.recycle();
+                        android.graphics.Rect cut = new android.graphics.Rect(area);
+                        if (!cut.intersect(0, 0, pixels.getWidth(), pixels.getHeight()) || cut.width() < 8 || cut.height() < 8) { pixels.recycle(); main.post(() -> done.accept(null, "영상이 화면에 보이지 않아요")); return; }
+                        Bitmap part = Bitmap.createBitmap(pixels, cut.left, cut.top, cut.width(), cut.height());
+                        if (part != pixels) pixels.recycle();
+                        main.post(() -> done.accept(part, null));
+                    } catch (RuntimeException failed) { main.post(() -> done.accept(null, "화면 이미지를 만들지 못했어요")); }
+                    finally { buffer.close(); }
+                }
+                @Override public void onFailure(int code) { main.post(() -> done.accept(null, ScreenView.failure(code))); }
+            });
+        } catch (RuntimeException refused) { main.post(() -> done.accept(null, "화면을 캡처하지 못했어요")); }
+    }
+
     // ── 화면 보기 ─────────────────────────────────────────────────────────
 
     private void requireScreenView() {

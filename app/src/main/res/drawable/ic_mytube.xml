@@ -1,0 +1,5 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <!-- 마이튜브: a rounded video screen with its play button cut out of it, one color (tinted like every menu icon). -->
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+        android:pathData="M6.2,4.6H17.8C20.4,4.6 22.4,6.4 22.6,8.9C22.7,10.6 22.7,13.4 22.6,15.1C22.4,17.6 20.4,19.4 17.8,19.4H6.2C3.6,19.4 1.6,17.6 1.4,15.1C1.3,13.4 1.3,10.6 1.4,8.9C1.6,6.4 3.6,4.6 6.2,4.6Z M9.9,8.9C9.9,8.4 10.4,8.1 10.8,8.4L15.6,11.5C16,11.7 16,12.3 15.6,12.5L10.8,15.6C10.4,15.9 9.9,15.6 9.9,15.1Z"/>
+</vector>

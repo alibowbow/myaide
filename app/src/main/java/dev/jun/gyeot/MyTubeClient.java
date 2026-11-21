@@ -66,7 +66,8 @@ final class MyTubeClient {
             List<MyTube.Video> listed = data == null ? List.of() : MyTube.videos(data);
             if (feed.kind() == MyTube.Kind.NEWS) listed = MyTube.recent(listed, feed.days());
             for (MyTube.Video v : listed) {
-                if (leaveOut.contains(v.id()) || (!referenceTitle.isEmpty() && referenceTitle.equals(v.channel()))) continue;
+                // A broadcast on air never ends: a feed that plays on would stop on it.
+                if (v.live() || leaveOut.contains(v.id()) || (!referenceTitle.isEmpty() && referenceTitle.equals(v.channel()))) continue;
                 found.putIfAbsent(v.id(), v);
             }
             if (found.size() >= CANDIDATES) break;
@@ -91,6 +92,28 @@ final class MyTubeClient {
         if (data == null) throw new IOException("유튜브 검색 결과를 읽지 못했어요. 잠시 뒤에 다시 해 주세요.");
         List<MyTube.Video> found = MyTube.videos(data);
         return found.size() > 40 ? new ArrayList<>(found.subList(0, 40)) : found;
+    }
+    /** The channels a search names (YouTube's channel filter), at most three; none when the page could not be read. Blocking. */
+    static List<MyTube.Channel> channels(String words, AtomicReference<Runnable> cancel) {
+        try {
+            JSONObject data = MyTube.initialData(get(MyTube.channelSearchUrl(words), cancel));
+            List<MyTube.Channel> found = data == null ? List.of() : MyTube.channels(data);
+            return found.size() > 3 ? new ArrayList<>(found.subList(0, 3)) : found;
+        } catch (Exception unreadable) { return List.of(); }
+    }
+    /** A channel: its broadcast on air now first (its 라이브 tab), then its newest videos (its 동영상 tab). Blocking. */
+    static List<MyTube.Video> channelVideos(String path, AtomicReference<Runnable> cancel) throws IOException {
+        Map<String, MyTube.Video> found = new LinkedHashMap<>();
+        try {
+            JSONObject streams = MyTube.initialData(get(MyTube.channelStreamsUrl(path), cancel));
+            if (streams != null) for (MyTube.Video v : MyTube.videos(streams)) if (v.live()) found.putIfAbsent(v.id(), v);
+        } catch (java.util.concurrent.CancellationException stop) { throw stop; }
+        catch (IOException noStreamsTab) { /* a channel that never broadcast */ }
+        JSONObject data = MyTube.initialData(get(MyTube.channelVideosUrl(path), cancel));
+        if (data == null && found.isEmpty()) throw new IOException("채널 영상을 읽지 못했어요.");
+        if (data != null) for (MyTube.Video v : MyTube.videos(data)) found.putIfAbsent(v.id(), v);
+        List<MyTube.Video> all = new ArrayList<>(found.values());
+        return all.size() > 40 ? new ArrayList<>(all.subList(0, 40)) : all;
     }
     /** A video opened by its link: YouTube's own title and channel for it (oEmbed), or a plain one when it says nothing. Blocking. */
     static MyTube.Video video(String id, AtomicReference<Runnable> cancel) {

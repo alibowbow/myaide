@@ -14,7 +14,7 @@ final class MainNavigation extends LinearLayout {
     static final String TARGET="app_menu_destination";
     static final String[] IDS={"voice","chat","work","board","pages","browser","mytube","phone","gallery","settings"};
     static final String[] LABELS={"음성 비서","메인 대화","작업창","판서","페이지","브라우저","마이튜브","내 휴대폰","갤러리","설정"};
-    static final int[] ICONS={R.drawable.ic_wave,R.drawable.ic_chat,R.drawable.ic_work,R.drawable.ic_board,R.drawable.ic_pages,R.drawable.ic_browser,R.drawable.ic_video,R.drawable.ic_folder,R.drawable.ic_gallery,R.drawable.ic_settings};
+    static final int[] ICONS={R.drawable.ic_wave,R.drawable.ic_chat,R.drawable.ic_work,R.drawable.ic_board,R.drawable.ic_pages,R.drawable.ic_browser,R.drawable.ic_mytube,R.drawable.ic_phone,R.drawable.ic_gallery,R.drawable.ic_settings};
     private final Activity activity;private final Ui ui;private final Consumer<String> route;private final boolean primaryScreen;
     final Button menu;final TextView current;final ScrollView rail;final LinearLayout railItems;
     private final LinearLayout top;private String selected;private boolean wide;private Dialog drawer;private Runnable resize=()->{};

@@ -69,6 +69,25 @@ public final class MyTubeBook {
         writeFeeds(out);
     }
 
+    // ── 라이브 채널 (channels.json): channels saved to go straight to their live broadcast ──
+    public synchronized List<MyTube.Channel> channels() {
+        List<MyTube.Channel> out = new ArrayList<>(); JSONArray list = read("channels.json").optJSONArray("channels");
+        for (int i = 0; list != null && i < list.length(); i++) { JSONObject o = list.optJSONObject(i); if (o != null && !o.optString("id").isEmpty()) out.add(MyTube.Channel.of(o)); }
+        return out;
+    }
+    /** Saves a channel (once; again moves it first), at most 20. */
+    public synchronized void saveChannel(MyTube.Channel channel) throws IOException {
+        List<MyTube.Channel> all = channels(); all.removeIf(c -> c.id().equals(channel.id())); all.add(0, channel);
+        while (all.size() > 20) all.remove(all.size() - 1);
+        JSONArray list = new JSONArray(); for (MyTube.Channel c : all) list.put(c.json());
+        write("channels.json", obj("channels", list));
+    }
+    public synchronized void removeChannel(String id) throws IOException {
+        List<MyTube.Channel> all = channels(); all.removeIf(c -> c.id().equals(id));
+        JSONArray list = new JSONArray(); for (MyTube.Channel c : all) list.put(c.json());
+        write("channels.json", obj("channels", list));
+    }
+
     // ── 마이튜브 AI's conversation (chat.json), the newest CHAT lines ───────
     static final int CHAT = 200;
     /** One line of the conversation: the user's (typed or spoken), the AI's, or what the app did (note). */

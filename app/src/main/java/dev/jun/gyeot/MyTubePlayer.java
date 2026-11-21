@@ -296,33 +296,71 @@ final class MyTubePlayer {
         if (!active()) { done.accept("재생 중인 영상이 없어요."); return; }
         if (capturing != null) { done.accept("캡처하는 중이에요."); return; }
         capturing = done;
-        if (port == null) { fromView(MyTube.captureName(current().title(), 0, java.time.LocalDateTime.now())); return; }
+        if (port == null) { fromScreen(MyTube.captureName(current().title(), 0, java.time.LocalDateTime.now())); return; }
         send("frame");
         java.util.function.Consumer<String> asked = done;
-        main.postDelayed(() -> { if (capturing == asked) fromView(MyTube.captureName(current() == null ? "" : current().title(), 0, java.time.LocalDateTime.now())); }, 6000);
+        main.postDelayed(() -> { if (capturing == asked) fromScreen(MyTube.captureName(current() == null ? "" : current().title(), 0, java.time.LocalDateTime.now())); }, 6000);
     }
     private void framed(JSONObject event) {
         if (capturing == null) return;
         MyTube.Video v = current();
         String name = MyTube.captureName(v == null ? event.optString("title") : v.title(), event.optDouble("time", 0), java.time.LocalDateTime.now());
         String data = event.optString("data");
-        if (data.isEmpty()) { fromView(name); return; }
+        if (data.isEmpty()) { fromScreen(name); return; }
         byte[] bytes;
-        try { bytes = android.util.Base64.decode(data, android.util.Base64.DEFAULT); } catch (IllegalArgumentException broken) { fromView(name); return; }
+        try { bytes = android.util.Base64.decode(data, android.util.Base64.DEFAULT); } catch (IllegalArgumentException broken) { fromScreen(name); return; }
+        // The page's frame is black when the phone's decoder draws the video (the page cannot read that layer).
+        android.graphics.Bitmap frame = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        boolean black = frame == null || blank(frame); if (frame != null) frame.recycle();
+        if (black) { fromScreen(name); return; }
         saveCapture(name, bytes);
     }
-    /** The player's own view as it shows (when the page could not draw its frame). */
-    private void fromView(String name) {
+    /**
+     * The screen as the phone shows it, cut to the player (PhoneService, 폰 조작): the one capture that sees a video the
+     * phone draws itself. Without it, or when it fails, the player's own view.
+     */
+    private void fromScreen(String name) {
+        GeckoView shown = view;
+        if (shown == null || !shown.isShown() || !PhoneService.connected()) { fromView(name, null); return; }
+        int[] at = new int[2]; shown.getLocationOnScreen(at);
+        android.graphics.Rect area = new android.graphics.Rect(at[0], at[1], at[0] + shown.getWidth(), at[1] + shown.getHeight());
+        PhoneService.shootArea(area, (picture, why) -> {
+            if (picture != null && !blank(picture)) { saveCapture(name, jpeg(picture)); return; }
+            if (picture != null) picture.recycle();
+            fromView(name, why);
+        });
+    }
+    /** The player's own view as it shows (its page, without a video the phone draws itself). */
+    private void fromView(String name, String why) {
         GeckoView shown = view;
         if (shown == null) { finishCapture("마이튜브 화면이 열려 있을 때 캡처할 수 있어요."); return; }
         try {
             shown.capturePixels().accept(bitmap -> {
                 if (bitmap == null) { finishCapture("화면을 캡처하지 못했어요."); return; }
-                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, out); bitmap.recycle();
-                saveCapture(name, out.toByteArray());
+                if (blank(bitmap)) { bitmap.recycle(); finishCapture(blackWhy(why)); return; }
+                saveCapture(name, jpeg(bitmap));
             }, failed -> main.post(() -> finishCapture("화면을 캡처하지 못했어요.")));
         } catch (RuntimeException failed) { finishCapture("화면을 캡처하지 못했어요."); }
+    }
+    /** Why the capture would only be black, and what makes it work. */
+    private static String blackWhy(String why) {
+        if (!PhoneService.connected()) return "영상은 휴대폰이 따로 그려서 앱 안에서 캡처하면 까맣게 나와요 · 설정에서 ‘폰 조작’을 켜면 화면 그대로 캡처해요";
+        return "영상 장면을 캡처하지 못했어요" + (why == null || why.isBlank() ? "" : " · " + why) + " · 보호된 영상은 캡처가 막혀 있어요";
+    }
+    private static byte[] jpeg(android.graphics.Bitmap picture) {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        picture.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, out); picture.recycle();
+        return out.toByteArray();
+    }
+    /** Black (or nearly): no pixel of a sparse grid brighter than the darkest grays. */
+    static boolean blank(android.graphics.Bitmap picture) {
+        int w = picture.getWidth(), h = picture.getHeight(); if (w <= 0 || h <= 0) return true;
+        int brightest = 0;
+        for (int y = 0; y < 24; y++) for (int x = 0; x < 24; x++) {
+            int c = picture.getPixel(Math.min(w - 1, x * w / 24 + w / 48), Math.min(h - 1, y * h / 24 + h / 48));
+            brightest = Math.max(brightest, (((c >> 16) & 0xff) + ((c >> 8) & 0xff) + (c & 0xff)) / 3);
+        }
+        return brightest < 24;
     }
     private void saveCapture(String name, byte[] bytes) {
         Thread work = new Thread(() -> {

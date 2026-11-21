@@ -12,5 +12,42 @@
         <item name="android:colorAccent">@color/accent</item>
         <item name="android:colorPrimary">@color/accent</item>
         <item name="android:textColorHighlight">@color/accent_soft</item>
+        <item name="android:alertDialogTheme">@style/SoftDialog</item>
+    </style>
+    <!--
+      Every AlertDialog in the app (choices, confirmations): compact and soft, not a wide square slab. A rounded card that
+      is 360dp at most (a phone's width less its margins; never the whole width of a tablet), short 44dp rows in 15sp, and a lighter dim behind.
+    -->
+    <style name="SoftDialog" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/dialog_soft</item>
+        <item name="android:windowMinWidthMajor">300dp</item>
+        <item name="android:windowMinWidthMinor">300dp</item>
+        <item name="android:backgroundDimAmount">0.42</item>
+        <item name="android:colorAccent">@color/accent</item>
+        <item name="android:colorPrimary">@color/accent</item>
+        <item name="android:textColorPrimary">@color/text</item>
+        <item name="android:textColorSecondary">@color/muted</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:dialogPreferredPadding">20dp</item>
+        <item name="android:listPreferredItemHeightSmall">44dp</item>
+        <item name="android:listPreferredItemPaddingLeft">20dp</item>
+        <item name="android:listPreferredItemPaddingRight">20dp</item>
+        <item name="android:listPreferredItemPaddingStart">20dp</item>
+        <item name="android:listPreferredItemPaddingEnd">20dp</item>
+        <item name="android:textAppearanceListItemSmall">@style/SoftDialogItem</item>
+        <item name="android:textAppearanceMedium">@style/SoftDialogMessage</item>
+        <item name="android:windowTitleStyle">@style/SoftDialogTitle</item>
+    </style>
+    <style name="SoftDialogItem" parent="android:style/TextAppearance.Material.Subhead">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">@color/text</item>
+    </style>
+    <style name="SoftDialogMessage" parent="android:style/TextAppearance.Material.Body1">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">@color/muted</item>
+    </style>
+    <style name="SoftDialogTitle" parent="android:style/TextAppearance.Material.Title">
+        <item name="android:textSize">17sp</item>
+        <item name="android:textColor">@color/text</item>
     </style>
 </resources>

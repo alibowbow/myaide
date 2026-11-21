@@ -51,6 +51,8 @@ public final class MyTube {
             return new Video(o.optString("id"), o.optString("title"), o.optString("channel"), o.optString("published"), o.optString("length"), o.optString("views"), o.optString("reason"));
         }
         public Video because(String why) { return new Video(id, title, channel, published, length, views, why == null ? "" : why); }
+        /** On air now (a live broadcast: it plays on until the channel ends it). */
+        public boolean live() { return LIVE.equals(length); }
         /** How old it is, in hours, from its "3일 전" / "3 days ago"; -1 when the page did not say. */
         public long ageHours() { return MyTube.ageHours(published); }
     }
@@ -172,6 +174,60 @@ public final class MyTube {
         walk(data, found, 0);
         return new ArrayList<>(found.values());
     }
+    // ── channels in a search ────────────────────────────────────────────────
+    /** A channel a search found: its id, name, page path (/@handle or /channel/…), handle, subscribers and picture. */
+    public record Channel(String id, String title, String path, String handle, String subscribers, String picture) {
+        public JSONObject json() { return obj("id", id, "title", title, "path", path, "handle", handle, "subscribers", subscribers, "picture", picture); }
+        public static Channel of(JSONObject o) { return new Channel(o.optString("id"), o.optString("title"), o.optString("path"), o.optString("handle"), o.optString("subscribers"), o.optString("picture")); }
+    }
+    /** A saved channel the words name (its name or @handle, spacing and case aside); null when none. */
+    public static Channel channelNamed(List<Channel> channels, String named) {
+        if (named == null || named.isBlank()) return null;
+        String n = named.replaceAll("\\s+", "").toLowerCase(Locale.ROOT).replaceFirst("^@", "");
+        for (Channel c : channels) {
+            String t = c.title().replaceAll("\\s+", "").toLowerCase(Locale.ROOT), h = c.handle().toLowerCase(Locale.ROOT).replaceFirst("^@", "");
+            if (n.equals(t) || n.equals(h) || !n.isEmpty() && (t.contains(n) || n.contains(t))) return c;
+        }
+        return null;
+    }
+    /** YouTube's search for channels only (its own filter). */
+    public static String channelSearchUrl(String query) {
+        return "https://www.youtube.com/results?search_query=" + URLEncoder.encode(query == null ? "" : query.strip(), StandardCharsets.UTF_8) + "&sp=EgIQAg%3D%3D";
+    }
+    /** The channels a page lists, in order (channelRenderer), at most 10. */
+    public static List<Channel> channels(JSONObject data) {
+        Map<String, Channel> found = new LinkedHashMap<>();
+        walkChannels(data, found, 0);
+        return new ArrayList<>(found.values());
+    }
+    private static void walkChannels(Object node, Map<String, Channel> found, int depth) {
+        if (depth > 60 || found.size() >= 10) return;
+        if (node instanceof JSONObject o) {
+            for (java.util.Iterator<String> keys = o.keys(); keys.hasNext();) {
+                String key = keys.next(); Object value = o.opt(key);
+                if ("channelRenderer".equals(key) && value instanceof JSONObject v) { Channel c = channel(v); if (c != null) found.putIfAbsent(c.id(), c); continue; }
+                walkChannels(value, found, depth + 1);
+            }
+        } else if (node instanceof JSONArray a) for (int i = 0; i < a.length(); i++) walkChannels(a.opt(i), found, depth + 1);
+    }
+    private static Channel channel(JSONObject v) {
+        String id = v.optString("channelId"); if (!id.matches("UC[A-Za-z0-9_-]{20,}")) return null;
+        String title = text(v.optJSONObject("title")); if (title.isEmpty()) return null;
+        JSONObject browse = path(v, "navigationEndpoint", "browseEndpoint");
+        String url = browse == null ? "" : browse.optString("canonicalBaseUrl");
+        if (url.isEmpty()) { JSONObject web = path(v, "navigationEndpoint", "commandMetadata", "webCommandMetadata"); url = web == null ? "" : web.optString("url"); }
+        if (url.isEmpty()) url = "/channel/" + id;
+        // YouTube puts the handle in subscriberCountText and the subscribers in videoCountText on newer pages.
+        String a = text(v.optJSONObject("subscriberCountText")), b = text(v.optJSONObject("videoCountText"));
+        String handle = a.startsWith("@") ? a : b.startsWith("@") ? b : url.startsWith("/@") ? url.substring(1) : "";
+        String subscribers = a.startsWith("@") ? b : a;
+        String picture = "";
+        JSONArray thumbs = v.optJSONObject("thumbnail") == null ? null : v.optJSONObject("thumbnail").optJSONArray("thumbnails");
+        if (thumbs != null && thumbs.length() > 0) { picture = thumbs.optJSONObject(thumbs.length() - 1) == null ? "" : thumbs.optJSONObject(thumbs.length() - 1).optString("url"); if (picture.startsWith("//")) picture = "https:" + picture; }
+        if (!picture.startsWith("https://")) picture = "";
+        return new Channel(id, title, url, handle, subscribers, picture);
+    }
+
     private static void walk(Object node, Map<String, Video> found, int depth) {
         if (depth > 60 || found.size() >= 200) return;
         if (node instanceof JSONObject o) {
@@ -193,8 +249,8 @@ public final class MyTube {
         String id = v.optString("videoId");
         if (!id.matches("[A-Za-z0-9_-]{11}")) return null;
         String length = text(v.optJSONObject("lengthText"));
-        // No length is a live stream or a premiere: not something to play through.
-        if (length.isEmpty()) return null;
+        // No length: a broadcast on air now (kept, as LIVE), or a premiere still to come (left out).
+        if (length.isEmpty()) { if (!liveNow(v)) return null; length = LIVE; }
         String channel = text(v.optJSONObject("ownerText")); if (channel.isEmpty()) channel = text(v.optJSONObject("longBylineText")); if (channel.isEmpty()) channel = text(v.optJSONObject("shortBylineText"));
         String views = text(v.optJSONObject("viewCountText")); if (views.isEmpty()) views = text(v.optJSONObject("shortViewCountText"));
         return new Video(id, text(v.optJSONObject("title")), channel, text(v.optJSONObject("publishedTimeText")), length, views, "");
@@ -224,7 +280,9 @@ public final class MyTube {
             JSONArray badges = arrPath(overlays.optJSONObject(i), "thumbnailBottomOverlayViewModel", "badges");
             for (int b = 0; badges != null && b < badges.length(); b++) {
                 String badge = path(badges.optJSONObject(b), "thumbnailBadgeViewModel") == null ? "" : badges.optJSONObject(b).optJSONObject("thumbnailBadgeViewModel").optString("text");
+                String style = path(badges.optJSONObject(b), "thumbnailBadgeViewModel") == null ? "" : badges.optJSONObject(b).optJSONObject("thumbnailBadgeViewModel").optString("badgeStyle");
                 if (badge.matches("\\d{1,2}(:\\d{2}){1,2}")) length = badge;
+                else if (length.isEmpty() && (style.contains("LIVE") || badge.equalsIgnoreCase("LIVE") || badge.equals("실시간") || badge.equals("라이브"))) length = LIVE;
             }
         }
         if (length.isEmpty()) return null;
@@ -385,12 +443,12 @@ public final class MyTube {
 
     // ── 마이튜브 AI (its own conversation, typed or spoken) ─────────────────────
     /** What the app can do when the AI says so; one JSON object each, done in order. */
-    public static final List<String> ACTIONS = List.of("search", "play", "play_results", "play_feed", "refresh", "feed_create", "organize_feeds",
+    public static final List<String> ACTIONS = List.of("search", "play", "play_live", "play_results", "play_feed", "refresh", "feed_create", "organize_feeds",
         "control", "save", "capture", "summary", "quality", "background");
     public static final String AGENT = "You are the AI of 마이튜브, the user's own YouTube page in the app (it replaces YouTube's recommendation algorithm). "
         + "The user tells you in their words what to watch or do; you answer briefly in Korean and say what the app should do as actions, which it does in order. "
         + "Actions (JSON objects): {\"do\":\"search\",\"query\":\"...\"} shows YouTube's results; {\"do\":\"play\",\"query\":\"...\"} finds and plays the best match at once "
-        + "(or {\"do\":\"play\",\"video\":\"<id>\"} for one listed below, or {\"do\":\"play\",\"link\":\"<YouTube link>\"}); {\"do\":\"play_results\",\"from\":0} plays the shown results; "
+        + "(or {\"do\":\"play\",\"video\":\"<id>\"} for one listed below, or {\"do\":\"play\",\"link\":\"<YouTube link>\"}); {\"do\":\"play_live\",\"channel\":\"name or @handle\"} plays that channel's live broadcast on air now; {\"do\":\"play_results\",\"from\":0} plays the shown results; "
         + "{\"do\":\"play_feed\",\"feed\":\"<id>\"} plays a feed (choosing its videos first when it has none); {\"do\":\"refresh\",\"feed\":\"<id>\"} has the feed chosen afresh; "
         + "{\"do\":\"feed_create\",\"name\":\"...\",\"kind\":\"VIDEOS|NEWS|MUSIC\",\"about\":\"what it gathers\",\"channel\":\"@handle or empty\",\"days\":7,\"play\":false} makes a feed "
         + "(VIDEOS for videos on a topic or like a channel, NEWS for the latest news within days, MUSIC for songs played on and on); {\"do\":\"organize_feeds\"} puts the feed list in a sensible order; "
@@ -473,6 +531,26 @@ public final class MyTube {
             if (known.contains(id) && !name.isEmpty()) renames.put(id, name.length() > 30 ? name.substring(0, 30).strip() : name);
         }
         return new Order(ids, renames);
+    }
+
+    /** A live broadcast's length (it has none). */
+    public static final String LIVE = "LIVE";
+    /** A channel's 라이브 tab (its broadcasts, the one on air now first). */
+    public static String channelStreamsUrl(String path) { return channelVideosUrl(path).replaceFirst("/videos$", "/streams"); }
+    /** Whether a videoRenderer is on air now (its LIVE badge or overlay), not a premiere or a past broadcast. */
+    static boolean liveNow(JSONObject v) {
+        if (v.has("upcomingEventData")) return false;
+        JSONArray badges = v.optJSONArray("badges");
+        for (int i = 0; badges != null && i < badges.length(); i++) {
+            JSONObject b = badges.optJSONObject(i) == null ? null : badges.optJSONObject(i).optJSONObject("metadataBadgeRenderer");
+            if (b != null && b.optString("style").contains("LIVE_NOW")) return true;
+        }
+        JSONArray overlays = v.optJSONArray("thumbnailOverlays");
+        for (int i = 0; overlays != null && i < overlays.length(); i++) {
+            JSONObject o = overlays.optJSONObject(i) == null ? null : overlays.optJSONObject(i).optJSONObject("thumbnailOverlayTimeStatusRenderer");
+            if (o != null && "LIVE".equals(o.optString("style"))) return true;
+        }
+        return false;
     }
 
     /** The first JSON object in an answer (code fences and words around it allowed). */
