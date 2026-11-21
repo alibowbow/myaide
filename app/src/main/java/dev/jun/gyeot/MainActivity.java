@@ -1032,7 +1032,7 @@ public final class MainActivity extends Activity {
         // A conversation has no title for the status line to sit under: with nothing to report (empty, or the idle 준비됐어요),
         // it leaves no lone dot above the messages. Settings shows its states in its rows, so there too only news shows.
         boolean nothing = status.getText().length() == 0 || "준비됐어요".contentEquals(status.getText());
-        statusRow.setVisibility((tab == 3 && !workId.isEmpty() || tab == 2) && nothing && !store.recording && !store.voiceActive ? View.GONE : View.VISIBLE);
+        statusRow.setVisibility((tab == 3 || tab == 2 || tab == 1) && nothing && !store.recording && !store.voiceActive ? View.GONE : View.VISIBLE);
         error.setText(store.error); error.setVisibility(store.error.isBlank() ? View.GONE : View.VISIBLE);
         applyBanner.setVisibility(store.settingsBehind() ? View.VISIBLE : View.GONE);
         exitBanner.setText(store.exitNotice + " · 눌러서 배터리 설정 열기"); exitBanner.setVisibility(store.exitNotice.isBlank() ? View.GONE : View.VISIBLE);
@@ -1180,10 +1180,10 @@ public final class MainActivity extends Activity {
 
     private void showRecords(int view) { recordsView = view; showTab(1); }
     private void records() {
-        add(ui.segmented(new String[]{"대화", "음성·메모 기록"}, 1, index -> { if (index == 0) showTab(3); }), 14);
+        add(ui.switcher(new String[]{"대화", "음성·메모 기록"}, 1, index -> { if (index == 0) showTab(3); }), 8);
         titleView.setText("기록");
-        add(searchBox("기록 검색", query, value -> { query = value; refreshRecords(false); }), 12);
-        add(ui.pills(RECORD_VIEWS, recordsView, target -> { if (recordsView != target) showRecords(target); }), 6);
+        add(searchBox("기록 검색", query, value -> { query = value; refreshRecords(false); }), 8);
+        add(ui.smallPills(RECORD_VIEWS, recordsView, target -> { if (recordsView != target) showRecords(target); }), 6);
         recordsList = ui.column(); add(recordsList, 0);
         lastRecords = ""; refreshRecords(true);
     }
@@ -1556,8 +1556,14 @@ public final class MainActivity extends Activity {
         if (!workId.isEmpty() && WorkBook.find(store.works(), workId) == null) workId = "";
         if (!workId.isEmpty()) { workThread(workId); return; }
         titleView.setText("작업");
-        add(ui.segmented(new String[]{"대화", "음성·메모 기록"}, 0, index -> { if (index == 1) showTab(1); }), 14);
-        LinearLayout tools = ui.row(); tools.addView(ui.text("맡긴 일과 결과가 한곳에", 14, 450, MUTED), new LinearLayout.LayoutParams(0, -2, 1)); tools.addView(ui.chip(schedules().chipLabel(), () -> schedules().show())); tools.addView(ui.chip("에이전트 팀", () -> teamUi().show())); add(tools, 14); sessions();
+        // One slim row over the list: the 대화 / 기록 switch, then 예약 and 에이전트 팀 small at its end.
+        LinearLayout tools = ui.row(); tools.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        tools.addView(ui.switcher(new String[]{"대화", "음성·메모 기록"}, 0, index -> { if (index == 1) showTab(1); }));
+        tools.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+        tools.addView(ui.smallChip(schedules().chipLabel(), () -> schedules().show()));
+        android.widget.ImageView team = ui.quietIcon(R.drawable.ic_team, "에이전트 팀", () -> teamUi().show()); team.setImageTintList(android.content.res.ColorStateList.valueOf(TEXT));
+        tools.addView(team, new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
+        add(tools, 8); sessions();
     }
     /**
      * The conversations, sorted by themselves: by category (the AI that answered files each one after its first answer), by
@@ -1568,8 +1574,8 @@ public final class MainActivity extends Activity {
         boolean ready = !workModels().readyEngine().isEmpty() || store.grok.connected();
         if (!ready) { TextView need = ui.banner("사용할 AI를 연결해 주세요 · 눌러서 연결", WARNING); need.setOnClickListener(v -> openSettings("")); add(need, 12); }
         if (store.works().length() == 0) { workHero(ready); return; }
-        add(searchBox("대화 검색 · 제목, 내용, 태그", workQuery, value -> { workQuery = value; fillSessions(); }), 10);
-        add(ui.pills(Sessions.MODE_NAMES, sessionMode, target -> {
+        add(searchBox("대화 검색 · 제목, 내용, 태그", workQuery, value -> { workQuery = value; fillSessions(); }), 8);
+        add(ui.smallPills(Sessions.MODE_NAMES, sessionMode, target -> {
             if (sessionMode == target) return;
             sessionMode = target; store.settings.edit().putInt("sessionMode", target).apply(); showTab(3);
         }), 2);
@@ -1639,12 +1645,12 @@ public final class MainActivity extends Activity {
     }
     /** A section's caption over its group: emoji and name, how many, and an optional link on the right. */
     private View sectionHead(String emoji, String title, int count, String link, Runnable action) {
-        LinearLayout row = ui.row(); row.setPadding(ui.dp(16), ui.dp(20), ui.dp(12), ui.dp(8));
-        row.addView(ui.text((emoji.isEmpty() ? "" : emoji + "  ") + title, 14.5f, 700, TEXT));
-        TextView number = ui.text(String.valueOf(count), 13, 600, MUTED); number.setPadding(ui.dp(7), 0, 0, 0);
+        LinearLayout row = ui.row(); row.setPadding(ui.dp(14), ui.dp(14), ui.dp(8), ui.dp(6));
+        row.addView(ui.text((emoji.isEmpty() ? "" : emoji + "  ") + title, 13.5f, 700, TEXT));
+        TextView number = ui.text(String.valueOf(count), 12.5f, 600, MUTED); number.setPadding(ui.dp(6), 0, 0, 0);
         row.addView(number, new LinearLayout.LayoutParams(0, -2, 1));
         if (link != null) {
-            TextView more = ui.text(link, 13.5f, 600, ACCENT); more.setPadding(ui.dp(8), ui.dp(4), ui.dp(4), ui.dp(4));
+            TextView more = ui.text(link, 13, 600, ACCENT); more.setPadding(ui.dp(8), ui.dp(4), ui.dp(4), ui.dp(4));
             more.setOnClickListener(v -> action.run()); Ui.pressable(more, true); row.addView(more);
         }
         return row;
@@ -1653,11 +1659,12 @@ public final class MainActivity extends Activity {
     private View sessionRow(JSONObject thread, long now, boolean showCategory) {
         String id = thread.optString("id"), category = Sessions.category(thread), title = thread.optString("title");
         boolean running = WorkBook.RUNNING.equals(thread.optString("state"));
-        LinearLayout row = ui.row(); row.setMinimumHeight(ui.dp(64)); row.setPadding(ui.dp(14), ui.dp(10), ui.dp(14), ui.dp(10));
-        TextView tile = ui.text(Sessions.emoji(category), 19, 400, TEXT); tile.setGravity(android.view.Gravity.CENTER); tile.setBackground(ui.shape(categoryTint(category), 12));
-        LinearLayout.LayoutParams tileParams = new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)); tileParams.rightMargin = ui.dp(12); row.addView(tile, tileParams);
+        // Compact, so a screen holds many: a small emoji tile, one line of title and one quiet line of details.
+        LinearLayout row = ui.row(); row.setMinimumHeight(ui.dp(52)); row.setPadding(ui.dp(12), ui.dp(7), ui.dp(12), ui.dp(7));
+        TextView tile = ui.text(Sessions.emoji(category), 15, 400, TEXT); tile.setGravity(android.view.Gravity.CENTER); tile.setBackground(ui.shape(categoryTint(category), 10));
+        LinearLayout.LayoutParams tileParams = new LinearLayout.LayoutParams(ui.dp(34), ui.dp(34)); tileParams.rightMargin = ui.dp(12); row.addView(tile, tileParams);
         LinearLayout words = ui.column();
-        TextView name = ui.text((thread.optBoolean("pinned") ? "📌 " : "") + title, 16, 560, TEXT); name.setSingleLine(true); name.setEllipsize(TextUtils.TruncateAt.END); words.addView(name);
+        TextView name = ui.text((thread.optBoolean("pinned") ? "📌 " : "") + title, 15, 560, TEXT); name.setSingleLine(true); name.setEllipsize(TextUtils.TruncateAt.END); words.addView(name);
         JSONArray messages = thread.optJSONArray("messages");
         String engine = thread.has("engine") ? WorkBook.author(WorkBook.engine(thread.optString("engine"))) : "";
         StringBuilder detail = new StringBuilder(Gallery.ago(now, thread.optLong("updatedAt"), ZoneId.systemDefault()));
@@ -1666,7 +1673,7 @@ public final class MainActivity extends Activity {
         detail.append(" · 메시지 ").append(messages == null ? 0 : messages.length());
         JSONArray tags = thread.optJSONArray("tags");
         for (int i = 0; tags != null && i < tags.length(); i++) detail.append(i == 0 ? "   #" : " #").append(tags.optString(i));
-        TextView sub = ui.text(detail.toString(), 13, 400, MUTED); sub.setSingleLine(true); sub.setEllipsize(TextUtils.TruncateAt.END); sub.setPadding(0, ui.dp(3), 0, 0); words.addView(sub);
+        TextView sub = ui.text(detail.toString(), 12.5f, 400, MUTED); sub.setSingleLine(true); sub.setEllipsize(TextUtils.TruncateAt.END); sub.setPadding(0, ui.dp(2), 0, 0); words.addView(sub);
         row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
         if (running) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.leftMargin = ui.dp(8); row.addView(ui.badge("진행 중", ACCENT), p); }
         row.setOnClickListener(v -> { workId = id; showTab(3); });
@@ -1768,10 +1775,10 @@ public final class MainActivity extends Activity {
         LinearLayout box = ui.row(); box.setBackground(ui.shape(FILL, 14)); box.setPadding(ui.dp(12), 0, ui.dp(2), 0);
         android.widget.ImageView glass = new android.widget.ImageView(this); glass.setImageResource(R.drawable.ic_search); glass.setImageTintList(android.content.res.ColorStateList.valueOf(MUTED));
         box.addView(glass, new LinearLayout.LayoutParams(ui.dp(20), ui.dp(20)));
-        EditText search = ui.input(hint, 1, 200); search.setText(value); search.setBackground(null); search.setPadding(ui.dp(8), ui.dp(11), ui.dp(8), ui.dp(11));
+        EditText search = ui.input(hint, 1, 200); search.setText(value); search.setBackground(null); search.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)); search.setTextSize(15);
         search.setImeOptions(EditorInfo.IME_ACTION_SEARCH); search.setTag("search:" + hint);
         box.addView(search, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView clear = ui.text("✕", 15, 500, MUTED); clear.setGravity(android.view.Gravity.CENTER); clear.setMinimumWidth(ui.dp(48)); clear.setMinimumHeight(ui.dp(48)); clear.setContentDescription("검색어 지우기");
+        TextView clear = ui.text("✕", 15, 500, MUTED); clear.setGravity(android.view.Gravity.CENTER); clear.setMinimumWidth(ui.dp(44)); clear.setMinimumHeight(ui.dp(40)); clear.setContentDescription("검색어 지우기");
         clear.setVisibility(value.isEmpty() ? View.GONE : View.VISIBLE); clear.setOnClickListener(v -> search.setText(""));
         box.addView(clear);
         search.addTextChangedListener(new TextWatcher() {
@@ -2375,7 +2382,9 @@ public final class MainActivity extends Activity {
             // One gray line says what the turn is doing; a tap unfolds its step log and the saved drafts. 멈춤 stays beside it,
             // so the turn can always be stopped from the same place, whatever the composer's button is showing.
             LinearLayout line = ui.row();
-            workStageView = ui.text(stageLine(mine ? (roomLive.stage.isBlank() ? "생각하는 중" : roomLive.stage) : store.workStages.getOrDefault(id, "차례를 기다리는 중")), 13.5f, 500, MUTED);
+            // The line a soft light sweeps across while the turn works, as chat apps show a model thinking.
+            ShimmerText stage = new ShimmerText(this, MUTED, TEXT); stage.setTextSize(13.5f); stage.setTypeface(Ui.weight(500)); stage.setIncludeFontPadding(false); stage.setLineSpacing(ui.dp(3), 1);
+            stage.setText(stageLine(mine ? (roomLive.stage.isBlank() ? "생각하는 중" : roomLive.stage) : store.workStages.getOrDefault(id, "차례를 기다리는 중"))); workStageView = stage;
             workStageView.setMaxLines(2); workStageView.setEllipsize(TextUtils.TruncateAt.END);
             LinearLayout fold = ui.row(); fold.setMinimumHeight(ui.dp(48)); fold.addView(workStageView, new LinearLayout.LayoutParams(-2, -2)); fold.setFocusable(true);
             line.addView(fold, new LinearLayout.LayoutParams(0, -2, 1));
@@ -2666,34 +2675,28 @@ public final class MainActivity extends Activity {
         return request;
     }
     /**
-     * The composer docked at the bottom of 작업창: the files waiting to go, the field, + (attach and make), who answers the next
-     * message (the model and its reasoning level, switched with a tap), the mic and one round button that sends, or stops the
-     * running turn while nothing is typed. A wide window has it all on one low row; a phone keeps the field on its own line
-     * (arrangeComposer). It grows with the lines typed.
+     * The composer docked at the bottom of 작업창, shaped like Claude's: one rounded field (+, the words, the mic and one round
+     * button that sends, or stops the running turn while nothing is typed) with the files waiting to go over the words, and
+     * under it one slim line of where and who: the repository and the model (its reasoning level switched with a tap). The
+     * field grows with the lines typed.
      */
     private LinearLayout composer() {
+        LinearLayout outer = ui.column();
         LinearLayout box = ui.column();
-        android.graphics.drawable.GradientDrawable capsule = ui.glass(28, false);
-        box.setBackground(capsule); ui.lift(box, 4); box.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4));
+        android.graphics.drawable.GradientDrawable capsule = ui.glass(24, false);
+        box.setBackground(capsule); ui.lift(box, 4); box.setPadding(ui.dp(2), ui.dp(2), ui.dp(4), ui.dp(2));
         composerEngines = ui.row();
         android.widget.HorizontalScrollView files = new android.widget.HorizontalScrollView(this); files.setHorizontalScrollBarEnabled(false);
         composerFiles = ui.row(); composerFiles.setPadding(ui.dp(6), ui.dp(4), ui.dp(6), 0); files.addView(composerFiles);
-        // The repository this 작업창 works in, over the field as in Claude Code: shown while GitHub is connected (refreshRepo).
-        composerRepoRow = ui.row(); composerRepoRow.setPadding(ui.dp(4), 0, ui.dp(4), 0); composerRepoRow.setVisibility(View.GONE);
-        composerRepo = ui.text("", 13.5f, 500, TEXT); composerRepo.setSingleLine(true); composerRepo.setEllipsize(TextUtils.TruncateAt.MIDDLE);
-        composerRepo.setGravity(android.view.Gravity.CENTER_VERTICAL); composerRepo.setPadding(ui.dp(8), 0, ui.dp(8), 0); composerRepo.setMinHeight(ui.dp(48));
-        composerRepo.setOnClickListener(v -> pickRepo()); Ui.pressable(composerRepo, true); lastRepo = "";
-        composerRepoRow.addView(composerRepo, new LinearLayout.LayoutParams(-2, -2));
-        box.addView(composerRepoRow, new LinearLayout.LayoutParams(-1, -2));
         composerFilesRow = files; box.addView(files, new LinearLayout.LayoutParams(-1, -2));
-        LinearLayout bar = ui.row(); composerBar = bar;
-        bar.addView(ui.bareIcon(R.drawable.ic_add, TEXT, "사진 첨부, 이미지·동영상 생성", this::composerOptions), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+        LinearLayout bar = ui.row(); composerBar = bar; bar.setGravity(android.view.Gravity.BOTTOM);
+        bar.addView(ui.bareIcon(R.drawable.ic_add, TEXT, "사진 첨부, 이미지·동영상 생성", this::composerOptions), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         composerInput = new EditText(this); composerInput.setBackground(null); composerInput.setTextColor(TEXT); composerInput.setHintTextColor(MUTED); composerInput.setTextSize(16);
         composerInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         composerInput.setMaxLines(6); composerInput.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(WorkBook.TEXT_LIMIT)});
-        composerEngines.setPadding(ui.dp(4), 0, ui.dp(2), 0); composerEngines.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
-        bar.addView(composerEngines, new LinearLayout.LayoutParams(0, -2, 1));
-        bar.addView(ui.bareIcon(R.drawable.ic_mic, TEXT, "Gemini 음성 입력 · 초안에만 넣기", this::speakInComposer), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+        composerInput.setPadding(ui.dp(2), ui.dp(11), ui.dp(6), ui.dp(11)); composerInput.setMinimumHeight(ui.dp(44)); composerInput.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.START);
+        bar.addView(composerInput, new LinearLayout.LayoutParams(0, -2, 1));
+        bar.addView(ui.bareIcon(R.drawable.ic_mic, TEXT, "Gemini 음성 입력 · 초안에만 넣기", this::speakInComposer), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         composerSend = ui.sendButton("보내기", this::composerButton);
         composerSend.setOnLongClickListener(v -> { if (!composerOffersVoice() || workVoice == null) return false; workVoice.settings(""); return true; });
         composerInput.addTextChangedListener(new TextWatcher() {
@@ -2705,33 +2708,30 @@ public final class MainActivity extends Activity {
                 updateComposer();
             }
         });
-        bar.addView(composerSend, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+        LinearLayout.LayoutParams sendParams = new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)); sendParams.setMargins(ui.dp(2), ui.dp(2), 0, ui.dp(2));
+        bar.addView(composerSend, sendParams);
         box.addView(bar, new LinearLayout.LayoutParams(-1, -2));
-        composerOneRow = true; arrangeComposer(box, false);
-        box.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (b - t != ob - ot) box.post(this::layoutDock); });
+        outer.addView(box, new LinearLayout.LayoutParams(-1, -2));
+        // Under the field, small and quiet: the repository this 작업창 works in (while GitHub is connected, refreshRepo) and
+        // the model that answers the next message.
+        composerRepoRow = ui.row(); composerRepoRow.setGravity(android.view.Gravity.CENTER_VERTICAL); composerRepoRow.setPadding(ui.dp(4), ui.dp(2), 0, 0);
+        composerRepo = ui.text("", 13, 500, TEXT); composerRepo.setSingleLine(true); composerRepo.setEllipsize(TextUtils.TruncateAt.END);
+        composerRepo.setGravity(android.view.Gravity.CENTER_VERTICAL); composerRepo.setPadding(ui.dp(8), 0, ui.dp(8), 0); composerRepo.setMinHeight(ui.dp(36)); composerRepo.setMinWidth(ui.dp(36));
+        composerRepo.setOnClickListener(v -> pickRepo()); Ui.pressable(composerRepo, true); lastRepo = ""; composerRepo.setVisibility(View.GONE);
+        composerRepoRow.addView(composerRepo, new LinearLayout.LayoutParams(-2, ui.dp(36)));
+        composerRepoRow.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+        composerEngines.setPadding(ui.dp(4), 0, ui.dp(4), 0); composerEngines.setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
+        composerRepoRow.addView(composerEngines, new LinearLayout.LayoutParams(-2, ui.dp(36)));
+        outer.addView(composerRepoRow, new LinearLayout.LayoutParams(-1, -2));
+        composerOneRow = false;
+        outer.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (b - t != ob - ot) outer.post(this::layoutDock); });
         refreshFiles();
-        return box;
+        return outer;
     }
-    /**
-     * Where the field sits: on the bar itself between + and the model while there is room (one low row, as in ChatGPT's
-     * composer), else on its own line above the bar (a phone). The draft, its cursor and its focus stay.
-     */
-    private void arrangeComposer(LinearLayout box, boolean oneRow) {
-        if (oneRow == composerOneRow) return;
-        composerOneRow = oneRow; boolean focused = composerInput.hasFocus(); int start = composerInput.getSelectionStart(), end = composerInput.getSelectionEnd();
-        if (composerInput.getParent() instanceof ViewGroup parent) parent.removeView(composerInput);
-        if (oneRow) {
-            composerInput.setPadding(ui.dp(2), ui.dp(13), ui.dp(8), ui.dp(13)); composerInput.setMinimumHeight(ui.dp(48));
-            composerBar.addView(composerInput, 1, new LinearLayout.LayoutParams(0, -2, 1)); composerEngines.setLayoutParams(new LinearLayout.LayoutParams(-2, -2));
-            composerBar.setGravity(android.view.Gravity.BOTTOM);
-        } else {
-            composerInput.setPadding(ui.dp(14), ui.dp(10), ui.dp(12), ui.dp(2)); composerInput.setMinimumHeight(0);
-            box.addView(composerInput, box.indexOfChild(composerBar), new LinearLayout.LayoutParams(-1, -2)); composerEngines.setLayoutParams(new LinearLayout.LayoutParams(0, -2, 1));
-            composerBar.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        }
-        if (start >= 0 && end >= start && end <= composerInput.length()) composerInput.setSelection(start, end);
-        if (focused) composerInput.requestFocus();
-        placeRepo();
+    /** A wide window only lets the repository and model names run longer; the field and the line under it stay as they are. */
+    private void arrangeComposer(LinearLayout box, boolean wide) {
+        if (wide == composerOneRow) return;
+        composerOneRow = wide;
         lastEngines = ""; lastRepo = ""; if (composer != null) { refreshEngines(); refreshRepo(); }
     }
     private void speakInComposer() {
@@ -2764,8 +2764,8 @@ public final class MainActivity extends Activity {
         }
     }
     /**
-     * The repository chip over the field: "▢ owner/name ⌄", the owner quiet, or "저장소 없음". Shown while GitHub is connected
-     * and used by 작업창 (설정 → 커넥터 → GitHub); a tap opens the picker (pickRepo).
+     * The repository chip on the line under the field: "▢ name ⌄", or "▢ ⌄" while none is chosen (its tooltip and spoken name
+     * say 저장소 없음). Shown while GitHub is connected and used by 작업창 (설정 → 커넥터 → GitHub); a tap opens the picker.
      */
     private void refreshRepo() {
         if (composerRepoRow == null) return;
@@ -2775,27 +2775,20 @@ public final class MainActivity extends Activity {
         String fingerprint = shown + "\u0000" + repo + "\u0000" + workId + "\u0000" + composerOneRow;
         if (fingerprint.equals(lastRepo)) return;
         lastRepo = fingerprint;
-        composerRepo.setVisibility(shown ? View.VISIBLE : View.GONE); composerRepoRow.setVisibility(shown && !composerOneRow ? View.VISIBLE : View.GONE);
+        composerRepo.setVisibility(shown ? View.VISIBLE : View.GONE);
         if (!shown) return;
-        composerRepo.setMaxWidth(composerOneRow ? ui.dp(200) : Integer.MAX_VALUE);
-        android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(repo.isEmpty() ? "저장소 없음" : repo);
-        int slash = repo.indexOf('/');
-        if (repo.isEmpty()) label.setSpan(new android.text.style.ForegroundColorSpan(MUTED), 0, label.length(), 0);
-        else { label.setSpan(new android.text.style.ForegroundColorSpan(MUTED), 0, slash + 1, 0); label.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), slash + 1, label.length(), 0); }
+        // Small, on the line under the field: the repository icon alone while none is chosen, else the icon and the
+        // repository's name (its owner left out), cut short past a few words.
+        composerRepo.setMaxWidth(ui.dp(composerOneRow ? 220 : 150));
+        String name = repo.substring(repo.indexOf('/') + 1);
+        android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(name);
+        if (!name.isEmpty()) label.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, label.length(), 0);
         composerRepo.setText(label);
         android.graphics.drawable.Drawable icon = getDrawable(R.drawable.ic_repo).mutate(); icon.setTint(MUTED); icon.setBounds(0, 0, ui.dp(16), ui.dp(16));
-        android.graphics.drawable.Drawable chevron = getDrawable(R.drawable.ic_chevron_down).mutate(); chevron.setTint(MUTED); chevron.setBounds(0, 0, ui.dp(15), ui.dp(15));
-        composerRepo.setCompoundDrawablesRelative(icon, null, chevron, null); composerRepo.setCompoundDrawablePadding(ui.dp(6));
+        android.graphics.drawable.Drawable chevron = getDrawable(R.drawable.ic_chevron_down).mutate(); chevron.setTint(MUTED); chevron.setBounds(0, 0, ui.dp(14), ui.dp(14));
+        composerRepo.setCompoundDrawablesRelative(icon, null, chevron, null); composerRepo.setCompoundDrawablePadding(ui.dp(4));
+        composerRepo.setTooltipText(repo.isEmpty() ? "저장소 없음" : repo);
         composerRepo.setContentDescription("GitHub 저장소, 지금 " + (repo.isEmpty() ? "저장소 없음" : repo) + ", 눌러서 바꾸기");
-    }
-    /** Where the chip sits: in the bar's one low row on a wide window (left of the model), on its own line over the field on a phone. */
-    private void placeRepo() {
-        if (composerRepo == null || composerBar == null) return;
-        ViewGroup home = composerOneRow ? composerBar : composerRepoRow;
-        if (composerRepo.getParent() == home) return;
-        if (composerRepo.getParent() instanceof ViewGroup parent) parent.removeView(composerRepo);
-        if (composerOneRow) composerBar.addView(composerRepo, composerBar.indexOfChild(composerEngines), new LinearLayout.LayoutParams(-2, -2));
-        else composerRepoRow.addView(composerRepo, new LinearLayout.LayoutParams(-2, -2));
     }
     /**
      * The picker for this 작업창: a room's own repository, or for a 작업창 not sent yet 기본 저장소 (ScopedModels.repo). Before
@@ -2816,10 +2809,10 @@ public final class MainActivity extends Activity {
         android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(parts[0]);
         label.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, label.length(), 0);
         if (!parts[1].isEmpty()) { int at = label.length(); label.append("  ").append(parts[1]); label.setSpan(new android.text.style.ForegroundColorSpan(MUTED), at, label.length(), 0); }
-        TextView chip = ui.text("", 13.5f, 500, TEXT); chip.setText(label); chip.setSingleLine(true); chip.setEllipsize(TextUtils.TruncateAt.END);
-        chip.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END); chip.setPadding(ui.dp(10), 0, ui.dp(6), 0); chip.setMinHeight(ui.dp(48));
-        // On the one-row composer the field needs the room more than a long model name does.
-        if (composerOneRow) chip.setMaxWidth(ui.dp(220));
+        TextView chip = ui.text("", 13, 500, TEXT); chip.setText(label); chip.setSingleLine(true); chip.setEllipsize(TextUtils.TruncateAt.END);
+        chip.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END); chip.setPadding(ui.dp(8), 0, ui.dp(4), 0); chip.setMinHeight(ui.dp(36));
+        // On the slim line under the field, beside the repository: a long model name is cut short rather than crowding it.
+        chip.setMaxWidth(ui.dp(composerOneRow ? 280 : 210));
         android.graphics.drawable.Drawable chevron = getDrawable(R.drawable.ic_chevron_down).mutate(); chevron.setTint(MUTED); chevron.setBounds(0, 0, ui.dp(15), ui.dp(15));
         chip.setCompoundDrawablesRelative(null, null, chevron, null); chip.setCompoundDrawablePadding(ui.dp(4));
         chip.setContentDescription(description); chip.setOnClickListener(v -> action.run()); Ui.pressable(chip, true);
@@ -2853,7 +2846,7 @@ public final class MainActivity extends Activity {
         ScopedModels selection = workModels();
         Ui.Sheet sheet = ui.selectionSheet("이 작업창의 AI", "다른 작업창과 음성·녹음 설정은 바뀌지 않아요");
         for (String engine : new String[]{WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM})
-            sheet.body.addView(ui.listRow(R.drawable.ic_sparkle, ACCENT, WorkBook.author(engine), store.ready(engine) ? modelChip(engine) : "연결 필요", ui.chevron(), () -> { sheet.dismiss(); chooseEngine(selection, engine); }));
+            sheet.body.addView(ui.listRow(0, ACCENT, WorkBook.author(engine), store.ready(engine) ? modelChip(engine) : "연결 필요", ui.chevron(), () -> { sheet.dismiss(); chooseEngine(selection, engine); }));
         sheet.show();
     }
     /** Only this workroom owns its next-message selection. */

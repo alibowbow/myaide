@@ -857,9 +857,9 @@ public final class BoardActivity extends Activity {
             for (int i = 0; i < catalog.length(); i++) {
                 JSONObject model = catalog.optJSONObject(i); String id = model == null ? "" : model.optString("id"); if (id.isBlank()) continue;
                 boolean on = id.equals(current); listed |= on;
-                ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, on ? ACCENT : MUTED, roster.label(engine, id), "", on ? ui.text("✓", 16, 700, ACCENT) : null, () -> choose(engine, id, ScopedModels.board(store).effort(engine, id), fill[0])), true);
+                ui.addRow(group, ui.listRow(0, on ? ACCENT : MUTED, roster.label(engine, id), "", on ? ui.text("✓", 16, 700, ACCENT) : null, () -> choose(engine, id, ScopedModels.board(store).effort(engine, id), fill[0])), false);
             }
-            if (!listed && !current.isBlank()) ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, ACCENT, roster.label(engine, current), "", ui.text("✓", 16, 700, ACCENT), () -> {}), true);
+            if (!listed && !current.isBlank()) ui.addRow(group, ui.listRow(0, ACCENT, roster.label(engine, current), "", ui.text("✓", 16, 700, ACCENT), () -> {}), false);
             content.addView(group);
             // How deeply the chosen model thinks, where it offers levels.
             dev.jun.gyeot.core.Reasoning.Profile profile = roster.profile(engine, current);

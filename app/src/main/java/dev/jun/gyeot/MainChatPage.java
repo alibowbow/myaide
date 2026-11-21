@@ -731,7 +731,9 @@ final class MainChatPage implements AutoCloseable {
             View dot = new View(activity); dot.setBackground(ui.shape(MUTED, PILL));
             if (android.animation.ValueAnimator.areAnimatorsEnabled()) { android.view.animation.AlphaAnimation pulse = new android.view.animation.AlphaAnimation(1f, 0.25f); pulse.setDuration(650); pulse.setRepeatMode(android.view.animation.Animation.REVERSE); pulse.setRepeatCount(android.view.animation.Animation.INFINITE); dot.startAnimation(pulse); }
             LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(ui.dp(8), ui.dp(8)); dp.rightMargin = ui.dp(8); line.addView(dot, dp);
-            status = ui.text("", 13.5f, 500, MUTED); line.addView(status, new LinearLayout.LayoutParams(0, -2, 1));
+            // The status a soft light sweeps across while the answer comes, as chat apps show a model thinking.
+            ShimmerText shimmer = new ShimmerText(activity, MUTED, TEXT); shimmer.setTextSize(13.5f); shimmer.setTypeface(Ui.weight(500)); shimmer.setIncludeFontPadding(false);
+            status = shimmer; line.addView(status, new LinearLayout.LayoutParams(0, -2, 1));
             // The same place 작업창 stops a turn: a small ink 중지 at the end of the gray status line.
             TextView stop = ui.ghost("이 답변 중지", () -> { store.mainAssistant.cancel(id); refresh(); }); stop.setTextColor(TEXT); stop.setMinHeight(ui.dp(48)); stop.setMinimumHeight(ui.dp(48));
             line.addView(stop);

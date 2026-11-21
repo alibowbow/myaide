@@ -100,7 +100,11 @@ final class MyTubeChat {
         int first = expanded ? 0 : Math.max(0, all.size() - SHOWN);
         card.setVisibility(all.isEmpty() && !thinking ? View.GONE : View.VISIBLE);
         for (int i = first; i < all.size(); i++) lines.addView(line(all.get(i)));
-        if (thinking) { TextView wait = ui.label("··· 생각하는 중", 13, MUTED); wait.setPadding(ui.dp(4), ui.dp(4), 0, 0); lines.addView(wait); }
+        if (thinking) {
+            // 생각하는 중 with a soft light sweeping across it, as in the other chats.
+            ShimmerText wait = new ShimmerText(activity, MUTED, TEXT); wait.setText("생각하는 중"); wait.setTextSize(13); wait.setTypeface(Ui.weight(500));
+            wait.setPadding(ui.dp(4), ui.dp(4), 0, 0); lines.addView(wait);
+        }
         more.setVisibility(all.size() > SHOWN ? View.VISIBLE : View.GONE);
         more.setText(expanded ? "최근 대화만 보기" : "지난 대화 보기 (" + (all.size() - SHOWN) + ")");
         // The model as 작업창 shows it: its name in bold, its thinking level quiet beside it.

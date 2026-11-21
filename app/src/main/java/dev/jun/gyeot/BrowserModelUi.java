@@ -21,8 +21,8 @@ final class BrowserModelUi {
             depthMode[0] = false; brain[0] = engines[index]; selected[0] = models.model(brain[0]); effort[0] = models.selectedEffort(brain[0], selected[0]); search.setText(""); fill[0].run();
         }));
         LinearLayout modes = ui.row();
-        Button modelMode = ui.chip("세부 모델", () -> { depthMode[0] = false; fill[0].run(); });
-        Button thinkingMode = ui.chip("생각 깊이", () -> { depthMode[0] = true; fill[0].run(); });
+        Button modelMode = ui.smallChip("세부 모델", () -> { depthMode[0] = false; fill[0].run(); });
+        Button thinkingMode = ui.smallChip("생각 깊이", () -> { depthMode[0] = true; fill[0].run(); });
         modes.addView(modelMode, new LinearLayout.LayoutParams(0, -2, 1)); modes.addView(thinkingMode, new LinearLayout.LayoutParams(0, -2, 1));
         ui.add(sheet.controls, modes, 8); sheet.controls.addView(search);
         android.app.AlertDialog[] diagnostic = {null};
@@ -36,7 +36,6 @@ final class BrowserModelUi {
             search.setVisibility(depthMode[0] ? android.view.View.GONE : android.view.View.VISIBLE);
             sheet.body.removeAllViews();
             sheet.body.addView(ui.text(models.label(brain[0], selected[0]), 18, 700, TEXT));
-            sheet.body.addView(ui.footer(selected[0]));
             // Gemini Decision picks routine steps before this AI: saved at once, off by default.
             // Live direct plans no steps of its own, so it has no use for it.
             if (!"none".equals(brain[0])) {
@@ -61,7 +60,7 @@ final class BrowserModelUi {
             if ("gpt".equals(brain[0])) {
                 sheet.body.addView(ui.footer(store.openai.modelsStatus()));
                 if (!speedEpoch.equals(store.openai.speedEpoch())) sheet.body.addView(ui.footer("GPT 연결이 바뀌었어요. 이 창을 닫고 다시 열어 모델을 확인해 주세요."));
-                sheet.body.addView(ui.actions(ui.chip("목록 새로고침", store.openai::refreshModelsAsync), ui.chip("모델 목록 진단", () -> {
+                sheet.body.addView(ui.actions(ui.smallChip("목록 새로고침", store.openai::refreshModelsAsync), ui.smallChip("모델 목록 진단", () -> {
                     if (diagnostic[0] != null) diagnostic[0].dismiss(); diagnostic[0] = GptCatalogDiagnosticsUi.show(context, store.openai);
                 })));
             }
@@ -70,9 +69,14 @@ final class BrowserModelUi {
             org.json.JSONArray catalog = models.catalog(brain[0]); String query = search.getText().toString().strip().toLowerCase(java.util.Locale.ROOT); int found = 0;
             for (int i = 0; i < catalog.length(); i++) { JSONObject item = catalog.optJSONObject(i); if (item == null) continue; String id = item.optString("id"), name = models.label(brain[0], id);
                 if (!(name + " " + id).toLowerCase(java.util.Locale.ROOT).contains(query)) continue;
-                boolean chosen = selected[0].equals(id); LinearLayout row = ui.listRow(R.drawable.ic_sparkle, ACCENT, name, id, chosen ? ui.badge("선택됨", ACCENT) : ui.chevron(), () -> {
+                // One line per model: its name once (the id it stands for stays searchable), a check on the chosen one.
+                boolean chosen = selected[0].equals(id);
+                android.widget.ImageView check = null;
+                if (chosen) { check = new android.widget.ImageView(context); check.setImageResource(R.drawable.ic_check); check.setImageTintList(android.content.res.ColorStateList.valueOf(ACCENT)); check.setLayoutParams(new LinearLayout.LayoutParams(ui.dp(20), ui.dp(20))); }
+                LinearLayout row = ui.listRow(0, ACCENT, name, null, check, () -> {
                     depthMode[0] = true; selected[0] = id; effort[0] = models.selectedEffort(brain[0], id); fill[0].run(); sheet.scroll.smoothScrollTo(0, 0);
-                }); row.setSelected(chosen); row.setBackground(chosen ? ui.shape(ACCENT_SOFT, 16) : null); sheet.body.addView(row); found++;
+                }); row.setMinimumHeight(ui.dp(44)); row.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8));
+                row.setSelected(chosen); row.setBackground(chosen ? ui.shape(ACCENT_SOFT, 12) : null); sheet.body.addView(row); found++;
             }
             if (found == 0) sheet.body.addView(ui.footer("일치하는 모델이 없어요. 연결 설정에서 모델 목록을 새로고침할 수 있어요."));
             sheet.body.addView(ui.button("모델 연결 설정", false, () -> { sheet.dismiss(); connect.run(); }));

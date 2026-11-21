@@ -38,7 +38,8 @@ public final class BrowserActivity extends Activity {
     private Bundle pendingDraftState;
     private String renderedResult;
     private ProgressBar progress;
-    private LinearLayout resultBox, pane, conversationBox, resultActions, omniRow;
+    private LinearLayout resultBox, pane, conversationBox, resultActions, omniRow, thinkingRow;
+    private ShimmerText thinkingText; private ImageView thinkingMark; private android.animation.ObjectAnimator thinkingSpin;
     private HorizontalScrollView omniStrip;
     private BrowserTabStrip tabStrip;
     private ScrollView resultScroll;
@@ -192,6 +193,17 @@ public final class BrowserActivity extends Activity {
         // The durable transcript owns every sent user/assistant bubble, including the current request.
         conversationBox = ui.column(); resultBox.addView(conversationBox);
         askBubble = bubble(""); askBubble.setVisibility(View.GONE); resultBox.addView(askBubble, bubbleParams());
+        // While the AI works on this tab: one quiet line under the request, the breathing dusk orb and words a soft light
+        // sweeps across, as chat apps show a model thinking. A tap opens 작업 상세.
+        thinkingRow = ui.row(); thinkingRow.setMinimumHeight(ui.dp(40)); thinkingRow.setPadding(0, ui.dp(2), 0, ui.dp(10)); thinkingRow.setVisibility(View.GONE);
+        thinkingMark = new ImageView(this); thinkingMark.setImageResource(R.drawable.ic_ai_orb);
+        thinkingMark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(ui.dp(17), ui.dp(17)); markParams.rightMargin = ui.dp(9); thinkingRow.addView(thinkingMark, markParams);
+        thinkingText = new ShimmerText(this, MUTED, TEXT); thinkingText.setTextSize(14); thinkingText.setTypeface(Ui.weight(500)); thinkingText.setIncludeFontPadding(false);
+        thinkingText.setSingleLine(true); thinkingText.setEllipsize(android.text.TextUtils.TruncateAt.END); thinkingText.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        thinkingRow.addView(thinkingText, new LinearLayout.LayoutParams(0, -2, 1));
+        thinkingRow.setContentDescription("AI가 작업하는 중 · 작업 상세 열기"); thinkingRow.setOnClickListener(v -> detail()); Ui.pressable(thinkingRow, true);
+        resultBox.addView(thinkingRow);
         resultText = ui.text("", 15, 450, TEXT); resultText.setTextIsSelectable(true); resultText.setVisibility(View.GONE);
         resultBox.addView(resultText);
         // Under an answer: copy, share and run again, with how many steps and how long it took.
@@ -209,7 +221,7 @@ public final class BrowserActivity extends Activity {
         // A quiet composer: model menu, draft, then send or add an instruction to this tab's task.
         LinearLayout compose = ui.row(); compose.setGravity(Gravity.BOTTOM); compose.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4));
         android.graphics.drawable.GradientDrawable composeSurface = ui.shape(FILL, 18); composeSurface.setStroke(Math.max(1, ui.dp(.6f)), DARK ? 0x24ffffff : 0x14000000); compose.setBackground(composeSurface);
-        modelPicker = icon(R.drawable.ic_tune, "AI 모델과 생각 깊이 선택", this::models);
+        modelPicker = icon(R.drawable.ic_add, "AI 모델과 생각 깊이 선택", this::models);
         modelPicker.setTooltipText("모델 선택"); compose.addView(modelPicker, square());
         request = ui.input("이 페이지에서 할 일", 2, 8000); request.setTextSize(15.5f); request.setMinLines(1); request.setMinimumHeight(0); request.setMinHeight(0); request.setMaxLines(wide ? 6 : 4); request.setBackgroundColor(android.graphics.Color.TRANSPARENT); request.setContentDescription("브라우저 AI에게 지시할 내용");
         request.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES); request.setPadding(ui.dp(6), ui.dp(12), ui.dp(6), ui.dp(12)); request.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
@@ -274,13 +286,13 @@ public final class BrowserActivity extends Activity {
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
             @Override public void afterTextChanged(android.text.Editable s) { renderOmni(); }
         });
-        omnibox.addView(address, new LinearLayout.LayoutParams(0, addressRowHeight(), 1));
+        omnibox.addView(address, new LinearLayout.LayoutParams(0, pillHeight(), 1));
         // Address editing is separate from page navigation: this × only clears typed text.
         clearAddressButton = navigationIcon(R.drawable.ic_close, "주소 입력 지우기", () -> address.setText(""));
         clearAddressButton.setTooltipText("주소 입력 지우기"); clearAddressButton.setVisibility(View.GONE);
-        omnibox.addView(clearAddressButton, new LinearLayout.LayoutParams(ui.dp(44), addressRowHeight()));
-        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(0, addressRowHeight(), 1); ap.leftMargin = ap.rightMargin = ui.dp(4); toolbar.addView(omnibox, ap);
-        paneToggle = new BrowserProgressUi.Indicator(this); paneToggle.setImageResource(R.drawable.ic_sparkle); paneToggle.setPadding(ui.dp(13), ui.dp(13), ui.dp(13), ui.dp(13));
+        omnibox.addView(clearAddressButton, new LinearLayout.LayoutParams(ui.dp(40), pillHeight()));
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(0, pillHeight(), 1); ap.leftMargin = ap.rightMargin = ui.dp(4); ap.gravity = Gravity.CENTER_VERTICAL; toolbar.addView(omnibox, ap);
+        paneToggle = new BrowserProgressUi.Indicator(this); paneToggle.setImageResource(R.drawable.ic_ai_orb); paneToggle.setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12));
         paneToggle.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         paneToggle.setOnClickListener(v -> { haptic(HapticFeedbackConstants.CLOCK_TICK); if (hasAiAttention()) detail(); else setPaneVisible(!paneVisible); });
         paneToggle.setOnLongClickListener(v -> { setPaneVisible(!paneVisible); return true; }); Ui.pressable(paneToggle, false); toolbar.addView(paneToggle, dockSquare());
@@ -321,6 +333,11 @@ public final class BrowserActivity extends Activity {
     private LinearLayout.LayoutParams square() { return new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)); }
     private ImageView icon(int resource, String description, Runnable click) { return ui.iconButton(resource, android.graphics.Color.TRANSPARENT, TEXT, description, click); }
     private int addressRowHeight() { return ui.dp(Math.max(44, 24 * getResources().getConfiguration().fontScale + 8)); }
+    /**
+     * The address pill, lower than the row's buttons: the row keeps its height and the gray pill stands clear of the gray
+     * tab strip above it, with air above and below, as in Chrome.
+     */
+    private int pillHeight() { return addressRowHeight() - ui.dp(8); }
     private LinearLayout.LayoutParams dockSquare() { return new LinearLayout.LayoutParams(ui.dp(44), addressRowHeight()); }
     private void newTabFromStrip() {
         try {
@@ -642,6 +659,8 @@ public final class BrowserActivity extends Activity {
         if (!shownResult.equals(renderedResult)) { renderedResult = shownResult; resultText.setText(shownResult.isEmpty() ? "" : RichText.render(shownResult)); scroll = true; }
         boolean conversationChanged = renderConversation(running);
         scroll |= conversationChanged;
+        if (running != (thinkingRow.getVisibility() == View.VISIBLE)) { thinkingRow.setVisibility(running ? View.VISIBLE : View.GONE); thinkingMotion(running); scroll |= running; }
+        if (running) showThinking();
         if (conversationChanged) followNextConversation = false;
         askBubble.setVisibility(View.GONE); // The same request is already in the durable transcript.
         resultActions.setVisibility(!anyRunning && !otherTask && completed && !engine.status.isBlank() ? View.VISIBLE : View.GONE);
@@ -707,10 +726,13 @@ public final class BrowserActivity extends Activity {
         String action = state.isBlank() ? (paneVisible ? "AI 패널 접기" : "AI 패널 열기") : state + (running ? " · 작업 상세와 중지 열기" : " · 확인 내용 열기");
         progressAction = action; paneToggle.setTooltipText(action);
         paneToggle.setStateDescription(state); paneToggle.setSelected(paneVisible || hasAiAttention());
-        paneToggle.setImageResource(attention || failed ? R.drawable.ic_info : R.drawable.ic_sparkle);
+        // The dusk orb keeps its own colors; only the 확인/오류 mark is tinted.
+        boolean mark = attention || failed;
+        paneToggle.setImageResource(mark ? R.drawable.ic_info : R.drawable.ic_ai_orb);
         int tint = failed ? ERROR : paneVisible || hasAiAttention() ? ACCENT : MUTED;
-        paneToggle.setImageTintList(android.content.res.ColorStateList.valueOf(tint));
-        paneToggle.setBackground(ui.shape(paneVisible || hasAiAttention() ? ACCENT_SOFT : android.graphics.Color.TRANSPARENT, 12));
+        paneToggle.setImageTintList(mark ? android.content.res.ColorStateList.valueOf(tint) : null);
+        // Open: a soft round wash behind the sparkle, not a square block.
+        paneToggle.setBackground(new android.graphics.drawable.InsetDrawable(ui.shape(paneVisible || hasAiAttention() ? ACCENT_SOFT : android.graphics.Color.TRANSPARENT, 99), ui.dp(4)));
         if (paneToggle instanceof BrowserProgressUi.Indicator indicator) indicator.running(running);
         refreshProgressUiTimes();
     }
@@ -722,10 +744,30 @@ public final class BrowserActivity extends Activity {
         String description = progressAction + (elapsed.isBlank() ? "" : " · " + elapsed);
         if (paneToggle != null && !android.text.TextUtils.equals(description, paneToggle.getContentDescription())) paneToggle.setContentDescription(description);
         if (detailRefresh != null) detailRefresh.run();
+        showThinking();
         if (running && navigationResumed && paneToggle != null) {
             paneToggle.invalidate();
             if (!progressTickScheduled) { progressTickScheduled = true; progressUiHandler.postDelayed(progressUiTick, 250); }
         } else stopProgressUiClock();
+    }
+    /** What the thinking line says: the work's current step (생각하는 중 until there is one) and its seconds. */
+    private void showThinking() {
+        if (thinkingText == null || thinkingRow.getVisibility() != View.VISIBLE) return;
+        String status = engine.status == null ? "" : engine.status.strip();
+        long started = progressSnapshot().observedStartedElapsed();
+        long seconds = started < 0 ? 0 : Math.max(0, android.os.SystemClock.elapsedRealtime() - started) / 1000;
+        String line = (status.isEmpty() ? "생각하는 중" : BrowserProgressUi.stage(status)) + (seconds >= 1 ? " · " + seconds + "초" : "");
+        if (!line.contentEquals(thinkingText.getText())) thinkingText.setText(line);
+    }
+    /** The orb breathes (a little smaller and fainter, then back) while the line shows; still when animations are off. */
+    private void thinkingMotion(boolean on) {
+        if (on && thinkingSpin == null && android.animation.ValueAnimator.areAnimatorsEnabled()) {
+            thinkingSpin = android.animation.ObjectAnimator.ofPropertyValuesHolder(thinkingMark,
+                android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, 1f, 0.72f), android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, 1f, 0.72f),
+                android.animation.PropertyValuesHolder.ofFloat(View.ALPHA, 1f, 0.55f));
+            thinkingSpin.setDuration(800); thinkingSpin.setRepeatCount(android.animation.ValueAnimator.INFINITE); thinkingSpin.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+            thinkingSpin.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator()); thinkingSpin.start();
+        } else if (!on && thinkingSpin != null) { thinkingSpin.cancel(); thinkingSpin = null; thinkingMark.setScaleX(1); thinkingMark.setScaleY(1); thinkingMark.setAlpha(1f); }
     }
     private void stopProgressUiClock() {
         progressUiHandler.removeCallbacks(progressUiTick); progressTickScheduled = false;
@@ -928,7 +970,7 @@ public final class BrowserActivity extends Activity {
         if (voice != null && voice.permissionResult(code, results)) return;
         if (dictation != null) dictation.permissionResult(code, results);
     }
-    @Override protected void onDestroy() { stopProgressUiClock(); progressClock.clear(); if (dictation != null) dictation.close(); super.onDestroy(); }
+    @Override protected void onDestroy() { stopProgressUiClock(); progressClock.clear(); if (thinkingMark != null) thinkingMotion(false); if (dictation != null) dictation.close(); super.onDestroy(); }
     @Override protected void onActivityResult(int code, int result, android.content.Intent data) {
         super.onActivityResult(code, result, data);
         if (code == BrowserMusicDownloads.REQUEST_FOLDER) {

@@ -186,6 +186,11 @@ final class Ui {
         chip.setPadding(dp(16), 0, dp(16), 0); chip.setMinHeight(dp(48)); chip.setMinimumHeight(dp(48)); chip.setMinWidth(0); chip.setMinimumWidth(0);
         chip.setOnClickListener(v -> action.run()); pressable(chip, false); return chip;
     }
+    /** A chip for a slim toolbar row: the same capsule, lower (36dp) and in smaller type. */
+    Button smallChip(String value, Runnable action) {
+        Button chip = chip(value, action); chip.setTextSize(FOOTNOTE); chip.setPadding(dp(12), 0, dp(12), 0);
+        chip.setMinHeight(dp(36)); chip.setMinimumHeight(dp(36)); chip.setHeight(dp(36)); return chip;
+    }
     /** A quiet text button for the actions under an answer: muted, no fill, dims when pressed. */
     TextView ghost(String value, Runnable action) {
         TextView view = text(value, 13.5f, 600, MUTED); view.setGravity(Gravity.CENTER); view.setPadding(dp(10), dp(8), dp(10), dp(8));
@@ -278,13 +283,18 @@ final class Ui {
         }
     }
     /** A scrolling row of filter capsules; the chosen one is inverted (ink fill, paper text), so the accent stays for actions. */
-    View pills(String[] labels, int selected, IntConsumer action) {
+    View pills(String[] labels, int selected, IntConsumer action) { return pills(labels, selected, action, false); }
+    /** The same filter capsules, lower (34dp) and in smaller type, for a list that wants its room. */
+    View smallPills(String[] labels, int selected, IntConsumer action) { return pills(labels, selected, action, true); }
+    private View pills(String[] labels, int selected, IntConsumer action, boolean small) {
         HorizontalScrollView scroller = new HorizontalScrollView(context); scroller.setHorizontalScrollBarEnabled(false); scroller.setClipToPadding(false);
         LinearLayout row = row();
         for (int i = 0; i < labels.length; i++) {
             int index = i;
-            TextView pill = text(labels[i], SUBHEAD, i == selected ? 680 : 560, i == selected ? BG : TEXT); pill.setGravity(Gravity.CENTER);
-            pill.setBackground(capsule(i == selected ? TEXT : FILL)); pill.setPadding(dp(17), dp(10), dp(17), dp(10)); pill.setMinimumHeight(dp(48));
+            TextView pill = text(labels[i], small ? FOOTNOTE : SUBHEAD, i == selected ? 680 : 560, i == selected ? BG : TEXT); pill.setGravity(Gravity.CENTER);
+            pill.setBackground(capsule(i == selected ? TEXT : FILL));
+            if (small) { pill.setPadding(dp(14), dp(6), dp(14), dp(6)); pill.setMinimumHeight(dp(34)); }
+            else { pill.setPadding(dp(17), dp(10), dp(17), dp(10)); pill.setMinimumHeight(dp(48)); }
             pill.setSelected(i == selected); pill.setFocusable(true); pill.setAccessibilityDelegate(new View.AccessibilityDelegate() { @Override public void onInitializeAccessibilityNodeInfo(View host, android.view.accessibility.AccessibilityNodeInfo info) { super.onInitializeAccessibilityNodeInfo(host, info); info.setClassName("android.widget.RadioButton"); info.setCheckable(true); info.setChecked(host.isSelected()); } });
             pill.setContentDescription(labels[i] + (i == selected ? ", 선택됨" : ""));
             pill.setOnClickListener(v -> {
