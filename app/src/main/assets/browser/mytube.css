@@ -25,3 +25,14 @@ html.gyeot-mytube video.html5-main-video,
 html.gyeot-mytube video.video-stream {
   width: 100% !important; height: 100% !important; top: 0 !important; left: 0 !important; object-fit: contain !important;
 }
+
+/* A Short on YouTube's own Shorts page in the app's player (html.gyeot-shorts, set by content.js only there): no top bar,
+   no space kept for it, so the Short fills the player from the top. */
+html.gyeot-shorts ytm-mobile-topbar-renderer,
+html.gyeot-shorts #header-bar,
+html.gyeot-shorts header.mobile-topbar-header,
+html.gyeot-shorts .mobile-topbar-header-spacer,
+html.gyeot-shorts ytm-pivot-bar-renderer { display: none !important; }
+html.gyeot-shorts body, html.gyeot-shorts #app, html.gyeot-shorts ytm-app, html.gyeot-shorts .page-container {
+  padding-top: 0 !important; margin-top: 0 !important; top: 0 !important;
+}

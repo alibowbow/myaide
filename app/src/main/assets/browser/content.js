@@ -371,7 +371,7 @@
   // html.gyeot-mytube), YouTube's own player is started (a video element alone can still be empty before its first play),
   // the chosen picture quality is applied, and the page tells when it plays, pauses and ends (an ad's end is not the
   // video's), or that it did not start, and why.
-  let mytubeOn=false, mytubeVideo=null, mytubeWant='play', mytubeQuality='auto', mytubeFor=null, mytubeStarted=false,
+  let mytubeBrowse=false, mytubeOn=false, mytubeVideo=null, mytubeWant='play', mytubeQuality='auto', mytubeFor=null, mytubeStarted=false,
     mytubeSince=0, mytubeStuck=false, mytubeShown='', mytubeQualityFor='', mytubeWhy='';
   const MYTUBE_ORDER=['highres','hd2880','hd2160','hd1440','hd1080','hd720','large','medium','small','tiny'];
   function mytubeSay(connection, event, more) {
@@ -443,6 +443,11 @@
   function mytube(message, connection) {
     const command=typeof message==='string' ? message : message && message.command;
     if (message && typeof message==='object' && typeof message.quality==='string') mytubeQuality=message.quality;
+    // A YouTube page in the app's player (a channel, Shorts): a Short drops YouTube's top bar so it fills the player.
+    if (command==='browse') {
+      const mark=()=>document.documentElement.classList.toggle('gyeot-shorts', /^\/shorts\//.test(location.pathname));
+      mark(); if(!mytubeBrowse){mytubeBrowse=true;setInterval(mark,700);} return;
+    }
     if (command==='watch') {
       mytubeWant='play'; mytubeSince=Date.now(); mytubeStuck=false;
       if(!mytubeOn){mytubeOn=true;setInterval(()=>mytubeAttach(connection),700);} mytubeAttach(connection); return;

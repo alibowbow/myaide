@@ -127,6 +127,8 @@ final class MyTubePlayer {
                             if (json.optBoolean("ready")) {
                                 port = source;
                                 if (active()) { if (wantPlay) sendQuality("watch"); else send("pause"); }
+                                // A YouTube page in the player (a Short above all): the page drops its own top bar.
+                                else if (browsing) send("browse");
                                 // Back on YouTube from Google's sign-in: is YouTube signed in now?
                                 else if (signingIn && sawAccounts && onYouTube) send("account");
                             }

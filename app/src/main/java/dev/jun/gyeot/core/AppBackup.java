@@ -23,11 +23,44 @@ import static dev.jun.gyeot.core.Jsons.*;
 public final class AppBackup {
     private AppBackup() {}
     public static final String FORMAT = "dev.jun.gyeot.app-backup", MIME = "application/zip", KIND = "gyeot-backup";
-    public static final int VERSION = 1;
+    public static final int VERSION = 2;
     public static final String MANIFEST = "backup.json", MEMORY = "memory.json", NOTES = "notes.json", SESSIONS = "sessions.json", WORKS = "works.json",
-        SCHEDULES = "schedules.json", ROUTINES = "routines.json", MAIN = "main-chat.db", PAGES = "pages/";
+        SCHEDULES = "schedules.json", ROUTINES = "routines.json", MAIN = "main-chat.db", PAGES = "pages/", SETTINGS = "settings.json", APP_FILES = "app-files/";
     /** The largest backup brought in, and the largest of its list files. */
-    public static final long MAX_BYTES = 1024L * 1024 * 1024, MAX_LIST_BYTES = 64L * 1024 * 1024;
+    public static final long MAX_BYTES = Integer.MAX_VALUE, MAX_LIST_BYTES = 64L * 1024 * 1024;
+    /** A setting never backed up: keys, tokens and sign-ins, and what only means something with this phone's connections. */
+    private static final java.util.regex.Pattern SECRET_KEY = java.util.regex.Pattern.compile(
+        "(?i).*(token|secret|password|passwd|apikey|api_key|refresh|cookie|credential|bearer|authorization|clientid|client_id|epoch|connected|email|consent).*|^drive.*");
+    /** Settings files that are never backed up: the keystore's secrets, the storage grants of this phone, the system's own. */
+    private static final String[] DEVICE_PREFS = {"secret", "shared-output-folder", "storage-setup", "shared-folder-migration", "webview", "com.google", "androidx", "firebase", "gecko", "org.mozilla", "_has_set_default"};
+    /** Files in the app's own folder that are not copied as files: the stores brought in by merging, this phone's journals, anything secret. */
+    private static final Set<String> STORE_FILES = Set.of("memories.json", "notes.json", "sessions.json", "works.json", "schedules.json", "file-explorer-journal.jsonl",
+        "shared-folder-migration-ledger-v1", "duplicate-trash.json", "pending-work-exports", "pages");
+    /** Index files that may be replaced when this phone's copy is still empty ([]), so a new phone gets the backup's list. */
+    public static final Set<String> INDEXES = Set.of("gallery.json", "videos.json", "recordings.json", "tasks.json");
+    /** Whether a settings file (its name without .xml) belongs in a backup. */
+    public static boolean settingsFile(String name) {
+        if (name == null || !name.matches("[A-Za-z0-9_.-]{1,80}")) return false;
+        String lower = name.toLowerCase(Locale.ROOT);
+        for (String device : DEVICE_PREFS) if (lower.startsWith(device)) return false;
+        return true;
+    }
+    /** Whether one setting belongs in a backup: not a secret or a connection's, and not a path to something on this phone. */
+    public static boolean settingKey(String key, Object value) {
+        if (key == null || key.isEmpty() || SECRET_KEY.matcher(key).matches()) return false;
+        return !(value instanceof String text) || !(text.startsWith("content://") || text.startsWith("file://"));
+    }
+    /** Whether a file of the app's own folder (relative path, '/'-separated) is copied: no store, journal, cache or secret. */
+    public static boolean appFile(String relative) {
+        if (relative == null || relative.isEmpty() || relative.length() > 300 || relative.startsWith("/") || relative.contains("\\")) return false;
+        String[] parts = relative.split("/", -1);
+        for (String part : parts) if (part.isEmpty() || part.equals(".") || part.equals("..") || part.startsWith(".") || part.chars().anyMatch(Character::isISOControl)) return false;
+        String first = parts[0], lower = relative.toLowerCase(Locale.ROOT);
+        if (STORE_FILES.contains(first) || first.startsWith("work-resume-") || first.startsWith("main-conversation.db") || first.startsWith("usage.db")) return false;
+        for (String word : new String[]{"secret", "password", "keystore", "gecko", "mozilla", "webview", "cache", "-journal", "-wal", "-shm", ".lock", ".tmp"})
+            if (lower.contains(word)) return false;
+        return true;
+    }
 
     /** One backup in Drive. */
     public record Listed(String id, String name, long size, String created) {}
@@ -47,7 +80,8 @@ public final class AppBackup {
     /** Whether a zip entry is one of the backup's own parts: a known file, or one plain file name under pages/. Anything else is skipped. */
     public static boolean allowed(String entry) {
         if (entry == null) return false;
-        if (Set.of(MANIFEST, MEMORY, NOTES, SESSIONS, WORKS, SCHEDULES, ROUTINES, MAIN).contains(entry)) return true;
+        if (Set.of(MANIFEST, MEMORY, NOTES, SESSIONS, WORKS, SCHEDULES, ROUTINES, MAIN, SETTINGS).contains(entry)) return true;
+        if (entry.startsWith(APP_FILES)) return appFile(entry.substring(APP_FILES.length()));
         return entry.startsWith(PAGES) && entry.substring(PAGES.length()).matches("[A-Za-z0-9_][A-Za-z0-9_.-]{0,120}") && !entry.contains("..");
     }
     /**

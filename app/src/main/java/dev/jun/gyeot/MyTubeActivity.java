@@ -74,6 +74,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private String listKind = "videos"; private boolean byViews; private MyTube.Channel shownChannel; private LinearLayout listTools;
     /** 크기 조절: the video's height as a share of the screen's, chosen by dragging the bar under the controls (0: fitted). */
     static final String VIDEO_SIZE = "mytubeVideoSize";
+    /** A Short's own size (0 작게, 1 보통: as tall as the room, 2 크게), apart from a video's: the size bar does not suit a Short. */
+    static final String SHORTS_SIZE = "mytubeShortsSize";
+    private int shortsSize = 1; private LinearLayout shortsSizer;
     private float sizeRatio, dragFrom; private int dragHeight; private boolean dragging; private TextView sizeToggle;
     /** 직접 검색: the words searched (null when the feeds show), what YouTube found, and the box itself. */
     private String searched; private List<MyTube.Video> found = List.of(); private EditText searchBox; private View searchActions; private Button searchPlayAll;
@@ -210,15 +213,19 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         // Typing in the search box with the keyboard up (one column): the play buttons, the size bar and the composer step aside.
         boolean searching = searchBox.hasFocus();
         typing = shown && searching && !full && !side;
-        String key = full + "/" + side + "/" + fill + "/" + shorts + "/" + typing + "/" + searching;
+        // A Short has its own size buttons; the video's 작게 ↔ 크게 and size bar step aside for it.
+        sizeToggle.setVisibility(shorts ? View.GONE : View.VISIBLE); shortsSizer.setVisibility(shorts && !full ? View.VISIBLE : View.GONE);
+        if (side && shorts && body.getWidth() == 0) body.post(this::showPlayer);
+        String key = full + "/" + side + "/" + fill + "/" + shorts + "/" + typing + "/" + searching + (side && shorts ? "/" + shortsSize + "/" + body.getWidth() + "x" + body.getHeight() : "");
         if (key.equals(arranged)) return fill;
         arranged = key;
         body.setOrientation(side ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
-        videoPane.setLayoutParams(side ? new LinearLayout.LayoutParams(0, -1, shorts ? 0.85f : 1.3f) : full ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
+        videoPane.setLayoutParams(side && shorts ? new LinearLayout.LayoutParams(shortsWidth(), -1) : side ? new LinearLayout.LayoutParams(0, -1, 1.3f)
+            : full ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
         stage.setLayoutParams(fill ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
         listPane.setLayoutParams(side ? new LinearLayout.LayoutParams(0, -1, 1) : new LinearLayout.LayoutParams(-1, 0, 1));
         listPane.setVisibility(full ? View.GONE : View.VISIBLE);
-        controlsRow.setVisibility(full || typing ? View.GONE : View.VISIBLE); gripView.setVisibility(fill || typing ? View.GONE : View.VISIBLE); exitFull.setVisibility(full ? View.VISIBLE : View.GONE);
+        controlsRow.setVisibility(full || typing ? View.GONE : View.VISIBLE); gripView.setVisibility(fill || typing || shorts ? View.GONE : View.VISIBLE); exitFull.setVisibility(full ? View.VISIBLE : View.GONE);
         // The search box in use: 마이튜브에게 말하기 steps aside, so it never covers the box; it comes back when the search ends.
         if (chat != null) chat.composer.setVisibility(full || searching ? View.GONE : View.VISIBLE);
         if (navigation != null) navigation.immersive(full);
@@ -269,6 +276,12 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         sizeToggle = ui.text("작게", 12.5f, 650, TEXT); sizeToggle.setGravity(Gravity.CENTER); sizeToggle.setMinWidth(ui.dp(40)); sizeToggle.setMinimumWidth(ui.dp(40)); sizeToggle.setHeight(ui.dp(34));
         sizeToggle.setPadding(ui.dp(6), 0, ui.dp(6), 0); sizeToggle.setOnClickListener(v -> toggleSmall()); Ui.pressable(sizeToggle, true);
         views.addView(sizeToggle, new LinearLayout.LayoutParams(-2, ui.dp(34)));
+        // A Short's own size buttons, shown in place of 작게 ↔ 크게 while a Short plays.
+        shortsSizer = ui.switcher(new String[]{"작게", "보통", "크게"}, store.settings.getInt(SHORTS_SIZE, 1), i -> {
+            shortsSize = i; store.settings.edit().putInt(SHORTS_SIZE, i).apply(); arranged = null; showPlayer();
+        });
+        shortsSizer.setContentDescription("쇼츠 크기"); shortsSizer.setVisibility(View.GONE);
+        views.addView(shortsSizer, new LinearLayout.LayoutParams(-2, -2));
         sideToggle = roundIcon(R.drawable.ic_layers, "나란히 보기 · 왼쪽 영상, 오른쪽 목록", () -> setView("side".equals(viewMode) ? "wide" : "side"));
         views.addView(sideToggle, new LinearLayout.LayoutParams(ui.dp(34), ui.dp(34)));
         views.addView(roundIcon(R.drawable.ic_expand, "전체화면 · 영상만", () -> setView("full")), new LinearLayout.LayoutParams(ui.dp(34), ui.dp(34)));
@@ -280,7 +293,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         LinearLayout.LayoutParams endAt = new LinearLayout.LayoutParams(-2, -2); endAt.leftMargin = ui.dp(6); controls.addView(endDial, endAt);
         controlsRow = controls; videoPane.addView(controls);
         // 크기 조절: a small bar under the controls; dragged down the video grows, up it shrinks; a double tap fits it again.
-        sizeRatio = store.settings.getFloat(VIDEO_SIZE, 0f);
+        sizeRatio = store.settings.getFloat(VIDEO_SIZE, 0f); shortsSize = Math.max(0, Math.min(2, store.settings.getInt(SHORTS_SIZE, 1)));
         android.widget.FrameLayout grip = new android.widget.FrameLayout(this);
         View bar = new View(this); bar.setBackground(ui.shape(SEPARATOR, PILL));
         grip.addView(bar, new android.widget.FrameLayout.LayoutParams(ui.dp(36), ui.dp(4), Gravity.CENTER));
@@ -379,6 +392,16 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         if (closed && searchBox.hasFocus()) root.requestFocus();
         main.post(this::showPlayer);
     }
+    /**
+     * A Short beside the list: as wide as a 9:16 picture as tall as the room (보통), three quarters of it (작게) or a quarter
+     * more (크게), never under 30% nor over 70% of the width, so no black band sits above or below it.
+     */
+    private int shortsWidth() {
+        int width = body.getWidth() > 0 ? body.getWidth() : getResources().getDisplayMetrics().widthPixels;
+        int height = (body.getHeight() > 0 ? body.getHeight() : getResources().getDisplayMetrics().heightPixels) - ui.dp(56);
+        int fit = Math.max(1, height) * 9 / 16, wanted = shortsSize == 0 ? fit * 3 / 4 : shortsSize == 2 ? fit * 5 / 4 : fit;
+        return Math.max(width * 30 / 100, Math.min(width * 70 / 100, wanted));
+    }
     private void showPlayer() {
         if (destroyed) return;
         MyTube.Video now = player.current();
@@ -388,8 +411,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         boolean fill = arrange(player.active() || signingIn || browsing, browsing);
         // A YouTube page (a channel, Shorts, the sign-in) needs room to read and use; a video fills its 16:9 box.
         int screenHeight = getResources().getDisplayMetrics().heightPixels;
-        int height = browsing ? Math.max(videoHeight, screenHeight * 64 / 100) : signingIn ? Math.max(videoHeight, screenHeight / 2) : videoHeight;
-        if (sizeRatio > 0f) height = clampVideo(Math.round(screenHeight * sizeRatio), screenHeight); // the size the user dragged it to
+        boolean shortsPage = browsing && player.browseUrl().contains("/shorts/");
+        int height = shortsPage ? screenHeight * (shortsSize == 0 ? 48 : shortsSize == 2 ? 80 : 64) / 100 // a Short in one column: its own size
+            : browsing ? Math.max(videoHeight, screenHeight * 64 / 100) : signingIn ? Math.max(videoHeight, screenHeight / 2) : videoHeight;
+        if (sizeRatio > 0f && !shortsPage) height = clampVideo(Math.round(screenHeight * sizeRatio), screenHeight); // the size the user dragged it to
         boolean smallNow = small(screenHeight); sizeToggle.setText(smallNow ? "크게" : "작게");
         sizeToggle.setContentDescription(smallNow ? "영상 크게 · 원래 크기로" : "영상 작게 · 목록이 더 많이 보이게");
         if (fill) height = -1; // 전체화면, or a Short / YouTube page beside the list: the whole height it has
