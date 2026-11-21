@@ -68,7 +68,8 @@ public final class WakeWordService extends Service {
                 BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice.class);
                 if (device == null || !car(device.getAddress())) return;
                 carConnected = BluetoothDevice.ACTION_ACL_CONNECTED.equals(intent.getAction());
-                if (carConnected) rest.reset(); // a new drive: wakes nobody answered on the last one do not hold this one back
+                // A new drive (the car away long enough) starts afresh; a short drop of Bluetooth keeps this drive's rest.
+                if (carConnected) rest.connected(SystemClock.elapsedRealtime()); else rest.disconnected(SystemClock.elapsedRealtime());
                 store.phoneLog(carConnected ? "● 차 블루투스 연결 · 호출어 듣기 시작" : "● 차 블루투스 끊김 · 호출어 마이크 끔");
                 apply();
             }
@@ -135,19 +136,28 @@ public final class WakeWordService extends Service {
         // What became of the last wake: a conversation (a short rest from its end), or nothing said or no call at all (a
         // longer rest each time in a row).
         long now = SystemClock.elapsedRealtime();
-        long began = rest.follow(now, store.voiceActive, store.lastCallSpoken);
-        if (began > 0 && rest.unanswered() > 0)
-            store.phoneLog("● 호출어 쉼 · 말없이 끝난 호출 " + rest.unanswered() + "번째 · " + dev.jun.gyeot.core.WakeRest.words(began) + " 뒤 다시 들어요");
+        long began = rest.follow(now, store.voiceActive, store.lastCallAsked, store.lastCallStopped);
+        if (began > 0 && rest.restingForDrive(now))
+            store.phoneLog("● 호출어 쉼 · 요청 없이 끝난 호출이 이어져 이번 운행 동안은 듣지 않아요 · 차를 다시 연결하면 다시 들어요");
+        else if (began > 0 && rest.unanswered() > 0)
+            store.phoneLog("● 호출어 쉼 · 요청 없이 끝난 호출 · " + dev.jun.gyeot.core.WakeRest.words(began) + " 뒤 다시 들어요");
+        else if (began > dev.jun.gyeot.core.WakeRest.COOLDOWN_MS)
+            store.phoneLog("● 호출어 쉼 · 직접 꺼서 " + dev.jun.gyeot.core.WakeRest.words(began) + " 뒤 다시 들어요");
         if (WakeStandby.microphone(state) && !rest.resting(now)) startReading(); else stopReading();
-        if (state != current) { current = state; getSystemService(NotificationManager.class).notify(NOTIFICATION, notification(state)); }
+        boolean drive = rest.restingForDrive(now);
+        if (state != current || drive != shownDriveRest) { current = state; shownDriveRest = drive; getSystemService(NotificationManager.class).notify(NOTIFICATION, notification(state)); }
         main.removeCallbacks(again);
-        if (state == WakeStandby.State.LISTENING && rest.resting(now)) main.postDelayed(again, rest.left(now) + 50);
+        if (state == WakeStandby.State.LISTENING && rest.resting(now) && !drive) main.postDelayed(again, rest.left(now) + 50);
         else if (rest.pending() && !store.voiceActive) main.postDelayed(again, dev.jun.gyeot.core.WakeRest.NO_CALL_MS + 50);
     }
+    /** The notification says so while the wake word rests for the rest of the drive. */
+    private boolean shownDriveRest;
     private Notification notification(WakeStandby.State state) {
         PendingIntent open = PendingIntent.getActivity(this, NOTIFICATION, new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE);
+        String text = shownDriveRest && state == WakeStandby.State.LISTENING ? "이번 운행 동안 호출어를 쉬어요 · 차를 다시 연결하면 다시 들어요"
+            : WakeStandby.label(state, store.settings.getString(WakeWordFiles.CAR_NAME, ""));
         return new Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_notification).setContentTitle(brand() + " 호출어")
-            .setContentText(WakeStandby.label(state, store.settings.getString(WakeWordFiles.CAR_NAME, ""))).setOngoing(true).setContentIntent(open).build();
+            .setContentText(text).setOngoing(true).setContentIntent(open).build();
     }
     private static String brand() { return dev.jun.gyeot.core.Brand.NAME; }
 

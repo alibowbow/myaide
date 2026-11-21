@@ -3057,6 +3057,8 @@ public final class AssistantService extends Service {
         refusedSettings.clear();
         if (bubble != null) { bubble.close(); bubble = null; }
         unwatchNetwork();
+        // The user's own stop (the stop button, the notification, or saying so): the wake word then keeps quiet for a while.
+        store.lastCallStopped = "음성을 종료했어요".equals(status);
         PhoneService.userStopped = null; PhoneService.userArmed = null; PhoneService.stop(); learnFrom(store.endSession());
         if (phoneRun != null) phoneRun.cancel("음성 연결이 끝나 폰 조작을 취소했어요.");
         phoneRun = null; phoneAgent = null;

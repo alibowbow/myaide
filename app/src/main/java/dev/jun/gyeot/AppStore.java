@@ -581,8 +581,23 @@ final class AppStore {
         while (sessions.length() > SESSION_LIMIT) sessions.remove(0);
         sessionsVersion++;
     }
-    /** Whether anything was said in the voice session that ended last (the wake word rests longer after one with nothing said). */
+    /** Whether anything was said in the voice session that ended last. */
     volatile boolean lastCallSpoken;
+    /**
+     * Whether the user asked for anything in the voice session that ended last (a line of theirs that is more than a word
+     * to stop it), and whether they turned it off themselves: the wake word rests longer after one without (core/WakeRest).
+     */
+    volatile boolean lastCallAsked, lastCallStopped;
+    /** Who the user's own words are from in a session's lines. */
+    static final String HEARD = "들린 말";
+    static boolean asked(JSONObject session) {
+        JSONArray lines = session == null ? null : session.optJSONArray("lines");
+        for (int i = 0; lines != null && i < lines.length(); i++) {
+            JSONObject line = lines.optJSONObject(i);
+            if (line != null && HEARD.equals(line.optString("who")) && dev.jun.gyeot.core.WakeRest.asked(line.optString("text"))) return true;
+        }
+        return false;
+    }
     /** Who a line of the app's own is from (a notice about the connection, a tool, the network): not something anyone said. */
     static final String NOTICE = "안내";
     /**
@@ -602,7 +617,7 @@ final class AppStore {
     synchronized JSONObject endSession() {
         JSONObject open = session(openSession); openSession = "";
         if (open == null) return null;
-        boolean said = spoken(open); lastCallSpoken = said;
+        boolean said = spoken(open); lastCallSpoken = said; lastCallAsked = asked(open);
         for (int i = sessions.length() - 1; i >= 0; i--) if (!spoken(sessions.optJSONObject(i))) sessions.remove(i);
         saveSessionsSoon(0); sessionsVersion++; changed();
         return said ? copy(open) : null;
