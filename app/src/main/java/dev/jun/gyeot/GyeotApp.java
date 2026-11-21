@@ -31,6 +31,7 @@ public final class GyeotApp extends Application {
             });
             DiagnosticsExport.installCrashRecorder(this);
             store = new AppStore(this);
+            if (SecurityWatch.enabled(this)) SecurityWatch.restore(this);
             // How Android ended the previous process; a system kill during a call or task gets one notice.
             String exit = DiagnosticsExport.readExits(this);
             if (exit != null) store.exitNotice = exit;

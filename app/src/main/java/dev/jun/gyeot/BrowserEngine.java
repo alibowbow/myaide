@@ -30,6 +30,13 @@ final class BrowserEngine {
     private static final Set<String> activeWorkReceipts = java.util.concurrent.ConcurrentHashMap.newKeySet();
     static void stopExisting(String message) { if (instance != null) instance.stopAll(message); }
     /** Whether the AI browser is working on a task right now (a saved login's use record says so). */
+    static void stopForProtection() {
+        stopExisting(SecurityWatch.PAUSE_MESSAGE);
+        for (var ref : new ArrayList<>(workEngines)) {
+            BrowserEngine engine = ref.get();
+            if (engine != null) engine.stopAll(SecurityWatch.PAUSE_MESSAGE);
+        }
+    }
     static boolean busy() { BrowserEngine e = instance; return e != null && e.anyRunning(); }
     static BrowserEngine get(Context context) {
         if (Looper.myLooper() != Looper.getMainLooper()) throw new IllegalStateException("Browser must run on the main thread");
@@ -552,6 +559,7 @@ final class BrowserEngine {
     String taskWords() { Lane l = selected(); return l == null ? "" : l.taskWords; }
     String taskContext() { return taskContext(lease()); }
     long begin(Runnable cancel) {
+        if (SecurityWatch.paused(context)) throw new IllegalStateException(SecurityWatch.PAUSE_MESSAGE);
         Lane old = selected();
         if (stopping.contains(current)) throw new IllegalStateException("작업을 중지하는 중이에요.");
         if (old == null) throw new IllegalStateException("탭이 닫혔어요.");
@@ -802,6 +810,7 @@ final class BrowserEngine {
         tab.session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
             @Override public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session, LoadRequest request) {
                 if (!live(tab)) return GeckoResult.fromValue(AllowOrDeny.DENY);
+                if (blockSecurityLink(request.uri)) return GeckoResult.fromValue(AllowOrDeny.DENY);
                 try {
                     BrowserTools.url(request.uri);
                     // Redirects can fail before location commit, without a second PageStart.
@@ -828,7 +837,7 @@ final class BrowserEngine {
             @Override public void onCanGoBack(GeckoSession session, boolean value) { if (!live(tab)) return; tab.back = value; changed(); }
             @Override public void onCanGoForward(GeckoSession session, boolean value) { if (!live(tab)) return; tab.forward = value; changed(); }
             @Override public GeckoResult<GeckoSession> onNewSession(GeckoSession session, String uri) {
-                if (!live(tab)) return GeckoResult.fromValue(null);
+                if (!live(tab) || blockSecurityLink(uri)) return GeckoResult.fromValue(null);
                 if (working(tab)) {
                     stopAffected(tab, "새 탭은 직접 열어 주세요. 작업 대상 탭은 바뀌지 않았어요.");
                     return GeckoResult.fromValue(null);
@@ -918,6 +927,13 @@ final class BrowserEngine {
         if (!live(tab)) return;
         if (current != tab) viewEpoch++; absorbProjection(); current = tab; showTaskState(); activate(tab); persist(); changed();
     }
+    private boolean blockSecurityLink(String url) {
+        var link = dev.jun.gyeot.core.SecurityLink.inspect(url, "");
+        if (!link.block()) return false;
+        status = "휴대폰 보안 · 이동 차단 · " + link.reason();
+        changed();
+        return true;
+    }
     static int clampZoom(int percent) { return Math.max(50, Math.min(200, percent)); }
     /** Page layout zoom, separate from system font scale and pinch zoom. Never reloads forms. */
     void setZoom(Tab tab, int percent) {
@@ -963,6 +979,7 @@ final class BrowserEngine {
         tab.session.setActive(visible&&tab==current || rendering(tab) || store.voiceActive || voiceChatHere()); backgroundDisplay(tab);
         if (tab.needsLoad && (extension != null || !extensionError.isBlank())) {
             tab.needsLoad = false; tab.loading = true; tab.loadFailed = false; tab.loadingUrl = tab.url; tab.acceptedRedirectUrls.clear(); tab.progress = 0;
+            if (blockSecurityLink(tab.url)) { tab.loading=false; tab.loadFailed=true; changed(); return; }
             tab.port = null; tab.document = ""; tab.session.loadUri(tab.url);
         }
     }

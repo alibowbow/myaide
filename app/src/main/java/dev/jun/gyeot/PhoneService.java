@@ -128,6 +128,7 @@ public final class PhoneService extends AccessibilityService {
     static boolean launch(Intent intent) {
         PhoneService service = instance;
         if (service == null) return false;
+        if (SecurityWatch.paused(service)) return false;
         service.startActivity(intent);
         return true;
     }
@@ -160,6 +161,7 @@ public final class PhoneService extends AccessibilityService {
         PhoneService service = instance;
         if (service == null) throw new IllegalStateException("Android 접근성 설정에서 ‘" + Brand.NAME + " 폰 조작’을 먼저 켜 주세요.");
         if (Looper.myLooper() != Looper.getMainLooper()) throw new IllegalStateException("main thread required");
+        if (SecurityWatch.paused(service)) throw new IllegalStateException(SecurityWatch.PAUSE_MESSAGE);
         service.requireUnlocked(); service.showStop(); service.invalidate(); gate.arm(); service.changed();
     }
     /** The bubble is on screen there (screen pixels), or moved there; it shows the stop while phone control is on. */
@@ -431,6 +433,7 @@ public final class PhoneService extends AccessibilityService {
             result.done(jpeg, app, text, error);
         };
         if (service == null) { once.done(null, null, null, "화면을 보려면 Android 접근성 설정에서 ‘" + Brand.NAME + " 폰 조작’을 켜 주세요."); return; }
+        if (SecurityWatch.paused(service)) { once.done(null, null, null, SecurityWatch.PAUSE_MESSAGE); return; }
         service.main.postDelayed(timeout, TIMEOUT_MS);
         // A fresh explicit request can follow the last one quickly; wait for Android's capture interval instead of failing.
         long delay = Math.max(0, 1500 - (SystemClock.uptimeMillis() - service.lastLook));
@@ -498,6 +501,7 @@ public final class PhoneService extends AccessibilityService {
         android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
         PhoneService service = instance;
         if (service == null) { main.post(() -> done.accept(null, "폰 조작이 꺼져 있어요")); return; }
+        if (SecurityWatch.paused(service)) { main.post(() -> done.accept(null, SecurityWatch.PAUSE_MESSAGE)); return; }
         try {
             service.takeScreenshot(Display.DEFAULT_DISPLAY, service.imaging, new TakeScreenshotCallback() {
                 @Override public void onSuccess(ScreenshotResult shot) {
