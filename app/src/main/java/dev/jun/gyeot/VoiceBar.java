@@ -57,6 +57,11 @@ final class VoiceBar {
     void aside(View... views) { aside = views; }
     void track(java.util.function.Consumer<android.app.Dialog> tracker) { this.tracker = tracker; }
 
+    /** A screen's own send button keeps its look; only its glyph and name follow (the voice button with nothing to send). */
+    static void glyph(ImageView send, boolean offer, String sendName) {
+        send.setImageResource(offer ? R.drawable.ic_wave : R.drawable.ic_send);
+        send.setContentDescription(offer ? OFFER : sendName); send.setTooltipText(offer ? "음성 대화" : null);
+    }
     /** The send button: the voice button while there is nothing to send. */
     void looks(ImageView send, boolean offer) {
         ui.sendLooks(send, false);

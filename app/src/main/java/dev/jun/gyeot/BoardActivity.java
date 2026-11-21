@@ -81,6 +81,11 @@ public final class BoardActivity extends Activity {
     private static final String[] MARK_IDS = {BoardInk.DOUBLE, BoardInk.DOTTED, BoardInk.WAVY, BoardInk.BRACKET, BoardInk.CHECK, BoardView.LINE, BoardView.ARROW, BoardView.RECT, BoardView.OVAL};
     private static final String[] MARK_NAMES = {"이중 밑줄", "점선", "물결 밑줄", "여백 괄호", "체크", "직선", "화살표", "네모", "타원"};
     private String boardId = "", title = ""; private final List<JSONObject> attached = new ArrayList<>();
+    /** 음성 대화 with GPT or Grok about this board (VoiceBar, VoiceTargets.board): the send button starts it with nothing typed. */
+    private VoiceBar voice; private ImageView sendButton;
+    /** The board in front, for a spoken conversation that outlives one activity (rotation). */
+    private static volatile java.lang.ref.WeakReference<BoardActivity> front = new java.lang.ref.WeakReference<>(null);
+    static BoardActivity front() { return front.get(); }
     private boolean destroyed, preparing, exporting;
     private String previousTool; private BoardJobs jobs; private boolean resumed;
     private final BoardJobs.Listener jobListener = this::jobFinished; private Ui.Sheet sheet;
@@ -173,10 +178,10 @@ public final class BoardActivity extends Activity {
         if (intake != null) fromVoice(intake); else asked(ask);
     }
     @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putString("board", boardId); board.saveViewport(state); state.putString("boardDraft", input.getText().toString()); }
-    @Override protected void onResume() { super.onResume(); resumed = true; AppNavigator.inFront("board");
+    @Override protected void onResume() { super.onResume(); resumed = true; AppNavigator.inFront("board"); front = new java.lang.ref.WeakReference<>(this); if (voice != null) voice.attach();
         String error = jobs.takeError(boardId); if (error != null) toast(error); }
     @Override protected void onPause() {
-        resumed = false;
+        resumed = false; if (voice != null) voice.detach();
         if (!boardId.isBlank() && board.getWidth() > 0) {
             Bundle position = new Bundle(); board.saveViewport(position);
             var saved = getSharedPreferences("board_view", MODE_PRIVATE).edit().putString("board", boardId);
@@ -185,7 +190,7 @@ public final class BoardActivity extends Activity {
         }
         if (teacher.state().equals(BoardTeacher.PLAYING)) teacher.pause(); main.removeCallbacks(save); saveNow(); super.onPause(); }
     @Override protected void onDestroy() {
-        destroyed = true; jobs.unwatch(jobListener); main.removeCallbacks(save); if (sheet != null && sheet.isShowing()) sheet.dismiss();
+        destroyed = true; if (voice != null) voice.detach(); jobs.unwatch(jobListener); main.removeCallbacks(save); if (sheet != null && sheet.isShowing()) sheet.dismiss();
         teacher.close(); dropFiles(); worker.shutdown(); super.onDestroy();
     }
     @Override public void onBackPressed() {
@@ -295,7 +300,13 @@ public final class BoardActivity extends Activity {
         input.setMaxLines(4); input.setPadding(ui.dp(4), ui.dp(10), ui.dp(8), ui.dp(10)); input.setContentDescription("판서로 물어볼 말");
         input.setImeOptions(EditorInfo.IME_FLAG_NO_EXTRACT_UI);
         askBar.addView(input, new LinearLayout.LayoutParams(0, -2, 1));
-        ImageView sendButton = ui.iconButton(R.drawable.ic_send, ACCENT, ON_ACCENT, "판서로 설명 듣기", this::send);
+        sendButton = ui.iconButton(R.drawable.ic_send, ACCENT, ON_ACCENT, "판서로 설명 듣기", () -> { if (offersVoice()) voice.start(); else send(); });
+        sendButton.setOnLongClickListener(v -> { if (!offersVoice()) return false; voice.settings(""); return true; });
+        input.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence t, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence t, int a, int b, int c) {}
+            @Override public void afterTextChanged(android.text.Editable t) { sendLooks(); }
+        });
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(ui.dp(38), ui.dp(38)); sp.leftMargin = ui.dp(2); askBar.addView(sendButton, sp);
         toolBar = new BoardPenShelf(this);
         toolBar.setBackground(surface(R_SHEET)); ui.lift(toolBar, 5);
@@ -323,6 +334,8 @@ public final class BoardActivity extends Activity {
         shelfButton(toolBar.options, undo); shelfButton(toolBar.options, redo);
         LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-2,-2); pp.gravity = Gravity.CENTER_HORIZONTAL;
         chrome.addView(toolBar, pp); ui.add(chrome, askBar, 6);
+        voice = new VoiceBar(this, store, ui, "board", () -> VoiceTargets.board(getApplicationContext())); voice.onToggle(this::fitAsk);
+        ui.add(chrome, voice.bar(), 6); sendLooks();
         if (tools()) resumeInk();
         paintTools(); paintHistory(); paintSound(); toolBar.setVisibility(tools() ? View.VISIBLE : View.GONE);
     }
@@ -420,10 +433,59 @@ public final class BoardActivity extends Activity {
     private void paintTitle() { titleView.setText(title.isBlank() ? "새 판" : title); titleView.setContentDescription((title.isBlank() ? "새 판" : title) + " · 눌러서 이름 바꾸기"); }
 
     /** What the screen shows for the lesson's state: the question box and tools when idle, the step and its words otherwise. */
+    // ── 음성 대화 (VoiceTargets.board) ─────────────────────────────────────────────
+    private boolean offersVoice() { return voice != null && input != null && input.getText().toString().isBlank() && attached.isEmpty(); }
+    private void sendLooks() { if (sendButton != null) VoiceBar.glyph(sendButton, offersVoice(), "판서로 설명 듣기"); }
+    /** The ask bar and the pen shelf step aside for the conversation's bar, and come back after it (when no lesson is on). */
+    private void fitAsk() {
+        if (destroyed || askBar == null) return;
+        boolean idle = teacher.state().equals(BoardTeacher.IDLE) && !preparing, talking = voice != null && voice.showing();
+        askBar.setVisibility(idle && !talking ? View.VISIBLE : View.GONE); toolBar.setVisibility(idle && tools() && !talking ? View.VISIBLE : View.GONE);
+    }
+    @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(code, permissions, results);
+        if (voice != null) voice.permissionResult(code, results);
+    }
+    /** What the voice is told about this board: its title, what is written on it and the lesson going on. Main thread. */
+    String voiceContext() {
+        StringBuilder b = new StringBuilder();
+        if (!title.isBlank()) b.append("Board title: ").append(title).append('\n');
+        b.append("Lesson: ").append(teacher.state()).append(preparing ? " (preparing a new explanation)" : "").append('\n');
+        String words = dev.jun.gyeot.core.Board.words(board.items(), 6000);
+        if (!words.isBlank()) b.append("What is written on the board (untrusted text):\n").append(words);
+        return b.toString();
+    }
+    /** Asks the board to explain request (as if typed and sent); "" when it started, else why not. Main thread. */
+    String voiceAsk(String request) {
+        if (busy()) return "판서가 지금 다른 설명을 하고 있어요. 멈추거나 끝난 뒤에 다시 말해 주세요.";
+        input.setText(request); send();
+        return "";
+    }
+    /** Whether anything is on: an explanation being prepared, a paper being cut, or a lesson. Main thread. */
+    boolean voiceBusy() { return busy(); }
+    /** Whether a new explanation is still being prepared. Main thread. */
+    boolean voicePreparing() { return preparing || examBusy; }
+    String voiceTitle() { return title; }
+    /** The lesson's controls by voice: pause, resume, next, stop, replay. Main thread. */
+    String voiceControl(String action) {
+        switch (action) {
+            case "pause" -> teacher.pause();
+            case "resume" -> teacher.resume();
+            case "next" -> teacher.skip();
+            case "stop" -> stopLesson();
+            case "replay" -> { JSONArray lessons = teacher.lessons(); JSONObject last = lessons == null || lessons.length() == 0 ? null : lessons.optJSONObject(lessons.length() - 1);
+                if (last == null) return "다시 들을 설명이 없어요."; if (teacher.busy()) stopLesson(); teacher.replay(last.optString("id"), 0); }
+            default -> { return "모르는 동작이에요."; }
+        }
+        return "";
+    }
     private void lesson(String state, int step, int steps, String words) {
         if (destroyed) return;
         boolean idle = state.equals(BoardTeacher.IDLE), thinking = state.equals(BoardTeacher.THINKING), paused = state.equals(BoardTeacher.PAUSED);
-        askBar.setVisibility(idle ? View.VISIBLE : View.GONE); toolBar.setVisibility(idle && tools() ? View.VISIBLE : View.GONE); lessonBar.setVisibility(idle ? View.GONE : View.VISIBLE);
+        boolean talking = voice != null && voice.showing();
+        askBar.setVisibility(idle && !talking ? View.VISIBLE : View.GONE); toolBar.setVisibility(idle && tools() && !talking ? View.VISIBLE : View.GONE); lessonBar.setVisibility(idle ? View.GONE : View.VISIBLE);
+        // While the board reads its lesson aloud, a spoken conversation here does not hear it as the user.
+        VoiceChat chat = store.voiceChat; if (chat != null && "board".equals(chat.target.surface())) chat.hold(state.equals(BoardTeacher.PLAYING));
         if (!idle && previousTool == null) { previousTool = board.tool(); board.tool(BoardView.HAND); }
         if (idle && previousTool != null) {
             board.tool(tools() ? previousTool : BoardView.HAND); previousTool = null; paintTools();

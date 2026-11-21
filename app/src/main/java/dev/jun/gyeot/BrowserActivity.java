@@ -645,8 +645,7 @@ public final class BrowserActivity extends Activity {
     private boolean offersVoice() { return request != null && request.getText().toString().isBlank() && voice != null; }
     private void sendLooks() {
         if (sendButton == null) return;
-        if (offersVoice()) voice.looks(sendButton, true);
-        else { ui.sendLooks(sendButton, false); sendButton.setContentDescription(engine != null && engine.running() ? "현재 작업에 지시 바로 반영" : "지시 실행"); }
+        VoiceBar.glyph(sendButton, offersVoice(), engine != null && engine.running() ? "현재 작업에 지시 바로 반영" : "지시 실행");
     }
     private void startVoice() {
         if (dictation != null) dictation.cancel();

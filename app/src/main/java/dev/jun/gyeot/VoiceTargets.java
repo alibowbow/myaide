@@ -308,4 +308,58 @@ final class VoiceTargets {
             @Override public long line(boolean user, String text, long reply, String voice) { return 0; }
         };
     }
+
+    // ── 판서 ─────────────────────────────────────────────────────────────
+    /**
+     * The AI whiteboard (판서) in front: the voice asks the board to explain what the user wants (explain_on_board) and then
+     * keeps quiet while the board writes and reads its lesson in its own voice (the microphone rests meanwhile); it can
+     * pause, go on, skip, stop or replay the lesson and read what is written. The board keeps no conversation log.
+     */
+    static VoiceChat.Target board(Context context) {
+        Context app = context.getApplicationContext();
+        return new VoiceChat.Target() {
+            @Override public String surface() { return "board"; }
+            @Override public String label() { return "판서"; }
+            @Override public String about() { return "말로 물으면 판서가 써 가며 설명해 줘요. 판서가 읽는 동안에는 마이크가 잠시 쉬고, 멈춤을 누르면 다시 들어요."; }
+            BoardActivity board() throws Exception { BoardActivity b = BoardActivity.front(); if (b == null || b.isDestroyed()) throw new IllegalStateException("판서 화면이 열려 있지 않아요."); return b; }
+            @Override public String instructions() throws Exception {
+                AppStore store = ((GyeotApp) app).store();
+                String context = onMain(() -> { BoardActivity b = BoardActivity.front(); return b == null ? "" : b.voiceContext(); });
+                return RealtimeVoice.instructions(dev.jun.gyeot.core.Brand.called(store.assistantName()),
+                    "the app's AI whiteboard (판서), which explains by writing on the board and reading it aloud in its own voice", store.persona(), store.pinnedNotes(), context)
+                    + "\n\nTo explain, teach or solve anything, call explain_on_board with what to explain in the user's words; then say one short sentence"
+                    + " (for example 판서로 설명할게요) and stay silent while the board explains in its own voice. Answer a short question about what is"
+                    + " already on the board yourself. Use board_control for 멈춰, 계속, 다음, 처음부터 다시, 그만; read_board to see what is written.";
+            }
+            @Override public JSONArray tools() {
+                return arr(obj("type", "function", "name", "explain_on_board", "description", "Has the board explain: it writes the explanation and reads it aloud itself. Returns once the explanation is ready to play.",
+                        "parameters", requestParameters("What to explain, with what the user wants stressed")),
+                    obj("type", "function", "name", "board_control", "description", "Controls the lesson being read.", "parameters", obj("type", "object", "required", arr("action"),
+                        "properties", obj("action", obj("type", "string", "enum", arr("pause", "resume", "next", "replay", "stop"))))),
+                    obj("type", "function", "name", "read_board", "description", "What is written on the board now and the lesson's state.", "parameters", obj("type", "object", "properties", obj())));
+            }
+            @Override public String call(String name, JSONObject args, VoiceChat chat) throws Exception {
+                switch (name) {
+                    case "read_board" -> { return obj("board", clip(onMain(() -> board().voiceContext()), RESULT)).toString(); }
+                    case "board_control" -> { String action = args.optString("action"); String why = onMain(() -> board().voiceControl(action)); return why.isEmpty() ? obj("ok", true).toString() : obj("error", why).toString(); }
+                    case "explain_on_board" -> {
+                        String request = args.optString("request").strip();
+                        if (request.isEmpty()) return obj("error", "empty request").toString();
+                        String why = onMain(() -> board().voiceAsk(request));
+                        if (!why.isEmpty()) return obj("error", why).toString();
+                        long asked = System.currentTimeMillis(); boolean started = false;
+                        for (long until = asked + SHORT_WAIT_MS; System.currentTimeMillis() < until; Thread.sleep(400)) {
+                            boolean preparing = onMain(() -> board().voicePreparing()), busy = onMain(() -> board().voiceBusy());
+                            if (preparing || busy) started = true;
+                            if (started && !preparing) return obj("ok", true, "title", onMain(() -> board().voiceTitle()), "note", "판서가 직접 설명을 읽어요. 짧게 한마디만 하고 조용히 기다리세요.").toString();
+                            if (!started && System.currentTimeMillis() - asked > 5000) return obj("error", "판서를 시작하지 못했어요. 판서에 쓸 AI가 연결됐는지 확인해 주세요.").toString();
+                        }
+                        return obj("state", "preparing", "note", "판서를 준비하는 중이에요. 준비되면 판서가 바로 설명해요. 짧게 알리고 기다리세요.").toString();
+                    }
+                    default -> { return obj("error", "no such function").toString(); }
+                }
+            }
+            @Override public long line(boolean user, String text, long reply, String voice) { return 0; }
+        };
+    }
 }
