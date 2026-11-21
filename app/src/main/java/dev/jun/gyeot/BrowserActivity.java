@@ -222,7 +222,7 @@ public final class BrowserActivity extends Activity {
             @Override public void afterTextChanged(android.text.Editable t) { sendLooks(); }
         });
         // 음성 대화's bar stands in the composer's place while a conversation is on.
-        voice = new VoiceBar(this, engine.store, ui, "browser", () -> VoiceTargets.browser(this)); voice.aside(compose); voice.track(dialogs::add);
+        voice = new VoiceBar(this, ((GyeotApp) getApplication()).store(), ui, "browser", () -> VoiceTargets.browser(this)); voice.aside(compose); voice.track(dialogs::add);
         LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(-1, -2); pane.addView(voice.bar(), barParams);
         pane.addView(compose);
         updateComposerLines(false);
@@ -649,7 +649,7 @@ public final class BrowserActivity extends Activity {
     }
     private void startVoice() {
         if (dictation != null) dictation.cancel();
-        engine.store.stopReading(null);
+        if (engine != null) engine.store.stopReading(null);
         setPaneVisible(true);
         voice.start();
     }
