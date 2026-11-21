@@ -49,6 +49,10 @@ public final class ShareActivity extends Activity {
             open(sheet);
         }), true);
         ui.addRow(group, ui.listRow(R.drawable.ic_chat, BLUE, "메시지 칸에 넣기", "하고 싶은 말을 덧붙여서 보내요", null, () -> { store.mainDraft = text; store.mainWrite = true; open(sheet); }), true);
+        if (!dev.jun.gyeot.core.SecurityLink.first(text).isEmpty()) {
+            ui.addRow(group,ui.listRow(R.drawable.ic_lock,GREEN,"링크 보안 검사","주소를 열기 전에 기기 안에서 확인해요",null,
+                    () -> PhoneSecurityActivity.linkDialog(this,text)),true);
+        }
         sheet.body.addView(group);
         sheet.setOnDismissListener(d -> finish());
         sheet.show();

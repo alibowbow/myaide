@@ -76,7 +76,9 @@ final class PhoneCheck {
      */
     static boolean seesEveryApp(Context app) { return app.checkSelfPermission("android.permission.QUERY_ALL_PACKAGES") == PackageManager.PERMISSION_GRANTED; }
 
-    static List<PhoneRisk.App> apps(Context app, boolean all) {
+    static List<PhoneRisk.App> apps(Context app, boolean all) { return collectApps(app, false); }
+    static List<PhoneRisk.App> userApps(Context app) { return collectApps(app, true); }
+    private static List<PhoneRisk.App> collectApps(Context app, boolean userOnly) {
         PackageManager packages = app.getPackageManager();
         String accessibility = String.valueOf(Settings.Secure.getString(app.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
         String listeners = String.valueOf(Settings.Secure.getString(app.getContentResolver(), "enabled_notification_listeners"));
@@ -91,6 +93,8 @@ final class PhoneCheck {
         try { installed = packages.getInstalledPackages(PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS)); } catch (RuntimeException unavailable) { return out; }
         for (PackageInfo info : installed) {
             ApplicationInfo about = info.applicationInfo; if (about == null) continue;
+            boolean system = (about.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0;
+            if (userOnly && system) continue;
             String id = info.packageName, installer = "";
             try { String from = packages.getInstallSourceInfo(id).getInstallingPackageName(); installer = from == null ? "" : from; } catch (PackageManager.NameNotFoundException | RuntimeException unknown) { /* "" */ }
             Set<String> granted = new HashSet<>();
@@ -99,7 +103,7 @@ final class PhoneCheck {
                 if (has) { String name = info.requestedPermissions[i]; granted.add(name.substring(name.lastIndexOf('.') + 1)); }
             }
             CharSequence label = null; try { label = packages.getApplicationLabel(about); } catch (RuntimeException unnamed) { /* the id */ }
-            out.add(new PhoneRisk.App(id, label == null || label.toString().isBlank() ? id : label.toString(), (about.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0,
+            out.add(new PhoneRisk.App(id, label == null || label.toString().isBlank() ? id : label.toString(), system,
                 installer, packages.getLaunchIntentForPackage(id) != null, enabled(accessibility, id), admins.contains(id), enabled(listeners, id), granted, id.equals(app.getPackageName())));
         }
         return out;

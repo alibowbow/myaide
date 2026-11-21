@@ -52,8 +52,8 @@ public final class PhoneRisk {
         if (d.rooted()) out.add(new Finding(Level.DANGER, "루팅된 흔적이 있어요", "관리자 권한(su) 파일이나 시험용 서명이 보여요. 앱이 서로의 데이터를 볼 수 있는 상태일 수 있어요. 직접 한 것이 아니라면 초기화를 권해요.", ""));
         else out.add(new Finding(Level.OK, "루팅 흔적이 없어요", "", ""));
         if (d.adb()) out.add(new Finding(Level.CAUTION, "USB 디버깅이 켜져 있어요", "컴퓨터에 연결하면 휴대폰을 조작할 수 있어요. 개발할 때만 켜 두세요.", "settings:android.settings.APPLICATION_DEVELOPMENT_SETTINGS"));
-        else if (d.developer()) out.add(new Finding(Level.INFO, "개발자 옵션이 켜져 있어요", "USB 디버깅은 꺼져 있어요.", "settings:android.settings.APPLICATION_DEVELOPMENT_SETTINGS"));
-        else out.add(new Finding(Level.OK, "USB 디버깅이 꺼져 있어요", "", ""));
+        else if (d.developer()) out.add(new Finding(Level.INFO, "개발자 옵션이 켜져 있어요", "USB·무선 디버깅 허용 상태를 직접 확인하세요.", "settings:android.settings.APPLICATION_DEVELOPMENT_SETTINGS"));
+        else out.add(new Finding(Level.INFO, "개발자 옵션 · 직접 확인", "Android가 디버깅 설정의 실제 상태를 숨길 수 있어요. USB·무선 디버깅을 확인하세요.", "settings:android.settings.APPLICATION_DEVELOPMENT_SETTINGS"));
         if (d.encryption() == 0) out.add(new Finding(Level.CAUTION, "저장 공간 암호화가 꺼져 있어요", "휴대폰을 잃어버리면 파일을 꺼내 볼 수 있어요.", "settings:android.settings.SECURITY_SETTINGS"));
         else if (d.encryption() == 1) out.add(new Finding(Level.OK, "저장 공간이 암호화돼 있어요", "", ""));
         return out;
@@ -74,28 +74,28 @@ public final class PhoneRisk {
      * all: whether every installed app was visible (false: only apps with an icon were, so hidden ones could not be seen).
      */
     public static List<Finding> apps(List<App> apps, boolean all) {
-        List<Finding> out = new ArrayList<>(); List<String> outside = new ArrayList<>(); int danger = 0, hidden = 0;
+        List<Finding> out = new ArrayList<>();
+        int outside = 0, unknown = 0;
         for (App app : apps) {
             if (app.system()) continue;
-            boolean store = fromStore(app); List<String> reach = reach(app);
-            if (app.self()) { out.add(new Finding(Level.INFO, app.label() + "(이 앱)", "스토어 밖에서 설치됐고" + (reach.isEmpty() ? " 특별한 권한은 쓰지 않아요." : " " + String.join(", ", reach) + ". 폰 조작 등 직접 켠 기능에 쓰여요."), "")); continue; }
-            if (!app.launcher()) hidden++;
-            if (!store && (!reach.isEmpty() || !app.launcher())) {
-                danger++;
-                List<String> why = new ArrayList<>(reach); if (!app.launcher()) why.add(0, "앱 목록에 아이콘이 없어요");
-                out.add(new Finding(Level.DANGER, app.label() + ": 스토어 밖에서 설치됐고 휴대폰을 지켜볼 수 있어요", String.join(", ", why) + ". 직접 설치한 앱이 아니면 삭제해 주세요. (" + app.id() + ")", "app:" + app.id()));
-            } else if (!store) outside.add(app.label());
-            else if (app.accessibility() || app.admin())
-                out.add(new Finding(Level.CAUTION, app.label() + ": " + String.join(", ", reach), "스토어에서 받은 앱이지만 화면을 읽거나 기기를 관리할 수 있어요. 쓰는 기능인지 확인해 주세요.", "app:" + app.id()));
+            List<String> powers = reach(app);
+            String source = app.installer().isBlank() ? "설치 출처 미확인" : fromStore(app) ? "스토어 설치" : "스토어 외 설치";
+            if (app.self()) {
+                out.add(new Finding(Level.INFO, app.label() + " (이 앱)", source + " · " + String.join(", ", powers), ""));
+                continue;
+            }
+            if (app.installer().isBlank()) unknown++;
+            else if (!fromStore(app)) outside++;
+            if (!powers.isEmpty()) {
+                Level level = !app.installer().isBlank() && !fromStore(app) && (app.accessibility() || app.admin()) ? Level.DANGER : Level.CAUTION;
+                out.add(new Finding(level, app.label() + " · " + source, String.join(", ", powers) + ". 직접 허용한 기능인지 확인하세요.", "app:" + app.id()));
+            } else if (!fromStore(app) && !app.launcher()) {
+                out.add(new Finding(Level.INFO, app.label() + " · 실행 아이콘 없음", source + " · 설치 목적을 확인하세요.", "app:" + app.id()));
+            }
         }
-        if (!outside.isEmpty()) {
-            java.util.Collections.sort(outside);
-            String names = String.join(", ", outside.subList(0, Math.min(12, outside.size()))) + (outside.size() > 12 ? " 외 " + (outside.size() - 12) + "개" : "");
-            out.add(new Finding(Level.CAUTION, "스토어 밖에서 설치한 앱 " + outside.size() + "개", names + ". 스토어의 검사를 거치지 않은 앱이에요. 모르는 앱이 있으면 삭제해 주세요.", "settings:android.settings.MANAGE_ALL_APPLICATIONS_SETTINGS"));
-        }
-        if (danger == 0) out.add(new Finding(Level.OK, "스토어 밖에서 온 앱 가운데 휴대폰을 지켜볼 수 있는 앱이 없어요", "", ""));
-        if (!all) out.add(new Finding(Level.INFO, "아이콘이 없는 앱은 확인하지 못했어요", "Android가 이 앱에 아이콘 있는 앱만 보여 줘요.", ""));
-        else if (hidden == 0) out.add(new Finding(Level.OK, "아이콘 없이 숨은 앱이 없어요", "", ""));
+        if (outside > 0 || unknown > 0)
+            out.add(new Finding(Level.INFO, "스토어 외 설치 " + outside + "개 · 출처 미확인 " + unknown + "개", "설치 경로만으로 악성 여부를 판단할 수 없어요.", "settings:android.settings.MANAGE_ALL_APPLICATIONS_SETTINGS"));
+        if (!all) out.add(new Finding(Level.INFO, "일부 설치 앱만 확인했어요", "Android가 현재 프로필에서 들퍼레에 공개한 앱을 검사했어요.", ""));
         return out;
     }
     /** What lets an app watch or control the phone, in words. */
@@ -104,7 +104,7 @@ public final class PhoneRisk {
         if (app.accessibility()) out.add("접근성 서비스로 화면을 읽고 누를 수 있어요");
         if (app.admin()) out.add("기기 관리자 권한이 있어요");
         if (app.notifications()) out.add("알림 내용을 읽을 수 있어요");
-        for (String permission : MESSAGES) if (app.granted().contains(permission)) { out.add("문자·통화 기록을 읽을 수 있어요"); break; }
+        for (String permission : MESSAGES) if (app.granted().contains(permission)) { out.add("문자 발신·수신·읽기 또는 통화 기록 권한이 있어요"); break; }
         return out;
     }
 
@@ -137,7 +137,7 @@ public final class PhoneRisk {
     /** One line for the menu and the top of the result. */
     public static String summary(List<Finding> findings) {
         int[] n = counts(findings);
-        return n[0] > 0 ? "위험 " + n[0] + "건 · 주의 " + n[1] + "건" : n[1] > 0 ? "주의 " + n[1] + "건 · 위험 없음" : "위험 신호가 없어요";
+        return n[0] > 0 ? "위험 " + n[0] + "건 · 주의 " + n[1] + "건" : n[1] > 0 ? "주의 " + n[1] + "건" : "점검한 항목에서 위험 신호를 찾지 못했어요";
     }
     /** What the check is and is not, shown with every result. */
     public static final String SCOPE = "설정, 설치된 앱, 다운로드 폴더의 설치 파일에서 위험 신호를 찾았어요. 악성 코드 목록과 대조하는 백신 검사는 아니에요. 그런 검사는 Play 프로텍트나 V3 같은 백신 앱이 해요.";

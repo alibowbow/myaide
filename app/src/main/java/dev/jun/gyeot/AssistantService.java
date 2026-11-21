@@ -1108,6 +1108,7 @@ public final class AssistantService extends Service {
      * connection changed since it was saved is not sent: the same rule as a main-chat delegation, never a later account.
      */
     private void runSchedules(String only) {
+        if (SecurityWatch.paused(this)) { idle(); return; }
         long now = System.currentTimeMillis(); java.time.ZoneId zone = java.time.ZoneId.systemDefault();
         JSONArray claimed;
         try {

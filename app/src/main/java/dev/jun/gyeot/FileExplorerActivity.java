@@ -68,8 +68,7 @@ public final class FileExplorerActivity extends Activity {
             LinearLayout menu=ui.column();
             ui.add(menu,storageCard(),10);
             ui.add(menu,ui.feature(R.drawable.ic_folder,"파일 탐색기","파일과 폴더 · 검색 · AI 파일 작업",Ui.ACCENT,this::showExplorer),10);
-            String checked=PhoneCheck.last(this);
-            ui.add(menu,ui.feature(R.drawable.ic_lock,"휴대폰 검사",checked.isEmpty()?"설정 · 설치된 앱 · 설치 파일의 위험 신호 찾기":checked,Ui.GREEN,this::phoneCheck),10);
+            ui.add(menu,ui.feature(R.drawable.ic_lock,"휴대폰 보안","설정 점검 · 최근 변경 · 의심 앱 인터넷 차단",Ui.GREEN,this::phoneCheck),10);
             ScrollView menuScroll=new ScrollView(this);menuScroll.setFillViewport(false);menuScroll.addView(menu);content.addView(menuScroll,new LinearLayout.LayoutParams(-1,0,1));
         }else{
             searchPanel=ui.column();searchInput=ui.input("파일 이름 또는 찾을 조건",1,500);searchInput.setText(query);ui.add(searchPanel,searchInput,4);
@@ -95,8 +94,7 @@ public final class FileExplorerActivity extends Activity {
     private void toggleSearch(){if(!explorerPage)return;if(searchExpanded){closeSearch();return;}searchExpanded=true;searchPanel.setVisibility(View.VISIBLE);searchInput.requestFocus();}
     private void closeSearch(){if(busy)cancel();searchExpanded=false;searchResults=false;sortOrder=browseSort;emptyHint="";visible=directoryEntries;if(searchPanel!=null)searchPanel.setVisibility(View.GONE);android.view.inputmethod.InputMethodManager keyboard=(android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE);if(keyboard!=null)keyboard.hideSoftInputFromWindow(content.getWindowToken(),0);render();if(repo!=null)status.setText(listSummary(repo,visible.size()));if(fileScroll!=null)fileScroll.scrollTo(0,0);}
     private void browseOptions(){new AlertDialog.Builder(this).setTitle("파일 탐색기").setItems(new String[]{"새로고침","AI 파일 작업 · 들퍼레 안","AI 정리 · 들퍼레 안","저장 공간 분석","저장 위치 설정","휴지통 기록 · 들퍼레","작업 기록"},(d,w)->{if(w==0){if(repo==null||repo.publicMetadata()){discoveredPublic=null;restoreDirectory();}else load(current);}else if(w==1)aiFiles();else if(w==2)organize();else if(w==3)scanOptions();else if(w==4)storageLocation();else if(w==5)DuplicateTrashUi.records(this,repo,()->load(current));else history();}).setNegativeButton("닫기",null).show();}
-    /** 휴대폰 검사: checks as it opens; the menu's line shows its last result when the sheet closes. */
-    private void phoneCheck(){PhoneCheckUi.show(this,this::showExplorer,()->{if(!destroyed&&!explorerPage){buildPage();render();}});}
+    private void phoneCheck(){startActivity(new Intent(this,PhoneSecurityActivity.class));}
     /** How full the phone's storage is, as Android reports it for this app's volume; a tap opens Android's storage page. */
     private View storageCard(){
         long total=0,free=0;try{android.os.StatFs stat=new android.os.StatFs(android.os.Environment.getDataDirectory().getPath());total=stat.getTotalBytes();free=stat.getAvailableBytes();}catch(RuntimeException unknown){}
