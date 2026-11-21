@@ -42,8 +42,11 @@ final class VoiceChat {
         String instructions() throws Exception;
         /** Realtime function tools (RealtimeVoice.tools), or none. */
         default org.json.JSONArray tools() { return new org.json.JSONArray(); }
-        /** Runs a function the model called; what it returns goes back to the model as the call's output. */
-        default String call(String name, org.json.JSONObject args) throws Exception { return "{\"error\":\"no such function\"}"; }
+        /**
+         * Runs a function the model called; what it returns goes back to the model as the call's output. chat gives the user's
+         * own last words (heard) and takes a result that comes later (report), for work that outlasts the call.
+         */
+        default String call(String name, org.json.JSONObject args, VoiceChat chat) throws Exception { return "{\"error\":\"no such function\"}"; }
         /** Writes a settled line (user's, or the answer to reply); returns its id, or 0 when it is not kept. */
         long line(boolean user, String text, long reply, String voice) throws Exception;
     }
@@ -79,8 +82,14 @@ final class VoiceChat {
     /** The user's line the next answer follows (work thread). */
     private long lastUser;
 
-    /** Functions the model called run here, one at a time, so a slow one (a browser task) never holds the socket. */
-    private final ExecutorService calls = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-voice-calls"); t.setDaemon(true); return t; });
+    /** Functions the model called run here, off the socket; several at once, so "멈춰" is not held behind a slow task. */
+    private final ExecutorService calls = Executors.newFixedThreadPool(3, r -> { Thread t = new Thread(r, "gyeot-voice-calls"); t.setDaemon(true); return t; });
+    /** The user's last words as written down, and whether a turn of theirs still waits for its words (main thread writes). */
+    private volatile String heard = ""; private volatile boolean awaitingWords;
+    /** Results that came later (report), told once the user is not speaking and nothing is being said. Main thread. */
+    private final ArrayDeque<String> reports = new ArrayDeque<>();
+    /** While true the microphone sends nothing (판서 speaking its lesson aloud): its sound is not the user. */
+    private volatile boolean held;
     VoiceChat(Context context, AppStore store, RealtimeVoice.Kind kind, String voice, Target target) {
         this.context = context.getApplicationContext(); this.store = store; this.kind = kind; this.voice = kind.voice(voice); this.target = target;
     }
@@ -95,7 +104,7 @@ final class VoiceChat {
     boolean muted() { return muted; }
     void listen(Runnable listener) { listeners.addIfAbsent(listener); }
     void unlisten(Runnable listener) { listeners.remove(listener); }
-    private void changed() { for (Runnable l : listeners) l.run(); store.changed(); }
+    private void changed() { if (state == State.LISTENING && !reports.isEmpty()) deliver(); for (Runnable l : listeners) l.run(); store.changed(); }
 
     /** Main thread. */
     void start() {
@@ -204,6 +213,7 @@ final class VoiceChat {
             case READY -> { if (!ready) ready(); }
             case FUNCTION_CALL -> call(e.item(), e.status(), e.text());
             case SPEECH_STARTED -> {
+                awaitingWords = true;
                 // The user began to speak: an answer still playing stops (the server stops making it).
                 Speaker out = speaker; if (out != null && out.isPlaying()) { stopped = playing; out.flush(); }
                 log.heard(e.item(), now); words = ""; state = State.HEARING; changed();
@@ -211,7 +221,7 @@ final class VoiceChat {
             case SPEECH_STOPPED -> { log.heard(e.item(), now); if (state == State.HEARING) { state = State.THINKING; changed(); } }
             case COMMITTED -> log.heard(e.item(), now);
             case USER_PARTIAL -> { words = "full".equals(e.status()) ? e.text() : words + e.text(); changed(); }
-            case USER_TEXT -> { log.said(e.item(), e.text(), now); if (!e.text().isBlank()) words = e.text(); settle(); changed(); }
+            case USER_TEXT -> { log.said(e.item(), e.text(), now); if (!e.text().isBlank()) { words = e.text(); heard = e.text(); } settle(); changed(); }
             case ANSWER_STARTED -> answers.put(e.response(), new StringBuilder());
             case ANSWER_PARTIAL -> {
                 StringBuilder b = answers.computeIfAbsent(e.response(), k -> new StringBuilder()); b.append(e.text());
@@ -241,13 +251,36 @@ final class VoiceChat {
         try {
             calls.execute(() -> {
                 String output;
-                try { output = target.call(name, new org.json.JSONObject(arguments == null || arguments.isBlank() ? "{}" : arguments)); }
+                try { output = target.call(name, new org.json.JSONObject(arguments == null || arguments.isBlank() ? "{}" : arguments), this); }
                 catch (Exception failed) { output = dev.jun.gyeot.core.Jsons.obj("error", failed.getMessage() == null ? "실패했어요" : failed.getMessage()).toString(); }
                 if (ended) return;
                 send(RealtimeVoice.functionOutput(id, output).toString()); send(RealtimeVoice.respond().toString());
             });
         } catch (java.util.concurrent.RejectedExecutionException closing) {}
     }
+    /**
+     * The user's own last words as written down (never the model's rephrasing), for what must rest on what they said (a
+     * browser task's authority). Waits up to waitMs while a turn of theirs is still being written down. Off the main thread.
+     */
+    String heard(long waitMs) {
+        long until = SystemClock.uptimeMillis() + waitMs;
+        while (awaitingWords && !ended && SystemClock.uptimeMillis() < until) { try { Thread.sleep(100); } catch (InterruptedException stop) { Thread.currentThread().interrupt(); break; } }
+        return heard;
+    }
+    /** A result that came after its call returned (a task finished): told as soon as the user is not speaking. Any thread. */
+    void report(String text) {
+        if (text == null || text.isBlank()) return;
+        main.post(() -> { if (ended) return; reports.addLast(text); deliver(); });
+    }
+    private void deliver() {
+        if (ended || reports.isEmpty() || state == State.HEARING || state == State.SPEAKING || state == State.THINKING) return;
+        String text = reports.removeFirst();
+        send(RealtimeVoice.userText("[앱 알림 · 사용자가 한 말이 아님] " + text).toString());
+        send(RealtimeVoice.respond("Tell the user this result from the app briefly, in speech, in their language.").toString());
+    }
+    /** Holds the microphone (true) while something else of this screen speaks aloud, so its sound is not taken for the user. */
+    void hold(boolean value) { held = value; main.post(() -> { if (!ended) changed(); }); }
+    boolean held() { return held; }
     /** Typed words in the conversation (the bar's field): the model answers them aloud. Main thread. */
     void type(String text) {
         if (ended || text == null || text.isBlank()) return;
@@ -270,7 +303,7 @@ final class VoiceChat {
     }
     /** Microphone thread: the user's voice goes up, except the answer's own echo while it plays. */
     private void hear(byte[] pcm) {
-        if (ended || muted) return;
+        if (ended || muted || held) return;
         Speaker out = speaker;
         if (out != null && !open && out.isAudible()) {
             boolean voice = barge.hear(BargeIn.rms(pcm), out.level(), pcm.length / 32);
@@ -294,7 +327,7 @@ final class VoiceChat {
     // ── the chat ──────────────────────────────────────────────────────────
     /** Writes what is settled; a turn still waiting for its words is looked at again in a second. */
     private void settle() {
-        write(log.drain(SystemClock.uptimeMillis()));
+        write(log.drain(SystemClock.uptimeMillis())); awaitingWords = log.waiting();
         main.removeCallbacks(settler);
         if (log.waiting()) main.postDelayed(settler, 1000);
     }

@@ -43,7 +43,7 @@ final class VoiceTargets {
                     "Sends the request to this chat's main AI, which can search the web, read pages, check the calendar, draw pictures and start tasks. Its answer is written in the chat and returned here.",
                     "parameters", requestParameters("What to ask, in the user's words")));
             }
-            @Override public String call(String name, JSONObject args) throws Exception {
+            @Override public String call(String name, JSONObject args, VoiceChat chat) throws Exception {
                 if (!"ask_chat".equals(name)) return obj("error", "no such function").toString();
                 String request = args.optString("request").strip();
                 if (request.isEmpty()) return obj("error", "empty request").toString();

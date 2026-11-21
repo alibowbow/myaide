@@ -181,7 +181,9 @@ public final class RealtimeVoice {
      */
     public static boolean harmless(Event error) {
         String text = (error.status() + " " + error.text()).toLowerCase(Locale.ROOT);
-        return text.contains("response_cancel_not_active") || text.contains("no active response") || text.contains("cancellation failed");
+        return text.contains("response_cancel_not_active") || text.contains("no active response") || text.contains("cancellation failed")
+            // An answer asked for while one is already being made: that one goes on and covers it.
+            || text.contains("conversation_already_has_active_response") || text.contains("already has an active response");
     }
 
     /** 16 kHz 16-bit mono PCM (the phone's microphone) at 24 kHz, by straight lines between samples. */
