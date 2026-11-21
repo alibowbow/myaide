@@ -32,7 +32,7 @@ final class DriveBackupUi {
     }
     static String about() {
         return "새 폰에서는 같은 Google 계정으로 Drive를 연결한 뒤 ‘백업 가져오기’를 누르면 돼요. 가져오기는 더하기만 해요: 이 폰에 있는 것은 바꾸거나 지우지 않아요. "
-            + "API 키와 로그인, 음성·모델 같은 기기 설정, 첨부 파일과 갤러리의 사진·영상은 백업에 들어가지 않아요. 백업 파일은 내 Drive에 그대로 저장돼요.";
+            + "API 키와 로그인, 음성·모델 같은 기기 설정, 첨부 파일과 갤러리의 사진·영상은 백업에 들어가지 않아요. 백업 파일은 내 Drive 맨 위(내 드라이브)에 ‘들퍼레-백업-날짜-시간.zip’ 이름으로 저장돼요.";
     }
 
     private void backup() {
@@ -47,7 +47,7 @@ final class DriveBackupUi {
                     activity.runOnUiThread(() -> store.status("Drive에 올리는 중… " + size));
                     AppBackupFiles.upload(store, file, name);
                     String summary = AppBackup.summary(counts);
-                    activity.runOnUiThread(() -> store.status("Drive에 백업했어요 · " + name + " · " + size + (summary.isEmpty() ? "" : " · " + summary)));
+                    activity.runOnUiThread(() -> store.status("내 드라이브에 백업했어요 · " + name + " · " + size + (summary.isEmpty() ? "" : " · " + summary)));
                 } catch (Exception failed) { String reason = reason(failed, "백업하지 못했어요."); activity.runOnUiThread(() -> store.error(reason)); }
                 finally { file.delete(); busy = false; }
             }

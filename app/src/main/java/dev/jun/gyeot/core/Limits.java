@@ -134,7 +134,7 @@ public record Limits(List<Window> windows, long at) {
     /** "4시간 29분 후 초기화됩니다", "4일 22시간 후 초기화됩니다", "곧 초기화됩니다"; "초기화 시간 모름" without a reset time. */
     public static String until(Window window, long now) {
         if (window.reset <= 0) return "초기화 시간 모름";
-        long minutes = (window.reset - now + 59_999) / 60_000;
+        long minutes = (window.reset - now) / 60_000;
         if (minutes < 1) return "곧 초기화됩니다";
         long days = minutes / 1_440, hours = minutes % 1_440 / 60, rest = minutes % 60;
         String span = days > 0 ? days + "일" + (hours > 0 ? " " + hours + "시간" : "") : hours > 0 ? hours + "시간" + (rest > 0 ? " " + rest + "분" : "") : rest + "분";

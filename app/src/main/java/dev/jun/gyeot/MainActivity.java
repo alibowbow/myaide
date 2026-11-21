@@ -1002,7 +1002,9 @@ public final class MainActivity extends Activity {
             String action = intent.getAction();
             if (AssistantService.SUMMARIZE.equals(action)) intent.putExtra("modelSelection", ScopedModels.recording(store).snapshot().toString());
             if (store.serviceActive) startService(intent);
-            else if (AssistantService.LIVE.equals(action) || AssistantService.TASK.equals(action) || AssistantService.RECORD_START.equals(action) || AssistantService.SUMMARIZE.equals(action) || AssistantService.WORK_SEND.equals(action) || AssistantService.WORK_RECOVER.equals(action) || AssistantService.WORK_STOP.equals(action) || AssistantService.WORK_SORT.equals(action) || AssistantService.VIDEO_START.equals(action) || AssistantService.VIDEO_RESUME.equals(action)) startForegroundService(intent);
+            else if (AssistantService.LIVE.equals(action) || AssistantService.TASK.equals(action) || AssistantService.RECORD_START.equals(action) || AssistantService.SUMMARIZE.equals(action) || AssistantService.WORK_SEND.equals(action) || AssistantService.WORK_RECOVER.equals(action) || AssistantService.WORK_STOP.equals(action) || AssistantService.WORK_SORT.equals(action) || AssistantService.VIDEO_START.equals(action) || AssistantService.VIDEO_RESUME.equals(action)
+                // The waiting instructions' 이어서 실행 · 모두 취소 · 지금 전달: after a stop or an error the service may be gone, and these wake it.
+                || AssistantService.WORK_NEXT.equals(action) || AssistantService.WORK_CLEAR.equals(action) || AssistantService.WORK_STEER_NOW.equals(action)) startForegroundService(intent);
         } catch (Exception e) { store.error("실행하지 못했어요: " + e.getClass().getSimpleName()); }
     }
     /** Queues background work on the chosen engine after checking its credentials; false when it could not be sent. */
@@ -1510,6 +1512,7 @@ public final class MainActivity extends Activity {
             case "memory" -> pageMemory();
             case "background" -> pageBackground();
             case "update" -> pageUpdate();
+            case "backup" -> pageBackup();
             case "usage" -> pageUsage();
             case "calendar" -> add(calendar().page(), 16);
             case "wake" -> add(wakeWord().page(), 16);
@@ -1521,7 +1524,7 @@ public final class MainActivity extends Activity {
     }
     /** Every settings page id; anything else opens the list. */
     private static final java.util.Set<String> SETTINGS_PAGES = java.util.Set.of("", "key", "chatgpt", "grok", "nim", "claude", "ai", "connectors", "voice",
-        "quick", "phone", "look", "persona", "routines", "memory", "background", "update", "usage", "calendar", "wake", "about", "github", "drive", "memories");
+        "quick", "phone", "look", "persona", "routines", "memory", "background", "update", "usage", "calendar", "wake", "about", "github", "drive", "memories", "backup");
     /** The page a sub-page belongs to, "" for the pages listed on the settings home. */
     static String settingsParent(String page) {
         return switch (page) {
@@ -1538,7 +1541,7 @@ public final class MainActivity extends Activity {
             case "nim" -> "NVIDIA NIM";
             case "key" -> "Gemini"; case "chatgpt" -> "ChatGPT"; case "claude" -> "Claude"; case "ai" -> "AI 역할"; case "connectors" -> "커넥터"; case "voice" -> "목소리와 대화";
             case "quick" -> "바로 부르기"; case "phone" -> "폰 조작"; case "look" -> "화면 보기"; case "persona" -> "나에 대해"; case "routines" -> "한마디 루틴"; case "memory" -> "기억";
-            case "background" -> "다른 앱 쓰는 동안"; case "update" -> "업데이트"; case "usage" -> "사용량 · 남은 한도"; case "calendar" -> "캘린더"; case "wake" -> "차에서 호출어"; default -> "정보";
+            case "background" -> "다른 앱 쓰는 동안"; case "backup" -> "백업 · 복원"; case "update" -> "업데이트"; case "usage" -> "사용량 · 남은 한도"; case "calendar" -> "캘린더"; case "wake" -> "차에서 호출어"; default -> "정보";
         };
     }
     /** Opens settings at one page (or the list for ""). The list opens whole: a search left there would hide the group a caller points at. */
@@ -3639,6 +3642,7 @@ public final class MainActivity extends Activity {
         LinearLayout app = ui.group();
         dev.jun.gyeot.core.UpdateCheck.Update update = store.updater.available;
         LinearLayout updateTrailing = ui.row(); if (update != null) updateTrailing.addView(ui.badge("새 버전", Ui.RED)); updateTrailing.addView(ui.chevron());
+        settingsRow(app, "backup", "백업 · 복원", store.drive.connected() ? "Google Drive에 앱 백업 · 기억은 파일로" : "기억은 파일로 · Drive 백업은 연결 후", null);
         settingsRow(app, "update", "업데이트", update == null ? "지금 버전 " + versionName() : "새 버전 " + update.version + " · 지금 " + versionName(), updateTrailing);
         settingsRow(app, "about", "정보", "개인용 시제품 · 진단과 도움말", null);
         ui.add(sections, app, 0);
@@ -3674,6 +3678,7 @@ public final class MainActivity extends Activity {
             case "routines" -> new int[]{R.drawable.ic_bolt, Ui.MINT};
             case "memory", "memories" -> new int[]{R.drawable.ic_bulb, Ui.ORANGE};
             case "update" -> new int[]{R.drawable.ic_download, Ui.BLUE};
+            case "backup" -> new int[]{R.drawable.ic_folder, Ui.GREEN};
             default -> new int[]{R.drawable.ic_info, Ui.GRAY};
         };
     }
@@ -4452,6 +4457,24 @@ public final class MainActivity extends Activity {
      * "memories"), the backup, and where memory goes, folded. Turning 장기 기억 off redraws the page, so the automatic
      * switch waits, disabled, and says why.
      */
+    /**
+     * 설정 → 백업 · 복원: the app's data to Google Drive (DriveBackupUi, or the way to connect Drive first) and the memory
+     * alone as files (MemoryBackupUi), each saying where its file goes.
+     */
+    private void pageBackup() {
+        add(ui.sectionHeader("Google Drive 백업 · 폰을 바꿀 때"), 0);
+        if (store.drive.connected()) add(new DriveBackupUi(this, ui, store).rows(), 0);
+        else {
+            LinearLayout connect = ui.group();
+            ui.addRow(connect, ui.listRow(R.drawable.ic_folder, Ui.BLUE, "Google Drive 연결하기", "연결하면 여기서 바로 백업하고 가져와요", ui.chevron(), () -> openSettings("drive")), true);
+            add(connect, 0);
+        }
+        add(ui.footer("저장 위치: 내 Google Drive 맨 위(내 드라이브)에 ‘들퍼레-백업-날짜-시간.zip’ 파일로 올라가요. drive.google.com이나 Drive 앱에서 ‘들퍼레-백업’으로 찾을 수 있어요."), 0);
+        add(ui.details("Drive 백업에 들어가는 것", DriveBackupUi.about()), 0);
+        add(ui.sectionHeader("기억만 파일로"), 0);
+        add(memoryBackup().section(), 0);
+        add(ui.footer("저장 위치: 휴대폰 내장 저장공간 › 들퍼레 › 백업 폴더에 ‘기억-날짜-시간.json’(가져오기용)과 같은 이름의 .md(읽기용)로 저장돼요. 내 파일 앱에서도 열 수 있어요."), 0);
+    }
     private void pageMemory() {
         add(ui.text("대화에서 알게 된 것과 배운 폰 사용법을 기억해 두고, 다음 대화에서 써요.", 15, 400, MUTED), 4);
         boolean memoryOn = store.memoryOn();
