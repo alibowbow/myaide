@@ -49,7 +49,7 @@ public class PhoneSecurityMenuTests {
         float density=one.getResources().getDisplayMetrics().density;
         assertEquals(one.getWidth(),two.getWidth(),1);
         assertEquals(one.getHeight(),two.getHeight());
-        assertEquals(Math.round(48*density),one.getHeight());
+        assertEquals(((Button)one).getText().toString(),Math.round(48*density),one.getHeight());
         assertTrue(one.getWidth()>=48*density && one.getWidth()<=120*density);
     }
     private void checkLink() {
