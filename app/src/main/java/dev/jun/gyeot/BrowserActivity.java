@@ -1101,9 +1101,20 @@ public final class BrowserActivity extends Activity {
             String preview = value.optString("preview");
             String description = (preview.isBlank() ? "" : preview + "\n") + count + "개 메시지 · 보기";
             String targetTitle = title + (preview.isBlank() ? "" : " · " + preview);
-            ui.addRow(sheet.body, ui.listRow(R.drawable.ic_history, ACCENT, title, description, null, () -> { sheet.dismiss(); archivedConversation(id, targetTitle, 40); }), true);
+            View row = ui.listRow(R.drawable.ic_history, ACCENT, title, description, null, () -> { sheet.dismiss(); archivedConversation(id, targetTitle, 40); });
+            ui.addRow(sheet.body, SwipeDelete.wrap(ui, row, "이 대화", () -> deleteConversationNow(id)), true);
         }
         show(sheet);
+    }
+    /** 대화 기록's X: deletes the conversation at once, as 이 대화 지우기 does after asking. */
+    private boolean deleteConversationNow(String id) {
+        boolean accepted = engine.deleteConversation(id, saved -> {
+            if (isFinishing() || isDestroyed()) return;
+            if (!saved) toast("저장하지 못했어요. 앱을 다시 열면 기록이 나타날 수 있어요.");
+        });
+        if (!accepted) { toast("작업을 멈추고 기록을 불러온 뒤 다시 시도해 주세요."); return false; }
+        historyWindow = 40; renderedConversationVersion = -1; refresh();
+        return true;
     }
     private void archivedConversation(String id, String title, int limit) {
         Ui.Sheet sheet = ui.selectionSheet(title, "보관된 표시 기록 · 현재 탭의 AI 작업 기억에는 포함되지 않아요");

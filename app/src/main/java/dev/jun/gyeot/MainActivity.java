@@ -1274,7 +1274,9 @@ public final class MainActivity extends Activity {
         card.addView(ui.actions(ui.chip("문서로 보기", () -> showDocument(heading, sessionMarkdown(lines), null)), ui.chip("복사", () -> copy(text)), ui.chip("공유", () -> share(heading + "\n\n" + text)),
             ui.chip("메모로 저장", () -> saveAsNote(heading, text)), archiveChip(heading, sessionMarkdown(lines), "", Brand.NAME + " · Gemini Live"),
             ui.chip("삭제", () -> confirm("이 기록을 지울까요?", "지우기", () -> { try { store.deleteSession(id); } catch (Exception e) { store.error("기록을 지우지 못했어요."); } }))));
-        return card;
+        return SwipeDelete.wrap(ui, card, "이 기록", () -> {
+            try { store.deleteSession(id); return true; } catch (Exception e) { store.error("기록을 지우지 못했어요."); return false; }
+        });
     }
     private static String sessionMarkdown(JSONArray lines) {
         StringBuilder markdown = new StringBuilder();
@@ -1671,7 +1673,7 @@ public final class MainActivity extends Activity {
         row.setOnLongClickListener(v -> { sessionMenu(thread); return true; });
         Ui.pressable(row, true);
         row.setContentDescription(title + ", " + category + ", " + detail + ". 길게 누르면 메뉴");
-        return row;
+        return SwipeDelete.wrap(ui, row, "이 대화", () -> removeSession(thread));
     }
     /** A soft tint per category for the emoji tiles. */
     private static int categoryTint(String category) {
@@ -1745,18 +1747,21 @@ public final class MainActivity extends Activity {
     }
     private void deleteSession(JSONObject thread) {
         String id = thread.optString("id");
-        confirm("‘" + thread.optString("title") + "’ 대화를 지울까요? 받은 파일은 다운로드 폴더에, 그림은 갤러리에 그대로 남아요.", "지우기", () -> {
-            JSONObject current = WorkBook.find(store.works(), id);
-            JSONObject gone = current == null ? thread : current;
-            if (WorkBook.RUNNING.equals(gone.optString("state"))) send(AssistantService.WORK_STOP, "thread", id);
-            try {
-                store.changeWorks(list -> WorkBook.remove(list, id));
-                // Pictures that are in the gallery keep their copies; the gallery shows them.
-                for (String fileId : WorkBook.attachmentIds(gone)) store.releaseAttachment(fileId);
-                if (id.equals(workId)) workId = "";
-                showTab(3);
-            } catch (Exception e) { store.error(e.getMessage()); }
-        });
+        confirm("‘" + thread.optString("title") + "’ 대화를 지울까요? 받은 파일은 다운로드 폴더에, 그림은 갤러리에 그대로 남아요.", "지우기", () -> { if (removeSession(thread)) showTab(3); });
+    }
+    /** Deletes the conversation now (the list's X, or 지우기 once asked): a running one is stopped first. */
+    private boolean removeSession(JSONObject thread) {
+        String id = thread.optString("id");
+        JSONObject current = WorkBook.find(store.works(), id);
+        JSONObject gone = current == null ? thread : current;
+        if (WorkBook.RUNNING.equals(gone.optString("state"))) send(AssistantService.WORK_STOP, "thread", id);
+        try {
+            store.changeWorks(list -> WorkBook.remove(list, id));
+            // Pictures that are in the gallery keep their copies; the gallery shows them.
+            for (String fileId : WorkBook.attachmentIds(gone)) store.releaseAttachment(fileId);
+            if (id.equals(workId)) workId = "";
+            return true;
+        } catch (Exception e) { store.error(e.getMessage()); return false; }
     }
     /** A rounded search field with a magnifier and a clear button; onChange gets the text as it is typed. Keeps its focus across redraws. */
     private LinearLayout searchBox(String hint, String value, java.util.function.Consumer<String> onChange) {

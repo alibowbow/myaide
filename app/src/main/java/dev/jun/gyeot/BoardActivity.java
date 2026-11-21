@@ -551,7 +551,8 @@ public final class BoardActivity extends Activity {
             boolean current = entry.id().equals(boardId);
             String name = current ? (title.isBlank() ? "새 판" : title) : entry.title().isBlank() ? "새 판" : entry.title();
             String under = (current ? Board.summary(board.items()) : entry.summary()) + " · " + PagesActivity.when(entry.updated(), now);
-            ui.addRow(group, ui.listRow(R.drawable.ic_board, current ? ACCENT : MUTED, name, under, current ? null : ui.chevron(), () -> { list.dismiss(); if (!current) { teacher.stop(); saveNow(); open(entry.id()); } }), true);
+            View row = ui.listRow(R.drawable.ic_board, current ? ACCENT : MUTED, name, under, current ? null : ui.chevron(), () -> { list.dismiss(); if (!current) { teacher.stop(); saveNow(); open(entry.id()); } });
+            ui.addRow(group, SwipeDelete.wrap(ui, row, "이 판", () -> deleteNow(entry.id())), true);
         }
         list.body.addView(group);
         list.primary.setText("새 판"); list.primary.setOnClickListener(v -> { list.dismiss(); newBoard(); });
@@ -619,6 +620,15 @@ public final class BoardActivity extends Activity {
         LinearLayout.LayoutParams around = new LinearLayout.LayoutParams(-1, -2); around.leftMargin = around.rightMargin = ui.dp(16); around.bottomMargin = ui.dp(12); edit.body.addView(name, around);
         edit.primary.setText("저장"); edit.primary.setOnClickListener(v -> { title = name.getText().toString().replaceAll("\\s+", " ").strip(); paintTitle(); saveSoon(); edit.dismiss(); });
         show(edit);
+    }
+    /** 판 목록's X: deletes that board at once; when it is the open one, a new board takes its place. */
+    private boolean deleteNow(String id) {
+        boolean current = id.equals(boardId);
+        if (current) { stopLesson(); main.removeCallbacks(save); boardId = ""; }
+        boolean deleted = true;
+        try { boards.delete(id); } catch (Exception failed) { toast("판을 지우지 못했어요."); deleted = false; }
+        if (current) open("");
+        return deleted;
     }
     private void deleteBoard() {
         show(ui.confirm("‘" + (title.isBlank() ? "새 판" : title) + "’을(를) 지울까요? 되살릴 수 없어요.", "판 지우기", () -> {
