@@ -51,10 +51,23 @@ final class SecurityControls {
                     int label = (int) Math.ceil(button.getPaint().measureText(button.getText().toString()));
                     cell = Math.max(cell, label + button.getPaddingLeft() + button.getPaddingRight());
                 }
-                int preferred = cell * visible + ui.dp(6) * Math.max(0, visible - 1);
+                int gaps = ui.dp(6) * Math.max(0, visible - 1);
+                int preferred = cell * visible + gaps;
                 int width = MeasureSpec.getMode(widthSpec) == MeasureSpec.UNSPECIFIED ? preferred
                         : Math.min(preferred, MeasureSpec.getSize(widthSpec));
-                super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY), heightSpec);
+                // A horizontal weighted row inside a ScrollView has no intrinsic height when all
+                // children fill the parent. Measure the labels at their final width before equalizing.
+                int column = Math.max(0, width - gaps) / Math.max(1, visible);
+                int height = ui.dp(48);
+                for (Button button : buttons) {
+                    if (button.getVisibility() == View.GONE) continue;
+                    button.measure(MeasureSpec.makeMeasureSpec(column, MeasureSpec.EXACTLY),
+                            MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                    height = Math.max(height, button.getMeasuredHeight());
+                }
+                int measuredHeight = View.resolveSize(height, heightSpec);
+                super.onMeasure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(measuredHeight, MeasureSpec.EXACTLY));
             }
         };
         bar.setBaselineAligned(false);
