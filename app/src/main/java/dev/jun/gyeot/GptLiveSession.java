@@ -20,14 +20,14 @@ import org.json.JSONObject;
  * functions: a handed-off request goes to them, they call the functions as the voice assistant always does (the listener
  * runs them and answers through tool()), and their answer goes back into the delegation for the voice to say. What the
  * app itself asks to be said or answered goes to the hands too, and their answer is said. When GPT-Live does not open,
- * the call goes on in GPT Realtime with its own voice (a RealtimeSession), unseen by the voice assistant.
+ * the call ends with the reason; no other voice takes its place.
  */
 final class GptLiveSession implements LiveVoiceSession {
     private static final long CONNECT_MS = 20_000, QUIET_MS = 1_500;
     private final Context context; private final AppStore store; private final String voice;
     private final GeminiProtocol.Options options; private final GeminiSession.Listener listener;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private volatile LiveCall call; private volatile RealtimeSession hands; private volatile LiveVoiceSession fallback;
+    private volatile LiveCall call; private volatile RealtimeSession hands;
     private volatile boolean ready, stopped, handsReady, handsDead, refreshed;
     private volatile VoiceLatency.Call latency;
     private volatile VoiceStartupAudio startupAudio = new VoiceStartupAudio(); private volatile boolean sharedStartup;
@@ -39,6 +39,8 @@ final class GptLiveSession implements LiveVoiceSession {
     /** After the user spoke over the answer: its late sound is not played until their words come, or a moment passes. */
     private volatile long quietUntil;
     private int handsTries;
+    /** The last step GPT-Live's call reached, for why it did not open. */
+    private volatile String lastStage = "";
 
     GptLiveSession(Context context, AppStore store, String voice, GeminiProtocol.Options options, GeminiSession.Listener listener) {
         this.context = context.getApplicationContext(); this.store = store; this.voice = voice; this.options = options; this.listener = listener;
@@ -46,18 +48,18 @@ final class GptLiveSession implements LiveVoiceSession {
     /** Whether the voice assistant speaks with GPT-Live now: a GPT-Live voice chosen, the Codex sign-in, and GPT-Live not refused. */
     static boolean wanted(AppStore store) {
         return store.assistantRealtime() == RealtimeVoice.Kind.GPT && RealtimeVoice.live(store.pickedVoice(RealtimeVoice.Kind.GPT))
-            && store.codexImages.connected() && !LiveCall.refused;
+            && store.codexImages.connected();
     }
 
     // ── connection ───────────────────────────────────────────────────────────
     @Override public void connect(String resume) {
-        main.postDelayed(() -> { if (!ready && !stopped && fallback == null) fallBack("연결 시간 초과"); }, CONNECT_MS);
+        main.postDelayed(() -> { if (!ready && !stopped) { LiveCall c = call; String missing = c == null ? "" : c.missing(); fallBack("20초 안에 연결되지 않았어요" + (missing.isEmpty() ? "" : " · 아직 안 된 것: " + missing) + (lastStage.isEmpty() ? "" : " · 마지막 단계: " + lastStage)); } }, CONNECT_MS);
         startHands();
         Thread open = new Thread(this::openCall, "gyeot-gpt-live");
         open.setDaemon(true); open.start();
     }
     private void openCall() {
-        if (stopped || fallback != null) return;
+        if (stopped) return;
         String token, account;
         try { token = store.codexImages.voiceToken(null); account = store.codexImages.voiceAccount(); }
         catch (Exception error) { main.post(() -> fallBack(error.getMessage())); return; }
@@ -70,19 +72,19 @@ final class GptLiveSession implements LiveVoiceSession {
             @Override public void opened() { main.post(() -> { if (call == made[0]) becomeReady(); }); }
             @Override public void message(String json) { if (call == made[0]) event(json); }
             @Override public void failed(String why, int status) { main.post(() -> callFailed(made[0], token, account, why, status)); }
-            @Override public void stage(String text) { if (call == made[0]) store.phoneLog("  · GPT 최신 음성 · " + text); }
+            @Override public void stage(String text) { if (call == made[0]) { lastStage = text; store.phoneLog("  · GPT 최신 음성 · " + text); } }
             @Override public void audio(byte[] pcm) {
                 if (call != made[0] || stopped || System.nanoTime() / 1_000_000 < quietUntil) return;
                 VoiceLatency.Call measured = latency; if (measured != null) measured.output();
                 listener.audio(pcm);
             }
         }, true);
-        if (stopped || fallback != null) { c.close(); return; }
+        if (stopped) { c.close(); return; }
         call = c; listener.opened();
         c.start(token, account, RealtimeVoice.liveSession(instructions, voice));
     }
     private void becomeReady() {
-        if (stopped || ready || fallback != null) return;
+        if (stopped || ready) return;
         ready = true;
         VoiceLatency.Call measured = latency; if (measured != null) measured.setupComplete();
         LiveCall c = call;
@@ -108,19 +110,15 @@ final class GptLiveSession implements LiveVoiceSession {
         listener.failed("GPT 최신 음성 연결이 끊겼어요" + (why == null || why.isBlank() ? "" : " (" + why + ")"), true);
     }
     /**
-     * GPT-Live did not open: the call goes on in GPT Realtime with its own voice (a RealtimeSession takes over everything
-     * from here), and GPT-Live is not tried again in this process until a voice is chosen again.
+     * GPT-Live did not open: the call ends with why, and no other voice takes its place (the user asked for the chosen
+     * voice or none). Not retried: the reason is the answer.
      */
     private void fallBack(String why) {
-        if (stopped || fallback != null || ready) return;
-        LiveCall.refused = true; closeParts();
-        store.phoneLog("  ✗ GPT 최신 음성이 열리지 않아 " + store.assistantVoice(RealtimeVoice.Kind.GPT) + " 목소리로 이어요" + (why == null || why.isBlank() ? "" : " · " + why));
-        store.status("최신 음성이 안 열려 " + store.assistantVoice(RealtimeVoice.Kind.GPT) + " 목소리로 이어요" + (why == null || why.isBlank() ? "" : " · " + why));
-        RealtimeSession next = new RealtimeSession(store, RealtimeVoice.Kind.GPT, store.assistantVoice(RealtimeVoice.Kind.GPT), options, listener);
-        next.keepStartupAudio(startupAudio);
-        VoiceLatency.Call measured = latency; if (measured != null) next.latency(measured);
-        fallback = next;
-        next.connect("");
+        if (stopped || ready) return;
+        stopped = true; closeParts();
+        String reason = "GPT 최신 음성(" + RealtimeVoice.voiceName(voice) + ")에 연결하지 못했어요" + (why == null || why.isBlank() ? "." : " · " + why);
+        store.phoneLog("  ✗ " + reason);
+        listener.failed(reason, false);
     }
     private void closeParts() {
         main.removeCallbacksAndMessages(null);
@@ -129,14 +127,13 @@ final class GptLiveSession implements LiveVoiceSession {
     }
     @Override public void close() {
         stopped = true; ready = false; closeParts();
-        LiveVoiceSession f = fallback; if (f != null) f.close();
         if (!sharedStartup) startupAudio.clear();
     }
-    @Override public void afterClosed(Runnable continuation) { LiveVoiceSession f = fallback; if (f != null) f.afterClosed(continuation); else continuation.run(); }
+    @Override public void afterClosed(Runnable continuation) { continuation.run(); }
 
     // ── the hands ────────────────────────────────────────────────────────────
     private void startHands() {
-        if (stopped || fallback != null) return;
+        if (stopped) return;
         RealtimeSession[] made = new RealtimeSession[1];
         made[0] = new RealtimeSession(store, RealtimeVoice.Kind.GPT, "marin", options, new GeminiSession.Listener() {
             @Override public void ready() { main.post(() -> {
@@ -180,7 +177,8 @@ final class GptLiveSession implements LiveVoiceSession {
     private void event(String json) {
         RealtimeVoice.Event e = RealtimeVoice.parseLive(json);
         switch (e.type()) {
-            case READY -> main.post(this::becomeReady);
+            // READY alone is not a call that is up: LiveCall's opened() is (SDP applied, connected, READY).
+            case READY -> {}
             case USER_PARTIAL -> {
                 quietUntil = 0;
                 String so; synchronized (heard) { heard.append(e.text()); so = heard.toString(); }
@@ -208,7 +206,7 @@ final class GptLiveSession implements LiveVoiceSession {
             }
             case ERROR -> {
                 if (RealtimeVoice.harmless(e)) return;
-                if (!ready) main.post(() -> fallBack(e.text()));
+                if (!ready) main.post(() -> fallBack("서버 오류 · " + RealtimeVoice.masked(e.text())));
                 else store.phoneLog("  · GPT 최신 음성 오류 · " + e.text());
             }
             default -> {}
@@ -225,20 +223,19 @@ final class GptLiveSession implements LiveVoiceSession {
     private void send(JSONObject message) { LiveCall c = call; if (c != null && !stopped) c.send(message.toString()); }
 
     // ── state ────────────────────────────────────────────────────────────────
-    @Override public boolean ready() { LiveVoiceSession f = fallback; return f != null ? f.ready() : ready; }
+    @Override public boolean ready() { return ready; }
     @Override public String resumeHandle() { return ""; }
     @Override public void resumeHandle(String handle) {}
-    @Override public boolean reasoning() { LiveVoiceSession f = fallback; return f != null && f.reasoning(); }
-    @Override public void latency(VoiceLatency.Call call) { latency = call; LiveVoiceSession f = fallback; if (f != null) f.latency(call); }
-    @Override public boolean browserQuietOutput() { LiveVoiceSession f = fallback; return f != null && f.browserQuietOutput(); }
-    @Override public int unanswered() { LiveVoiceSession f = fallback; if (f != null) return f.unanswered(); RealtimeSession h = hands; return h == null ? 0 : h.unanswered(); }
-    @Override public boolean waiting(String id) { LiveVoiceSession f = fallback; if (f != null) return f.waiting(id); RealtimeSession h = hands; return h != null && h.waiting(id); }
+    @Override public boolean reasoning() { return false; }
+    @Override public void latency(VoiceLatency.Call call) { latency = call; }
+    @Override public boolean browserQuietOutput() { return false; }
+    @Override public int unanswered() { RealtimeSession h = hands; return h == null ? 0 : h.unanswered(); }
+    @Override public boolean waiting(String id) { RealtimeSession h = hands; return h != null && h.waiting(id); }
     /** The hands (GPT) take pictures: a look at the screen goes to them. */
     @Override public boolean sees() { return true; }
 
     // ── the microphone ───────────────────────────────────────────────────────
     @Override public boolean audio(byte[] pcm) {
-        LiveVoiceSession f = fallback; if (f != null) return f.audio(pcm);
         if (stopped) return false;
         int level = VoiceStartupAudio.rms(pcm);
         if (level >= 160) { VoiceLatency.Call measured = latency; if (measured != null) measured.voiced(level); }
@@ -246,14 +243,13 @@ final class GptLiveSession implements LiveVoiceSession {
         for (byte[] frame : startupAudio.accept(pcm, ready, System.nanoTime() / 1_000_000)) if (c != null) { c.push(RealtimeVoice.upsample(frame)); VoiceLatency.Call measured = latency; if (measured != null) measured.pcmSent(); }
         return true;
     }
-    @Override public void appSound(long from, long to) { LiveVoiceSession f = fallback; if (f != null) f.appSound(from, to); else startupAudio.appSound(from, to); }
+    @Override public void appSound(long from, long to) { startupAudio.appSound(from, to); }
     @Override public void keepStartupAudio(VoiceStartupAudio shared) { if (shared != null) { shared.keepLead(); startupAudio = shared; sharedStartup = true; } }
     @Override public void primeFirstTurn(String text) {}
-    @Override public void clearStartupAudio() { LiveVoiceSession f = fallback; if (f != null) f.clearStartupAudio(); else startupAudio.clear(); }
-    @Override public void endAudio() { LiveVoiceSession f = fallback; if (f != null) f.endAudio(); }
+    @Override public void clearStartupAudio() { startupAudio.clear(); }
+    @Override public void endAudio() {}
     /** The phone speaker's barge-in: the rest of the answer's sound is not played; GPT-Live hears the user and stops. */
     @Override public void bargeIn() {
-        LiveVoiceSession f = fallback; if (f != null) { f.bargeIn(); return; }
         quietUntil = System.nanoTime() / 1_000_000 + QUIET_MS;
         VoiceLatency.Call measured = latency; if (measured != null) measured.interrupted();
         listener.interrupted();
@@ -262,13 +258,11 @@ final class GptLiveSession implements LiveVoiceSession {
     // ── what goes to the model ──────────────────────────────────────────────
     /** The app's own turn that wants an answer: the hands answer it (with functions if need be) and the voice says it. */
     @Override public void text(String text) {
-        LiveVoiceSession f = fallback; if (f != null) { f.text(text); return; }
         main.post(() -> withHands(() -> { RealtimeSession h = hands; if (h != null) h.text(text); }));
     }
-    @Override public void browserReport(String text) { LiveVoiceSession f = fallback; if (f != null) f.browserReport(text); else text(text); }
+    @Override public void browserReport(String text) { text(text); }
     /** Context without a reply: for the hands, and for the voice on its commentary channel. */
     @Override public void note(String text) {
-        LiveVoiceSession f = fallback; if (f != null) { f.note(text); return; }
         main.post(() -> {
             withHands(() -> { RealtimeSession h = hands; if (h != null) h.note(text); });
             for (JSONObject piece : RealtimeVoice.liveNotes(text)) send(piece);
@@ -276,20 +270,16 @@ final class GptLiveSession implements LiveVoiceSession {
     }
     @Override public void tool(String id, String name, JSONObject value) { tool(id, name, value, null); }
     @Override public void tool(String id, String name, JSONObject value, String scheduling) {
-        LiveVoiceSession f = fallback; if (f != null) { f.tool(id, name, value, scheduling); return; }
         RealtimeSession h = hands; if (h != null) h.tool(id, name, value, scheduling); else listener.replied(id, name, value, -1, scheduling);
     }
     @Override public void browserTool(String id, String name, JSONObject value, boolean speak) {
-        LiveVoiceSession f = fallback; if (f != null) { f.browserTool(id, name, value, speak); return; }
         tool(id, name, value, speak ? null : "SILENT");
     }
-    @Override public void cameraFrame(String jpegBase64) { LiveVoiceSession f = fallback; if (f != null) f.cameraFrame(jpegBase64); }
+    @Override public void cameraFrame(String jpegBase64) {}
     @Override public boolean image(String jpegBase64) {
-        LiveVoiceSession f = fallback; if (f != null) return f.image(jpegBase64);
         RealtimeSession h = hands; return h != null && h.image(jpegBase64);
     }
     @Override public boolean imageTurn(String jpegBase64, String app, String text) {
-        LiveVoiceSession f = fallback; if (f != null) return f.imageTurn(jpegBase64, app, text);
         RealtimeSession h = hands; return h != null && h.imageTurn(jpegBase64, app, text);
     }
 }

@@ -35,7 +35,10 @@ import org.json.JSONObject;
  */
 final class LiveCall {
     interface Listener {
-        /** The data channel is open: events can go both ways. */
+        /**
+         * The call is up, told once per call: the phone took the server's answer (SDP applied), WebRTC is connected, and the
+         * server said its session is ready. Nothing after a failure or close is told.
+         */
         void opened();
         /** One event from the server (JSON text). */
         void message(String json);
@@ -46,8 +49,6 @@ final class LiveCall {
         /** How far the call got, in words for the phone log and the connection test (any thread). */
         default void stage(String text) {}
     }
-    /** GPT-Live did not open in this process: the voices that can go on without it use their Realtime voice instead. */
-    static volatile boolean refused;
     /** The server turned the call down with this HTTP status. */
     static final class Refused extends Exception { final int status; Refused(String message, int status) { super(message); this.status = status; } }
 
@@ -61,6 +62,10 @@ final class LiveCall {
     /** The call's sideband, and where its events come from (0 not yet, 1 the data channel, 2 the sideband). */
     private volatile WebSocketClient side; private volatile int source;
     private volatile boolean closed, failed, muted;
+    /** The three things a call must have before it is up (opened), told once; nothing after a failure. */
+    private final dev.jun.gyeot.core.LiveGate gate = new dev.jun.gyeot.core.LiveGate();
+    /** How the server's answer came (raw or JSON) and whether its SDP ended with a line break, for a failure's words. */
+    private volatile String answerFormat = ""; private volatile boolean finalNewline;
     /** When the answer was last heard playing. */
     private volatile long lastLoud;
 
@@ -70,7 +75,7 @@ final class LiveCall {
         route = new CallRoute(this.context, main);
     }
     private void fail(String why, int status) {
-        if (closed || failed) return;
+        if (closed || failed || !gate.fail()) return;
         failed = true; String said = why == null || why.isBlank() ? "음성 연결이 끊겼어요." : why;
         stage("실패 · " + said); listener.failed(said, status);
     }
@@ -131,15 +136,21 @@ final class LiveCall {
             Thread post = new Thread(() -> {
                 try {
                     String answer = post(sdp);
-                    if (answer == null || !answer.startsWith("v=")) { fail("GPT-Live가 연결 답을 주지 않았어요.", 0); return; }
-                    stage("서버가 연결 답을 줌 · 통화를 맞추는 중");
+                    if (answer == null || !answer.stripLeading().startsWith("v=")) { fail("GPT-Live가 연결 답을 주지 않았어요 · 응답 " + answerFormat, 0); return; }
+                    stage("서버가 연결 답을 줌 · 응답 " + answerFormat + " · 마지막 줄바꿈 " + (finalNewline ? "있음" : "없음") + " · 통화를 맞추는 중");
                     js("answer(" + JSONObject.quote(answer) + ")");
                 } catch (Refused refused) { fail(refused.getMessage(), refused.status); }
                 catch (Exception error) { fail(error.getMessage() == null ? "GPT-Live에 연결하지 못했어요." : error.getMessage(), 0); }
             }, "gyeot-live-offer");
             post.setDaemon(true); post.start();
         }
-        @JavascriptInterface public void opened() { if (!closed) { stage("이벤트 통로 열림"); listener.opened(); } }
+        @JavascriptInterface public void opened() { if (!closed && !failed) stage("이벤트 통로 열림"); }
+        @JavascriptInterface public void applied() { if (gate.over()) return; stage("연결 답을 적용함"); up(dev.jun.gyeot.core.LiveGate.Step.APPLIED); }
+        @JavascriptInterface public void connected() { if (gate.over()) return; stage("통화 연결됨 (connected)"); up(dev.jun.gyeot.core.LiveGate.Step.CONNECTED); }
+        @JavascriptInterface public void answerFailed(String detail) {
+            JSONObject d; try { d = new JSONObject(detail == null ? "{}" : detail); } catch (Exception unreadable) { d = new JSONObject(); }
+            fail(RealtimeVoice.liveAnswerFailure(d, answerFormat, finalNewline), 0);
+        }
         @JavascriptInterface public void stage(String text) { LiveCall.this.stage(text); }
         @JavascriptInterface public void message(String json) { deliver(1, json); }
         @JavascriptInterface public void failed(String why) { fail(why, 0); }
@@ -164,11 +175,14 @@ final class LiveCall {
             int status = http.getResponseCode();
             java.io.InputStream in = status >= 400 ? http.getErrorStream() : http.getInputStream();
             String reply = in == null ? "" : new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            if (status >= 300) { String why = RealtimeVoice.liveRefusal(reply); throw new Refused("GPT-Live " + status + (why.isEmpty() ? "" : " · " + why), status); }
+            if (status >= 300) { String why = RealtimeVoice.liveRefusal(reply); throw new Refused("GPT-Live " + status + (why.isEmpty() ? "" : " · " + RealtimeVoice.masked(why)), status); }
+            answerFormat = RealtimeVoice.liveAnswerFormat(reply);
             String id = RealtimeVoice.liveCallId(http.getHeaderField("Location"));
             stage("서버 응답 " + status + (id.isEmpty() ? " · 통화 id 없음" : " · 통화 " + id));
             if (!id.isEmpty()) sideband(id);
-            return RealtimeVoice.liveAnswer(reply);
+            String answer = RealtimeVoice.liveAnswer(reply);
+            finalNewline = answer.endsWith("\n");
+            return answer;
         } finally { http.disconnect(); }
     }
     /** The call's events by its id, as Codex follows them. */
@@ -188,7 +202,8 @@ final class LiveCall {
     }
     /** An event from the data channel (1) or the sideband (2): the first to bring one (an error aside) is followed from then on. */
     private void deliver(int from, String json) {
-        if (closed || json == null) return;
+        // A call that failed or ended says nothing more: a late READY from the sideband is not a call that is up.
+        if (closed || gate.over() || json == null) return;
         RealtimeVoice.Type type = RealtimeVoice.parseLive(json).type();
         if (type == RealtimeVoice.Type.OTHER || type == RealtimeVoice.Type.AUDIO) return;
         boolean first = false;
@@ -197,9 +212,18 @@ final class LiveCall {
             else if (source != from) return;
         }
         if (first) stage("첫 이벤트 받음 · " + (from == 1 ? "데이터 채널" : "사이드밴드") + " · " + type);
-        if (type == RealtimeVoice.Type.ERROR) stage("서버 오류 · " + RealtimeVoice.parseLive(json).text());
+        if (type == RealtimeVoice.Type.ERROR) stage("서버 오류 · " + RealtimeVoice.masked(RealtimeVoice.parseLive(json).text()));
+        if (type == RealtimeVoice.Type.READY) { stage("서버 세션 READY"); up(dev.jun.gyeot.core.LiveGate.Step.READY); }
         listener.message(json);
     }
+    /** Tells opened() once: the SDP applied, WebRTC connected and the server ready, in this call, which has not failed or ended. */
+    private void up(dev.jun.gyeot.core.LiveGate.Step step) {
+        if (!gate.reached(step)) return;
+        stage("통화 준비 완료 · SDP 적용 · connected · 서버 READY");
+        listener.opened();
+    }
+    /** What the call still lacks before it is up ("" when it is up), for a timeout's words. */
+    String missing() { return gate.missing(); }
 
     /** An event for the server, the way the call's events come; the page keeps it until the data channel opens. */
     void send(String json) {
@@ -217,13 +241,11 @@ final class LiveCall {
         LiveCall[] made = new LiveCall[1];
         java.util.function.Consumer<Boolean> finish = ok -> { if (over.compareAndSet(false, true)) { main.post(() -> done.accept(ok)); main.postDelayed(() -> { LiveCall c = made[0]; if (c != null) c.close(); }, 1500); } };
         made[0] = new LiveCall(context, new Listener() {
-            @Override public void opened() {}
-            @Override public void message(String json) {
-                RealtimeVoice.Event e = RealtimeVoice.parseLive(json);
-                if (e.type() == RealtimeVoice.Type.READY) { line.accept("세션이 시작됐어요 · " + RealtimeVoice.voiceName(voice) + " 목소리로 열려요"); finish.accept(true); }
-            }
+            // Up only with all three (SDP applied, connected, server READY): told once, and never after a failure.
+            @Override public void opened() { if (!over.get()) { line.accept("통화가 열렸어요 · " + RealtimeVoice.voiceName(voice) + " 목소리"); finish.accept(true); } }
+            @Override public void message(String json) {}
             @Override public void failed(String why, int status) { finish.accept(false); }
-            @Override public void stage(String text) { line.accept(text); }
+            @Override public void stage(String text) { if (!over.get()) line.accept(text); }
         }, true);
         main.postDelayed(() -> { if (!over.get()) { line.accept("25초 안에 열리지 않았어요"); finish.accept(false); } }, 25_000);
         Thread start = new Thread(() -> {
@@ -247,6 +269,7 @@ final class LiveCall {
     boolean playing() { return SystemClock.uptimeMillis() - lastLoud < 500; }
 
     void close() {
+        gate.close();
         main.post(() -> {
             if (closed) return;
             closed = true;
@@ -301,6 +324,7 @@ final class LiveCall {
           };
           pc.onconnectionstatechange = () => {
             stage('통화 연결 상태 · ' + pc.connectionState);
+            if (pc.connectionState === 'connected') GyeotLive.connected();
             if (pc.connectionState === 'failed') fail('음성 연결이 끊겼어요.');
             lost = pc.connectionState === 'disconnected' ? (lost || Date.now()) : 0;
           };
@@ -319,9 +343,14 @@ final class LiveCall {
           } catch (e) { fail('음성 연결을 만들지 못했어요.'); }
         }
         function answer(sdp) {
-          stage('연결 답 ' + sdp.split('\\r\\n').length + '줄 · 통화에 맞추는 중');
-          pc.setRemoteDescription({type: 'answer', sdp: sdp}).then(() => stage('연결 답을 맞춤 · 소리 연결을 기다리는 중'))
-            .catch((e) => fail('음성 연결을 맞추지 못했어요 · ' + (e && (e.name + ': ' + e.message) || e)));
+          const state = pc.signalingState;
+          pc.setRemoteDescription({type: 'answer', sdp: sdp}).then(() => GyeotLive.applied()).catch((e) => {
+            // What WebRTC said, for the app to mask and log (never the SDP itself).
+            let d = {};
+            try { d = {name: String((e && e.name) || ''), message: String((e && e.message) || e || ''), errorDetail: String((e && e.errorDetail) || ''),
+              sdpLineNumber: (e && typeof e.sdpLineNumber === 'number') ? e.sdpLineNumber : -1, signalingState: String(state)}; } catch (_) {}
+            GyeotLive.answerFailed(JSON.stringify(d));
+          });
         }
         function send(json) { if (dc && dc.readyState === 'open') dc.send(json); else queue.push(json); }
         function mute(value) { muted = value; if (mic) mic.getAudioTracks().forEach((t) => { t.enabled = !value; }); }

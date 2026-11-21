@@ -15,20 +15,20 @@ import org.java_websocket.handshake.ServerHandshake;
  * 판서's narration in a GPT or Grok voice (BoardVoice): one realtime connection that reads each piece it is given aloud
  * (RealtimeVoice.narrator and READ_ALOUD) and reports its sound and its end to BoardVoice.LiveVoice, which plays and paces
  * them as it does for Gemini Live. The sign-in or key is the voice's own (VoiceCredentials). GPT's newest voices read
- * through GPT-Live instead (LiveLine); when GPT-Live does not open, the next line is this Realtime one.
+ * through GPT-Live instead (LiveLine); when GPT-Live does not open, the reading stops with the reason (no other voice).
  */
 final class BoardRealtime implements BoardVoice.LiveVoice.Line {
     static BoardVoice.LiveVoice.Lines lines(android.content.Context context, AppStore store, RealtimeVoice.Kind kind) {
         return (model, voice, events) -> {
             String picked = store.pickedVoice(kind);
-            if (kind == RealtimeVoice.Kind.GPT && RealtimeVoice.live(picked) && store.codexImages.connected() && !LiveCall.refused) return new LiveLine(context, store, picked, events);
+            if (kind == RealtimeVoice.Kind.GPT && RealtimeVoice.live(picked) && store.codexImages.connected()) return new LiveLine(context, store, picked, events);
             BoardRealtime line = new BoardRealtime(store, kind, voice, events); line.connect(); return line;
         };
     }
     /**
      * 판서's reading in one of GPT's newest voices: a GPT-Live call (LiveCall, bridged, so its sound plays through 판서's own
      * speaker) told to read what it is given word for word; each piece goes in as words for it to say, and its turn's end is
-     * the piece's end. A call that does not open marks GPT-Live refused, so the retry reads in the Realtime voice.
+     * the piece's end. A call that does not open stops the reading with its reason.
      */
     static final class LiveLine implements BoardVoice.LiveVoice.Line {
         private final AppStore store; private final BoardVoice.LiveVoice.Events events; private final LiveCall call;
@@ -40,8 +40,8 @@ final class BoardRealtime implements BoardVoice.LiveVoice.Line {
                 @Override public void opened() { open(); }
                 @Override public void message(String json) {
                     RealtimeVoice.Event e = RealtimeVoice.parseLive(json);
-                    if (e.type() == RealtimeVoice.Type.READY) open();
-                    else if (e.type() == RealtimeVoice.Type.DONE) events.finished();
+                    // READY alone is not a call that is up: opened() is (SDP applied, connected, READY).
+                    if (e.type() == RealtimeVoice.Type.DONE) events.finished();
                     else if (e.type() == RealtimeVoice.Type.ERROR && !RealtimeVoice.harmless(e)) fail(e.text().isBlank() ? "GPT 최신 음성 오류" : e.text());
                 }
                 @Override public void failed(String why, int status) { fail(why); }
@@ -63,9 +63,8 @@ final class BoardRealtime implements BoardVoice.LiveVoice.Line {
         private void fail(String why) {
             boolean early;
             synchronized (this) { if (failed || closed) return; failed = true; early = !ready; }
-            // Not opened at all: GPT-Live is set aside, and the retry reads in the Realtime voice.
-            if (early) LiveCall.refused = true;
-            events.failed("GPT 최신 음성" + (why == null || why.isBlank() ? " 연결이 끊겼어요." : ": " + why), true);
+            // No other voice reads in its place: the reason is shown, and a call that never opened is not retried.
+            events.failed("GPT 최신 음성(판서 읽기)" + (why == null || why.isBlank() ? " 연결이 끊겼어요." : ": " + why), !early);
         }
         @Override public void say(String piece) {
             synchronized (this) { if (closed || failed) return; if (!ready) { waiting.add(piece); return; } }

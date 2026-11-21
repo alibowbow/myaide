@@ -791,10 +791,10 @@ public final class MainActivity extends Activity {
             choices.addView(ui.sectionHeader(realtime.label + " 목소리"));
             String chosen = store.pickedVoice(realtime);
             for (String[] option : RealtimeVoice.voiceChoices(realtime)) choices.addView(voiceChoice(option[1], option[0].equals(chosen), () -> {
-                if (!option[0].equals(store.pickedVoice(realtime))) { store.settings.edit().putString(AppStore.ASSISTANT_VOICE + realtime.name(), option[0]).apply(); VoiceChat.retryLive(); store.changed(); }
+                if (!option[0].equals(store.pickedVoice(realtime))) { store.settings.edit().putString(AppStore.ASSISTANT_VOICE + realtime.name(), option[0]).apply(); store.changed(); }
                 voiceModelChoices(choices, sheet);
             }), new LinearLayout.LayoutParams(-1, -2));
-            if (realtime == RealtimeVoice.Kind.GPT) choices.addView(ui.label("‘최신’ 목소리는 GPT-Live로 말하고(Codex 로그인 필요), 열리지 않으면 실시간 목소리로 이어요.", 12, MUTED));
+            if (realtime == RealtimeVoice.Kind.GPT) choices.addView(ui.label("‘최신’ 목소리는 GPT-Live로 말해요(Codex 로그인 필요). 열리지 않으면 다른 목소리로 바꾸지 않고 이유를 알려 줘요.", 12, MUTED));
             choices.addView(ui.sectionHeader("연결"));
             LinearLayout sign = ui.group(); realtimeSignIn(sign, realtime, sheet::dismiss); choices.addView(sign);
             choices.addView(ui.label("API 키는 설정 → 목소리와 대화에서 넣을 수 있어요. 대화 중 바꾸면 완료 후 ‘지금 적용’을 눌러 주세요.", 12, MUTED));
@@ -4065,7 +4065,7 @@ public final class MainActivity extends Activity {
         }), false);
         add(engine, 0);
         add(ui.footer(realtime == null ? "기본은 Gemini Live예요. GPT·Grok 실시간 음성으로 바꿔도 폰 조작·캘린더·브라우저 같은 기능은 그대로 써요."
-            : realtime == RealtimeVoice.Kind.GPT ? "GPT 음성으로 대화해요. 최신 목소리(한울·햇살 등)는 GPT-Live로, 그 밖의 목소리는 GPT 실시간으로 말해요. 폰 조작·캘린더·브라우저 같은 기능은 그대로 쓰고, 화면과 카메라도 볼 수 있어요."
+            : realtime == RealtimeVoice.Kind.GPT ? "GPT 음성으로 대화해요. 최신 목소리(한울·햇살 등)는 GPT-Live로, 그 밖의 목소리는 GPT 실시간으로 말해요. 최신 목소리가 안 열리면 이유를 알려 줘요. 폰 조작·캘린더·브라우저 같은 기능은 그대로 쓰고, 화면과 카메라도 볼 수 있어요."
             : "Grok 실시간 음성으로 대화해요. 폰 조작·캘린더·브라우저 같은 기능은 그대로 쓰지만, 화면과 카메라는 볼 수 없어요."), 0);
         if (realtime != null) pageRealtimeVoice(realtime); else pageLiveVoice();
         pageVoiceRest(realtime);
@@ -4080,7 +4080,7 @@ public final class MainActivity extends Activity {
         String saved = store.voiceStyle(store.styleVoice());
         LinearLayout style = ui.listRow(0, 0, "말투", saved.isBlank() ? "없음" : saved, ui.chevron(), this::voiceStyleSheet);
         ui.addRow(voices, ui.choiceRow("목소리", kind.label + " 목소리", kind == RealtimeVoice.Kind.GPT ? "‘최신’은 GPT-Live로 말해요 · 대화 중이면 ‘지금 적용’으로 바꿔요" : "대화 중이면 ‘지금 적용’으로 바로 바꿔요", names, at, position -> {
-            store.settings.edit().putString(AppStore.ASSISTANT_VOICE + kind.name(), options[position][0]).apply(); VoiceChat.retryLive(); store.changed();
+            store.settings.edit().putString(AppStore.ASSISTANT_VOICE + kind.name(), options[position][0]).apply(); store.changed();
             String next = store.voiceStyle(store.styleVoice()); TextView shown = ((Ui.ListRow) style).parts.subtitle();
             shown.setText(next.isBlank() ? "없음" : next); style.setContentDescription("말투, " + shown.getText());
         }), false);

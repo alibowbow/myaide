@@ -810,7 +810,7 @@ public final class BoardActivity extends Activity {
         // GPT's newest (GPT-Live) first, then its Realtime voices.
         for (String[] option : dev.jun.gyeot.core.RealtimeVoice.voiceChoices(kind)) {
             boolean on = option[0].equals(now);
-            ui.addRow(group, ui.listRow(R.drawable.ic_sound, on ? ACCENT : MUTED, option[1], "", on ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putString(AppStore.ASSISTANT_VOICE + kind.name(), option[0]).apply(); VoiceChat.retryLive(); voiceChanged(); pick.dismiss(); }), true);
+            ui.addRow(group, ui.listRow(R.drawable.ic_sound, on ? ACCENT : MUTED, option[1], "", on ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putString(AppStore.ASSISTANT_VOICE + kind.name(), option[0]).apply(); voiceChanged(); pick.dismiss(); }), true);
         }
         pick.body.addView(group); show(pick);
     }

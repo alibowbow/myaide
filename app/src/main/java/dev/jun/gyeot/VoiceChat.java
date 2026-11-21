@@ -67,8 +67,6 @@ final class VoiceChat {
     final String chosen;
     /** On GPT-Live now; turned off for the process when GPT-Live does not open with this sign-in (then GPT Realtime). */
     private volatile boolean live;
-    /** The user picked a voice again: GPT-Live is tried again (here, in the voice assistant and in 판서). */
-    static void retryLive() { LiveCall.refused = false; }
     /** GPT-Live's call. */
     private volatile LiveCall call;
     /** GPT-Live's turns as this app counts them: the user's, and the answers (audio, words and the log follow them). */
@@ -136,7 +134,7 @@ final class VoiceChat {
     private void deadline() {
         main.postDelayed(() -> {
             if (ready || ended) return;
-            if (live) fallBack("연결 시간 초과");
+            if (live) { LiveCall c = call; String missing = c == null ? "" : c.missing(); liveFailed("25초 안에 연결되지 않았어요" + (missing.isEmpty() ? "" : " · 아직 안 된 것: " + missing) + (lastStage.isEmpty() ? "" : " · 마지막 단계: " + lastStage)); }
             else end(kind.label + " 음성 연결 시간이 초과됐어요. 네트워크와 로그인을 확인해 주세요.");
         }, CONNECT_MS);
     }
@@ -177,7 +175,7 @@ final class VoiceChat {
         try {
             String handOff = target.handOff();
             // GPT's newest voices: a GPT-Live call with the Codex sign-in (the ChatGPT plan); no other key opens it.
-            boolean onLive = live = kind == RealtimeVoice.Kind.GPT && RealtimeVoice.live(chosen) && !LiveCall.refused && store.codexImages.connected();
+            boolean onLive = live = kind == RealtimeVoice.Kind.GPT && RealtimeVoice.live(chosen) && store.codexImages.connected();
             String instructions = target.instructions() + RealtimeVoice.screenNote(onLive);
             if (onLive) {
                 connectLive(instructions + (handOff.isEmpty() ? "" : "\n\nOn this voice, hand anything the instructions above say to give to " + handOff
@@ -203,7 +201,7 @@ final class VoiceChat {
             socket = client; client.connect();
         } catch (Missing missing) { needsSetup = true; main.post(() -> end(missing.getMessage())); }
         catch (Exception error) {
-            if (live) { String why = error.getMessage(); main.post(() -> { if (!ended) fallBack(why); }); return; }
+            if (live) { String why = error.getMessage(); main.post(() -> { if (!ended) liveFailed(why); }); return; }
             String message = error.getMessage(); main.post(() -> end(kind.label + " 음성 대화를 시작하지 못했어요" + (message == null || message.isBlank() ? "." : ": " + message)));
         }
     }
@@ -215,7 +213,7 @@ final class VoiceChat {
             @Override public void opened() { main.post(() -> { if (!ended && call == made[0] && !ready) ready(); }); }
             @Override public void message(String json) { if (call == made[0]) receiveLive(json); }
             @Override public void failed(String why, int status) { main.post(() -> liveFailed(made[0], token, why, status)); }
-            @Override public void stage(String text) { if (call == made[0]) store.phoneLog("  · GPT 최신 음성 · " + text); }
+            @Override public void stage(String text) { if (call == made[0]) { lastStage = text; store.phoneLog("  · GPT 최신 음성 · " + text); } }
         });
         store.phoneLog("→ GPT 최신 음성 연결 · " + RealtimeVoice.voiceName(chosen));
         if (ended) { c.close(); return; }
@@ -226,8 +224,8 @@ final class VoiceChat {
     private void liveFailed(LiveCall which, String token, String why, int status) {
         if (ended || which != call) return;
         if (!ready && (status == 401 || status == 403) && attempts++ == 0) { rejected = token; closeLive(); work.execute(this::connect); return; }
-        if (!ready) { fallBack(why); return; }
-        end("연결이 끊겨 음성 대화를 마쳤어요.");
+        if (!ready) { liveFailed(why); return; }
+        end("GPT 최신 음성 연결이 끊겨 음성 대화를 마쳤어요" + (why == null || why.isBlank() ? "." : " · " + why));
     }
     private void closeLive() { LiveCall c = call; call = null; if (c != null) c.close(); }
     private void closed(WebSocketClient which, String token, String reason) {
@@ -239,17 +237,15 @@ final class VoiceChat {
         end(ready ? "연결이 끊겨 음성 대화를 마쳤어요." : RealtimeVoice.refusal(kind, status, signedIn));
     }
     /**
-     * GPT-Live did not open (this sign-in, this voice): the conversation goes on in GPT Realtime with its own voice, and
-     * GPT-Live is not tried again in this process.
+     * GPT-Live did not open: the conversation ends there and says why, with no other voice in its place (the user asked
+     * for the chosen voice or none). The settings sheet opens with the reason and the connection test.
      */
-    private void fallBack(String why) {
-        LiveCall.refused = true; live = false; closeLive();
-        WebSocketClient old = socket; socket = null; if (old != null) shutdown(old);
-        note = "최신 음성이 안 열려 " + voice + " 목소리로 대화 중" + (why == null || why.isBlank() ? "" : " · " + why);
-        store.phoneLog("  ✗ GPT 최신 음성이 열리지 않음 · " + voice + " 목소리로 이어요" + (why == null || why.isBlank() ? "" : " · " + why));
-        words = note; changed();
-        main.removeCallbacksAndMessages(null); deadline();
-        work.execute(this::connect);
+    private void liveFailed(String why) {
+        if (ended) return;
+        String reason = "GPT 최신 음성(" + RealtimeVoice.voiceName(chosen) + ")에 연결하지 못했어요" + (why == null || why.isBlank() ? "." : " · " + why);
+        store.phoneLog("  ✗ " + reason);
+        needsSetup = true;
+        end(reason);
     }
     /** An event for the server: GPT-Live's call, or Realtime's socket. */
     private void send(String text) {
@@ -275,7 +271,8 @@ final class VoiceChat {
     private void receiveLive(String text) {
         if (ended || !live) return;
         RealtimeVoice.Event e = RealtimeVoice.parseLive(text);
-        if (e.type() == RealtimeVoice.Type.OTHER || e.type() == RealtimeVoice.Type.AUDIO) return;
+        // READY alone is not a call that is up: LiveCall says so (opened) once the SDP applied, WebRTC connected and READY came.
+        if (e.type() == RealtimeVoice.Type.OTHER || e.type() == RealtimeVoice.Type.AUDIO || e.type() == RealtimeVoice.Type.READY) return;
         main.post(() -> { if (!ended && live) event(fromLive(e)); });
     }
     /**
@@ -352,7 +349,7 @@ final class VoiceChat {
             }
             case ERROR -> {
                 if (RealtimeVoice.harmless(e)) return;
-                if (live && !ready) { fallBack(e.text()); return; }
+                if (live && !ready) { liveFailed("서버 오류 · " + RealtimeVoice.masked(e.text())); return; }
                 if (!ready) { end(kind.label + " 음성 대화를 시작하지 못했어요: " + e.text()); return; }
                 words = e.text().isBlank() ? "음성 연결에 문제가 생겼어요" : e.text(); changed();
             }
@@ -487,9 +484,8 @@ final class VoiceChat {
     }
     /** Which voice speaks now, for the bar: GPT-Live's chosen one, or the Realtime voice. */
     String speaking() { return live ? RealtimeVoice.voiceName(chosen) : voice; }
-    /** Why the chosen voice is not the one speaking (GPT-Live did not open); "" when it is. */
-    String note() { return note; }
-    private volatile String note = "";
+    /** The last step GPT-Live's call reached, for why it did not open. */
+    private volatile String lastStage = "";
 
     // ── the chat ──────────────────────────────────────────────────────────
     /** Writes what is settled; a turn still waiting for its words is looked at again in a second. */

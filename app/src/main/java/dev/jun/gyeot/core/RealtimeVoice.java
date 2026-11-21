@@ -204,19 +204,41 @@ public final class RealtimeVoice {
     public static JSONObject liveCall(String sdp, JSONObject session) { return obj("sdp", sdp, "session", session); }
     /** The answer SDP from LIVE_CALLS' reply: its body, or its "sdp" field when it comes as JSON. */
     public static String liveAnswer(String body) {
-        String text = body == null ? "" : body.strip();
-        if (text.startsWith("{")) try { text = new JSONObject(text).optString("sdp"); } catch (Exception bad) { return ""; }
-        return sdp(text);
+        if (body == null) return "";
+        // Only to tell JSON from a raw SDP: the SDP itself goes on exactly as it came, its last CRLF included.
+        String lead = body.stripLeading();
+        if (lead.startsWith("{")) try { return new JSONObject(lead).optString("sdp"); } catch (Exception bad) { return ""; }
+        return body;
+    }
+    /** How LIVE_CALLS answered: "JSON" (an object with sdp) or "raw" (the SDP as the body). */
+    public static String liveAnswerFormat(String body) { return body != null && body.stripLeading().startsWith("{") ? "JSON" : "raw"; }
+    /**
+     * Words that must not reach the phone log: tokens and keys (long runs of letters, digits and -_+/=), addresses (IPv4,
+     * IPv6), certificate fingerprints and anything after Bearer. At most 300 characters.
+     */
+    public static String masked(String text) {
+        if (text == null) return "";
+        String out = text.replaceAll("(?i)bearer\\s+\\S+", "Bearer [가림]")
+            .replaceAll("\\b(?:[0-9A-Fa-f]{2}:){7,}[0-9A-Fa-f]{2}\\b", "[지문]")
+            .replaceAll("\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b", "[IP]")
+            .replaceAll("\\b(?:[0-9A-Fa-f]{1,4}:){2,7}[0-9A-Fa-f]{1,4}\\b", "[IP]")
+            .replaceAll("[A-Za-z0-9+/=_-]{20,}", "[가림]")
+            .replaceAll("\\s+", " ").strip();
+        return out.length() > 300 ? out.substring(0, 300) + "…" : out;
     }
     /**
-     * An SDP as WebRTC reads it: every line, the last one too, ends with CRLF (a last line without it is not read, and
-     * the answer is turned down).
+     * Why the phone did not take LIVE_CALLS' answer, in words to copy: WebRTC's exception (its name, its message with
+     * secrets masked, errorDetail and sdpLineNumber when it gave them), the signaling state just before, how the answer
+     * came and whether it ended with a line break. Never the SDP itself or a token.
      */
-    public static String sdp(String text) {
-        String lines = (text == null ? "" : text).replace("\r\n", "\n").replace('\r', '\n').strip();
-        if (lines.isEmpty()) return "";
-        StringBuilder out = new StringBuilder();
-        for (String line : lines.split("\n")) if (!line.isBlank()) out.append(line.strip()).append("\r\n");
+    public static String liveAnswerFailure(JSONObject detail, String format, boolean finalNewline) {
+        JSONObject d = detail == null ? new JSONObject() : detail;
+        StringBuilder out = new StringBuilder("음성 연결을 맞추지 못했어요 · 예외 ").append(d.optString("name").isBlank() ? "이름 없음" : masked(d.optString("name")));
+        String message = masked(d.optString("message")); if (!message.isEmpty()) out.append(" · ").append(message);
+        String errorDetail = masked(d.optString("errorDetail")); if (!errorDetail.isEmpty()) out.append(" · errorDetail ").append(errorDetail);
+        int line = d.optInt("sdpLineNumber", -1); if (line >= 0) out.append(" · SDP ").append(line).append("번째 줄");
+        out.append(" · 적용 전 상태 ").append(d.optString("signalingState").isBlank() ? "알 수 없음" : masked(d.optString("signalingState")));
+        out.append(" · 응답 ").append(format == null || format.isBlank() ? "알 수 없음" : format).append(" · 마지막 줄바꿈 ").append(finalNewline ? "있음" : "없음");
         return out.toString();
     }
     /**

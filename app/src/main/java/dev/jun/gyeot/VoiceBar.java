@@ -157,7 +157,7 @@ final class VoiceBar {
         title.setContentDescription(c.kind.spoken() + " " + c.speaking() + " · " + doing);
         String said = c.words();
         words.setText(c.held() ? "화면이 말하는 동안 잠시 듣지 않아요" : said.isBlank() ? state == VoiceChat.State.CONNECTING ? "대화 기록과 기억을 이어서 연결해요"
-            : !c.note().isEmpty() ? c.note() : "말씀하시면 대답해요 · 대화는 " + c.target.label() + "에 남아요" : said);
+            : "말씀하시면 대답해요 · 대화는 " + c.target.label() + "에 남아요" : said);
         mute.on(c.muted() ? R.drawable.ic_mic_off : R.drawable.ic_mic, c.muted() ? "마이크 켜기" : "마이크 끄기", c.muted());
     }
 
@@ -179,10 +179,9 @@ final class VoiceBar {
         for (String[] v : RealtimeVoice.voiceChoices(current)) { ids.add(v[0]); names.add(v[1]); }
         int at = ids.indexOf(voice(current));
         ui.addRow(who, ui.choiceRow("목소리", current.label + " 목소리", current == RealtimeVoice.Kind.GPT
-                ? "‘최신’ 목소리는 GPT-Live로 말해요. 열리지 않으면 실시간 목소리로 이어요. 음성 비서와 판서도 같은 목소리를 써요." : "대화 중이면 바로 이 목소리로 다시 연결해요",
+                ? "‘최신’ 목소리는 GPT-Live로 말해요. 열리지 않으면 다른 목소리로 바꾸지 않고 이유를 알려 줘요. 음성 비서와 판서도 같은 목소리를 써요." : "대화 중이면 바로 이 목소리로 다시 연결해요",
             names.toArray(new String[0]), Math.max(0, at), index -> {
                 store.settings.edit().putString(AppStore.ASSISTANT_VOICE + current.name(), ids.get(index)).apply();
-                VoiceChat.retryLive();
                 if (talking()) { sheet.dismiss(); restart(); }
             }), false);
         sheet.body.addView(who);
@@ -212,8 +211,8 @@ final class VoiceBar {
         sheet.show();
     }
     /**
-     * 최신 음성 연결 시험: a GPT-Live call without the microphone, each step shown as it happens; on success GPT-Live is
-     * tried again everywhere (VoiceChat.retryLive). Closing the sheet ends the call.
+     * 최신 음성 연결 시험: a GPT-Live call without the microphone, each step shown as it happens. Closing the sheet ends
+     * the call.
      */
     private void liveTest() {
         String voice = RealtimeVoice.live(store.pickedVoice(RealtimeVoice.Kind.GPT)) ? store.pickedVoice(RealtimeVoice.Kind.GPT) : "hanul";
@@ -232,7 +231,6 @@ final class VoiceBar {
         });
         LiveCall call = LiveCall.test(activity, store, voice, add, ok -> {
             add.accept(ok ? "성공 · 이제 최신 음성으로 대화할 수 있어요" : "실패 · 위 기록이 막힌 곳이에요");
-            if (ok) VoiceChat.retryLive();
         });
         sheet.setOnDismissListener(d -> call.close());
         sheet.show();
