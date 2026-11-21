@@ -44,7 +44,10 @@ public final class AppFirewall extends VpnService {
         startForeground(NOTIFICATION,notification(active.size()));
         String action=intent==null ? STOP : intent.getAction();
         if (STOP.equals(action) || intent==null) finishTunnel();
-        else update(action,intent.getStringExtra("package"));
+        else {
+            String id=intent.getStringExtra("package"); update(action,id);
+            sendBroadcast(new Intent(CHANGED).setPackage(getPackageName()).putExtra("package",id));
+        }
         return START_NOT_STICKY;
     }
     private void update(String action,String id) {

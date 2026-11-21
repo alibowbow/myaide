@@ -28,7 +28,12 @@ public final class PhoneRisk {
      * it holds, by their short names (READ_SMS). self: this app.
      */
     public record App(String id, String label, boolean system, String installer, boolean launcher, boolean accessibility, boolean admin,
-                      boolean notifications, Set<String> granted, boolean self) {}
+                      boolean notifications, Set<String> granted, boolean self, boolean permissionsRead) {
+        public App(String id,String label,boolean system,String installer,boolean launcher,boolean accessibility,
+                   boolean admin,boolean notifications,Set<String> granted,boolean self) {
+            this(id,label,system,installer,launcher,accessibility,admin,notifications,granted,self,true);
+        }
+    }
     /** An installer file found in the download folder. */
     public record Installer(String name, long bytes, long modified) {}
 
@@ -68,30 +73,41 @@ public final class PhoneRisk {
         } catch (RuntimeException unreadable) { return -1; }
     }
 
-    /**
-     * The apps: one finding for each app that is both from outside a store and able to watch or control the phone (or
-     * hidden), one for each store app with that reach, and one line naming the rest of the apps from outside a store.
-     * all: whether every installed app was visible (false: only apps with an icon were, so hidden ones could not be seen).
-     */
+    /** The same assessment is shown in the app list, detail and full report. */
+    public static Finding assess(App app) {
+        List<String> powers = reach(app);
+        boolean known = !app.installer().isBlank();
+        boolean store = fromStore(app);
+        String source = !known ? "설치 출처 미확인" : store ? "스토어 설치" : "스토어 외 설치";
+        String action = "app:" + app.id();
+        if (!powers.isEmpty()) {
+            boolean urgent = known && !store && (app.accessibility() || app.admin());
+            return new Finding(urgent ? Level.DANGER : Level.CAUTION, urgent ? "우선 확인" : "권한 확인",
+                source + " · " + String.join(", ", powers) + ". 직접 허용한 기능인지 확인하세요.", action);
+        }
+        if (!app.permissionsRead())
+            return new Finding(Level.INFO, "권한 일부 미확인", "Android에서 일부 권한을 읽을 수 없어요. 앱 정보에서 직접 확인하세요.", action);
+        if (!store) {
+            return new Finding(Level.INFO, "설치 경로 확인", source + (app.launcher() ? "" : " · 실행 아이콘 없음")
+                + ". 직접 설치한 앱인지 확인하세요.", action);
+        }
+        return new Finding(Level.OK, "점검 범위 정상", "확인한 민감 권한과 설치 경로에서 이상 징후를 찾지 못했어요.", action);
+    }
+
     public static List<Finding> apps(List<App> apps, boolean all) {
         List<Finding> out = new ArrayList<>();
         int outside = 0, unknown = 0;
         for (App app : apps) {
             if (app.system()) continue;
-            List<String> powers = reach(app);
-            String source = app.installer().isBlank() ? "설치 출처 미확인" : fromStore(app) ? "스토어 설치" : "스토어 외 설치";
+            Finding f = assess(app);
             if (app.self()) {
-                out.add(new Finding(Level.INFO, app.label() + " (이 앱)", source + " · " + String.join(", ", powers), ""));
+                out.add(new Finding(Level.INFO, app.label() + " (이 앱)", f.detail(), ""));
                 continue;
             }
             if (app.installer().isBlank()) unknown++;
             else if (!fromStore(app)) outside++;
-            if (!powers.isEmpty()) {
-                Level level = !app.installer().isBlank() && !fromStore(app) && (app.accessibility() || app.admin()) ? Level.DANGER : Level.CAUTION;
-                out.add(new Finding(level, app.label() + " · " + source, String.join(", ", powers) + ". 직접 허용한 기능인지 확인하세요.", "app:" + app.id()));
-            } else if (!fromStore(app) && !app.launcher()) {
-                out.add(new Finding(Level.INFO, app.label() + " · 실행 아이콘 없음", source + " · 설치 목적을 확인하세요.", "app:" + app.id()));
-            }
+            if (f.level() == Level.CAUTION || f.level() == Level.DANGER || (f.level() == Level.INFO && !app.launcher()))
+                out.add(new Finding(f.level(), app.label() + " · " + f.title(), f.detail(), f.action()));
         }
         if (outside > 0 || unknown > 0)
             out.add(new Finding(Level.INFO, "스토어 외 설치 " + outside + "개 · 출처 미확인 " + unknown + "개", "설치 경로만으로 악성 여부를 판단할 수 없어요.", "settings:android.settings.MANAGE_ALL_APPLICATIONS_SETTINGS"));
