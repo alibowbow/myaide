@@ -84,7 +84,12 @@ final class VoiceBar {
     /** Whether this voice has a sign-in or key to start with. */
     boolean usable(RealtimeVoice.Kind kind) { return VoiceCredentials.usable(store, kind); }
     /** One voice per kind for every screen and the voice assistant (AppStore.assistantVoice). */
-    private String voice(RealtimeVoice.Kind kind) { return store.assistantVoice(kind); }
+    private String voice(RealtimeVoice.Kind kind) {
+        // GPT-Live's newest voices are kept as chosen here (the voice assistant and 판서 read in a Realtime voice instead).
+        // Not chosen yet: GPT talks in GPT-Live's Korean voice (한울); Realtime's marin stands in when GPT-Live does not open.
+        String saved = store.settings.getString(AppStore.ASSISTANT_VOICE + kind.name(), kind == RealtimeVoice.Kind.GPT ? "hanul" : kind.voice);
+        return kind == RealtimeVoice.Kind.GPT && RealtimeVoice.live(saved) ? saved : store.assistantVoice(kind);
+    }
     void start() {
         VoiceChat elsewhere = store.voiceChat;
         if (elsewhere != null && mine(elsewhere)) return;
@@ -152,6 +157,7 @@ final class VoiceBar {
             case ENDED -> "끝났어요";
         };
         title.setText(c.kind.spoken() + " · " + doing);
+        title.setContentDescription(c.kind.spoken() + " " + c.speaking() + " · " + doing);
         String said = c.words();
         words.setText(c.held() ? "화면이 말하는 동안 잠시 듣지 않아요" : said.isBlank() ? state == VoiceChat.State.CONNECTING ? "대화 기록과 기억을 이어서 연결해요" : "말씀하시면 대답해요 · 대화는 " + c.target.label() + "에 남아요" : said);
         mute.on(c.muted() ? R.drawable.ic_mic_off : R.drawable.ic_mic, c.muted() ? "마이크 켜기" : "마이크 끄기", c.muted());
@@ -169,10 +175,14 @@ final class VoiceBar {
         ui.addRow(who, ui.choiceRow("대화 상대", "음성 대화 상대", "실시간 음성으로 대답할 AI", labels, current.ordinal(), index -> {
             store.settings.edit().putString(KIND, RealtimeVoice.Kind.values()[index].name()).apply(); sheet.dismiss(); settings("");
         }), false);
-        String[] voices = current.voices();
-        int at = java.util.Arrays.asList(voices).indexOf(voice(current));
-        ui.addRow(who, ui.choiceRow("목소리", current.label + " 목소리", "다음 음성 대화부터 적용돼요", voices, Math.max(0, at), index ->
-            store.settings.edit().putString(AppStore.ASSISTANT_VOICE + current.name(), voices[index]).apply()), false);
+        // GPT: GPT-Live's newest voices first (한울, 햇살…), then the Realtime voices.
+        java.util.List<String> ids = new java.util.ArrayList<>(), names = new java.util.ArrayList<>();
+        if (current == RealtimeVoice.Kind.GPT) for (String[] v : RealtimeVoice.LIVE_VOICES) { ids.add(v[0]); names.add(v[1] + " · 최신"); }
+        for (String v : current.voices()) { ids.add(v); names.add(current == RealtimeVoice.Kind.GPT ? v + " · 실시간" : v); }
+        int at = ids.indexOf(voice(current));
+        ui.addRow(who, ui.choiceRow("목소리", current.label + " 목소리", current == RealtimeVoice.Kind.GPT
+                ? "최신 목소리는 GPT-Live로 말해요. 열리지 않으면 실시간 목소리로 이어요. 음성 비서와 판서는 실시간 목소리로 읽어요." : "다음 음성 대화부터 적용돼요",
+            names.toArray(new String[0]), Math.max(0, at), index -> store.settings.edit().putString(AppStore.ASSISTANT_VOICE + current.name(), ids.get(index)).apply()), false);
         sheet.body.addView(who);
         LinearLayout sign = ui.group();
         if (current == RealtimeVoice.Kind.GPT) {

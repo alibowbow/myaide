@@ -127,6 +127,100 @@ public final class RealtimeVoice {
             : obj("instructions", instructions, "voice", chosen, "turn_detection", JSONObject.NULL, "audio", obj("output", obj("format", format)));
         return obj("type", "session.update", "session", session);
     }
+    // ── GPT-Live (the newest GPT voices) ───────────────────────────────────
+    /**
+     * GPT-Live, the model behind the ChatGPT and Codex apps' newest voices: full duplex (it listens while it speaks), with
+     * its own events (Codex's "frameless" protocol). It does not call functions; it hands what needs doing to the app
+     * (delegation.created) and the app gives back what came of it (delegation.context.append).
+     */
+    public static final String LIVE_MODEL = "gpt-live-1.1-codex", LIVE_URL = "wss://api.openai.com/v1/live?model=" + LIVE_MODEL;
+    /** GPT-Live's voices (id, and how the voice pickers name it), its newest first. */
+    public static final String[][] LIVE_VOICES = {
+        {"hanul", "한울 · 한국어"}, {"haetsal", "햇살 · 한국어"}, {"sonna", "Sonna · 독일어"}, {"miko", "Miko · 독일어"}, {"tinta", "Tinta · 스페인어"},
+        {"aube", "Aube"}, {"bubbie", "Bubbie"}, {"himari", "Himari"}, {"leher", "Leher"}, {"neer", "Neer"}, {"porto", "Porto"}, {"rindo", "Rindo"},
+        {"rio", "Rio"}, {"rivage", "Rivage"}, {"selva", "Selva"}, {"viola", "Viola"}, {"juniper", "Juniper"}, {"maple", "Maple"}, {"spruce", "Spruce"},
+        {"ember", "Ember"}, {"vale", "Vale"}, {"breeze", "Breeze"}, {"arbor", "Arbor"}, {"sol", "Sol"}, {"cove", "Cove"}};
+    /** Whether a GPT voice is one of GPT-Live's newest (the conversation then runs on GPT-Live). */
+    public static boolean live(String voice) {
+        if (voice == null) return false;
+        for (String[] v : LIVE_VOICES) if (v[0].equals(voice)) return true;
+        return false;
+    }
+    /** What a picker shows for a voice: GPT-Live's with its language, others as they are. */
+    public static String voiceName(String voice) {
+        for (String[] v : LIVE_VOICES) if (v[0].equals(voice)) return v[1];
+        return voice == null ? "" : voice;
+    }
+    /** GPT-Live's session: instructions, the voice, the app doing the handed-off work (client delegation), 24 kHz PCM. */
+    public static JSONObject liveSession(String instructions, String voice) {
+        return obj("type", "session.update", "session", obj("instructions", instructions, "audio", obj("output", obj("voice", voice)),
+            "delegation", obj("type", "client")));
+    }
+    public static JSONObject liveAppend(byte[] pcm) { return obj("type", "input_audio.append", "audio", Base64.getEncoder().encodeToString(pcm)); }
+    /**
+     * What came of a handed-off request, back into its delegation: in pieces of at most 500 bytes of UTF-8, as GPT-Live
+     * takes them.
+     */
+    public static java.util.List<JSONObject> liveResult(String delegation, String text) {
+        java.util.List<JSONObject> out = new java.util.ArrayList<>();
+        String rest = text == null || text.isBlank() ? "(끝났어요)" : text;
+        while (!rest.isEmpty()) {
+            int end = 0, bytes = 0;
+            while (end < rest.length()) {
+                int cp = rest.codePointAt(end), size = new String(Character.toChars(cp)).getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+                if (bytes + size > 500) break;
+                bytes += size; end += Character.charCount(cp);
+            }
+            out.add(obj("type", "delegation.context.append", "delegation_item_id", delegation, "content", arr(obj("type", "input_text", "text", rest.substring(0, end)))));
+            rest = rest.substring(end);
+        }
+        return out;
+    }
+    /** Something for GPT-Live to say from the app (a result that came later), not the user's words. */
+    public static JSONObject liveSay(String text) {
+        return obj("type", "session.context.append", "channel", "speakable", "content", arr(obj("type", "input_text", "text", text == null ? "" : text)));
+    }
+    /**
+     * One GPT-Live server event, in the same Event types as Realtime's: the session ready, the answer's audio and words,
+     * the user's words, a finished turn (turn.done: the user's whole words, or the end of an answer), a handed-off request
+     * (FUNCTION_CALL with status DELEGATE, item its id, text its words as {"request": …}), an error. Both the Codex and the
+     * public spellings are read.
+     */
+    public static final String DELEGATE = "__delegate";
+    public static Event parseLive(String json) {
+        JSONObject e;
+        try { e = new JSONObject(json); } catch (Exception bad) { return Event.of(Type.OTHER); }
+        String type = e.optString("type");
+        JSONObject item = e.optJSONObject("item"), turn = e.optJSONObject("turn");
+        switch (type) {
+            case "session.updated", "session.started": return Event.of(Type.READY);
+            case "output_audio.delta", "session.output_audio.delta": {
+                byte[] pcm;
+                try { pcm = Base64.getDecoder().decode(first(e, "audio", "delta")); } catch (IllegalArgumentException bad) { pcm = new byte[0]; }
+                return new Event(Type.AUDIO, "", "live", "", pcm, "");
+            }
+            case "input_transcript.added", "session.input_transcript.delta":
+                return new Event(Type.USER_PARTIAL, "", "", item != null ? item.optString("text") : first(e, "delta", "text"), null, "");
+            case "output_transcript.added", "session.output_transcript.delta":
+                return new Event(Type.ANSWER_PARTIAL, "", "live", item != null ? item.optString("text") : first(e, "delta", "text"), null, "");
+            case "turn.done": {
+                String role = turn == null ? "" : turn.optString("role"), words = turn == null ? "" : turn.optString("transcript");
+                return "user".equals(role) ? new Event(Type.USER_TEXT, "", "", words, null, "") : new Event(Type.DONE, "", "live", words, null, "completed");
+            }
+            case "delegation.created": {
+                JSONObject d = item != null ? item : e.optJSONObject("delegation");
+                StringBuilder words = new StringBuilder();
+                org.json.JSONArray content = d == null ? null : d.optJSONArray("content");
+                for (int i = 0; content != null && i < content.length(); i++) { JSONObject c = content.optJSONObject(i); if (c != null) words.append(c.optString("text")); }
+                return new Event(Type.FUNCTION_CALL, d == null ? "" : d.optString("id"), "", obj("request", words.toString().strip()).toString(), null, DELEGATE);
+            }
+            case "error": {
+                JSONObject err = e.optJSONObject("error");
+                return new Event(Type.ERROR, "", "", err == null ? e.optString("message") : err.optString("message"), null, err == null ? e.optString("code") : err.optString("code"));
+            }
+            default: return Event.of(Type.OTHER);
+        }
+    }
     /** For one piece of a reading voice: say the text as written, nothing else. */
     public static final String READ_ALOUD = "Read the user's last message aloud exactly as written, word for word, as a warm teacher at a whiteboard would. "
         + "Do not answer it, add to it, translate it or comment on it.";
