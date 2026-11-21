@@ -35,12 +35,13 @@ public final class PhoneSecurityActivity extends Activity {
     private boolean linkChecked;
     private boolean manageOpen;
     private final Map<String,PhoneRisk.App> details=new HashMap<>();
-    private String waitingFor="", waitingAction="";
+    private String waitingFor="", waitingAction="", lastNetworkApp="", lastNetworkAction="";
     private final BroadcastReceiver firewallState=new BroadcastReceiver() {
         @Override public void onReceive(Context c,Intent intent) {
             if (!waitingFor.isEmpty() && (waitingFor.equals(intent.getStringExtra("package")) ||
                     AppFirewall.blocked().contains(waitingFor)==AppFirewall.ADD.equals(waitingAction))) {
                 boolean applied=AppFirewall.blocked().contains(waitingFor)==AppFirewall.ADD.equals(waitingAction);
+                if(applied) { lastNetworkApp=waitingFor; lastNetworkAction=waitingAction; }
                 message(applied ? (AppFirewall.ADD.equals(waitingAction) ? "선택한 앱의 인터넷을 차단했어요." : "인터넷 차단을 해제했어요.") : "요청을 적용하지 못했어요. 현재 상태를 확인하세요.");
                 waitingFor=""; waitingAction="";
             }
@@ -58,6 +59,7 @@ public final class PhoneSecurityActivity extends Activity {
             if(saved!=null) path.addAll(saved);
             filter=state.getString("filter","priority");
             listPosition=state.getInt("position"); listOffset=state.getInt("offset");
+            lastNetworkApp=state.getString("lastNetworkApp",""); lastNetworkAction=state.getString("lastNetworkAction","");
             manageOpen=state.getBoolean("manage");
             linkDraft=state.getString("link",""); linkChecked=state.getBoolean("linkChecked");
             String uri=state.getString("apk"); if(uri!=null) apkUri=Uri.parse(uri);
@@ -82,6 +84,7 @@ public final class PhoneSecurityActivity extends Activity {
         state.putStringArrayList("path",new ArrayList<>(path));
         state.putString("selected",selected); state.putString("pending",pending);
         state.putString("filter",filter); state.putInt("position",listPosition); state.putInt("offset",listOffset);
+        state.putString("lastNetworkApp",lastNetworkApp); state.putString("lastNetworkAction",lastNetworkAction);
         state.putBoolean("manage",manageOpen); state.putString("link",linkDraft); state.putBoolean("linkChecked",linkChecked);
         if(apkUri!=null) state.putString("apk",apkUri.toString());
     }
@@ -217,7 +220,12 @@ public final class PhoneSecurityActivity extends Activity {
         Switch toggle=new Switch(this);
         toggle.setChecked(watch); toggle.setText(watch?"켜짐  ":"꺼짐  "); toggle.setTextColor(watch?Ui.SUCCESS:Ui.MUTED);
         toggle.setContentDescription("변경 알림, "+(watch?"켜짐":"꺼짐"));
-        toggle.setClickable(false); toggle.setFocusable(false); toggle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        toggle.setOnCheckedChangeListener((button,checked)->{
+            button.setOnCheckedChangeListener(null);
+            button.setChecked(watch); // Keep the displayed state tied to the saved setting while Android requests consent.
+            toggleWatch(watch);
+        });
+        toggle.setFocusable(false); toggle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         Ui.ListRow toggleRow=(Ui.ListRow)ui.listRow(R.drawable.ic_notification,watch?Ui.SUCCESS:Ui.MUTED,"변경 알림",
                 muted?"시스템 알림 차단됨":"새 앱과 민감 권한 변경 감지",toggle,()->toggleWatch(watch));
         toggleRow.parts.subtitle().setSingleLine(false); toggleRow.setFocusable(true);
@@ -403,7 +411,10 @@ public final class PhoneSecurityActivity extends Activity {
         boolean review=assessment.level()==PhoneRisk.Level.DANGER || assessment.level()==PhoneRisk.Level.CAUTION;
         status(assessment.title(),assessment.detail(),review?R.drawable.ic_eye:R.drawable.ic_info,review?Ui.WARNING:Ui.MUTED);
         LinearLayout net=section(body,"들퍼레 인터넷 차단");
-        row(net,R.drawable.ic_globe,blocked?"현재 차단 중":"현재 차단 안 함",blocked?
+        String netTitle=blocked?"현재 차단 중":"현재 차단 안 함";
+        if(id.equals(lastNetworkApp) && blocked==AppFirewall.ADD.equals(lastNetworkAction))
+            netTitle=blocked?"인터넷 차단 적용됨":"인터넷 차단 해제됨";
+        row(net,R.drawable.ic_globe,netTitle,blocked?
                 "이 앱의 Wi-Fi와 모바일 데이터를 들퍼레가 차단하고 있어요.":"앱을 선택해 상세 정보를 열었어요. 이 앱에 적용 중인 인터넷 차단은 없어요.",null);
         if(id.equals(waitingFor)) row(net,0,"변경 적용 중…","VPN의 응답을 기다리고 있어요.",null);
         else if(AppFirewall.eligible(this,id)) {

@@ -39,7 +39,7 @@ final class SecurityDownloads {
         } else {
             Uri root=MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
             String[] cols={"_id","_display_name","_size","date_modified"};
-            try(var cursor=c.getContentResolver().query(root,cols,"relative_path = ? AND LOWER(_display_name) LIKE ?",
+            try(var cursor=c.getContentResolver().query(root,cols,"relative_path = ? AND _display_name LIKE ?",
                     new String[]{Environment.DIRECTORY_DOWNLOADS+"/","%.apk"},"date_modified DESC")) {
                 if(cursor==null) throw new IOException();
                 while(cursor.moveToNext() && found.size()<100) {
