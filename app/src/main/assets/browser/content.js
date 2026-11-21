@@ -444,6 +444,31 @@
     if (command==='play') { mytubeWant='play'; mytubeStarted=false; mytubeSince=Date.now(); mytubeStuck=false; mytubeStart(v); }
     else if (command==='pause') { mytubeWant='pause'; mytubeCall(mytubeApi(),'pauseVideo'); if(v) v.pause(); }
     else if (command==='quality') mytubeApplyQuality(connection);
+    else if (command==='account') mytubeAccount(connection, 0);
+    else if (command==='frame') mytubeFrame(connection);
+  }
+  // The frame on screen now, at the video's own size (JPEG); the app saves it in 들퍼레/마이튜브 캡처.
+  function mytubeFrame(connection) {
+    const v=document.querySelector('video');
+    if (!v || !v.videoWidth || !v.videoHeight) { mytubeSay(connection,'frame',{error:'영상이 아직 화면에 없어요'}); return; }
+    try {
+      const c=document.createElement('canvas'); c.width=v.videoWidth; c.height=v.videoHeight;
+      c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+      const data=c.toDataURL('image/jpeg',0.95), at=data.indexOf(',');
+      if (at<0 || data.length<2000) { mytubeSay(connection,'frame',{error:'장면을 그리지 못했어요'}); return; }
+      mytubeSay(connection,'frame',{data:data.slice(at+1), width:c.width, height:c.height, ad:mytubeAd()});
+    } catch(e) { mytubeSay(connection,'frame',{error:String((e&&e.name)||e)}); }
+  }
+  // Whether YouTube is signed in on this page (its own page settings say so), asked again for a few seconds while they load.
+  function mytubeAccount(connection, tries) {
+    let known=false, loggedIn=false;
+    try {
+      const page=window.wrappedJSObject || window, cfg=page.ytcfg;
+      const value=cfg && (typeof cfg.get==='function' ? cfg.get('LOGGED_IN') : (cfg.data_ && cfg.data_.LOGGED_IN));
+      if (typeof value==='boolean') { known=true; loggedIn=value; }
+    } catch(_) {}
+    if (!known && tries<10) { setTimeout(()=>mytubeAccount(connection, tries+1), 500); return; }
+    mytubeSay(connection,'account',{known, loggedIn});
   }
   function connect() {
   const connection=browser.runtime.connectNative('gyeot_browser'); port=connection;

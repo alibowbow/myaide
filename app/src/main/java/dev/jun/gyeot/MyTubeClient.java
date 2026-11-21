@@ -85,6 +85,24 @@ final class MyTubeClient {
         book.videos(feed.id(), picks, System.currentTimeMillis());
         return picks;
     }
+    /** 직접 검색: YouTube's own results for the words (videos only), as YouTube orders them. Blocking. */
+    static List<MyTube.Video> search(String words, AtomicReference<Runnable> cancel) throws IOException {
+        JSONObject data = MyTube.initialData(get(MyTube.searchUrl(words, MyTube.Kind.VIDEOS, 0), cancel));
+        if (data == null) throw new IOException("유튜브 검색 결과를 읽지 못했어요. 잠시 뒤에 다시 해 주세요.");
+        List<MyTube.Video> found = MyTube.videos(data);
+        return found.size() > 40 ? new ArrayList<>(found.subList(0, 40)) : found;
+    }
+    /** A video opened by its link: YouTube's own title and channel for it (oEmbed), or a plain one when it says nothing. Blocking. */
+    static MyTube.Video video(String id, AtomicReference<Runnable> cancel) {
+        try { return MyTube.fromOembed(id, new JSONObject(get(MyTube.oembedUrl(id), cancel))); }
+        catch (Exception unknown) { return MyTube.fromOembed(id, null); }
+    }
+    /** The main chat's AI asked once with no tools (내용 정리); says how to connect one when there is none. Blocking. */
+    static String ask(AppStore store, String instructions, String input, AtomicReference<Runnable> cancel) throws Exception {
+        Ai ai = Ai.of(store);
+        if (ai == null) throw new IOException("정리하려면 메인 대화의 AI를 연결해 주세요.");
+        return ai.ask(instructions, input, cancel);
+    }
     /** What to search when no AI chose: the feed's description, or its name. */
     static String fallbackQuery(MyTube.Feed feed) {
         String about = feed.about() == null ? "" : feed.about().strip();

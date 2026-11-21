@@ -66,6 +66,12 @@ public final class MyTubeBook {
         write("feed-" + feed + ".json", obj("at", at, "videos", list));
     }
 
+    /** 저장: the video at the top of the feed's list (once), and liked, so the feed's next choices lean toward it. */
+    public synchronized void keep(String feed, MyTube.Video video) throws IOException {
+        List<MyTube.Video> list = videos(feed); list.removeIf(v -> v.id().equals(video.id())); list.add(0, video);
+        videos(feed, list, refreshedAt(feed));
+        mark(feed, video, true);
+    }
     public synchronized MyTube.Taste taste(String feed) {
         JSONObject t = read("taste-" + feed + ".json");
         return new MyTube.Taste(list(t.optJSONArray("liked")), list(t.optJSONArray("skipped")));

@@ -52,7 +52,11 @@ public final class MyTubeActivity extends Activity {
     private Ui ui; private MyTubeBook book; private MyTubePlayer player; private AppStore store;
     private MainNavigation navigation; private LinearLayout root, playerCard, list, chips; private GeckoView screen;
     private TextView nowTitle, nowLine, statusLine, header, about, when; private View feedActions;
-    private Ui.Dial previous, toggle, next, heart; private Button qualityChip; private int videoHeight;
+    private Ui.Dial previous, toggle, next, heart; private Button qualityChip, captureChip, summaryChip, saveChip; private int videoHeight;
+    /** 직접 검색: the words searched (null when the feeds show), what YouTube found, and the box itself. */
+    private String searched; private List<MyTube.Video> found = List.of(); private EditText searchBox; private View searchActions;
+    /** 내용 정리 made in this run, by video. */
+    private static final java.util.Map<String, String> SUMMARIES = new java.util.LinkedHashMap<>();
     private String feedId; private boolean refreshing, destroyed;
     private final AtomicReference<Runnable> cancel = new AtomicReference<>();
     private final Runnable playerChanged = () -> main.post(this::showPlayer);
@@ -74,6 +78,13 @@ public final class MyTubeActivity extends Activity {
         });
         content.addView(ui.largeTitle("마이튜브"));
         TextView lead = ui.label("알고리즘 대신 내가 정한 기준으로 AI가 골라요", 14, MUTED); lead.setPadding(0, ui.dp(2), 0, ui.dp(12)); content.addView(lead);
+        // 직접 검색: words search YouTube; a YouTube link (watch, Shorts, youtu.be …) opens that very video.
+        searchBox = ui.searchField(ui.input("유튜브 검색 · 영상 주소를 붙여넣어도 돼요", 1, 500));
+        searchBox.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        searchBox.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI);
+        searchBox.setOnEditorActionListener((v, action, event) -> { if (action == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH || event != null && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER) { search(searchBox.getText().toString()); return true; } return false; });
+        searchBox.setContentDescription("유튜브 검색. 영상 주소를 붙여넣으면 그 영상을 바로 틀어요");
+        LinearLayout.LayoutParams searchGap = new LinearLayout.LayoutParams(-1, -2); searchGap.bottomMargin = ui.dp(12); content.addView(searchBox, searchGap);
         buildPlayer(content);
         chips = ui.row(); HorizontalScrollView chipScroll = new HorizontalScrollView(this); chipScroll.setHorizontalScrollBarEnabled(false); chipScroll.addView(chips);
         LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); chipGap.topMargin = ui.dp(14); content.addView(chipScroll, chipGap);
@@ -82,6 +93,8 @@ public final class MyTubeActivity extends Activity {
         when = ui.label("", 12, MUTED); when.setPadding(0, ui.dp(2), 0, 0); content.addView(when);
         feedActions = ui.actions(withIcon(ui.chip("새로 고르기", this::refresh), R.drawable.ic_refresh), withIcon(ui.chip("모두 재생", () -> playFrom(0)), R.drawable.ic_play), ui.chip("피드 편집", () -> { MyTube.Feed f = feed(); if (f != null) editFeed(f); }));
         content.addView(feedActions);
+        searchActions = ui.actions(withIcon(ui.chip("모두 재생", () -> playFound(0)), R.drawable.ic_play), withIcon(ui.chip("검색 닫기", this::closeSearch), R.drawable.ic_close));
+        searchActions.setVisibility(View.GONE); content.addView(searchActions);
         statusLine = ui.label("", 13, ACCENT); statusLine.setPadding(0, ui.dp(8), 0, 0); statusLine.setVisibility(View.GONE); content.addView(statusLine);
         list = ui.column(); LinearLayout.LayoutParams listGap = new LinearLayout.LayoutParams(-1, -2); listGap.topMargin = ui.dp(10); content.addView(list, listGap);
         buildSettings(content);
@@ -131,20 +144,33 @@ public final class MyTubeActivity extends Activity {
         qualityChip = withIcon(ui.chip("화질", this::chooseQuality), R.drawable.ic_tune);
         LinearLayout qualityRow = ui.row(); qualityRow.setGravity(Gravity.CENTER); qualityRow.setPadding(0, ui.dp(8), 0, 0);
         qualityRow.addView(qualityChip, new LinearLayout.LayoutParams(-2, -2));
-        playerCard.addView(qualityRow);
+        // 캡처: the frame now, into 들퍼레/마이튜브 캡처. 내용 정리: what the video says, by the main chat's AI.
+        captureChip = withIcon(ui.chip("캡처", () -> player.capture(this::toast)), R.drawable.ic_gallery);
+        summaryChip = withIcon(ui.chip("내용 정리", () -> { MyTube.Video v = player.current(); if (v != null) summarize(v); }), R.drawable.ic_sparkle);
+        LinearLayout.LayoutParams chipGapLeft = new LinearLayout.LayoutParams(-2, -2); chipGapLeft.leftMargin = ui.dp(8);
+        qualityRow.addView(captureChip, chipGapLeft);
+        LinearLayout.LayoutParams chipGapLeft2 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft2.leftMargin = ui.dp(8);
+        qualityRow.addView(summaryChip, chipGapLeft2);
+        // 저장: into the feed it fits (the main chat's AI chooses, or proposes a new feed).
+        saveChip = withIcon(ui.chip("저장", this::saveCurrent), R.drawable.ic_add);
+        LinearLayout.LayoutParams chipGapLeft3 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft3.leftMargin = ui.dp(8);
+        qualityRow.addView(saveChip, chipGapLeft3);
+        HorizontalScrollView qualityScroll = new HorizontalScrollView(this); qualityScroll.setHorizontalScrollBarEnabled(false); qualityScroll.addView(qualityRow);
+        playerCard.addView(qualityScroll);
         content.addView(playerCard);
     }
     private void showPlayer() {
         if (destroyed) return;
         MyTube.Video now = player.current();
-        boolean signingIn = !player.active() && "유튜브 로그인".equals(player.status());
+        boolean signingIn = !player.active() && player.signingIn();
         playerCard.setVisibility(player.active() || signingIn ? View.VISIBLE : View.GONE);
         // The sign-in page needs room to read and type; a video fills a 16:9 box.
         int height = signingIn ? Math.max(videoHeight, getResources().getDisplayMetrics().heightPixels * 3 / 5) : videoHeight;
         if (screen.getLayoutParams() != null && screen.getLayoutParams().height != height) { screen.getLayoutParams().height = height; screen.requestLayout(); }
         if (player.active() || signingIn) player.attach(screen);
         nowTitle.setText(now == null ? signingIn ? "유튜브 로그인 · 로그인한 뒤 ‘끝내기’를 누르면 목록으로 돌아와요" : "" : now.title());
-        nowLine.setText(now == null ? "" : now.channel() + (player.status().isEmpty() ? "" : " · " + player.status()) + (now.reason().isEmpty() ? "" : "\n" + now.reason()));
+        nowLine.setText(now == null ? signingIn && !"유튜브 로그인".equals(player.status()) ? player.status() : ""
+            : now.channel() + (player.status().isEmpty() ? "" : " · " + player.status()) + (now.reason().isEmpty() ? "" : "\n" + now.reason()));
         toggle.on(player.playing() || "불러오는 중".equals(player.status()) ? R.drawable.ic_pause : R.drawable.ic_play, player.playing() ? "멈춤" : "재생", false);
         heart.on(player.liked() ? R.drawable.ic_heart_filled : R.drawable.ic_heart, player.liked() ? "좋아요 취소" : "좋아요", player.liked());
         previous.setEnabled(player.index() > 0);
@@ -153,6 +179,8 @@ public final class MyTubeActivity extends Activity {
         qualityChip.setText("화질 · " + chosen + (playingAt.isEmpty() || playingAt.equals(chosen) ? "" : " · 지금 " + playingAt));
         qualityChip.setContentDescription("화질, " + chosen + (playingAt.isEmpty() ? "" : ", 지금 " + playingAt) + ", 눌러서 바꾸기");
         qualityChip.setVisibility(player.active() ? View.VISIBLE : View.GONE);
+        captureChip.setVisibility(player.active() ? View.VISIBLE : View.GONE); summaryChip.setVisibility(player.active() ? View.VISIBLE : View.GONE);
+        saveChip.setVisibility(player.active() ? View.VISIBLE : View.GONE);
         markPlaying();
     }
 
@@ -163,17 +191,25 @@ public final class MyTubeActivity extends Activity {
         return feeds.isEmpty() ? null : feeds.get(0);
     }
     private void render() {
-        List<MyTube.Feed> feeds = book.feeds(); MyTube.Feed shown = feed();
+        List<MyTube.Feed> feeds = book.feeds(); MyTube.Feed shown = searched != null ? null : feed();
         if (shown != null) { feedId = shown.id(); store.settings.edit().putString("mytubeFeed", feedId).apply(); }
         chips.removeAllViews();
         for (MyTube.Feed f : feeds) {
-            Button chip = ui.chip(f.name(), () -> { feedId = f.id(); render(); refreshIfStale(); });
-            boolean on = f.id().equals(feedId);
+            Button chip = ui.chip(f.name(), () -> { searched = null; feedId = f.id(); render(); refreshIfStale(); });
+            boolean on = searched == null && f.id().equals(feedId);
             chip.setBackground(ui.shape(on ? ACCENT : FILL, PILL)); chip.setTextColor(on ? ON_ACCENT : TEXT); chip.setSelected(on);
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(8); chips.addView(chip, p);
         }
         Button add = ui.chip("＋ 피드", () -> editFeed(null)); chips.addView(add);
         list.removeAllViews();
+        searchActions.setVisibility(searched != null && !found.isEmpty() ? View.VISIBLE : View.GONE);
+        if (searched != null) {
+            feedActions.setVisibility(View.GONE);
+            header.setText("‘" + searched + "’ 검색 결과"); about.setText(found.isEmpty() ? "" : "유튜브에서 찾은 영상 " + found.size() + "개 · 누르면 여기서부터 재생해요"); when.setText("");
+            for (int i = 0; i < found.size(); i++) { int index = i; list.addView(videoRow(found.get(i), () -> playFound(index))); }
+            markPlaying();
+            return;
+        }
         feedActions.setVisibility(shown == null ? View.GONE : View.VISIBLE);
         if (shown == null) { header.setText("피드를 만들어 볼까요?"); about.setText("볼 것을 정해 두면 AI가 유튜브에서 골라 와요. 하나를 눌러 바로 시작하세요."); when.setText(""); starters(); return; }
         header.setText(shown.name() + " · " + shown.kind().label + (shown.kind() == MyTube.Kind.NEWS ? " (" + Math.max(1, shown.days()) + "일)" : ""));
@@ -182,7 +218,7 @@ public final class MyTubeActivity extends Activity {
         when.setText(at == 0 ? "아직 고르지 않았어요" : "고른 때 · " + ago(at));
         List<MyTube.Video> videos = book.videos(shown.id());
         if (videos.isEmpty() && !refreshing) { TextView empty = ui.label("‘새로 고르기’를 누르면 AI가 유튜브에서 골라 와요.", 14, MUTED); empty.setPadding(0, ui.dp(12), 0, 0); list.addView(empty); }
-        for (int i = 0; i < videos.size(); i++) list.addView(videoRow(videos.get(i), i));
+        for (int i = 0; i < videos.size(); i++) { int index = i; list.addView(videoRow(videos.get(i), () -> playFrom(index))); }
         markPlaying();
     }
     private void starters() {
@@ -193,7 +229,7 @@ public final class MyTubeActivity extends Activity {
         }), true);
         list.addView(group);
     }
-    private View videoRow(MyTube.Video v, int index) {
+    private View videoRow(MyTube.Video v, Runnable play) {
         LinearLayout row = ui.row(); row.setGravity(Gravity.TOP); row.setPadding(0, ui.dp(8), 0, ui.dp(8)); row.setTag(v.id());
         ImageView frame = new ImageView(this); frame.setScaleType(ImageView.ScaleType.CENTER_CROP); frame.setBackground(ui.shape(FILL, 12)); frame.setClipToOutline(true);
         frame.setContentDescription("영상 중간 장면");
@@ -205,14 +241,17 @@ public final class MyTubeActivity extends Activity {
         text.addView(title); text.addView(line);
         if (!v.reason().isEmpty()) { TextView why = ui.label(v.reason(), 12, ACCENT); why.setMaxLines(2); text.addView(why); }
         row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
-        row.setOnClickListener(view -> playFrom(index)); Ui.pressable(row, false);
-        row.setContentDescription(v.title() + ", " + line.getText() + (v.reason().isEmpty() ? "" : ", " + v.reason()) + ". 누르면 여기서부터 재생");
+        row.setOnClickListener(view -> play.run()); Ui.pressable(row, false);
+        // 길게 누르면 내용 정리 (what the video says, without playing it).
+        row.setOnLongClickListener(view -> { summarize(v); return true; });
+        row.setContentDescription(v.title() + ", " + line.getText() + (v.reason().isEmpty() ? "" : ", " + v.reason()) + ". 누르면 여기서부터 재생, 길게 누르면 내용 정리");
         return row;
     }
     /** The row of what plays now stands out. */
     private void markPlaying() {
         MyTube.Video now = player.current(); MyTube.Feed playingFeed = player.feed(); MyTube.Feed shown = feed();
-        boolean here = playingFeed != null && shown != null && playingFeed.id().equals(shown.id());
+        String shownId = searched != null ? MyTube.SEARCH_FEED : shown == null ? "" : shown.id();
+        boolean here = playingFeed != null && playingFeed.id().equals(shownId);
         for (int i = 0; i < list.getChildCount(); i++) {
             View row = list.getChildAt(i);
             row.setBackground(here && now != null && now.id().equals(row.getTag()) ? ui.shape(ACCENT_SOFT, 14) : null);
@@ -223,6 +262,104 @@ public final class MyTubeActivity extends Activity {
         List<MyTube.Video> videos = book.videos(f.id());
         if (videos.isEmpty()) { refresh(); return; }
         player.play(f, videos, index); player.attach(screen); showPlayer();
+    }
+    private void playFound(int index) {
+        if (searched == null || found.isEmpty()) return;
+        player.play(MyTube.searchFeed(searched), found, index); player.attach(screen); showPlayer();
+    }
+    /** 직접 검색 (or a link: that video at once). */
+    private void search(String words) {
+        String w = words == null ? "" : words.strip(); if (w.isEmpty()) return;
+        android.view.inputmethod.InputMethodManager keyboard = getSystemService(android.view.inputmethod.InputMethodManager.class);
+        if (keyboard != null) keyboard.hideSoftInputFromWindow(searchBox.getWindowToken(), 0);
+        searchBox.clearFocus();
+        String linked = MyTube.linkedVideo(w);
+        status(linked.isEmpty() ? "유튜브에서 찾는 중 · " + w : "영상을 여는 중");
+        work.execute(() -> {
+            List<MyTube.Video> got; String why = null;
+            try { got = linked.isEmpty() ? MyTubeClient.search(w, cancel) : List.of(MyTubeClient.video(linked, cancel)); }
+            catch (Exception e) { got = List.of(); why = e.getMessage() == null ? "찾지 못했어요." : e.getMessage(); }
+            List<MyTube.Video> result = got; String failure = why;
+            main.post(() -> {
+                if (destroyed) return;
+                status(failure != null ? failure : result.isEmpty() ? "찾은 영상이 없어요. 다른 말로 찾아보세요." : "");
+                searched = linked.isEmpty() ? w : "영상 주소"; found = result; render();
+                if (!linked.isEmpty() && !result.isEmpty()) playFound(0);
+            });
+        });
+    }
+    /**
+     * 저장: the playing video into the feed it fits, chosen by the main chat's AI from what each feed is for (or a new feed
+     * it proposes, made at once); without an AI, the feed it plays from, else 저장한 영상. It goes to the top of that feed
+     * and counts as liked there.
+     */
+    private void saveCurrent() {
+        MyTube.Video v = player.current(); if (v == null) return;
+        MyTube.Feed from = player.feed();
+        status("어느 피드에 넣을지 고르는 중");
+        work.execute(() -> {
+            String said;
+            try {
+                List<MyTube.Feed> feeds = book.feeds(); MyTube.Feed target = null; boolean made = false;
+                try {
+                    MyTube.SavePick pick = MyTube.savePick(MyTubeClient.ask(store, MyTube.SAVE, MyTube.saveInput(feeds, v), cancel), feeds);
+                    if (pick != null && pick.feed() != null) target = pick.feed();
+                    else if (pick != null && pick.made() != null) { target = book.save(pick.made()); made = true; }
+                } catch (java.util.concurrent.CancellationException stop) { throw stop; }
+                catch (Exception noAi) { /* chosen below without the AI */ }
+                if (target == null && from != null && !MyTube.SEARCH_FEED.equals(from.id()) && book.feed(from.id()) != null) target = book.feed(from.id());
+                if (target == null) for (MyTube.Feed f : feeds) if (MyTube.SAVED_FEED_NAME.equals(f.name())) { target = f; break; }
+                if (target == null) { target = book.save(new MyTube.Feed("", MyTube.SAVED_FEED_NAME, MyTube.Kind.VIDEOS, "직접 찾아 저장한 영상", "", 0)); made = true; }
+                book.keep(target.id(), v.because("직접 저장"));
+                said = (made ? "새 피드 ‘" + target.name() + "’를 만들어 " : "‘" + target.name() + "’에 ") + "저장했어요";
+            } catch (Exception e) { said = "저장하지 못했어요" + (e.getMessage() == null ? "." : " · " + e.getMessage()); }
+            String told = said;
+            main.post(() -> { if (destroyed) return; status(""); toast(told); render(); });
+        });
+    }
+    private void closeSearch() { searched = null; found = List.of(); searchBox.setText(""); status(""); render(); }
+    /**
+     * 내용 정리: what the video says (its transcript, as the main chat reads a YouTube link), summed up by the main chat's AI in
+     * a sheet; kept for the run, so it opens again at once. The video goes on playing meanwhile.
+     */
+    private void summarize(MyTube.Video v) {
+        Ui.Sheet sheet = ui.selectionSheet("내용 정리", v.title());
+        sheet.primary.setVisibility(View.GONE); dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet));
+        TextView body = ui.text("", BODY, 450, TEXT); body.setTextIsSelectable(true); body.setLineSpacing(ui.dp(3), 1);
+        sheet.body.addView(body);
+        String[] made = {SUMMARIES.get(v.id())};
+        LinearLayout actions = ui.row(); actions.setPadding(0, ui.dp(12), 0, 0);
+        Button copy = ui.chip("복사", () -> { if (made[0] != null) { getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("내용 정리", made[0])); toast("복사했어요"); } });
+        Button transcript = ui.chip("대본 보기", () -> YouTubeTranscriptUi.show(this, MyTube.watch(v.id())));
+        Button again = ui.chip("다시 정리", null);
+        for (Button b : new Button[]{copy, transcript, again}) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(8); actions.addView(b, p); }
+        sheet.body.addView(actions);
+        AtomicReference<Runnable> stop = new AtomicReference<>();
+        sheet.setOnDismissListener(d -> { dialogs.remove(sheet); Runnable abort = stop.getAndSet(null); if (abort != null) abort.run(); });
+        Runnable[] make = new Runnable[1];
+        make[0] = () -> {
+            made[0] = null; body.setText("대본을 가져오는 중…"); body.setTextColor(MUTED);
+            boolean[] closed = {false}; sheet.setOnCancelListener(d -> closed[0] = true);
+            work.execute(() -> {
+                String said, failure = null;
+                try {
+                    String block = YouTubeTranscriptClient.block(this, v.id(), () -> closed[0], step -> main.post(() -> { if (sheet.isShowing() && made[0] == null) body.setText(step); }), stop);
+                    if (block == null || block.isBlank()) throw new java.io.IOException("이 영상의 대본을 가져오지 못했어요.");
+                    main.post(() -> { if (sheet.isShowing() && made[0] == null) body.setText("AI가 정리하는 중…"); });
+                    said = MyTubeClient.ask(store, MyTube.SUMMARY, MyTube.summaryInput(v, block), stop);
+                } catch (Exception e) { said = null; failure = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
+                String answer = said, why = failure;
+                main.post(() -> {
+                    if (answer != null && !answer.isBlank()) { synchronized (SUMMARIES) { SUMMARIES.put(v.id(), answer); while (SUMMARIES.size() > 30) SUMMARIES.remove(SUMMARIES.keySet().iterator().next()); } }
+                    if (!sheet.isShowing()) return;
+                    if (answer == null || answer.isBlank()) { body.setText(why == null ? "정리하지 못했어요." : why); body.setTextColor(MUTED); return; }
+                    made[0] = answer; body.setText(RichText.render(answer)); body.setTextColor(TEXT);
+                });
+            });
+        };
+        again.setOnClickListener(x -> make[0].run());
+        if (made[0] != null) body.setText(RichText.render(made[0])); else make[0].run();
+        sheet.show();
     }
     private void refreshIfStale() {
         MyTube.Feed f = feed(); if (f == null) return;
