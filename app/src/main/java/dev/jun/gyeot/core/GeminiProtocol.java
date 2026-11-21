@@ -202,77 +202,71 @@ public final class GeminiProtocol {
         }
         if (!mode.equals(INTERPRETER)) {
             JSONArray tools = options.search ? arr(obj("googleSearch", obj())) : arr();
-            JSONObject task = obj("request", obj("type", "STRING", "description", "A self-contained request with the user's relevant context"));
-            if (options.chatgpt) merge(task, "engine", obj("type", "STRING", "enum", arr("research", "analysis"),
-                "description", options.chatgptSearch
-                    ? "research (default): Gemini" + (options.search ? " with Google Search" : "") + " for current facts and sources. analysis: " + options.analyst + ", which can search the web, for deep reasoning, comparison or writing, for current facts when Google Search is unavailable, or whenever the user asks for " + options.analyst + "."
-                    : "research (default): Gemini with Google Search for current facts and sources. analysis: " + options.analyst + " for deep reasoning, comparison or writing on information you include in the request; it cannot search the web."));
-            boolean delegate = options.searchDelegate && !options.search;
-            if (mode.equals(WORKER) && delegate) tools.put(obj("functionDeclarations", arr(GeminiSearch.declaration())));
-            if (mode.equals(ASSISTANT)) tools.put(obj("functionDeclarations", arr(
-                function("enqueue_task", "Queue research, comparison, summary or drafting work without blocking this conversation. Do not claim it finished when only queued.",
-                    task, "request"),
-                function("task_status", "Read queued/background work status and completed results.", obj()),
-                function("cancel_task", "Cancel a queued or running background task at the user's request. Omit task_id to cancel the most recently requested unfinished task.",
-                    obj("task_id", obj("type", "STRING", "description", "Task id from task_status or enqueue_task"))),
-                function("save_note", "Save a local text note in this app at the user's request.", obj("title", obj("type", "STRING"), "body", obj("type", "STRING")), "title", "body"),
-                function("list_notes", "List or search local notes saved in this app.", obj("query", obj("type", "STRING", "description", "Optional words to search in titles and bodies"))),
-                function("get_current_time", "Read the device's current local date, time and time zone.", obj()),
-                obj("name", PhoneLogActions.FUNCTION, "description", "Clear only this app's recent phone-control diagnostic log when the user explicitly requested that exact scope, or said 지워줘 referring to that scope. Use this internal command, never phone_action on this app's 지우기 button. No repeated confirmation for already explicit consent. It preserves new logs and provides a five-minute undo; never clears files, chats or other apps.", "parameters", obj("type", "OBJECT", "properties", obj())),
-                AppNavigation.declaration(),
-                VoiceBoard.declaration(),
-                BrowserTools.voiceDeclaration(),
-                AppImages.declaration(),
-                AppVideos.declaration(AppVideos.GENERATE),
-                AppVideos.declaration(AppVideos.STATUS),
-                AppVideos.declaration(AppVideos.PLAY),
-                AppGallery.declaration(AppGallery.STATUS),
-                AppGallery.declaration(AppGallery.SHOW),
-                function("end_voice_session", "End this voice conversation when the user clearly asks to stop, hang up or finish (e.g. 그만, 끊어, 종료). Say a very short goodbye first.", obj())
-            )));
-            if (mode.equals(ASSISTANT)) tools.optJSONObject(tools.length() - 1).optJSONArray("functionDeclarations").put(BrowserTools.taskDeclaration()).put(BrowserTools.statusDeclaration());
-            if (mode.equals(ASSISTANT) && delegate) tools.optJSONObject(tools.length() - 1).optJSONArray("functionDeclarations").put(GeminiSearch.declaration());
-            if (mode.equals(ASSISTANT) && options.screenView) tools.optJSONObject(tools.length() - 1).optJSONArray("functionDeclarations").put(ScreenView.declaration());
-            if (mode.equals(ASSISTANT) && options.think) tools.optJSONObject(tools.length() - 1).optJSONArray("functionDeclarations").put(Think.declaration(options.thinkAsync, options.brain));
-            if (mode.equals(ASSISTANT) && options.archive) {
-                JSONArray functions = tools.optJSONObject(tools.length() - 1).optJSONArray("functionDeclarations"), archive = Archive.declarations();
-                for (int i = 0; i < archive.length(); i++) functions.put(archive.optJSONObject(i));
-            }
-            if (mode.equals(ASSISTANT) && options.memory) {
-                JSONArray functions = tools.optJSONObject(tools.length() - 1).optJSONArray("functionDeclarations"), memory = Memory.declarations(options.memoryPhone);
-                for (int i = 0; i < memory.length(); i++) functions.put(memory.optJSONObject(i));
-            }
-            if (mode.equals(ASSISTANT) && options.connectorTools != null) {
-                JSONArray functions = tools.optJSONObject(tools.length() - 1).optJSONArray("functionDeclarations");
-                for (int i = 0; i < options.connectorTools.length() && i < Mcp.TOOLS_TOTAL; i++) if (options.connectorTools.optJSONObject(i) != null) functions.put(copy(options.connectorTools.optJSONObject(i)));
-            }
-            // System actions need no phone control.
-            if (mode.equals(ASSISTANT)) {
-                JSONArray functions = tools.optJSONObject(tools.length() - 1).optJSONArray("functionDeclarations"), device = DeviceActions.declarations();
-                for (int i = 0; i < device.length(); i++) functions.put(device.optJSONObject(i));
-            }
-            // 작업창 by voice, only when the user turned it on: they overlap browser_task and phone control.
-            if (mode.equals(ASSISTANT) && options.voiceWork) {
-                JSONArray functions = tools.optJSONObject(tools.length() - 1).optJSONArray("functionDeclarations"), work = VoiceWork.declarations(options.thinkAsync);
-                for (int i = 0; i < work.length(); i++) functions.put(work.optJSONObject(i));
-            }
-            // Phone control is declared for every assistant session; each call is refused unless the user enabled it in the app.
-            if (mode.equals(ASSISTANT)) {
-                JSONArray functions = tools.optJSONObject(tools.length() - 1).optJSONArray("functionDeclarations"), phone = PhoneTools.declarations(options.phoneProvider, options.phoneDecisions);
-                for (int i = 0; i < phone.length(); i++) functions.put(phone.optJSONObject(i));
-            }
-            // 캘린더: one sentence per tool, no instructions paragraph.
-            if (mode.equals(ASSISTANT) && options.calendar) {
-                JSONArray functions = tools.optJSONObject(tools.length() - 1).optJSONArray("functionDeclarations"), calendar = CalendarQuery.voiceDeclarations();
-                for (int i = 0; i < calendar.length(); i++) functions.put(calendar.optJSONObject(i));
-            }
+            JSONArray functions = functionDeclarations(mode, options);
+            if (functions.length() > 0) tools.put(obj("functionDeclarations", functions));
             if (extended(options.model)) for (int i = 0; i < tools.length(); i++) {
-                JSONArray functions = tools.optJSONObject(i).optJSONArray("functionDeclarations");
-                if (functions != null) for (int j = 0; j < functions.length(); j++) merge(functions.optJSONObject(j), "behavior", "NON_BLOCKING");
+                JSONArray declared = tools.optJSONObject(i).optJSONArray("functionDeclarations");
+                if (declared != null) for (int j = 0; j < declared.length(); j++) merge(declared.optJSONObject(j), "behavior", "NON_BLOCKING");
             }
             if (tools.length() > 0) merge(config, "tools", tools);
         }
         return obj("setup", config);
+    }
+    /**
+     * The functions a session of this mode declares, in Live's form ({name, description, parameters} with OBJECT/STRING
+     * types): the assistant's tools, or a research worker's search_web when it searches through the app. setup() declares
+     * them (NON_BLOCKING on Extended Thinking); a realtime voice assistant (GPT, Grok) declares the same functions in its
+     * own form (RealtimeVoice.tools). Empty for other modes.
+     */
+    public static JSONArray functionDeclarations(String mode, Options options) {
+        boolean delegate = options.searchDelegate && !options.search;
+        if (mode.equals(WORKER)) return delegate ? arr(GeminiSearch.declaration()) : new JSONArray();
+        if (!mode.equals(ASSISTANT)) return new JSONArray();
+        JSONObject task = obj("request", obj("type", "STRING", "description", "A self-contained request with the user's relevant context"));
+        if (options.chatgpt) merge(task, "engine", obj("type", "STRING", "enum", arr("research", "analysis"),
+            "description", options.chatgptSearch
+                ? "research (default): Gemini" + (options.search ? " with Google Search" : "") + " for current facts and sources. analysis: " + options.analyst + ", which can search the web, for deep reasoning, comparison or writing, for current facts when Google Search is unavailable, or whenever the user asks for " + options.analyst + "."
+                : "research (default): Gemini with Google Search for current facts and sources. analysis: " + options.analyst + " for deep reasoning, comparison or writing on information you include in the request; it cannot search the web."));
+        JSONArray functions = arr(
+            function("enqueue_task", "Queue research, comparison, summary or drafting work without blocking this conversation. Do not claim it finished when only queued.",
+                task, "request"),
+            function("task_status", "Read queued/background work status and completed results.", obj()),
+            function("cancel_task", "Cancel a queued or running background task at the user's request. Omit task_id to cancel the most recently requested unfinished task.",
+                obj("task_id", obj("type", "STRING", "description", "Task id from task_status or enqueue_task"))),
+            function("save_note", "Save a local text note in this app at the user's request.", obj("title", obj("type", "STRING"), "body", obj("type", "STRING")), "title", "body"),
+            function("list_notes", "List or search local notes saved in this app.", obj("query", obj("type", "STRING", "description", "Optional words to search in titles and bodies"))),
+            function("get_current_time", "Read the device's current local date, time and time zone.", obj()),
+            obj("name", PhoneLogActions.FUNCTION, "description", "Clear only this app's recent phone-control diagnostic log when the user explicitly requested that exact scope, or said 지워줘 referring to that scope. Use this internal command, never phone_action on this app's 지우기 button. No repeated confirmation for already explicit consent. It preserves new logs and provides a five-minute undo; never clears files, chats or other apps.", "parameters", obj("type", "OBJECT", "properties", obj())),
+            AppNavigation.declaration(),
+            VoiceBoard.declaration(),
+            BrowserTools.voiceDeclaration(),
+            AppImages.declaration(),
+            AppVideos.declaration(AppVideos.GENERATE),
+            AppVideos.declaration(AppVideos.STATUS),
+            AppVideos.declaration(AppVideos.PLAY),
+            AppGallery.declaration(AppGallery.STATUS),
+            AppGallery.declaration(AppGallery.SHOW),
+            function("end_voice_session", "End this voice conversation when the user clearly asks to stop, hang up or finish (e.g. 그만, 끊어, 종료). Say a very short goodbye first.", obj())
+        );
+        functions.put(BrowserTools.taskDeclaration()).put(BrowserTools.statusDeclaration());
+        if (delegate) functions.put(GeminiSearch.declaration());
+        if (options.screenView) functions.put(ScreenView.declaration());
+        if (options.think) functions.put(Think.declaration(options.thinkAsync, options.brain));
+        if (options.archive) { JSONArray archive = Archive.declarations(); for (int i = 0; i < archive.length(); i++) functions.put(archive.optJSONObject(i)); }
+        if (options.memory) { JSONArray memory = Memory.declarations(options.memoryPhone); for (int i = 0; i < memory.length(); i++) functions.put(memory.optJSONObject(i)); }
+        if (options.connectorTools != null)
+            for (int i = 0; i < options.connectorTools.length() && i < Mcp.TOOLS_TOTAL; i++) if (options.connectorTools.optJSONObject(i) != null) functions.put(copy(options.connectorTools.optJSONObject(i)));
+        // System actions need no phone control.
+        JSONArray device = DeviceActions.declarations();
+        for (int i = 0; i < device.length(); i++) functions.put(device.optJSONObject(i));
+        // 작업창 by voice, only when the user turned it on: they overlap browser_task and phone control.
+        if (options.voiceWork) { JSONArray work = VoiceWork.declarations(options.thinkAsync); for (int i = 0; i < work.length(); i++) functions.put(work.optJSONObject(i)); }
+        // Phone control is declared for every assistant session; each call is refused unless the user enabled it in the app.
+        JSONArray phone = PhoneTools.declarations(options.phoneProvider, options.phoneDecisions);
+        for (int i = 0; i < phone.length(); i++) functions.put(phone.optJSONObject(i));
+        // 캘린더: one sentence per tool, no instructions paragraph.
+        if (options.calendar) { JSONArray calendar = CalendarQuery.voiceDeclarations(); for (int i = 0; i < calendar.length(); i++) functions.put(calendar.optJSONObject(i)); }
+        return functions;
     }
     /** A quota or rate-limit failure, including a feature whose free-tier limit is 0. */
     public static boolean quotaError(String reason) {

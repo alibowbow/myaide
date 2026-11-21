@@ -281,6 +281,24 @@ final class AppStore {
         return address;
     }
     String voice() { return settings.getString("voice", ""); }
+    /**
+     * 음성 비서 엔진 (설정 → 목소리와 대화): the realtime voice the assistant's calls run on, GPT (OpenAI Realtime) or Grok
+     * (xAI Voice Agent), or null for Gemini Live, the default. Interpretation and dictation always run on Gemini.
+     */
+    dev.jun.gyeot.core.RealtimeVoice.Kind assistantRealtime() { return dev.jun.gyeot.core.RealtimeVoice.Kind.of(settings.getString(ASSISTANT_ENGINE, GEMINI_ENGINE)); }
+    /** The stored engine: "gemini", "GPT" or "GROK". */
+    String assistantEngine() { dev.jun.gyeot.core.RealtimeVoice.Kind kind = assistantRealtime(); return kind == null ? GEMINI_ENGINE : kind.name(); }
+    static final String ASSISTANT_ENGINE = "assistantEngine", GEMINI_ENGINE = "gemini", ASSISTANT_VOICE = "assistantVoice.";
+    /** The voice the assistant speaks with on that realtime engine; its own default until one is chosen. */
+    String assistantVoice(dev.jun.gyeot.core.RealtimeVoice.Kind kind) { return kind.voice(settings.getString(ASSISTANT_VOICE + kind.name(), kind.voice)); }
+    /**
+     * Whose 말투 the assistant speaks with: the Gemini voice's (voice()), or on a realtime engine its voice's, kept apart as
+     * "GPT.marin" so that each voice keeps its own.
+     */
+    String styleVoice() {
+        dev.jun.gyeot.core.RealtimeVoice.Kind kind = assistantRealtime();
+        return kind == null ? voice() : kind.name() + "." + assistantVoice(kind);
+    }
     /** Speaking style saved for one voice; "" is the model's default voice. */
     String voiceStyle(String voice) { return settings.getString("voiceStyle:" + (voice == null || voice.isEmpty() ? "default" : voice), ""); }
     void voiceStyle(String voice, String style) {
@@ -317,10 +335,14 @@ final class AppStore {
     boolean exhausted(String model) { return System.currentTimeMillis() - settings.getLong("exhaustedAt:" + model, 0) < EXHAUSTED_MS; }
     void markExhausted(String model) { settings.edit().putLong("exhaustedAt:" + model, System.currentTimeMillis()).apply(); changed(); }
     void clearExhausted(String model) { if (settings.contains("exhaustedAt:" + model)) { settings.edit().remove("exhaustedAt:" + model).apply(); changed(); } }
+    /** "GPT 실시간 음성", "Grok 실시간 음성": the voice assistant on that engine, wherever its model is named. */
+    static String realtimeLabel(dev.jun.gyeot.core.RealtimeVoice.Kind kind) { return kind.label + " 실시간 음성"; }
     static String modelLabel(String model) {
         if (GeminiProtocol.TRANSLATE.equals(model)) return "Gemini 3.5 Live Translate";
         if (GeminiProtocol.TRANSCRIBE.equals(model)) return "Gemini 3.5 Transcribe Live";
         for (String[] offered : GeminiProtocol.LIVE_MODELS) if (offered[0].equals(model)) return offered[1].replaceAll("\\s*\\(.*\\)$", "");
+        // A realtime voice assistant's model (never a Live model id: GeminiProtocol.liveModel would take it for the default).
+        for (dev.jun.gyeot.core.RealtimeVoice.Kind kind : dev.jun.gyeot.core.RealtimeVoice.Kind.values()) if (kind.model.equals(model)) return realtimeLabel(kind);
         return model;
     }
     /** Google Search grounding: on unless the user turned it off. */
@@ -488,7 +510,9 @@ final class AppStore {
     /** The settings a live call is shaped by (voice, its style, persona, interpreter language), to tell when a call is behind them. */
     String sessionSettings() {
         if (GeminiProtocol.INTERPRETER.equals(voiceMode)) return interpreterConfig().fingerprint();
-        return brain() + "\u0000" + liveModel() + "\u0000" + liveThinkingLevel() + "\u0000" + voice() + "\u0000" + voiceStyle(voice()) + "\u0000" + persona() + "\u0000" + settings.getString("routines", "") + "\u0000" + phoneDecisions();
+        dev.jun.gyeot.core.RealtimeVoice.Kind realtime = assistantRealtime();
+        return brain() + "\u0000" + liveModel() + "\u0000" + liveThinkingLevel() + "\u0000" + voice() + "\u0000" + voiceStyle(styleVoice()) + "\u0000" + persona() + "\u0000" + settings.getString("routines", "") + "\u0000" + phoneDecisions()
+            + "\u0000" + assistantEngine() + "\u0000" + (realtime == null ? "" : assistantVoice(realtime));
     }
     /** sessionSettings() as the current call was connected with; set by the voice service. */
     volatile String appliedSettings = "";
@@ -520,7 +544,7 @@ final class AppStore {
      */
     GeminiProtocol.Options options(boolean inputTranscription, String model) {
         GeminiProtocol.Options options = new GeminiProtocol.Options();
-        options.language = language(); options.voice = voice(); options.voiceStyle = voiceStyle(voice()); options.persona = persona(); options.routines = dev.jun.gyeot.core.Routines.instructions(routines()); options.quietSpeech = quietSpeech(); options.model = model == null ? liveModel() : model;
+        options.language = language(); options.voice = voice(); options.voiceStyle = voiceStyle(styleVoice()); options.persona = persona(); options.routines = dev.jun.gyeot.core.Routines.instructions(routines()); options.quietSpeech = quietSpeech(); options.model = model == null ? liveModel() : model;
         options.thinkingLevel = liveThinkingLevel(); options.translateToKorean = translateToKorean();
         options.interpreter = interpreterConfig();
         // Built-in Google Search only when Gemini answers searches and this model may ground on this key; otherwise search_web.

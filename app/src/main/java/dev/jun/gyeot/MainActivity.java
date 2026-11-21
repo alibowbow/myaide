@@ -48,6 +48,7 @@ import dev.jun.gyeot.core.Net;
 import dev.jun.gyeot.core.OpenAiProtocol;
 import dev.jun.gyeot.core.Drawing;
 import dev.jun.gyeot.core.Reasoning;
+import dev.jun.gyeot.core.RealtimeVoice;
 import dev.jun.gyeot.core.Sessions;
 import dev.jun.gyeot.core.PhoneTools;
 import dev.jun.gyeot.core.TaskBook;
@@ -745,30 +746,67 @@ public final class MainActivity extends Activity {
         if (ASSISTANT.equals(chosen)) voiceModeSheet();
     }
     private void voiceModeSheet() {
-        Ui.Sheet sheet = ui.selectionSheet("음성 비서", "음성 모델 · 생각 깊이");
+        Ui.Sheet sheet = ui.selectionSheet("음성 비서", "음성 엔진 · 모델 · 생각 깊이");
         LinearLayout choices = ui.column(); sheet.body.addView(choices);
-        voiceModelChoices(choices);
+        voiceModelChoices(choices, sheet);
         sheet.primary.setText("완료"); sheet.setOnDismissListener(d -> { if (tab == 0) showTab(0); }); sheet.show();
     }
+    /** 음성 비서 엔진 (AppStore.assistantRealtime): the stored value and its name, Gemini Live first, as the default. */
+    private static final String[] ENGINE_IDS = {AppStore.GEMINI_ENGINE, RealtimeVoice.Kind.GPT.name(), RealtimeVoice.Kind.GROK.name()};
+    private String[] engineLabels() {
+        String[] labels = new String[ENGINE_IDS.length];
+        for (int i = 0; i < labels.length; i++) {
+            RealtimeVoice.Kind kind = RealtimeVoice.Kind.of(ENGINE_IDS[i]);
+            labels[i] = kind == null ? "Gemini Live" : AppStore.realtimeLabel(kind) + (VoiceCredentials.usable(store, kind) ? "" : " · 로그인 필요");
+        }
+        return labels;
+    }
+    /** One choice of the voice mode sheet. */
+    private android.widget.RadioButton voiceChoice(String label, boolean selected, Runnable pick) {
+        android.widget.RadioButton choice = new android.widget.RadioButton(this);
+        choice.setText(label); choice.setTextSize(16); choice.setTextColor(TEXT);
+        choice.setChecked(selected); choice.setMinHeight(ui.dp(52));
+        choice.setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10));
+        choice.setContentDescription(label + (selected ? ", 선택됨" : ""));
+        choice.setOnClickListener(v -> pick.run());
+        return choice;
+    }
     /** Keep model choices visible next to depth, and refresh in place without stacking sheets. */
-    private void voiceModelChoices(LinearLayout choices) {
+    private void voiceModelChoices(LinearLayout choices, Ui.Sheet sheet) {
         choices.removeAllViews();
-        choices.addView(ui.label("선택한 모델 · " + AppStore.modelLabel(store.liveModel()), 13, MUTED));
+        RealtimeVoice.Kind realtime = store.assistantRealtime();
+        choices.addView(ui.label(realtime == null ? "선택한 모델 · " + AppStore.modelLabel(store.liveModel()) : "선택한 음성 · " + AppStore.realtimeLabel(realtime) + " · " + store.assistantVoice(realtime), 13, MUTED));
+        choices.addView(ui.sectionHeader("음성 엔진"));
+        String[] engines = engineLabels(); String engine = store.assistantEngine();
+        for (int i = 0; i < ENGINE_IDS.length; i++) {
+            String id = ENGINE_IDS[i];
+            choices.addView(voiceChoice(engines[i], id.equals(engine), () -> {
+                if (!id.equals(store.assistantEngine())) { store.settings.edit().putString(AppStore.ASSISTANT_ENGINE, id).apply(); store.changed(); }
+                voiceModelChoices(choices, sheet);
+            }), new LinearLayout.LayoutParams(-1, -2));
+        }
+        if (realtime != null) {
+            // GPT·Grok: its voices and its sign-in instead of the Live models and depth.
+            choices.addView(ui.sectionHeader(realtime.label + " 목소리"));
+            String chosen = store.assistantVoice(realtime);
+            for (String name : realtime.voices()) choices.addView(voiceChoice(name, name.equals(chosen), () -> {
+                if (!name.equals(store.assistantVoice(realtime))) { store.settings.edit().putString(AppStore.ASSISTANT_VOICE + realtime.name(), name).apply(); store.changed(); }
+                voiceModelChoices(choices, sheet);
+            }), new LinearLayout.LayoutParams(-1, -2));
+            choices.addView(ui.sectionHeader("연결"));
+            LinearLayout sign = ui.group(); realtimeSignIn(sign, realtime, sheet::dismiss); choices.addView(sign);
+            choices.addView(ui.label("API 키는 설정 → 목소리와 대화에서 넣을 수 있어요. 대화 중 바꾸면 완료 후 ‘지금 적용’을 눌러 주세요.", 12, MUTED));
+            return;
+        }
         choices.addView(ui.sectionHeader("음성 비서 모델"));
         for (String[] option : GeminiProtocol.LIVE_MODELS) {
-            String id = option[0]; boolean selected = id.equals(store.liveModel());
-            android.widget.RadioButton pick = new android.widget.RadioButton(this);
-            pick.setText(option[1]); pick.setTextSize(16); pick.setTextColor(TEXT);
-            pick.setChecked(selected); pick.setMinHeight(ui.dp(52));
-            pick.setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10));
-            pick.setContentDescription(option[1] + (selected ? ", 선택됨" : ""));
-            pick.setOnClickListener(v -> {
+            String id = option[0];
+            choices.addView(voiceChoice(option[1], id.equals(store.liveModel()), () -> {
                 if (!id.equals(store.liveModel())) {
                     store.settings.edit().putString("liveModel", id).apply(); store.changed();
                 }
-                voiceModelChoices(choices);
-            });
-            choices.addView(pick, new LinearLayout.LayoutParams(-1, -2));
+                voiceModelChoices(choices, sheet);
+            }), new LinearLayout.LayoutParams(-1, -2));
         }
         choices.addView(ui.label("대화 중 모델을 바꾸면 완료 후 ‘지금 적용’을 눌러 주세요.", 12, MUTED));
         if (GeminiProtocol.extended(store.liveModel())) {
@@ -857,7 +895,7 @@ public final class MainActivity extends Activity {
     }
     private void toggleVoice() { if (store.voiceActive) send(AssistantService.END_LIVE, null, null); else startVoice(); }
     private void startVoice() {
-        if (!hasKey()) return;
+        if (!voiceUsable()) return;
         List<String> missing = new ArrayList<>();
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) missing.add(Manifest.permission.RECORD_AUDIO);
         // Notifications are optional; ask once instead of on every start.
@@ -907,6 +945,13 @@ public final class MainActivity extends Activity {
     private boolean hasKey() {
         if (store.secrets.hasKey()) return true;
         store.error("설정에서 Gemini API 키를 입력해 주세요."); openSettings("key"); return false;
+    }
+    /** What this voice call needs: the assistant on GPT or Grok its sign-in or key, anything else (Gemini Live) the Gemini key. */
+    private boolean voiceUsable() {
+        RealtimeVoice.Kind realtime = ASSISTANT.equals(mode) ? store.assistantRealtime() : null;
+        if (realtime == null) return hasKey();
+        if (VoiceCredentials.usable(store, realtime)) return true;
+        store.error(VoiceCredentials.assistantMissing(realtime)); openSettings("voice"); return false;
     }
     private void send(String action, String name, String value) {
         Intent intent = new Intent(this, AssistantService.class).setAction(action); if (name != null) intent.putExtra(name, value);
@@ -960,8 +1005,9 @@ public final class MainActivity extends Activity {
             boolean thinking = store.voiceActive && store.thinking() && !connecting && !offline && store.outputDraft.isBlank();
             orb.state(VoiceOrb.of(store));
             orbTitle.setText(!store.voiceActive ? "눌러서 말하기" : offline ? "오프라인" : store.muted ? "음소거됨" : connecting ? "연결하는 중…" : !store.outputDraft.isBlank() ? "말하는 중" : thinking ? store.thinkingName() + "가 생각하는 중…" : "듣고 있어요");
+            RealtimeVoice.Kind realtime = store.assistantRealtime();
             String model = AppStore.modelLabel(INTERPRETER.equals(mode) ? GeminiProtocol.TRANSLATE : DICTATION.equals(mode) ? GeminiProtocol.TRANSCRIBE
-                : store.voiceActive && !store.connectedVoiceModel.isEmpty() ? store.connectedVoiceModel : store.activeModel() == null ? store.liveModel() : store.activeModel());
+                : store.voiceActive && !store.connectedVoiceModel.isEmpty() ? store.connectedVoiceModel : realtime != null ? realtime.model : store.activeModel() == null ? store.liveModel() : store.activeModel());
             orbSub.setText(offline ? "인터넷이 돌아오면 이어서 연결해요" : thinking ? Math.max(0, (System.currentTimeMillis() - store.thinkingStartedAt()) / 1000) + "초째 · 그동안 말을 걸어도 돼요"
                 : store.voiceActive ? "구슬을 누르면 대화를 끝내요" : model + (ASSISTANT.equals(mode) ? " · 검색 " + (store.searchWanted() ? "켜짐" : "꺼짐") : ""));
             orb.setContentDescription(store.voiceActive ? "음성 대화 끝내기" : "음성 대화 시작");
@@ -3511,7 +3557,8 @@ public final class MainActivity extends Activity {
         ui.add(sections, use, 0);
         ui.add(sections, ui.sectionHeader("음성 비서"), 0);
         LinearLayout voice = ui.group();
-        settingsRow(voice, "voice", "목소리와 대화", (store.voiceActive ? "대화 중 · " : "") + (store.voice().isEmpty() ? "기본 목소리" : store.voice()) + (store.searchWanted() ? " · 검색 켜짐" : " · 검색 꺼짐"), null);
+        RealtimeVoice.Kind realtime = store.assistantRealtime();
+        settingsRow(voice, "voice", "목소리와 대화", (store.voiceActive ? "대화 중 · " : "") + (realtime != null ? AppStore.realtimeLabel(realtime) + " · " + store.assistantVoice(realtime) : store.voice().isEmpty() ? "기본 목소리" : store.voice()) + (store.searchWanted() ? " · 검색 켜짐" : " · 검색 꺼짐"), null);
         List<String> ways = new ArrayList<>();
         if (store.voiceOnOpen()) ways.add("앱 열면 바로 대화");
         if (store.edgeButton()) ways.add("가장자리 버튼");
@@ -4007,6 +4054,74 @@ public final class MainActivity extends Activity {
      * the rest from the next voice conversation.
      */
     private void pageVoice() {
+        // 음성 비서 엔진: Gemini Live (its model, voices and depth below), or GPT·Grok on a realtime voice (their voices and sign-in).
+        RealtimeVoice.Kind realtime = store.assistantRealtime();
+        add(ui.sectionHeader("음성 비서 엔진"), 0);
+        LinearLayout engine = ui.group();
+        ui.addRow(engine, ui.choiceRow("음성 엔진", "음성 비서 엔진", "통역과 받아쓰기는 늘 Gemini Live로 해요", engineLabels(), Math.max(0, java.util.Arrays.asList(ENGINE_IDS).indexOf(store.assistantEngine())), position -> {
+            store.settings.edit().putString(AppStore.ASSISTANT_ENGINE, ENGINE_IDS[position]).apply(); store.changed(); showTab(2);
+        }), false);
+        add(engine, 0);
+        add(ui.footer(realtime == null ? "기본은 Gemini Live예요. GPT·Grok 실시간 음성으로 바꿔도 폰 조작·캘린더·브라우저 같은 기능은 그대로 써요."
+            : realtime == RealtimeVoice.Kind.GPT ? "GPT 실시간 음성으로 대화해요. 폰 조작·캘린더·브라우저 같은 기능은 그대로 쓰고, 카메라는 말을 시작할 때 한 장씩 봐요."
+            : "Grok 실시간 음성으로 대화해요. 폰 조작·캘린더·브라우저 같은 기능은 그대로 쓰지만, 화면과 카메라는 볼 수 없어요."), 0);
+        if (realtime != null) pageRealtimeVoice(realtime); else pageLiveVoice();
+        pageVoiceRest(realtime);
+    }
+    /** GPT·Grok: the voice and its 말투, and what it connects with (a sign-in, or an API key of its own). */
+    private void pageRealtimeVoice(RealtimeVoice.Kind kind) {
+        add(ui.sectionHeader("목소리"), 0);
+        LinearLayout voices = ui.group();
+        String[] names = kind.voices();
+        String saved = store.voiceStyle(store.styleVoice());
+        LinearLayout style = ui.listRow(0, 0, "말투", saved.isBlank() ? "없음" : saved, ui.chevron(), this::voiceStyleSheet);
+        ui.addRow(voices, ui.choiceRow("목소리", kind.label + " 목소리", "대화 중이면 ‘지금 적용’으로 바로 바꿔요", names, Math.max(0, java.util.Arrays.asList(names).indexOf(store.assistantVoice(kind))), position -> {
+            store.settings.edit().putString(AppStore.ASSISTANT_VOICE + kind.name(), names[position]).apply(); store.changed();
+            String next = store.voiceStyle(store.styleVoice()); TextView shown = ((Ui.ListRow) style).parts.subtitle();
+            shown.setText(next.isBlank() ? "없음" : next); style.setContentDescription("말투, " + shown.getText());
+        }), false);
+        ui.addRow(voices, style, false);
+        add(voices, 0);
+        add(ui.footer("말투는 목소리마다 따로 저장돼요."), 0);
+        add(ui.sectionHeader("연결"), 0);
+        LinearLayout sign = ui.group();
+        realtimeSignIn(sign, kind, () -> {});
+        if (kind == RealtimeVoice.Kind.GPT) realtimeKeyRow(sign, SecretStore.OPENAI_VOICE, "OpenAI API 키 (선택)", "넣으면 로그인 대신 이 키로 연결해요", "sk-로 시작하는 키");
+        else realtimeKeyRow(sign, SecretStore.XAI_VOICE, "xAI API 키 (선택)", "넣으면 구독 로그인 대신 이 키로 연결해요", "xai-로 시작하는 키");
+        add(sign, 0);
+        add(ui.footer("메인 대화의 음성 대화와 같은 로그인과 키를 써요."), 0);
+    }
+    /** The realtime voice's sign-in as a row: what it connects with now, or a tap to sign in (before runs first, to close a sheet). */
+    private void realtimeSignIn(LinearLayout group, RealtimeVoice.Kind kind, Runnable before) {
+        String title, subtitle; Runnable signIn = null;
+        if (kind == RealtimeVoice.Kind.GPT) {
+            if (store.secrets.has(SecretStore.OPENAI_VOICE)) { title = "OpenAI API 키로 연결해요"; subtitle = "넣어 둔 키를 먼저 써요"; }
+            else if (store.codexImages.connected()) { title = "Codex 로그인 됨"; subtitle = "ChatGPT 구독으로 GPT 실시간 음성을 써요"; }
+            else if ("key".equals(store.openai.describe().optString("mode"))) { title = "ChatGPT 연결의 API 키로 연결해요"; subtitle = "Codex로 로그인하면 ChatGPT 구독으로 써요"; signIn = store.codexImages::signIn; }
+            else { title = "Codex로 로그인"; subtitle = "ChatGPT 구독 계정으로 로그인하면 API 키 없이 써요"; signIn = store.codexImages::signIn; }
+        } else {
+            if (store.secrets.has(SecretStore.XAI_VOICE)) { title = "xAI API 키로 연결해요"; subtitle = "넣어 둔 키를 먼저 써요"; }
+            else if (store.grok.connected()) { title = "Grok 구독 로그인 됨"; subtitle = "구독 로그인으로 연결해요 · 거절되면 xAI API 키를 넣어 주세요"; }
+            else { title = "Grok 구독 계정으로 로그인"; subtitle = "로그인하거나 xAI API 키를 넣으면 써요"; signIn = store.grok::signIn; }
+        }
+        Runnable go = signIn;
+        ui.addRow(group, ui.listRow(0, 0, title, subtitle, go == null ? null : ui.chevron(), go == null ? null : () -> { before.run(); go.run(); }), false);
+    }
+    /** A realtime voice's own API key: typed only in the secret sheet, saved encrypted, cleared by saving it empty. */
+    private void realtimeKeyRow(LinearLayout group, String name, String title, String subtitle, String hint) {
+        boolean saved = store.secrets.has(name);
+        ui.addRow(group, ui.listRow(0, 0, title, saved ? "저장됨 · 눌러서 바꾸거나 지우기" : subtitle, ui.chevron(), () -> {
+            Ui.Sheet sheet = ui.secretSheet(title, saved ? "비워 두고 저장하면 지워요" : subtitle, hint, 300, "저장", (s, field) -> {
+                String value = field.getText().toString().strip();
+                if (!value.isEmpty() && (value.length() < 16 || value.matches("(?s).*\\s.*"))) { field.setError("API 키 형식을 확인해 주세요."); return; }
+                try { store.secrets.put(name, value); s.dismiss(); store.status(value.isEmpty() ? "키를 지웠어요" : "키를 저장했어요"); store.changed(); if (tab == 2) showTab(2); }
+                catch (Exception e) { field.setError(e.getMessage() == null ? "키를 저장하지 못했어요." : e.getMessage()); }
+            });
+            sheet.show();
+        }), false);
+    }
+    /** Gemini Live: the voice and its 말투, the Live model and its depth. */
+    private void pageLiveVoice() {
         add(ui.sectionHeader("목소리"), 0);
         LinearLayout voices = ui.group();
         int voiceIndex = 0; for (int i = 0; i < GeminiProtocol.VOICES.length; i++) if (GeminiProtocol.VOICES[i].equals(store.voice())) voiceIndex = i;
@@ -4048,7 +4163,9 @@ public final class MainActivity extends Activity {
             add(ui.actions(ui.chip(AppStore.modelLabel(store.liveModel()) + " 지금 다시 쓰기", () -> { store.clearExhausted(store.liveModel()); showTab(2); })), 0);
         }
         add(ui.footer("한도가 차면 Extended Thinking → 3.8 Live → 3.1 → 2.5 순서로 쓸 수 있는 모델로 이어 가요. 최근 대화도 함께 넘겨요."), 0);
-
+    }
+    /** Search, listening, speaking and the interpreter's languages, whichever engine the assistant runs on (realtime: GPT·Grok, or null). */
+    private void pageVoiceRest(RealtimeVoice.Kind realtime) {
         add(ui.sectionHeader("검색"), 0);
         LinearLayout search = ui.group(); boolean searching = store.searchWanted();
         ui.addRow(search, ui.switchRow("검색 사용", "최신 정보를 찾아 출처와 함께 답해요", searching, value -> { store.settings.edit().putBoolean("search", value).apply(); store.changed(); showTab(2); }), false);
@@ -4074,7 +4191,7 @@ public final class MainActivity extends Activity {
         LinearLayout listen = ui.group();
         ui.addRow(listen, ui.switchRow("작게 말해도 알아듣기", "작은 목소리도 잘 들어요 · 시끄러우면 꺼 주세요", store.quietSpeech(), value -> store.settings.edit().putBoolean("quietSpeech", value).apply()), false);
         ui.addRow(listen, ui.switchRow("스피커로 들을 때 에코 방지", "스피커 소리에 말이 끊기지 않게 해요", store.echoGuard(), value -> store.settings.edit().putBoolean("echoGuard", value).apply()), false);
-        ui.addRow(listen, ui.switchRow("정밀 자막 함께 사용", "한국어 받아쓰기로 자막과 명령을 더 정확히 들어요", store.captions(), value -> store.settings.edit().putBoolean("captions", value).apply()), false);
+        ui.addRow(listen, ui.switchRow("정밀 자막 함께 사용", realtime == null ? "한국어 받아쓰기로 자막과 명령을 더 정확히 들어요" : "Gemini Live에서만 써요 · 실시간 음성은 직접 받아 적어요", store.captions(), value -> store.settings.edit().putBoolean("captions", value).apply()), false);
         String[] stopLabels = new String[AUTO_STOP.length]; int stopIndex = 0;
         for (int i = 0; i < AUTO_STOP.length; i++) { stopLabels[i] = AUTO_STOP[i] == 0 ? "끄기" : AUTO_STOP[i] + "분"; if (AUTO_STOP[i] == store.autoStopMinutes()) stopIndex = i; }
         ui.addRow(listen, ui.choiceRow("말이 없으면 자동 종료", "자동 종료", "잊고 둔 마이크가 사용량을 쓰지 않게 해요", stopLabels, stopIndex,
@@ -4102,15 +4219,17 @@ public final class MainActivity extends Activity {
      * Closing the sheet redraws the page, so the 말투 row shows what was kept.
      */
     private void voiceStyleSheet() {
-        String voice = store.voice();
-        Ui.Sheet sheet = ui.selectionSheet((voice.isEmpty() ? "기본 목소리" : voice) + "의 말투", "적으면 바로 저장돼요 · 목소리마다 따로예요");
+        // Whose 말투 (AppStore.styleVoice): the Gemini voice's, or the realtime voice's the assistant runs on.
+        String voice = store.styleVoice(); RealtimeVoice.Kind realtime = store.assistantRealtime();
+        String shownVoice = realtime != null ? store.assistantVoice(realtime) : voice.isEmpty() ? "기본 목소리" : voice;
+        Ui.Sheet sheet = ui.selectionSheet(shownVoice + "의 말투", "적으면 바로 저장돼요 · 목소리마다 따로예요");
         EditText input = ui.input("예: 상냥하고 애교 있게, 문장 끝을 부드럽게", 3, GeminiProtocol.VOICE_STYLE_LIMIT);
         // Filled before the watcher, so showing the saved style is not an edit.
         input.setText(store.voiceStyle(voice));
         input.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
-            @Override public void afterTextChanged(Editable text) { store.voiceStyle(store.voice(), text.toString()); store.changed(); }
+            @Override public void afterTextChanged(Editable text) { store.voiceStyle(voice, text.toString()); store.changed(); }
         });
         sheet.body.addView(input);
         List<Button> presets = new ArrayList<>();
