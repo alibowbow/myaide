@@ -26,6 +26,12 @@ public final class SecurityRegression {
         var findings = PhoneRisk.apps(List.of(store,unknown),false);
         check(findings.stream().anyMatch(f->f.level()==PhoneRisk.Level.CAUTION && f.action().equals("app:org.example")), "store app notification access");
         check(findings.stream().noneMatch(f->f.level()==PhoneRisk.Level.DANGER), "unknown installer is not evidence of malware");
+        var ordinary = new PhoneRisk.App("org.ordinary","앱",false,"com.android.vending",true,false,false,false,Set.of(),false);
+        var external = new PhoneRisk.App("org.external","앱",false,"com.example.installer",true,true,false,false,Set.of(),false);
+        check(PhoneRisk.assess(ordinary).level()==PhoneRisk.Level.OK, "known source without observed signals");
+        check(PhoneRisk.assess(unknown).level()==PhoneRisk.Level.INFO, "unknown source stays explicit");
+        check(PhoneRisk.assess(store).level()==PhoneRisk.Level.CAUTION && PhoneRisk.assess(store).detail().contains("알림"), "explain sensitive power");
+        check(PhoneRisk.assess(external).level()==PhoneRisk.Level.DANGER, "external installation with enabled accessibility");
         var device = new PhoneRisk.Device(true,"",0,false,false,false,-1,"");
         check(PhoneRisk.device(device).stream().anyMatch(f->f.level()==PhoneRisk.Level.INFO && f.action().contains("DEVELOPMENT_SETTINGS")), "ADB unavailable");
         System.out.println("Phone security regression checks passed");

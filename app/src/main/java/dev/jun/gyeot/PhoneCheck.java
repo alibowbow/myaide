@@ -76,21 +76,30 @@ final class PhoneCheck {
      */
     static boolean seesEveryApp(Context app) { return app.checkSelfPermission("android.permission.QUERY_ALL_PACKAGES") == PackageManager.PERMISSION_GRANTED; }
 
-    static List<PhoneRisk.App> apps(Context app, boolean all) { return collectApps(app, false); }
-    static List<PhoneRisk.App> userApps(Context app) { return collectApps(app, true); }
-    private static List<PhoneRisk.App> collectApps(Context app, boolean userOnly) {
+    static List<PhoneRisk.App> apps(Context app, boolean all) { return collectApps(app, false, null); }
+    static List<PhoneRisk.App> userApps(Context app) { return collectApps(app, true, null); }
+    static PhoneRisk.App appDetails(Context app,String id) {
+        List<PhoneRisk.App> one=collectApps(app,false,id);
+        return one.isEmpty() ? null : one.get(0);
+    }
+    private static List<PhoneRisk.App> collectApps(Context app, boolean userOnly, String only) {
         PackageManager packages = app.getPackageManager();
         String accessibility = String.valueOf(Settings.Secure.getString(app.getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES));
         String listeners = String.valueOf(Settings.Secure.getString(app.getContentResolver(), "enabled_notification_listeners"));
+        boolean adminRead=true;
         Set<String> admins = new HashSet<>();
         try {
             DevicePolicyManager policy = app.getSystemService(DevicePolicyManager.class);
+            adminRead=policy!=null;
             List<ComponentName> active = policy == null ? null : policy.getActiveAdmins();
             if (active != null) for (ComponentName name : active) admins.add(name.getPackageName());
-        } catch (RuntimeException unknown) { /* none known */ }
+        } catch (RuntimeException unknown) { adminRead=false; }
         List<PhoneRisk.App> out = new ArrayList<>();
         List<PackageInfo> installed;
-        try { installed = packages.getInstalledPackages(PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS)); } catch (RuntimeException unavailable) { return out; }
+        var flags=PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS);
+        try {
+            installed = only==null ? packages.getInstalledPackages(flags) : List.of(packages.getPackageInfo(only,flags));
+        } catch (PackageManager.NameNotFoundException missing) { return out; }
         for (PackageInfo info : installed) {
             ApplicationInfo about = info.applicationInfo; if (about == null) continue;
             boolean system = (about.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0;
@@ -104,7 +113,7 @@ final class PhoneCheck {
             }
             CharSequence label = null; try { label = packages.getApplicationLabel(about); } catch (RuntimeException unnamed) { /* the id */ }
             out.add(new PhoneRisk.App(id, label == null || label.toString().isBlank() ? id : label.toString(), system,
-                installer, packages.getLaunchIntentForPackage(id) != null, enabled(accessibility, id), admins.contains(id), enabled(listeners, id), granted, id.equals(app.getPackageName())));
+                installer, packages.getLaunchIntentForPackage(id) != null, enabled(accessibility, id), admins.contains(id), enabled(listeners, id), granted, id.equals(app.getPackageName()), adminRead && (info.requestedPermissions==null || (info.requestedPermissionsFlags!=null && info.requestedPermissionsFlags.length>=info.requestedPermissions.length))));
         }
         return out;
     }
