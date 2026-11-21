@@ -371,6 +371,7 @@ public final class MainActivity extends Activity {
             // The page that was open comes back too (the search text and the category filter do not).
             if(AppNavigator.pageLeft!=null)pages.putExtra(PagesActivity.OPEN,AppNavigator.pageLeft);startActivity(pages);}
         else if(left.equals("board"))startActivity(new Intent(this,BoardActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_NO_ANIMATION));
+        else if(left.equals("mytube"))startActivity(new Intent(this,MyTubeActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_NO_ANIMATION));
         else if(!left.isEmpty())startActivity(new Intent(this,FileExplorerActivity.class).putExtra(FileExplorerActivity.EXPLORER,left.equals("files"))
             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_NO_ANIMATION));
     }

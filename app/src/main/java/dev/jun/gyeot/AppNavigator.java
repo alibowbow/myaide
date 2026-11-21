@@ -69,7 +69,7 @@ final class AppNavigator {
         if (!DeviceActionRunner.started(route[0]) && pending.containsKey(id)) complete(id, tapToOpen(context, screen, media, route[0]));
     }
     private static Class<?> activity(String screen) {
-        return screen.equals("browser") ? BrowserActivity.class : screen.equals("phone") || screen.equals("files") ? FileExplorerActivity.class : screen.equals("pages") ? PagesActivity.class : MainActivity.class;
+        return screen.equals("browser") ? BrowserActivity.class : screen.equals("phone") || screen.equals("files") ? FileExplorerActivity.class : screen.equals("pages") ? PagesActivity.class : screen.equals("mytube") ? MyTubeActivity.class : MainActivity.class;
     }
     /** The notification's tap opens the screen itself; a tap is the user's own action, which Android lets start it. */
     private static JSONObject tapToOpen(Context context, String screen, String media, String route) {
@@ -101,7 +101,7 @@ final class AppNavigator {
      * Opened again from the app icon: singleTask brought MainActivity back alone, finishing the browser, 내 휴대폰 or 페이지 the
      * user left above it, which is then opened again. "" when the user left MainActivity, which keeps its own page.
      */
-    static String leftAbove() { return front.equals("browser") || front.equals("phone") || front.equals("files") || front.equals("pages") || front.equals("board") ? front : ""; }
+    static String leftAbove() { return front.equals("browser") || front.equals("phone") || front.equals("files") || front.equals("pages") || front.equals("board") || front.equals("mytube") ? front : ""; }
     /** BrowserActivity is resumed in front (main thread): a bare spoken 'go back' then leaves it for MainActivity. */
     private static boolean browserFront;
     static void browserInFront(boolean front) { browserFront = front; }

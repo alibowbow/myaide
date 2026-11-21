@@ -360,9 +360,36 @@
     } else root.style.setProperty('zoom', String(baseZoom * percent / 100), 'important');
     refs = new Map(); revision++;
   }
+  // 마이튜브's player (only when the app asks, in its own player session): the page's video tells when it plays, pauses and
+  // ends (an ad's end is not the video's), and plays or pauses on the app's word.
+  let mytubeOn=false, mytubeVideo=null, mytubeWant='play';
+  function mytubeSay(connection, event) {
+    const v=mytubeVideo;
+    try { connection.postMessage({mytube:{event, url:location.href, time:v?v.currentTime||0:0, duration:v&&isFinite(v.duration)?v.duration:0, title:document.title}}); } catch(_) {}
+  }
+  function mytubeAd() { return !!document.querySelector('.ad-showing, .ad-interrupting'); }
+  function mytubeAttach(connection) {
+    const v=document.querySelector('video');
+    if (!v) return;
+    if (v!==mytubeVideo) {
+      mytubeVideo=v;
+      v.addEventListener('ended',()=>{ if(!mytubeAd()) mytubeSay(connection,'ended'); });
+      v.addEventListener('playing',()=>mytubeSay(connection,'playing'));
+      v.addEventListener('pause',()=>{ if(!v.ended) mytubeSay(connection,'paused'); });
+      v.addEventListener('error',()=>mytubeSay(connection,'error'));
+    }
+    if (mytubeWant==='play' && v.paused && !v.ended) { v.muted=false; v.play().catch(()=>{}); }
+  }
+  function mytube(command, connection) {
+    if (command==='watch') { mytubeWant='play'; if(!mytubeOn){mytubeOn=true;setInterval(()=>mytubeAttach(connection),700);} mytubeAttach(connection); return; }
+    const v=document.querySelector('video');
+    if (command==='play') { mytubeWant='play'; if(v){v.muted=false;v.play().catch(()=>{});} }
+    else if (command==='pause') { mytubeWant='pause'; if(v) v.pause(); }
+  }
   function connect() {
   const connection=browser.runtime.connectNative('gyeot_browser'); port=connection;
   connection.onMessage.addListener(async message => {
+    if (Object.hasOwn(message, 'mytube')) { mytube(message.mytube, connection); return; }
     if (Object.hasOwn(message, 'page_zoom')) {
       try { pageZoom(message.page_zoom); connection.postMessage({page_zoom:true,ok:true,percent:message.page_zoom}); }
       catch(e) { connection.postMessage({page_zoom:true,ok:false,error:tidy(e.message,250)}); }
