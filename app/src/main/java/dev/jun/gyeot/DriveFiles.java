@@ -81,7 +81,7 @@ final class DriveFiles {
     /** Keeps a downloaded file on the phone and returns {name, uri, size}; key names the save so a retry does not duplicate it. */
     static JSONObject keep(Context context, String key, String name, String mime, File file, Runnable check) throws Exception {
         check.run();
-        String category = java.util.Set.of("image/png", "image/jpeg", "image/webp").contains(mime) ? "이미지" : "video/mp4".equals(mime) ? "영상"
+        String category = java.util.Set.of("image/png", "image/jpeg", "image/webp").contains(mime) ? "이미지" : mime != null && mime.startsWith("video/") ? "영상"
             : java.util.Set.of("audio/wav", "audio/mpeg", "audio/mp4").contains(mime) ? "오디오" : "";
         Uri uri;
         if (!category.isEmpty()) {

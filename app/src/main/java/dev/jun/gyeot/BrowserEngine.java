@@ -148,6 +148,8 @@ final class BrowserEngine {
     }
     static final class Tab {
         String id = UUID.randomUUID().toString().substring(0, 8);
+        /** attach: a file the AI got ready for this tab's next file chooser (an upload), until uploadUntil (uptime ms). */
+        dev.jun.gyeot.core.BrowserUploads.Entry upload; long uploadUntil;
         volatile String conversationId = UUID.randomUUID().toString();
         long navigationEpoch;
         volatile boolean retained = true;
@@ -403,6 +405,7 @@ final class BrowserEngine {
         boolean navigationProposalAccepted, recoveryChecked;
         boolean pdfAnswered; // pdfOpened answers it; the readiness loop stops
         boolean routine; // the gate classified this step routine (BrowserAgent): it leaves no fence
+        boolean nativeTap; // a click on the page's upload button while a file is ready: tapped for real (BrowserTouch)
         JSONObject fileStarted; // the file a click on a file control started fetching instead of navigating (scriptedFile)
         String action = "", navigationAction = "", previousDocument = "", previousUrl = "", navigationTarget = "", committedUrl = "";
         int sends;
@@ -1362,6 +1365,7 @@ final class BrowserEngine {
                                 acceptReadNavigation(p, value); return;
                             }
                             acknowledgeMutation(p, value);
+                            if (p.nativeTap && value.optJSONObject("tap") != null) { JSONObject at = value.optJSONObject("tap"); p.nativeTap = false; BrowserTouch.tap(p.tab.session, at.optDouble("x", -1), at.optDouble("y", -1)); }
                             if (value.optBoolean("stale_observation") && !p.rereadRejected) {
                                 p.rereadRejected = true; p.sends++;
                                 record(p.generation,"바뀐 페이지의 요소를 다시 확인하는 중");
@@ -1460,10 +1464,11 @@ final class BrowserEngine {
         if (action.equals("open") && keepsFile(args.optString("url"))) { record(lease, "파일을 받는 중"); callback.accept(fetchFile(tab, args.optString("url"), linkLabel(tab, args.optString("url")))); return; }
         if (action.equals("back") && !tab.back) { callback.accept(obj("ok", false, "error_code", "no_history", "action_executed", false, "retryable", false, "error", "돌아갈 이전 페이지가 없어요. 이동할 공개 HTTPS 홈페이지 주소를 알려 주세요.")); return; }
         // 권한 모드 '읽기만': the AI reads, scrolls, follows links and opens pages, and never types, chooses or presses on one.
-        if (readOnly() && (Set.of("type", "select", "press").contains(action) || action.equals("click") && !routine)) {
+        if (readOnly() && (Set.of("type", "select", "press", "attach").contains(action) || action.equals("click") && !routine)) {
             callback.accept(obj("ok", false, "error_code", "read_only_mode", "action_executed", false, "retryable", false,
                 "error", "읽기만 모드예요: 페이지에 입력하거나 고르거나 누르는 동작은 하지 않아요. 읽기·스크롤·링크 이동으로만 이어 가고, 필요하면 사용자에게 AI 메뉴 → 권한 모드에서 '확인받기'로 바꿔 달라고 말해 주세요.")); return;
         }
+        if (action.equals("attach")) { callback.accept(stageUpload(tab, lease, args.optString("file"))); return; }
         if (action.equals("click")) tab.clickLabel = elementLabel(tab, args.optString("ref"));
         Pending p = new Pending(); p.id = Long.toString(++sequence); p.tab = tab; p.generation = lease; p.callback = callback; p.action = action; p.readReceiptId = tab.task.pendingMutation().optString("id");
         p.routine = routine;
@@ -1486,6 +1491,8 @@ final class BrowserEngine {
             case "reload" -> { tab.loadFailed = false; tab.port = null; tab.session.reload(); args = obj("action", "read"); }
             case "switch", "set_mode" -> args = obj("action", "read");
         }
+        // A file is ready for this tab's chooser: the click is a real tap (a file chooser opens only for a user's own touch).
+        if (action.equals("click") && tab.upload != null && android.os.SystemClock.uptimeMillis() <= tab.uploadUntil) { p.nativeTap = true; args = copy(args); put(args, "native_tap", true); }
         changed(); sendWhenReady(p, args, p.deadline);
     }
     private boolean isPending(Pending p){Lane l=lane(p.generation);return l!=null&&l.pending==p;}
@@ -1690,7 +1697,7 @@ final class BrowserEngine {
         @Override public GeckoResult<PromptResponse> onTextPrompt(GeckoSession s, TextPrompt p) { return routePrompt(s, p, () -> prompts.onTextPrompt(s, p)); }
         @Override public GeckoResult<PromptResponse> onAuthPrompt(GeckoSession s, AuthPrompt p) { return routePrompt(s, p, () -> prompts.onAuthPrompt(s, p)); }
         @Override public GeckoResult<PromptResponse> onPopupPrompt(GeckoSession s, PopupPrompt p) { return routePrompt(s, p, () -> prompts.onPopupPrompt(s, p)); }
-        @Override public GeckoResult<PromptResponse> onFilePrompt(GeckoSession s, FilePrompt p) { return routePrompt(s, p, () -> prompts.onFilePrompt(s, p)); }
+        @Override public GeckoResult<PromptResponse> onFilePrompt(GeckoSession s, FilePrompt p) { GeckoResult<PromptResponse> staged = stagedUpload(s, p); return staged != null ? staged : routePrompt(s, p, () -> prompts.onFilePrompt(s, p)); }
         @Override public GeckoResult<PromptResponse> onChoicePrompt(GeckoSession s, ChoicePrompt p) { return routePrompt(s, p, () -> prompts.onChoicePrompt(s, p)); }
         // Saved logins: keeping one the user just typed, or which account to fill (비밀번호 관리자). Off the page in front, nothing is kept or filled.
         @Override public GeckoResult<PromptResponse> onLoginSave(GeckoSession s, AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption> p) {
@@ -1708,11 +1715,33 @@ final class BrowserEngine {
         @Override public GeckoResult<PromptResponse> onTextPrompt(GeckoSession s, TextPrompt p) { return needUser(s, p); }
         @Override public GeckoResult<PromptResponse> onAuthPrompt(GeckoSession s, AuthPrompt p) { return needUser(s, p); }
         @Override public GeckoResult<PromptResponse> onPopupPrompt(GeckoSession s, PopupPrompt p) { return needUser(s, p); }
-        @Override public GeckoResult<PromptResponse> onFilePrompt(GeckoSession s, FilePrompt p) { return needUser(s, p); }
+        @Override public GeckoResult<PromptResponse> onFilePrompt(GeckoSession s, FilePrompt p) { GeckoResult<PromptResponse> staged = stagedUpload(s, p); return staged != null ? staged : needUser(s, p); }
         @Override public GeckoResult<PromptResponse> onChoicePrompt(GeckoSession s, ChoicePrompt p) { return needUser(s, p); }
         @Override public GeckoResult<PromptResponse> onLoginSave(GeckoSession s, AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption> p) { return GeckoResult.fromValue(p.dismiss()); }
         @Override public GeckoResult<PromptResponse> onLoginSelect(GeckoSession s, AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSelectOption> p) { return GeckoResult.fromValue(p.dismiss()); }
     };
+    /** attach: gets a file the app fetched for the user ready for this tab's next file chooser (two minutes); nothing else can be attached. */
+    private JSONObject stageUpload(Tab tab, long lease, String reference) {
+        dev.jun.gyeot.core.BrowserUploads.Entry e = dev.jun.gyeot.core.BrowserUploads.find(reference, System.currentTimeMillis());
+        if (e == null) return obj("ok", false, "error_code", "attach_not_allowed", "action_executed", false, "retryable", false,
+            "error", "그 파일은 첨부할 수 없어요. 이 작업에서 drive_download로 받은 파일(돌려준 uri나 이름)만 첨부할 수 있어요.");
+        tab.upload = e; tab.uploadUntil = android.os.SystemClock.uptimeMillis() + 120_000;
+        record(lease, "파일 첨부 준비 · " + e.name());
+        return obj("ok", true, "attached", e.name(), "action_executed", true,
+            "next", "Now click the page's own upload or select-file button; its file chooser receives " + e.name() + " by itself.");
+    }
+    /** The file chooser a page opened, answered with the file the AI got ready for that tab (while its task runs), or null to ask the user. */
+    private GeckoResult<PromptResponse> stagedUpload(GeckoSession s, FilePrompt p) {
+        for (Tab t : new ArrayList<>(tabs)) {
+            if (t.session != s || t.upload == null) continue;
+            dev.jun.gyeot.core.BrowserUploads.Entry e = t.upload; boolean fresh = android.os.SystemClock.uptimeMillis() <= t.uploadUntil; t.upload = null;
+            Lane l = tabLanes.get(t);
+            if (!fresh || l == null || l.onCancel == null) return null;
+            try { record(l.id, "파일 첨부 · " + e.name()); return GeckoResult.fromValue(p.confirm(context, android.net.Uri.parse(e.uri()))); }
+            catch (RuntimeException failed) { return null; }
+        }
+        return null;
+    }
     private void finish(Pending p,JSONObject result) {
         if(p==null||!isPending(p))return;
         if (recoverReadNavigation(p, result)) return;

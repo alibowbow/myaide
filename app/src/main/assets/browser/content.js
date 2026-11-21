@@ -276,6 +276,7 @@
     if (a.action === 'read') return snapshot();
     // Do not regenerate refs before validating the caller's existing reference.
     target=refs.get(a.ref)?.element;
+    let tap=null;
     const before=renderState(target);
     if (a.action === 'scroll') { scrollBy({top:(a.direction==='up'?-1:1)*innerHeight*.8,behavior:'instant'}); }
     else {
@@ -284,7 +285,13 @@
       if (!e || !e.isConnected || !visible(e) || e.disabled || e.readOnly || secret(e) || protectedComment(e,commentRegions()) || fingerprint(e)!==entry.fingerprint) throw stale('요소가 바뀌었거나 입력할 수 없어요. 다시 읽어 주세요.');
       const proposal=navigationProposal(a,e);
       if (proposal) return {ok:true,document:documentId,navigation_proposal:proposal,action_executed:false};
-      if (a.action==='click') { e.scrollIntoView({block:'center'}); e.click(); }
+      // A file is ready for this page's chooser (attach): the app taps it for real, since a file chooser opens only for a real touch.
+      if (a.action==='click' && a.native_tap) {
+        e.scrollIntoView({block:'center'});
+        const r=e.getBoundingClientRect(), vv=window.visualViewport, s=vv?vv.scale:1, d=window.devicePixelRatio||1;
+        tap={x:Math.round((r.left+r.width/2-(vv?vv.offsetLeft:0))*s*d), y:Math.round((r.top+r.height/2-(vv?vv.offsetTop:0))*s*d)};
+      }
+      else if (a.action==='click') { e.scrollIntoView({block:'center'}); e.click(); }
       else if(a.action==='type') {
         if(!e.matches('input,textarea') && !editable(e)) throw Error('입력칸이 아니에요.');
         input={element:e,text:String(a.text || '')}; fill(e,input.text);
@@ -310,7 +317,7 @@
     // Click/Enter may unload this document before the delayed snapshot. Confirm
     // dispatch immediately; the native executor still awaits a separate page read.
     // Input/select retain their post-render verification before acknowledgement.
-    if(['click','press'].includes(a.action))acknowledge({action:a.action,document:documentId,action_accepted:true});
+    if(['click','press'].includes(a.action))acknowledge({action:a.action,document:documentId,action_accepted:true,...(tap?{tap}:{})});
     const settled=await settle(target);
     // Controlled fields may restore their previous value on the next render. Verify
     // after page handlers settle, without echoing the entered text into observations.

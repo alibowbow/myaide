@@ -31,6 +31,8 @@ public final class GoogleDrive {
     public static final int CHANGE_LIMIT = 200;
     /** Downloads: pictures, video and audio stream to the media folders; other files go through work-file saving in memory. */
     public static final long MEDIA_DOWNLOAD = 250L * 1024 * 1024, FILE_DOWNLOAD = 64L * 1024 * 1024;
+    /** A video (for a YouTube upload, say): up to 2GB. */
+    public static final long VIDEO_DOWNLOAD = 2048L * 1024 * 1024;
     public static final String FOLDER_TYPE = "application/vnd.google-apps.folder", PRESENTATION = "application/vnd.google-apps.presentation", DRAWING = "application/vnd.google-apps.drawing";
     /** Bytes read from Drive for one text file: enough for READ_LIMIT characters of Korean, then the text is clipped. */
     public static final int READ_BYTES = READ_LIMIT * 4;
@@ -174,7 +176,7 @@ public final class GoogleDrive {
         if (BLOCKED.matcher(base).matches()) throw new IllegalArgumentException("설치 파일이나 실행 스크립트는 휴대폰에 내려받지 않아요.");
         String mime = type.isBlank() ? "application/octet-stream" : type;
         boolean media = mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/");
-        return obj("url", API + "files/" + id + "?alt=media&supportsAllDrives=true", "name", base, "mime", mime, "limit", media ? MEDIA_DOWNLOAD : FILE_DOWNLOAD);
+        return obj("url", API + "files/" + id + "?alt=media&supportsAllDrives=true", "name", base, "mime", mime, "limit", mime.startsWith("video/") ? VIDEO_DOWNLOAD : media ? MEDIA_DOWNLOAD : FILE_DOWNLOAD);
     }
     /** A file name safe on the phone and in Drive: no slashes or control characters, at most NAME_LIMIT characters. */
     static String safeName(String name) {

@@ -121,6 +121,8 @@ final class DriveWorkTools extends WorkTools {
             drive.download(plan.optString("url"), target, limit);
             stop();
             JSONObject kept = phone.keep(plan.optString("name"), plan.optString("mime"), target);
+            // The browser's AI may hand this very file to a page's file chooser (attach), and no other.
+            dev.jun.gyeot.core.BrowserUploads.allow(kept.optString("uri"), kept.optString("name", plan.optString("name")), plan.optString("mime"), System.currentTimeMillis());
             return obj("ok", true, "name", kept.optString("name", plan.optString("name")), "uri", kept.optString("uri"), "size", target.length(), "from", file.optString("link"));
         } finally { if (target.exists() && !target.delete()) target.deleteOnExit(); }
     }
