@@ -2395,7 +2395,7 @@ public final class MainActivity extends Activity {
         String text = message.optString("text");
         LinearLayout column = ui.column(); column.setGravity(android.view.Gravity.END);
         if (message.optBoolean("steering")) column.addView(ui.text("작업 중 추가 지시", 11, 500, MUTED));
-        if (WorkBook.SPOKEN.equals(message.optString("kind"))) column.addView(ui.text("음성 대화", 11, 500, MUTED));
+        if (WorkBook.SPOKEN.equals(message.optString("kind"))) { LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(-2, -2); right.gravity = android.view.Gravity.END; column.addView(ui.text("음성 대화", 11, 500, MUTED), right); }
         JSONArray attachments = message.optJSONArray("attachments");
         for (int a = 0; attachments != null && a < attachments.length(); a++) {
             JSONObject file = attachments.optJSONObject(a); if (file == null) continue;
