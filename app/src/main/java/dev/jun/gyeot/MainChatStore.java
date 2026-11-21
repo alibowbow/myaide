@@ -188,6 +188,14 @@ final class MainChatStore implements AutoCloseable {
     private void pinnedChanged(){try{pinned=available()?memoryText():"";}catch(RuntimeException e){/* The last good text stays. */}}
     /** An app notice in the timeline (e.g. what automatic memory kept). Shown to the user, never sent as conversation. */
     synchronized long notice(String text){require();db.beginTransaction();try{long id=insertMessage("memory",MainChatContext.clip(text,600),"done","",0,"","","");db.execSQL("UPDATE messages SET omit=1 WHERE id=?",new Object[]{id});db.setTransactionSuccessful();return id;}finally{db.endTransaction();}}
+    /**
+     * A line of a spoken conversation (VoiceChat), already said: the user's words or the answer to reply (the user's line it
+     * follows, 0 when it was not written down). It is shown and goes into later context like any typed turn; label is the
+     * voice that answered, shown under it.
+     */
+    synchronized long spoken(boolean user,String text,long reply,String label){require();String clean=MainChatContext.clip(text==null?"":text.strip(),user?MainChatContext.INPUT:MainChatContext.OUTPUT);if(clean.isEmpty())throw new IllegalArgumentException("빈 말은 적지 않아요.");return insertMessage(user?"user":"assistant",clean,"done","",user?0:reply,"","",user?"":label==null?"":label);}
+    /** The newest shown lines, oldest first, as a turn's context writes them, within chars (a spoken conversation's start). */
+    synchronized String recent(int chars){require();ArrayList<String> lines=new ArrayList<>();int used=0;JSONArray rows=query("SELECT * FROM messages WHERE omit=0 AND "+SHOWN+" ORDER BY id DESC LIMIT 60",null);for(int i=0;i<rows.length();i++){String line=MainChatContext.line(rows.optJSONObject(i));if(line.isEmpty())continue;if(used+line.length()>chars)break;lines.add(line);used+=line.length();}StringBuilder b=new StringBuilder();for(int i=lines.size()-1;i>=0;i--)b.append(lines.get(i));return b.toString();}
     synchronized String context(Turn turn,boolean memory){return context(turn,Options.of(memory,MainChatContext.MAX));}
     /**
      * The request for one turn: the summary, then every eligible original after it (newest kept when the budget runs

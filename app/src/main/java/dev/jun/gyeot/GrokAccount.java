@@ -62,6 +62,15 @@ final class GrokAccount implements GrokWorkClient.Session {
         }
         throw new IllegalStateException(GrokWork.error(401));
     }
+    /**
+     * The subscription's token for a spoken conversation (VoiceChat): refreshed when near its end, or when rejected is the
+     * one the server just turned down. Blocking: never on the main thread.
+     */
+    String voiceToken(String rejected) throws Exception {
+        String expected = accountId;
+        if (expected.isBlank()) throw new IllegalStateException("설정 → Grok에서 구독 계정으로 로그인해 주세요.");
+        return session(expected, rejected).getString("accessToken");
+    }
     private JSONObject load() throws Exception { String value = secrets.get(SecretStore.GROK); return value.isBlank() ? null : new JSONObject(value); }
     private void notice(String value) { notice = value; changed.run(); }
     void signIn() {

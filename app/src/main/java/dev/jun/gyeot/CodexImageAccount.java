@@ -116,6 +116,11 @@ final class CodexImageAccount {
             return stored.optLong("expiresAt") <= System.currentTimeMillis() + 60_000 ? refreshLocked(stored) : stored;
         }
     }
+    /**
+     * The Codex sign-in's token for a spoken conversation with GPT (VoiceChat): the ChatGPT plan's Realtime access, as the
+     * Codex CLI's own login gives it. Refreshed when near its end, or when rejected is the one just turned down. Blocking.
+     */
+    String voiceToken(String rejected) throws Exception { return (rejected == null ? session() : refresh(rejected)).getString("accessToken"); }
     private JSONObject refresh(String rejected) throws Exception {
         synchronized (credentials) {
             JSONObject stored = load();

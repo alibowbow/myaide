@@ -492,6 +492,18 @@ final class MainChatEngine implements AutoCloseable {
         }
         return out;
     }
+    /**
+     * A spoken conversation's instructions (VoiceChat, core/RealtimeVoice): the assistant's name, the user's notes, what memory
+     * holds and the newest of this chat, so a voice turn carries on from the typed ones. Blocking: off the main thread.
+     */
+    String voiceInstructions(){
+        boolean memory=memory();String notes=memory?history.pinned():"",recalled="";
+        try{if(memory)recalled=app.recallMemory("",Memory.budget(24_000));}catch(RuntimeException unavailable){}
+        String remembered=(notes+(notes.isBlank()||recalled.isBlank()?"":"\n")+recalled).strip();
+        return RealtimeVoice.instructions(Brand.called(app.assistantName()),MainChatContext.clip(app.persona().strip(),GeminiProtocol.PERSONA_LIMIT),MainChatContext.clip(remembered,6000),history.recent(8000));
+    }
+    /** Writes a line of a spoken conversation into this chat (MainChatStore.spoken) and shows it. Blocking: off the main thread. */
+    long spoken(boolean user,String text,long reply,String label){long id=history.spoken(user,text,reply,label);app.changed();return id;}
     /** Fixed instructions plus slowly changing user settings, so providers can keep reusing the cached prefix. */
     private String instructions(boolean memory){
         StringBuilder b=new StringBuilder(INSTRUCTIONS).append(MainChatPictures.instructions(app)).append(MainChatCalendar.instructions(context,app));

@@ -37,6 +37,8 @@ final class MainChatPage implements AutoCloseable {
     private Runnable modelPickerRefresh;
     private Dialog modelPicker;
     private ComposerDictation dictation;
+    /** 음성 대화 (MainChatVoice): the send button is its button while the draft is empty. */
+    private MainChatVoice voice; private ImageView sendButton;
     /** The composer mic: a tap dictates into the draft, a hold is 누르고 말하기 (ConnectedVoice). */
     private ImageView mic;
     static final String MIC = "음성 입력 · 초안에만 넣기";
@@ -141,9 +143,20 @@ final class MainChatPage implements AutoCloseable {
         composer.addView(input, new LinearLayout.LayoutParams(0, -2, 1));
         mic = ui.bareIcon(R.drawable.ic_mic, TEXT, MIC, this::dictate); holdToTalk(mic);
         composer.addView(mic, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
-        composer.addView(ui.sendButton("메시지 보내기", this::send), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+        sendButton = ui.sendButton("메시지 보내기", () -> { if (offersVoice()) voice.start(); else send(); });
+        sendButton.setOnLongClickListener(v -> { if (!offersVoice()) return false; voice.settings(""); return true; });
+        composer.addView(sendButton, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
         LinearLayout.LayoutParams composerParams = new LinearLayout.LayoutParams(-1, -2); composerParams.topMargin = ui.dp(4); composerParams.bottomMargin = ui.dp(8);
+        // 음성 대화's bar takes the composer's place while a conversation is on.
+        voice = new MainChatVoice(activity, store, ui); voice.aside(composer, chipRow); voice.track(this::track);
+        LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(-1, -2); barParams.topMargin = ui.dp(4); barParams.bottomMargin = ui.dp(8);
+        root.addView(voice.bar(), barParams);
         root.addView(composer, composerParams);
+        input.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override public void afterTextChanged(Editable s) { sendLooks(); }
+        });
         input.setText(saved == null ? store.settings.getString("mainChatDraft", "") : saved.getString("draft", ""));
         if (saved != null) { before = saved.getLong("before"); query = saved.getString("query", ""); }
         else {before=store.settings.getLong("mainChatBefore",0);query=store.settings.getString("mainChatQuery","");}
@@ -165,7 +178,7 @@ final class MainChatPage implements AutoCloseable {
         if (inner <= 0 || inner == fitted || composer == null) return; fitted = inner;
         int side = Math.max(0, (inner - ui.dp(READING_WIDTH)) / 2), text = Math.max(ui.dp(4), side);
         messages.setPadding(text, 0, text, 0);
-        for (View view : new View[]{talkStatus, chipRow, filesScroll, composer}) {
+        for (View view : new View[]{talkStatus, chipRow, filesScroll, composer, voice.bar()}) {
             LinearLayout.LayoutParams p = (LinearLayout.LayoutParams) view.getLayoutParams();
             if (p == null || p.leftMargin == side && p.rightMargin == side) continue;
             p.leftMargin = side; p.rightMargin = side; view.setLayoutParams(p);
@@ -176,7 +189,7 @@ final class MainChatPage implements AutoCloseable {
     void show(){
         if(!stopped)return;stopped=false;visibilityGeneration++;store.observe(observer);store.mainAssistant.watch(streamer);store.mainAssistant.reconcile();refresh();
         for(View answer:answers.values())RichAnswer.active(answer,true);for(Streaming reply:streaming.values())RichAnswer.active(reply.wrap,true);
-        if(store.talk!=null){store.talk.onChange(this::talkChanged);talkChanged();}
+        if(store.talk!=null){store.talk.onChange(this::talkChanged);talkChanged();}voice.attach();
         if(restoreScrollY>=0){int y=restoreScrollY;restoreScrollY=-1;postScroll(()->{if(!stopped)scroll.scrollTo(0,y);});}
         postScroll(this::nearSuggestions);
         // The page in question may have been set or ended on another screen; and one that sent the user here to write gets
@@ -189,7 +202,7 @@ final class MainChatPage implements AutoCloseable {
     void resume(){if(!stopped)profile.resume();if(!stopped&&talkOnResume){talkOnResume=false;talk(false);}}
     void pause(){if(dictation!=null)dictation.pause();stopListening();if(stopped)return;profile.pause();persist();}
     void hide(){
-        if(stopped)return;restoreScrollY=scroll.getScrollY();pause();if(dictation!=null)dictation.cancel();stopped=true;visibilityGeneration++;store.unobserve(observer);store.mainAssistant.unwatch(streamer);
+        if(stopped)return;restoreScrollY=scroll.getScrollY();pause();if(dictation!=null)dictation.cancel();stopped=true;visibilityGeneration++;voice.detach();store.unobserve(observer);store.mainAssistant.unwatch(streamer);
         for(View answer:answers.values())RichAnswer.active(answer,false);for(Streaming reply:streaming.values())RichAnswer.active(reply.wrap,false);
         if(profileEditor!=null){profileEditor.sheet.dismiss();profileEditor=null;}
         for(Dialog dialog:new ArrayList<>(dialogs))dialog.dismiss();dialogs.clear();modelPicker=null;modelPickerRefresh=null;
@@ -197,7 +210,7 @@ final class MainChatPage implements AutoCloseable {
     void save(Bundle out){out.putString("draft",input.getText().toString());out.putLong("before",before);out.putString("query",query);out.putInt("scrollY",stopped&&restoreScrollY>=0?restoreScrollY:scroll.getScrollY());out.putInt("selectionStart",input.getSelectionStart());out.putInt("selectionEnd",input.getSelectionEnd());}
     private void persist(){store.settings.edit().putString("mainChatDraft",input.getText().toString()).putLong("mainChatBefore",before).putString("mainChatQuery",query).putInt("mainChatScrollY",scroll.getScrollY()).apply();}
     boolean back(){if(!input.hasFocus())return false;android.view.inputmethod.InputMethodManager keyboard=activity.getSystemService(android.view.inputmethod.InputMethodManager.class);if(keyboard!=null)keyboard.hideSoftInputFromWindow(input.getWindowToken(),0);input.clearFocus();return true;}
-    @Override public void close(){hide();if(dictation!=null)dictation.close();if(store.talk!=null)store.talk.onChange(null);profile.close();forget(answers);answers=new HashMap<>();drop(streaming);streaming=new HashMap<>();pictureLoader.shutdownNow();}
+    @Override public void close(){hide();voice.detach();if(dictation!=null)dictation.close();if(store.talk!=null)store.talk.onChange(null);profile.close();forget(answers);answers=new HashMap<>();drop(streaming);streaming=new HashMap<>();pictureLoader.shutdownNow();}
     /** Frees drawn answers that are no longer shown (their pages included). */
     private static void forget(Map<String, View> gone){for(View answer:gone.values()){RichAnswer.destroy(answer);if(answer.getParent() instanceof ViewGroup parent)parent.removeView(answer);}}
     /** Frees replies that were being written and are no longer shown as such. */
@@ -255,7 +268,11 @@ final class MainChatPage implements AutoCloseable {
         }
         filesScroll.setVisibility(files.length() == 0 && subject == null ? View.GONE : View.VISIBLE);
         input.setHint(files.length() > 0 ? "파일에 대해 물어보기" : subject != null ? "이 페이지에 질문하기" : "메시지 보내기");
+        sendLooks();
     }
+    /** Nothing to send: the send button starts 음성 대화 instead. */
+    private boolean offersVoice() { return input != null && input.getText().toString().isBlank() && store.mainFiles.length() == 0; }
+    private void sendLooks() { if (voice != null && sendButton != null) voice.looks(sendButton, offersVoice()); }
     /** Shows the way back down once the newest message is more than about a screen's third below the view (AWAY dp). */
     private void awayFromNewest() {
         if (toNewest == null) return;
@@ -419,6 +436,7 @@ final class MainChatPage implements AutoCloseable {
         try { store.mainAssistant.addEvent(reply, index, this::error); } catch (Exception e) { error(e); }
     }
     boolean permissionResult(int code, int[] results) {
+        if (voice != null && voice.permissionResult(code, results)) return true;
         if (code == PhoneCalendar.CARD_REQUEST) {
             long reply = eventAfterPermission; int index = eventIndexAfterPermission; eventAfterPermission = -1;
             if (!PhoneCalendar.writable(activity)) Toast.makeText(activity, "캘린더 권한이 없어서 추가하지 않았어요. 설정 → 캘린더에서 허용할 수 있어요.", Toast.LENGTH_LONG).show();
@@ -459,7 +477,7 @@ final class MainChatPage implements AutoCloseable {
     private void refresh() {
         if (activity.isFinishing() || activity.isDestroyed() || messages == null || stopped) return;
         try {
-            if(modelPickerRefresh!=null)modelPickerRefresh.run();
+            if(modelPickerRefresh!=null)modelPickerRefresh.run();voice.refresh();
             // The living avatar thinks while replies are being prepared, is briefly happy when they have arrived (sad when the last one failed), dozes when quiet.
             try { profile.working(store.mainChat.available() ? store.mainChat.pendingCount() : 0, this::lastReplyFailed); } catch (Exception ignored) {}
             name.setText(profile.name()); ScopedModels models = ScopedModels.main(store); String engine = models.engine(), model = models.model(engine);

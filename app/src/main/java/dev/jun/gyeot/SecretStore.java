@@ -25,6 +25,8 @@ final class SecretStore {
     static final String GEMINI = "gemini", OPENAI = "openai", CODEX_IMAGES = "codexImages", GITHUB = "github", ARCHIVE = "myarchive", CLAUDE = "claude", GITHUB_CODE = "githubCode", GEMINI_WORK = "geminiWork";
     /** The retired Decisions API key's slot: AppStore deletes it at start, and nothing reads it. */
     static final String RETIRED_DECISIONS = "openaiDecisions";
+    /** API keys for the main chat's spoken conversation only (VoiceChat), used before a sign-in when one is saved. */
+    static final String OPENAI_VOICE = "openaiVoice", XAI_VOICE = "xaiVoice";
     private static final String ALIAS = "gyeot.gemini.key.v1";
     private final Context context;
     SecretStore(Context context) { this.context = context; }

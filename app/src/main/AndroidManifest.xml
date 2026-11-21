@@ -112,6 +112,8 @@
         <receiver android:name=".WorkScheduleAlarm" android:exported="false" />
         <!-- 차에서 호출어: started from the settings while the app is in front, so Android lets it use the microphone later. -->
         <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone" />
+        <!-- The main chat's spoken conversation: started from the chat screen, so it keeps hearing with the screen off. -->
+        <service android:name=".VoiceChatService" android:exported="false" android:foregroundServiceType="microphone" />
         <service android:name=".AssistantService" android:exported="false"
             android:foregroundServiceType="microphone|mediaPlayback|dataSync" android:stopWithTask="false" />
         <provider android:name=".ManagedDocumentsProvider" android:authorities="dev.jun.gyeot.shared-documents"

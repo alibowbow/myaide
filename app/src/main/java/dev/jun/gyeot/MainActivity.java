@@ -861,6 +861,8 @@ public final class MainActivity extends Activity {
             missing.add(Manifest.permission.POST_NOTIFICATIONS); store.settings.edit().putBoolean("askedNotifications", true).apply();
         }
         if (!missing.isEmpty()) { requestPermissions(missing.toArray(new String[0]), 20); return; }
+        // One microphone: the main chat's spoken conversation ends first (what it said stays in the chat).
+        VoiceChat talking = store.voiceChat; if (talking != null) talking.end("");
         send(AssistantService.LIVE, "mode", mode);
     }
     @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {

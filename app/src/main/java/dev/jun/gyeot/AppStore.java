@@ -128,6 +128,8 @@ final class AppStore {
     Speech speech;
     /** 누르고 말하기 (ConnectedVoice), made on first use (no recognizer before a press). Main thread only. */
     ConnectedVoice talk;
+    /** The main chat's spoken conversation with GPT or Grok while one is on (VoiceChat); main thread. */
+    volatile VoiceChat voiceChat;
     /** The call greeting's clips and the warm-up before a call (Greeter), made on first use. Main thread only. */
     private Greeter greeter;
     /** Wall-clock start of the current voice session, for the elapsed-time display. */
