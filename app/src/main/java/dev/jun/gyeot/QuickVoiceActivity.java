@@ -30,7 +30,8 @@ public final class QuickVoiceActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
         store = ((GyeotApp) getApplication()).store();
         if (state != null) { close(); return; }
-        boolean ready = store.secrets.hasKey() && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+        // The Gemini key, or on GPT·Grok (음성 비서 엔진) that voice's sign-in or key.
+        boolean ready = VoiceCredentials.assistantUsable(store) && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
         try {
             if (!ready) { startActivity(new Intent(this, MainActivity.class).putExtra(MainActivity.START_VOICE, true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP)); close(); return; }
             Intent intent = new Intent(this, AssistantService.class);

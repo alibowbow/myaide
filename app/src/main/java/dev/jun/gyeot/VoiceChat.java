@@ -136,25 +136,17 @@ final class VoiceChat {
     }
 
     // ── connection (work thread) ───────────────────────────────────────────
-    private record Credential(String token, boolean signIn) {}
-    private Credential credential() throws Exception {
-        if (kind == RealtimeVoice.Kind.GPT) {
-            String key = store.secrets.get(SecretStore.OPENAI_VOICE);
-            if (!key.isBlank()) return new Credential(key, false);
-            if (store.codexImages.connected()) return new Credential(store.codexImages.voiceToken(rejected), true);
-            if ("key".equals(store.openai.describe().optString("mode"))) return new Credential(store.openai.bearer(), false);
-            throw new Missing("GPT 음성 대화는 Codex 로그인(ChatGPT 구독)으로 해요. 음성 대화 설정에서 Codex로 로그인해 주세요.");
-        }
-        String key = store.secrets.get(SecretStore.XAI_VOICE);
-        if (!key.isBlank()) return new Credential(key, false);
-        if (store.grok.connected()) return new Credential(store.grok.voiceToken(rejected), true);
-        throw new Missing("Grok 음성 대화는 Grok 구독 로그인이나 xAI API 키로 해요. 음성 대화 설정에서 연결해 주세요.");
+    private VoiceCredentials.Credential credential() throws Exception {
+        VoiceCredentials.Credential found = VoiceCredentials.get(store, kind, rejected);
+        if (found != null) return found;
+        throw new Missing(kind == RealtimeVoice.Kind.GPT ? "GPT 음성 대화는 Codex 로그인(ChatGPT 구독)으로 해요. 음성 대화 설정에서 Codex로 로그인해 주세요."
+            : "Grok 음성 대화는 Grok 구독 로그인이나 xAI API 키로 해요. 음성 대화 설정에서 연결해 주세요.");
     }
     private void connect() {
         if (ended) return;
         try {
             String instructions = target.instructions(); org.json.JSONArray tools = target.tools();
-            Credential credential = credential(); signedIn = credential.signIn();
+            VoiceCredentials.Credential credential = credential(); signedIn = credential.signIn();
             String token = credential.token();
             WebSocketClient client = new WebSocketClient(URI.create(kind.url()), new Draft_6455(), Map.of("Authorization", "Bearer " + token), 15_000) {
                 @Override public void onOpen(ServerHandshake handshake) {

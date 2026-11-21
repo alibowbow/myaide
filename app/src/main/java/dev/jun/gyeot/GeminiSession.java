@@ -21,7 +21,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-final class GeminiSession {
+final class GeminiSession implements dev.jun.gyeot.core.LiveVoiceSession {
     interface Listener {
         default void ready() {}
         /** The socket and its TLS handshake are open; the setup goes out next, and setupComplete (ready) follows. */
@@ -73,13 +73,13 @@ final class GeminiSession {
     // A silent browser receipt may share a model tool batch with a requested, meaningful answer.
     // Keep that answer audible regardless of the order in which the tools return.
     private volatile boolean meaningfulToolReply;
-    boolean browserQuietOutput() { return browserQuietOutput; }
+    @Override public boolean browserQuietOutput() { return browserQuietOutput; }
     /** Function calls this connection received and has neither answered nor seen Gemini cancel, with when each came
      * (System.nanoTime): someone is waiting on them. */
     private final java.util.Map<String, Long> unanswered = new java.util.concurrent.ConcurrentHashMap<>();
-    int unanswered() { return unanswered.size(); }
+    @Override public int unanswered() { return unanswered.size(); }
     /** Whether this call is still waiting for its reply. */
-    boolean waiting(String id) { return id != null && unanswered.containsKey(id); }
+    @Override public boolean waiting(String id) { return id != null && unanswered.containsKey(id); }
     private final AtomicBoolean stopped = new AtomicBoolean();
     private volatile dev.jun.gyeot.core.VoiceStartupAudio startupAudio = new dev.jun.gyeot.core.VoiceStartupAudio();
     /**
@@ -107,6 +107,17 @@ final class GeminiSession {
     volatile String resumeHandle = "";
     /** The voice call's timings and token counts, for the call's main connection only; null elsewhere. */
     volatile dev.jun.gyeot.core.VoiceLatency.Call latency;
+    @Override public boolean ready() { return ready; }
+    @Override public String resumeHandle() { return resumeHandle; }
+    @Override public void resumeHandle(String handle) { resumeHandle = handle == null ? "" : handle; }
+    @Override public boolean reasoning() { return reasoning; }
+    @Override public void latency(dev.jun.gyeot.core.VoiceLatency.Call call) { latency = call; }
+    /** Gemini Live takes camera frames as video, the screen as an image, and both with words in one turn. */
+    @Override public boolean sees() { return true; }
+    @Override public void cameraFrame(String jpegBase64) { send(dev.jun.gyeot.core.CameraView.frame(jpegBase64)); }
+    @Override public boolean image(String jpegBase64) { return send(dev.jun.gyeot.core.ScreenView.image(jpegBase64)); }
+    @Override public boolean imageTurn(String jpegBase64, String app, String text) { return send(dev.jun.gyeot.core.ScreenView.turn(jpegBase64, app, text)); }
+    @Override public void endAudio() { send(GeminiProtocol.audioStreamEnd()); }
     GeminiSession(String key, String mode, GeminiProtocol.Options options, Listener listener) {
         this.key = key; this.mode = mode; this.options = options; this.listener = listener;
         translating = GeminiProtocol.INTERPRETER.equals(mode);
@@ -114,7 +125,7 @@ final class GeminiSession {
     }
     String endpoint() { return extended ? ENDPOINT.replace(".v1beta.", ".v1alpha.") : ENDPOINT; }
     void connect() { connect(""); }
-    void connect(String resume) {
+    @Override public void connect(String resume) {
         try {
             // The setup (instructions and function declarations, about 40,000 characters for an assistant call) is built while
             // DNS, TCP and TLS run, not after them: the first build in a process takes the longest.
@@ -289,7 +300,7 @@ final class GeminiSession {
         return false;
     }
     /** One microphone frame: sent, or kept in the pre-roll until setup completes. False once this connection has ended. */
-    synchronized boolean audio(byte[] pcm) {
+    @Override public synchronized boolean audio(byte[] pcm) {
         if(stopped.get())return false;
         boolean streamed = false; long now = System.nanoTime()/1_000_000;
         // The call's own end of speech (the phone log's 말 끝난 뒤): the last frame at speech level, whenever Gemini's caption comes.
@@ -326,40 +337,40 @@ final class GeminiSession {
         primer = null; listener.primerSkipped(why);
     }
     /** The app's own short sound may be in the microphone's frames of this time (VoiceStartupAudio.appSound). */
-    void appSound(long from, long to) { startupAudio.appSound(from, to); }
+    @Override public void appSound(long from, long to) { startupAudio.appSound(from, to); }
     /**
      * Before the call's first setup completes, its connections share one pre-roll, the call's (AssistantService.firstWords):
      * what this connection held when it was refused or dropped stays there for the next one, whose bounds count from its own
      * start while no words are held (VoiceStartupAudio.keepLead). Call before connect.
      */
-    void keepStartupAudio(dev.jun.gyeot.core.VoiceStartupAudio shared) { if (shared != null) { shared.keepLead(); startupAudio = shared; sharedStartup = true; } }
+    @Override public void keepStartupAudio(dev.jun.gyeot.core.VoiceStartupAudio shared) { if (shared != null) { shared.keepLead(); startupAudio = shared; sharedStartup = true; } }
     /**
      * Sends text (core/FirstTurn.PRIMER) as context, asking no reply, once this connection's setup completed and half a second
      * of its audio was still; not at all once a voice was heard by then (two frames in a row above the room's level), when
      * words were dropped, or once anything else went to the model or came from it. Call before connect.
      */
-    synchronized void primeFirstTurn(String text) { primer = text == null || text.isBlank() ? null : text; }
+    @Override public synchronized void primeFirstTurn(String text) { primer = text == null || text.isBlank() ? null : text; }
     /** Holds a frame in the call's pre-roll while no connection takes it, on the clock its connections use. */
     static void hold(dev.jun.gyeot.core.VoiceStartupAudio shared, byte[] pcm) { shared.accept(pcm, false, System.nanoTime() / 1_000_000); }
     private void sent() { dev.jun.gyeot.core.VoiceLatency.Call measured = latency; if (measured != null) measured.pcmSent(); }
-    void clearStartupAudio() { startupAudio.clear(); }
+    @Override public void clearStartupAudio() { startupAudio.clear(); }
     /** Ends this connection without touching a pre-roll it shares with the call. */
     private void dropStartupAudio() { if (!sharedStartup) startupAudio.clear(); }
-    void text(String text) { dropPrimer(); meaningfulToolReply = false; browserQuietOutput = false; send(GeminiProtocol.text(text)); }
+    @Override public void text(String text) { dropPrimer(); meaningfulToolReply = false; browserQuietOutput = false; send(GeminiProtocol.text(text)); }
     /** An actual async browser result must survive later duplicate silent receipts in the same turn. */
-    void browserReport(String text) { dropPrimer(); meaningfulToolReply = true; browserQuietOutput = false; send(GeminiProtocol.text(text)); }
+    @Override public void browserReport(String text) { dropPrimer(); meaningfulToolReply = true; browserQuietOutput = false; send(GeminiProtocol.text(text)); }
     /** Adds context without prompting a reply. */
-    void note(String text) { dropPrimer(); send(GeminiProtocol.note(text)); }
-    void tool(String id, String name, JSONObject value) { dropPrimer(); long millis = opened(id); meaningfulToolReply = true; browserQuietOutput = false; send(GeminiProtocol.toolResponse(id, name, value)); listener.replied(id, name, value, millis, null); }
+    @Override public void note(String text) { dropPrimer(); send(GeminiProtocol.note(text)); }
+    @Override public void tool(String id, String name, JSONObject value) { dropPrimer(); long millis = opened(id); meaningfulToolReply = true; browserQuietOutput = false; send(GeminiProtocol.toolResponse(id, name, value)); listener.replied(id, name, value, millis, null); }
     /** Only Extended Thinking declares all its functions NON_BLOCKING. */
-    void tool(String id, String name, JSONObject value, String scheduling) {
+    @Override public void tool(String id, String name, JSONObject value, String scheduling) {
         dropPrimer(); long millis = opened(id);
         if (!"SILENT".equals(scheduling)) { meaningfulToolReply = true; browserQuietOutput = false; }
         send(GeminiProtocol.toolResponse(id, name, value, extended ? scheduling : null));
         listener.replied(id, name, value, millis, scheduling);
     }
     /** Receipt-only output stays silent even on blocking Live; captions and tool processing continue. */
-    void browserTool(String id, String name, JSONObject value, boolean speak) {
+    @Override public void browserTool(String id, String name, JSONObject value, boolean speak) {
         dropPrimer(); long millis = opened(id);
         if (speak) meaningfulToolReply = true;
         browserQuietOutput = !speak && !meaningfulToolReply;
@@ -387,9 +398,9 @@ final class GeminiSession {
         ready = false; reasoning = false; dropStartupAudio(); cancelTimeout(); listener.failed(safe(reason), retryable);
         shutdown();
     }
-    void close() { stopped.set(true); ready = false; reasoning = false; dropStartupAudio(); cancelTimeout(); shutdown(); }
+    @Override public void close() { stopped.set(true); ready = false; reasoning = false; dropStartupAudio(); cancelTimeout(); shutdown(); }
     /** Wait for transport close before handing a resumption handle to another client. */
-    void afterClosed(Runnable continuation) {
+    @Override public void afterClosed(Runnable continuation) {
         synchronized (this) {
             if (!transportClosed && socket != null && !socket.isClosed()) {
                 if (closeContinuation != null) throw new IllegalStateException("close continuation already registered");
