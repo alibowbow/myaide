@@ -157,7 +157,7 @@ final class Speech {
         voice = voices.create(wanted); engine = wanted;
     }
     /** A call or recording is running, or a composer mic or 누르고 말하기 is asking, listening or transcribing (it would hear the reading). */
-    private boolean blocked() { return store.voiceActive || store.recording || ComposerDictation.listening() || store.talk != null && store.talk.listening(); }
+    private boolean blocked() { return store.voiceActive || store.recording || store.voiceChat != null || ComposerDictation.listening() || store.talk != null && store.talk.listening(); }
     /** Hands pieces to the voice until two are out. */
     private void pump() {
         while (said.size() < 2 && !queue.isEmpty()) {

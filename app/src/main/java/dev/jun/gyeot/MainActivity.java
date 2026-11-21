@@ -2635,7 +2635,7 @@ public final class MainActivity extends Activity {
     }
     private void speakInComposer() {
         if (tab != 3) return;
-        if (store.voiceActive || store.recording) { store.error("음성 대화나 녹음을 종료한 뒤 음성을 입력해 주세요."); return; }
+        if (store.voiceActive || store.recording || store.voiceChat != null) { store.error("음성 대화나 녹음을 종료한 뒤 음성을 입력해 주세요."); return; }
         if (!store.secrets.hasWorkKey()) { store.error("Gemini 음성 입력에 사용할 API 키가 없어요. 설정에서 Gemini를 연결해 주세요."); return; }
         store.stopReading(null);
         if (composerDictation == null) composerDictation = new ComposerDictation(this, composerInput,

@@ -348,7 +348,7 @@ final class MainChatPage implements AutoCloseable {
     private void dictate() {
         if (stopped) return;
         if (store.talk != null && store.talk.busy()) { store.talk.stop(); return; }
-        if (store.voiceActive || store.recording) { error("음성 대화나 녹음을 종료한 뒤 음성을 입력해 주세요."); return; }
+        if (store.voiceActive || store.recording || store.voiceChat != null) { error("음성 대화나 녹음을 종료한 뒤 음성을 입력해 주세요."); return; }
         Recognizer recognizer = recognizer();
         if (recognizer == null) { error("Gemini 음성 입력에 사용할 API 키가 없어요. 이 기기에는 쓸 수 있는 음성 인식도 없어요. 설정에서 Gemini를 연결해 주세요."); return; }
         store.stopReading(null); store.stopReport();
