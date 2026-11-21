@@ -155,7 +155,8 @@ final class MyTubeChat {
         } catch (Exception unavailable) { return new String[]{"AI 연결·선택", ""}; }
     }
     private static String effortWord(String engine, String effort) {
-        return dev.jun.gyeot.core.WorkBook.CHATGPT.equals(engine) ? dev.jun.gyeot.core.Reasoning.gptShortLabel(effort) : MainActivity.effortName(effort);
+        return dev.jun.gyeot.core.WorkBook.CHATGPT.equals(engine) ? dev.jun.gyeot.core.Reasoning.gptShortLabel(effort)
+            : dev.jun.gyeot.core.WorkBook.CLAUDE.equals(engine) ? dev.jun.gyeot.core.Reasoning.claudeLabel(effort) : MainActivity.effortName(effort);
     }
     /** The menu over the model (ModelPopover): its models, 생각 깊이, 다른 AI and 모든 모델·설정; with none connected, the AI to connect. */
     private void chooseModel() {

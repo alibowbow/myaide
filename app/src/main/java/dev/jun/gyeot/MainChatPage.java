@@ -1275,7 +1275,7 @@ final class MainChatPage implements AutoCloseable {
     }
     private TextView action(String label, Runnable run) { TextView view = ui.ghost(label, run); view.setMinHeight(ui.dp(44)); return view; }
     /** A reasoning level as the Work picker names it: GPT's Light/Medium/…, the others' Korean depth names. */
-    static String level(String engine, String value) { return WorkBook.CHATGPT.equals(engine) ? Reasoning.gptShortLabel(value) : MainActivity.effortName(value); }
+    static String level(String engine, String value) { return WorkBook.CHATGPT.equals(engine) ? Reasoning.gptShortLabel(value) : WorkBook.CLAUDE.equals(engine) ? Reasoning.claudeLabel(value) : MainActivity.effortName(value); }
     /**
      * The reasoning level of the model in use, as capsules under the providers; each model keeps its own level (the same
      * per-model store the Work picker uses). Models without levels say so in one line; another provider's tab shows none.

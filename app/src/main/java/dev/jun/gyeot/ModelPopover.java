@@ -129,8 +129,7 @@ final class ModelPopover {
         card.addView(divider());
         Reasoning.Profile profile = catalog.profile(engine, current);
         if (!current.isBlank() && !profile.efforts.isEmpty()) {
-            String saved = selection.effort(engine, current);
-            depthRow = row("생각 깊이", catalog.effortLabel(engine, saved.isEmpty() ? profile.defaultEffort : saved), true, this::flyout); card.addView(depthRow);
+            depthRow = row("생각 깊이", catalog.effortLabel(engine, shown(engine, profile, selection.effort(engine, current))), true, this::flyout); card.addView(depthRow);
         }
         card.addView(row("다른 AI", WorkBook.author(engine), true, this::engines));
         card.addView(row(models.length() > SHOWN ? "더 많은 모델·설정" : "모델 설정", "", true, () -> { dismiss(); more.run(); }));
@@ -138,35 +137,54 @@ final class ModelPopover {
         if (team != null) { card.addView(divider()); card.addView(row("에이전트 팀", catalog.team(), true, () -> { dismiss(); team.run(); })); }
         resize();
     }
+    /** The level in effect: the saved one, else the model's default (Claude, which advertises none, thinks at 높음 by default). */
+    static String shown(String engine, Reasoning.Profile profile, String saved) {
+        if (!saved.isEmpty()) return saved;
+        if (!profile.defaultEffort.isEmpty()) return profile.defaultEffort;
+        return WorkBook.CLAUDE.equals(engine) && profile.efforts.contains("high") ? "high" : "";
+    }
+    /** The level marked 추천: the model's default, Claude's 중간 as on claude.ai. */
+    static String recommended(String engine, Reasoning.Profile profile) {
+        if (!profile.defaultEffort.isEmpty()) return profile.defaultEffort;
+        return WorkBook.CLAUDE.equals(engine) && profile.efforts.contains("medium") ? "medium" : "";
+    }
     /**
-     * 생각 깊이, as Claude's app does it: a small card beside the menu (on a narrow screen just above its row), a line on what
-     * depth costs, then each level with 추천 on the default and a check on the chosen one. The menu stays where it is.
+     * 생각 깊이, as Claude's app does it: a small card beside the menu (on a narrow screen just above its row), each level with
+     * 추천 on the recommended one and a check on the chosen one. Claude's card is claude.ai's: 최대 says what it costs, and
+     * Ultracode is a switch under the levels. Other AIs get a line on what depth costs instead. The menu stays where it is.
      */
     private void flyout() {
         if (flyout != null && flyout.isShowing()) { flyout.dismiss(); return; }
         String engine = selection.engine(), model = selection.model(engine);
         Reasoning.Profile profile = catalog.profile(engine, model);
         List<String> levels = profile.efforts; if (levels.isEmpty() || depthRow == null) return;
-        String saved = selection.effort(engine, model), shown = saved.isEmpty() ? profile.defaultEffort : saved;
+        boolean claude = WorkBook.CLAUDE.equals(engine);
+        String shown = shown(engine, profile, selection.effort(engine, model)), recommended = recommended(engine, profile);
         LinearLayout box = ui.column(); box.setBackground(ui.shape(CARD, 18)); box.setPadding(0, ui.dp(6), 0, ui.dp(6)); box.setClipToOutline(true);
-        TextView hint = ui.text("깊이 생각할수록 답이 철저해지지만, 시간이 더 걸리고 사용량이 늘어요.", 12, 450, MUTED);
-        hint.setPadding(ui.dp(14), ui.dp(4), ui.dp(14), ui.dp(6)); hint.setLineSpacing(ui.dp(1.5f), 1); box.addView(hint);
+        if (!claude) {
+            TextView hint = ui.text("깊이 생각할수록 답이 철저해지지만, 시간이 더 걸리고 사용량이 늘어요.", 12, 450, MUTED);
+            hint.setPadding(ui.dp(14), ui.dp(4), ui.dp(14), ui.dp(6)); hint.setLineSpacing(ui.dp(1.5f), 1); box.addView(hint);
+        }
         for (String level : levels) {
             boolean on = level.equals(shown);
             LinearLayout row = ui.row(); row.setMinimumHeight(ui.dp(38)); row.setPadding(ui.dp(14), 0, ui.dp(12), 0); row.setGravity(Gravity.CENTER_VERTICAL);
             String name = catalog.effortLabel(engine, level);
             row.addView(ui.text(name, 14.5f, on ? 650 : 500, TEXT), new LinearLayout.LayoutParams(-2, -2));
-            if (level.equals(profile.defaultEffort)) {
-                TextView badge = ui.text("추천", 10.5f, 600, MUTED); badge.setBackground(ui.shape(FILL, PILL)); badge.setPadding(ui.dp(7), ui.dp(1), ui.dp(7), ui.dp(2));
+            boolean costly = claude && "max".equals(level);
+            if (level.equals(recommended) || costly) {
+                // 추천 in a quiet pill; Claude's 최대 says, in an amber pill, that it uses far more.
+                TextView badge = ui.text(costly ? "⚠ 3.5× 이상 사용량" : "추천", 10.5f, 600, costly ? WARNING : MUTED);
+                badge.setBackground(ui.shape(costly ? (WARNING & 0x00ffffff) | 0x26000000 : FILL, PILL)); badge.setPadding(ui.dp(7), ui.dp(1), ui.dp(7), ui.dp(2)); badge.setMaxLines(1);
                 LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-2, -2); at.leftMargin = ui.dp(7); row.addView(badge, at);
             }
             row.addView(new View(activity), new LinearLayout.LayoutParams(0, 1, 1));
             TextView check = ui.text(on ? "✓" : "", 15, 700, ACCENT); check.setGravity(Gravity.END); row.addView(check, new LinearLayout.LayoutParams(ui.dp(20), -2));
-            row.setSelected(on); row.setContentDescription("생각 깊이 " + name + (level.equals(profile.defaultEffort) ? ", 추천" : "") + (on ? ", 선택됨" : ""));
+            row.setSelected(on); row.setContentDescription("생각 깊이 " + name + (level.equals(recommended) ? ", 추천" : "") + (costly ? ", 3.5배 이상 사용량" : "") + (on ? ", 선택됨" : ""));
             row.setOnClickListener(v -> set(engine, model, level)); Ui.pressable(row, true);
             box.addView(row);
         }
-        int width = Math.min(ui.dp(236), activity.getResources().getDisplayMetrics().widthPixels - ui.dp(24));
+        if (claude) { box.addView(divider()); box.addView(ultracode()); }
+        int width = Math.min(ui.dp(claude ? 248 : 236), activity.getResources().getDisplayMetrics().widthPixels - ui.dp(24));
         box.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         int height = box.getMeasuredHeight();
         flyout = new PopupWindow(box, width, height, true);
@@ -178,7 +196,10 @@ final class ModelPopover {
     /** Beside the menu on its left, level with the 생각 깊이 row, when there is room; else just above that row (below when no room above). */
     int[] flyoutAt(int width, int height) {
         int screenWidth = activity.getResources().getDisplayMetrics().widthPixels, screenHeight = activity.getResources().getDisplayMetrics().heightPixels;
-        int[] menu = new int[2], row = new int[2]; card.getLocationInWindow(menu); depthRow.getLocationInWindow(row);
+        // On-screen places, made relative to the screen's own window (the menu is a popup: its own window coordinates would not do).
+        int[] menu = new int[2], row = new int[2], base = new int[2];
+        card.getLocationOnScreen(menu); depthRow.getLocationOnScreen(row); anchor.getRootView().getLocationOnScreen(base);
+        menu[0] -= base[0]; menu[1] -= base[1]; row[0] -= base[0]; row[1] -= base[1];
         int x, y;
         if (menu[0] - width - ui.dp(8) >= ui.dp(8)) {
             x = menu[0] - width - ui.dp(8);
@@ -190,6 +211,19 @@ final class ModelPopover {
         }
         return new int[]{x, y};
     }
+    /** Claude's Ultracode switch: big work split up, each conclusion checked, gaps closed (ClaudeClient.ULTRACODE). Saved at once. */
+    private View ultracode() {
+        LinearLayout row = ui.row(); row.setMinimumHeight(ui.dp(40)); row.setPadding(ui.dp(14), 0, ui.dp(10), 0); row.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(ui.text("Ultracode", 14.5f, 500, TEXT), new LinearLayout.LayoutParams(0, -2, 1));
+        android.widget.Switch toggle = ui.toggle("", store.claude.ultracode(), on -> {
+            store.claude.ultracode(on); describe(row, on);
+        });
+        toggle.setPadding(0, 0, 0, 0); toggle.setSwitchPadding(0); toggle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        row.addView(toggle, new LinearLayout.LayoutParams(-2, -2));
+        describe(row, toggle.isChecked()); row.setOnClickListener(v -> toggle.setChecked(!toggle.isChecked())); Ui.pressable(row, true);
+        return row;
+    }
+    private static void describe(View row, boolean on) { row.setContentDescription("Ultracode, " + (on ? "켜짐" : "꺼짐") + " · 큰 일은 나눠서 끝까지 검증해 답해요"); }
     private void set(String engine, String model, String effort) {
         if (flyout != null) flyout.dismiss();
         if (effort.equals(selection.effort(engine, model))) return;

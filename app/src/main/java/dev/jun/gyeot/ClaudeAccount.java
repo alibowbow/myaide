@@ -59,6 +59,9 @@ final class ClaudeAccount {
     /** The chosen model's catalog entry (capabilities), or an empty one. */
     JSONObject info(String model) { JSONObject found = ClaudeProtocol.find(models(), model); return found == null ? new JSONObject() : found; }
     Reasoning.Profile profile(String model) { return Reasoning.profile(model, info(model)); }
+    /** Ultracode (생각 깊이 card): substantive work is split up, each conclusion checked, and gaps closed before answering. */
+    boolean ultracode() { return settings.getBoolean("claudeUltracode", false); }
+    void ultracode(boolean on) { settings.edit().putBoolean("claudeUltracode", on).apply(); changed.run(); }
     String effort(String model) { return new Reasoning.Selections(settings.getString("claudeEffort", "{}")).get(model, profile(model)); }
     void effort(String model, String effort) {
         if (!model.equals(model())) return;

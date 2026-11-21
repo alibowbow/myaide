@@ -29,6 +29,10 @@ import org.json.JSONObject;
  * it on a worker thread and run the cancel action (off the main thread) to stop it.
  */
 final class ClaudeClient {
+    /** Ultracode on: the most thorough, correct result for real work; light talk stays light. */
+    static final String ULTRACODE = "\n\nUltracode is on. For substantive work (research, analysis, code, writing, any multi-step task) aim for the most exhaustive, correct result, not the quickest: "
+        + "break the work into parts and cover each one fully, check every conclusion by trying to refute it, then ask what is still missing (a source not read, a claim not verified, a case not tried) and close those gaps before answering. "
+        + "For light conversation or a trivial request, answer as usual.";
     /** Room for the answer (and the thinking before it): a spoken or typed answer, and a long piece of work. */
     private static final int ANSWER_TOKENS = 32_000, WORK_TOKENS = 64_000, RETRIES = 2, CONTINUATIONS = 8;
     /** Main chat: room for a Markdown answer with a chart or diagram page in it (thinking included), still bounded. */
@@ -175,7 +179,7 @@ final class ClaudeClient {
             // Written for the tools this attempt really has, so the model is never told about one that was dropped.
             int textFrom = stream.text().length();
             String instructions = system.apply(useSearch, useCode) + (repos == null ? "" : repos.instructions())
-                + (progressOnly > 0 ? GitHubFunctions.CONTINUE_MERGE : "");
+                + (progressOnly > 0 ? GitHubFunctions.CONTINUE_MERGE : "") + (account.ultracode() ? ULTRACODE : "");
             JSONObject request = ClaudeProtocol.request(model, info, instructions, sending, maxTokens, effort, useSearch, useFetch, useCode, level, box, fallback, cache,
                 repos == null ? null : repos.claude(), summary, main ? MAIN_SEARCHES : 0);
             if (cacheSystem) ClaudeProtocol.cacheSystem(request);

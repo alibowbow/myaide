@@ -2826,7 +2826,7 @@ public final class MainActivity extends Activity {
         if (profile.efforts.isEmpty()) return new String[]{name, ""};
         return new String[]{name, effortWord(engine, effort.isEmpty() ? profile.defaultEffort : effort)};
     }
-    private static String effortWord(String engine, String effort) { return WorkBook.CHATGPT.equals(engine) ? Reasoning.gptShortLabel(effort) : effortName(effort); }
+    private static String effortWord(String engine, String effort) { return WorkBook.CHATGPT.equals(engine) ? Reasoning.gptShortLabel(effort) : WorkBook.CLAUDE.equals(engine) ? Reasoning.claudeLabel(effort) : effortName(effort); }
     /** The small menu over the chip (ModelPopover); its 더 많은 모델·설정 opens the full sheet (pickWorkModel). */
     private void modelPopover(View anchor) {
         ScopedModels selection = workModels();

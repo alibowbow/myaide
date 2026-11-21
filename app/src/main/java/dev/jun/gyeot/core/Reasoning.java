@@ -60,6 +60,13 @@ public final class Reasoning {
             default -> "기본";
         };
     }
+    /** Claude's own words for its levels, as on claude.ai: 낮음 · 중간 · 높음 · 엑스트라 · 최대. */
+    public static String claudeLabel(String effort) {
+        return switch (effort) {
+            case "low" -> "낮음"; case "medium" -> "중간"; case "high" -> "높음"; case "xhigh" -> "엑스트라"; case "max" -> "최대";
+            case "none" -> "끔"; case "minimal" -> "최소"; case "ultra" -> "최고"; default -> "기본";
+        };
+    }
     public static String label(String effort) {
         return switch (effort) {
             case "none" -> "None · 추론 끄기";
