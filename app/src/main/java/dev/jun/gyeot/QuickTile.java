@@ -8,7 +8,7 @@ import android.service.quicksettings.TileService;
 import dev.jun.gyeot.core.Brand;
 
 /**
- * Quick settings tile "곁": one tap starts the voice assistant, another ends it. It goes through QuickVoiceActivity, because
+ * Quick settings tile "들퍼레": one tap starts the voice assistant, another ends it. It goes through QuickVoiceActivity, because
  * only a visible activity lets the voice service use the microphone; on the lock screen it asks to unlock first.
  */
 public final class QuickTile extends TileService {

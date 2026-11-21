@@ -6,7 +6,7 @@ package dev.jun.gyeot.core;
  * Package names, file names and stored data keep the old "gyeot" id so updates and saved data carry over.
  */
 public final class Brand {
-    public static final String NAME = "들퍼레", FORMER = "곁";
+    public static final String NAME = "들퍼레";
     /** NAME with 이/가, 을/를, 은/는, 과/와 and 으로/로. */
     public static final String I = josa(NAME, "이", "가"), EUL = josa(NAME, "을", "를"), EUN = josa(NAME, "은", "는"), GWA = josa(NAME, "과", "와"), EURO = euro(NAME);
     private Brand() {}
@@ -14,13 +14,13 @@ public final class Brand {
     /** The assistant's name as the user set it in its profile (AssistantProfile), or NAME when it is unset. */
     public static String assistant(String name) { String clean = name == null ? "" : name.strip(); return clean.isEmpty() ? NAME : clean; }
     /**
-     * Who the assistant is, for its instructions: the profile name and what else it answers to. NAME itself reads as
-     * before; a name the user gave keeps the app's name beside it.
+     * Who the assistant is, for its instructions: the profile name, the only name it calls itself by. A name the user gave
+     * keeps the app's name beside it.
      */
     public static String called(String name) {
         String clean = assistant(name);
-        return clean.equals(NAME) ? NAME + " (formerly called " + FORMER + "; answer to either name)"
-            : clean + " (the name the user gave you; the app is " + NAME + ", formerly called " + FORMER + "; answer to any of these names)";
+        return clean.equals(NAME) ? NAME + " (call yourself only by this name)"
+            : clean + " (the name the user gave you; the app is " + NAME + "; call yourself only by " + clean + ")";
     }
     /** The word with the particle form that follows a final consonant, or the one that follows a vowel. */
     public static String josa(String word, String afterConsonant, String afterVowel) {

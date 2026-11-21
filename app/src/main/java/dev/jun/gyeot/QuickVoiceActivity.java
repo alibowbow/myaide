@@ -12,13 +12,13 @@ import dev.jun.gyeot.core.Brand;
 import dev.jun.gyeot.core.GeminiProtocol;
 
 /**
- * "곁 바로 대화": a see-through entry (app shortcut, quick settings tile, edge button, assist gesture) that starts the voice
+ * "들퍼레 바로 대화": a see-through entry (app shortcut, quick settings tile, edge button, assist gesture) that starts the voice
  * assistant, or ends voice when it is already on. It stays (invisibly) on screen until the service holds the
  * microphone, because Android grants a foreground service the microphone only while the app is visible. Without a key or
- * microphone permission it opens 곁, which asks for what is missing.
+ * microphone permission it opens 들퍼레, which asks for what is missing.
  */
 public final class QuickVoiceActivity extends Activity {
-    /** Long enough for the service to start; if voice fails, the error shows in 곁's notification. */
+    /** Long enough for the service to start; if voice fails, the error shows in 들퍼레's notification. */
     private static final long WAIT_MS = 4000;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Runnable observer = this::check;

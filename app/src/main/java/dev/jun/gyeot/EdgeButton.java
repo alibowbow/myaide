@@ -24,7 +24,7 @@ import dev.jun.gyeot.core.Brand;
 import java.util.List;
 
 /**
- * Optional "곁" handle on the screen edge, drawn by the accessibility service so nothing has to keep running or listening.
+ * Optional "들퍼레" handle on the screen edge, drawn by the accessibility service so nothing has to keep running or listening.
  * Swiping it into the screen (or a tap) starts voice through QuickVoiceActivity at once; a drag along the edge moves it; a
  * long press offers 열기 · 반대쪽으로 · 잠깐 숨기기 · 버튼 끄기. It hides during voice, phone control and on the lock screen. It never reads the screen.
  */

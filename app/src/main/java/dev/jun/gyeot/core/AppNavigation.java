@@ -123,7 +123,7 @@ public final class AppNavigation {
     }
     public static boolean ownApp(String name) {
         String value = compact(name);
-        return Set.of(compact(Brand.NAME), compact(Brand.FORMER), "들퍼래", "들프레", "들파레", "들판앱", "이앱", "우리앱", "devjungyeot").contains(value);
+        return Set.of(compact(Brand.NAME), "들퍼래", "들프레", "들파레", "들판앱", "이앱", "우리앱", "devjungyeot").contains(value);
     }
     private static final Pattern MOVE = Pattern.compile("열|보여|들어가|들어오|이동|돌아가|가줘|가자|켜줘|띄워");
     private static final Pattern DENY = Pattern.compile("열지|가지마|가지말|들어가지|이동하지|켜지마|켜지말|열면안|안열|열필요없|취소|그만|멈춰|재생하지|틀지마|틀지말|보여주지");

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Long-press 곁's icon: "바로 대화" starts (or ends) voice without opening the app. -->
+<!-- Long-press 들퍼레's icon: "바로 대화" starts (or ends) voice without opening the app. -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
     <shortcut android:shortcutId="talk" android:enabled="true" android:icon="@mipmap/ic_quick_launcher"
         android:shortcutShortLabel="@string/quick_voice_short" android:shortcutLongLabel="@string/quick_voice_long">

@@ -7,6 +7,8 @@
     <!-- A voice call notices at once when the default network drops or returns (install-time, no prompt). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- GPT-Live's call (a WebView WebRTC call) sets the call's sound route: headset or speaker. -->
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 차에서 호출어: which Bluetooth device is the car, and when it connects. -->
@@ -67,7 +69,7 @@
         <activity android:name=".MainChatActivity" android:exported="true" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask"
             android:alwaysRetainTaskState="true" android:windowSoftInputMode="adjustResize">
-            <!-- "Back to 곁" link on the ChatGPT sign-in completion page; it only opens settings. -->
+            <!-- "Back to 들퍼레" link on the ChatGPT sign-in completion page; it only opens settings. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -82,7 +84,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Long-press 곁's icon: "바로 대화". -->
+            <!-- Long-press 들퍼레's icon: "바로 대화". -->
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
         <!-- Voice-only entry for the existing app shortcut, quick settings tile, edge button and assist gesture.
@@ -122,7 +124,7 @@
         </provider>
         <!-- The verified update APK, lent read-only to Android's package installer for one install. -->
         <provider android:name=".UpdateFiles" android:authorities="dev.jun.gyeot.updates" android:exported="false" android:grantUriPermissions="true" />
-        <!-- Quick settings tile "곁": only the system UI can bind it; a tap goes through QuickVoiceActivity. -->
+        <!-- Quick settings tile "들퍼레": only the system UI can bind it; a tap goes through QuickVoiceActivity. -->
         <service android:name=".QuickTile" android:exported="true" android:label="@string/quick_tile_label"
             android:icon="@drawable/ic_mic" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
@@ -131,7 +133,7 @@
             <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="true" />
         </service>
         <!-- Phone control: Android binds it only after the user turns it on in Accessibility settings, and it acts only while
-             the user has armed it in 곁. -->
+             the user has armed it in 들퍼레. -->
         <service android:name=".PhoneService" android:exported="true" android:label="@string/phone_service_label"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>

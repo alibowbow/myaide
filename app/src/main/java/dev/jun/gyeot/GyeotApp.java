@@ -12,6 +12,8 @@ public final class GyeotApp extends Application {
         return boardJobs;
     }
     private int startedActivities;
+    /** The activity of this app in front now, if any (main thread). */
+    private java.lang.ref.WeakReference<Activity> resumed = new java.lang.ref.WeakReference<>(null);
     @Override public void onCreate() {
         super.onCreate();
         // Gecko also starts Android child processes. They must not restore/cancel the main app's work journal.
@@ -20,8 +22,8 @@ public final class GyeotApp extends Application {
                 @Override public void onActivityStarted(Activity activity) { startedActivities++; }
                 @Override public void onActivityStopped(Activity activity) { if (startedActivities > 0) startedActivities--; }
                 @Override public void onActivityCreated(Activity activity, Bundle saved) {}
-                @Override public void onActivityResumed(Activity activity) {}
-                @Override public void onActivityPaused(Activity activity) {}
+                @Override public void onActivityResumed(Activity activity) { resumed = new java.lang.ref.WeakReference<>(activity); }
+                @Override public void onActivityPaused(Activity activity) { if (resumed.get() == activity) resumed = new java.lang.ref.WeakReference<>(null); }
                 @Override public void onActivitySaveInstanceState(Activity activity, Bundle state) {}
                 @Override public void onActivityDestroyed(Activity activity) {}
             });
@@ -38,6 +40,8 @@ public final class GyeotApp extends Application {
     }
     /** Any of this app's activities is started, not only MainActivity: the app has a visible window. */
     boolean activityVisible() { return startedActivities > 0; }
+    /** This app's activity in front now, or null (main thread). */
+    Activity resumed() { return resumed.get(); }
     public AppStore store() {
         if (store == null) throw new IllegalStateException("AppStore is only available in the main process");
         return store;

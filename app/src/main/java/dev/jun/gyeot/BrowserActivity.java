@@ -405,6 +405,17 @@ public final class BrowserActivity extends Activity {
         dialog.setOnDismissListener(d -> { consent.set(false); dialogs.remove(dialog); if (youtubeDialog == dialog) youtubeDialog = null; });
         dialog.show();
     }
+    /**
+     * The page as drawn now and where it sits in the window, for 화면 보기 (GeckoView draws on a surface of its own, which a
+     * copy of the window leaves out); null when there is none. The answer comes on the main thread.
+     */
+    void pagePixels(java.util.function.BiConsumer<android.graphics.Bitmap, int[]> done) {
+        GeckoView view = web;
+        if (view == null || !view.isShown() || view.getWidth() <= 0 || view.getHeight() <= 0) { done.accept(null, null); return; }
+        int[] at = new int[2]; view.getLocationInWindow(at);
+        try { view.capturePixels().accept(bitmap -> done.accept(bitmap, at), failure -> done.accept(null, null)); }
+        catch (RuntimeException failed) { done.accept(null, null); }
+    }
     @Override protected void onResume() { super.onResume(); if (voice != null) voice.attach(); navigationResumed = true; AppNavigator.browserInFront(true); AppNavigator.inFront("browser"); updateAiToolbarState(); engine.attach(this::refresh, prompts); engine.externalAppLink = this::offerYouTube; engine.store.observe(storeObserver); consumeTaskNotification(); consumeOpen(); acknowledgeNavigation(); }
     @Override protected void onPause() {
         if (voice != null) voice.detach();

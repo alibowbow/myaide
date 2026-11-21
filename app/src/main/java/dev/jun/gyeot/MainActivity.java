@@ -471,14 +471,14 @@ public final class MainActivity extends Activity {
         if (ConnectedVoice.TOKEN.equals(token) && (intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) == 0 && mainChat != null) mainChat.talkWhenResumed();
         return true;
     }
-    /** "곁 바로 대화" handed over because something was missing: the normal start asks for the key or permission. */
+    /** "들퍼레 바로 대화" handed over because something was missing: the normal start asks for the key or permission. */
     private void startFromShortcut(Intent intent) {
         if (!intent.getBooleanExtra(START_VOICE, false) || (intent.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0) return;
         intent.removeExtra(START_VOICE);
         if (store.voiceActive) return;
         mode = ASSISTANT; recordingPage = false; showTab(0); startVoice();
     }
-    /** The "back to 곁" link on the ChatGPT sign-in page. */
+    /** The "back to 들퍼레" link on the ChatGPT sign-in page. */
     private static boolean fromSignIn(Intent intent) { Uri data = intent.getData(); return data != null && "gyeot".equals(data.getScheme()) && "openai-done".equals(data.getHost()); }
     /** The settings page the sign-in started from: Gemini's (Google sign-in, ?page=gemini), 커넥터 (MCP sign-in, ?page=connectors) or ChatGPT's. Nothing else is opened. */
     private static String signInPage(Intent intent) {
@@ -4379,7 +4379,7 @@ public final class MainActivity extends Activity {
      * first step there is no screen to see, so the way there comes first.
      */
     private void pageLook() {
-        if (!PhoneService.connected()) { TextView need = ui.banner("폰 조작 1단계(접근성)를 먼저 켜 주세요 ›", WARNING); need.setOnClickListener(v -> openSettings("phone")); Ui.pressable(need, true); add(need, 12); }
+        if (!PhoneService.connected()) { TextView need = ui.banner("다른 앱 화면까지 보려면 폰 조작 1단계(접근성)를 먼저 켜 주세요 ›", WARNING); need.setOnClickListener(v -> openSettings("phone")); Ui.pressable(need, true); add(need, 12); }
         LinearLayout look = ui.group();
         ui.addRow(look, ui.switchRow("화면 보기 허용", "“화면 봐 줘”라고 하면 지금 화면 한 장을 보고 이야기해요", store.screenView(), value -> {
             store.settings.edit().putBoolean("screenView", value).apply();
@@ -4387,6 +4387,7 @@ public final class MainActivity extends Activity {
         }), false);
         add(look, 0);
         add(ui.footer("작은 음성 버튼 메뉴의 ‘화면 보기’로도 돼요. 계속 보는 영상 공유는 아니에요."), 0);
+        add(ui.footer("메인 대화·작업창·AI 브라우저·판서의 음성 대화(GPT·Grok)에서도 돼요. " + Brand.NAME + " 화면은 접근성 없이도 보고, 다른 앱 화면은 접근성이 켜져 있을 때 봐요. GPT 실시간은 화면을 직접 보고, Grok과 GPT 최신 음성은 ChatGPT 연결이 화면을 글로 풀어 전해 줘요."), 0);
         add(ui.footer("잠금 화면은 보지 않고, 캡처를 막은 화면은 검게 보여요. 화면 이미지는 기기에 저장하지 않아요."), 0);
         add(ui.details("자세히", "음성 대화 중 “화면 보면서 이야기하자”라고 하면 하던 폰 조작을 멈추고 화면 보기로 바꿔요. 그다음 “아래로 내려 줘”처럼 지시하면 다시 조작해요. 폰 조작도 허용했다면 화면의 글자·버튼 정보가 부족할 때만 화면 한 장을 함께 봐요. 비밀번호·인증 화면은 보내지 않고, 이 스위치를 끄면 이것도 꺼져요. 폰 조작 1단계(접근성)가 필요하고, 2단계(허용)는 없어도 돼요.\n"
             + "업데이트 뒤 ‘캡처를 허용하지 않았어요’가 나오면 접근성에서 ‘" + Brand.NAME + " 폰 조작’을 껐다가 다시 켜 주세요."), 16);
@@ -4606,7 +4607,7 @@ public final class MainActivity extends Activity {
         ui.addRow(links, ui.listRow(R.drawable.ic_download, Ui.GRAY, "릴리스 페이지", "GitHub", ui.chevron(), () -> open(dev.jun.gyeot.core.UpdateCheck.RELEASES_PAGE)), true);
         add(links, 0);
         add(ui.footer("모델별 무료 티어와 프로젝트 할당량이 적용돼요."), 0);
-        add(ui.footer(Brand.NAME + " · 개인용 시제품 (옛 이름 " + Brand.FORMER + ")"), 16);
+        add(ui.footer(Brand.NAME + " · 개인용 시제품"), 16);
     }
     private void refreshUpdate() {
         dev.jun.gyeot.core.UpdateCheck.Update update = store.updater.available;

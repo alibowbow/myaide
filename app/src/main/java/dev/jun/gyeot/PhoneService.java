@@ -493,7 +493,7 @@ public final class PhoneService extends AccessibilityService {
     private void requireScreenView() {
         AppStore store = getApplication() instanceof GyeotApp app ? app.store() : null;
         if (store == null || !store.screenView()) throw new IllegalStateException(Brand.NAME + " 설정에서 ‘화면 보기’를 켜야 화면을 볼 수 있어요.");
-        if (!store.voiceActive) throw new IllegalStateException("화면 보기는 음성 대화 중에만 돼요.");
+        if (!store.voiceActive && store.voiceChat == null) throw new IllegalStateException("화면 보기는 음성 대화 중에만 돼요.");
         requireUnlocked();
     }
     private void capture(Runnable guard, Look once) {

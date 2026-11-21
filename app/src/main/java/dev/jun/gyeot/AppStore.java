@@ -522,7 +522,7 @@ final class AppStore {
     boolean voiceOnOpen() { return settings.getBoolean("voiceOnOpen", false); }
     /** Make quiet speech easier to catch (sensitive microphone and voice detection); on by default. */
     boolean quietSpeech() { return settings.getBoolean("quietSpeech", true); }
-    /** Pause the microphone while 곁 speaks through the phone speaker so it does not hear and interrupt itself. */
+    /** Pause the microphone while 들퍼레 speaks through the phone speaker so it does not hear and interrupt itself. */
     boolean echoGuard() { return settings.getBoolean("echoGuard", true); }
     /** 켤 때 인사하기: the voice assistant greets the moment a call starts, before it is connected (Greeter); on by default. */
     boolean greetOnStart() { return settings.getBoolean("greetOnStart", true); }

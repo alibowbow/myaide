@@ -173,7 +173,8 @@ final class VoiceBar {
         LinearLayout who = ui.group();
         String[] labels = {"GPT" + (usable(RealtimeVoice.Kind.GPT) ? "" : " · 로그인 필요"), "Grok" + (usable(RealtimeVoice.Kind.GROK) ? "" : " · 로그인 필요")};
         ui.addRow(who, ui.choiceRow("대화 상대", "음성 대화 상대", "실시간 음성으로 대답할 AI", labels, current.ordinal(), index -> {
-            store.settings.edit().putString(KIND, RealtimeVoice.Kind.values()[index].name()).apply(); sheet.dismiss(); settings("");
+            store.settings.edit().putString(KIND, RealtimeVoice.Kind.values()[index].name()).apply(); sheet.dismiss();
+            if (!restart()) settings("");
         }), false);
         // GPT: GPT-Live's newest voices first (한울, 햇살…), then the Realtime voices.
         java.util.List<String> ids = new java.util.ArrayList<>(), names = new java.util.ArrayList<>();
@@ -181,9 +182,20 @@ final class VoiceBar {
         for (String v : current.voices()) { ids.add(v); names.add(current == RealtimeVoice.Kind.GPT ? v + " · 실시간" : v); }
         int at = ids.indexOf(voice(current));
         ui.addRow(who, ui.choiceRow("목소리", current.label + " 목소리", current == RealtimeVoice.Kind.GPT
-                ? "최신 목소리는 GPT-Live로 말해요. 열리지 않으면 실시간 목소리로 이어요. 음성 비서와 판서는 실시간 목소리로 읽어요." : "다음 음성 대화부터 적용돼요",
-            names.toArray(new String[0]), Math.max(0, at), index -> store.settings.edit().putString(AppStore.ASSISTANT_VOICE + current.name(), ids.get(index)).apply()), false);
+                ? "최신 목소리는 GPT-Live로 말해요. 열리지 않으면 실시간 목소리로 이어요. 음성 비서와 판서는 실시간 목소리로 읽어요." : "대화 중이면 바로 이 목소리로 다시 연결해요",
+            names.toArray(new String[0]), Math.max(0, at), index -> {
+                store.settings.edit().putString(AppStore.ASSISTANT_VOICE + current.name(), ids.get(index)).apply();
+                VoiceChat.retryLive();
+                if (talking()) { sheet.dismiss(); restart(); }
+            }), false);
         sheet.body.addView(who);
+        // 화면 보기: the same permission as the voice assistant's; asked aloud, the voice looks at the screen once.
+        LinearLayout look = ui.group();
+        ui.addRow(look, ui.switchRow("화면 보기", "“화면 봐 줘”라고 하면 지금 화면 한 장을 보고 이야기해요", store.screenView(), value -> {
+            store.settings.edit().putBoolean("screenView", value).apply(); store.changed();
+            toast(value ? "화면 보기를 켰어요 · " + VoiceScreen.reach() : "화면 보기를 껐어요");
+        }), false);
+        LinearLayout.LayoutParams lookGap = new LinearLayout.LayoutParams(-1, -2); lookGap.topMargin = ui.dp(12); sheet.body.addView(look, lookGap);
         LinearLayout sign = ui.group();
         if (current == RealtimeVoice.Kind.GPT) {
             boolean codex = store.codexImages.connected();
@@ -213,6 +225,16 @@ final class VoiceBar {
             });
             tracker.accept(sheet); sheet.show();
         }), false);
+    }
+    /** Whether a conversation of this screen is on now. */
+    private boolean talking() { VoiceChat c = store.voiceChat; return c != null && mine(c) && c.state() != VoiceChat.State.ENDED; }
+    /**
+     * The partner or voice changed while this screen talks: the conversation ends (what was said stays) and starts again at
+     * once with the new choice. False when nothing was on.
+     */
+    private boolean restart() {
+        if (!talking()) return false;
+        store.voiceChat.end(""); start(); return true;
     }
     private void toast(String text) { Toast.makeText(activity, text, Toast.LENGTH_LONG).show(); }
 }

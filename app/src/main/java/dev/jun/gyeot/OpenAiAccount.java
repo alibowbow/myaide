@@ -36,7 +36,7 @@ import javax.net.ssl.HttpsURLConnection;
 import static dev.jun.gyeot.core.Jsons.*;
 
 /**
- * The OpenAI connection used as 곁's analysis LLM: either "Sign in with ChatGPT" (the user's plan pays, no API key) or an
+ * The OpenAI connection used as 들퍼레's analysis LLM: either "Sign in with ChatGPT" (the user's plan pays, no API key) or an
  * API key. Credentials live encrypted in SecretStore; network work runs on a private thread, never the main thread.
  */
 final class OpenAiAccount {

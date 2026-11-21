@@ -6,6 +6,7 @@ import android.os.Looper;
 import android.os.SystemClock;
 import dev.jun.gyeot.core.BargeIn;
 import dev.jun.gyeot.core.RealtimeVoice;
+import dev.jun.gyeot.core.ScreenView;
 import dev.jun.gyeot.core.VoiceChatLog;
 import java.net.Socket;
 import java.net.URI;
@@ -24,8 +25,9 @@ import org.java_websocket.handshake.ServerHandshake;
  * Grok (xAI Voice Agent, with the Grok sign-in or an xAI key) in real time, in core/RealtimeVoice's events. The phone's
  * microphone goes up at 24 kHz and the answer plays as it comes; the server finds the turns. While the answer plays
  * through the phone the microphone rests, and a voice clearly louder than the answer's echo (core/BargeIn) stops it. What
- * both said is written into the main chat as it is settled (core/VoiceChatLog), so typing carries on from it. One at a
- * time (AppStore.voiceChat); state is read and changed on the main thread.
+ * both said is written into the main chat as it is settled (core/VoiceChatLog), so typing carries on from it. GPT's newest
+ * voices run on GPT-Live, a WebRTC call (LiveCall) made with the Codex sign-in. Asked to, it looks at the screen once
+ * (VoiceScreen) when 화면 보기 is on. One at a time (AppStore.voiceChat); state is read and changed on the main thread.
  */
 final class VoiceChat {
     enum State { CONNECTING, LISTENING, HEARING, THINKING, SPEAKING, ENDED }
@@ -65,6 +67,11 @@ final class VoiceChat {
     final String chosen;
     /** On GPT-Live now; turned off for the process when GPT-Live does not open with this sign-in (then GPT Realtime). */
     private volatile boolean live; private static volatile boolean liveRefused;
+    /** The user picked a voice again: GPT-Live is tried again. */
+    static void retryLive() { liveRefused = false; }
+    /** GPT-Live's call, and its sideband (the call's events by its id); which of the two the events come from (0 not yet). */
+    private volatile LiveCall call; private volatile WebSocketClient side; private volatile int source;
+    private final String voiceSession = java.util.UUID.randomUUID().toString();
     /** GPT-Live's turns as this app counts them: the user's, and the answers (audio, words and the log follow them). */
     private int liveUser; private volatile int liveAnswer;
     private final Context context; private final AppStore store;
@@ -121,12 +128,21 @@ final class VoiceChat {
     void start() {
         VoiceChatService.start(context);
         work.execute(this::connect);
-        main.postDelayed(() -> { if (!ready && !ended) end(kind.label + " 음성 연결 시간이 초과됐어요. 네트워크와 로그인을 확인해 주세요."); }, CONNECT_MS);
+        deadline();
         changed();
+    }
+    /** A connection that has not begun in time: GPT-Live goes on in GPT Realtime, anything else ends. */
+    private void deadline() {
+        main.postDelayed(() -> {
+            if (ready || ended) return;
+            if (live) fallBack("연결 시간 초과");
+            else end(kind.label + " 음성 연결 시간이 초과됐어요. 네트워크와 로그인을 확인해 주세요.");
+        }, CONNECT_MS);
     }
     void toggleMute() {
         if (ended) return;
         muted = !muted; Microphone m = mic; if (m != null) m.muted(muted);
+        LiveCall c = call; if (c != null) c.mute(muted || held);
         changed();
     }
     /** Ends the conversation (the user's hand when failure is empty); what was said and settled is written down. */
@@ -137,6 +153,7 @@ final class VoiceChat {
         Microphone m = mic; mic = null; if (m != null) m.close();
         Speaker s = speaker; speaker = null; if (s != null) s.close();
         WebSocketClient w = socket; socket = null; if (w != null) shutdown(w);
+        closeLive();
         for (Map.Entry<String, StringBuilder> unfinished : answers.entrySet()) log.answered(unfinished.getKey(), unfinished.getValue().toString(), true, SystemClock.uptimeMillis());
         answers.clear();
         write(log.rest());
@@ -156,17 +173,21 @@ final class VoiceChat {
     private void connect() {
         if (ended) return;
         try {
-            String instructions = target.instructions(); org.json.JSONArray tools = target.tools();
+            String handOff = target.handOff();
+            // GPT's newest voices: a GPT-Live call with the Codex sign-in (the ChatGPT plan); no other key opens it.
+            boolean onLive = live = kind == RealtimeVoice.Kind.GPT && RealtimeVoice.live(chosen) && !liveRefused && store.codexImages.connected();
+            String instructions = target.instructions() + RealtimeVoice.screenNote(onLive);
+            if (onLive) {
+                connectLive(instructions + (handOff.isEmpty() ? "" : "\n\nOn this voice, hand anything the instructions above say to give to " + handOff
+                    + " to the app instead (delegation): say what to do in the user's words; the app does it and gives you the result to tell."));
+                return;
+            }
+            org.json.JSONArray tools = target.tools(); tools.put(RealtimeVoice.screenTool());
             VoiceCredentials.Credential credential = credential(); signedIn = credential.signIn();
             String token = credential.token();
-            boolean onLive = live = kind == RealtimeVoice.Kind.GPT && RealtimeVoice.live(chosen) && !liveRefused;
-            String handOff = target.handOff();
-            String liveInstructions = instructions + (handOff.isEmpty() ? "" : "\n\nOn this voice, hand anything the instructions above say to give to " + handOff
-                + " to the app instead (delegation): say what to do in the user's words; the app does it and gives you the result to tell.");
-            Map<String, String> headers = onLive ? Map.of("Authorization", "Bearer " + token, "openai-alpha", "quicksilver=v2") : Map.of("Authorization", "Bearer " + token);
-            WebSocketClient client = new WebSocketClient(URI.create(onLive ? RealtimeVoice.LIVE_URL : kind.url()), new Draft_6455(), headers, 15_000) {
+            WebSocketClient client = new WebSocketClient(URI.create(kind.url()), new Draft_6455(), Map.of("Authorization", "Bearer " + token), 15_000) {
                 @Override public void onOpen(ServerHandshake handshake) {
-                    send(onLive ? RealtimeVoice.liveSession(liveInstructions, chosen).toString() : RealtimeVoice.session(kind, instructions, voice, tools).toString());
+                    send(RealtimeVoice.session(kind, instructions, voice, tools).toString());
                     // A server that takes the session without saying so still hears the user.
                     main.postDelayed(() -> { if (!ended && !ready) ready(); }, READY_MS);
                 }
@@ -179,12 +200,73 @@ final class VoiceChat {
             if (ended) return;
             socket = client; client.connect();
         } catch (Missing missing) { needsSetup = true; main.post(() -> end(missing.getMessage())); }
-        catch (Exception error) { String message = error.getMessage(); main.post(() -> end(kind.label + " 음성 대화를 시작하지 못했어요" + (message == null || message.isBlank() ? "." : ": " + message))); }
+        catch (Exception error) {
+            if (live) { String why = error.getMessage(); main.post(() -> { if (!ended) fallBack(why); }); return; }
+            String message = error.getMessage(); main.post(() -> end(kind.label + " 음성 대화를 시작하지 못했어요" + (message == null || message.isBlank() ? "." : ": " + message)));
+        }
+    }
+    /**
+     * GPT-Live: a WebRTC call (LiveCall) whose offer goes to LIVE_CALLS with the session; the answer opens it. Its events
+     * come on the data channel, and on the sideband joined by the call's id; whichever speaks first is followed.
+     */
+    private void connectLive(String instructions) throws Exception {
+        String token = store.codexImages.voiceToken(rejected), account = store.codexImages.voiceAccount();
+        LiveCall[] made = new LiveCall[1];
+        LiveCall c = made[0] = new LiveCall(context, new LiveCall.Listener() {
+            @Override public void opened() { main.post(() -> { if (!ended && call == made[0] && !ready) ready(); }); }
+            @Override public void message(String json) { if (call == made[0]) receiveLive(1, json); }
+            @Override public void failed(String why, int status) { main.post(() -> liveFailed(made[0], token, why, status)); }
+        });
+        if (ended) { c.close(); return; }
+        call = c; c.mute(muted || held);
+        c.start(offer -> {
+            java.net.HttpURLConnection http = (java.net.HttpURLConnection) new java.net.URL(RealtimeVoice.LIVE_CALLS).openConnection();
+            try {
+                http.setRequestMethod("POST"); http.setConnectTimeout(15_000); http.setReadTimeout(20_000); http.setDoOutput(true);
+                for (Map.Entry<String, String> h : RealtimeVoice.liveHeaders(token, account, voiceSession).entrySet()) http.setRequestProperty(h.getKey(), h.getValue());
+                http.setRequestProperty("Content-Type", "application/json");
+                byte[] body = RealtimeVoice.liveCall(offer, RealtimeVoice.liveSession(instructions, chosen)).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                try (java.io.OutputStream out = http.getOutputStream()) { out.write(body); }
+                int status = http.getResponseCode();
+                java.io.InputStream in = status >= 400 ? http.getErrorStream() : http.getInputStream();
+                String reply = in == null ? "" : new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                if (status >= 300) { String why = RealtimeVoice.liveRefusal(reply); throw new LiveCall.Refused("GPT-Live " + status + (why.isEmpty() ? "" : " · " + why), status); }
+                String id = RealtimeVoice.liveCallId(http.getHeaderField("Location"));
+                if (!id.isEmpty()) sideband(id, token, account);
+                return RealtimeVoice.liveAnswer(reply);
+            } finally { http.disconnect(); }
+        });
+    }
+    /** The call's events by its id, as Codex follows them; used only if the data channel says nothing first. */
+    private void sideband(String id, String token, String account) {
+        if (ended || !live) return;
+        try {
+            WebSocketClient ws = new WebSocketClient(URI.create(RealtimeVoice.LIVE_SIDEBAND + id), new Draft_6455(), RealtimeVoice.liveHeaders(token, account, voiceSession), 15_000) {
+                @Override public void onOpen(ServerHandshake handshake) {}
+                @Override public void onMessage(String text) { if (side == this) receiveLive(2, text); }
+                @Override public void onMessage(ByteBuffer bytes) {}
+                @Override public void onClose(int code, String reason, boolean remote) { if (side == this) side = null; }
+                @Override public void onError(Exception error) {}
+            };
+            ws.setConnectionLostTimeout(30);
+            side = ws; ws.connect();
+        } catch (Exception unavailable) { /* The data channel still carries the call's events. */ }
+    }
+    /** GPT-Live's call ended or never opened: before the conversation began it goes on in GPT Realtime (a token turned down is refreshed once first). */
+    private void liveFailed(LiveCall which, String token, String why, int status) {
+        if (ended || which != call) return;
+        if (!ready && (status == 401 || status == 403) && attempts++ == 0) { rejected = token; closeLive(); work.execute(this::connect); return; }
+        if (!ready) { fallBack(why); return; }
+        end("연결이 끊겨 음성 대화를 마쳤어요.");
+    }
+    private void closeLive() {
+        LiveCall c = call; call = null; if (c != null) c.close();
+        WebSocketClient w = side; side = null; if (w != null) shutdown(w);
+        source = 0;
     }
     private void closed(WebSocketClient which, String token, String reason) {
         if (ended || which != socket) return;
         int status = RealtimeVoice.refused((reason == null ? "" : reason) + " " + lastError);
-        if (live && !ready) { fallBack(); return; }
         // A sign-in's token turned down before the conversation began: refreshed once, then asked again.
         if (!ready && signedIn && (status == 401 || status == 403) && attempts++ == 0) { rejected = token; socket = null; work.execute(this::connect); return; }
         needsSetup = !ready && (status == 401 || status == 403);
@@ -194,13 +276,21 @@ final class VoiceChat {
      * GPT-Live did not open (this sign-in, this voice): the conversation goes on in GPT Realtime with its own voice, and
      * GPT-Live is not tried again in this process.
      */
-    private void fallBack() {
-        liveRefused = true; live = false;
+    private void fallBack(String why) {
+        liveRefused = true; live = false; closeLive();
         WebSocketClient old = socket; socket = null; if (old != null) shutdown(old);
-        words = "최신 음성(GPT-Live)이 열리지 않아 " + voice + " 목소리로 이어요"; changed();
+        words = "최신 음성(GPT-Live)이 열리지 않아 " + voice + " 목소리로 이어요" + (why == null || why.isBlank() ? "" : " · " + why); changed();
+        main.removeCallbacksAndMessages(null); deadline();
         work.execute(this::connect);
     }
+    /** An event for the server: GPT-Live's call (or its sideband, when that is where its events come from), or Realtime's socket. */
     private void send(String text) {
+        if (live) {
+            WebSocketClient w = side;
+            if (source == 2 && w != null && w.isOpen()) { try { w.send(text); } catch (Exception dropped) {} return; }
+            LiveCall c = call; if (c != null) c.send(text);
+            return;
+        }
         WebSocketClient w = socket;
         if (w != null && w.isOpen()) try { w.send(text); } catch (Exception dropped) {}
     }
@@ -212,11 +302,25 @@ final class VoiceChat {
 
     // ── events (socket thread, then the main thread) ──────────────────────────
     private void receive(String text) {
-        if (ended) return;
-        RealtimeVoice.Event e = live ? RealtimeVoice.parseLive(text) : RealtimeVoice.parse(text);
-        if (e.type() == RealtimeVoice.Type.AUDIO) { audio(live ? new RealtimeVoice.Event(e.type(), "", "live" + liveAnswer, "", e.audio(), "") : e); return; }
+        if (ended || live) return;
+        RealtimeVoice.Event e = RealtimeVoice.parse(text);
+        if (e.type() == RealtimeVoice.Type.AUDIO) { audio(e); return; }
         if (e.type() == RealtimeVoice.Type.OTHER) return;
-        main.post(() -> { if (!ended) event(live ? fromLive(e) : e); });
+        main.post(() -> { if (!ended) event(e); });
+    }
+    /**
+     * A GPT-Live event from the data channel (1) or the sideband (2): the first to bring one (an error aside) is followed
+     * from then on. Its audio plays through the call itself, so audio events are left alone.
+     */
+    private void receiveLive(int from, String text) {
+        if (ended || !live) return;
+        RealtimeVoice.Event e = RealtimeVoice.parseLive(text);
+        if (e.type() == RealtimeVoice.Type.OTHER || e.type() == RealtimeVoice.Type.AUDIO) return;
+        synchronized (this) {
+            if (source == 0) { if (e.type() == RealtimeVoice.Type.ERROR && from != 1) return; if (e.type() != RealtimeVoice.Type.ERROR) source = from; }
+            else if (source != from) return;
+        }
+        main.post(() -> { if (!ended && live) event(fromLive(e)); });
     }
     /**
      * A GPT-Live event in the shape the conversation follows: its turns get the ids this app gives them (user words and
@@ -240,6 +344,10 @@ final class VoiceChat {
                 return new RealtimeVoice.Event(e.type(), "", id, "", null, e.status());
             }
             case FUNCTION_CALL -> {
+                String request = "";
+                try { request = new org.json.JSONObject(e.text()).optString("request"); } catch (Exception plain) {}
+                if (RealtimeVoice.screenRequest(request))
+                    return new RealtimeVoice.Event(e.type(), e.item(), "", dev.jun.gyeot.core.Jsons.obj("question", request.replace(RealtimeVoice.SCREEN + ":", "").strip()).toString(), null, RealtimeVoice.SCREEN);
                 String handOff = target.handOff();
                 return new RealtimeVoice.Event(e.type(), e.item(), "", e.text(), null, handOff.isEmpty() ? RealtimeVoice.DELEGATE : handOff);
             }
@@ -272,6 +380,7 @@ final class VoiceChat {
             case ANSWER_STARTED -> answers.put(e.response(), new StringBuilder());
             case ANSWER_PARTIAL -> {
                 StringBuilder b = answers.computeIfAbsent(e.response(), k -> new StringBuilder()); b.append(e.text());
+                if (live && state != State.SPEAKING) state = State.SPEAKING;
                 if (!e.response().equals(stopped)) { words = b.toString(); changed(); }
             }
             case ANSWER_TEXT -> { if (!e.text().isBlank()) answers.put(e.response(), new StringBuilder(e.text())); }
@@ -282,11 +391,12 @@ final class VoiceChat {
                 if ("failed".equals(e.status()) && (b == null || b.length() == 0)) { words = "답을 만들지 못했어요 · 다시 말해 주세요"; changed(); }
                 Speaker out = speaker;
                 if (state != State.SPEAKING) { state = State.LISTENING; changed(); }
+                else if (live) quiet();
                 else if (out != null) out.finish(() -> { if (!ended && state == State.SPEAKING) { state = State.LISTENING; changed(); } });
             }
             case ERROR -> {
                 if (RealtimeVoice.harmless(e)) return;
-                if (live && !ready) { fallBack(); return; }
+                if (live && !ready) { fallBack(e.text()); return; }
                 if (!ready) { end(kind.label + " 음성 대화를 시작하지 못했어요: " + e.text()); return; }
                 words = e.text().isBlank() ? "음성 연결에 문제가 생겼어요" : e.text(); changed();
             }
@@ -295,17 +405,39 @@ final class VoiceChat {
     }
     /** A function the model called: run where the conversation belongs, its output sent back, then the model goes on. */
     private void call(String id, String name, String arguments) {
-        words = "하는 중: " + name; state = State.THINKING; changed();
+        words = RealtimeVoice.SCREEN.equals(name) ? "화면을 보는 중…" : "하는 중: " + name; state = State.THINKING; changed();
         try {
             calls.execute(() -> {
                 String output;
-                try { output = target.call(name, new org.json.JSONObject(arguments == null || arguments.isBlank() ? "{}" : arguments), this); }
+                try {
+                    org.json.JSONObject args = new org.json.JSONObject(arguments == null || arguments.isBlank() ? "{}" : arguments);
+                    output = RealtimeVoice.SCREEN.equals(name) ? look(id, args.optString("question")) : target.call(name, args, this);
+                }
                 catch (Exception failed) { output = dev.jun.gyeot.core.Jsons.obj("error", failed.getMessage() == null ? "실패했어요" : failed.getMessage()).toString(); }
-                if (ended) return;
+                if (ended || output == null) return;
                 if (live) { for (org.json.JSONObject piece : RealtimeVoice.liveResult(id, said(output))) send(piece.toString()); return; }
                 send(RealtimeVoice.functionOutput(id, output).toString()); send(RealtimeVoice.respond().toString());
             });
         } catch (java.util.concurrent.RejectedExecutionException closing) {}
+    }
+    /**
+     * 화면 보기, asked by the user: one look at the screen. GPT Realtime sees the picture itself (it goes in before the call's
+     * output, and the answer follows: null is returned, all is sent); a voice that takes no pictures gets it in words.
+     */
+    private String look(String id, String question) {
+        VoiceScreen.Shot shot;
+        try { shot = VoiceScreen.take(store, context); }
+        catch (Exception failed) { return dev.jun.gyeot.core.Jsons.obj("ok", false, "error", failed.getMessage() == null ? "화면을 가져오지 못했어요." : failed.getMessage()).toString(); }
+        if (ended) return null;
+        if (kind == RealtimeVoice.Kind.GPT && !live) {
+            send(RealtimeVoice.userImage(shot.jpeg(), null).toString());
+            send(RealtimeVoice.functionOutput(id, ScreenView.result(shot.app(), shot.text()).toString()).toString());
+            send(RealtimeVoice.respond().toString());
+            return null;
+        }
+        main.post(() -> { if (!ended) { words = "화면을 읽는 중…"; changed(); } });
+        String asked = question == null || question.isBlank() ? heard : question;
+        return VoiceScreen.told(shot, VoiceScreen.describe(store, shot, asked)).toString();
     }
     /** A function's output as words to hand back to GPT-Live: its result, else its note or error. */
     private static String said(String output) {
@@ -330,22 +462,25 @@ final class VoiceChat {
     private void deliver() {
         if (ended || reports.isEmpty() || state == State.HEARING || state == State.SPEAKING || state == State.THINKING) return;
         String text = reports.removeFirst();
-        if (live) { send(RealtimeVoice.liveSay(text).toString()); return; }
+        if (live) { for (org.json.JSONObject piece : RealtimeVoice.liveSays(text)) send(piece.toString()); return; }
         send(RealtimeVoice.userText("[앱 알림 · 사용자가 한 말이 아님] " + text).toString());
         send(RealtimeVoice.respond("Tell the user this result from the app briefly, in speech, in their language.").toString());
     }
     /** Holds the microphone (true) while something else of this screen speaks aloud, so its sound is not taken for the user. */
-    void hold(boolean value) { held = value; main.post(() -> { if (!ended) changed(); }); }
+    void hold(boolean value) { held = value; LiveCall c = call; if (c != null) c.mute(muted || value); main.post(() -> { if (!ended) changed(); }); }
     boolean held() { return held; }
     /** Typed words in the conversation (the bar's field): the model answers them aloud. Main thread. */
     void type(String text) {
         if (ended || text == null || text.isBlank()) return;
         log.said("typed:" + SystemClock.uptimeMillis(), text, SystemClock.uptimeMillis()); settle();
+        // GPT-Live takes typed words as context it speaks from (as Codex sends them).
+        if (live) { for (org.json.JSONObject piece : RealtimeVoice.liveSays("[사용자가 글로 입력함] " + text)) send(piece.toString()); return; }
         send(RealtimeVoice.userText(text).toString()); send(RealtimeVoice.respond().toString());
     }
-    /** The session is set: the microphone opens and the answer's speaker is ready. */
+    /** The session is set: the microphone opens and the answer's speaker is ready (GPT-Live's call has its own). */
     private void ready() {
         ready = true;
+        if (live) { state = State.LISTENING; words = ""; changed(); return; }
         try {
             speaker = new Speaker(context);
             Microphone m = new Microphone(false); m.muted(muted);
@@ -374,15 +509,24 @@ final class VoiceChat {
             }
             // The user speaks over the answer: it stops here and there, and they are heard from just before they began.
             // GPT-Live listens while it speaks and stops by itself; Realtime is told to stop.
-            barge.reset(); open = true; stopped = playing; out.flush(); if (!live) send(RealtimeVoice.cancel().toString());
+            barge.reset(); open = true; stopped = playing; out.flush(); send(RealtimeVoice.cancel().toString());
             for (byte[] held : before) send(up(held));
             main.post(() -> { if (!ended) { state = State.HEARING; words = ""; changed(); } });
         }
         send(up(pcm));
     }
 
-    /** A microphone frame (16 kHz) as the connection takes it: 24 kHz PCM in GPT-Live's or Realtime's event. */
-    private String up(byte[] pcm16k) { byte[] pcm = RealtimeVoice.upsample(pcm16k); return (live ? RealtimeVoice.liveAppend(pcm) : RealtimeVoice.append(pcm)).toString(); }
+    /** A microphone frame (16 kHz) as Realtime takes it: 24 kHz PCM. */
+    private String up(byte[] pcm16k) { return RealtimeVoice.append(RealtimeVoice.upsample(pcm16k)).toString(); }
+    /** GPT-Live finished an answer: the bar shows it speaking until the call has gone quiet. */
+    private void quiet() {
+        main.postDelayed(() -> {
+            if (ended || state != State.SPEAKING) return;
+            LiveCall c = call;
+            if (c != null && c.playing()) { quiet(); return; }
+            state = State.LISTENING; changed();
+        }, 300);
+    }
     /** Which voice speaks now, for the bar: GPT-Live's chosen one, or the Realtime voice. */
     String speaking() { return live ? RealtimeVoice.voiceName(chosen) : voice; }
 

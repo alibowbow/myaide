@@ -121,6 +121,8 @@ final class CodexImageAccount {
      * Codex CLI's own login gives it. Refreshed when near its end, or when rejected is the one just turned down. Blocking.
      */
     String voiceToken(String rejected) throws Exception { return (rejected == null ? session() : refresh(rejected)).getString("accessToken"); }
+    /** The ChatGPT account the Codex sign-in belongs to (chatgpt-account-id), for a GPT-Live call. Blocking. */
+    String voiceAccount() throws Exception { return session().optString("accountId"); }
     private JSONObject refresh(String rejected) throws Exception {
         synchronized (credentials) {
             JSONObject stored = load();
