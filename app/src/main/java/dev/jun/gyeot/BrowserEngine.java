@@ -770,7 +770,7 @@ final class BrowserEngine {
         main.post(() -> {
             if (visible) return;
             for (Tab tab : tabs) if (tab.session.isOpen()) {
-                boolean active = rendering(tab) || tab==current&&store.voiceActive;
+                boolean active = rendering(tab) || tab==current&&(store.voiceActive||voiceChatHere());
                 tab.session.setActive(active);
                 if (active) backgroundDisplay(tab); else releaseDisplay(tab);
             }
@@ -958,7 +958,7 @@ final class BrowserEngine {
             if (!tab.needsLoad) return;
             tab.session.open(runtime);
         }
-        tab.session.setActive(visible&&tab==current || rendering(tab) || store.voiceActive); backgroundDisplay(tab);
+        tab.session.setActive(visible&&tab==current || rendering(tab) || store.voiceActive || voiceChatHere()); backgroundDisplay(tab);
         if (tab.needsLoad && (extension != null || !extensionError.isBlank())) {
             tab.needsLoad = false; tab.loading = true; tab.loadFailed = false; tab.loadingUrl = tab.url; tab.acceptedRedirectUrls.clear(); tab.progress = 0;
             tab.port = null; tab.document = ""; tab.session.loadUri(tab.url);
@@ -1342,7 +1342,7 @@ final class BrowserEngine {
         }, NATIVE);
     }
     private void backgroundDisplay(Tab tab) {
-        if (visible && tab == current || (!rendering(tab) && !store.voiceActive) || tab.display != null || !tab.session.isOpen()) return;
+        if (visible && tab == current || (!rendering(tab) && !store.voiceActive && !voiceChatHere()) || tab.display != null || !tab.session.isOpen()) return;
         // A real offscreen surface keeps layout and viewport-based controls available without an Activity.
         int width = Math.min(1080, context.getResources().getDisplayMetrics().widthPixels);
         int height = Math.min(1920, context.getResources().getDisplayMetrics().heightPixels);
@@ -1369,6 +1369,8 @@ final class BrowserEngine {
     }
     static String safeUrl(String url) { try { URI u = URI.create(BrowserTools.url(url)); return BrowserTools.origin(url) + (BrowserTools.googleLogin(url) ? "" : u.getRawPath()); } catch (Exception e) { return ""; } }
     static JSONObject error(String message) { return obj("ok", false, "error", message); }
+    /** A spoken conversation is going on with the browser (VoiceTargets.browser): its page stays live to be read while hidden. */
+    private boolean voiceChatHere() { VoiceChat chat = store.voiceChat; return chat != null && "browser".equals(chat.target.surface()); }
     private static boolean sameNavigationUrl(String left, String right) {
         try { return URI.create(BrowserTools.url(left)).normalize().equals(URI.create(BrowserTools.url(right)).normalize()); }
         catch (IllegalArgumentException invalid) { return false; }

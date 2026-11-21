@@ -78,6 +78,8 @@ public final class BrowserActivity extends Activity {
     };
     private final Runnable storeObserver = this::refresh;
     private final List<android.app.Dialog> dialogs = new ArrayList<>();
+    /** 음성 대화 with GPT or Grok in the AI pane (VoiceBar, VoiceTargets.browser): the send button starts it with an empty draft. */
+    private VoiceBar voice;
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state); ui = new Ui(this); engine = BrowserEngine.get(this); pendingDraftState = state;
         if (state != null) restoreOpened(state, opened);
@@ -212,7 +214,17 @@ public final class BrowserActivity extends Activity {
         request = ui.input("이 페이지에서 할 일", 2, 8000); request.setTextSize(15.5f); request.setMinLines(1); request.setMinimumHeight(0); request.setMinHeight(0); request.setMaxLines(wide ? 6 : 4); request.setBackgroundColor(android.graphics.Color.TRANSPARENT); request.setContentDescription("브라우저 AI에게 지시할 내용");
         request.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES); request.setPadding(ui.dp(6), ui.dp(12), ui.dp(6), ui.dp(12)); request.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         compose.addView(request, new LinearLayout.LayoutParams(0, -2, 1));
-        sendButton = ui.iconButton(R.drawable.ic_send, ACCENT, ON_ACCENT, "지시 실행", this::ask); compose.addView(sendButton, square()); pane.addView(compose);
+        sendButton = ui.iconButton(R.drawable.ic_send, ACCENT, ON_ACCENT, "지시 실행", () -> { if (offersVoice()) startVoice(); else ask(); }); compose.addView(sendButton, square());
+        sendButton.setOnLongClickListener(v -> { if (!offersVoice()) return false; voice.settings(""); return true; });
+        request.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence t, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence t, int a, int b, int c) {}
+            @Override public void afterTextChanged(android.text.Editable t) { sendLooks(); }
+        });
+        // 음성 대화's bar stands in the composer's place while a conversation is on.
+        voice = new VoiceBar(this, engine.store, ui, "browser", () -> VoiceTargets.browser(this)); voice.aside(compose); voice.track(dialogs::add);
+        LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(-1, -2); pane.addView(voice.bar(), barParams);
+        pane.addView(compose);
         updateComposerLines(false);
         return pane;
     }
@@ -393,8 +405,9 @@ public final class BrowserActivity extends Activity {
         dialog.setOnDismissListener(d -> { consent.set(false); dialogs.remove(dialog); if (youtubeDialog == dialog) youtubeDialog = null; });
         dialog.show();
     }
-    @Override protected void onResume() { super.onResume(); navigationResumed = true; AppNavigator.browserInFront(true); AppNavigator.inFront("browser"); updateAiToolbarState(); engine.attach(this::refresh, prompts); engine.externalAppLink = this::offerYouTube; engine.store.observe(storeObserver); consumeTaskNotification(); consumeOpen(); acknowledgeNavigation(); }
+    @Override protected void onResume() { super.onResume(); if (voice != null) voice.attach(); navigationResumed = true; AppNavigator.browserInFront(true); AppNavigator.inFront("browser"); updateAiToolbarState(); engine.attach(this::refresh, prompts); engine.externalAppLink = this::offerYouTube; engine.store.observe(storeObserver); consumeTaskNotification(); consumeOpen(); acknowledgeNavigation(); }
     @Override protected void onPause() {
+        if (voice != null) voice.detach();
         recoveryViewSequence++;
         navigationResumed = false; AppNavigator.browserInFront(false); stopProgressUiClock(); detailRefresh = null; progressDetails = null;
         BrowserImeGuard.cancelGesture(web == null ? null : web.getSession());
@@ -624,8 +637,22 @@ public final class BrowserActivity extends Activity {
         statsText.setText(engine.lastStats);
         if (scroll && follow && resultScroll != null) resultScroll.post(() -> resultScroll.smoothScrollTo(0, resultBox.getHeight()));
         resultBox.setVisibility(engine.hasConversation() || !shownResult.isBlank() ? View.VISIBLE : View.GONE);
-        sendButton.setImageResource(R.drawable.ic_send);
-        sendButton.setContentDescription(running ? "현재 작업에 지시 바로 반영" : "지시 실행");
+        sendLooks();
+        if (!offersVoice()) sendButton.setContentDescription(running ? "현재 작업에 지시 바로 반영" : "지시 실행");
+        if (voice != null) voice.refresh();
+    }
+    /** Nothing typed: the send button starts 음성 대화 instead. */
+    private boolean offersVoice() { return request != null && request.getText().toString().isBlank() && voice != null; }
+    private void sendLooks() {
+        if (sendButton == null) return;
+        if (offersVoice()) voice.looks(sendButton, true);
+        else { ui.sendLooks(sendButton, false); sendButton.setContentDescription(engine != null && engine.running() ? "현재 작업에 지시 바로 반영" : "지시 실행"); }
+    }
+    private void startVoice() {
+        if (dictation != null) dictation.cancel();
+        engine.store.stopReading(null);
+        setPaneVisible(true);
+        voice.start();
     }
     private void setPaneVisible(boolean visible) {
         if (paneVisible == visible) return;
@@ -880,7 +907,7 @@ public final class BrowserActivity extends Activity {
     private String dictationScope() { return engine.current == null ? "browser:none" : "browser:" + engine.current.id + ":" + engine.current.url + ":" + engine.current.document + ":" + engine.current.loading; }
     private void speak() {
         if (engine.historyRestorePending()) { toast("탭을 불러온 뒤 음성을 입력해 주세요."); return; }
-        if (engine.store.voiceActive || engine.store.recording) { toast("음성 대화나 녹음을 종료한 뒤 음성을 입력해 주세요."); return; }
+        if (engine.store.voiceActive || engine.store.recording || engine.store.voiceChat != null) { toast("음성 대화나 녹음을 종료한 뒤 음성을 입력해 주세요."); return; }
         if (!engine.store.secrets.hasWorkKey()) { toast("Gemini 음성 입력에 사용할 API 키가 없어요. 설정에서 Gemini를 연결해 주세요."); return; }
         engine.store.stopReading(null);
         if (dictation == null) dictation = new ComposerDictation(this, request, this::dictationScope, this::toast);
@@ -888,6 +915,7 @@ public final class BrowserActivity extends Activity {
     }
     @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(code, permissions, results);
+        if (voice != null && voice.permissionResult(code, results)) return;
         if (dictation != null) dictation.permissionResult(code, results);
     }
     @Override protected void onDestroy() { stopProgressUiClock(); progressClock.clear(); if (dictation != null) dictation.close(); super.onDestroy(); }
