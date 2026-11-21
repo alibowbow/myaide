@@ -29,13 +29,31 @@ import org.java_websocket.handshake.ServerHandshake;
  */
 final class VoiceChat {
     enum State { CONNECTING, LISTENING, HEARING, THINKING, SPEAKING, ENDED }
+    /**
+     * Where a spoken conversation belongs (the main chat, 작업창, the AI browser, 판서): what the model is told, the functions
+     * it may call there, and where what was said is written. Every method but surface() and label() is called off the main
+     * thread and may block.
+     */
+    interface Target {
+        /** Which screen the conversation belongs to ("chat", "work", "browser", "board"); its bar shows there. */
+        String surface();
+        /** The screen's name for the bar and the notification (메인 대화, 작업창, AI 브라우저, 판서). */
+        String label();
+        String instructions() throws Exception;
+        /** Realtime function tools (RealtimeVoice.tools), or none. */
+        default org.json.JSONArray tools() { return new org.json.JSONArray(); }
+        /** Runs a function the model called; what it returns goes back to the model as the call's output. */
+        default String call(String name, org.json.JSONObject args) throws Exception { return "{\"error\":\"no such function\"}"; }
+        /** Writes a settled line (user's, or the answer to reply); returns its id, or 0 when it is not kept. */
+        long line(boolean user, String text, long reply, String voice) throws Exception;
+    }
     /** A sign-in or key this voice needs before it can talk; what to tell the user. */
     static final class Missing extends IllegalStateException { Missing(String message) { super(message); } }
     /** The last 0.8 s of the microphone while the answer plays, sent ahead of a voice that stops it. */
     private static final int ROLL_BYTES = 16000 * 2 * 8 / 10;
     private static final long CONNECT_MS = 25_000, READY_MS = 5_000;
 
-    final RealtimeVoice.Kind kind; final String voice;
+    final RealtimeVoice.Kind kind; final String voice; final Target target;
     private final Context context; private final AppStore store;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService work = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-voice-chat"); t.setDaemon(true); return t; });
@@ -54,14 +72,17 @@ final class VoiceChat {
     private volatile String lastError = "";
     private volatile State state = State.CONNECTING;
     private String words = "", failure = "";
-    private Runnable listener;
+    /** The bars showing this conversation (VoiceBar), told of every change on the main thread. */
+    private final java.util.concurrent.CopyOnWriteArrayList<Runnable> listeners = new java.util.concurrent.CopyOnWriteArrayList<>();
     /** The sign-in's token the server just turned down, refreshed once; whether the token is a sign-in's (not a key). */
     private String rejected; private boolean signedIn; private int attempts;
     /** The user's line the next answer follows (work thread). */
     private long lastUser;
 
-    VoiceChat(Context context, AppStore store, RealtimeVoice.Kind kind, String voice) {
-        this.context = context.getApplicationContext(); this.store = store; this.kind = kind; this.voice = kind.voice(voice);
+    /** Functions the model called run here, one at a time, so a slow one (a browser task) never holds the socket. */
+    private final ExecutorService calls = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-voice-calls"); t.setDaemon(true); return t; });
+    VoiceChat(Context context, AppStore store, RealtimeVoice.Kind kind, String voice, Target target) {
+        this.context = context.getApplicationContext(); this.store = store; this.kind = kind; this.voice = kind.voice(voice); this.target = target;
     }
     State state() { return state; }
     /** The words heard or spoken now: the user's as they are written down, then the answer's. */
@@ -72,8 +93,9 @@ final class VoiceChat {
     boolean needsSetup() { return needsSetup; }
     private volatile boolean needsSetup;
     boolean muted() { return muted; }
-    void onChange(Runnable listener) { this.listener = listener; }
-    private void changed() { Runnable l = listener; if (l != null) l.run(); store.changed(); }
+    void listen(Runnable listener) { listeners.addIfAbsent(listener); }
+    void unlisten(Runnable listener) { listeners.remove(listener); }
+    private void changed() { for (Runnable l : listeners) l.run(); store.changed(); }
 
     /** Main thread. */
     void start() {
@@ -98,7 +120,7 @@ final class VoiceChat {
         for (Map.Entry<String, StringBuilder> unfinished : answers.entrySet()) log.answered(unfinished.getKey(), unfinished.getValue().toString(), true, SystemClock.uptimeMillis());
         answers.clear();
         write(log.rest());
-        work.shutdown();
+        work.shutdown(); calls.shutdownNow();
         VoiceChatService.stop(context);
         if (store.voiceChat == this) store.voiceChat = null;
         changed();
@@ -122,12 +144,12 @@ final class VoiceChat {
     private void connect() {
         if (ended) return;
         try {
-            String instructions = store.mainAssistant.voiceInstructions();
+            String instructions = target.instructions(); org.json.JSONArray tools = target.tools();
             Credential credential = credential(); signedIn = credential.signIn();
             String token = credential.token();
             WebSocketClient client = new WebSocketClient(URI.create(kind.url()), new Draft_6455(), Map.of("Authorization", "Bearer " + token), 15_000) {
                 @Override public void onOpen(ServerHandshake handshake) {
-                    send(RealtimeVoice.session(kind, instructions, voice).toString());
+                    send(RealtimeVoice.session(kind, instructions, voice, tools).toString());
                     // A server that takes the session without saying so still hears the user.
                     main.postDelayed(() -> { if (!ended && !ready) ready(); }, READY_MS);
                 }
@@ -180,6 +202,7 @@ final class VoiceChat {
         long now = SystemClock.uptimeMillis();
         switch (e.type()) {
             case READY -> { if (!ready) ready(); }
+            case FUNCTION_CALL -> call(e.item(), e.status(), e.text());
             case SPEECH_STARTED -> {
                 // The user began to speak: an answer still playing stops (the server stops making it).
                 Speaker out = speaker; if (out != null && out.isPlaying()) { stopped = playing; out.flush(); }
@@ -211,6 +234,25 @@ final class VoiceChat {
             }
             default -> {}
         }
+    }
+    /** A function the model called: run where the conversation belongs, its output sent back, then the model goes on. */
+    private void call(String id, String name, String arguments) {
+        words = "하는 중: " + name; state = State.THINKING; changed();
+        try {
+            calls.execute(() -> {
+                String output;
+                try { output = target.call(name, new org.json.JSONObject(arguments == null || arguments.isBlank() ? "{}" : arguments)); }
+                catch (Exception failed) { output = dev.jun.gyeot.core.Jsons.obj("error", failed.getMessage() == null ? "실패했어요" : failed.getMessage()).toString(); }
+                if (ended) return;
+                send(RealtimeVoice.functionOutput(id, output).toString()); send(RealtimeVoice.respond().toString());
+            });
+        } catch (java.util.concurrent.RejectedExecutionException closing) {}
+    }
+    /** Typed words in the conversation (the bar's field): the model answers them aloud. Main thread. */
+    void type(String text) {
+        if (ended || text == null || text.isBlank()) return;
+        log.said("typed:" + SystemClock.uptimeMillis(), text, SystemClock.uptimeMillis()); settle();
+        send(RealtimeVoice.userText(text).toString()); send(RealtimeVoice.respond().toString());
     }
     /** The session is set: the microphone opens and the answer's speaker is ready. */
     private void ready() {
@@ -264,9 +306,9 @@ final class VoiceChat {
             for (VoiceChatLog.Line line : lines) {
                 try {
                     String text = line.cut() ? line.text() + " …" : line.text();
-                    long id = store.mainAssistant.spoken(line.user(), text, line.user() ? 0 : lastUser, label);
+                    long id = target.line(line.user(), text, line.user() ? 0 : lastUser, label);
                     if (line.user()) lastUser = id;
-                } catch (RuntimeException unsaved) { /* An empty or unwritable line is left out; the conversation goes on. */ }
+                } catch (Exception unsaved) { /* An empty or unwritable line is left out; the conversation goes on. */ }
             }
         };
         try { work.execute(task); } catch (java.util.concurrent.RejectedExecutionException closing) { new Thread(task, "gyeot-voice-chat-last").start(); }

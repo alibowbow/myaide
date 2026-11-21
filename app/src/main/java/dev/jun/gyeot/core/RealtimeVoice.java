@@ -38,7 +38,9 @@ public final class RealtimeVoice {
      * The session: the instructions, the voice, 24 kHz PCM both ways, the server's turn detection with a word from the user
      * stopping an answer, and the user's words written down (GPT: gpt-4o-mini-transcribe; Grok writes them down itself).
      */
-    public static JSONObject session(Kind kind, String instructions, String voice) {
+    public static JSONObject session(Kind kind, String instructions, String voice) { return session(kind, instructions, voice, null); }
+    /** As above, with function tools (tools(): JSON Schema parameters) the model may call. */
+    public static JSONObject session(Kind kind, String instructions, String voice, org.json.JSONArray tools) {
         JSONObject format = obj("type", "audio/pcm", "rate", RATE);
         String chosen = kind.voice(voice);
         JSONObject session;
@@ -52,13 +54,72 @@ public final class RealtimeVoice {
             session = obj("instructions", instructions, "voice", chosen, "turn_detection", obj("type", "server_vad"),
                 "audio", obj("input", obj("format", format), "output", obj("format", obj("type", "audio/pcm", "rate", RATE))));
         }
+        if (tools != null && tools.length() > 0) { put(session, "tools", tools); if (kind == Kind.GPT) put(session, "tool_choice", "auto"); }
         return obj("type", "session.update", "session", session);
+    }
+    /**
+     * Gemini function declarations ({name, description, parameters} with OBJECT/STRING… types) as Realtime function tools
+     * ({type:"function", name, description, parameters} in JSON Schema's lowercase types). Gemini-only keywords are dropped.
+     */
+    public static org.json.JSONArray tools(org.json.JSONArray declarations) {
+        org.json.JSONArray out = new org.json.JSONArray();
+        for (int i = 0; declarations != null && i < declarations.length(); i++) {
+            JSONObject d = declarations.optJSONObject(i); if (d == null || d.optString("name").isBlank()) continue;
+            JSONObject parameters = d.optJSONObject("parameters");
+            out.put(obj("type", "function", "name", d.optString("name"), "description", d.optString("description"),
+                "parameters", parameters == null ? obj("type", "object", "properties", obj()) : schema(parameters)));
+        }
+        return out;
+    }
+    static JSONObject schema(JSONObject gemini) {
+        JSONObject out = new JSONObject();
+        for (java.util.Iterator<String> keys = gemini.keys(); keys.hasNext();) {
+            String key = keys.next(); Object value = gemini.opt(key);
+            switch (key) {
+                case "nullable", "propertyOrdering" -> {}
+                case "type" -> put(out, key, String.valueOf(value).toLowerCase(Locale.ROOT));
+                case "properties" -> {
+                    JSONObject props = gemini.optJSONObject(key), converted = new JSONObject();
+                    if (props != null) for (java.util.Iterator<String> names = props.keys(); names.hasNext();) {
+                        String name = names.next(); JSONObject p = props.optJSONObject(name); if (p != null) put(converted, name, schema(p));
+                    }
+                    put(out, key, converted);
+                }
+                case "items" -> { JSONObject item = gemini.optJSONObject(key); if (item != null) put(out, key, schema(item)); }
+                case "anyOf" -> {
+                    org.json.JSONArray options = gemini.optJSONArray(key), converted = new org.json.JSONArray();
+                    for (int i = 0; options != null && i < options.length(); i++) { JSONObject o = options.optJSONObject(i); if (o != null) converted.put(schema(o)); }
+                    put(out, key, converted);
+                }
+                default -> put(out, key, value);
+            }
+        }
+        if ("object".equals(out.optString("type")) && !out.has("properties")) put(out, "properties", new JSONObject());
+        return out;
+    }
+    /** The result of a function call (call_id from the FUNCTION_CALL event); respond() then lets the model go on. */
+    public static JSONObject functionOutput(String callId, String output) {
+        return obj("type", "conversation.item.create", "item", obj("type", "function_call_output", "call_id", callId, "output", output == null ? "" : output));
+    }
+    /** Asks for an answer now (after a function's output, or typed words). */
+    public static JSONObject respond() { return obj("type", "response.create"); }
+    /** As respond(), with instructions for this answer only (reading a text aloud word for word). */
+    public static JSONObject respond(String instructions) { return obj("type", "response.create", "response", obj("instructions", instructions)); }
+    /** Typed words from the user, as a turn of theirs. */
+    public static JSONObject userText(String text) {
+        return obj("type", "conversation.item.create", "item", obj("type", "message", "role", "user", "content", arr(obj("type", "input_text", "text", text == null ? "" : text))));
+    }
+    /** A picture for the model (GPT reads images in the conversation; a JPEG as a data URL), with words about it. */
+    public static JSONObject userImage(String jpegBase64, String text) {
+        org.json.JSONArray content = arr(obj("type", "input_image", "image_url", "data:image/jpeg;base64," + jpegBase64));
+        if (text != null && !text.isBlank()) content.put(obj("type", "input_text", "text", text));
+        return obj("type", "conversation.item.create", "item", obj("type", "message", "role", "user", "content", content));
     }
     public static JSONObject append(byte[] pcm) { return obj("type", "input_audio_buffer.append", "audio", Base64.getEncoder().encodeToString(pcm)); }
     /** Stops the answer being made (the user spoke over it). */
     public static JSONObject cancel() { return obj("type", "response.cancel"); }
 
-    public enum Type { READY, SPEECH_STARTED, SPEECH_STOPPED, COMMITTED, USER_PARTIAL, USER_TEXT, ANSWER_STARTED, AUDIO, ANSWER_PARTIAL, ANSWER_TEXT, DONE, ERROR, OTHER }
+    public enum Type { READY, FUNCTION_CALL, SPEECH_STARTED, SPEECH_STOPPED, COMMITTED, USER_PARTIAL, USER_TEXT, ANSWER_STARTED, AUDIO, ANSWER_PARTIAL, ANSWER_TEXT, DONE, ERROR, OTHER }
     /**
      * One server event: item is the user's turn (item_id), response the answer's id; text a transcript (or its piece) or an
      * error's words; audio the decoded PCM; status how an answer ended (completed, cancelled, incomplete, failed).
@@ -97,6 +158,9 @@ public final class RealtimeVoice {
             case "response.output_audio_transcript.done": case "response.audio_transcript.done":
             case "response.output_text.done": case "response.text.done":
                 return new Event(Type.ANSWER_TEXT, item, response, first(e, "transcript", "text"), null, "");
+            case "response.function_call_arguments.done":
+                // item: the call's id to answer with; text: its arguments (JSON); status: the function's name.
+                return new Event(Type.FUNCTION_CALL, e.optString("call_id"), response, e.optString("arguments", "{}"), null, e.optString("name"));
             case "response.done": {
                 JSONObject r = e.optJSONObject("response");
                 return new Event(Type.DONE, "", r == null ? response : r.optString("id"), "", null, r == null ? "" : r.optString("status"));

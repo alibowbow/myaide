@@ -15,15 +15,19 @@ import dev.jun.gyeot.core.WorkBook;
 import static dev.jun.gyeot.Ui.*;
 
 /**
- * 음성 대화 in the main chat, as in the ChatGPT app: with an empty draft the send button is the voice button; a tap talks
- * with GPT or Grok (VoiceChat), a long press chooses which, its voice and its sign-in. While it talks, a bar in the
- * composer's place shows who is speaking and what is said, with mute and 끝내기; what both said appears in the chat.
+ * 음성 대화 on a screen (the main chat, 작업창, the AI browser, 판서), as in the ChatGPT app: with an empty draft the send
+ * button is the voice button; a tap talks with GPT or Grok (VoiceChat) about what is on that screen, a long press chooses
+ * which, its voice and its sign-in (one choice for every screen). While it talks, a bar in the composer's place shows who
+ * is speaking and what is said, with mute and 끝내기; what both said is written where the screen keeps its conversation.
  */
-final class MainChatVoice {
+final class VoiceBar {
     static final int PERMISSION = 7433;
     static final String OFFER = "음성 대화 · GPT·Grok과 말로 대화해요 · 길게 누르면 설정";
     private static final String KIND = "voiceChatKind", VOICE = "voiceChatVoice.";
-    private final MainActivity activity; private final AppStore store; private final Ui ui;
+    private final android.app.Activity activity; private final AppStore store; private final Ui ui;
+    /** This screen (VoiceChat.Target.surface) and what a conversation started here talks about. */
+    private final String surface; private final java.util.function.Supplier<VoiceChat.Target> target;
+    private final Runnable listener = this::refresh;
     private final LinearLayout bar; private final VoiceOrb orb; private final TextView title, words; private final Ui.Dial mute;
     private View[] aside = new View[0];
     /** The views the bar stands in for, with how they were before it, while a conversation is on. */
@@ -32,8 +36,8 @@ final class MainChatVoice {
     private boolean startAfterPermission;
     private java.util.function.Consumer<android.app.Dialog> tracker = d -> {};
 
-    MainChatVoice(MainActivity activity, AppStore store, Ui ui) {
-        this.activity = activity; this.store = store; this.ui = ui;
+    VoiceBar(android.app.Activity activity, AppStore store, Ui ui, String surface, java.util.function.Supplier<VoiceChat.Target> target) {
+        this.activity = activity; this.store = store; this.ui = ui; this.surface = surface; this.target = target;
         bar = ui.row(); bar.setGravity(Gravity.CENTER_VERTICAL); bar.setPadding(ui.dp(10), ui.dp(8), ui.dp(6), ui.dp(8));
         bar.setBackground(ui.shape(CARD, 28)); bar.setVisibility(View.GONE);
         orb = new VoiceOrb(activity); orb.setContentDescription("음성 대화 설정"); orb.setOnClickListener(v -> settings(""));
@@ -77,7 +81,10 @@ final class MainChatVoice {
     }
     private String voice(RealtimeVoice.Kind kind) { return kind.voice(store.settings.getString(VOICE + kind.name(), kind.voice)); }
     void start() {
-        if (store.voiceChat != null) return;
+        VoiceChat elsewhere = store.voiceChat;
+        if (elsewhere != null && mine(elsewhere)) return;
+        // One microphone: a conversation on another screen ends here (what it said stays there).
+        if (elsewhere != null) elsewhere.end("");
         if (store.voiceActive || store.recording) { toast("음성 비서 통화나 녹음을 끝낸 뒤 음성 대화를 시작해 주세요."); return; }
         if (store.talk != null && store.talk.busy()) store.talk.stop();
         RealtimeVoice.Kind kind = kind();
@@ -85,8 +92,8 @@ final class MainChatVoice {
         if (activity.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             startAfterPermission = true; activity.requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, PERMISSION); return;
         }
-        VoiceChat chat = new VoiceChat(activity, store, kind, voice(kind));
-        store.voiceChat = chat; shown = chat; chat.onChange(this::refresh);
+        VoiceChat chat = new VoiceChat(activity, store, kind, voice(kind), target.get());
+        store.voiceChat = chat; shown = chat; chat.listen(listener);
         chat.start(); refresh();
     }
     boolean permissionResult(int code, int[] results) {
@@ -97,12 +104,13 @@ final class MainChatVoice {
         startAfterPermission = false; return true;
     }
     /** The page shows again: the bar follows the conversation that may have gone on meanwhile. */
-    void attach() { VoiceChat c = store.voiceChat; if (c != null) { shown = c; c.onChange(this::refresh); } refresh(); }
-    void detach() { VoiceChat c = store.voiceChat; if (c != null) c.onChange(null); }
+    void attach() { VoiceChat c = store.voiceChat; if (c != null && mine(c)) { shown = c; c.listen(listener); } refresh(); }
+    void detach() { VoiceChat c = store.voiceChat; if (c != null) c.unlisten(listener); }
+    private boolean mine(VoiceChat c) { return surface.equals(c.target.surface()); }
 
     // ── the bar ──────────────────────────────────────────────────────────
     void refresh() {
-        VoiceChat c = store.voiceChat; boolean on = c != null;
+        VoiceChat c = store.voiceChat; boolean on = c != null && mine(c);
         bar.setVisibility(on ? View.VISIBLE : View.GONE);
         if (on) { for (View v : aside) if (v != null && !hidden.containsKey(v)) { hidden.put(v, v.getVisibility()); v.setVisibility(View.GONE); } }
         else { for (java.util.Map.Entry<View, Integer> was : hidden.entrySet()) was.getKey().setVisibility(was.getValue()); hidden.clear(); }

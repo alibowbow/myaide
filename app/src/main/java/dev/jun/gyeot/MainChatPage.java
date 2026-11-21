@@ -37,8 +37,8 @@ final class MainChatPage implements AutoCloseable {
     private Runnable modelPickerRefresh;
     private Dialog modelPicker;
     private ComposerDictation dictation;
-    /** 음성 대화 (MainChatVoice): the send button is its button while the draft is empty. */
-    private MainChatVoice voice; private ImageView sendButton;
+    /** 음성 대화 (VoiceBar): the send button is its button while the draft is empty. */
+    private VoiceBar voice; private ImageView sendButton;
     /** The composer mic: a tap dictates into the draft, a hold is 누르고 말하기 (ConnectedVoice). */
     private ImageView mic;
     static final String MIC = "음성 입력 · 초안에만 넣기";
@@ -148,7 +148,7 @@ final class MainChatPage implements AutoCloseable {
         composer.addView(sendButton, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
         LinearLayout.LayoutParams composerParams = new LinearLayout.LayoutParams(-1, -2); composerParams.topMargin = ui.dp(4); composerParams.bottomMargin = ui.dp(8);
         // 음성 대화's bar takes the composer's place while a conversation is on.
-        voice = new MainChatVoice(activity, store, ui); voice.aside(composer, chipRow); voice.track(this::track);
+        voice = new VoiceBar(activity, store, ui, "chat", () -> VoiceTargets.chat(store)); voice.aside(composer, chipRow); voice.track(this::track);
         LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(-1, -2); barParams.topMargin = ui.dp(4); barParams.bottomMargin = ui.dp(8);
         root.addView(voice.bar(), barParams);
         root.addView(composer, composerParams);

@@ -41,7 +41,7 @@ public final class VoiceChatService extends Service {
         VoiceChat chat = store.voiceChat;
         String voice = chat == null ? "음성" : chat.kind.spoken();
         Notification notification = new Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(voice + " 대화 중").setContentText("메인 대화에 말한 내용이 기록돼요").setOngoing(true).setContentIntent(open)
+            .setContentTitle(voice + " 대화 중").setContentText((chat == null ? "" : chat.target.label() + "에 ") + "말한 내용이 기록돼요").setOngoing(true).setContentIntent(open)
             .addAction(new Notification.Action.Builder(null, "끝내기", end).build()).build();
         try { startForeground(NOTIFICATION, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE); }
         catch (RuntimeException refused) { stopSelf(); return START_NOT_STICKY; }
