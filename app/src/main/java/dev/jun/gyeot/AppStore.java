@@ -292,12 +292,21 @@ final class AppStore {
     /** The voice the assistant speaks with on that realtime engine; its own default until one is chosen. */
     String assistantVoice(dev.jun.gyeot.core.RealtimeVoice.Kind kind) { return kind.voice(settings.getString(ASSISTANT_VOICE + kind.name(), kind.voice)); }
     /**
+     * The voice chosen for that engine as it was chosen: for GPT one of GPT-Live's newest (한울 until another is chosen) or a
+     * Realtime voice. assistantVoice() is the Realtime voice that stands in when GPT-Live does not open (and that 판서's
+     * Realtime reading uses).
+     */
+    String pickedVoice(dev.jun.gyeot.core.RealtimeVoice.Kind kind) {
+        String saved = settings.getString(ASSISTANT_VOICE + kind.name(), kind == dev.jun.gyeot.core.RealtimeVoice.Kind.GPT ? "hanul" : kind.voice);
+        return dev.jun.gyeot.core.RealtimeVoice.chosen(kind, saved);
+    }
+    /**
      * Whose 말투 the assistant speaks with: the Gemini voice's (voice()), or on a realtime engine its voice's, kept apart as
      * "GPT.marin" so that each voice keeps its own.
      */
     String styleVoice() {
         dev.jun.gyeot.core.RealtimeVoice.Kind kind = assistantRealtime();
-        return kind == null ? voice() : kind.name() + "." + assistantVoice(kind);
+        return kind == null ? voice() : kind.name() + "." + pickedVoice(kind);
     }
     /** Speaking style saved for one voice; "" is the model's default voice. */
     String voiceStyle(String voice) { return settings.getString("voiceStyle:" + (voice == null || voice.isEmpty() ? "default" : voice), ""); }
@@ -335,11 +344,12 @@ final class AppStore {
     boolean exhausted(String model) { return System.currentTimeMillis() - settings.getLong("exhaustedAt:" + model, 0) < EXHAUSTED_MS; }
     void markExhausted(String model) { settings.edit().putLong("exhaustedAt:" + model, System.currentTimeMillis()).apply(); changed(); }
     void clearExhausted(String model) { if (settings.contains("exhaustedAt:" + model)) { settings.edit().remove("exhaustedAt:" + model).apply(); changed(); } }
-    /** "GPT 실시간 음성", "Grok 실시간 음성": the voice assistant on that engine, wherever its model is named. */
-    static String realtimeLabel(dev.jun.gyeot.core.RealtimeVoice.Kind kind) { return kind.label + " 실시간 음성"; }
+    /** "GPT 음성" (its newest voices on GPT-Live, the others realtime), "Grok 실시간 음성": the voice assistant on that engine. */
+    static String realtimeLabel(dev.jun.gyeot.core.RealtimeVoice.Kind kind) { return kind == dev.jun.gyeot.core.RealtimeVoice.Kind.GPT ? "GPT 음성" : kind.label + " 실시간 음성"; }
     static String modelLabel(String model) {
         if (GeminiProtocol.TRANSLATE.equals(model)) return "Gemini 3.5 Live Translate";
         if (GeminiProtocol.TRANSCRIBE.equals(model)) return "Gemini 3.5 Transcribe Live";
+        if (dev.jun.gyeot.core.RealtimeVoice.LIVE_MODEL.equals(model)) return "GPT 최신 음성 (GPT-Live)";
         for (String[] offered : GeminiProtocol.LIVE_MODELS) if (offered[0].equals(model)) return offered[1].replaceAll("\\s*\\(.*\\)$", "");
         // A realtime voice assistant's model (never a Live model id: GeminiProtocol.liveModel would take it for the default).
         for (dev.jun.gyeot.core.RealtimeVoice.Kind kind : dev.jun.gyeot.core.RealtimeVoice.Kind.values()) if (kind.model.equals(model)) return realtimeLabel(kind);
@@ -512,7 +522,7 @@ final class AppStore {
         if (GeminiProtocol.INTERPRETER.equals(voiceMode)) return interpreterConfig().fingerprint();
         dev.jun.gyeot.core.RealtimeVoice.Kind realtime = assistantRealtime();
         return brain() + "\u0000" + liveModel() + "\u0000" + liveThinkingLevel() + "\u0000" + voice() + "\u0000" + voiceStyle(styleVoice()) + "\u0000" + persona() + "\u0000" + settings.getString("routines", "") + "\u0000" + phoneDecisions()
-            + "\u0000" + assistantEngine() + "\u0000" + (realtime == null ? "" : assistantVoice(realtime));
+            + "\u0000" + assistantEngine() + "\u0000" + (realtime == null ? "" : pickedVoice(realtime));
     }
     /** sessionSettings() as the current call was connected with; set by the voice service. */
     volatile String appliedSettings = "";

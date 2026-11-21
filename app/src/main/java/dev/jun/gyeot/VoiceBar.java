@@ -84,12 +84,8 @@ final class VoiceBar {
     /** Whether this voice has a sign-in or key to start with. */
     boolean usable(RealtimeVoice.Kind kind) { return VoiceCredentials.usable(store, kind); }
     /** One voice per kind for every screen and the voice assistant (AppStore.assistantVoice). */
-    private String voice(RealtimeVoice.Kind kind) {
-        // GPT-Live's newest voices are kept as chosen here (the voice assistant and 판서 read in a Realtime voice instead).
-        // Not chosen yet: GPT talks in GPT-Live's Korean voice (한울); Realtime's marin stands in when GPT-Live does not open.
-        String saved = store.settings.getString(AppStore.ASSISTANT_VOICE + kind.name(), kind == RealtimeVoice.Kind.GPT ? "hanul" : kind.voice);
-        return kind == RealtimeVoice.Kind.GPT && RealtimeVoice.live(saved) ? saved : store.assistantVoice(kind);
-    }
+    /** Not chosen yet, GPT talks in GPT-Live's Korean voice (한울); Realtime's marin stands in when GPT-Live does not open. */
+    private String voice(RealtimeVoice.Kind kind) { return store.pickedVoice(kind); }
     void start() {
         VoiceChat elsewhere = store.voiceChat;
         if (elsewhere != null && mine(elsewhere)) return;
@@ -178,11 +174,10 @@ final class VoiceBar {
         }), false);
         // GPT: GPT-Live's newest voices first (한울, 햇살…), then the Realtime voices.
         java.util.List<String> ids = new java.util.ArrayList<>(), names = new java.util.ArrayList<>();
-        if (current == RealtimeVoice.Kind.GPT) for (String[] v : RealtimeVoice.LIVE_VOICES) { ids.add(v[0]); names.add(v[1] + " · 최신"); }
-        for (String v : current.voices()) { ids.add(v); names.add(current == RealtimeVoice.Kind.GPT ? v + " · 실시간" : v); }
+        for (String[] v : RealtimeVoice.voiceChoices(current)) { ids.add(v[0]); names.add(v[1]); }
         int at = ids.indexOf(voice(current));
         ui.addRow(who, ui.choiceRow("목소리", current.label + " 목소리", current == RealtimeVoice.Kind.GPT
-                ? "최신 목소리는 GPT-Live로 말해요. 열리지 않으면 실시간 목소리로 이어요. 음성 비서와 판서는 실시간 목소리로 읽어요." : "대화 중이면 바로 이 목소리로 다시 연결해요",
+                ? "‘최신’ 목소리는 GPT-Live로 말해요. 열리지 않으면 실시간 목소리로 이어요. 음성 비서와 판서도 같은 목소리를 써요." : "대화 중이면 바로 이 목소리로 다시 연결해요",
             names.toArray(new String[0]), Math.max(0, at), index -> {
                 store.settings.edit().putString(AppStore.ASSISTANT_VOICE + current.name(), ids.get(index)).apply();
                 VoiceChat.retryLive();
@@ -199,7 +194,7 @@ final class VoiceBar {
         LinearLayout sign = ui.group();
         if (current == RealtimeVoice.Kind.GPT) {
             boolean codex = store.codexImages.connected();
-            ui.addRow(sign, ui.listRow(0, 0, codex ? "Codex 로그인 됨" : "Codex로 로그인", codex ? "ChatGPT 구독으로 GPT 실시간 음성을 써요 · " + store.codexImages.describe().optString("label") : "ChatGPT 구독 계정으로 로그인하면 API 키 없이 써요",
+            ui.addRow(sign, ui.listRow(0, 0, codex ? "Codex 로그인 됨" : "Codex로 로그인", codex ? "ChatGPT 구독으로 GPT 음성(최신·실시간)을 써요 · " + store.codexImages.describe().optString("label") : "ChatGPT 구독 계정으로 로그인하면 API 키 없이 써요",
                 codex ? null : ui.chevron(), codex ? null : () -> { sheet.dismiss(); store.codexImages.signIn(); }), false);
             keyRow(sign, sheet, SecretStore.OPENAI_VOICE, "OpenAI API 키 (선택)", "넣으면 로그인 대신 이 키로 연결해요", "sk-로 시작하는 키");
         } else {

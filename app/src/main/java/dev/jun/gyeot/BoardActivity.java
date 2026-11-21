@@ -578,7 +578,7 @@ public final class BoardActivity extends Activity {
         ui.addRow(ai, ui.listRow(R.drawable.ic_wave, PURPLE, "판서 음성", narration.sourceName(), ui.chevron(), () -> { menu.dismiss(); liveModels(); }), true);
         if (BoardVoice.LIVE.equals(narration.selected())) ui.addRow(ai, ui.listRow(R.drawable.ic_sound, PINK, "목소리", BoardVoice.voice(store).isBlank() ? "모델 기본 목소리" : BoardVoice.voice(store), ui.chevron(), () -> { menu.dismiss(); voiceNames(); }), true);
         else if (BoardVoice.realtimeKind(narration.selected())) { dev.jun.gyeot.core.RealtimeVoice.Kind kind = dev.jun.gyeot.core.RealtimeVoice.Kind.of(narration.selected());
-            ui.addRow(ai, ui.listRow(R.drawable.ic_sound, PINK, "목소리", store.assistantVoice(kind), ui.chevron(), () -> { menu.dismiss(); realtimeVoices(kind); }), true); }
+            ui.addRow(ai, ui.listRow(R.drawable.ic_sound, PINK, "목소리", dev.jun.gyeot.core.RealtimeVoice.shown(kind, store.pickedVoice(kind)), ui.chevron(), () -> { menu.dismiss(); realtimeVoices(kind); }), true); }
         menu.body.addView(ai);
         TextView result = ui.footer(narration.status());
         java.util.function.Consumer<String> display = text -> { result.setText(text); result.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE); };
@@ -806,10 +806,11 @@ public final class BoardActivity extends Activity {
     /** A GPT or Grok voice for reading: the one the voice conversations and the voice assistant use too. */
     private void realtimeVoices(dev.jun.gyeot.core.RealtimeVoice.Kind kind) {
         Ui.Sheet pick = ui.selectionSheet("목소리", kind.label + " 목소리 · 음성 대화와 음성 비서에도 같이 적용돼요"); pick.primary.setVisibility(View.GONE);
-        LinearLayout group = ui.group(); String now = store.assistantVoice(kind);
-        for (String name : kind.voices()) {
-            boolean on = name.equals(now);
-            ui.addRow(group, ui.listRow(R.drawable.ic_sound, on ? ACCENT : MUTED, name, "", on ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putString(AppStore.ASSISTANT_VOICE + kind.name(), name).apply(); voiceChanged(); pick.dismiss(); }), true);
+        LinearLayout group = ui.group(); String now = store.pickedVoice(kind);
+        // GPT's newest (GPT-Live) first, then its Realtime voices.
+        for (String[] option : dev.jun.gyeot.core.RealtimeVoice.voiceChoices(kind)) {
+            boolean on = option[0].equals(now);
+            ui.addRow(group, ui.listRow(R.drawable.ic_sound, on ? ACCENT : MUTED, option[1], "", on ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putString(AppStore.ASSISTANT_VOICE + kind.name(), option[0]).apply(); VoiceChat.retryLive(); voiceChanged(); pick.dismiss(); }), true);
         }
         pick.body.addView(group); show(pick);
     }

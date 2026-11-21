@@ -119,6 +119,42 @@ public final class RealtimeVoice {
         return obj("type", "conversation.item.create", "item", obj("type", "message", "role", "user", "content", content));
     }
     /**
+     * GPT's hands behind a GPT-Live voice (the voice assistant): text only, no microphone and no turn detection; the
+     * requests the voice hands off come in as text, it calls the functions, and its answer goes back to the voice to say.
+     */
+    public static JSONObject handsSession(String instructions, org.json.JSONArray tools) {
+        JSONObject session = obj("type", "realtime", "instructions", instructions + HANDS, "output_modalities", arr("text"),
+            "audio", obj("input", obj("format", obj("type", "audio/pcm", "rate", RATE), "turn_detection", JSONObject.NULL)));
+        if (tools != null && tools.length() > 0) { put(session, "tools", tools); put(session, "tool_choice", "auto"); }
+        return obj("type", "session.update", "session", session);
+    }
+    /** What the hands are told about their place in the call. */
+    public static final String HANDS = "\n\nIn this call another voice model (GPT-Live) talks with the user aloud and hands you what needs doing, in the user's words, "
+        + "as a text message that begins with [맡긴 일]. You do not speak to the user yourself: do what is asked with your functions, exactly as the instructions above say, "
+        + "then answer in brief plain Korean text (no markdown) with the result or what the user should know; the voice says it. "
+        + "Messages that begin with [대화] are what was said in the call, for context; do not answer them.";
+    /** What a GPT-Live reading voice (판서) is told: what the app gives it is the script to read, nothing to answer. */
+    public static final String LIVE_READ = "\n\nThe script comes from the app as text for you to say. Say each one aloud exactly as written, word for word, and then stop. "
+        + "There is no one to talk with: never answer, greet or add anything, and stay silent between scripts.";
+    /** What a GPT-Live voice in front of the hands is told: it cannot call the functions itself. */
+    public static final String LIVE_HANDS = "\n\nOn this voice you cannot call the functions described above yourself. Whenever the instructions say to call a function "
+        + "or to use the phone, apps, search, calendar, memory, notes, tasks, the browser, the camera or the screen, hand the request to the app instead (delegation), "
+        + "in the user's words with what they want done; the app does it and gives you the result to tell. Text the app gives you to say comes from the app, not the user.";
+    /**
+     * The voices a picker offers for a kind ({id, label}): GPT's newest (GPT-Live) first, then its Realtime voices; Grok's
+     * as they are.
+     */
+    public static String[][] voiceChoices(Kind kind) {
+        java.util.List<String[]> out = new java.util.ArrayList<>();
+        if (kind == Kind.GPT) for (String[] v : LIVE_VOICES) out.add(new String[]{v[0], v[1] + " · 최신"});
+        for (String v : kind.voices()) out.add(new String[]{v, kind == Kind.GPT ? v + " · 실시간" : v});
+        return out.toArray(new String[0][]);
+    }
+    /** The voice as chosen for a kind (GPT-Live's kept as they are), else the kind's own voice for it. */
+    public static String chosen(Kind kind, String saved) { return kind == Kind.GPT && live(saved) ? saved : kind.voice(saved); }
+    /** How a chosen voice is shown: GPT-Live's with its language, others as they are. */
+    public static String shown(Kind kind, String voice) { return kind == Kind.GPT ? voiceName(voice) : voice; }
+    /**
      * A reading voice (판서's narration): no microphone and no turn detection; each piece is sent as text and read aloud with
      * respond(READ_ALOUD). Instructions say how to read.
      */
@@ -185,6 +221,13 @@ public final class RealtimeVoice {
     /** Something for GPT-Live to say from the app (a result that came later), not the user's words. */
     public static JSONObject liveSay(String text) {
         return obj("type", "session.context.append", "channel", "speakable", "content", arr(obj("type", "input_text", "text", text == null ? "" : text)));
+    }
+    /** Context for GPT-Live that it does not say (the commentary channel), in pieces of at most 500 bytes. */
+    public static java.util.List<JSONObject> liveNotes(String text) {
+        java.util.List<JSONObject> out = new java.util.ArrayList<>();
+        for (String piece : pieces(text == null ? "" : text, 500))
+            out.add(obj("type", "session.context.append", "channel", "commentary", "content", arr(obj("type", "input_text", "text", piece))));
+        return out;
     }
     /** As liveSay, in pieces of at most 500 bytes of UTF-8 (GPT-Live's limit for one context append). */
     public static java.util.List<JSONObject> liveSays(String text) {

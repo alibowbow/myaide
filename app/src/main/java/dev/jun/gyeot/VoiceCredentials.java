@@ -44,7 +44,7 @@ final class VoiceCredentials {
     /** What the voice assistant says when its realtime voice has neither a key nor a sign-in. */
     static String assistantMissing(RealtimeVoice.Kind kind) {
         return kind == RealtimeVoice.Kind.GPT
-            ? "GPT 실시간 음성으로 음성 비서를 쓰려면 Codex 로그인(ChatGPT 구독)이나 OpenAI API 키가 필요해요. 설정 → 목소리와 대화에서 로그인해 주세요."
+            ? "GPT 음성으로 음성 비서를 쓰려면 Codex 로그인(ChatGPT 구독)이나 OpenAI API 키가 필요해요. 설정 → 목소리와 대화에서 로그인해 주세요."
             : "Grok 실시간 음성으로 음성 비서를 쓰려면 Grok 구독 로그인이나 xAI API 키가 필요해요. 설정 → 목소리와 대화에서 로그인해 주세요.";
     }
 }

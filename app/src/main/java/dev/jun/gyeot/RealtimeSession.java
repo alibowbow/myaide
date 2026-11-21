@@ -74,6 +74,8 @@ final class RealtimeSession implements LiveVoiceSession {
     private final String voice;
     private final GeminiProtocol.Options options;
     private final GeminiSession.Listener listener;
+    /** GPT's hands behind a GPT-Live voice (GptLiveSession): text only; the voice hands it requests and says its answers. */
+    private final boolean hands;
     private final AtomicBoolean stopped = new AtomicBoolean();
     private volatile WebSocketClient socket;
     private volatile ScheduledFuture<?> timeout;
@@ -118,7 +120,10 @@ final class RealtimeSession implements LiveVoiceSession {
     private ScheduledFuture<?> gateHold, gateLimit;
 
     RealtimeSession(AppStore store, RealtimeVoice.Kind kind, String voice, GeminiProtocol.Options options, GeminiSession.Listener listener) {
-        this.store = store; this.kind = kind; this.voice = kind.voice(voice); this.options = options; this.listener = listener;
+        this(store, kind, voice, options, listener, false);
+    }
+    RealtimeSession(AppStore store, RealtimeVoice.Kind kind, String voice, GeminiProtocol.Options options, GeminiSession.Listener listener, boolean hands) {
+        this.store = store; this.kind = kind; this.voice = kind.voice(voice); this.options = options; this.listener = listener; this.hands = hands;
     }
 
     // ── connection ───────────────────────────────────────────────────────────
@@ -158,9 +163,9 @@ final class RealtimeSession implements LiveVoiceSession {
     private String setupText() {
         String built = update;
         if (built != null) return built;
-        String instructions = GeminiProtocol.instructions(GeminiProtocol.ASSISTANT, options) + engineNote(kind);
         JSONArray tools = RealtimeVoice.tools(GeminiProtocol.functionDeclarations(GeminiProtocol.ASSISTANT, options));
-        built = RealtimeVoice.session(kind, instructions, voice, tools).toString();
+        built = hands ? RealtimeVoice.handsSession(GeminiProtocol.instructions(GeminiProtocol.ASSISTANT, options), tools).toString()
+            : RealtimeVoice.session(kind, GeminiProtocol.instructions(GeminiProtocol.ASSISTANT, options) + engineNote(kind), voice, tools).toString();
         update = built;
         return built;
     }

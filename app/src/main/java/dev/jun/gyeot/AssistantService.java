@@ -775,7 +775,10 @@ public final class AssistantService extends Service {
                 });
             }
         };
-        LiveVoiceSession session = realtime != null ? new RealtimeSession(store, realtime, store.assistantVoice(realtime), voiceOptions, listener)
+        // GPT's newest voices speak through GPT-Live (GptLiveSession); it goes on in GPT Realtime when GPT-Live does not open.
+        boolean gptLive = !translating && realtime == dev.jun.gyeot.core.RealtimeVoice.Kind.GPT && GptLiveSession.wanted(store);
+        LiveVoiceSession session = gptLive ? new GptLiveSession(this, store, store.pickedVoice(realtime), voiceOptions, listener)
+            : realtime != null ? new RealtimeSession(store, realtime, store.assistantVoice(realtime), voiceOptions, listener)
             : new GeminiSession(voiceKey, store.voiceMode, voiceOptions, listener);
         // Until the call's first setup completes, its connections hold the words in the call's pre-roll (firstWords).
         dev.jun.gyeot.core.VoiceStartupAudio held = firstWords;
@@ -787,7 +790,7 @@ public final class AssistantService extends Service {
         finishVoiceCaptions = commit;
         translationCaptionCommit = translating ? () -> { if (live(epoch, session)) commit.run(); } : null;
         // A realtime voice's model goes here only (AppStore.modelLabel names it), never into voiceOptions.model.
-        store.connectedVoiceModel = translating ? GeminiProtocol.TRANSLATE : realtime != null ? realtime.model : voiceOptions.model;
+        store.connectedVoiceModel = translating ? GeminiProtocol.TRANSLATE : gptLive ? dev.jun.gyeot.core.RealtimeVoice.LIVE_MODEL : realtime != null ? realtime.model : voiceOptions.model;
         session.connect(translating ? "" : resume);
     }
     private void connectInterpreter(long epoch) {
