@@ -44,6 +44,7 @@ final class DeviceActionRunner {
 
     /** overlayVisible: this app's floating bubble is on screen now. */
     static JSONObject run(Context context, DeviceActions.Action action, boolean overlayVisible) {
+        if (SecurityWatch.paused(context)) return dev.jun.gyeot.core.Jsons.obj("ok",false,"error",SecurityWatch.PAUSE_MESSAGE);
         if (DeviceActions.TORCH.equals(action.tool)) return torch(context, action);
         if (DeviceActions.MEDIA.equals(action.tool)) return media(context, action);
         PackageManager packages = context.getPackageManager();

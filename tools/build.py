@@ -371,6 +371,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
     CACHE.mkdir(parents=True, exist_ok=True); BUILD.mkdir(parents=True, exist_ok=True)
     jars = dependencies()
+    core = ROOT / 'app/src/main/java/dev/jun/gyeot/core'
+    security = BUILD / 'security-checks'
+    security.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', security, core / 'PhoneRisk.java', core / 'SecurityLink.java', ROOT / 'tools/SecurityRegression.java'])
+    run(['java', '-ea', '-cp', security, 'dev.jun.gyeot.core.SecurityRegression'])
     test_board(jars[-1])
     # The optional larger suites run when their tests folder is present.
     if (ROOT / 'tests/CoreTests.java').is_file(): test(jars)

@@ -11,6 +11,9 @@ public final class GyeotApp extends Application {
         if (boardJobs == null) boardJobs = new BoardJobs(this);
         return boardJobs;
     }
+    boolean deferSecurityCheck() {
+        return store.voiceActive || store.voiceChat != null || (boardJobs != null && boardJobs.activeBoard() != null);
+    }
     private int startedActivities;
     /** The activity of this app in front now, if any (main thread). */
     private java.lang.ref.WeakReference<Activity> resumed = new java.lang.ref.WeakReference<>(null);
@@ -31,6 +34,7 @@ public final class GyeotApp extends Application {
             });
             DiagnosticsExport.installCrashRecorder(this);
             store = new AppStore(this);
+            if (SecurityWatch.enabled(this)) SecurityWatch.restore(this);
             // How Android ended the previous process; a system kill during a call or task gets one notice.
             String exit = DiagnosticsExport.readExits(this);
             if (exit != null) store.exitNotice = exit;

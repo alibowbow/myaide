@@ -31,7 +31,7 @@ public final class WorkScheduleAlarm extends BroadcastReceiver {
     private static final long RETRY_MS = 15 * 60_000L;
 
     @Override public void onReceive(Context context, Intent intent) {
-        if (intent == null || !ACTION.equals(intent.getAction())) return;
+        if (SecurityWatch.paused(context) || intent == null || !ACTION.equals(intent.getAction())) return;
         AppStore store;
         try { store = ((GyeotApp) context.getApplicationContext()).store(); } catch (Exception e) { return; }
         try { store.changeSchedules(list -> WorkSchedules.skipLate(list, System.currentTimeMillis(), ZoneId.systemDefault())); } catch (Exception ignored) {}
@@ -47,7 +47,7 @@ public final class WorkScheduleAlarm extends BroadcastReceiver {
 
     /** The alarm for the earliest enabled run, or none. Exact when Android allows it, otherwise as close as Android lets it. */
     static void arm(Context context, long at) {
-        if (at <= 0) { cancel(context); return; }
+        if (at <= 0 || SecurityWatch.paused(context)) { cancel(context); return; }
         set(context, at);
     }
     private static void set(Context context, long at) {
