@@ -1731,7 +1731,7 @@ final class BrowserEngine {
             "next", "Now click the page's own upload or select-file button; its file chooser receives " + e.name() + " by itself.");
     }
     /** The file chooser a page opened, answered with the file the AI got ready for that tab (while its task runs), or null to ask the user. */
-    private GeckoResult<PromptResponse> stagedUpload(GeckoSession s, FilePrompt p) {
+    private GeckoResult<GeckoSession.PromptDelegate.PromptResponse> stagedUpload(GeckoSession s, GeckoSession.PromptDelegate.FilePrompt p) {
         for (Tab t : new ArrayList<>(tabs)) {
             if (t.session != s || t.upload == null) continue;
             dev.jun.gyeot.core.BrowserUploads.Entry e = t.upload; boolean fresh = android.os.SystemClock.uptimeMillis() <= t.uploadUntil; t.upload = null;
