@@ -115,10 +115,12 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()), keys = insets.getInsets(WindowInsets.Type.ime());
             v.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, keys.bottom));
-            boolean up = keys.bottom > bars.bottom;
-            if (up != keyboardUp || keys.bottom != keyboardHeight) { keyboardUp = up; keyboardHeight = keys.bottom; main.post(this::showPlayer); }
+            keyboard(v);
             return insets;
         });
+        // A window that resizes for the keyboard takes its inset before the root sees it: ask the window on each layout too.
+        root.getViewTreeObserver().addOnGlobalLayoutListener(() -> keyboard(root));
+        root.setFocusableInTouchMode(true);
         // 직접 검색: words search YouTube; a YouTube link (watch, Shorts, youtu.be …) opens that very video.
         searchBox = ui.searchField(ui.input("유튜브 검색 · 영상 주소를 붙여넣어도 돼요", 1, 500));
         searchBox.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
@@ -138,6 +140,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         go.setImageTintList(android.content.res.ColorStateList.valueOf(ON_ACCENT)); go.setBackground(ui.shape(ACCENT, PILL)); go.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9));
         LinearLayout.LayoutParams goAt = new LinearLayout.LayoutParams(ui.dp(38), ui.dp(38)); goAt.leftMargin = ui.dp(6); searchBar.addView(go, goAt);
         searchBox.setOnFocusChangeListener((v, hasFocus) -> main.post(this::showPlayer));
+        // Its own search button and the keyboard's search key both search (the composer is out of the way meanwhile).
         // 라이브 채널: the channels saved from a search, each straight to its live broadcast.
         liveChannels = ui.row(); HorizontalScrollView liveRow = new HorizontalScrollView(this); liveRow.setHorizontalScrollBarEnabled(false); liveRow.addView(liveChannels); liveScroll = liveRow;
         LinearLayout.LayoutParams liveGap = new LinearLayout.LayoutParams(-1, -2); liveGap.bottomMargin = ui.dp(8); content.addView(liveRow, liveGap);
@@ -205,8 +208,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         sideToggle.setVisibility(wideScreen ? View.VISIBLE : View.GONE); sideToggle.setAlpha(side ? 1f : 0.6f);
         sideToggle.setContentDescription(side ? "가로 꽉 차게 보기 · 목록은 아래로" : "나란히 보기 · 왼쪽 영상, 오른쪽 목록");
         // Typing in the search box with the keyboard up (one column): the play buttons, the size bar and the composer step aside.
-        typing = shown && keyboardUp && !full && !side && searchBox.hasFocus();
-        String key = full + "/" + side + "/" + fill + "/" + shorts + "/" + typing;
+        boolean searching = searchBox.hasFocus();
+        typing = shown && searching && !full && !side;
+        String key = full + "/" + side + "/" + fill + "/" + shorts + "/" + typing + "/" + searching;
         if (key.equals(arranged)) return fill;
         arranged = key;
         body.setOrientation(side ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
@@ -215,7 +219,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         listPane.setLayoutParams(side ? new LinearLayout.LayoutParams(0, -1, 1) : new LinearLayout.LayoutParams(-1, 0, 1));
         listPane.setVisibility(full ? View.GONE : View.VISIBLE);
         controlsRow.setVisibility(full || typing ? View.GONE : View.VISIBLE); gripView.setVisibility(fill || typing ? View.GONE : View.VISIBLE); exitFull.setVisibility(full ? View.VISIBLE : View.GONE);
-        if (chat != null) chat.composer.setVisibility(full || typing ? View.GONE : View.VISIBLE);
+        // The search box in use: 마이튜브에게 말하기 steps aside, so it never covers the box; it comes back when the search ends.
+        if (chat != null) chat.composer.setVisibility(full || searching ? View.GONE : View.VISIBLE);
         if (navigation != null) navigation.immersive(full);
         android.view.WindowInsetsController bars = getWindow().getInsetsController();
         if (bars != null) {
@@ -348,8 +353,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         Ui.Sheet sheet = ui.choices("배속", "다음 영상에도 같은 속도로 재생해요", labels, at, i -> player.rate(SPEEDS[i]));
         dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet)); sheet.show();
     }
-    /** The small size: about 60% of the fitted video, at most 28% of the screen, never under 120dp. */
-    private int smallVideo(int screenHeight) { return Math.max(ui.dp(120), Math.min(videoHeight * 60 / 100, screenHeight * 28 / 100)); }
+    /** The small size: three quarters of the fitted video, at most 40% of the screen, never under 160dp. */
+    private int smallVideo(int screenHeight) { return Math.max(ui.dp(160), Math.min(videoHeight * 3 / 4, screenHeight * 40 / 100)); }
     private boolean small(int screenHeight) { return sizeRatio > 0f && Math.round(screenHeight * sizeRatio) <= smallVideo(screenHeight) + ui.dp(4); }
     /** 작게 ↔ 크게 (fitted), remembered like a dragged size. */
     private void toggleSmall() {
@@ -362,6 +367,18 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private int clampVideo(int height, int screenHeight) { return Math.max(ui.dp(120), Math.min(height, screenHeight * 80 / 100)); }
     /** The video's height for a width: 16:9, never under 160dp nor over half the screen. */
     private int videoFit(int width) { return Math.max(ui.dp(160), Math.min(width * 9 / 16, getResources().getDisplayMetrics().heightPixels / 2)); }
+    /**
+     * The keyboard shown or gone, read from the window (whatever way it makes room). Gone while the search box still has
+     * the focus: the search is over, so the focus leaves it and 마이튜브에게 말하기 comes back.
+     */
+    private void keyboard(View v) {
+        WindowInsets now = v.getRootWindowInsets(); if (now == null) return;
+        boolean up = now.isVisible(WindowInsets.Type.ime()); int height = now.getInsets(WindowInsets.Type.ime()).bottom;
+        if (up == keyboardUp && height == keyboardHeight) return;
+        boolean closed = keyboardUp && !up; keyboardUp = up; keyboardHeight = height;
+        if (closed && searchBox.hasFocus()) root.requestFocus();
+        main.post(this::showPlayer);
+    }
     private void showPlayer() {
         if (destroyed) return;
         MyTube.Video now = player.current();
@@ -378,7 +395,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         if (fill) height = -1; // 전체화면, or a Short / YouTube page beside the list: the whole height it has
         else if (typing) {
             // The keyboard leaves little room: a strip of video (none when there is no room for one), the search box over the keyboard.
-            int room = screenHeight - keyboardHeight - ui.dp(56) - ui.dp(120) - ui.dp(24);
+            int given = root.getHeight() - root.getPaddingTop() - root.getPaddingBottom();
+            int room = (keyboardUp && given > 0 ? given : screenHeight - keyboardHeight) - ui.dp(56) - ui.dp(120);
             height = room < ui.dp(72) ? 0 : Math.min(height, room);
         }
         if (!dragging && screen.getLayoutParams() != null && screen.getLayoutParams().height != height) { screen.getLayoutParams().height = height; screen.requestLayout(); }

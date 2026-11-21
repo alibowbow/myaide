@@ -180,16 +180,34 @@ final class Ui {
     /** A capsule drawn 40dp tall inside a 48dp touch target, so rows of them stay light without shrinking the target. */
     android.graphics.drawable.Drawable capsule(int color) { return new android.graphics.drawable.InsetDrawable(shape(color, PILL), 0, dp(4), 0, dp(4)); }
     /** A compact capsule for secondary actions on cards. */
+    /**
+     * A capsule at most `tallest` high, centred in its view whatever the view's height (a 48dp touch target or a 36dp row),
+     * and never taller than the view; it adds no padding of its own, so the text keeps the padding the chip sets.
+     */
+    android.graphics.drawable.Drawable centeredCapsule(int color, int tallest) {
+        GradientDrawable pill = shape(color, PILL);
+        return new android.graphics.drawable.Drawable() {
+            @Override protected void onBoundsChange(android.graphics.Rect bounds) {
+                int height = Math.min(tallest, bounds.height()), top = bounds.top + (bounds.height() - height) / 2;
+                pill.setBounds(bounds.left, top, bounds.right, top + height);
+            }
+            @Override public void draw(android.graphics.Canvas canvas) { pill.draw(canvas); }
+            @Override public void setAlpha(int alpha) { pill.setAlpha(alpha); }
+            @Override public void setColorFilter(android.graphics.ColorFilter filter) { pill.setColorFilter(filter); }
+            @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
+        };
+    }
     /** An action chip: a slim 34dp capsule in 13.5sp, inside a 48dp touch target (the rest is transparent). */
     Button chip(String value, Runnable action) {
         Button chip = new Button(context); chip.setText(value); chip.setAllCaps(false); chip.setTextSize(13.5f); chip.setTypeface(weight(600)); chip.setTextColor(TEXT);
-        chip.setBackground(new android.graphics.drawable.InsetDrawable(shape(FILL, PILL), 0, dp(7), 0, dp(7))); chip.setStateListAnimator(null); chip.setElevation(0);
+        chip.setBackground(centeredCapsule(FILL, dp(34))); chip.setStateListAnimator(null); chip.setElevation(0);
         chip.setPadding(dp(14), 0, dp(14), 0); chip.setMinHeight(dp(48)); chip.setMinimumHeight(dp(48)); chip.setMinWidth(0); chip.setMinimumWidth(0);
         chip.setOnClickListener(v -> action.run()); pressable(chip, false); return chip;
     }
     /** A chip for a slim toolbar row: the same capsule, lower (36dp) and in smaller type. */
     Button smallChip(String value, Runnable action) {
-        Button chip = chip(value, action); chip.setTextSize(FOOTNOTE); chip.setPadding(dp(12), 0, dp(12), 0); chip.setBackground(capsule(FILL));
+        // The background first: setting one takes the drawable's padding, which would wipe the side padding set before it.
+        Button chip = chip(value, action); chip.setBackground(centeredCapsule(FILL, dp(28))); chip.setTextSize(FOOTNOTE); chip.setPadding(dp(12), 0, dp(12), 0);
         chip.setMinHeight(dp(36)); chip.setMinimumHeight(dp(36)); chip.setHeight(dp(36)); return chip;
     }
     /**
