@@ -29,6 +29,8 @@ final class BrowserEngine {
     private static final List<java.lang.ref.WeakReference<BrowserEngine>> workEngines = new ArrayList<>();
     private static final Set<String> activeWorkReceipts = java.util.concurrent.ConcurrentHashMap.newKeySet();
     static void stopExisting(String message) { if (instance != null) instance.stopAll(message); }
+    /** Whether the AI browser is working on a task right now (a saved login's use record says so). */
+    static boolean busy() { BrowserEngine e = instance; return e != null && e.anyRunning(); }
     static BrowserEngine get(Context context) {
         if (Looper.myLooper() != Looper.getMainLooper()) throw new IllegalStateException("Browser must run on the main thread");
         if (instance == null) instance = new BrowserEngine(context.getApplicationContext());
@@ -1645,6 +1647,15 @@ final class BrowserEngine {
         @Override public GeckoResult<PromptResponse> onPopupPrompt(GeckoSession s, PopupPrompt p) { return routePrompt(s, p, () -> prompts.onPopupPrompt(s, p)); }
         @Override public GeckoResult<PromptResponse> onFilePrompt(GeckoSession s, FilePrompt p) { return routePrompt(s, p, () -> prompts.onFilePrompt(s, p)); }
         @Override public GeckoResult<PromptResponse> onChoicePrompt(GeckoSession s, ChoicePrompt p) { return routePrompt(s, p, () -> prompts.onChoicePrompt(s, p)); }
+        // Saved logins: keeping one the user just typed, or which account to fill (비밀번호 관리자). Off the page in front, nothing is kept or filled.
+        @Override public GeckoResult<PromptResponse> onLoginSave(GeckoSession s, AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption> p) {
+            if (!liveSession(s) || !visible || current == null || current.session != s || prompts == null) return GeckoResult.fromValue(p.dismiss());
+            return routePrompt(s, p, () -> prompts.onLoginSave(s, p));
+        }
+        @Override public GeckoResult<PromptResponse> onLoginSelect(GeckoSession s, AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSelectOption> p) {
+            if (!liveSession(s) || !visible || current == null || current.session != s || prompts == null) return GeckoResult.fromValue(p.dismiss());
+            return routePrompt(s, p, () -> prompts.onLoginSelect(s, p));
+        }
     };
     private final GeckoSession.PromptDelegate backgroundPrompts = new GeckoSession.PromptDelegate() {
         @Override public GeckoResult<PromptResponse> onAlertPrompt(GeckoSession s, AlertPrompt p) { return needUser(s, p); }
@@ -1654,6 +1665,8 @@ final class BrowserEngine {
         @Override public GeckoResult<PromptResponse> onPopupPrompt(GeckoSession s, PopupPrompt p) { return needUser(s, p); }
         @Override public GeckoResult<PromptResponse> onFilePrompt(GeckoSession s, FilePrompt p) { return needUser(s, p); }
         @Override public GeckoResult<PromptResponse> onChoicePrompt(GeckoSession s, ChoicePrompt p) { return needUser(s, p); }
+        @Override public GeckoResult<PromptResponse> onLoginSave(GeckoSession s, AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption> p) { return GeckoResult.fromValue(p.dismiss()); }
+        @Override public GeckoResult<PromptResponse> onLoginSelect(GeckoSession s, AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSelectOption> p) { return GeckoResult.fromValue(p.dismiss()); }
     };
     private void finish(Pending p,JSONObject result) {
         if(p==null||!isPending(p))return;

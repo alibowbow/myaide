@@ -18,6 +18,8 @@ public final class GyeotApp extends Application {
         super.onCreate();
         // Gecko also starts Android child processes. They must not restore/cancel the main app's work journal.
         if (getPackageName().equals(Application.getProcessName())) {
+            // The browser's saved logins (비밀번호 관리자), given to its runtime when it is made.
+            BrowserRuntime.prepare = runtime -> LoginVault.attach(this, runtime);
             registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
                 @Override public void onActivityStarted(Activity activity) { startedActivities++; }
                 @Override public void onActivityStopped(Activity activity) { if (startedActivities > 0) startedActivities--; }

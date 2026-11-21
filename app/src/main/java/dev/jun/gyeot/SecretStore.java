@@ -67,6 +67,12 @@ final class SecretStore {
         if (!preferences().edit().putString(name, saved).commit()) throw new IllegalStateException("키를 저장하지 못했어요.");
     }
     boolean has(String name) { return preferences().contains(name); }
+    /** The names of what is kept that start with prefix (never the values). */
+    java.util.List<String> names(String prefix) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String name : preferences().getAll().keySet()) if (name.startsWith(prefix)) out.add(name);
+        java.util.Collections.sort(out); return out;
+    }
     /**
      * What is kept under name, still encrypted: every write changes it (a fresh IV), so a cache of something worked out from
      * the value can tell it changed without decrypting it (AppStore.usageIdentity). Never a credential in the clear.

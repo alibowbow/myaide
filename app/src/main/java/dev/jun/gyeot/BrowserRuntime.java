@@ -14,7 +14,13 @@ final class BrowserRuntime {
     final GeckoRuntime runtime;
     private GeckoResult<WebExtension> bridge;
 
-    private BrowserRuntime(Context context) { runtime = GeckoRuntime.create(context.getApplicationContext()); }
+    /** Set once by the app: what the runtime is given when it is made (the saved logins Gecko fills forms from). */
+    static volatile java.util.function.Consumer<GeckoRuntime> prepare;
+    private BrowserRuntime(Context context) {
+        runtime = GeckoRuntime.create(context.getApplicationContext());
+        java.util.function.Consumer<GeckoRuntime> ready = prepare;
+        if (ready != null) try { ready.accept(runtime); } catch (RuntimeException optional) { /* the browser works without it */ }
+    }
     static BrowserRuntime get(Context context) {
         if (Looper.myLooper() != Looper.getMainLooper()) throw new IllegalStateException("Browser must run on the main thread");
         if (instance == null) instance = new BrowserRuntime(context);

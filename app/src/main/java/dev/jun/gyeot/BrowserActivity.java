@@ -193,10 +193,10 @@ public final class BrowserActivity extends Activity {
         // The durable transcript owns every sent user/assistant bubble, including the current request.
         conversationBox = ui.column(); resultBox.addView(conversationBox);
         askBubble = bubble(""); askBubble.setVisibility(View.GONE); resultBox.addView(askBubble, bubbleParams());
-        // While the AI works on this tab: one quiet line under the request, the breathing dusk orb and words a soft light
+        // While the AI works on this tab: one quiet line under the request, the AI mark breathing and words a soft light
         // sweeps across, as chat apps show a model thinking. A tap opens 작업 상세.
         thinkingRow = ui.row(); thinkingRow.setMinimumHeight(ui.dp(40)); thinkingRow.setPadding(0, ui.dp(2), 0, ui.dp(10)); thinkingRow.setVisibility(View.GONE);
-        thinkingMark = new ImageView(this); thinkingMark.setImageResource(R.drawable.ic_ai_orb);
+        thinkingMark = new ImageView(this); thinkingMark.setImageResource(R.drawable.ic_ai_chat); thinkingMark.setImageTintList(android.content.res.ColorStateList.valueOf(ACCENT));
         thinkingMark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(ui.dp(17), ui.dp(17)); markParams.rightMargin = ui.dp(9); thinkingRow.addView(thinkingMark, markParams);
         thinkingText = new ShimmerText(this, MUTED, TEXT); thinkingText.setTextSize(14); thinkingText.setTypeface(Ui.weight(500)); thinkingText.setIncludeFontPadding(false);
@@ -294,7 +294,7 @@ public final class BrowserActivity extends Activity {
         clearAddressButton.setTooltipText("주소 입력 지우기"); clearAddressButton.setVisibility(View.GONE);
         omnibox.addView(clearAddressButton, new LinearLayout.LayoutParams(ui.dp(40), pillHeight()));
         LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(0, pillHeight(), 1); ap.leftMargin = ap.rightMargin = ui.dp(4); ap.gravity = Gravity.CENTER_VERTICAL; toolbar.addView(omnibox, ap);
-        paneToggle = new BrowserProgressUi.Indicator(this); paneToggle.setImageResource(R.drawable.ic_ai_orb); paneToggle.setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12));
+        paneToggle = new BrowserProgressUi.Indicator(this); paneToggle.setImageResource(R.drawable.ic_ai_chat); paneToggle.setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12));
         paneToggle.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         paneToggle.setOnClickListener(v -> { haptic(HapticFeedbackConstants.CLOCK_TICK); if (hasAiAttention()) detail(); else setPaneVisible(!paneVisible); });
         paneToggle.setOnLongClickListener(v -> { setPaneVisible(!paneVisible); return true; }); Ui.pressable(paneToggle, false); toolbar.addView(paneToggle, dockSquare());
@@ -728,11 +728,9 @@ public final class BrowserActivity extends Activity {
         String action = state.isBlank() ? (paneVisible ? "AI 패널 접기" : "AI 패널 열기") : state + (running ? " · 작업 상세와 중지 열기" : " · 확인 내용 열기");
         progressAction = action; paneToggle.setTooltipText(action);
         paneToggle.setStateDescription(state); paneToggle.setSelected(paneVisible || hasAiAttention());
-        // The dusk orb keeps its own colors; only the 확인/오류 mark is tinted.
-        boolean mark = attention || failed;
-        paneToggle.setImageResource(mark ? R.drawable.ic_info : R.drawable.ic_ai_orb);
-        int tint = failed ? ERROR : paneVisible || hasAiAttention() ? ACCENT : MUTED;
-        paneToggle.setImageTintList(mark ? android.content.res.ColorStateList.valueOf(tint) : null);
+        paneToggle.setImageResource(attention || failed ? R.drawable.ic_info : R.drawable.ic_ai_chat);
+        int tint = failed ? ERROR : paneVisible || hasAiAttention() ? ACCENT : TEXT;
+        paneToggle.setImageTintList(android.content.res.ColorStateList.valueOf(tint));
         // Open: a soft round wash behind the sparkle, not a square block.
         paneToggle.setBackground(new android.graphics.drawable.InsetDrawable(ui.shape(paneVisible || hasAiAttention() ? ACCENT_SOFT : android.graphics.Color.TRANSPARENT, 99), ui.dp(4)));
         if (paneToggle instanceof BrowserProgressUi.Indicator indicator) indicator.running(running);
@@ -761,7 +759,7 @@ public final class BrowserActivity extends Activity {
         String line = (status.isEmpty() ? "생각하는 중" : BrowserProgressUi.stage(status)) + (seconds >= 1 ? " · " + seconds + "초" : "");
         if (!line.contentEquals(thinkingText.getText())) thinkingText.setText(line);
     }
-    /** The orb breathes (a little smaller and fainter, then back) while the line shows; still when animations are off. */
+    /** The AI mark breathes (a little smaller and fainter, then back) while the line shows; still when animations are off. */
     private void thinkingMotion(boolean on) {
         if (on && thinkingSpin == null && android.animation.ValueAnimator.areAnimatorsEnabled()) {
             thinkingSpin = android.animation.ObjectAnimator.ofPropertyValuesHolder(thinkingMark,
@@ -1050,7 +1048,7 @@ public final class BrowserActivity extends Activity {
         String deleteConversationId = tab.conversationId;
         String deleteConversationTitle = host(tab.url) + " · 이 탭의 대화";
         LinearLayout assistant = ui.group();
-        ui.addRow(assistant, menuRow(R.drawable.ic_sparkle, Ui.INDIGO, paneVisible ? "AI 패널 접기" : "AI 패널 열기", true, () -> setPaneVisible(!paneVisible), sheet), true);
+        ui.addRow(assistant, menuRow(R.drawable.ic_ai_chat, Ui.INDIGO, paneVisible ? "AI 패널 접기" : "AI 패널 열기", true, () -> setPaneVisible(!paneVisible), sheet), true);
         ui.addRow(assistant, menuRow(R.drawable.ic_tune, Ui.INDIGO, "모델·생각 깊이", true, this::models, sheet), true);
         ui.addRow(assistant, menuRow(R.drawable.ic_history, Ui.INDIGO, "작업 상세", true, this::detail, sheet), true);
         ui.addRow(assistant, menuRow(R.drawable.ic_info, Ui.ORANGE, "확인 필요한 작업", true, this::reviewPendingMutation, sheet), true);
@@ -1066,6 +1064,7 @@ public final class BrowserActivity extends Activity {
         ui.add(sheet.body, assistant, 12);
         LinearLayout login = ui.group();
         ui.addRow(login, menuRow(R.drawable.ic_key, Ui.ORANGE, engine.paused ? "AI 다시 사용" : "로그인 관리", true, this::loginMenu, sheet), true);
+        ui.addRow(login, menuRow(R.drawable.ic_lock, Ui.ORANGE, "비밀번호", true, () -> passwords().show(), sheet), true);
         sheet.body.addView(login); showBrowserPopup(sheet, browserMenuButton, false);
     }
     /** 예약 작업 (WorkSchedulesUi); a run's results open in 작업창. */
@@ -1380,6 +1379,12 @@ public final class BrowserActivity extends Activity {
         }));
         sheet.body.addView(ui.label("시스템 브라우저의 로그인은 들퍼레에 자동으로 옮겨지지 않아요. 사이트가 내부 로그인을 지원하지 않을 때 이용해 주세요.", 13, MUTED)); show(sheet);
     }
+    /** 비밀번호 (PasswordsUi): every saved login, kept by LoginVault. */
+    private PasswordsUi passwords() { return new PasswordsUi(this, ui, LoginVault.of(this), this::toast); }
+    /**
+     * This site's saved logins: one tapped is typed into the page's login form (the AI paused, the page's own fields, never the
+     * AI's tools), or a new one is kept and typed. The login button itself is the user's to press.
+     */
     private void vault() {
         engine.loginMode(true);
         BrowserEngine.PromptToken token = engine.promptToken(engine.current.session);
@@ -1387,25 +1392,35 @@ public final class BrowserActivity extends Activity {
             if (!engine.validPrompt(token)) throw new IllegalStateException("현재 탭을 다시 확인해 주세요.");
             String origin = BrowserTools.origin(engine.current.url);
             if (!origin.startsWith("https://")) throw new IllegalStateException("HTTPS 사이트에서만 로그인 정보를 저장할 수 있어요.");
-            String key = "browser.vault." + origin, raw = engine.store.secrets.get(key); JSONObject saved = raw.isBlank() ? obj() : new JSONObject(raw);
+            LoginVault logins = LoginVault.of(this);
             Ui.Sheet sheet = ui.new Sheet("저장된 로그인", origin);
+            java.util.function.BiConsumer<String, String> fill = (user, secret) -> engine.fillVault(token, origin, user, secret, result -> {
+                if (engine.current == token.tab && engine.liveSession(token.session))
+                    toast(result.optBoolean("ok") ? "입력했어요. 로그인 버튼을 직접 눌러 주세요." : result.optString("error"));
+            });
+            List<LoginVault.Login> saved = logins.forSite(origin);
+            if (!saved.isEmpty()) {
+                LinearLayout accounts = ui.group();
+                for (LoginVault.Login login : saved) ui.addRow(accounts, ui.listRow(R.drawable.ic_key, Ui.ORANGE, login.username().isBlank() ? "아이디 없는 로그인" : login.username(),
+                    "눌러서 입력", ui.chevron(), () -> {
+                        if (!engine.validPrompt(token) || !origin.equals(BrowserTools.origin(token.tab.url))) { toast("승인한 탭이 바뀌었어요. 로그인 메뉴를 다시 열어 주세요."); return; }
+                        sheet.dismiss(); logins.used(login.guid(), login.origin(), login.username()); fill.accept(login.username(), login.password());
+                    }), true);
+                sheet.body.addView(accounts); sheet.body.addView(ui.sectionHeader("다른 계정 저장"));
+            }
             EditText username = ui.input("아이디 또는 이메일", 1, 512), password = ui.input("비밀번호", 1, 1024);
             username.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
             password.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-            username.setText(saved.optString("username")); password.setText(saved.optString("password"));
             sheet.body.addView(username); sheet.body.addView(password);
             sheet.body.addView(ui.label("기기에 암호화해 저장해요. AI에게 전달하지 않으며, 입력 후 로그인 버튼은 직접 눌러 주세요.", 13, MUTED));
-            sheet.body.addView(ui.button("저장된 정보 삭제", false, () -> { try { if (!engine.validPrompt(token)) throw new IllegalStateException("승인한 탭이 바뀌었어요"); engine.store.secrets.put(key, ""); username.setText(""); password.setText(""); toast("삭제했어요"); } catch (Exception e) { toast("삭제하지 못했어요"); } }));
+            sheet.body.addView(ui.button("모든 비밀번호 보기", false, () -> { sheet.dismiss(); passwords().show(); }));
             sheet.primary.setText("저장하고 입력"); sheet.primary.setOnClickListener(v -> {
                 String user = username.getText().toString(), secret = password.getText().toString();
                 if (secret.isBlank()) { toast("비밀번호를 입력해 주세요."); return; }
                 try {
                     if (!engine.validPrompt(token) || !origin.equals(BrowserTools.origin(token.tab.url))) throw new IllegalStateException("승인한 탭이 바뀌었어요. 로그인 메뉴를 다시 열어 주세요.");
-                    engine.store.secrets.put(key, obj("username", user, "password", secret).toString());
-                    sheet.dismiss(); engine.fillVault(token, origin, user, secret, result -> {
-                        if (engine.current == token.tab && engine.liveSession(token.session))
-                            toast(result.optBoolean("ok") ? "입력했어요. 로그인 버튼을 직접 눌러 주세요." : result.optString("error"));
-                    });
+                    LoginVault.Login kept = logins.save(origin, "", "", user, secret);
+                    sheet.dismiss(); logins.used(kept.guid(), origin, user); fill.accept(user, secret);
                 } catch (Exception e) { toast(e.getMessage()); }
             });
             sheet.setOnDismissListener(d -> { username.setText(""); password.setText(""); dialogs.remove(sheet); });
@@ -1445,6 +1460,26 @@ public final class BrowserActivity extends Activity {
             return prompt(session, p, (b, r) -> b.setMessage(BrowserEngine.safeUrl(p.authOptions.uri)).setView(box).setPositiveButton("로그인", (d, w) -> r.complete(p.confirm(user.getText().toString(), pass.getText().toString()))).setNegativeButton("취소", (d, w) -> r.complete(p.dismiss())));
         }
         @Override public GeckoResult<PromptResponse> onPopupPrompt(GeckoSession session, PopupPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss()); return prompt(session, p, (b, r) -> b.setMessage("새 탭을 열까요?\n" + BrowserEngine.safeUrl(p.targetUri)).setPositiveButton("열기", (d, w) -> r.complete(p.confirm(AllowOrDeny.ALLOW))).setNegativeButton("취소", (d, w) -> r.complete(p.confirm(AllowOrDeny.DENY)))); }
+        /** After a login with details not kept yet: keep them (encrypted on this device, never sent to an AI)? */
+        @Override public GeckoResult<PromptResponse> onLoginSave(GeckoSession session, AutocompleteRequest<Autocomplete.LoginSaveOption> p) {
+            if (!engine.liveSession(session) || p.options == null || p.options.length == 0) return GeckoResult.fromValue(p.dismiss());
+            LoginVault vault = LoginVault.of(BrowserActivity.this); Autocomplete.LoginEntry entry = p.options[0].value;
+            String origin = entry.origin == null ? "" : entry.origin, user = entry.username == null ? "" : entry.username;
+            if (!vault.asks() || vault.never(origin)) return GeckoResult.fromValue(p.dismiss());
+            boolean update = vault.forSite(origin).stream().anyMatch(l -> l.username().equals(user));
+            return prompt(session, p, (b, r) -> b.setMessage((update ? "이 계정의 바뀐 비밀번호를 저장할까요?" : "이 로그인 정보를 저장할까요?") + (user.isBlank() ? "" : "\n아이디 · " + user)
+                    + "\n\n기기에 암호화해 두고 다음부터 자동으로 입력해요. AI에게는 보내지 않아요.")
+                .setPositiveButton(update ? "바꿔 저장" : "저장", (d, w) -> r.complete(p.confirm(p.options[0])))
+                .setNeutralButton("이 사이트는 묻지 않기", (d, w) -> { vault.never(origin, true); r.complete(p.dismiss()); })
+                .setNegativeButton("나중에", (d, w) -> r.complete(p.dismiss())));
+        }
+        /** More than one account kept for this site: which one to fill. */
+        @Override public GeckoResult<PromptResponse> onLoginSelect(GeckoSession session, AutocompleteRequest<Autocomplete.LoginSelectOption> p) {
+            if (!engine.liveSession(session) || p.options == null || p.options.length == 0) return GeckoResult.fromValue(p.dismiss());
+            String[] labels = new String[p.options.length];
+            for (int i = 0; i < labels.length; i++) { String u = p.options[i].value == null ? "" : p.options[i].value.username; labels[i] = u == null || u.isBlank() ? "아이디 없는 로그인" : u; }
+            return prompt(session, p, (b, r) -> b.setMessage(null).setItems(labels, (d, n) -> r.complete(p.confirm(p.options[n]))).setNegativeButton("취소", (d, w) -> r.complete(p.dismiss())));
+        }
         @Override public GeckoResult<PromptResponse> onChoicePrompt(GeckoSession session, ChoicePrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss());
             List<ChoicePrompt.Choice> options = new ArrayList<>(); flatten(p.choices, options); String[] labels = options.stream().map(c -> c.label).toArray(String[]::new);
             return prompt(session, p, (b, r) -> {
