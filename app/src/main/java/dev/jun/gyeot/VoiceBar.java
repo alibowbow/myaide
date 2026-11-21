@@ -109,12 +109,22 @@ final class VoiceBar {
     private boolean mine(VoiceChat c) { return surface.equals(c.target.surface()); }
 
     // ── the bar ──────────────────────────────────────────────────────────
+    /** Whether the bar may show at all here now (the screen's tab is in front); the conversation goes on either way. */
+    void enabled(boolean value) { if (enabled != value) { enabled = value; refresh(); } }
+    private boolean enabled = true, wasOn;
+    /** Called when the bar shows or hides, for a screen that lays out its composer itself. */
+    void onToggle(Runnable toggled) { this.toggled = toggled; }
+    private Runnable toggled;
+    /** Whether the bar stands in the composer's place now. */
+    boolean showing() { return wasOn; }
     void refresh() {
-        VoiceChat c = store.voiceChat; boolean on = c != null && mine(c);
+        VoiceChat c = store.voiceChat; boolean on = enabled && c != null && mine(c);
         bar.setVisibility(on ? View.VISIBLE : View.GONE);
+        if (on != wasOn) { wasOn = on; Runnable t = toggled; if (t != null) t.run(); }
         if (on) { for (View v : aside) if (v != null && !hidden.containsKey(v)) { hidden.put(v, v.getVisibility()); v.setVisibility(View.GONE); } }
         else { for (java.util.Map.Entry<View, Integer> was : hidden.entrySet()) was.getKey().setVisibility(was.getValue()); hidden.clear(); }
         if (!on) {
+            if (c != null && mine(c)) return; // only hidden here (another tab is in front): still the same conversation
             VoiceChat ended = shown; shown = null;
             if (ended != null && !ended.failure().isEmpty()) { if (ended.needsSetup()) settings(ended.failure()); else toast(ended.failure()); }
             return;
@@ -138,14 +148,15 @@ final class VoiceBar {
         };
         title.setText(c.kind.spoken() + " · " + doing);
         String said = c.words();
-        words.setText(said.isBlank() ? state == VoiceChat.State.CONNECTING ? "대화 기록과 기억을 이어서 연결해요" : "말씀하시면 대답해요 · 대화는 아래 기록에 남아요" : said);
+        words.setText(c.held() ? "화면이 말하는 동안 잠시 듣지 않아요" : said.isBlank() ? state == VoiceChat.State.CONNECTING ? "대화 기록과 기억을 이어서 연결해요" : "말씀하시면 대답해요 · 대화는 " + c.target.label() + "에 남아요" : said);
         mute.on(c.muted() ? R.drawable.ic_mic_off : R.drawable.ic_mic, c.muted() ? "마이크 켜기" : "마이크 끄기", c.muted());
     }
 
     // ── settings ─────────────────────────────────────────────────────────
     /** Which voice talks, how it sounds and its sign-in; note says why it opened (a sign-in is missing or was refused). */
     void settings(String note) {
-        Ui.Sheet sheet = ui.selectionSheet("음성 대화", note == null || note.isBlank() ? "메인 대화에서 GPT·Grok과 실시간으로 말해요. 말한 내용은 대화에 기록돼요." : note);
+        VoiceChat.Target here = target.get();
+        Ui.Sheet sheet = ui.selectionSheet("음성 대화", note == null || note.isBlank() ? here.label() + "에서 GPT·Grok과 실시간으로 말해요. 고른 상대와 목소리는 모든 화면에 같이 적용돼요." : note);
         sheet.primary.setVisibility(View.GONE); tracker.accept(sheet);
         RealtimeVoice.Kind current = kind();
         LinearLayout who = ui.group();
@@ -171,7 +182,7 @@ final class VoiceBar {
             keyRow(sign, sheet, SecretStore.XAI_VOICE, "xAI API 키 (선택)", "구독 로그인이 거절되면 이 키로 연결해요", "xai-로 시작하는 키");
         }
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.topMargin = ui.dp(12); sheet.body.addView(sign, p);
-        TextView about = ui.text("음성 대화는 웹 검색이나 폰 조작을 하지 않아요. 그런 일은 글로 보내 주세요. 말하는 중에 말씀하시면 대답을 멈추고 들어요.", FOOTNOTE, 450, MUTED);
+        TextView about = ui.text(here.about() + " 말하는 중에 말씀하시면 대답을 멈추고 들어요.", FOOTNOTE, 450, MUTED);
         about.setPadding(ui.dp(6), ui.dp(12), ui.dp(6), 0); sheet.body.addView(about);
         sheet.show();
     }

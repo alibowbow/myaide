@@ -125,6 +125,8 @@ public final class MainActivity extends Activity {
     private boolean composerVideo; private String composerVideoSource = "";
     private int galleryMedia; private long workGalleryDrawn = -1;
     private LinearLayout composer; private EditText composerInput; private android.widget.ImageView composerSend; private LinearLayout composerBar; private boolean composerRunning, composerStops, composerOneRow;
+    /** 작업창's 음성 대화 (VoiceBar, VoiceTargets.work): the send button starts it with an empty draft; its bar takes the composer's place. */
+    private VoiceBar workVoice; private boolean composerOffers;
     private LinearLayout composerRepoRow; private TextView composerRepo; private String lastRepo = "";
     /** When the draft last became empty (elapsedRealtime): the button waits STOP_GUARD_MS before it turns into stop, so the tap that sent a message cannot also stop the turn. */
     static final long STOP_GUARD_MS = 1200; private long composerEmptiedAt = -STOP_GUARD_MS;
@@ -271,6 +273,8 @@ public final class MainActivity extends Activity {
         header.addView(updateBanner, bannerParams); header.addView(applyBanner, new LinearLayout.LayoutParams(bannerParams)); header.addView(exitBanner, new LinearLayout.LayoutParams(bannerParams)); header.addView(error, new LinearLayout.LayoutParams(bannerParams));
         tabBar = tabBar(); root.addView(tabBar, new FrameLayout.LayoutParams(-1, ui.dp(64), android.view.Gravity.BOTTOM));
         composer = composer(); composer.setVisibility(View.GONE); root.addView(composer, new FrameLayout.LayoutParams(-1, -2, android.view.Gravity.BOTTOM));
+        workVoice = new VoiceBar(this, store, ui, "work", () -> VoiceTargets.work(this, store, workId)); workVoice.onToggle(this::layoutDock); workVoice.enabled(false);
+        root.addView(workVoice.bar(), new FrameLayout.LayoutParams(-1, -2, android.view.Gravity.BOTTOM));
         if (state != null) {
             composerInput.setText(state.getString("composerText", "")); composerVideo = state.getBoolean("videoMode"); composerVideoSource = state.getString("videoSource", ""); galleryMedia = state.getInt("galleryMedia"); refreshFiles();
         }
@@ -297,7 +301,7 @@ public final class MainActivity extends Activity {
     /** Android 15 is always edge to edge; match it on 13–14 so system bar and keyboard insets are handled in one place. */
     @SuppressWarnings("deprecation")
     private void edgeToEdge() { if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) getWindow().setDecorFitsSystemWindows(false); }
-    @Override protected void onStart() { super.onStart(); hostStarted=true; store.appVisible = true; if(showingMainChat&&mainChat!=null)mainChat.show(); store.observe(observer); refresh(); store.updater.checkIfDue();
+    @Override protected void onStart() { super.onStart(); hostStarted=true; store.appVisible = true; if (workVoice != null) workVoice.attach(); if(showingMainChat&&mainChat!=null)mainChat.show(); store.observe(observer); refresh(); store.updater.checkIfDue();
         // A call may start from here: the greeting is read into memory and the path to the Live host warmed (Greeter).
         store.greeter().warm();
         // Back from another app (Android's settings): settings is drawn again on its page and scroll, so a grant shows at once.
@@ -321,7 +325,7 @@ public final class MainActivity extends Activity {
         if(isLauncher(getIntent())&&StorageSetupActivity.maybeOffer(this))return;
         if(pendingLaunchVoice){pendingLaunchVoice=false;if(store.voiceOnOpen()&&!store.voiceActive){mode=ASSISTANT;recordingPage=false;showTab(0);startVoice();}}
     }
-    @Override protected void onStop() { hostStarted=false;settingsLeft=true;if(mainChat!=null)mainChat.hide();stopCamera(); store.appVisible = false; store.unobserve(observer); ticker.removeCallbacksAndMessages(null); stopPlayback(); stopReadingWhenLeft(); super.onStop(); }
+    @Override protected void onStop() { hostStarted=false;settingsLeft=true; if (workVoice != null) workVoice.detach();if(mainChat!=null)mainChat.hide();stopCamera(); store.appVisible = false; store.unobserve(observer); ticker.removeCallbacksAndMessages(null); stopPlayback(); stopReadingWhenLeft(); super.onStop(); }
     /**
      * Reading aloud has no foreground service, so once the app is left Android may freeze it mid-answer with the focus still
      * held: leaving stops it. The screen going off does not (the app stays on top), nor does a rotation.
@@ -869,6 +873,7 @@ public final class MainActivity extends Activity {
         super.onRequestPermissionsResult(code, permissions, results);
         // Both composers ask with the same code; the one on screen asked.
         if (showingMainChat && mainChat != null && mainChat.permissionResult(code, results)) return;
+        if (workVoice != null && workVoice.permissionResult(code, results)) return;
         if (composerDictation != null && composerDictation.permissionResult(code, results)) return;
         if (code == PhoneCalendar.SETTINGS_REQUEST) { calendar().permissionResult(); return; }
         if (code == WakeWordUi.PERMISSION_REQUEST) { wakeWord().permissionResult(); return; }
@@ -2390,6 +2395,7 @@ public final class MainActivity extends Activity {
         String text = message.optString("text");
         LinearLayout column = ui.column(); column.setGravity(android.view.Gravity.END);
         if (message.optBoolean("steering")) column.addView(ui.text("작업 중 추가 지시", 11, 500, MUTED));
+        if (WorkBook.SPOKEN.equals(message.optString("kind"))) column.addView(ui.text("음성 대화", 11, 500, MUTED));
         JSONArray attachments = message.optJSONArray("attachments");
         for (int a = 0; attachments != null && a < attachments.length(); a++) {
             JSONObject file = attachments.optJSONObject(a); if (file == null) continue;
@@ -2429,6 +2435,12 @@ public final class MainActivity extends Activity {
     private static String engineNamed(String name) { return "Claude".equals(name) ? WorkBook.CLAUDE : "Gemini".equals(name) ? WorkBook.GEMINI : "Grok".equals(name) ? WorkBook.GROK : "NVIDIA NIM".equals(name) ? WorkBook.NIM : WorkBook.CHATGPT; }
     /** One answer in the chat: who wrote it, the formatted text, notes, the files it made, cited pages, and a few actions. */
     private LinearLayout workAnswer(JSONObject thread, JSONObject message) {
+        // A spoken conversation's answer (VoiceTargets.work): what the voice said, under its name; nothing to act on.
+        if (WorkBook.SPOKEN.equals(message.optString("kind"))) {
+            LinearLayout answer = ui.column(); answer.addView(speaker(message.optString("voice", "음성")));
+            TextView said = ui.text(message.optString("text"), 15, 450, TEXT); said.setTextIsSelectable(true); answer.addView(said);
+            return answer;
+        }
         if ("video".equals(message.optString("kind"))) {
             LinearLayout answer = ui.column(); answer.addView(speaker("Grok · Imagine")); JSONObject job = VideoJobs.find(store.videos(), message.optString("videoId"));
             if (job == null) answer.addView(ui.label("영상 생성 기록이 지워졌어요.", 14, MUTED));
@@ -2582,6 +2594,7 @@ public final class MainActivity extends Activity {
         bar.addView(composerEngines, new LinearLayout.LayoutParams(0, -2, 1));
         bar.addView(ui.bareIcon(R.drawable.ic_mic, TEXT, "Gemini 음성 입력 · 초안에만 넣기", this::speakInComposer), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
         composerSend = ui.sendButton("보내기", this::composerButton);
+        composerSend.setOnLongClickListener(v -> { if (!composerOffersVoice() || workVoice == null) return false; workVoice.settings(""); return true; });
         composerInput.addTextChangedListener(new TextWatcher() {
             private boolean blank = true;
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
@@ -3078,8 +3091,16 @@ public final class MainActivity extends Activity {
     }
     /** The composer's one button: stop while a turn runs with an empty draft, otherwise send. A typed instruction is always sent, never dropped by a stop. */
     private void composerButton() {
-        if (composerWouldStop()) send(AssistantService.WORK_STOP, "thread", workId); else composerAction();
+        if (composerWouldStop()) send(AssistantService.WORK_STOP, "thread", workId);
+        else if (composerOffersVoice() && workVoice != null) { stopComposerDictation(); workVoice.start(); }
+        else composerAction();
     }
+    /** Nothing to send and nothing to stop: the button starts 음성 대화 with this room. */
+    private boolean composerOffersVoice() {
+        return tab == 3 && !composerWouldStop() && composerInput != null && composerInput.getText().toString().isBlank() && store.workFiles.length() == 0
+            && !composerVideo && composerImageAspect.isEmpty();
+    }
+    private void stopComposerDictation() { if (composerDictation != null) composerDictation.cancel(); }
     /** The composer's hint and button follow the thread: send, or stop while it works and nothing is typed (멈춤 beside the progress line stops it either way). */
     private void updateComposer() {
         if (composer == null) return;
@@ -3088,9 +3109,9 @@ public final class MainActivity extends Activity {
         composerInput.setHint(composerVideo && !running ? "원하는 장면이나 움직임을 적고 보내세요" : !composerImageAspect.isEmpty() && !running ? "원하는 그림을 적고 보내세요" : workModels().readyEngine().isEmpty() ? store.codexImages.connected() ? "원하는 그림을 적고 ‘그려줘’라고 보내세요" : "모델을 연결하고 메시지를 입력하세요"
             : running ? "추가 지시 보내기 · 다음 단계에 반영" : workId.isEmpty() ? workEngineName() + "에게 새 일 맡기기" : workEngineName() + "에게 이어서 지시하기");
         composerRunning = running;
-        boolean stops = composerWouldStop();
-        if (stops != composerStops) { composerStops = stops; ui.sendLooks(composerSend, stops); }
-        String says = stops ? STOP_WORK : running ? "작업 중 추가 지시 보내기" : "보내기";
+        boolean stops = composerWouldStop(), offers = !stops && composerOffersVoice();
+        if (stops != composerStops || offers != composerOffers) { composerStops = stops; composerOffers = offers; if (offers) workVoice.looks(composerSend, true); else ui.sendLooks(composerSend, stops); }
+        String says = stops ? STOP_WORK : offers ? VoiceBar.OFFER : running ? "작업 중 추가 지시 보내기" : "보내기";
         composerSend.setContentDescription(says); composerSend.setTooltipText(says);
         // The guard after a send or a cleared draft ends by itself: look again then.
         long wait = STOP_GUARD_MS - (android.os.SystemClock.elapsedRealtime() - composerEmptiedAt);
@@ -3210,6 +3231,7 @@ public final class MainActivity extends Activity {
      * nothing ends up under either.
      */
     private void layoutDock() {
+        if (workVoice != null) workVoice.enabled(!showingMainChat && tab == 3);
         if(showingMainChat)return;
         boolean typing = imeBottom > 0, dock = tab == 3, inThread = tab == 3 && !workId.isEmpty();
         boolean railWide=navigation!=null&&navigation.wide();
@@ -3228,13 +3250,15 @@ public final class MainActivity extends Activity {
         int side = inThread ? ui.gutter(width, ui.dp(20)) : ui.dp(20), dockSide = ui.gutter(width, ui.dp(12));
         int dockSpace = 0;
         if (composer != null) {
-            composer.setVisibility(dock ? View.VISIBLE : View.GONE);
+            boolean talking = workVoice != null && workVoice.showing();
+            composer.setVisibility(dock && !talking ? View.VISIBLE : View.GONE);
             FrameLayout.LayoutParams c = (FrameLayout.LayoutParams) composer.getLayoutParams();
             c.leftMargin = dockSide + insetLeft; c.rightMargin = dockSide + insetRight; c.bottomMargin = typing ? imeBottom + ui.dp(8) : insetBottom + ui.dp(railWide?12:82);
             composer.setLayoutParams(c);
+            if (workVoice != null) { FrameLayout.LayoutParams v = (FrameLayout.LayoutParams) workVoice.bar().getLayoutParams(); v.leftMargin = c.leftMargin; v.rightMargin = c.rightMargin; v.bottomMargin = c.bottomMargin; workVoice.bar().setLayoutParams(v); }
             // One low row once the field, the model and the buttons fit side by side (more room at large type).
             arrangeComposer(composer, width - 2 * dockSide >= ui.dp(560 * Math.max(1f, getResources().getConfiguration().fontScale)));
-            if (dock) dockSpace = Math.max(composer.getHeight(), ui.dp(50)) + ui.dp(16);
+            if (dock) dockSpace = Math.max(talking ? workVoice.bar().getHeight() : composer.getHeight(), ui.dp(50)) + ui.dp(16);
         }
         body.setPadding(side + insetLeft, insetTop + ui.dp(inThread ? 16 : 18), side + insetRight, (typing ? ui.dp(22) : insetBottom + ui.dp(railWide?24:104)) + dockSpace);
         int fade = (typing ? 0 : insetBottom + ui.dp(railWide?0:74)) + dockSpace + ui.dp(22);

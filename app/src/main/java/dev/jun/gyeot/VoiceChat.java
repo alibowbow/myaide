@@ -39,6 +39,8 @@ final class VoiceChat {
         String surface();
         /** The screen's name for the bar and the notification (메인 대화, 작업창, AI 브라우저, 판서). */
         String label();
+        /** What the voice can do here, in a sentence for the settings sheet. */
+        default String about() { return "말한 내용은 " + label() + "에 기록돼요."; }
         String instructions() throws Exception;
         /** Realtime function tools (RealtimeVoice.tools), or none. */
         default org.json.JSONArray tools() { return new org.json.JSONArray(); }

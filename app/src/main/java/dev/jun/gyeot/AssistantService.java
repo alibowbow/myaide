@@ -313,7 +313,13 @@ public final class AssistantService extends Service {
                 case MAIN_JOB -> sendMainJob(intent.getStringExtra("job"));
                 case WORK_SCHEDULE -> runSchedules(intent.getStringExtra("schedule"));
                 case WORK_RECOVER -> resumeInterruptedWorks();
-                case WORK_SEND -> sendWork(intent.getStringExtra("thread"), intent.getStringExtra("text"), intent.getStringExtra("engine"), intent.getStringExtra("files"), intent.getStringExtra("picture"), false, intent.getStringExtra("modelSelection"));
+                case WORK_SEND -> {
+                    // From a spoken conversation (VoiceTargets.work): the request is the voice model's words; what the app
+                    // heard the user say is the run's authority, as for work_start.
+                    sendHeard = intent.getBooleanExtra(WorkBook.VOICE, false) ? String.valueOf(intent.getStringExtra(WorkBook.HEARD)) : null;
+                    try { sendWork(intent.getStringExtra("thread"), intent.getStringExtra("text"), intent.getStringExtra("engine"), intent.getStringExtra("files"), intent.getStringExtra("picture"), false, intent.getStringExtra("modelSelection")); }
+                    finally { sendHeard = null; }
+                }
                 case WORK_CLEAR -> {
                     String id = intent.getStringExtra("thread");
                     java.util.List<String> before = WorkBook.attachmentIds(WorkBook.find(store.works(), id));
@@ -1097,7 +1103,10 @@ public final class AssistantService extends Service {
         return sendWork(threadId, text, requested, filesKey, pictureJson, queued, submittedSelection, mainOrigin, schedule, null);
     }
     /** voiceStart: a work_start whose selection and connection were pinned when the user asked; null otherwise. */
+    /** The user's heard words for a WORK_SEND from a spoken conversation (null otherwise); main thread, during sendWork. */
+    private String sendHeard;
     private String sendWork(String threadId, String text, String requested, String filesKey, String pictureJson, boolean queued, String submittedSelection, String mainOrigin, JSONObject schedule, VoiceWork.Start voiceStart) {
+        final String spokenHeard = sendHeard;
         // The attachments wait in the store under a key: with text files in them they can outgrow what an Intent carries.
         JSONArray attached = filesKey == null ? null : store.workOutbox.remove(filesKey), files = attached == null ? new JSONArray() : attached;
         JSONObject existing = WorkBook.find(store.works(), threadId == null ? "" : threadId);
@@ -1130,7 +1139,13 @@ public final class AssistantService extends Service {
         if (!queued && directPicture == null && existing != null &&
                 (WorkBook.RUNNING.equals(existing.optString("state")) || dev.jun.gyeot.core.WorkQueue.size(existing) > 0)) {
             try {
-                store.changeWorks(list -> { dev.jun.gyeot.core.WorkQueue.add(WorkBook.find(list, threadId), text, files, engine, selectedModel, selectedEffort, selectionSnapshot, System.currentTimeMillis()); return null; });
+                store.changeWorks(list -> {
+                    JSONObject room = WorkBook.find(list, threadId);
+                    dev.jun.gyeot.core.WorkQueue.add(room, text, files, engine, selectedModel, selectedEffort, selectionSnapshot, System.currentTimeMillis());
+                    if (spokenHeard != null) { JSONArray pending = room.optJSONArray("pendingInstructions"); JSONObject entry = pending == null ? null : pending.optJSONObject(pending.length() - 1);
+                        if (entry != null) { put(entry, WorkBook.VOICE, true); if (!spokenHeard.isBlank()) put(entry, WorkBook.HEARD, spokenHeard); } }
+                    return null;
+                });
                 store.status("추가 지시를 저장했어요. 같은 AI의 작업은 현재 처리 뒤 다음 단계에 반영해요.");
                 store.changed(); return threadId;
             } catch (Exception e) { store.error(message(e, "추가 지시를 보관하지 못했어요.")); return ""; }
@@ -1166,8 +1181,8 @@ public final class AssistantService extends Service {
                 if (queued) dev.jun.gyeot.core.WorkQueue.removeFirst(target);
                 // Words the voice model wrote are never the user's own merge authorization.
                 // Only what the app heard the user say for them is the user's own authority.
-                if (voiceStart != null || queuedEntry != null && queuedEntry.optBoolean(WorkBook.VOICE))
-                    WorkBook.spoken(target, voiceStart != null ? voiceStarts.heard(voiceStart) : queuedEntry.optString(WorkBook.HEARD));
+                if (voiceStart != null || spokenHeard != null || queuedEntry != null && queuedEntry.optBoolean(WorkBook.VOICE))
+                    WorkBook.spoken(target, voiceStart != null ? voiceStarts.heard(voiceStart) : spokenHeard != null ? spokenHeard : queuedEntry.optString(WorkBook.HEARD));
                 put(target, "activeEngine", engine);
                 if (directPicture == null) {
                     dev.jun.gyeot.core.WorkCheckpoint.begin(target, engine, selectedModel, selectedEffort, store.webSearch(engine), now);

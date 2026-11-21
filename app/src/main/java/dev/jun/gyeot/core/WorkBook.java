@@ -100,6 +100,22 @@ public final class WorkBook {
         JSONObject last = messages == null || messages.length() == 0 ? null : messages.optJSONObject(messages.length() - 1);
         if (last != null && USER.equals(last.optString("role"))) { put(last, VOICE, true); if (heard != null && !heard.isBlank()) { String said = heard.strip(); put(last, HEARD, said.length() > 4000 ? said.substring(0, 4000) : said); } }
     }
+    /** A spoken conversation's line (VoiceChat in 작업창): shown in the room, never a request or a run's authority. */
+    public static final String SPOKEN = "voiceChat";
+    /**
+     * Adds a line of a spoken conversation with GPT or Grok to the room, as said: the user's words (marked as heard by voice)
+     * or the voice's answer (by: the engine that spoke it, voice: its label). The room's state, its run and the authority
+     * of its run are left alone. Returns the line's time.
+     */
+    public static long said(JSONObject thread, boolean user, String text, String engine, String voice, long now) {
+        String clean = text == null ? "" : text.strip();
+        if (clean.isEmpty()) throw new IllegalArgumentException("빈 말은 적지 않아요.");
+        if (clean.length() > 8000) clean = clean.substring(0, 8000);
+        JSONObject line = user ? obj("role", USER, "text", clean, "at", now, "kind", SPOKEN, VOICE, true, HEARD, clean)
+            : obj("role", "assistant", "text", clean, "at", now, "kind", SPOKEN, "by", engine(engine), "voice", voice == null ? "" : voice);
+        add(thread, line); put(thread, "updatedAt", now);
+        return now;
+    }
     /** This room's first request in the user's own words, for a schedule made from it: what the app heard the user say when the
      * voice model wrote the message (work_start), else the typed text. */
     public static String firstRequest(JSONObject thread) {
@@ -125,12 +141,12 @@ public final class WorkBook {
         int start = -1;
         for (int i = messages.length() - 1; i >= 0 && start < 0; i--) {
             JSONObject item = messages.optJSONObject(i);
-            if (item != null && USER.equals(item.optString("role")) && !item.optBoolean("steering")) start = i;
+            if (item != null && USER.equals(item.optString("role")) && !item.optBoolean("steering") && !SPOKEN.equals(item.optString("kind"))) start = i;
         }
         StringBuilder authority = new StringBuilder();
         for (int i = Math.max(0, start); start >= 0 && i < messages.length(); i++) {
             JSONObject item = messages.optJSONObject(i);
-            if (item == null || !USER.equals(item.optString("role"))) continue;
+            if (item == null || !USER.equals(item.optString("role")) || SPOKEN.equals(item.optString("kind"))) continue;
             String words = item.optBoolean(VOICE) ? item.optString(HEARD) : item.optString("text");
             if (i == start && thread.optJSONObject("schedule") != null) words = WorkSchedules.goal(words);
             if (!words.isBlank()) authority.append(AutomationGate.AUTHORITY_LINE).append(words.strip().replace("\n", "\n" + AutomationGate.AUTHORITY_LINE)).append("\n");
