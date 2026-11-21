@@ -162,6 +162,8 @@ final class ClaudeClient {
         boolean fallback = allowFallback && info.optBoolean("fallback"), useSearch = search, useFetch = fetch, useCode = code;
         WorkBudget budget = new WorkBudget();
         String box = container; int level = 0, retries = 0, rounds = 0; boolean narrowed = false;
+        // Long runs: the API clears old tool results itself (ClaudeProtocol.contextEdits); dropped if this key or model refuses it.
+        JSONObject contextEdits = ClaudeProtocol.contextEdits(info);
         List<String> notes = new ArrayList<>(); Turn turn = new Turn();
         ClaudeProtocol.Stream stream = new ClaudeProtocol.Stream(); JSONArray sending = messages;
         while (true) {
@@ -183,9 +185,10 @@ final class ClaudeClient {
             JSONObject request = ClaudeProtocol.request(model, info, instructions, sending, maxTokens, effort, useSearch, useFetch, useCode, level, box, fallback, cache,
                 repos == null ? null : repos.claude(), summary, main ? MAIN_SEARCHES : 0);
             if (cacheSystem) ClaudeProtocol.cacheSystem(request);
+            if (contextEdits != null) request.put("context_management", contextEdits);
             budget.beforeRequest(request.toString().length(), onActivity);
             byte[] body = request.toString().getBytes(StandardCharsets.UTF_8);
-            String betas = fallback ? ClaudeProtocol.FALLBACK_BETA : "";
+            String betas = (fallback ? ClaudeProtocol.FALLBACK_BETA : "") + (contextEdits == null ? "" : (fallback ? "," : "") + ClaudeProtocol.CONTEXT_BETA);
             Map<String, String> headers = account.headers(betas.isEmpty() ? null : betas);
             headers.put("Content-Type", "application/json"); headers.put("Accept", "text/event-stream");
             boolean fresh = rounds == 0 && stream.empty();
@@ -207,6 +210,7 @@ final class ClaudeClient {
                     if (summary && fresh && ClaudeProtocol.summaryRefused(response.status, message)) throw new dev.jun.gyeot.core.MainRequest.SummaryRefused();
                     if (fresh && ClaudeProtocol.retryable(response.status) && retries < RETRIES) { retries++; pause(retries); continue; }
                     if (part.equals("fallback") && fallback) { fallback = false; continue; }
+                    if (contextEdits != null && response.status == 400 && message.toLowerCase(java.util.Locale.ROOT).matches("(?s).*context[_ -]management.*")) { contextEdits = null; continue; }
                     if (part.equals("container") && WorkBook.safeId(box)) { box = ""; continue; }
                     if (part.equals("file") && withoutFiles != null) {
                         messages = withoutFiles; sending = withoutFiles; withoutFiles = null;

@@ -115,7 +115,7 @@ public final class PhoneRisk {
         return out;
     }
     /** What lets an app watch or control the phone, in words. */
-    static List<String> reach(App app) {
+    public static List<String> reach(App app) {
         List<String> out = new ArrayList<>();
         if (app.accessibility()) out.add("접근성 서비스로 화면을 읽고 누를 수 있어요");
         if (app.admin()) out.add("기기 관리자 권한이 있어요");

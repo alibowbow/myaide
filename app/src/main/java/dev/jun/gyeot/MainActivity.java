@@ -2364,12 +2364,16 @@ public final class MainActivity extends Activity {
                 failed.addView(speaker(engineOf(thread, message)));
                 TextView reason = ui.text(WorkBook.errorText(text), 14, 450, ERROR); reason.setTextIsSelectable(true); failed.addView(reason);
                 if (message.has("agents") || message.has("switches")) failed.addView(teamUi().reports(message.optJSONArray("agents"), message.optJSONArray("switches")));
-                String retry = lastUser;
-                if (!retry.isBlank()) failed.addView(ui.actions(ui.chip("같은 지시 다시 보내기", () -> { composerInput.setText(retry); composerInput.setSelection(retry.length()); composerInput.requestFocus(); })));
+                // Its actions in one line of compact pills: send it again (the one it leads to), the unfinished answer.
+                String retry = lastUser, unfinished = message.optString("interruptedDraft");
+                TextView again = retry.isBlank() ? null : ui.pill("같은 지시 다시 보내기", R.drawable.ic_refresh, true, () -> { composerInput.setText(retry); composerInput.setSelection(retry.length()); composerInput.requestFocus(); });
+                TextView draft = unfinished.isBlank() ? null : ui.pill("미완성 답변 보기", R.drawable.ic_file, false, () -> showDocument("중단 전 미완성 답변", unfinished, null));
+                if (again != null || draft != null) failed.addView(ui.pills(again, draft));
                 add(failed, 24);
             } else add(workAnswer(thread, message), text.isBlank() ? 24 : 10);
             if (message.optBoolean("recoveredReadOnly")) add(ui.text("중단 후 읽기 전용으로 복구한 답변 · 변경 작업과 대기 지시는 자동 반복하지 않았어요. 이전 변경이 성공했는지 확인되지 않았다면 새 지시로 확인을 요청해 주세요.", 12, 400, MUTED), 8);
-            if (!message.optString("interruptedDraft").isBlank()) add(ui.actions(ui.chip("저장된 미완성 답변 보기", () -> showDocument("중단 전 미완성 답변", message.optString("interruptedDraft"), null))), 8);
+            if (!WorkBook.ERROR.equals(role) && !message.optString("interruptedDraft").isBlank())
+                add(ui.pills(ui.pill("미완성 답변 보기", R.drawable.ic_file, false, () -> showDocument("중단 전 미완성 답변", message.optString("interruptedDraft"), null))), 4);
         }
         JSONArray savedDrafts = thread.optJSONArray("savedDrafts");
         if (WorkBook.RUNNING.equals(thread.optString("state"))) {
@@ -2416,11 +2420,11 @@ public final class MainActivity extends Activity {
         if (checkpoint != null && (dev.jun.gyeot.core.WorkCheckpoint.PAUSED.equals(thread.optString("state")) || checkpoint.optBoolean("readOnly"))) {
             add(ui.banner("중단 기록 복구 · 읽기 전용으로 이어서 확인해요. 변경·코드·이미지·팀 작업은 자동 반복하지 않아요. 대기 지시는 보관해요.", MUTED), 12);
             String partial = checkpoint.optString("originalPartial", checkpoint.optString("partial"));
-            if (!partial.isBlank()) add(ui.actions(ui.chip("중단 전 답변 보기", () -> showDocument("중단 전 미완성 답변", partial, null))), 8);
-            if (dev.jun.gyeot.core.WorkCheckpoint.PAUSED.equals(thread.optString("state"))) {
-                add(ui.text("연결이 바뀌었거나 24시간·3회 복구 한도를 넘으면 자동으로 다시 보내지 않아요. 기록을 확인한 뒤 새 지시를 보내 주세요.", 12, 400, MUTED), 8);
-                add(ui.actions(ui.chip("복구 취소", () -> send(AssistantService.WORK_STOP, "thread", id))), 8);
-            }
+            boolean paused = dev.jun.gyeot.core.WorkCheckpoint.PAUSED.equals(thread.optString("state"));
+            if (paused) add(ui.text("연결이 바뀌었거나 24시간·3회 복구 한도를 넘으면 자동으로 다시 보내지 않아요. 기록을 확인한 뒤 새 지시를 보내 주세요.", 12, 400, MUTED), 8);
+            TextView seePartial = partial.isBlank() ? null : ui.pill("중단 전 답변 보기", R.drawable.ic_file, false, () -> showDocument("중단 전 미완성 답변", partial, null));
+            TextView cancelRecovery = paused ? ui.pill("복구 취소", R.drawable.ic_close, false, () -> send(AssistantService.WORK_STOP, "thread", id)) : null;
+            if (seePartial != null || cancelRecovery != null) add(ui.pills(seePartial, cancelRecovery), 4);
         }
 
         int pending = dev.jun.gyeot.core.WorkQueue.size(thread);
@@ -2439,19 +2443,21 @@ public final class MainActivity extends Activity {
             }
             if (immediate) {
                 String expectedRun = checkpoint == null ? "" : checkpoint.optString("run"), expectedTicket = interrupt.token();
-                add(ui.actions(ui.chip("지금 전달", () -> send(new Intent(this, AssistantService.class).setAction(AssistantService.WORK_STEER_NOW)
-                    .putExtra("thread", id).putExtra("run", expectedRun).putExtra("ticket", expectedTicket)))), 8);
+                add(ui.pills(ui.pill("지금 전달", R.drawable.ic_send, true, () -> send(new Intent(this, AssistantService.class).setAction(AssistantService.WORK_STEER_NOW)
+                    .putExtra("thread", id).putExtra("run", expectedRun).putExtra("ticket", expectedTicket)))), 4);
                 add(ui.text("Claude의 현재 응답만 멈추고 추가 지시로 이어가요. 이미 끝난 도구 결과는 보존해요.", 12, 400, MUTED), 8);
             } else if (WorkBook.RUNNING.equals(thread.optString("state"))) {
                 add(ui.text(recovering ? "읽기 전용 복구 중에는 추가 지시를 전달하거나 자동 실행하지 않아요." : interrupting ? "현재 응답을 멈추고 추가 지시를 반영하고 있어요." : liveDelivery
                     ? "현재 요청은 바로 끊지 않아요. 다른 AI, 검색·코드 실행을 포함한 Claude 요청, 실행 중인 도구·팀 작업은 응답이나 처리가 끝난 뒤 반영해요."
                     : "현재 실행과 모델·설정이 다르거나 음성·영상 첨부가 있어 다음 작업으로 보관해요.", 12, 400, MUTED), 8);
             }
-            add(ui.actions(ui.chip("대기 지시 모두 취소", () -> send(AssistantService.WORK_CLEAR, "thread", id))), 8);
-            if (!WorkBook.RUNNING.equals(thread.optString("state"))) {
-                add(ui.text("중지·오류 뒤에는 자동으로 재실행하지 않아요. 이전 변경 결과를 확인한 뒤 새 지시를 이어서 실행하세요.", 12, 400, MUTED), 8);
-                add(ui.actions(ui.chip("대기 지시 이어서 실행", () -> send(AssistantService.WORK_NEXT, "thread", id))), 8);
-            }
+            // 이어서 실행 (when nothing runs) and 모두 취소 side by side, the note on why it waits just above them.
+            boolean idle = !WorkBook.RUNNING.equals(thread.optString("state"));
+            if (idle) add(ui.text("중지·오류 뒤에는 자동으로 재실행하지 않아요. 이전 변경 결과를 확인한 뒤 새 지시를 이어서 실행하세요.", 12, 400, MUTED), 8);
+            TextView runNext = idle ? ui.pill("이어서 실행", R.drawable.ic_play, true, () -> send(AssistantService.WORK_NEXT, "thread", id)) : null;
+            if (runNext != null) runNext.setContentDescription("대기 지시 이어서 실행");
+            TextView clearQueue = ui.pill("모두 취소", R.drawable.ic_close, false, () -> send(AssistantService.WORK_CLEAR, "thread", id)); clearQueue.setContentDescription("대기 지시 모두 취소");
+            add(ui.pills(runNext, clearQueue), 4);
         }
         refreshWorkProgress();
         // Plain scrolling: fullScroll would move focus to the composer and raise the keyboard.

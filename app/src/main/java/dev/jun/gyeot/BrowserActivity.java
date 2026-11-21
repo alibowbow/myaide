@@ -820,6 +820,10 @@ public final class BrowserActivity extends Activity {
         submit(text, text, true);
     }
     /** 끝까지 조사 on for the next request (the chip over the field says so), or off. */
+    /** The 들퍼레 folder is connected (and still allowed): saves need no folder question. */
+    private boolean sharedFolderConnected() {
+        try { SharedOutputFolder.selectedTree(this); return true; } catch (Exception notConnected) { return false; }
+    }
     private void deep(boolean on) {
         deepNext = on; if (deepChip != null) deepChip.setVisibility(on ? View.VISIBLE : View.GONE);
         if (on) { setPaneVisible(true); request.requestFocus(); getSystemService(InputMethodManager.class).showSoftInput(request, InputMethodManager.SHOW_IMPLICIT); toast("조사할 내용을 적어 보내면 여러 출처를 끝까지 살펴 보고서로 답해요"); }
@@ -1112,11 +1116,14 @@ public final class BrowserActivity extends Activity {
         String youtubePage = tab.url;
         String youtube = dev.jun.gyeot.core.BrowserYouTubeLinks.webUrl(youtubePage);
         if (youtube != null) ui.addRow(sharing, menuRow(R.drawable.ic_video, Ui.RED, "YouTube 앱에서 열기", engine.canOpenExternalApp(tab), () -> { if (Objects.equals(youtubePage, tab.url)) offerYouTube(tab, youtube); }, sheet), true);
-        ui.addRow(sharing, menuRow(R.drawable.ic_tune, Ui.GREEN, "음악 저장 폴더 선택", true, () -> {
-            new AlertDialog.Builder(this).setTitle("들퍼레 폴더 선택")
-                .setMessage("내장 저장공간에 들퍼레 폴더를 만들거나 선택해 주세요. 그 안의 음악 폴더에 저장하고 기존 파일은 그대로 둡니다.")
-                .setPositiveButton("폴더 선택", (dialog, which) -> BrowserMusicDownloads.chooseFolder(this, BrowserMusicDownloads.REQUEST_FOLDER))
-                .setNegativeButton("취소", null).show();
+        // Music goes to the 들퍼레 folder the app already uses (들퍼레/음악): it is asked for only when none is connected yet.
+        boolean musicFolder = sharedFolderConnected();
+        ui.addRow(sharing, menuRow(R.drawable.ic_tune, Ui.GREEN, musicFolder ? "음악 저장 위치 · 들퍼레/음악" : "음악 저장 폴더 연결", true, () -> {
+            if (!musicFolder) { BrowserMusicDownloads.chooseFolder(this, BrowserMusicDownloads.REQUEST_FOLDER); return; }
+            new AlertDialog.Builder(this).setTitle("음악 저장 위치")
+                .setMessage("이미 연결된 들퍼레 폴더를 써요. 받은 음악은 내장 저장공간/들퍼레/음악에 저장되고, 기존 파일은 그대로 둬요.")
+                .setPositiveButton("확인", null)
+                .setNeutralButton("권한 다시 설정", (dialog, which) -> BrowserMusicDownloads.chooseFolder(this, BrowserMusicDownloads.REQUEST_FOLDER)).show();
         }, sheet), true);
         ui.add(sheet.body, sharing, 12);
         String deleteConversationId = tab.conversationId;

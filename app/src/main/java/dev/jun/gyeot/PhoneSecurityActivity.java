@@ -143,8 +143,8 @@ public final class PhoneSecurityActivity extends Activity {
         var back=ui.backButton(previousTitle(),this::onBackPressed);
         back.setMinimumHeight(ui.dp(48)); back.setFocusable(true);
         body.addView(back,new LinearLayout.LayoutParams(-2,-2));
-        TextView heading=ui.title(title,26); heading.setAccessibilityHeading(true);
-        ui.add(body,heading,12);
+        TextView heading=ui.title(title,id.equals("home") ? 26 : 22); heading.setAccessibilityHeading(true);
+        ui.add(body,heading,id.equals("home") ? 12 : 4);
     }
     private void display(View view) {
         view.setBackgroundColor(Ui.BG);
@@ -165,7 +165,9 @@ public final class PhoneSecurityActivity extends Activity {
                 .setPositiveButton(yes,(d,w)->run.run()).show();
     }
     private LinearLayout section(LinearLayout parent,String title) {
-        parent.addView(ui.sectionHeader(title));
+        TextView heading=ui.sectionHeader(title);
+        if(!page.equals("home")) heading.setPadding(ui.dp(14),ui.dp(16),ui.dp(14),ui.dp(5));
+        parent.addView(heading);
         LinearLayout group=ui.group(); parent.addView(group); return group;
     }
     private void row(LinearLayout group,int icon,String title,String sub,Runnable run) {
@@ -175,8 +177,21 @@ public final class PhoneSecurityActivity extends Activity {
             line.parts.subtitle().setSingleLine(false); line.parts.subtitle().setEllipsize(null);
             line.parts.subtitle().setTextSize(14);
         }
+        if(!page.equals("home")) compactRow(line);
         line.setFocusable(run!=null);
         if(ui.listGroups.contains(group)) ui.addRow(group,line,icon!=0); else group.addView(line);
+    }
+    private void compactRow(Ui.ListRow line) {
+        line.setMinimumHeight(ui.dp(48)); line.setPadding(ui.dp(14),ui.dp(5),ui.dp(14),ui.dp(5));
+        line.parts.title().setTextSize(15);
+        if(line.parts.subtitle()!=null) {
+            line.parts.subtitle().setTextSize(13);
+            line.parts.subtitle().setPadding(0,ui.dp(2),0,0);
+        }
+        if(line.parts.tile()!=null) {
+            LinearLayout.LayoutParams tile=new LinearLayout.LayoutParams(ui.dp(28),ui.dp(28));
+            tile.setMarginEnd(ui.dp(10)); line.parts.tile().setLayoutParams(tile);
+        }
     }
     private LinearLayout status(String title,String detail,int icon,int tint) {
         LinearLayout group=ui.group(); body.addView(group);
@@ -186,6 +201,7 @@ public final class PhoneSecurityActivity extends Activity {
             line.parts.subtitle().setSingleLine(false); line.parts.subtitle().setEllipsize(null);
             line.parts.subtitle().setTextSize(14);
         }
+        if(!page.equals("home")) { compactRow(line); line.parts.title().setTextSize(16); }
         ui.addRow(group,line,true); return group;
     }
     private void home() {
@@ -282,18 +298,22 @@ public final class PhoneSecurityActivity extends Activity {
                     for (PhoneRisk.Finding f:findings) {
                         boolean canOpen=f.action().startsWith("settings:");
                         String label=switch(f.level()) { case OK -> "점검 범위 정상"; case INFO -> "참고"; case CAUTION -> "확인 권장"; case DANGER -> "우선 확인"; };
-                        row(results,0,f.title(),label+(f.detail().isEmpty()?"":" · "+f.detail()),canOpen?()->open(new Intent(f.action().substring(9))):null);
+                        row(results,0,f.title(),label,canOpen?()->open(new Intent(f.action().substring(9))):null);
+                        if(!f.detail().isBlank()) {
+                            TextView detail=ui.label(f.detail(),13,Ui.MUTED);
+                            detail.setPadding(ui.dp(14),0,ui.dp(14),ui.dp(7)); results.addView(detail);
+                        }
                     }
                     action("최근 변경 보기"+(alerts>0?" · 새 주의 "+alerts+"건":""),()->go("history"));
-                    text("아래 설정은 시스템 화면에서 직접 확인해 주세요.");
-                    action("보안 위험 자동 차단 · 삼성 보안 설정",()->open(new Intent(Settings.ACTION_SECURITY_SETTINGS)));
-                    action("Play 프로텍트 · Play 스토어에서 직접 확인",()->{
+                    LinearLayout manual=section(body,"시스템에서 직접 확인");
+                    row(manual,0,"보안 위험 자동 차단","삼성 보안 설정",()->open(new Intent(Settings.ACTION_SECURITY_SETTINGS)));
+                    row(manual,0,"Play 프로텍트","Play 스토어",()->{
                         Intent launch=getPackageManager().getLaunchIntentForPackage("com.android.vending");
                         if(launch==null) message("Play 스토어를 직접 열어 프로필 → Play 프로텍트를 확인하세요.");
                         else { open(launch); message("프로필 → Play 프로텍트에서 확인하세요."); }
                     });
-                    action("출처를 알 수 없는 앱 설치 허용",()->open(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)));
-                    action("다른 앱 위에 표시 권한",()->open(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)));
+                    row(manual,0,"출처를 알 수 없는 앱 설치 허용","",()->open(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)));
+                    row(manual,0,"다른 앱 위에 표시 권한","",()->open(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)));
                 });
             } catch(Exception e) { runOnUiThread(()->{ if(current(token)) text("설정 점검을 완료하지 못했어요. 다시 검사해 주세요."); }); }
         });
@@ -301,10 +321,11 @@ public final class PhoneSecurityActivity extends Activity {
     private void history() {
         screen("history","최근 변경"); JSONArray items=SecurityWatch.history(this);
         if(items.length()==0) text("기록된 변경이 없어요. 첫 점검은 비교 기준을 저장해요.");
+        LinearLayout log=items.length()==0 ? null : section(body,"변경 기록");
         for(int i=items.length()-1;i>=0;i--) {
             JSONObject row=items.optJSONObject(i); if(row==null) continue;
-            String label=date(row.optLong("at"))+" · "+row.optString("message");
-            String pkg=row.optString("pkg"); if(pkg.isEmpty()) text(label); else action(label,()->openApp(pkg));
+            String pkg=row.optString("pkg");
+            row(log,0,row.optString("message"),date(row.optLong("at")),pkg.isEmpty()?null:()->openApp(pkg));
         }
         action("지금 변경 확인",()->go("settings"));
     }
@@ -346,15 +367,15 @@ public final class PhoneSecurityActivity extends Activity {
         ArrayList<String> filters=new ArrayList<>(List.of("priority","all"));
         if(info>0) { names.add("추가 정보"); filters.add("info"); }
         if(!filters.contains(filter)) filter="priority";
-        LinearLayout tabs=ui.row(); body.addView(tabs);
+        Button[] tabs=new Button[names.size()];
         for(int i=0;i<names.size();i++) {
             String mode=filters.get(i); boolean on=mode.equals(filter);
-            Button b=ui.chip(names.get(i),()->{ filter=mode; listPosition=0; listOffset=0; showApps(items); });
-            b.setMinimumHeight(ui.dp(48)); b.setSelected(on); b.setTextColor(on?Ui.ON_ACCENT:Ui.TEXT);
-            b.setBackground(ui.shape(on?Ui.ACCENT:Ui.FILL,12));
+            Button b=SecurityControls.button(ui,names.get(i),on,()->{ filter=mode; listPosition=0; listOffset=0; showApps(items); });
+            b.setSelected(on);
             b.setContentDescription(names.get(i)+(on?", 선택됨":""));
-            LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(0,-2,1); if(i>0) lp.leftMargin=ui.dp(4); tabs.addView(b,lp);
+            tabs[i]=b;
         }
+        body.addView(SecurityControls.bar(ui,tabs));
         List<AppItem> shown=items.stream().filter(i->filter.equals("all") || (filter.equals("info") ? i.finding().level()==PhoneRisk.Level.INFO : i.priority())).collect(java.util.stream.Collectors.toList());
         if(shown.isEmpty()) {
             text(items.isEmpty()?"현재 프로필에서 점검할 앱을 찾지 못했어요.":"지금 먼저 확인할 권한이나 차단한 앱이 없어요. 특정 앱은 ‘전체 앱’에서 볼 수 있어요.");
@@ -370,12 +391,17 @@ public final class PhoneSecurityActivity extends Activity {
             public View getView(int i,View recycled,android.view.ViewGroup parent){
                 LinearLayout line=(LinearLayout)recycled;
                 if(line==null) {
-                    line=ui.column(); line.setPadding(ui.dp(22),ui.dp(10),ui.dp(22),ui.dp(10)); line.setMinimumHeight(ui.dp(56));
-                    line.addView(ui.text("",16,600,Ui.TEXT)); line.addView(ui.label("",14,Ui.MUTED));
+                    line=ui.column(); line.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                    line.setPadding(ui.dp(30),ui.dp(5),ui.dp(30),ui.dp(5)); line.setMinimumHeight(ui.dp(48));
+                    line.addView(ui.text("",15,600,Ui.TEXT)); line.addView(ui.label("",13,Ui.MUTED));
                 }
                 var item=getItem(i); TextView label=(TextView)line.getChildAt(0); TextView why=(TextView)line.getChildAt(1);
                 label.setText(item.app().label()+(item.blocked()?" · 인터넷 차단 중":""));
-                why.setText(item.finding().title()+(item.finding().level()==PhoneRisk.Level.OK?"":" · "+item.finding().detail()));
+                String verdict=item.finding().title();
+                if(item.review()) verdict+=" · "+String.join(", ",PhoneRisk.reach(item.app()));
+                else if(item.finding().level()==PhoneRisk.Level.INFO && !PhoneRisk.fromStore(item.app()))
+                    verdict+=item.app().installer().isBlank()?" · 출처 미확인":" · 스토어 외 설치";
+                why.setText(verdict);
                 why.setTextColor(item.review()?Ui.WARNING:Ui.MUTED);
                 return line;
             }
@@ -415,7 +441,7 @@ public final class PhoneSecurityActivity extends Activity {
         if(id.equals(lastNetworkApp) && blocked==AppFirewall.ADD.equals(lastNetworkAction))
             netTitle=blocked?"인터넷 차단 적용됨":"인터넷 차단 해제됨";
         row(net,R.drawable.ic_globe,netTitle,blocked?
-                "이 앱의 Wi-Fi와 모바일 데이터를 들퍼레가 차단하고 있어요.":"앱을 선택해 상세 정보를 열었어요. 이 앱에 적용 중인 인터넷 차단은 없어요.",null);
+                "이 앱의 Wi-Fi와 모바일 데이터를 들퍼레가 차단하고 있어요.":"들퍼레에 이 앱의 차단 규칙이 없어요.",null);
         if(id.equals(waitingFor)) row(net,0,"변경 적용 중…","VPN의 응답을 기다리고 있어요.",null);
         else if(AppFirewall.eligible(this,id)) {
             if(blocked) row(net,R.drawable.ic_undo,"인터넷 차단 해제","이 앱이 다시 인터넷을 사용하도록 허용",()->command(AppFirewall.REMOVE,id));
@@ -426,8 +452,8 @@ public final class PhoneSecurityActivity extends Activity {
         row(options,R.drawable.ic_settings,manageOpen?"관리 옵션 접기":"권한·설치 정보 보기",manageOpen?id:"Android 권한 설정, 스토어 정보 및 삭제",()->{manageOpen=!manageOpen; appDetail(app);});
         if(!manageOpen) return;
         row(options,0,"앱 권한 및 정보",id,()->open(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.fromParts("package",id,null))));
-        row(options,0,"접근성 설정 열기","이 기기의 접근성 서비스",()->open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
-        row(options,0,"알림 접근 설정 열기","알림에 접근하는 앱",()->open(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));
+        row(options,0,"접근성 설정 열기","",()->open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
+        row(options,0,"알림 접근 설정 열기","",()->open(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));
         row(options,0,"기기 관리자 확인","Android 보안 설정",()->open(new Intent(Settings.ACTION_SECURITY_SETTINGS)));
         if(!id.equals(getPackageName())) row(options,0,"Play 스토어에서 확인","같은 패키지의 등록 정보",()->open(new Intent(Intent.ACTION_VIEW,
                 Uri.parse("https://play.google.com/store/apps/details").buildUpon().appendQueryParameter("id",id).build()).setPackage("com.android.vending")));
@@ -530,8 +556,7 @@ public final class PhoneSecurityActivity extends Activity {
         field.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_URI | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         field.setMinLines(2); field.setMaxLines(5); field.setText(linkDraft); field.setSelection(field.length());
         field.setContentDescription("검사할 링크"); ui.add(body,field,8);
-        LinearLayout actions=ui.row(); body.addView(actions);
-        Button paste=ui.chip("붙여넣기",()->{
+        Button paste=SecurityControls.button(ui,"붙여넣기",false,()->{
             android.content.ClipboardManager clipboard=getSystemService(android.content.ClipboardManager.class);
             ClipData clip=clipboard.getPrimaryClip();
             if(clip==null || clip.getItemCount()==0) { message("복사한 주소가 없어요."); return; }
@@ -540,13 +565,12 @@ public final class PhoneSecurityActivity extends Activity {
             if(value==null) { message("복사한 내용에서 주소를 찾지 못했어요."); return; }
             field.setText(value); field.setSelection(field.length());
         });
-        actions.addView(paste);
         LinearLayout result=ui.column();
-        Button check=ui.button("검사하기",true,()->{
+        Button check=SecurityControls.button(ui,"검사하기",true,()->{
             ((android.view.inputmethod.InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).hideSoftInputFromWindow(field.getWindowToken(),0);
             linkChecked=true; linkResult(result);
         });
-        LinearLayout.LayoutParams button=new LinearLayout.LayoutParams(-2,-2); button.leftMargin=ui.dp(8); actions.addView(check,button);
+        body.addView(SecurityControls.bar(ui,paste,check));
         body.addView(result); check.setEnabled(!linkDraft.isBlank());
         field.addTextChangedListener(new android.text.TextWatcher(){
             public void beforeTextChanged(CharSequence s,int start,int count,int after) {}
