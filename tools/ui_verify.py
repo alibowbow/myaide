@@ -56,6 +56,7 @@ android { testOptions { unitTests.includeAndroidResources = true; unitTests.all 
     // Host-only syscall fixture inspects its own FileChannel descriptor for real fd-anchored tests.
     // This is not packaged in the APK and does not grant Android storage access.
     jvmArgs '--add-opens=java.base/sun.nio.ch=ALL-UNNAMED', '--add-opens=java.base/java.io=ALL-UNNAMED'
+    testLogging { exceptionFormat 'full' }
     maxHeapSize = '3g'
 } } }
 dependencies {
