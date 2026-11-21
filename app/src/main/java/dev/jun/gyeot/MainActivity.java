@@ -3141,9 +3141,9 @@ public final class MainActivity extends Activity {
         else if (composerOffersVoice() && workVoice != null) { stopComposerDictation(); workVoice.start(); }
         else composerAction();
     }
-    /** Nothing to send and nothing to stop: the button starts 음성 대화 with this room. */
+    /** Nothing to send and the room is not working: the button starts 음성 대화 with this room. */
     private boolean composerOffersVoice() {
-        return tab == 3 && !composerWouldStop() && composerInput != null && composerInput.getText().toString().isBlank() && store.workFiles.length() == 0
+        return tab == 3 && !workRunning() && composerInput != null && composerInput.getText().toString().isBlank() && store.workFiles.length() == 0
             && !composerVideo && composerImageAspect.isEmpty();
     }
     private void stopComposerDictation() { if (composerDictation != null) composerDictation.cancel(); }
