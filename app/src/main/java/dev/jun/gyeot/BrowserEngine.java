@@ -905,6 +905,7 @@ final class BrowserEngine {
         if (closedIndex < 0) return;
         archiveConversation(tab);
         tab.retained = false; tabs.remove(closedIndex); Lane removed=tabLanes.remove(tab);if(removed!=null)lanes.remove(removed.id); tab.port = null; tab.document = ""; releaseDisplay(tab); if (tab.session.isOpen()) tab.session.close();
+        if (split == tab) split = null;
         if (tabs.isEmpty()) newTab("https://www.google.com/", true);
         else if (current == tab) current = tabs.get(Math.min(closedIndex, tabs.size() - 1));
         showTaskState(); activate(current); persist(); changed();
@@ -946,21 +947,39 @@ final class BrowserEngine {
         else { tab.needsLoad = true; activate(tab); }
         persist();
     }
+    /** 권한 모드: '읽기만' keeps the AI to reading (BrowserActivity's AI menu sets it); '확인받기' is the default. */
+    static final String READ_ONLY = "browserReadOnly";
+    boolean readOnly() { return store != null && store.settings.getBoolean(READ_ONLY, false); }
+    /** 화면 분할: the tab shown beside the current one on a wide screen (kept live and active while shown), or null. */
+    Tab split;
+    void split(Tab tab) {
+        if (tab != null && (!tabs.contains(tab) || tab == current)) tab = null;
+        if (split == tab) return;
+        Tab old = split; split = tab;
+        if (old != null && old != current && old.session.isOpen() && !rendering(old)) old.session.setActive(false);
+        if (tab != null && current != null) activate(current);
+        changed();
+    }
     private void activate(Tab tab) {
         if (disposed || (workEngine && !anyRunning()) || restoring || tab == null || (restorePending && tab == restoreTab && !restoreTabReplaced)) return;
+        if (split == tab || split != null && !tabs.contains(split)) split = null;
         // Do not close inactive sessions: login, history, forms and page work stay alive.
         for (Tab other : tabs) if (other != tab && other.session.isOpen()) {
-            // Keep the visible page attached while a tool operates an offscreen tab.
-            boolean retained = visible && other == current || rendering(other);
+            // Keep the visible page (and the one beside it in 화면 분할) attached while a tool operates an offscreen tab.
+            boolean retained = visible && (other == current || other == split) || rendering(other);
             if (!retained) { other.session.setActive(false); releaseDisplay(other); }
         }
+        show(tab, visible&&tab==current || rendering(tab) || store.voiceActive || voiceChatHere());
+        if (split != null && split != tab) show(split, visible);
+    }
+    private void show(Tab tab, boolean active) {
         desktopSettings(tab);
         if (!tab.session.isOpen()) {
             // A popup is opened by Gecko after onNewSession returns, not by us.
             if (!tab.needsLoad) return;
             tab.session.open(runtime);
         }
-        tab.session.setActive(visible&&tab==current || rendering(tab) || store.voiceActive || voiceChatHere()); backgroundDisplay(tab);
+        tab.session.setActive(active); if (tab != split) backgroundDisplay(tab);
         if (tab.needsLoad && (extension != null || !extensionError.isBlank())) {
             tab.needsLoad = false; tab.loading = true; tab.loadFailed = false; tab.loadingUrl = tab.url; tab.acceptedRedirectUrls.clear(); tab.progress = 0;
             tab.port = null; tab.document = ""; tab.session.loadUri(tab.url);
@@ -1419,6 +1438,11 @@ final class BrowserEngine {
         if (!extensionError.isBlank()) { callback.accept(obj("ok", false, "error_code", "bridge_install_failed", "error", extensionError)); return; }
         if (action.equals("open") && keepsFile(args.optString("url"))) { record(lease, "파일을 받는 중"); callback.accept(fetchFile(tab, args.optString("url"), linkLabel(tab, args.optString("url")))); return; }
         if (action.equals("back") && !tab.back) { callback.accept(obj("ok", false, "error_code", "no_history", "action_executed", false, "retryable", false, "error", "돌아갈 이전 페이지가 없어요. 이동할 공개 HTTPS 홈페이지 주소를 알려 주세요.")); return; }
+        // 권한 모드 '읽기만': the AI reads, scrolls, follows links and opens pages, and never types, chooses or presses on one.
+        if (readOnly() && (Set.of("type", "select", "press").contains(action) || action.equals("click") && !routine)) {
+            callback.accept(obj("ok", false, "error_code", "read_only_mode", "action_executed", false, "retryable", false,
+                "error", "읽기만 모드예요: 페이지에 입력하거나 고르거나 누르는 동작은 하지 않아요. 읽기·스크롤·링크 이동으로만 이어 가고, 필요하면 사용자에게 AI 메뉴 → 권한 모드에서 '확인받기'로 바꿔 달라고 말해 주세요.")); return;
+        }
         if (action.equals("click")) tab.clickLabel = elementLabel(tab, args.optString("ref"));
         Pending p = new Pending(); p.id = Long.toString(++sequence); p.tab = tab; p.generation = lease; p.callback = callback; p.action = action; p.readReceiptId = tab.task.pendingMutation().optString("id");
         p.routine = routine;

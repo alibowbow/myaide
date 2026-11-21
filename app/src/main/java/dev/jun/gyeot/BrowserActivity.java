@@ -26,6 +26,8 @@ public final class BrowserActivity extends Activity {
     private AlertDialog youtubeDialog;
     private BrowserEngine engine;
     private GeckoView web;
+    /** 화면 분할 (a foldable or tablet): a second page beside the main one, with its own small header. */
+    private GeckoView splitView; private LinearLayout splitPane; private TextView splitTitle;
     private EditText address, request;
     private TextView resultText, tabButton, notice, askBubble, statsText;
     private ImageView sendButton, modelPicker, pageBackButton, pageForwardButton, pageRefreshButton, browserMenuButton, paneToggle, siteIcon, clearAddressButton;
@@ -141,7 +143,22 @@ public final class BrowserActivity extends Activity {
         notice = ui.text("", 14, 600, TEXT); notice.setBackground(ui.glass(99, false)); notice.setElevation(ui.dp(6)); notice.setPadding(ui.dp(18), ui.dp(11), ui.dp(18), ui.dp(11));
         notice.setMaxLines(3); notice.setGravity(Gravity.CENTER); notice.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); notice.setVisibility(View.GONE);
         FrameLayout.LayoutParams np = new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL); np.topMargin = ui.dp(12); np.leftMargin = np.rightMargin = ui.dp(20); page.addView(notice, np);
-        workspace.addView(page, wide ? new LinearLayout.LayoutParams(0, -1, 1) : new LinearLayout.LayoutParams(-1, 0, 1));
+        // The pages: the main one, and in 화면 분할 a second tab beside it.
+        LinearLayout pages = ui.row(); pages.addView(page, new LinearLayout.LayoutParams(0, -1, 1));
+        splitPane = ui.column(); splitPane.setVisibility(View.GONE); splitPane.setBackgroundColor(CARD);
+        LinearLayout splitBar = ui.row(); splitBar.setGravity(Gravity.CENTER_VERTICAL); splitBar.setPadding(ui.dp(10), 0, ui.dp(2), 0);
+        splitTitle = ui.text("", 13, 600, TEXT); splitTitle.setSingleLine(true); splitTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        splitBar.addView(splitTitle, new LinearLayout.LayoutParams(0, -2, 1));
+        splitBar.addView(ui.quietIcon(R.drawable.ic_expand, "이쪽을 메인으로", this::swapSplit), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
+        splitBar.addView(ui.quietIcon(R.drawable.ic_close, "화면 분할 닫기", () -> engine.split(null)), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
+        splitPane.addView(splitBar, new LinearLayout.LayoutParams(-1, ui.dp(40)));
+        splitView = new GeckoView(this); splitView.setActivityContextDelegate(() -> this);
+        splitPane.addView(splitView, new LinearLayout.LayoutParams(-1, 0, 1));
+        View seam = new View(this); seam.setBackgroundColor(SEPARATOR);
+        LinearLayout.LayoutParams seamParams = new LinearLayout.LayoutParams(Math.max(1, ui.dp(1)), -1);
+        LinearLayout.LayoutParams sideParams = new LinearLayout.LayoutParams(0, -1, 1);
+        splitPane.setTag(seam); pages.addView(seam, seamParams); seam.setVisibility(View.GONE); pages.addView(splitPane, sideParams);
+        workspace.addView(pages, wide ? new LinearLayout.LayoutParams(0, -1, 1) : new LinearLayout.LayoutParams(-1, 0, 1));
         pane = createAssistantPane();
         workspace.addView(pane, wide ? new LinearLayout.LayoutParams(ui.dp(panelWidth()), -1) : new LinearLayout.LayoutParams(-1, -2));
         root.addView(workspace, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -196,7 +213,7 @@ public final class BrowserActivity extends Activity {
         // While the AI works on this tab: one quiet line under the request, the AI mark breathing and words a soft light
         // sweeps across, as chat apps show a model thinking. A tap opens 작업 상세.
         thinkingRow = ui.row(); thinkingRow.setMinimumHeight(ui.dp(40)); thinkingRow.setPadding(0, ui.dp(2), 0, ui.dp(10)); thinkingRow.setVisibility(View.GONE);
-        thinkingMark = new ImageView(this); thinkingMark.setImageResource(R.drawable.ic_ai_chat); thinkingMark.setImageTintList(android.content.res.ColorStateList.valueOf(ACCENT));
+        thinkingMark = new ImageView(this); thinkingMark.setImageDrawable(new AiMark(getResources().getDisplayMetrics().density)); thinkingMark.setImageTintList(android.content.res.ColorStateList.valueOf(ACCENT));
         thinkingMark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         LinearLayout.LayoutParams markParams = new LinearLayout.LayoutParams(ui.dp(17), ui.dp(17)); markParams.rightMargin = ui.dp(9); thinkingRow.addView(thinkingMark, markParams);
         thinkingText = new ShimmerText(this, MUTED, TEXT); thinkingText.setTextSize(14); thinkingText.setTypeface(Ui.weight(500)); thinkingText.setIncludeFontPadding(false);
@@ -294,7 +311,7 @@ public final class BrowserActivity extends Activity {
         clearAddressButton.setTooltipText("주소 입력 지우기"); clearAddressButton.setVisibility(View.GONE);
         omnibox.addView(clearAddressButton, new LinearLayout.LayoutParams(ui.dp(40), pillHeight()));
         LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(0, pillHeight(), 1); ap.leftMargin = ap.rightMargin = ui.dp(4); ap.gravity = Gravity.CENTER_VERTICAL; toolbar.addView(omnibox, ap);
-        paneToggle = new BrowserProgressUi.Indicator(this); paneToggle.setImageResource(R.drawable.ic_ai_chat); paneToggle.setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12));
+        paneToggle = new BrowserProgressUi.Indicator(this); paneToggle.setImageDrawable(new AiMark(getResources().getDisplayMetrics().density)); paneToggle.setPadding(ui.dp(11), ui.dp(11), ui.dp(11), ui.dp(11));
         paneToggle.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         paneToggle.setOnClickListener(v -> { haptic(HapticFeedbackConstants.CLOCK_TICK); if (hasAiAttention()) detail(); else setPaneVisible(!paneVisible); });
         paneToggle.setOnLongClickListener(v -> { setPaneVisible(!paneVisible); return true; }); Ui.pressable(paneToggle, false); toolbar.addView(paneToggle, dockSquare());
@@ -302,7 +319,7 @@ public final class BrowserActivity extends Activity {
         android.graphics.drawable.GradientDrawable tabFrame = ui.shape(android.graphics.Color.TRANSPARENT, 7); tabFrame.setStroke(ui.dp(1.6f), TEXT); tabButton.setBackground(new android.graphics.drawable.InsetDrawable(tabFrame, ui.dp(8))); Ui.pressable(tabButton, false);
         // Keep the overview available beside the strip, not at the expense of address width.
         tabStrip = new BrowserTabStrip(this, ui, this::newTabFromStrip);
-        tabStrip.actions.addView(tabButton, new LinearLayout.LayoutParams(ui.dp(48), tabStrip.rowHeight()));
+        // The open tabs are counted in the strip itself; the overview is in the menu (열린 탭), not a numbered box beside it.
         browserMenuButton = icon(R.drawable.ic_more, "브라우저 메뉴", this::menu); toolbar.addView(browserMenuButton, dockSquare());
         LinearLayout header = ui.column(); header.addView(tabStrip, new LinearLayout.LayoutParams(-1, -2));
         header.addView(toolbar, new LinearLayout.LayoutParams(-1, -2));
@@ -451,6 +468,7 @@ public final class BrowserActivity extends Activity {
         // Pages keep no text-selection menu that points at a closed screen.
         GeckoSession shown = web.getSession();
         if (shown != null && shown.getSelectionActionDelegate() == selection) shown.setSelectionActionDelegate(null);
+        if (splitView != null && splitView.getSession() != null) splitView.releaseSession();
         if (web.getSession() != null) web.releaseSession(); engine.detach(); super.onPause();
     }
     @Override protected void onSaveInstanceState(Bundle out) {
@@ -621,7 +639,10 @@ public final class BrowserActivity extends Activity {
         if (tabOverviewRefresh != null) tabOverviewRefresh.run();
         if (zoomMenuRefresh != null) zoomMenuRefresh.run();
         installInputGuards();
+        // A tab moving from the side of 화면 분할 to the main page leaves the side view first (one view per page).
+        if (splitView != null && splitView.getSession() == tab.session) splitView.releaseSession();
         if (web.getSession() != tab.session && tab.session.isOpen()) { if (web.getSession() != null) { BrowserImeGuard.cancelGesture(web.getSession()); web.releaseSession(); } tab.session.setSelectionActionDelegate(selection); web.setSession(tab.session); }
+        refreshSplit();
         // At rest the compact address field shows the site, with a lock on secure pages; while editing it holds the full address.
         boolean editing = address.hasFocus(), secure = tab.url != null && tab.url.startsWith("https://");
         if (!editing) { String shown = host(tab.url); if (!address.getText().toString().equals(shown)) address.setText(shown); }
@@ -728,11 +749,13 @@ public final class BrowserActivity extends Activity {
         String action = state.isBlank() ? (paneVisible ? "AI 패널 접기" : "AI 패널 열기") : state + (running ? " · 작업 상세와 중지 열기" : " · 확인 내용 열기");
         progressAction = action; paneToggle.setTooltipText(action);
         paneToggle.setStateDescription(state); paneToggle.setSelected(paneVisible || hasAiAttention());
-        paneToggle.setImageResource(attention || failed ? R.drawable.ic_info : R.drawable.ic_ai_chat);
+        // The AI mark drawn in code (AiMark), light like the toolbar's other icons; the 확인/오류 mark in its place when needed.
+        if (attention || failed) paneToggle.setImageResource(R.drawable.ic_info);
+        else if (!(paneToggle.getDrawable() instanceof AiMark)) paneToggle.setImageDrawable(new AiMark(getResources().getDisplayMetrics().density));
         int tint = failed ? ERROR : paneVisible || hasAiAttention() ? ACCENT : TEXT;
         paneToggle.setImageTintList(android.content.res.ColorStateList.valueOf(tint));
-        // Open: a soft round wash behind the sparkle, not a square block.
-        paneToggle.setBackground(new android.graphics.drawable.InsetDrawable(ui.shape(paneVisible || hasAiAttention() ? ACCENT_SOFT : android.graphics.Color.TRANSPARENT, 99), ui.dp(4)));
+        // No disc behind it: open is told by its color alone, as the toolbar's other icons.
+        paneToggle.setBackground(null);
         if (paneToggle instanceof BrowserProgressUi.Indicator indicator) indicator.running(running);
         refreshProgressUiTimes();
     }
@@ -1008,6 +1031,8 @@ public final class BrowserActivity extends Activity {
         ui.add(sheet.body, quick, 16);
         LinearLayout moves = ui.group();
         ui.addRow(moves, menuRow(R.drawable.ic_home, MUTED, "앱으로 돌아가기", true, this::leaveBrowser, sheet), true);
+        ui.addRow(moves, menuRow(R.drawable.ic_layers, MUTED, "열린 탭 " + engine.tabs.size() + "개", true, this::tabs, sheet), true);
+        if (splitRoom()) ui.addRow(moves, menuRow(R.drawable.ic_layers, Ui.BLUE, engine.split == null ? "화면 분할 · 두 페이지 나란히" : "화면 분할 바꾸기·끄기", true, this::splitMenu, sheet), true);
         ui.addRow(moves, menuRow(R.drawable.ic_globe, Ui.BLUE, tab.desktop ? "모바일 사이트로 보기" : "데스크톱 사이트로 보기", true, () -> engine.setDesktop(tab, !tab.desktop), sheet), true);
         ui.add(sheet.body, moves, 12);
         // These controls deliberately keep the menu open for repeated adjustments.
@@ -1050,6 +1075,7 @@ public final class BrowserActivity extends Activity {
         LinearLayout assistant = ui.group();
         ui.addRow(assistant, menuRow(R.drawable.ic_ai_chat, Ui.INDIGO, paneVisible ? "AI 패널 접기" : "AI 패널 열기", true, () -> setPaneVisible(!paneVisible), sheet), true);
         ui.addRow(assistant, menuRow(R.drawable.ic_tune, Ui.INDIGO, "모델·생각 깊이", true, this::models, sheet), true);
+        ui.addRow(assistant, menuRow(R.drawable.ic_lock, Ui.INDIGO, "권한 모드 · " + (engine.readOnly() ? "읽기만" : "확인받기"), true, this::permissionMode, sheet), true);
         ui.addRow(assistant, menuRow(R.drawable.ic_history, Ui.INDIGO, "작업 상세", true, this::detail, sheet), true);
         ui.addRow(assistant, menuRow(R.drawable.ic_info, Ui.ORANGE, "확인 필요한 작업", true, this::reviewPendingMutation, sheet), true);
         ui.addRow(assistant, menuRow(R.drawable.ic_bolt, Ui.INDIGO, "같은 지시 다시 실행", !engine.lastRequest.isBlank() && !engine.running(), this::again, sheet), true);
@@ -1131,6 +1157,61 @@ public final class BrowserActivity extends Activity {
     private static String reviewText(String value, int limit) {
         String text = value == null ? "" : value;
         return text.length() <= limit ? text : text.substring(0, limit) + "…";
+    }
+    /** 권한 모드: 확인받기 (the default: the AI works on pages and asks before what matters) or 읽기만 (it only reads). */
+    private void permissionMode() {
+        Ui.Sheet sheet = ui.selectionSheet("권한 모드", "다음 지시부터 적용돼요");
+        boolean readOnly = engine.readOnly(); LinearLayout rows = ui.group();
+        android.widget.ImageView on = new android.widget.ImageView(this); on.setImageResource(R.drawable.ic_check); on.setImageTintList(android.content.res.ColorStateList.valueOf(ACCENT));
+        android.widget.ImageView on2 = new android.widget.ImageView(this); on2.setImageResource(R.drawable.ic_check); on2.setImageTintList(android.content.res.ColorStateList.valueOf(ACCENT));
+        ui.addRow(rows, ui.listRow(R.drawable.ic_hand, Ui.BLUE, "확인받기 (기본)", "페이지에서 입력·클릭까지 하고, 결제·삭제·전송 전에는 꼭 물어봐요", readOnly ? null : on, () -> {
+            engine.store.settings.edit().putBoolean(BrowserEngine.READ_ONLY, false).apply(); sheet.dismiss(); toast("권한 모드: 확인받기"); refresh(); }), true);
+        ui.addRow(rows, ui.listRow(R.drawable.ic_eye, Ui.GREEN, "읽기만", "읽기·스크롤·링크 이동만 해요. 입력하거나 버튼을 누르지 않아요", readOnly ? on2 : null, () -> {
+            engine.store.settings.edit().putBoolean(BrowserEngine.READ_ONLY, true).apply(); sheet.dismiss(); toast("권한 모드: 읽기만"); refresh(); }), true);
+        sheet.body.addView(rows);
+        sheet.body.addView(ui.footer("어느 모드에서든 결제·삭제·전송·로그인은 AI가 혼자 하지 않아요."));
+        show(sheet);
+    }
+    /** Room for two pages side by side (a foldable opened, a tablet): 600dp and wider. */
+    private boolean splitRoom() { return getResources().getConfiguration().screenWidthDp >= 600; }
+    /** 화면 분할: the side tab attached to its own view while there is room; closed when the screen gets narrow. */
+    private void refreshSplit() {
+        if (splitPane == null || splitView == null) return;
+        BrowserEngine.Tab side = engine.split;
+        if (side != null && !splitRoom()) { engine.split(null); side = null; }
+        View seam = (View) splitPane.getTag();
+        splitPane.setVisibility(side == null ? View.GONE : View.VISIBLE); if (seam != null) seam.setVisibility(splitPane.getVisibility());
+        if (side == null) { if (splitView.getSession() != null) splitView.releaseSession(); return; }
+        if (splitView.getSession() != side.session && side.session.isOpen() && web.getSession() != side.session) {
+            if (splitView.getSession() != null) splitView.releaseSession();
+            splitView.setSession(side.session);
+        }
+        String title = side.title == null || side.title.isBlank() ? host(side.url) : side.title;
+        if (!title.contentEquals(splitTitle.getText())) { splitTitle.setText(title); splitTitle.setContentDescription("옆 화면 · " + title); }
+    }
+    /** The side page becomes the main one, and the main one moves to the side. */
+    private void swapSplit() {
+        BrowserEngine.Tab side = engine.split, main = engine.current; if (side == null || main == null) return;
+        if (splitView.getSession() != null) splitView.releaseSession();
+        engine.select(side); engine.split(main); refresh();
+    }
+    /** 화면 분할: pick the tab to show beside this one (or a new tab), or turn it off. */
+    private void splitMenu() {
+        if (!splitRoom()) { toast("화면을 펼치면(600dp 이상) 두 페이지를 나란히 볼 수 있어요."); return; }
+        Ui.Sheet sheet = ui.selectionSheet("화면 분할", "옆에 함께 볼 탭을 골라요");
+        LinearLayout rows = ui.group();
+        for (BrowserEngine.Tab t : new ArrayList<>(engine.tabs)) {
+            if (t == engine.current) continue;
+            String title = t.title == null || t.title.isBlank() ? host(t.url) : t.title;
+            ui.addRow(rows, menuRow(R.drawable.ic_layers, Ui.BLUE, title + (t == engine.split ? " · 지금 옆 화면" : ""), true, () -> engine.split(t), sheet), true);
+        }
+        ui.addRow(rows, menuRow(R.drawable.ic_add, ACCENT, "새 탭을 옆에 열기", engine.tabs.size() < 6, () -> {
+            BrowserEngine.Tab main = engine.current;
+            try { BrowserEngine.Tab fresh = engine.newTab("https://www.google.com/", true); engine.select(main); engine.split(fresh); }
+            catch (RuntimeException e) { toast(e.getMessage()); }
+        }, sheet), true);
+        if (engine.split != null) ui.addRow(rows, menuRow(R.drawable.ic_close, ERROR, "화면 분할 끄기", true, () -> engine.split(null), sheet), true);
+        sheet.body.addView(rows); show(sheet);
     }
     /** Reading an archive never makes it active AI context. Deletion always names a captured conversation ID. */
     private void conversationHistory() {
