@@ -577,6 +577,8 @@ public final class BoardActivity extends Activity {
             ui.chevron(), () -> { menu.dismiss(); brains(); }), true);
         ui.addRow(ai, ui.listRow(R.drawable.ic_wave, PURPLE, "판서 음성", narration.sourceName(), ui.chevron(), () -> { menu.dismiss(); liveModels(); }), true);
         if (BoardVoice.LIVE.equals(narration.selected())) ui.addRow(ai, ui.listRow(R.drawable.ic_sound, PINK, "목소리", BoardVoice.voice(store).isBlank() ? "모델 기본 목소리" : BoardVoice.voice(store), ui.chevron(), () -> { menu.dismiss(); voiceNames(); }), true);
+        else if (BoardVoice.realtimeKind(narration.selected())) { dev.jun.gyeot.core.RealtimeVoice.Kind kind = dev.jun.gyeot.core.RealtimeVoice.Kind.of(narration.selected());
+            ui.addRow(ai, ui.listRow(R.drawable.ic_sound, PINK, "목소리", store.assistantVoice(kind), ui.chevron(), () -> { menu.dismiss(); realtimeVoices(kind); }), true); }
         menu.body.addView(ai);
         TextView result = ui.footer(narration.status());
         java.util.function.Consumer<String> display = text -> { result.setText(text); result.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE); };
@@ -783,14 +785,32 @@ public final class BoardActivity extends Activity {
     private void liveModels() {
         Ui.Sheet pick = ui.selectionSheet("판서 음성", "수업 설명을 읽을 음성을 선택하세요."); pick.primary.setVisibility(View.GONE);
         LinearLayout group = ui.group(); String now = BoardVoice.liveModel(store);
-        boolean device = BoardVoice.DEVICE.equals(narration.selected());
+        String selected = narration.selected(); boolean device = BoardVoice.DEVICE.equals(selected), realtime = BoardVoice.realtimeKind(selected);
+        // GPT and Grok read in their realtime voices, with the sign-in or key the voice conversations use.
+        for (dev.jun.gyeot.core.RealtimeVoice.Kind kind : dev.jun.gyeot.core.RealtimeVoice.Kind.values()) {
+            boolean on = kind.name().equalsIgnoreCase(selected), usable = VoiceCredentials.usable(store, kind);
+            ui.addRow(group, ui.listRow(R.drawable.ic_wave, on ? ACCENT : MUTED, kind.spoken(), usable ? "실시간 음성으로 단계의 말을 읽어요" : (kind == dev.jun.gyeot.core.RealtimeVoice.Kind.GPT ? "Codex 로그인" : "Grok 로그인") + "이 필요해요 · 설정 → 목소리와 대화",
+                on ? ui.text("✓", 16, 700, ACCENT) : null, () -> {
+                    if (!usable) { toast(kind.label + " 음성은 로그인한 뒤 고를 수 있어요. 설정 → 목소리와 대화에서 로그인해 주세요."); return; }
+                    store.settings.edit().remove("boardDeviceVoice").putString("boardVoiceEngine", kind.name()).apply(); voiceChanged(); pick.dismiss(); }), true);
+        }
         for (String[] model : dev.jun.gyeot.core.GeminiProtocol.LIVE_MODELS) {
-            boolean on = !device && model[0].equals(now);
+            boolean on = !device && !realtime && model[0].equals(now);
             ui.addRow(group, ui.listRow(R.drawable.ic_wave, on ? ACCENT : MUTED, model[1].replace(" (기본)", ""), dev.jun.gyeot.core.GeminiProtocol.readsAsWritten(model[0]) ? "단계의 말을 한 번에 읽어요" : "한 문장씩 그대로 읽어요",
-                on ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().remove("boardDeviceVoice").putString("boardLiveModel", model[0]).apply(); voiceChanged(); pick.dismiss(); }), true);
+                on ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().remove("boardDeviceVoice").remove("boardVoiceEngine").putString("boardLiveModel", model[0]).apply(); voiceChanged(); pick.dismiss(); }), true);
         }
         ui.addRow(group, ui.listRow(R.drawable.ic_sound, device ? ACCENT : MUTED, "기기 TTS", "Android에 설정된 음성으로 읽어요",
-            device ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putBoolean("boardDeviceVoice", true).apply(); voiceChanged(); pick.dismiss(); }), true);
+            device ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putBoolean("boardDeviceVoice", true).remove("boardVoiceEngine").apply(); voiceChanged(); pick.dismiss(); }), true);
+        pick.body.addView(group); show(pick);
+    }
+    /** A GPT or Grok voice for reading: the one the voice conversations and the voice assistant use too. */
+    private void realtimeVoices(dev.jun.gyeot.core.RealtimeVoice.Kind kind) {
+        Ui.Sheet pick = ui.selectionSheet("목소리", kind.label + " 목소리 · 음성 대화와 음성 비서에도 같이 적용돼요"); pick.primary.setVisibility(View.GONE);
+        LinearLayout group = ui.group(); String now = store.assistantVoice(kind);
+        for (String name : kind.voices()) {
+            boolean on = name.equals(now);
+            ui.addRow(group, ui.listRow(R.drawable.ic_sound, on ? ACCENT : MUTED, name, "", on ? ui.text("✓", 16, 700, ACCENT) : null, () -> { store.settings.edit().putString(AppStore.ASSISTANT_VOICE + kind.name(), name).apply(); voiceChanged(); pick.dismiss(); }), true);
+        }
         pick.body.addView(group); show(pick);
     }
     private void voiceNames() {

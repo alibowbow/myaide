@@ -23,7 +23,7 @@ import static dev.jun.gyeot.Ui.*;
 final class VoiceBar {
     static final int PERMISSION = 7433;
     static final String OFFER = "음성 대화 · GPT·Grok과 말로 대화해요 · 길게 누르면 설정";
-    private static final String KIND = "voiceChatKind", VOICE = "voiceChatVoice.";
+    private static final String KIND = "voiceChatKind";
     private final android.app.Activity activity; private final AppStore store; private final Ui ui;
     /** This screen (VoiceChat.Target.surface) and what a conversation started here talks about. */
     private final String surface; private final java.util.function.Supplier<VoiceChat.Target> target;
@@ -73,18 +73,18 @@ final class VoiceBar {
     RealtimeVoice.Kind kind() {
         RealtimeVoice.Kind chosen = RealtimeVoice.Kind.of(store.settings.getString(KIND, ""));
         if (chosen != null) return chosen;
+        // Not chosen here yet: the voice assistant's realtime voice, when it runs on one.
+        RealtimeVoice.Kind assistant = store.assistantRealtime();
+        if (assistant != null && usable(assistant)) return assistant;
         String engine = ScopedModels.main(store).engine();
         if (WorkBook.GROK.equals(engine) && usable(RealtimeVoice.Kind.GROK)) return RealtimeVoice.Kind.GROK;
         if (usable(RealtimeVoice.Kind.GPT)) return RealtimeVoice.Kind.GPT;
         return usable(RealtimeVoice.Kind.GROK) ? RealtimeVoice.Kind.GROK : RealtimeVoice.Kind.GPT;
     }
     /** Whether this voice has a sign-in or key to start with. */
-    boolean usable(RealtimeVoice.Kind kind) {
-        if (kind == RealtimeVoice.Kind.GPT)
-            return store.secrets.has(SecretStore.OPENAI_VOICE) || store.codexImages.connected() || "key".equals(store.openai.describe().optString("mode"));
-        return store.secrets.has(SecretStore.XAI_VOICE) || store.grok.connected();
-    }
-    private String voice(RealtimeVoice.Kind kind) { return kind.voice(store.settings.getString(VOICE + kind.name(), kind.voice)); }
+    boolean usable(RealtimeVoice.Kind kind) { return VoiceCredentials.usable(store, kind); }
+    /** One voice per kind for every screen and the voice assistant (AppStore.assistantVoice). */
+    private String voice(RealtimeVoice.Kind kind) { return store.assistantVoice(kind); }
     void start() {
         VoiceChat elsewhere = store.voiceChat;
         if (elsewhere != null && mine(elsewhere)) return;
@@ -161,7 +161,7 @@ final class VoiceBar {
     /** Which voice talks, how it sounds and its sign-in; note says why it opened (a sign-in is missing or was refused). */
     void settings(String note) {
         VoiceChat.Target here = target.get();
-        Ui.Sheet sheet = ui.selectionSheet("음성 대화", note == null || note.isBlank() ? here.label() + "에서 GPT·Grok과 실시간으로 말해요. 고른 상대와 목소리는 모든 화면에 같이 적용돼요." : note);
+        Ui.Sheet sheet = ui.selectionSheet("음성 대화", note == null || note.isBlank() ? here.label() + "에서 GPT·Grok과 실시간으로 말해요. 고른 상대는 모든 화면에, 목소리는 음성 비서에도 같이 적용돼요." : note);
         sheet.primary.setVisibility(View.GONE); tracker.accept(sheet);
         RealtimeVoice.Kind current = kind();
         LinearLayout who = ui.group();
@@ -172,7 +172,7 @@ final class VoiceBar {
         String[] voices = current.voices();
         int at = java.util.Arrays.asList(voices).indexOf(voice(current));
         ui.addRow(who, ui.choiceRow("목소리", current.label + " 목소리", "다음 음성 대화부터 적용돼요", voices, Math.max(0, at), index ->
-            store.settings.edit().putString(VOICE + current.name(), voices[index]).apply()), false);
+            store.settings.edit().putString(AppStore.ASSISTANT_VOICE + current.name(), voices[index]).apply()), false);
         sheet.body.addView(who);
         LinearLayout sign = ui.group();
         if (current == RealtimeVoice.Kind.GPT) {

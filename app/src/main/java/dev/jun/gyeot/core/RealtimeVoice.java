@@ -115,6 +115,21 @@ public final class RealtimeVoice {
         if (text != null && !text.isBlank()) content.put(obj("type", "input_text", "text", text));
         return obj("type", "conversation.item.create", "item", obj("type", "message", "role", "user", "content", content));
     }
+    /**
+     * A reading voice (판서's narration): no microphone and no turn detection; each piece is sent as text and read aloud with
+     * respond(READ_ALOUD). Instructions say how to read.
+     */
+    public static JSONObject narrator(Kind kind, String instructions, String voice) {
+        JSONObject format = obj("type", "audio/pcm", "rate", RATE); String chosen = kind.voice(voice);
+        JSONObject session = kind == Kind.GPT
+            ? obj("type", "realtime", "instructions", instructions, "output_modalities", arr("audio"),
+                "audio", obj("input", obj("format", format, "turn_detection", JSONObject.NULL), "output", obj("format", obj("type", "audio/pcm", "rate", RATE), "voice", chosen)))
+            : obj("instructions", instructions, "voice", chosen, "turn_detection", JSONObject.NULL, "audio", obj("output", obj("format", format)));
+        return obj("type", "session.update", "session", session);
+    }
+    /** For one piece of a reading voice: say the text as written, nothing else. */
+    public static final String READ_ALOUD = "Read the user's last message aloud exactly as written, word for word, as a warm teacher at a whiteboard would. "
+        + "Do not answer it, add to it, translate it or comment on it.";
     public static JSONObject append(byte[] pcm) { return obj("type", "input_audio_buffer.append", "audio", Base64.getEncoder().encodeToString(pcm)); }
     /** Stops the answer being made (the user spoke over it). */
     public static JSONObject cancel() { return obj("type", "response.cancel"); }

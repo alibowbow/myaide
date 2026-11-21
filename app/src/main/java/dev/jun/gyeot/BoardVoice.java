@@ -19,6 +19,14 @@ final class BoardVoice {
     /** Makes the selected reader. */
     interface Voices { Speech.Voice create(String kind); }
     static final String LIVE = "live", DEVICE = "device";
+    /** Reading in a GPT or Grok realtime voice (BoardRealtime); the kind's name in lower case. */
+    static final String GPT = "gpt", GROK = "grok";
+    /** 판서's realtime voice when one is chosen ("boardVoiceEngine") and has a sign-in or key; else null. */
+    static dev.jun.gyeot.core.RealtimeVoice.Kind realtime(AppStore store) {
+        dev.jun.gyeot.core.RealtimeVoice.Kind kind = dev.jun.gyeot.core.RealtimeVoice.Kind.of(store.settings.getString("boardVoiceEngine", ""));
+        return kind != null && VoiceCredentials.usable(store, kind) ? kind : null;
+    }
+    static boolean realtimeKind(String kind) { return GPT.equals(kind) || GROK.equals(kind); }
     /** Maximum wait for audible progress in the current step. */
     static final long LIVE_PATIENCE_MS = 45_000;
     private final Context context; private final AppStore store; private final Voices voices;
@@ -29,7 +37,9 @@ final class BoardVoice {
     BoardVoice(Context context, AppStore store) { this(context, store, null); }
     BoardVoice(Context context, AppStore store, Voices voices) {
         this.context = context.getApplicationContext(); this.store = store;
-        this.voices = voices != null ? voices : kind -> LIVE.equals(kind) ? new LiveVoice(this.context, store, loadedModel, loadedVoice) : new Speech.DeviceVoice(this.context);
+        this.voices = voices != null ? voices : kind -> LIVE.equals(kind) ? new LiveVoice(this.context, store, loadedModel, loadedVoice)
+            : realtimeKind(kind) ? realtimeVoice(this.context, store, dev.jun.gyeot.core.RealtimeVoice.Kind.of(kind))
+            : new Speech.DeviceVoice(this.context);
     }
 
     /** 판서's own voice: the one chosen in its menu, the assistant's until one is. "" is the model's default voice. */
@@ -39,13 +49,26 @@ final class BoardVoice {
 
     /** Whether anything would hear the reading as speech to answer (a call, a recording, an open microphone). */
     boolean blocked() { return store.voiceActive || store.recording || ComposerDictation.listening() || store.talk != null && store.talk.listening(); }
+    /** A GPT or Grok voice reading through LiveVoice's pacing, with the speaker as its Gemini voice has. */
+    static LiveVoice realtimeVoice(Context context, AppStore store, dev.jun.gyeot.core.RealtimeVoice.Kind kind) {
+        return new LiveVoice(BoardRealtime.lines(store, kind), () -> { Speaker speaker = new Speaker(context); return new LiveVoice.Out() {
+            @Override public boolean play(byte[] pcm, java.util.function.LongConsumer started) { return speaker.play(pcm, started); }
+            @Override public void finish(Runnable after) { speaker.finish(after); }
+            @Override public void flush() { speaker.flush(); }
+            @Override public void close() { speaker.close(); }
+        }; }, kind.model, store.assistantVoice(kind));
+    }
     String selected() {
         if (store.settings.getBoolean("boardDeviceVoice", false)) return DEVICE;
+        dev.jun.gyeot.core.RealtimeVoice.Kind realtime = realtime(store);
+        if (realtime != null) return realtime.name().toLowerCase(java.util.Locale.ROOT);
         if (store.settings.contains("boardLiveModel") || !GeminiProtocol.DEFAULT_LIVE.equals(store.liveModel()) || store.secrets.hasKey()) return LIVE;
         return DEVICE;
     }
     String sourceName() {
-        if (DEVICE.equals(selected())) return "기기 TTS";
+        String selected = selected();
+        if (DEVICE.equals(selected)) return "기기 TTS";
+        if (realtimeKind(selected)) { dev.jun.gyeot.core.RealtimeVoice.Kind kind = dev.jun.gyeot.core.RealtimeVoice.Kind.of(selected); return kind.spoken() + " · " + store.assistantVoice(kind); }
         String id = liveModel(store);
         for (String[] model : GeminiProtocol.LIVE_MODELS) if (model[0].equals(id)) return model[1].replace(" (기본)", "");
         return id;
@@ -94,7 +117,8 @@ final class BoardVoice {
         }));
     }
     private void use(String wanted) {
-        String model = LIVE.equals(wanted) ? liveModel(store) : "", name = LIVE.equals(wanted) ? voice(store) : "";
+        dev.jun.gyeot.core.RealtimeVoice.Kind realtime = realtimeKind(wanted) ? dev.jun.gyeot.core.RealtimeVoice.Kind.of(wanted) : null;
+        String model = LIVE.equals(wanted) ? liveModel(store) : realtime != null ? realtime.model : "", name = LIVE.equals(wanted) ? voice(store) : realtime != null ? store.assistantVoice(realtime) : "";
         if (voice != null && wanted.equals(kind) && model.equals(loadedModel) && name.equals(loadedVoice)) return;
         if (voice != null) voice.close();
         loadedModel = model; loadedVoice = name;
@@ -102,8 +126,9 @@ final class BoardVoice {
     }
     /** A lesson is on its way: the Live voice connects now, so its first words do not wait for that. */
     void warm() {
-        if (closed || blocked() || !LIVE.equals(selected()) || !store.secrets.hasKey()) return;
-        use(LIVE);
+        String wanted = selected();
+        if (closed || blocked() || !(LIVE.equals(wanted) && store.secrets.hasKey() || realtimeKind(wanted))) return;
+        use(wanted);
         if (voice instanceof Ahead ahead) ahead.warm();
     }
     /** What will be said after what is being said: a voice that can, gets it ready, so one step runs into the next without a wait. */
