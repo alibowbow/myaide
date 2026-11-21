@@ -28,7 +28,7 @@ final class VoiceBar {
     /** This screen (VoiceChat.Target.surface) and what a conversation started here talks about. */
     private final String surface; private final java.util.function.Supplier<VoiceChat.Target> target;
     private final Runnable listener = this::refresh;
-    private final LinearLayout bar; private final VoiceOrb orb; private final TextView title, words; private final Ui.Dial mute;
+    private final LinearLayout bar; private final VoiceOrb orb; private final TextView title, words; private final Ui.Dial mute, replay;
     private View[] aside = new View[0];
     /** The views the bar stands in for, with how they were before it, while a conversation is on. */
     private final java.util.Map<View, Integer> hidden = new java.util.HashMap<>();
@@ -49,6 +49,10 @@ final class VoiceBar {
         // Words in another language: a tap shows them in Korean.
         words.setOnClickListener(v -> { VoiceChat c = store.voiceChat; if (c != null && dev.jun.gyeot.core.CaptionLanguage.foreign(c.words())) translate(c.words(), c.wordsBy() == VoiceChat.MINE); });
         bar.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
+        // 다시 듣기: the words on the bar in the voice they were said in (VoiceClips), while their sound is kept.
+        replay = ui.dial(R.drawable.ic_play, "다시 듣기", false, () -> { VoiceChat c = store.voiceChat; if (c != null) VoiceClips.toggle(activity, store, c.wordsClip(), c.words()); });
+        replay.setVisibility(View.GONE);
+        bar.addView(replay);
         mute = ui.dial(R.drawable.ic_mic, "마이크 끄기", false, () -> { VoiceChat c = store.voiceChat; if (c != null) c.toggleMute(); });
         bar.addView(mute);
         LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2); gap.leftMargin = ui.dp(4);
@@ -112,8 +116,8 @@ final class VoiceBar {
         startAfterPermission = false; return true;
     }
     /** The page shows again: the bar follows the conversation that may have gone on meanwhile. */
-    void attach() { VoiceChat c = store.voiceChat; if (c != null && mine(c)) { shown = c; c.listen(listener); } refresh(); }
-    void detach() { VoiceChat c = store.voiceChat; if (c != null) c.unlisten(listener); }
+    void attach() { VoiceChat c = store.voiceChat; if (c != null && mine(c)) { shown = c; c.listen(listener); } VoiceClips.listen(listener); refresh(); }
+    void detach() { VoiceChat c = store.voiceChat; if (c != null) c.unlisten(listener); VoiceClips.unlisten(listener); }
     private boolean mine(VoiceChat c) { return surface.equals(c.target.surface()); }
 
     // ── the bar ──────────────────────────────────────────────────────────
@@ -165,6 +169,9 @@ final class VoiceBar {
         words.setTextColor(by == VoiceChat.MINE ? ACCENT : by == VoiceChat.THEIRS ? TEXT : MUTED);
         boolean foreign = spoken && by != VoiceChat.NOTE && dev.jun.gyeot.core.CaptionLanguage.foreign(said);
         words.setClickable(foreign);
+        String clip = c.wordsClip(); boolean replayable = spoken && by != VoiceChat.NOTE && VoiceClips.has(clip), now = VoiceClips.playing(clip);
+        replay.setVisibility(replayable || now ? View.VISIBLE : View.GONE);
+        replay.on(now ? R.drawable.ic_stop : R.drawable.ic_play, now ? "다시 듣기 멈추기" : by == VoiceChat.MINE ? "내 말 다시 듣기" : "다시 듣기 · 말한 목소리 그대로", now);
         words.setContentDescription((by == VoiceChat.MINE ? "내 말: " : by == VoiceChat.THEIRS ? c.speaking() + "의 말: " : "") + words.getText() + (foreign ? ", 눌러서 한국어로 보기" : ""));
         mute.on(c.muted() ? R.drawable.ic_mic_off : R.drawable.ic_mic, c.muted() ? "마이크 켜기" : "마이크 끄기", c.muted());
     }

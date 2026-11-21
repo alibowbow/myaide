@@ -228,6 +228,16 @@ public final class AssistantService extends Service {
      * dropping them; the first setupComplete sends them, and later reconnects keep their own pre-roll as before.
      */
     private volatile dev.jun.gyeot.core.VoiceStartupAudio firstWords;
+    /**
+     * 다시 듣기 (VoiceClips): the answer's audio as it played since the last answer was written down (main thread), the
+     * microphone's last seconds, and when the user's words now being written began to come.
+     */
+    private final java.io.ByteArrayOutputStream answerVoice = new java.io.ByteArrayOutputStream();
+    private final dev.jun.gyeot.core.VoiceClipAudio.Ring micRing = new dev.jun.gyeot.core.VoiceClipAudio.Ring(45_000);
+    private volatile long userSpeechAt;
+    /** At most a minute of an answer is kept for 다시 듣기. */
+    private static final int ANSWER_VOICE_BYTES = 24000 * 2 * 60;
+    private void keepVoice(byte[] pcm) { if (answerVoice.size() + pcm.length <= ANSWER_VOICE_BYTES) answerVoice.write(pcm, 0, pcm.length); }
     /** Per-connection caption flush, plus an idle commit for continuous Live Translate captions. */
     private Runnable finishVoiceCaptions, translationCaptionCommit;
     /** The user asked to end the call by voice: end after the goodbye turn has finished playing. */
@@ -588,6 +598,7 @@ public final class AssistantService extends Service {
                     if (output == null || self[0].browserQuietOutput()) { turnQuiet += pcm.length; return; }
                     recordFirstVoiceAudio(); voiceAskedAt = 0; turnPlayed += pcm.length;
                     if (!output.play(pcm, audibleWatch())) { output.flush(); store.status("응답 음성이 너무 길어 일부를 건너뛰었어요"); }
+                    else keepVoice(pcm);
                 });
             }
             @Override public void quietAudio(int bytes) { main.post(() -> { if (live(epoch, self[0])) turnQuiet += bytes; }); }
@@ -601,6 +612,7 @@ public final class AssistantService extends Service {
             @Override public void transcript(String text, boolean interim) {
                 main.post(() -> {
                     if (!live(epoch, self[0])) return;
+                    if (!text.isBlank() && userSpeechAt == 0) userSpeechAt = SystemClock.uptimeMillis();
                     if (!interim && !text.isBlank()) wordsSinceNavigate.append(' ').append(text);
                     if(!text.isBlank() && firstVoiceInputAt==0) {
                         firstVoiceInputAt=SystemClock.elapsedRealtime();
@@ -2413,7 +2425,7 @@ public final class AssistantService extends Service {
         for (byte[] pcm : heldAudio) {
             recordFirstVoiceAudio(); bytes += pcm.length;
             if (!output.play(pcm, heard)) { output.flush(); break; }
-            heard = null;
+            keepVoice(pcm); heard = null;
         }
         store.phoneLog("  · 보류한 보고 음성 재생 · " + seconds(bytes));
     }
@@ -2568,11 +2580,15 @@ public final class AssistantService extends Service {
     /** One finished line of the user's speech, from the Live model or the separate caption connection. */
     private void heard(String text) {
         if (text.isEmpty()) return;
-        store.transcript("들린 말", text);
+        String key = store.transcript("들린 말", text);
+        // 다시 듣기: the user's words as the microphone took them, from a little before their first words came.
+        long now = SystemClock.uptimeMillis(), began = userSpeechAt; userSpeechAt = 0;
+        if (key != null) VoiceClips.put(key, dev.jun.gyeot.core.VoiceClipAudio.trim(micRing.between(began == 0 ? now - 8000 : began - 1500, now), 16000, 30), 16000);
         if (ASSISTANT.equals(store.voiceMode) && !captionsOn) { appNavigation.heard(text); appImages.heard(text); appVideos.heard(text); screenUserTurn(text); voiceWorkHeard(text); }
     }
     /** Captions show what was said; only the main stream owns assistant interruption and which input words belong to. */
     private void captionHeard(String text, boolean interim) {
+        if (!text.isBlank() && userSpeechAt == 0) userSpeechAt = SystemClock.uptimeMillis();
         if (interim) store.interim=GeminiProtocol.cleanCaption(text);
         else {store.interim="";heard(GeminiProtocol.cleanCaption(text));captionFinal(GeminiProtocol.cleanCaption(text));}
         if(!text.isBlank() && GeminiProtocol.DICTATION.equals(store.voiceMode))userSpoke();
@@ -2580,7 +2596,10 @@ public final class AssistantService extends Service {
     private void commitAnswer(StringBuilder answer, boolean interrupted) {
         String text = GeminiProtocol.cleanCaption(answer.toString());
         boolean interpreter = INTERPRETER.equals(store.voiceMode);
-        if (!text.isEmpty()) store.transcript(interpreter ? "통역" : Brand.NAME, interrupted ? text + " …" : text);
+        String key = text.isEmpty() ? null : store.transcript(interpreter ? "통역" : Brand.NAME, interrupted ? text + " …" : text);
+        // 다시 듣기: the answer's audio as it played goes with its words.
+        if (key != null && !interpreter) VoiceClips.put(key, answerVoice.toByteArray(), 24000);
+        answerVoice.reset();
         answer.setLength(0); store.outputDraft = ""; store.changed();
     }
     /** The one input the model was last told the captions' words for (captionCorrects): once per input. */
@@ -2803,6 +2822,7 @@ public final class AssistantService extends Service {
         return new Microphone.Sink() {
             @Override public void audio(byte[] pcm) {
                 if (epoch != voiceEpoch) return;
+                if (!store.muted) micRing.add(SystemClock.uptimeMillis(), pcm);
                 Speaker output = speaker;
                 // Through the phone speaker the model would hear itself and cut its own answer short.
                 if (echoGuard && !privateOutput && output != null && output.isAudible()) {

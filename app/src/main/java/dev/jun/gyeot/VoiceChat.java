@@ -106,6 +106,17 @@ final class VoiceChat {
     private final ArrayDeque<String> reports = new ArrayDeque<>();
     /** While true the microphone sends nothing (판서 speaking its lesson aloud): its sound is not the user. */
     private volatile boolean held;
+    /**
+     * 다시 듣기 (VoiceClips): the microphone's last seconds, when the user's words began (as the server heard them), each
+     * answer's audio as it played, and the clip of the words on the bar now ("vc:" and the item's or response's id).
+     */
+    private final dev.jun.gyeot.core.VoiceClipAudio.Ring micRing = new dev.jun.gyeot.core.VoiceClipAudio.Ring(45_000);
+    private volatile long speechAt;
+    private final Map<String, java.io.ByteArrayOutputStream> answerVoices = new java.util.concurrent.ConcurrentHashMap<>();
+    private volatile String wordsClip = "";
+    String wordsClip() { return wordsClip; }
+    /** Where a line written to its screen keeps its sound: the main chat's message, or another screen's. */
+    static String clipKey(String surface, long id) { return ("chat".equals(surface) ? "main:" : surface + ":") + id; }
     VoiceChat(Context context, AppStore store, RealtimeVoice.Kind kind, String voice, Target target) {
         this.context = context.getApplicationContext(); this.store = store; this.kind = kind; this.voice = kind.voice(voice); this.target = target;
         this.chosen = voice == null ? "" : voice;
@@ -317,6 +328,8 @@ final class VoiceChat {
         if (out == null || pcm == null || pcm.length == 0 || e.response().equals(stopped)) return;
         if (!e.response().equals(playing)) { playing = e.response(); open = false; }
         out.play(pcm);
+        java.io.ByteArrayOutputStream voiced = answerVoices.computeIfAbsent(e.response(), k -> new java.io.ByteArrayOutputStream());
+        synchronized (voiced) { if (voiced.size() + pcm.length <= 24000 * 2 * 60) voiced.write(pcm, 0, pcm.length); }
         if (state != State.SPEAKING) main.post(() -> { if (!ended && state != State.SPEAKING) { state = State.SPEAKING; changed(); } });
     }
     private void event(RealtimeVoice.Event e) {
@@ -328,22 +341,30 @@ final class VoiceChat {
                 awaitingWords = true;
                 // The user began to speak: an answer still playing stops (the server stops making it).
                 Speaker out = speaker; if (out != null && out.isPlaying()) { stopped = playing; out.flush(); }
-                log.heard(e.item(), now); wordsBy = NOTE; words = ""; state = State.HEARING; changed();
+                log.heard(e.item(), now); wordsBy = NOTE; words = ""; state = State.HEARING; speechAt = now; changed();
             }
-            case SPEECH_STOPPED -> { log.heard(e.item(), now); if (state == State.HEARING) { state = State.THINKING; changed(); } }
+            case SPEECH_STOPPED -> {
+                log.heard(e.item(), now); if (state == State.HEARING) { state = State.THINKING; changed(); }
+                // The user's words as the microphone took them, from a little before the server heard them begin.
+                long began = speechAt == 0 ? now - 8000 : speechAt - 1200; speechAt = 0;
+                VoiceClips.put("vc:" + e.item(), dev.jun.gyeot.core.VoiceClipAudio.trim(micRing.between(began, now), 16000, 30), 16000);
+            }
             case COMMITTED -> log.heard(e.item(), now);
-            case USER_PARTIAL -> { words = "full".equals(e.status()) || wordsBy != MINE ? e.text() : words + e.text(); wordsBy = MINE; changed(); }
-            case USER_TEXT -> { log.said(e.item(), e.text(), now); if (!e.text().isBlank()) { words = e.text(); wordsBy = MINE; heard = e.text(); } settle(); changed(); }
+            case USER_PARTIAL -> { words = "full".equals(e.status()) || wordsBy != MINE ? e.text() : words + e.text(); wordsBy = MINE; wordsClip = "vc:" + e.item(); changed(); }
+            case USER_TEXT -> { log.said(e.item(), e.text(), now); if (!e.text().isBlank()) { words = e.text(); wordsBy = MINE; wordsClip = "vc:" + e.item(); heard = e.text(); } settle(); changed(); }
             case ANSWER_STARTED -> answers.put(e.response(), new StringBuilder());
             case ANSWER_PARTIAL -> {
                 StringBuilder b = answers.computeIfAbsent(e.response(), k -> new StringBuilder()); b.append(e.text());
                 if (live && state != State.SPEAKING) state = State.SPEAKING;
-                if (!e.response().equals(stopped)) { words = b.toString(); wordsBy = THEIRS; changed(); }
+                if (!e.response().equals(stopped)) { words = b.toString(); wordsBy = THEIRS; wordsClip = "vc:" + e.response(); changed(); }
             }
             case ANSWER_TEXT -> { if (!e.text().isBlank()) answers.put(e.response(), new StringBuilder(e.text())); }
             case DONE -> {
                 StringBuilder b = answers.remove(e.response());
                 boolean cut = e.response().equals(stopped) || "cancelled".equals(e.status()) || "incomplete".equals(e.status());
+                // The answer's audio as it played goes with its words (before they are written, so the line finds it).
+                java.io.ByteArrayOutputStream voiced = answerVoices.remove(e.response());
+                if (voiced != null) VoiceClips.put("vc:" + e.response(), voiced.toByteArray(), 24000);
                 log.answered(e.response(), b == null ? "" : b.toString(), cut, now); settle();
                 if ("failed".equals(e.status()) && (b == null || b.length() == 0)) { wordsBy = NOTE; words = "답을 만들지 못했어요 · 다시 말해 주세요"; changed(); }
                 Speaker out = speaker;
@@ -454,6 +475,7 @@ final class VoiceChat {
     /** Microphone thread: the user's voice goes up, except the answer's own echo while it plays. */
     private void hear(byte[] pcm) {
         if (ended || muted || held) return;
+        micRing.add(SystemClock.uptimeMillis(), pcm);
         Speaker out = speaker;
         if (out != null && !open && out.isAudible()) {
             boolean voice = barge.hear(BargeIn.rms(pcm), out.level(), pcm.length / 32);
@@ -508,6 +530,8 @@ final class VoiceChat {
                     String text = line.cut() ? line.text() + " …" : line.text();
                     long id = target.line(line.user(), text, line.user() ? 0 : lastUser, label);
                     if (line.user()) lastUser = id;
+                    // Its sound under the line's own key on its screen (다시 듣기 there).
+                    if (id > 0 && !line.key().isEmpty()) VoiceClips.alias("vc:" + line.key(), clipKey(target.surface(), id));
                 } catch (Exception unsaved) { /* An empty or unwritable line is left out; the conversation goes on. */ }
             }
         };

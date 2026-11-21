@@ -14,8 +14,13 @@ import java.util.Set;
  */
 public final class VoiceChatLog {
     public static final long USER_WAIT_MS = 5000;
-    /** A line for the chat: the user's or the answer's words; cut when the user stopped the answer partway. */
-    public record Line(boolean user, String text, boolean cut) {}
+    /**
+     * A line for the chat: the user's or the answer's words; cut when the user stopped the answer partway; key is the
+     * conversation's own id for it (the user's item, the answer's response), which its sound is kept under.
+     */
+    public record Line(boolean user, String text, boolean cut, String key) {
+        public Line(boolean user, String text, boolean cut) { this(user, text, cut, ""); }
+    }
     private static final class Slot {
         final boolean user; final String key; final long at; String text = ""; boolean filled, cut;
         Slot(boolean user, String key, long at) { this.user = user; this.key = key; this.at = at; }
@@ -47,7 +52,7 @@ public final class VoiceChatLog {
             Slot head = slots.peekFirst();
             if (!head.filled) { if (now - head.at < USER_WAIT_MS) break; slots.removeFirst(); continue; }
             slots.removeFirst();
-            if (!head.text.isEmpty()) ready.add(new Line(head.user, head.text, head.cut));
+            if (!head.text.isEmpty()) ready.add(new Line(head.user, head.text, head.cut, head.key == null ? "" : head.key));
         }
         return ready;
     }

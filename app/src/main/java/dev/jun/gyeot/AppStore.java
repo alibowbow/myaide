@@ -592,8 +592,11 @@ final class AppStore {
     void stopReading(String why) { Speech current = speech; if (current == null) return; if (why == null) current.stop(); else current.interrupt(why); }
     /** A mic in the app is about to listen: a task result being read aloud stops too, so the recognizer does not hear it. */
     void stopReport() { Runnable stop = reportStop; if (stop != null) stop.run(); }
-    synchronized void transcript(String who, String text) {
-        if (text == null || text.isBlank()) return;
+    /** A call line's key for its 다시 듣기 (VoiceClips): when it was written, who said it and what. */
+    static String lineKey(JSONObject line) { return line == null ? "" : "call:" + line.optLong("at") + ":" + line.optString("who").hashCode() + ":" + line.optString("text").hashCode(); }
+    /** Writes a call line; returns its key (lineKey), or null when there was nothing to write. */
+    synchronized String transcript(String who, String text) {
+        if (text == null || text.isBlank()) return null;
         JSONObject line = obj("who", who, "text", text.strip(), "at", System.currentTimeMillis());
         conversation.put(line);
         while (conversation.length() > 70) conversation.remove(0);
@@ -603,6 +606,7 @@ final class AppStore {
             try { open.optJSONArray("lines").put(copy(line)); open.put("endedAt", line.optLong("at")); saveSessionsSoon(2000); } catch (Exception ignored) {}
         }
         changed();
+        return lineKey(line);
     }
     /** Starts saving a voice session's lines under its mode; an empty previous session is dropped. */
     synchronized void startSession(String mode, String language) {

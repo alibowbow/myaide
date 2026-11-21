@@ -454,8 +454,12 @@ final class MainChatPage implements AutoCloseable {
         return dictation != null && dictation.permissionResult(code, results);
     }
     private static String readKey(JSONObject m) { return "main:" + m.optLong("id"); }
-    /** 읽어 주기: the answer as shown, sentence by sentence; a second tap stops it. */
-    private void readAloud(JSONObject m) { if (!stopped) store.speech().toggle(readKey(m), m.optString("text")); }
+    /** 읽어 주기: a spoken answer in its own voice again (VoiceClips), any other as shown, sentence by sentence; a second tap stops it. */
+    private void readAloud(JSONObject m) {
+        if (stopped) return;
+        if (VoiceClips.has(readKey(m))) VoiceClips.toggle(activity, store, readKey(m), m.optString("text"));
+        else store.speech().toggle(readKey(m), m.optString("text"));
+    }
     /** 답변 자동 읽기: a finished answer that appears while the latest messages show is read once; ones already there never are. */
     private void autoRead(JSONArray rows) {
         if (before != 0 || !query.isBlank()) return;
@@ -618,7 +622,14 @@ final class MainChatPage implements AutoCloseable {
         // What was attached, under the words: names only, never the files' content.
         String attached = MainAttachments.label(MainAttachments.of(m));
         if (!attached.isEmpty()) { TextView files = ui.text(attached, FOOTNOTE, 520, MUTED); files.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), 0); files.setGravity(Gravity.END); files.setContentDescription("첨부: " + attached); wrap.addView(files, new LinearLayout.LayoutParams(-2, -2)); }
-        TextView meta = ui.text(stamp(m), 11.5f, 450, MUTED); meta.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), 0); wrap.addView(meta, new LinearLayout.LayoutParams(-2, -2));
+        TextView meta = ui.text(stamp(m), 11.5f, 450, MUTED); meta.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), 0);
+        // Said aloud in 음성 대화: 다시 듣기 in the user's own voice beside its time, when it was kept (VoiceClips).
+        if (VoiceClips.has(readKey(m))) {
+            LinearLayout stamped = ui.row(); stamped.setGravity(Gravity.CENTER_VERTICAL);
+            stamped.addView(ui.footIcon(R.drawable.ic_play, "내 목소리 다시 듣기 · 다시 누르면 멈춰요", () -> VoiceClips.toggle(activity, store, readKey(m), text)), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
+            stamped.addView(meta, new LinearLayout.LayoutParams(-2, -2));
+            wrap.addView(stamped, new LinearLayout.LayoutParams(-2, -2));
+        } else wrap.addView(meta, new LinearLayout.LayoutParams(-2, -2));
         if (suggestsWork(text)) wrap.addView(ui.ghost("작업으로 보내기", () -> confirmJob(id, text)), new LinearLayout.LayoutParams(-2, -2));
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.bottomMargin = ui.dp(16); p.leftMargin = ui.dp(48); messages.addView(wrap, p);
     }
@@ -685,7 +696,8 @@ final class MainChatPage implements AutoCloseable {
         LinearLayout foot = ui.row(); boolean done = state.equals("done"); int size = ui.dp(48);
         if (done) {
             foot.addView(ui.footIcon(R.drawable.ic_copy, "답변 복사", () -> copy(Markdown.citations(text))), new LinearLayout.LayoutParams(size, size));
-            foot.addView(ui.footIcon(R.drawable.ic_sound, "답변 읽어 주기", () -> readAloud(m)), new LinearLayout.LayoutParams(size, size));
+            boolean voiced = VoiceClips.has(readKey(m));
+            foot.addView(ui.footIcon(voiced ? R.drawable.ic_play : R.drawable.ic_sound, voiced ? "다시 듣기 · 말한 목소리 그대로" : "답변 읽어 주기", () -> readAloud(m)), new LinearLayout.LayoutParams(size, size));
             foot.addView(ui.footIcon(R.drawable.ic_share, "답변 공유", () -> share(text)), new LinearLayout.LayoutParams(size, size));
             // The newest answer can be asked for again: the same question goes once more, and the first answer stays above.
             if (id == latestReply && m.optLong("reply_to") > 0) foot.addView(ui.footIcon(R.drawable.ic_refresh, "다시 답하기: 같은 질문을 한 번 더 보내요", () -> { Ui.tick(foot); resend(m.optLong("reply_to")); }), new LinearLayout.LayoutParams(size, size));

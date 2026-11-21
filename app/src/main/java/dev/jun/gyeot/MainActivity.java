@@ -304,7 +304,9 @@ public final class MainActivity extends Activity {
     /** Android 15 is always edge to edge; match it on 13–14 so system bar and keyboard insets are handled in one place. */
     @SuppressWarnings("deprecation")
     private void edgeToEdge() { if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) getWindow().setDecorFitsSystemWindows(false); }
-    @Override protected void onStart() { super.onStart(); hostStarted=true; store.appVisible = true; if (workVoice != null) workVoice.attach(); if(showingMainChat&&mainChat!=null)mainChat.show(); store.observe(observer); refresh(); store.updater.checkIfDue();
+    /** A clip began or ended: the call's bubbles show which one plays. */
+    private final Runnable clipsChanged = () -> { if (!isDestroyed()) { shownSaid = ""; refresh(); } };
+    @Override protected void onStart() { super.onStart(); hostStarted=true; store.appVisible = true; VoiceClips.listen(clipsChanged); if (workVoice != null) workVoice.attach(); if(showingMainChat&&mainChat!=null)mainChat.show(); store.observe(observer); refresh(); store.updater.checkIfDue();
         // A call may start from here: the greeting is read into memory and the path to the Live host warmed (Greeter).
         store.greeter().warm();
         // Back from another app (Android's settings): settings is drawn again on its page and scroll, so a grant shows at once.
@@ -328,7 +330,7 @@ public final class MainActivity extends Activity {
         if(isLauncher(getIntent())&&StorageSetupActivity.maybeOffer(this))return;
         if(pendingLaunchVoice){pendingLaunchVoice=false;if(store.voiceOnOpen()&&!store.voiceActive){mode=ASSISTANT;recordingPage=false;showTab(0);startVoice();}}
     }
-    @Override protected void onStop() { hostStarted=false;settingsLeft=true; if (workVoice != null) workVoice.detach();if(mainChat!=null)mainChat.hide();stopCamera(); store.appVisible = false; store.unobserve(observer); ticker.removeCallbacksAndMessages(null); stopPlayback(); stopReadingWhenLeft(); super.onStop(); }
+    @Override protected void onStop() { hostStarted=false;settingsLeft=true; VoiceClips.unlisten(clipsChanged); VoiceClips.stop(); if (workVoice != null) workVoice.detach();if(mainChat!=null)mainChat.hide();stopCamera(); store.appVisible = false; store.unobserve(observer); ticker.removeCallbacksAndMessages(null); stopPlayback(); stopReadingWhenLeft(); super.onStop(); }
     /**
      * Reading aloud has no foreground service, so once the app is left Android may freeze it mid-answer with the focus still
      * held: leaving stops it. The screen going off does not (the app stays on top), nor does a rotation.
@@ -601,9 +603,11 @@ public final class MainActivity extends Activity {
      * name over it when it is not the assistant's. The two fills are far apart on purpose: an earlier pale user bubble
      * (Ui.BUBBLE_FILL) and the white one beside it both read as white on the phone. A notice
      * (안내) is a small centered line, not a bubble. faint: words still being said or thought. Words mostly in another
-     * language show their Korean translation under the bubble on a tap (CaptionTranslator), and hide it on the next.
+     * language show their Korean translation under the bubble on a tap (CaptionTranslator), and hide it on the next. A
+     * written line (clip, its AppStore.lineKey) has ▶ beside its bubble: 다시 듣기 in the voice it was said in (VoiceClips),
+     * or read aloud when its sound was not kept.
      */
-    private View turn(String who, CharSequence text, boolean faint) {
+    private View turn(String who, CharSequence text, boolean faint, String clip) {
         if ("안내".equals(who)) {
             TextView note = ui.text("", Ui.CAPTION, 450, MUTED); note.setText(text); note.setGravity(android.view.Gravity.CENTER); note.setPadding(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(4)); return note;
         }
@@ -618,7 +622,18 @@ public final class MainActivity extends Activity {
         bubble.setBackground(shape); if (faint) bubble.setAlpha(0.62f);
         String plain = text.toString(); bubble.setContentDescription((mine ? "나" : who) + ": " + plain);
         bubble.setOnLongClickListener(v -> { copy(plain); return true; });
-        line.addView(bubble, new LinearLayout.LayoutParams(-2, -2));
+        if (clip == null || faint) line.addView(bubble, new LinearLayout.LayoutParams(-2, -2));
+        else {
+            // ▶ on the bubble's inner side: before the user's, after everyone else's.
+            boolean now = VoiceClips.playing(clip), kept = VoiceClips.has(clip);
+            android.widget.ImageView play = ui.footIcon(now ? R.drawable.ic_stop : R.drawable.ic_play,
+                now ? "다시 듣기 멈추기" : kept ? "다시 듣기 · 말한 목소리 그대로" : "다시 듣기 · 읽어 주기", () -> VoiceClips.toggle(this, store, clip, plain));
+            if (now) play.setColorFilter(ACCENT);
+            LinearLayout row = ui.row(); row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            LinearLayout.LayoutParams playAt = new LinearLayout.LayoutParams(ui.dp(32), ui.dp(32)), bubbleAt = new LinearLayout.LayoutParams(-2, -2, 1);
+            if (mine) { row.addView(play, playAt); row.addView(bubble, bubbleAt); } else { row.addView(bubble, bubbleAt); row.addView(play, playAt); }
+            line.addView(row, new LinearLayout.LayoutParams(-2, -2));
+        }
         if (!faint && dev.jun.gyeot.core.CaptionLanguage.foreign(plain)) {
             boolean open = translatedTurns.contains(plain);
             bubble.setContentDescription(bubble.getContentDescription() + (open ? ", 눌러서 번역 닫기" : ", 눌러서 한국어로 보기"));
@@ -1081,6 +1096,7 @@ public final class MainActivity extends Activity {
             // Rebuilt only when the words changed: a redraw for something else leaves the list where the user scrolled it.
             StringBuilder key = new StringBuilder();
             for (int i = first; i < lines.length(); i++) { JSONObject line = lines.optJSONObject(i); key.append(line.optString("who")).append('\u0001').append(line.optString("text")).append('\u0002'); }
+            key.append(VoiceClips.playingKey()).append('\u0004');
             key.append(store.interim).append('\u0003').append(store.outputDraft).append('\u0003').append(thinkingNow ? store.thinkingText() : "");
             boolean spoken = lines.length() > first || !store.interim.isBlank() || !store.outputDraft.isBlank() || thinkingNow;
             if (!key.toString().equals(shownSaid)) {
@@ -1090,10 +1106,10 @@ public final class MainActivity extends Activity {
                 if (!spoken) {
                     TextView waiting = ui.text("말씀하시면 여기에 보여요.\n다른 앱으로 이동해도 연결은 유지돼요.", Ui.SUBHEAD, 400, MUTED); waiting.setGravity(android.view.Gravity.CENTER); waiting.setPadding(ui.dp(12), ui.dp(18), ui.dp(12), ui.dp(18)); saidList.addView(waiting);
                 }
-                for (int i = first; i < lines.length(); i++) { JSONObject line = lines.optJSONObject(i); saidList.addView(turn(line.optString("who"), rich(line.optString("text")), false)); }
-                if (!store.interim.isBlank()) saidList.addView(turn("나", "… " + store.interim, true));
-                if (!store.outputDraft.isBlank()) saidList.addView(turn(Brand.NAME, store.outputDraft, false));
-                else if (thinkingNow) saidList.addView(turn(Brand.NAME, "··· " + store.thinkingText(), true));
+                for (int i = first; i < lines.length(); i++) { JSONObject line = lines.optJSONObject(i); saidList.addView(turn(line.optString("who"), rich(line.optString("text")), false, AppStore.lineKey(line))); }
+                if (!store.interim.isBlank()) saidList.addView(turn("나", "… " + store.interim, true, null));
+                if (!store.outputDraft.isBlank()) saidList.addView(turn(Brand.NAME, store.outputDraft, false, null));
+                else if (thinkingNow) saidList.addView(turn(Brand.NAME, "··· " + store.thinkingText(), true, null));
                 if (atFoot) said.post(this::pinSaid);
             }
             // Nothing said and no call: neither is there, so an idle home is the orb and its row of doors.
@@ -2488,6 +2504,12 @@ public final class MainActivity extends Activity {
             TextView bubble = ui.bubble(text); bubble.setTextIsSelectable(true);
             bubble.setMaxWidth(Math.round(readingWidth() * 0.85f));
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.gravity = android.view.Gravity.END; column.addView(bubble, p);
+            // Said aloud in 음성 대화: 다시 듣기 in the user's own voice, when it was kept (VoiceClips).
+            String clip = VoiceChat.clipKey("work", message.optLong("at"));
+            if (WorkBook.SPOKEN.equals(message.optString("kind")) && VoiceClips.has(clip)) {
+                LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)); right.gravity = android.view.Gravity.END;
+                column.addView(ui.footIcon(R.drawable.ic_play, "내 목소리 다시 듣기 · 다시 누르면 멈춰요", () -> VoiceClips.toggle(this, store, clip, text)), right);
+            }
         }
         return column;
     }
@@ -2562,8 +2584,11 @@ public final class MainActivity extends Activity {
             LinearLayout tools = ui.row(); int size = ui.dp(48);
             tools.addView(ui.footIcon(R.drawable.ic_copy, "복사", () -> copy(text)), new LinearLayout.LayoutParams(size, size));
             tools.addView(ui.footIcon(R.drawable.ic_expand, sources != null && sources.length() > 0 ? "크게 보기 · 출처 " + sources.length() : "크게 보기", () -> showDocument(title, text, sources == null ? new JSONArray() : sources, suggestions)), new LinearLayout.LayoutParams(size, size));
-            String readKey = "work:" + text.hashCode() + ":" + text.length();
-            tools.addView(ui.footIcon(R.drawable.ic_sound, "읽어 주기 · 다시 누르면 멈춰요", () -> store.speech().toggle(readKey, text)), new LinearLayout.LayoutParams(size, size));
+            String readKey = "work:" + text.hashCode() + ":" + text.length(), clip = VoiceChat.clipKey("work", message.optLong("at"));
+            // A spoken answer plays again in its own voice (VoiceClips); any other is read aloud.
+            boolean voiced = VoiceClips.has(clip);
+            tools.addView(ui.footIcon(voiced ? R.drawable.ic_play : R.drawable.ic_sound, voiced ? "다시 듣기 · 말한 목소리 그대로 · 다시 누르면 멈춰요" : "읽어 주기 · 다시 누르면 멈춰요",
+                () -> { if (VoiceClips.has(clip)) VoiceClips.toggle(this, store, clip, text); else store.speech().toggle(readKey, text); }), new LinearLayout.LayoutParams(size, size));
             String info = answerInfo(message, by, model);
             tools.addView(ui.footIcon(R.drawable.ic_more, "이 답 더 보기: 메모로 저장, 페이지에 저장, 서재에 저장, 공유, 이 답의 정보", () -> answerMenu(title, text, lastRequest(thread, message), by, info)), new LinearLayout.LayoutParams(size, size));
             // The first glyph sits on the text's left edge; its target reaches past it.
