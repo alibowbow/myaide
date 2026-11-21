@@ -1212,6 +1212,12 @@ public final class AssistantService extends Service {
                         if (entry != null) { put(entry, WorkBook.VOICE, true); if (!spokenHeard.isBlank()) put(entry, WorkBook.HEARD, spokenHeard); } }
                     return null;
                 });
+                // Nothing runs (stopped or failed earlier) and the user sent a new instruction now: that is the go-ahead,
+                // so the waiting instructions run in order, the new one last. A held recovery still waits for its own buttons.
+                JSONObject held = dev.jun.gyeot.core.WorkCheckpoint.get(existing);
+                boolean idleRoom = !WorkBook.RUNNING.equals(existing.optString("state")) && !dev.jun.gyeot.core.WorkCheckpoint.PAUSED.equals(existing.optString("state"))
+                    && (held == null || !held.optBoolean("readOnly"));
+                if (idleRoom) { store.status("멈춰 있던 대기 지시부터 순서대로 실행해요."); store.changed(); main.post(() -> nextWork(threadId)); return threadId; }
                 store.status("추가 지시를 저장했어요. 같은 AI의 작업은 현재 처리 뒤 다음 단계에 반영해요.");
                 store.changed(); return threadId;
             } catch (Exception e) { store.error(message(e, "추가 지시를 보관하지 못했어요.")); return ""; }

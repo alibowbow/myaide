@@ -2453,7 +2453,7 @@ public final class MainActivity extends Activity {
             }
             // 이어서 실행 (when nothing runs) and 모두 취소 side by side, the note on why it waits just above them.
             boolean idle = !WorkBook.RUNNING.equals(thread.optString("state"));
-            if (idle) add(ui.text("중지·오류 뒤에는 자동으로 재실행하지 않아요. 이전 변경 결과를 확인한 뒤 새 지시를 이어서 실행하세요.", 12, 400, MUTED), 8);
+            if (idle) add(ui.text("중지·오류 뒤에는 저절로 다시 실행하지 않아요. 이어서 실행을 누르거나 새 지시를 보내면 대기 지시부터 순서대로 실행해요.", 12, 400, MUTED), 8);
             TextView runNext = idle ? ui.pill("이어서 실행", R.drawable.ic_play, true, () -> send(AssistantService.WORK_NEXT, "thread", id)) : null;
             if (runNext != null) runNext.setContentDescription("대기 지시 이어서 실행");
             TextView clearQueue = ui.pill("모두 취소", R.drawable.ic_close, false, () -> send(AssistantService.WORK_CLEAR, "thread", id)); clearQueue.setContentDescription("대기 지시 모두 취소");
