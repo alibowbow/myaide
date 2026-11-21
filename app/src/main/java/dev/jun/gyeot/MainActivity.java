@@ -2900,7 +2900,7 @@ public final class MainActivity extends Activity {
         };
     }
     /** What a thinking level means for the answer; "" is the model's own choice, usually fallback. */
-    private static String effortHint(String effort, String fallback) {
+    static String effortHint(String effort, String fallback) {
         return switch (effort) {
             case "none" -> "생각 없이 바로 답해요. 가장 빨라요.";
             case "minimal" -> "거의 생각하지 않고 바로 답해요. 간단한 일에 빨라요.";

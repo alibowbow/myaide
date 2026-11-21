@@ -36,32 +36,43 @@ final class MyTubeChat {
     static final int SHOWN = 6;
     private final Activity activity; private final Ui ui; private final AppStore store; private final MyTubeBook book; private final Actions actions;
     private final ExecutorService work; private final android.os.Handler main;
-    final LinearLayout card, composer; private final LinearLayout lines; private final EditText input; private final ImageView send; private final Button model; private final TextView more;
+    final LinearLayout card, composer; private final LinearLayout lines; private final EditText input; private final ImageView send; private final TextView model, more;
     final VoiceBar voice;
     private boolean expanded, thinking;
     private final AtomicReference<Runnable> cancel = new AtomicReference<>();
 
     MyTubeChat(Activity activity, Ui ui, AppStore store, MyTubeBook book, ExecutorService work, android.os.Handler main, Actions actions) {
         this.activity = activity; this.ui = ui; this.store = store; this.book = book; this.work = work; this.main = main; this.actions = actions;
+        // The conversation, only once there is one (no title, no hint): bubbles, as the other chats show them.
         card = ui.card();
-        LinearLayout head = ui.row(); head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = ui.text("마이튜브 AI", 15, 650, TEXT); head.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        model = ui.chip("모델", this::chooseModel); head.addView(model, new LinearLayout.LayoutParams(-2, -2));
-        card.addView(head);
-        lines = ui.column(); lines.setPadding(0, ui.dp(6), 0, 0); card.addView(lines);
+        lines = ui.column(); card.addView(lines);
         more = ui.ghost("지난 대화 보기", () -> { expanded = !expanded; render(); });
         card.addView(more, new LinearLayout.LayoutParams(-2, -2));
-        // The composer: words to send, or (with nothing written) the voice button; a long press chooses the voice.
-        composer = ui.row(); composer.setGravity(Gravity.CENTER_VERTICAL); composer.setPadding(ui.dp(12), ui.dp(6), ui.dp(12), ui.dp(8));
-        input = ui.input("마이튜브에게 말하기 · 예: 아이유 노래 틀어 줘", 1, 1000);
-        input.setImeOptions(EditorInfo.IME_ACTION_SEND); input.setSingleLine(false); input.setMaxLines(4);
+        // The composer, compact as 작업창's: one rounded card with the words on top, and under them the model (name, thinking
+        // level quiet beside it; its menu is ModelPopover), 음성 입력 (into the field) and the round button (the voice with
+        // nothing written, a long press choosing the voice; send otherwise).
+        composer = ui.column(); composer.setPadding(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(8));
+        LinearLayout box = ui.column(); box.setBackground(ui.glass(28, false)); ui.lift(box, 4); box.setPadding(ui.dp(4), ui.dp(2), ui.dp(4), ui.dp(4));
+        composer.addView(box, new LinearLayout.LayoutParams(-1, -2));
+        input = new EditText(activity); input.setBackground(null); input.setTextColor(TEXT); input.setHintTextColor(MUTED); input.setTextSize(16);
+        input.setHint("마이튜브에게 말하기"); input.setMaxLines(4);
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(1000)});
+        input.setPadding(ui.dp(14), ui.dp(10), ui.dp(12), ui.dp(2));
+        input.setImeOptions(EditorInfo.IME_ACTION_SEND);
         input.setOnEditorActionListener((v, id, event) -> { if (id == EditorInfo.IME_ACTION_SEND) { submit(); return true; } return false; });
-        composer.addView(input, new LinearLayout.LayoutParams(0, -2, 1));
+        box.addView(input, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout bar = ui.row(); bar.setGravity(Gravity.CENTER_VERTICAL);
+        model = ui.text("", 13.5f, 500, TEXT); model.setSingleLine(true); model.setEllipsize(TextUtils.TruncateAt.END);
+        model.setGravity(Gravity.CENTER_VERTICAL | Gravity.END); model.setPadding(ui.dp(10), 0, ui.dp(6), 0); model.setMinHeight(ui.dp(44));
+        model.setOnClickListener(v -> chooseModel()); Ui.pressable(model, true);
+        LinearLayout.LayoutParams modelAt = new LinearLayout.LayoutParams(0, -2, 1); bar.addView(model, modelAt);
+        bar.addView(ui.bareIcon(R.drawable.ic_mic, TEXT, "음성 입력 · 입력창에만 넣기", this::dictate), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         voice = new VoiceBar(activity, store, ui, "mytube", () -> VoiceTargets.mytube(activity.getApplicationContext()));
-        send = ui.iconButton(R.drawable.ic_send, ACCENT, ON_ACCENT, "메시지 보내기", () -> { if (offersVoice()) voice.start(); else submit(); });
-        send.setOnLongClickListener(v -> { voice.settings(""); return true; });
-        LinearLayout.LayoutParams sendAt = new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)); sendAt.leftMargin = ui.dp(8);
-        composer.addView(send, sendAt);
+        send = ui.sendButton("메시지 보내기", () -> { if (offersVoice()) voice.start(); else submit(); });
+        send.setOnLongClickListener(v -> { if (!offersVoice()) return false; voice.settings(""); return true; });
+        bar.addView(send, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
+        box.addView(bar, new LinearLayout.LayoutParams(-1, -2));
         input.addTextChangedListener(new android.text.TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
@@ -71,6 +82,15 @@ final class MyTubeChat {
         looks(); render();
     }
     private boolean offersVoice() { return input.getText().toString().isBlank() && !thinking; }
+    private ComposerDictation dictation;
+    /** 음성 입력: what is said goes into the field (Gemini's transcription, as 작업창's), to read and send. */
+    private void dictate() {
+        if (store.voiceActive || store.recording || store.voiceChat != null) { android.widget.Toast.makeText(activity, "음성 대화나 녹음을 끝낸 뒤 음성으로 입력해 주세요.", android.widget.Toast.LENGTH_LONG).show(); return; }
+        if (!store.secrets.hasWorkKey()) { android.widget.Toast.makeText(activity, "음성 입력에 쓸 Gemini API 키가 없어요. 설정에서 Gemini를 연결해 주세요.", android.widget.Toast.LENGTH_LONG).show(); return; }
+        store.stopReading(null);
+        if (dictation == null) dictation = new ComposerDictation(activity, input, () -> "mytube", message -> android.widget.Toast.makeText(activity, message, android.widget.Toast.LENGTH_LONG).show());
+        dictation.begin(() -> new GeminiComposerSession(store.secrets.workKey()), "Gemini 3.5 Transcribe Live");
+    }
     private void looks() { VoiceBar.glyph(send, offersVoice(), "메시지 보내기"); }
 
     /** The newest lines (all of them once 지난 대화 보기 is open), and the model it talks with. */
@@ -78,17 +98,18 @@ final class MyTubeChat {
         List<MyTubeBook.Line> all = book.chat();
         lines.removeAllViews();
         int first = expanded ? 0 : Math.max(0, all.size() - SHOWN);
-        if (all.isEmpty()) {
-            TextView hint = ui.label("무엇을 볼지 말해 보세요. 영상을 찾아 틀고, 피드를 만들고, 멈추거나 넘기는 것도 해요.\n예: 오늘 AI 뉴스 피드 만들어 줘 · 잔잔한 피아노 곡 이어서 틀어 줘", 13, MUTED);
-            hint.setPadding(0, ui.dp(4), 0, ui.dp(2)); lines.addView(hint);
-        }
+        card.setVisibility(all.isEmpty() && !thinking ? View.GONE : View.VISIBLE);
         for (int i = first; i < all.size(); i++) lines.addView(line(all.get(i)));
         if (thinking) { TextView wait = ui.label("··· 생각하는 중", 13, MUTED); wait.setPadding(ui.dp(4), ui.dp(4), 0, 0); lines.addView(wait); }
         more.setVisibility(all.size() > SHOWN ? View.VISIBLE : View.GONE);
         more.setText(expanded ? "최근 대화만 보기" : "지난 대화 보기 (" + (all.size() - SHOWN) + ")");
-        String named = MyTubeClient.myTubeModel(store);
-        model.setText(named.isEmpty() ? "모델 고르기" : named);
-        model.setContentDescription("마이튜브 AI 모델, " + (named.isEmpty() ? "연결 필요" : named) + ", 눌러서 바꾸기");
+        // The model as 작업창 shows it: its name in bold, its thinking level quiet beside it.
+        String[] parts = modelParts();
+        android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(parts[0]);
+        label.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, label.length(), 0);
+        if (!parts[1].isEmpty()) { int at = label.length(); label.append("  ").append(parts[1]); label.setSpan(new android.text.style.ForegroundColorSpan(MUTED), at, label.length(), 0); }
+        model.setText(label);
+        model.setContentDescription("마이튜브 AI 모델과 생각 깊이 바꾸기, 지금 " + parts[0] + (parts[1].isEmpty() ? "" : " " + parts[1]));
         looks();
     }
     private View line(MyTubeBook.Line l) {
@@ -115,9 +136,45 @@ final class MyTubeChat {
         return wrap;
     }
 
+    // ── the model, as the other chats choose it ──────────────────────────
+    private ScopedModels models() { return ScopedModels.mytube(store); }
+    /** {name, thinking level} for the composer; "AI 연결·선택" when none is connected. */
+    private String[] modelParts() {
+        try {
+            ScopedModels selection = models(); String engine = selection.engine();
+            if (engine == null || engine.isBlank() || !store.ready(engine)) return new String[]{"AI 연결·선택", ""};
+            String id = selection.model(engine); if (id.isBlank()) return new String[]{dev.jun.gyeot.core.WorkBook.author(engine) + " · 모델 고르기", ""};
+            TeamRoster roster = new TeamRoster(store, selection);
+            dev.jun.gyeot.core.Reasoning.Profile profile = roster.profile(engine, id); String effort = selection.effort(engine, id);
+            String level = profile.efforts.isEmpty() ? "" : effortWord(engine, effort.isEmpty() ? profile.defaultEffort : effort);
+            return new String[]{roster.label(engine, id), level};
+        } catch (Exception unavailable) { return new String[]{"AI 연결·선택", ""}; }
+    }
+    private static String effortWord(String engine, String effort) {
+        return dev.jun.gyeot.core.WorkBook.CHATGPT.equals(engine) ? dev.jun.gyeot.core.Reasoning.gptShortLabel(effort) : MainActivity.effortName(effort);
+    }
+    /** The menu over the model (ModelPopover): its models, 생각 깊이, 다른 AI and 모든 모델·설정; with none connected, the AI to connect. */
     private void chooseModel() {
-        FileExplorerModelUi.show(activity, store, () -> ScopedModels.mytube(store), "마이튜브", "마이튜브에 적용", () -> !activity.isDestroyed(),
-            dialog -> dialog.show(), this::render);
+        ScopedModels selection; try { selection = models(); } catch (Exception e) { store.error(e.getMessage()); return; }
+        String engine = selection.engine();
+        if (engine == null || engine.isBlank() || !store.ready(engine)) { allModels(); return; }
+        TeamRoster roster = new TeamRoster(store, selection);
+        new ModelPopover(activity, ui, store, selection, new ModelPopover.Catalog() {
+            @Override public org.json.JSONArray models(String e) { return roster.catalog(e); }
+            @Override public String label(String e, String m) { return roster.label(e, m); }
+            @Override public dev.jun.gyeot.core.Reasoning.Profile profile(String e, String m) { return new TeamRoster(store).profile(e, m); }
+            @Override public String effortLabel(String e, String effort) { return effortWord(e, effort); }
+            @Override public String effortHint(String effort, String fallback) { return MainActivity.effortHint(effort, fallback); }
+            @Override public String team() { return ""; }
+        }, e -> {
+            try { selection.chooseEngine(e); } catch (Exception failed) { store.error(failed.getMessage()); return; }
+            if (!store.ready(e)) android.widget.Toast.makeText(activity, dev.jun.gyeot.core.WorkBook.author(e) + "를 설정에서 먼저 연결해 주세요.", android.widget.Toast.LENGTH_LONG).show();
+            render();
+        }, this::allModels, null, this::render).show(model);
+    }
+    /** 모든 모델·설정: the AI, its model and thinking level in full (as 탐색's). */
+    private void allModels() {
+        FileExplorerModelUi.show(activity, store, this::models, "마이튜브", "마이튜브에 적용", () -> !activity.isDestroyed(), dialog -> dialog.show(), this::render);
     }
 
     private void submit() {
@@ -162,6 +219,6 @@ final class MyTubeChat {
     }
     void clear() { try { book.clearChat(); } catch (Exception ignored) {} render(); }
     void attach() { voice.attach(); render(); }
-    void detach() { voice.detach(); }
+    void detach() { voice.detach(); if (dictation != null) dictation.pause(); }
     boolean permissionResult(int code, int[] results) { return voice.permissionResult(code, results); }
 }

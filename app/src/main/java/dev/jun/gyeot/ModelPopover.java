@@ -132,8 +132,8 @@ final class ModelPopover {
         }
         card.addView(row("다른 AI", WorkBook.author(engine), true, this::engines));
         card.addView(row(models.length() > SHOWN ? "더 많은 모델·설정" : "모델 설정", "", true, () -> { dismiss(); more.run(); }));
-        card.addView(divider());
-        card.addView(row("에이전트 팀", catalog.team(), true, () -> { dismiss(); team.run(); }));
+        // A screen without agent teams (마이튜브) passes no team: no row for it.
+        if (team != null) { card.addView(divider()); card.addView(row("에이전트 팀", catalog.team(), true, () -> { dismiss(); team.run(); })); }
         resize();
     }
     /** Like ChatGPT's: the level in large type over the model's name, a slider with one stop per level, and what it means. */

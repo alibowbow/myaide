@@ -69,7 +69,8 @@ final class MyTubePlayer {
     boolean active() { return current() != null; }
     String status() { return status; }
     boolean signingIn() { return signingIn; }
-    boolean background() { return store.settings.getBoolean(BACKGROUND, false); }
+    /** On unless turned off: the screen left (home, another app, the screen off) keeps it playing. */
+    boolean background() { return store.settings.getBoolean(BACKGROUND, true); }
     boolean liked() { MyTube.Video v = current(); return v != null && feed != null && book.liked(feed.id(), v.id()); }
     /** The chosen quality (a QUALITY_CODES code). */
     String quality() { String q = store.settings.getString(QUALITY, "auto"); return q == null ? "auto" : q; }
