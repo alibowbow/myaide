@@ -57,6 +57,46 @@ public final class MyTubeBook {
         write("feeds.json", obj("feeds", list));
     }
 
+    /** 피드 목록 자동 정리: the feeds in this order (ids not listed keep their place after), with new names where given. */
+    public synchronized void arrange(List<String> order, java.util.Map<String, String> renames) throws IOException {
+        List<MyTube.Feed> all = feeds(), out = new ArrayList<>();
+        for (String id : order) for (MyTube.Feed f : all) if (f.id().equals(id) && !out.contains(f)) out.add(f);
+        for (MyTube.Feed f : all) if (!out.contains(f)) out.add(f);
+        for (int i = 0; i < out.size(); i++) {
+            MyTube.Feed f = out.get(i); String name = renames == null ? null : renames.get(f.id());
+            if (name != null && !name.isBlank()) out.set(i, new MyTube.Feed(f.id(), name.strip(), f.kind(), f.about(), f.channel(), f.days()));
+        }
+        writeFeeds(out);
+    }
+
+    // ── 마이튜브 AI's conversation (chat.json), the newest CHAT lines ───────
+    static final int CHAT = 200;
+    /** One line of the conversation: the user's (typed or spoken), the AI's, or what the app did (note). */
+    public record Line(long id, String role, String text, boolean spoken, long at) {
+        public JSONObject json() { return obj("id", id, "role", role, "text", text, "spoken", spoken, "at", at); }
+    }
+    public synchronized List<Line> chat() {
+        List<Line> out = new ArrayList<>(); JSONArray list = read("chat.json").optJSONArray("lines");
+        for (int i = 0; list != null && i < list.length(); i++) {
+            JSONObject o = list.optJSONObject(i);
+            if (o != null) out.add(new Line(o.optLong("id"), o.optString("role"), o.optString("text"), o.optBoolean("spoken"), o.optLong("at")));
+        }
+        return out;
+    }
+    /** Writes a line; returns its id (increasing, never 0). */
+    public synchronized long say(String role, String text, boolean spoken) throws IOException {
+        String clean = text == null ? "" : text.strip(); if (clean.isEmpty()) return 0;
+        if (clean.length() > 8000) clean = clean.substring(0, 8000);
+        List<Line> lines = chat();
+        long id = Math.max(System.currentTimeMillis(), lines.isEmpty() ? 0 : lines.get(lines.size() - 1).id() + 1);
+        lines.add(new Line(id, role, clean, spoken, System.currentTimeMillis()));
+        while (lines.size() > CHAT) lines.remove(0);
+        JSONArray list = new JSONArray(); for (Line l : lines) list.put(l.json());
+        write("chat.json", obj("lines", list));
+        return id;
+    }
+    public synchronized void clearChat() throws IOException { write("chat.json", obj("lines", new JSONArray())); }
+
     /** The feed's last choice, best first. */
     public synchronized List<MyTube.Video> videos(String feed) { return list(read("feed-" + feed + ".json").optJSONArray("videos")); }
     /** When the feed's last choice was made (epoch ms; 0 for never). */

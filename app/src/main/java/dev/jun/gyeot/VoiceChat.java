@@ -419,7 +419,13 @@ final class VoiceChat {
     }
     /** A function's output as words to hand back to GPT-Live: its result, else its note or error. */
     private static String said(String output) {
-        try { org.json.JSONObject o = new org.json.JSONObject(output); for (String key : new String[]{"result", "note", "error", "board"}) if (!o.optString(key).isBlank()) return (key.equals("error") ? "못 했어요: " : "") + o.optString(key); }
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(output);
+            // 마이튜브's actions: what each did, in order.
+            org.json.JSONArray done = o.optJSONArray("done");
+            if (done != null) { java.util.List<String> parts = new java.util.ArrayList<>(); for (int i = 0; i < done.length(); i++) if (!done.optString(i).isBlank()) parts.add(done.optString(i)); if (!parts.isEmpty()) return String.join(" · ", parts); }
+            for (String key : new String[]{"result", "note", "error", "board", "screen"}) if (!o.optString(key).isBlank()) return (key.equals("error") ? "못 했어요: " : "") + o.optString(key);
+        }
         catch (Exception plain) { return output; }
         return output;
     }

@@ -103,6 +103,17 @@ final class MyTubeClient {
         if (ai == null) throw new IOException("정리하려면 메인 대화의 AI를 연결해 주세요.");
         return ai.ask(instructions, input, cancel);
     }
+    /** 마이튜브 AI (its own model choice) asked once with no tools. Blocking. */
+    static String askMyTube(AppStore store, String instructions, String input, AtomicReference<Runnable> cancel) throws Exception {
+        Ai ai = Ai.of(store, ScopedModels.mytube(store));
+        if (ai == null) throw new IOException("마이튜브 AI를 쓰려면 모델을 고르거나 AI를 연결해 주세요.");
+        return ai.ask(instructions, input, cancel);
+    }
+    /** The name and model 마이튜브 AI talks with, for its model chip ("" when none is connected). */
+    static String myTubeModel(AppStore store) {
+        try { Ai ai = Ai.of(store, ScopedModels.mytube(store)); return ai == null ? "" : ai.name + " · " + new TeamRoster(store).label(ai.engine, ai.model); }
+        catch (Exception unavailable) { return ""; }
+    }
     /** What to search when no AI chose: the feed's description, or its name. */
     static String fallbackQuery(MyTube.Feed feed) {
         String about = feed.about() == null ? "" : feed.about().strip();
@@ -112,9 +123,11 @@ final class MyTubeClient {
 
     /** The main chat's AI (its engine and model), asked once with no tools; null when it has no connection. */
     private record Ai(AppStore store, String engine, String model, String effort, String name) {
-        static Ai of(AppStore store) {
+        static Ai of(AppStore store) { return of(store, null); }
+        /** With scope, that screen's own choice (마이튜브 AI's), else the main chat's. */
+        static Ai of(AppStore store, ScopedModels scope) {
             try {
-                ScopedModels models = ScopedModels.main(store); String engine = models.engine();
+                ScopedModels models = scope != null ? scope : ScopedModels.main(store); String engine = models.engine();
                 if (engine == null || engine.isBlank() || !store.ready(engine)) return null;
                 String model = models.model(engine);
                 String effort = new TeamRoster(store).profile(engine, model).normalize("low");

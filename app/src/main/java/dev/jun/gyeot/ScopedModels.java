@@ -53,6 +53,16 @@ final class ScopedModels {
         }
         return new ScopedModels(store, "", "boardModels");
     }
+    /** 마이튜브 AI's own choice: copied from the main chat's the first time, independent after. */
+    static ScopedModels mytube(AppStore store) {
+        synchronized (store) {
+            if (!store.settings.contains("mytubeModels")) {
+                JSONObject value = main(store).snapshot();
+                if (!store.settings.edit().putString("mytubeModels", value.toString()).commit()) throw new IllegalStateException("마이튜브 모델 설정을 저장하지 못했어요.");
+            }
+        }
+        return new ScopedModels(store, "", "mytubeModels");
+    }
     static JSONObject copy(JSONObject value) { try { return new JSONObject(value.toString()); } catch (Exception e) { throw new IllegalStateException(e); } }
     static JSONObject saved(AppStore store, String key) {
         try { return new JSONObject(store.settings.getString(key, "{}")); } catch (Exception e) { throw new IllegalStateException("모델 설정을 읽지 못했어요. 기존 설정은 보존했어요.", e); }

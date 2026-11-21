@@ -312,6 +312,61 @@ final class VoiceTargets {
         };
     }
 
+    // ── 마이튜브 ─────────────────────────────────────────────────────────
+    /**
+     * 음성 대화 in 마이튜브: what to watch or do, said aloud; its function does 마이튜브 AI's actions (core/MyTube's ACTIONS) on
+     * the screen in front and returns what each did. What both said is written in 마이튜브 AI's conversation.
+     */
+    static VoiceChat.Target mytube(Context context) {
+        Context app = context.getApplicationContext();
+        return new VoiceChat.Target() {
+            @Override public String surface() { return "mytube"; }
+            @Override public String label() { return "마이튜브"; }
+            @Override public String about() { return "보고 싶은 것을 말하면 영상을 찾아 틀고, 피드를 만들고, 멈추거나 넘겨요. 말한 내용은 마이튜브 AI 대화에 남아요."; }
+            @Override public String handOff() { return "mytube_do"; }
+            MyTubeActivity screen() throws Exception { MyTubeActivity a = MyTubeActivity.front(); if (a == null) throw new IllegalStateException("마이튜브 화면이 열려 있지 않아요."); return a; }
+            @Override public String instructions() throws Exception {
+                AppStore store = ((GyeotApp) app).store();
+                String now = onMain(() -> { MyTubeActivity a = MyTubeActivity.front(); return a == null ? "" : a.input("", java.util.List.of()); });
+                return RealtimeVoice.instructions(dev.jun.gyeot.core.Brand.called(store.assistantName()),
+                    "마이튜브, the user's own YouTube page in the app, which plays the videos they choose instead of YouTube's algorithm", store.persona(), store.pinnedNotes(), now)
+                    + "\n\nTo find, play or control videos, or to make or order feeds, call mytube_do with the actions (the same ones the screen's AI uses: "
+                    + String.join(", ", dev.jun.gyeot.core.MyTube.ACTIONS) + "); then say in a few words what happened. Call mytube_screen to see the feeds, what plays and the videos shown."
+                    + " A song or video named means play it; a topic to keep up with means a feed. While a video plays, keep quiet unless asked.";
+            }
+            @Override public JSONArray tools() {
+                JSONObject action = obj("type", "object", "required", arr("do"), "properties", obj(
+                    "do", obj("type", "string", "enum", new JSONArray(dev.jun.gyeot.core.MyTube.ACTIONS)),
+                    "query", obj("type", "string", "description", "search / play: what to find"), "video", obj("type", "string", "description", "play: a listed video's id"),
+                    "link", obj("type", "string", "description", "play: a YouTube link"), "from", obj("type", "integer"), "feed", obj("type", "string", "description", "play_feed / refresh: the feed's id or name"),
+                    "name", obj("type", "string"), "kind", obj("type", "string", "enum", arr("VIDEOS", "NEWS", "MUSIC")), "about", obj("type", "string"), "channel", obj("type", "string"),
+                    "days", obj("type", "integer"), "play", obj("type", "boolean"), "action", obj("type", "string", "enum", arr("pause", "resume", "next", "previous", "stop", "like", "skip")),
+                    "value", obj("type", "string", "enum", arr("auto", "max", "hd1080", "hd720", "large", "medium")), "on", obj("type", "boolean")));
+                return arr(obj("type", "function", "name", "mytube_do", "description", "Does 마이튜브 actions in order on the screen (search, play, play a feed, make a feed, order the feeds, control what plays, save, capture, sum up, quality, background play) and returns what each did.",
+                        "parameters", obj("type", "object", "required", arr("actions"), "properties", obj("actions", obj("type", "array", "items", action)))),
+                    obj("type", "function", "name", "mytube_screen", "description", "The feeds, what plays now and the videos shown on 마이튜브.", "parameters", obj("type", "object", "properties", obj())));
+            }
+            @Override public String call(String name, JSONObject args, VoiceChat chat) throws Exception {
+                if ("mytube_screen".equals(name)) return obj("screen", clip(onMain(() -> screen().input("", java.util.List.of())), RESULT)).toString();
+                if (!"mytube_do".equals(name)) return obj("error", "no such function").toString();
+                JSONArray asked = args.optJSONArray("actions");
+                if (asked == null || asked.length() == 0) return obj("error", "no actions").toString();
+                java.util.List<String> outcomes = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
+                CountDownLatch done = new CountDownLatch(1);
+                java.util.List<JSONObject> list = new java.util.ArrayList<>();
+                for (int i = 0; i < asked.length() && list.size() < 6; i++) { JSONObject a = asked.optJSONObject(i); if (a != null && dev.jun.gyeot.core.MyTube.ACTIONS.contains(a.optString("do"))) list.add(a); }
+                onMain(() -> { screen().runAll(list, outcomes, done::countDown); return null; });
+                if (!done.await(SHORT_WAIT_MS, TimeUnit.MILLISECONDS)) outcomes.add("아직 하는 중이에요. 화면에서 이어서 해요.");
+                return obj("done", new JSONArray(outcomes)).toString();
+            }
+            @Override public long line(boolean user, String text, long reply, String voice) throws Exception {
+                long id = MyTubeClient.book(app).say(user ? "user" : "assistant", text, true);
+                new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> { MyTubeActivity a = MyTubeActivity.front(); if (a != null) a.chatChanged(); });
+                return id;
+            }
+        };
+    }
+
     // ── 판서 ─────────────────────────────────────────────────────────────
     /**
      * The AI whiteboard (판서) in front: the voice asks the board to explain what the user wants (explain_on_board) and then

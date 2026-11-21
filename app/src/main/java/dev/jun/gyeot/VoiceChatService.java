@@ -37,7 +37,7 @@ public final class VoiceChatService extends Service {
             notifications.createNotificationChannel(new NotificationChannel(CHANNEL, "메인 대화 음성 대화", NotificationManager.IMPORTANCE_LOW));
         // The notification opens the screen the conversation belongs to.
         VoiceChat on = store.voiceChat; String surface = on == null ? "" : on.target.surface();
-        Class<?> screen = "browser".equals(surface) ? BrowserActivity.class : "board".equals(surface) ? BoardActivity.class : MainActivity.class;
+        Class<?> screen = "browser".equals(surface) ? BrowserActivity.class : "board".equals(surface) ? BoardActivity.class : "mytube".equals(surface) ? MyTubeActivity.class : MainActivity.class;
         PendingIntent open = PendingIntent.getActivity(this, NOTIFICATION, new Intent(this, screen).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent end = PendingIntent.getService(this, NOTIFICATION + 1, new Intent(this, VoiceChatService.class).setAction(END), PendingIntent.FLAG_IMMUTABLE);
         // Started with startForegroundService: it goes to the foreground first, even when the conversation already ended.

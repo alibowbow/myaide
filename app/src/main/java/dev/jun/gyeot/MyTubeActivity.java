@@ -39,11 +39,16 @@ import static dev.jun.gyeot.Ui.*;
  * player above (MyTubePlayer: the app's browser engine, so a YouTube sign-in, Premium included, is its own); likes and
  * 안 볼래요 steer the next choice. The feeds, the choices and the taste stay on this phone.
  */
-public final class MyTubeActivity extends Activity {
+public final class MyTubeActivity extends Activity implements MyTubeChat.Actions {
     static final String PLAY = "mytube_play";
     /** A feed a voice request asked to play (its name, or news / music), taken when the screen shows. */
     static volatile String requested;
     static void ask(String feedOrKind) { requested = feedOrKind == null || feedOrKind.isBlank() ? null : feedOrKind.strip(); }
+    /** The 마이튜브 screen in front, for 음성 대화's functions (VoiceTargets.mytube); null when none. */
+    private static java.lang.ref.WeakReference<MyTubeActivity> front = new java.lang.ref.WeakReference<>(null);
+    static MyTubeActivity front() { MyTubeActivity a = front.get(); return a == null || a.isDestroyed() ? null : a; }
+    /** 마이튜브 AI: its conversation card, composer and voice bar. */
+    private MyTubeChat chat;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService work = Executors.newFixedThreadPool(3);
@@ -72,9 +77,15 @@ public final class MyTubeActivity extends Activity {
         LinearLayout content = ui.column(); content.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(24));
         scroll.addView(content);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        root.post(() -> {
+            // Under the page: 음성 대화's bar while it talks, else the composer.
+            LinearLayout.LayoutParams barAt = new LinearLayout.LayoutParams(-1, -2); barAt.setMargins(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(6));
+            root.addView(chat.voice.bar(), barAt);
+            chat.composer.setBackgroundColor(BG); root.addView(chat.composer, new LinearLayout.LayoutParams(-1, -2));
+        });
         root.setOnApplyWindowInsetsListener((v, insets) -> {
-            Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom); return insets;
+            Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout()), keys = insets.getInsets(WindowInsets.Type.ime());
+            v.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, keys.bottom)); return insets;
         });
         content.addView(ui.largeTitle("마이튜브"));
         TextView lead = ui.label("알고리즘 대신 내가 정한 기준으로 AI가 골라요", 14, MUTED); lead.setPadding(0, ui.dp(2), 0, ui.dp(12)); content.addView(lead);
@@ -85,6 +96,9 @@ public final class MyTubeActivity extends Activity {
         searchBox.setOnEditorActionListener((v, action, event) -> { if (action == android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH || event != null && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER) { search(searchBox.getText().toString()); return true; } return false; });
         searchBox.setContentDescription("유튜브 검색. 영상 주소를 붙여넣으면 그 영상을 바로 틀어요");
         LinearLayout.LayoutParams searchGap = new LinearLayout.LayoutParams(-1, -2); searchGap.bottomMargin = ui.dp(12); content.addView(searchBox, searchGap);
+        // 마이튜브 AI: say what to watch or do (typed below, or spoken with 음성 대화).
+        chat = new MyTubeChat(this, ui, store, book, work, main, this);
+        LinearLayout.LayoutParams chatGap = new LinearLayout.LayoutParams(-1, -2); chatGap.bottomMargin = ui.dp(12); content.addView(chat.card, chatGap);
         buildPlayer(content);
         chips = ui.row(); HorizontalScrollView chipScroll = new HorizontalScrollView(this); chipScroll.setHorizontalScrollBarEnabled(false); chipScroll.addView(chips);
         LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); chipGap.topMargin = ui.dp(14); content.addView(chipScroll, chipGap);
@@ -110,11 +124,15 @@ public final class MyTubeActivity extends Activity {
     @Override public void onWindowFocusChanged(boolean focus) { super.onWindowFocusChanged(focus); if (focus) AppNavigator.shown(getIntent(), dev.jun.gyeot.core.AppNavigation.MYTUBE); }
     @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putString("feed", feedId); }
     @Override protected void onResume() {
-        super.onResume(); AppNavigator.inFront("mytube");
+        super.onResume(); AppNavigator.inFront("mytube"); front = new java.lang.ref.WeakReference<>(this); if (chat != null) chat.attach();
         player.listen(playerChanged); if (player.active()) player.attach(screen); showPlayer();
     }
     @Override protected void onPause() { if (!isFinishing()) AppNavigator.inFront("mytube"); super.onPause(); }
-    @Override protected void onStop() { player.unlisten(playerChanged); player.detach(screen); super.onStop(); }
+    @Override protected void onStop() { player.unlisten(playerChanged); player.detach(screen); if (chat != null) chat.detach(); super.onStop(); }
+    @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(code, permissions, results);
+        if (chat != null) chat.permissionResult(code, results);
+    }
     @Override protected void onDestroy() {
         destroyed = true; Runnable abort = cancel.getAndSet(null); if (abort != null) abort.run();
         for (Dialog d : new ArrayList<>(dialogs)) d.dismiss(); work.shutdownNow(); super.onDestroy();
@@ -201,6 +219,8 @@ public final class MyTubeActivity extends Activity {
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(8); chips.addView(chip, p);
         }
         Button add = ui.chip("＋ 피드", () -> editFeed(null)); chips.addView(add);
+        // 정리: 마이튜브 AI puts the feeds in order (it also does this by itself when a feed is added).
+        if (feeds.size() >= 2) { Button tidy = withIcon(ui.chip("AI 정리", () -> organize(this::toast)), R.drawable.ic_sparkle); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.leftMargin = ui.dp(8); chips.addView(tidy, p); }
         list.removeAllViews();
         searchActions.setVisibility(searched != null && !found.isEmpty() ? View.VISIBLE : View.GONE);
         if (searched != null) {
@@ -225,7 +245,7 @@ public final class MyTubeActivity extends Activity {
         LinearLayout group = ui.group();
         for (MyTube.Feed s : MyTube.starters()) ui.addRow(group, ui.listRow(R.drawable.ic_add, ACCENT, s.name(), s.kind().label + " · " + s.about(), ui.chevron(), () -> {
             if (s.kind() == MyTube.Kind.VIDEOS) { editFeed(s); return; } // needs the channel it is measured against
-            try { MyTube.Feed saved = book.save(s); feedId = saved.id(); render(); refresh(); } catch (Exception e) { toast(e.getMessage()); }
+            try { MyTube.Feed saved = book.save(s); feedId = saved.id(); render(); refresh(); organizeSoon(); } catch (Exception e) { toast(e.getMessage()); }
         }), true);
         list.addView(group);
     }
@@ -268,8 +288,10 @@ public final class MyTubeActivity extends Activity {
         player.play(MyTube.searchFeed(searched), found, index); player.attach(screen); showPlayer();
     }
     /** 직접 검색 (or a link: that video at once). */
-    private void search(String words) {
-        String w = words == null ? "" : words.strip(); if (w.isEmpty()) return;
+    private void search(String words) { search(words, false, null); }
+    /** playFirst: the best match plays at once (마이튜브 AI's play); done hears what came of it. */
+    private void search(String words, boolean playFirst, java.util.function.Consumer<String> done) {
+        String w = words == null ? "" : words.strip(); if (w.isEmpty()) { if (done != null) done.accept(""); return; }
         android.view.inputmethod.InputMethodManager keyboard = getSystemService(android.view.inputmethod.InputMethodManager.class);
         if (keyboard != null) keyboard.hideSoftInputFromWindow(searchBox.getWindowToken(), 0);
         searchBox.clearFocus();
@@ -284,7 +306,10 @@ public final class MyTubeActivity extends Activity {
                 if (destroyed) return;
                 status(failure != null ? failure : result.isEmpty() ? "찾은 영상이 없어요. 다른 말로 찾아보세요." : "");
                 searched = linked.isEmpty() ? w : "영상 주소"; found = result; render();
-                if (!linked.isEmpty() && !result.isEmpty()) playFound(0);
+                boolean play = (!linked.isEmpty() || playFirst) && !result.isEmpty();
+                if (play) playFound(0);
+                if (done != null) done.accept(failure != null ? failure : result.isEmpty() ? "‘" + w + "’로 찾은 영상이 없어요"
+                    : play ? "재생: " + result.get(0).title() : "‘" + w + "’ 검색 결과 " + result.size() + "개");
             });
         });
     }
@@ -293,8 +318,9 @@ public final class MyTubeActivity extends Activity {
      * it proposes, made at once); without an AI, the feed it plays from, else 저장한 영상. It goes to the top of that feed
      * and counts as liked there.
      */
-    private void saveCurrent() {
-        MyTube.Video v = player.current(); if (v == null) return;
+    private void saveCurrent() { saveCurrent(null); }
+    private void saveCurrent(java.util.function.Consumer<String> done) {
+        MyTube.Video v = player.current(); if (v == null) { if (done != null) done.accept("재생 중인 영상이 없어요"); return; }
         MyTube.Feed from = player.feed();
         status("어느 피드에 넣을지 고르는 중");
         work.execute(() -> {
@@ -312,9 +338,10 @@ public final class MyTubeActivity extends Activity {
                 if (target == null) { target = book.save(new MyTube.Feed("", MyTube.SAVED_FEED_NAME, MyTube.Kind.VIDEOS, "직접 찾아 저장한 영상", "", 0)); made = true; }
                 book.keep(target.id(), v.because("직접 저장"));
                 said = (made ? "새 피드 ‘" + target.name() + "’를 만들어 " : "‘" + target.name() + "’에 ") + "저장했어요";
+                if (made) main.post(this::organizeSoon);
             } catch (Exception e) { said = "저장하지 못했어요" + (e.getMessage() == null ? "." : " · " + e.getMessage()); }
             String told = said;
-            main.post(() -> { if (destroyed) return; status(""); toast(told); render(); });
+            main.post(() -> { if (destroyed) return; status(""); if (done != null) done.accept(told); else toast(told); render(); });
         });
     }
     /** The app's own words for a failure; a network error's ("Connection refused", a timeout) becomes a Korean one. */
@@ -324,6 +351,99 @@ public final class MyTubeActivity extends Activity {
         if (e instanceof java.io.IOException) return "유튜브에 연결하지 못했어요. 인터넷 연결을 확인하고 다시 해 주세요.";
         return fallback;
     }
+    // ── 피드 목록 자동 정리 ─────────────────────────────────────────────────
+    /** A feed was added: the list is put in order by 마이튜브 AI shortly after (quietly; nothing happens without an AI). */
+    private void organizeSoon() { main.removeCallbacks(organizer); main.postDelayed(organizer, 1500); }
+    private final Runnable organizer = () -> { if (!destroyed && book.feeds().size() >= 2) organize(null); };
+    /** 정리: the feeds in an order that makes sense (related ones together), unclear names made clear; never dropped or merged. */
+    private void organize(java.util.function.Consumer<String> done) {
+        List<MyTube.Feed> feeds = book.feeds();
+        if (feeds.size() < 2) { if (done != null) done.accept("정리할 피드가 아직 적어요"); return; }
+        work.execute(() -> {
+            String said;
+            try {
+                MyTube.Order order = MyTube.order(MyTubeClient.askMyTube(store, MyTube.ORGANIZE, MyTube.organizeInput(feeds), cancel), feeds);
+                book.arrange(order.ids(), order.renames());
+                said = "피드 목록을 정리했어요" + (order.renames().isEmpty() ? "" : " · 이름 " + order.renames().size() + "개를 알아보기 쉽게 바꿨어요");
+            } catch (Exception e) { said = done == null ? null : MyTubeActivity.friendly(e, "피드 목록을 정리하지 못했어요."); }
+            String told = said;
+            main.post(() -> { if (destroyed) return; render(); if (done != null) done.accept(told == null ? "" : told); });
+        });
+    }
+
+    // ── 마이튜브 AI's actions (MyTubeChat; 음성 대화 through VoiceTargets.mytube) ──
+    @Override public String input(String asked, List<String> conversation) {
+        MyTube.Feed playing = player.feed(); MyTube.Feed shown = feed();
+        List<MyTube.Video> onScreen = searched != null ? found : shown == null ? List.of() : book.videos(shown.id());
+        return MyTube.agentInput(asked, book.feeds(), player.current(), playing == null ? "" : playing.name(), player.status(), onScreen, conversation, java.time.LocalDate.now().toString());
+    }
+    @Override public void act(org.json.JSONObject a, java.util.function.Consumer<String> done) {
+        String what = a.optString("do");
+        switch (what) {
+            case "search" -> search(a.optString("query"), false, done);
+            case "play" -> {
+                String link = MyTube.linkedVideo(a.optString("link")), id = a.optString("video").strip();
+                if (!link.isEmpty()) { search(a.optString("link"), true, done); return; }
+                if (!id.isEmpty()) {
+                    // A video the screen lists: it plays from there, with the rest after it.
+                    if (searched != null) for (int i = 0; i < found.size(); i++) if (found.get(i).id().equals(id)) { int at = i; playFound(at); done.accept("재생: " + found.get(at).title()); return; }
+                    for (MyTube.Feed f : book.feeds()) { List<MyTube.Video> vs = book.videos(f.id()); for (int i = 0; i < vs.size(); i++) if (vs.get(i).id().equals(id)) { feedId = f.id(); searched = null; render(); int at = i; playFrom(at); done.accept("재생: " + vs.get(at).title()); return; } }
+                    search("https://www.youtube.com/watch?v=" + id, true, done); return;
+                }
+                search(a.optString("query"), true, done);
+            }
+            case "play_results" -> { if (searched == null || found.isEmpty()) { done.accept("보이는 검색 결과가 없어요"); return; } int at = Math.max(0, Math.min(found.size() - 1, a.optInt("from"))); playFound(at); done.accept("재생: " + found.get(at).title()); }
+            case "play_feed", "refresh" -> {
+                MyTube.Feed f = MyTube.feedNamed(book.feeds(), a.optString("feed")); if (f == null) { done.accept("‘" + a.optString("feed") + "’ 피드를 찾지 못했어요"); return; }
+                searched = null; feedId = f.id(); render();
+                if ("refresh".equals(what)) { refresh(); done.accept("‘" + f.name() + "’를 새로 고르는 중이에요"); return; }
+                if (book.videos(f.id()).isEmpty() || System.currentTimeMillis() - book.refreshedAt(f.id()) > f.freshMs()) { playWhenReady = true; refresh(); done.accept("‘" + f.name() + "’를 골라서 틀게요"); }
+                else { playFrom(0); done.accept("‘" + f.name() + "’ 재생"); }
+            }
+            case "feed_create" -> {
+                MyTube.Feed made = MyTube.feedFrom(a); if (made == null) { done.accept("피드 이름이 없어서 만들지 않았어요"); return; }
+                try {
+                    MyTube.Feed saved = book.save(made); searched = null; feedId = saved.id(); render();
+                    playWhenReady = a.optBoolean("play"); refresh(); organizeSoon();
+                    done.accept("새 피드 ‘" + saved.name() + "’를 만들고 고르는 중이에요");
+                } catch (Exception e) { done.accept("피드를 만들지 못했어요 · " + e.getMessage()); }
+            }
+            case "organize_feeds" -> organize(done);
+            case "control" -> {
+                if (!player.active()) { done.accept("재생 중인 영상이 없어요"); return; }
+                switch (a.optString("action")) {
+                    case "pause" -> { player.pause(); done.accept("멈췄어요"); }
+                    case "resume" -> { player.resume(); done.accept("다시 재생해요"); }
+                    case "next" -> { player.next(); done.accept("다음 영상"); }
+                    case "previous" -> { player.previous(); done.accept("이전 영상"); }
+                    case "stop" -> { player.stop(); done.accept("재생을 끝냈어요"); }
+                    case "like" -> { if (!player.liked()) player.like(); done.accept("좋아요를 눌렀어요"); }
+                    case "skip" -> { player.skip(); done.accept("다음 추천에서 빼고 넘겼어요"); }
+                    default -> done.accept("");
+                }
+            }
+            case "save" -> saveCurrent(done);
+            case "capture" -> player.capture(done);
+            case "summary" -> { MyTube.Video v = player.current(); if (v == null) { done.accept("재생 중인 영상이 없어요"); return; } summarize(v); done.accept("내용 정리를 열었어요"); }
+            case "quality" -> { String code = a.optString("value"); int at = MyTube.qualityIndex(code); player.quality(MyTube.QUALITY_CODES[at]); done.accept("화질 · " + MyTube.QUALITY_LABELS[at]); }
+            case "background" -> { boolean on = a.optBoolean("on"); store.settings.edit().putBoolean(MyTubePlayer.BACKGROUND, on).apply(); if (on && player.playing()) MyTubeService.start(this); if (!on) MyTubeService.stop(this); done.accept(on ? "화면이 꺼져도 계속 재생해요" : "화면을 떠나면 멈춰요"); }
+            default -> done.accept("");
+        }
+    }
+    /** 음성 대화's mytube_do: the actions in order, each outcome kept (and written in the conversation), then finished. */
+    void runAll(List<org.json.JSONObject> list, List<String> outcomes, Runnable finished) {
+        runFrom(list, 0, outcomes, finished);
+    }
+    private void runFrom(List<org.json.JSONObject> list, int at, List<String> outcomes, Runnable finished) {
+        if (at >= list.size() || destroyed) { finished.run(); return; }
+        act(list.get(at), outcome -> {
+            if (outcome != null && !outcome.isBlank()) { outcomes.add(outcome); try { book.say("note", outcome, false); } catch (Exception ignored) {} chatChanged(); }
+            runFrom(list, at + 1, outcomes, finished);
+        });
+    }
+    /** 음성 대화: a spoken line of the conversation was written; the card shows it. */
+    void chatChanged() { if (chat != null && !destroyed) chat.render(); }
+
     private void closeSearch() { searched = null; found = List.of(); searchBox.setText(""); status(""); render(); }
     /**
      * 내용 정리: what the video says (its transcript, as the main chat reads a YouTube link), summed up by the main chat's AI in
@@ -449,7 +569,7 @@ public final class MyTubeActivity extends Activity {
             if (chosen == MyTube.Kind.VIDEOS && !from.isEmpty() && MyTube.channelPath(from).isEmpty()) { channel.setError("@채널이름이나 youtube.com/@채널이름 형식으로 적어 주세요."); return; }
             try {
                 MyTube.Feed saved = book.save(new MyTube.Feed(fresh ? "" : editing.id(), title, chosen, want, chosen == MyTube.Kind.VIDEOS ? from : "", chosen == MyTube.Kind.NEWS ? days[0] : 0));
-                feedId = saved.id(); sheet.dismiss(); render(); refresh();
+                feedId = saved.id(); sheet.dismiss(); render(); refresh(); if (fresh) organizeSoon();
             } catch (Exception e) { toast(e.getMessage()); }
         });
         sheet.show();
