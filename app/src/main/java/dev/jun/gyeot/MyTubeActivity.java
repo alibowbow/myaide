@@ -123,6 +123,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             @Override public boolean gone() { return destroyed; }
         });
         body.addView(askPanel.view, new LinearLayout.LayoutParams(-1, 0, 1));
+        // The room changed (the composer, the keyboard, turning the phone): a dragged size is kept within it again.
+        body.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (b - t != ob - ot && sizeRatio > 0f && !dragging) main.post(this::showPlayer); });
         root.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
         root.post(() -> {
             // Under the page: 음성 대화's bar while it talks, else the composer.
@@ -449,7 +451,18 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         showPlayer();
     }
     /** A dragged height kept between a small strip (120dp) and most of the screen (80%). */
-    private int clampVideo(int height, int screenHeight) { return Math.max(ui.dp(120), Math.min(height, screenHeight * 80 / 100)); }
+    /**
+     * A dragged video height kept in reach: at least 120dp, at most 80% of the screen and never so tall that the buttons and
+     * the size bar under it leave the room there is (so the bar can always be dragged back up).
+     */
+    private int clampVideo(int height, int screenHeight) {
+        int most = screenHeight * 80 / 100;
+        if (body != null && body.getHeight() > 0) {
+            int under = (controlsRow != null && controlsRow.getVisibility() == View.VISIBLE ? Math.max(controlsRow.getHeight(), ui.dp(56)) : 0) + ui.dp(14) + ui.dp(24);
+            most = Math.min(most, body.getHeight() - (stage == null ? 0 : stage.getPaddingTop()) - under);
+        }
+        return Math.max(ui.dp(120), Math.min(height, most));
+    }
     /** The video's height for a width: 16:9, never under 160dp nor over half the screen. */
     private int videoFit(int width) { return Math.max(ui.dp(160), Math.min(width * 9 / 16, getResources().getDisplayMetrics().heightPixels / 2)); }
     /**
