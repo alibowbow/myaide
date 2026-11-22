@@ -63,6 +63,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private TextView nowTitle, nowLine, header, about, when; private ShimmerText statusLine; private View feedActions;
     /** The screen's two parts: the video with its play buttons, pinned on top across the full width, and the list scrolling under it. */
     private LinearLayout body, videoPane, searchBar, listPane, controlsRow; private ScrollView scroll;
+    /** 유튜브 검색 folded into a magnifier (on the 추천 row) until it is wanted. */
+    private View lensButton;
     /** 나란히 보기: the room under the video (what plays, the search box, the 추천 · 저장 rows), scrolling when short; the two rows as one block. */
     private LinearLayout underVideo, feedRows; private ScrollView underScroll;
     /**
@@ -155,7 +157,11 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         ImageView go = ui.quietIcon(R.drawable.ic_search, "검색", () -> search(searchBox.getText().toString()));
         go.setImageTintList(android.content.res.ColorStateList.valueOf(ON_ACCENT)); go.setBackground(ui.shape(ACCENT, PILL)); go.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9));
         LinearLayout.LayoutParams goAt = new LinearLayout.LayoutParams(ui.dp(38), ui.dp(38)); goAt.leftMargin = ui.dp(6); searchBar.addView(go, goAt);
-        searchBox.setOnFocusChangeListener((v, hasFocus) -> main.post(this::showPlayer));
+        // ✕ folds the box back into the magnifier.
+        searchBar.addView(ui.bareIcon(R.drawable.ic_close, MUTED, "검색창 닫기", () -> foldSearch(true)), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
+        // Folded until it is wanted: the magnifier at the end of the 추천 row opens it on a line of its own.
+        searchBar.setVisibility(View.GONE);
+        searchBox.setOnFocusChangeListener((v, hasFocus) -> { if (!hasFocus && searchBox.getText().toString().isBlank()) foldSearch(false); main.post(this::showPlayer); });
         // Its own search button and the keyboard's search key both search (the composer is out of the way meanwhile).
         // 라이브 채널: the channels saved from a search, each straight to its live broadcast.
         liveChannels = ui.row(); HorizontalScrollView liveRow = new HorizontalScrollView(this); liveRow.setHorizontalScrollBarEnabled(false); liveRow.addView(liveChannels); liveScroll = liveRow;
@@ -168,7 +174,12 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         // 나란히 보기 sets under the video (arrange).
         feedRows = ui.column();
         chips = ui.row(); chips.setGravity(Gravity.CENTER_VERTICAL); HorizontalScrollView chipScroll = new HorizontalScrollView(this); chipScroll.setHorizontalScrollBarEnabled(false); chipScroll.addView(chips);
-        LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); chipGap.topMargin = ui.dp(4); feedRows.addView(chipScroll, chipGap);
+        // The 추천 row, with the magnifier at its end: a tap opens the search box on its own line (openSearch).
+        LinearLayout recommendLine = ui.row(); recommendLine.setGravity(Gravity.CENTER_VERTICAL);
+        recommendLine.addView(chipScroll, new LinearLayout.LayoutParams(0, -2, 1));
+        lensButton = ui.bareIcon(R.drawable.ic_search, TEXT, "유튜브 검색 열기", this::openSearch);
+        LinearLayout.LayoutParams lensAt = new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)); lensAt.leftMargin = ui.dp(4); recommendLine.addView(lensButton, lensAt);
+        LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); chipGap.topMargin = ui.dp(4); feedRows.addView(recommendLine, chipGap);
         savedChips = ui.row(); savedChips.setGravity(Gravity.CENTER_VERTICAL); HorizontalScrollView savedScroll = new HorizontalScrollView(this); savedScroll.setHorizontalScrollBarEnabled(false); savedScroll.addView(savedChips);
         LinearLayout.LayoutParams savedGap = new LinearLayout.LayoutParams(-1, -2); savedGap.topMargin = ui.dp(6); feedRows.addView(savedScroll, savedGap);
         content.addView(feedRows, new LinearLayout.LayoutParams(-1, -2));
@@ -712,6 +723,24 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         });
     }
     /** 직접 검색 (or a link: that video at once). */
+    /** The magnifier: the search box comes out on its own line, ready to type in. */
+    private void openSearch() {
+        searchBar.setVisibility(View.VISIBLE); if (lensButton != null) lensButton.setVisibility(View.GONE);
+        searchBox.requestFocus();
+        android.view.inputmethod.InputMethodManager keyboard = getSystemService(android.view.inputmethod.InputMethodManager.class);
+        if (keyboard != null) searchBox.post(() -> keyboard.showSoftInput(searchBox, 0));
+        showPlayer();
+    }
+    /** Folds the search box back into the magnifier (clear: its words go too). */
+    private void foldSearch(boolean clear) {
+        if (searchBar.getVisibility() == View.GONE) return;
+        if (clear) searchBox.setText("");
+        android.view.inputmethod.InputMethodManager keyboard = getSystemService(android.view.inputmethod.InputMethodManager.class);
+        if (keyboard != null) keyboard.hideSoftInputFromWindow(searchBox.getWindowToken(), 0);
+        searchBar.setVisibility(View.GONE); if (lensButton != null) lensButton.setVisibility(View.VISIBLE);
+        if (searchBox.hasFocus()) searchBox.clearFocus();
+        main.post(this::showPlayer);
+    }
     private void search(String words) { search(words, false, null); }
     /** playFirst: the best match plays at once (마이튜브 AI's play); done hears what came of it. */
     private void search(String words, boolean playFirst, java.util.function.Consumer<String> done) {
@@ -719,6 +748,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         android.view.inputmethod.InputMethodManager keyboard = getSystemService(android.view.inputmethod.InputMethodManager.class);
         if (keyboard != null) keyboard.hideSoftInputFromWindow(searchBox.getWindowToken(), 0);
         searchBox.clearFocus();
+        // Searched: the box folds back into the magnifier; the results show below.
+        foldSearch(false);
         String linked = MyTube.linkedVideo(w);
         // A new search: no channel shown; Shorts stay Shorts if that is what was being looked at.
         shownChannel = null; if ("live".equals(listKind)) listKind = "videos"; boolean shorts = "shorts".equals(listKind) && linked.isEmpty();
