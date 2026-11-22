@@ -67,10 +67,21 @@ public final class FileExplorerActivity extends Activity {
             ui.add(content,ui.title("내 휴대폰",26),12);ui.add(content,ui.label("저장 공간, 파일, 보안, 내비게이션, 알림을 한곳에서 확인해요.",13,Ui.MUTED),12);
             LinearLayout menu=ui.column();
             ui.add(menu,storageCard(),10);
-            ui.add(menu,ui.feature(R.drawable.ic_folder,"파일 탐색기","파일과 폴더 · 검색 · AI 파일 작업",Ui.ACCENT,this::showExplorer),10);
-            ui.add(menu,ui.feature(R.drawable.ic_lock,"휴대폰 보안","설정 점검 · 최근 변경 · 의심 앱 인터넷 차단",Ui.GREEN,this::phoneCheck),10);
-            ui.add(menu,ui.feature(R.drawable.ic_navigation,"내비게이션","자주 가는 곳 · 경유지 · 말로 바로 길안내",Ui.BLUE,()->startActivity(new Intent(this,NavigationActivity.class))),10);
-            ui.add(menu,ui.feature(R.drawable.ic_bell,"알림 비서","온 알림 모아 보기 · AI 요약 · 음성으로 “무슨 알림 왔어?”",Ui.ORANGE,()->startActivity(new Intent(this,NoticeActivity.class))),10);
+            // The menus as a grid of tiles under the storage card: two across, three on a wide screen (an unfolded Fold).
+            View[] tiles={
+                ui.feature(R.drawable.ic_folder,"파일 탐색기","파일과 폴더 · 검색 · AI 파일 작업",Ui.ACCENT,this::showExplorer),
+                ui.feature(R.drawable.ic_lock,"휴대폰 보안","설정 점검 · 최근 변경 · 의심 앱 차단",Ui.GREEN,this::phoneCheck),
+                ui.feature(R.drawable.ic_navigation,"내비게이션","자주 가는 곳 · 경유지 · 말로 길안내",Ui.BLUE,()->startActivity(new Intent(this,NavigationActivity.class))),
+                ui.feature(R.drawable.ic_bell,"알림 비서","알림 모아 보기 · AI 요약",Ui.ORANGE,()->startActivity(new Intent(this,NoticeActivity.class)))};
+            int across=getResources().getConfiguration().screenWidthDp>=600?3:2,gap=ui.dp(10);
+            for(int i=0;i<tiles.length;i+=across){
+                LinearLayout line=ui.row();line.setBaselineAligned(false);
+                for(int k=0;k<across;k++){
+                    LinearLayout.LayoutParams cell=new LinearLayout.LayoutParams(0,-1,1);if(k>0)cell.leftMargin=gap;
+                    if(i+k<tiles.length)line.addView(tiles[i+k],cell);else line.addView(new View(this),cell);
+                }
+                ui.add(menu,line,10);
+            }
             ScrollView menuScroll=new ScrollView(this);menuScroll.setFillViewport(false);menuScroll.addView(menu);content.addView(menuScroll,new LinearLayout.LayoutParams(-1,0,1));
         }else{
             searchPanel=ui.column();searchInput=ui.input("파일 이름 또는 찾을 조건",1,500);searchInput.setText(query);ui.add(searchPanel,searchInput,4);
