@@ -326,7 +326,7 @@ public final class MainActivity extends Activity {
         }
     }
     @Override protected void onPause() { hostResumed=false;if(mainChat!=null)mainChat.pause(); if (composerDictation != null) composerDictation.pause(); if (videoDialog != null) videoDialog.background(); super.onPause(); }
-    @Override protected void onResume() { super.onResume();hostResumed=true;AppNavigator.inFront("main");store.refreshModelListsIfDue();SemanticIndex.catchUpIfDue(this, store);WorkScheduleAlarm.refresh(this, store);if(showingMainChat&&mainChat!=null)mainChat.resume(); if (videoDialog != null) videoDialog.foreground(); BrowserRuntime.prepareWhenIdle(this);
+    @Override protected void onResume() { super.onResume();hostResumed=true;AppNavigator.inFront("main");store.refreshModelListsIfDue();SemanticIndex.catchUpIfDue(this, store);Briefing.catchUp(this, store);WorkScheduleAlarm.refresh(this, store);if(showingMainChat&&mainChat!=null)mainChat.resume(); if (videoDialog != null) videoDialog.foreground(); BrowserRuntime.prepareWhenIdle(this);
         if(isLauncher(getIntent())&&StorageSetupActivity.maybeOffer(this))return;
         if(pendingLaunchVoice){pendingLaunchVoice=false;if(store.voiceOnOpen()&&!store.voiceActive){mode=ASSISTANT;recordingPage=false;showTab(0);startVoice();}}
     }
@@ -4548,6 +4548,55 @@ public final class MainActivity extends Activity {
         add(memoryBackup().section(), 0);
         add(ui.footer("저장 위치: 휴대폰 내장 저장공간 › 들퍼레 › 백업 폴더에 ‘기억-날짜-시간.json’(가져오기용)과 같은 이름의 .md(읽기용)로 저장돼요. 내 파일 앱에서도 열 수 있어요."), 0);
     }
+    /**
+     * 설정 → 기억 → 먼저 챙기기 (Briefing): the switch, 나에 대한 이해 (read, changed, made again), when 오늘의 제안 comes, and
+     * a try now. Gemma 4 makes both on the Gemini key; the cards wait over 메인 대화's message box.
+     */
+    private void proactiveSection() {
+        boolean on = Briefing.on(store);
+        add(ui.sectionHeader("먼저 챙기기"), 0);
+        LinearLayout group = ui.group();
+        ui.addRow(group, ui.switchRow("나를 이해하고 먼저 챙기기", "AI가 나에 대한 노트를 정리하고, 매일 아침 제안을 드려요", on, value -> { Briefing.turn(this, store, value); showTab(2); }), true);
+        String note = Briefing.note(store).strip(); long at = Briefing.noteAt(store);
+        String first = note.isEmpty() ? (on ? "곧 만들어요 (하루에 한 번 새로 정리해요)" : "켜면 만들어요") : note.replaceAll("(?m)^#+\\s*", "").replaceAll("\\s+", " ");
+        if (first.length() > 60) first = first.substring(0, 60) + "…";
+        ui.addRow(group, ui.listRow(R.drawable.ic_person, Ui.ORANGE, "나에 대한 이해", first + (at > 0 ? " · " + PagesActivity.when(at, java.time.ZonedDateTime.now()) : ""), ui.chevron(), this::aboutMeSheet), true);
+        int minutes = Briefing.minutes(store);
+        ui.addRow(group, ui.listRow(R.drawable.ic_calendar, Ui.BLUE, "오늘의 제안 시각", dev.jun.gyeot.core.Proactive.clock(minutes) + " · 알림과 메인 대화에", ui.chevron(), () ->
+            new android.app.TimePickerDialog(this, (picker, h, m) -> { Briefing.minutes(this, store, h * 60 + m); showTab(2); }, minutes / 60, minutes % 60, true).show()), true);
+        ui.addRow(group, ui.listRow(R.drawable.ic_bulb, Ui.GREEN, "지금 제안 받아 보기", on ? "오늘의 제안을 새로 만들어 메인 대화에 띄워요" : "먼저 위 스위치를 켜 주세요", ui.chevron(), () -> {
+            if (!Briefing.on(store)) { android.widget.Toast.makeText(this, "먼저 ‘나를 이해하고 먼저 챙기기’를 켜 주세요.", android.widget.Toast.LENGTH_SHORT).show(); return; }
+            android.widget.Toast.makeText(this, "제안을 만드는 중이에요…", android.widget.Toast.LENGTH_SHORT).show();
+            android.content.Context app = getApplicationContext();
+            new Thread(() -> {
+                String said;
+                try { said = "오늘의 제안 " + Briefing.morning(app, store, false).size() + "개를 메인 대화에 띄웠어요"; }
+                catch (Exception e) { said = e.getMessage() == null ? "제안을 만들지 못했어요." : e.getMessage(); }
+                String text = said; runOnUiThread(() -> { if (!isDestroyed()) { android.widget.Toast.makeText(this, text, android.widget.Toast.LENGTH_LONG).show(); if (text.startsWith("오늘의")) navigateMenu("chat"); } });
+            }, "briefing-now").start();
+        }), false);
+        add(group, 0);
+        add(ui.footer("노트와 제안은 기억·최근 대화·작업창·기록을 바탕으로 Gemini 키의 Gemma 4가 만들어요(무료 한도 안). 노트는 메인 대화·음성 비서·작업창이 참고해요."), 0);
+    }
+    /** 나에 대한 이해: the note to read and change (kept as written), or made again now. */
+    private void aboutMeSheet() {
+        Ui.Sheet sheet = ui.selectionSheet("나에 대한 이해", "AI가 정리한 노트예요 · 고치면 그대로 지켜요");
+        EditText field = ui.input("아직 없어요. ‘지금 다시 정리’를 눌러 보세요.", 8, dev.jun.gyeot.core.Proactive.PROFILE_LIMIT);
+        field.setText(Briefing.note(store)); ui.add(sheet.body, field, 8);
+        ui.add(sheet.body, ui.button("지금 다시 정리", false, () -> {
+            android.widget.Toast.makeText(this, "정리하는 중이에요…", android.widget.Toast.LENGTH_SHORT).show();
+            android.content.Context app = getApplicationContext();
+            new Thread(() -> {
+                String made = null, why = "";
+                try { made = Briefing.remake(app, store); } catch (Exception e) { why = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
+                String text = made, reason = why;
+                runOnUiThread(() -> { if (isDestroyed()) return; if (text != null) { field.setText(text); android.widget.Toast.makeText(this, "새로 정리했어요", android.widget.Toast.LENGTH_SHORT).show(); } else android.widget.Toast.makeText(this, reason, android.widget.Toast.LENGTH_LONG).show(); });
+            }, "about-me").start();
+        }), 8);
+        sheet.primary.setText("저장");
+        sheet.primary.setOnClickListener(v -> { Briefing.edit(store, field.getText().toString()); sheet.dismiss(); showTab(2); });
+        sheet.show();
+    }
     private void pageMemory() {
         add(ui.text("대화에서 알게 된 것과 배운 폰 사용법을 기억해 두고, 다음 대화에서 써요.", 15, 400, MUTED), 4);
         boolean memoryOn = store.memoryOn();
@@ -4562,6 +4611,7 @@ public final class MainActivity extends Activity {
         add(use, 0);
         add(ui.footer("“이거 기억해 줘”, “그건 잊어 줘”라고 말해도 돼요. 비밀번호·인증번호·카드번호는 기억하지 않아요."), 0);
         add(ui.details("자동으로 기억하는 방법", "대화가 끝난 뒤 오래 쓸 만한 내용(호칭, 가족, 취향, 진행 중인 일)만 골라 기억하고, 폰 조작으로 한 일은 실제로 누른 단계를 사용법으로 정리해 둬요. 다음에 같은 앱이나 사이트를 다룰 때 그 순서대로 해요."), 0);
+        proactiveSection();
         // Counted as the 기억한 것 page lists them.
         JSONArray notes = store.memories(); int about = 0, phone = 0;
         for (int i = 0; i < notes.length(); i++) {
