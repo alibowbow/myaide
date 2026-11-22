@@ -549,6 +549,14 @@ final class AppStore {
     /** 켤 때 인사하기: the voice assistant greets the moment a call starts, before it is connected (Greeter); on by default. */
     boolean greetOnStart() { return settings.getBoolean("greetOnStart", true); }
     /**
+     * 목소리 크기 (core/VoiceLevel), the choice's position: 0 원래대로, 1 고르게 (the default: quiet voices raised, more into a
+     * car or a Bluetooth speaker), 2 크게 (always the louder level).
+     */
+    int voiceLevelChoice() { return Math.max(0, Math.min(2, settings.getInt("voiceLevel", 1))); }
+    dev.jun.gyeot.core.VoiceLevel.Mode voiceLevel() {
+        return switch (voiceLevelChoice()) { case 0 -> dev.jun.gyeot.core.VoiceLevel.Mode.OFF; case 2 -> dev.jun.gyeot.core.VoiceLevel.Mode.LOUD; default -> dev.jun.gyeot.core.VoiceLevel.Mode.EVEN; };
+    }
+    /**
      * Gemini text-to-speech (gemini-*-tts): off by default. Its free tier allows a few requests a minute
      * and ten a day, which reading aloud and the start greeting used up. Off, reading aloud uses the phone's own voice, the
      * greeting plays a clip saved earlier or its short tick, and 작업창 offers no voice-file tool. Turning it back on is this

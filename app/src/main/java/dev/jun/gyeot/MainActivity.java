@@ -4326,11 +4326,15 @@ public final class MainActivity extends Activity {
 
         add(ui.sectionHeader("말하기와 알림"), 0);
         LinearLayout speak = ui.group();
+        String[] levels = {"원래대로", "고르게 · 차에서는 더 크게 (기본)", "크게 · 어디서나 크게"};
+        ui.addRow(speak, ui.choiceRow("목소리 크기", "목소리 크기", "작게 들리는 목소리를 키워요 · 차·블루투스 스피커에서는 더 크게", levels, store.voiceLevelChoice(),
+            position -> store.settings.edit().putInt("voiceLevel", position).apply()), false);
         ui.addRow(speak, ui.switchRow("켤 때 인사하기", "켜자마자 ‘틱’ 소리나 “네, 말씀하세요.”로 알려요", store.greetOnStart(), value -> store.settings.edit().putBoolean("greetOnStart", value).apply()), false);
         ui.addRow(speak, ui.switchRow("완료된 작업을 음성으로 안내", "대화 중 맡긴 일이 끝나면 말로 알려 줘요", store.announce(), value -> store.settings.edit().putBoolean("announce", value).apply()), false);
         ui.addRow(speak, ui.switchRow("음성으로 작업창에 일 시키기", "긴 일을 작업창에 맡겨요 · 기본은 꺼져 있어요.", store.voiceWork(), value -> store.settings.edit().putBoolean("voiceWork", value).apply()), false);
         add(speak, 0);
-        add(ui.details("자세히", "켤 때 인사하기 · 연결을 기다리지 않고 바로 인사해요. 스피커·차·블루투스 스피커에서는 짧고 작은 ‘틱’ 소리만 나요. 마이크 달린 이어폰에서는 그 목소리의 인사 음성이 저장돼 있으면 “네, 말씀하세요.”라고 하고, 없으면 ‘틱’ 소리가 나요. ‘기본’ 목소리는 ‘틱’ 소리로만 인사해요. 인사하는 동안 하시는 말도 막지 않고 모두 전달해요.\n"
+        add(ui.details("자세히", "목소리 크기 · 고르게는 작게 들리는 목소리(GPT 음성 등)를 다른 목소리만큼 키우고, 차나 블루투스 스피커가 연결돼 있으면 더 크게 해요. 이미 큰 목소리는 줄이지 않고, 키운 소리가 찢어지지 않게 끝만 눌러 줘요. 바꾸면 바로 적용돼요. 화면의 음성 대화에서 GPT 최신 음성은 통화로 나가서 휴대폰·차의 통화 음량을 따라요.\n"
+            + "켤 때 인사하기 · 연결을 기다리지 않고 바로 인사해요. 스피커·차·블루투스 스피커에서는 짧고 작은 ‘틱’ 소리만 나요. 마이크 달린 이어폰에서는 그 목소리의 인사 음성이 저장돼 있으면 “네, 말씀하세요.”라고 하고, 없으면 ‘틱’ 소리가 나요. ‘기본’ 목소리는 ‘틱’ 소리로만 인사해요. 인사하는 동안 하시는 말도 막지 않고 모두 전달해요.\n"
             + "음성으로 작업창에 일 시키기 · 저장소 수정 같은 긴 일을 작업창에 맡기고, 진행을 알려 주고, 말로 멈출 수 있어요. 웹 일은 브라우저, 폰 일은 폰 조작이 맡아요. 다음 음성 대화부터 적용돼요."), 0);
 
         add(ui.sectionHeader("통역 언어"), 0);
