@@ -407,7 +407,10 @@ public final class AssistantService extends Service {
         // The outputs as they are now (a car that connected before this service began, a Bluetooth permission given since).
         routeChanged();
         if (echoGuard && !privateOutput && echoTailMs > dev.jun.gyeot.core.VoiceRoute.ROOM_TAIL_MS) store.phoneLog("  · 블루투스 스피커·차로 들려요 · 대답하는 동안 마이크를 쉬어요");
-        callGreets = ASSISTANT.equals(mode) && store.greetOnStart(); voiceOptions = store.options(!captionsOn); voiceOptions.greeted = callGreets; realtimeOptions(voiceOptions); store.appliedSettings = store.sessionSettings(); helloOnReady = null;
+        callGreets = ASSISTANT.equals(mode) && store.greetOnStart(); voiceOptions = store.options(!captionsOn); voiceOptions.greeted = callGreets; realtimeOptions(voiceOptions);
+        // 이어서 말하기 from 기록 picks that conversation up; otherwise a call within the hour after the last one (on any engine)
+        // picks its words up, so "계속해" goes on with it.
+        if (ASSISTANT.equals(mode)) { java.util.List<JSONObject> chosen = store.takeResume(20); voiceOptions.recap = transcript(chosen != null ? chosen : store.carriedLines(12)); } store.appliedSettings = store.sessionSettings(); helloOnReady = null;
         phoneAgent = new PhoneAgent(); appNavigation.reset(); appImages.reset(); appVideos.reset(); voiceVideoJobs.clear(); videoViewWait = null; cancelledAppCalls.clear(); wordsWaited.clear();
         resumeConflictRecovered = false; voiceKey = key; voiceHandle = ""; searchRefusal = null; voiceEverReady = false; captionsEverReady = false;
         refusedSettings.clear(); firstWords = ASSISTANT.equals(mode) ? newFirstWords() : null;
@@ -949,11 +952,14 @@ public final class AssistantService extends Service {
     }
     /** The last dozen caption lines, for a replacement session to pick the conversation up. */
     private String recap() {
-        JSONArray lines = store.conversation(); StringBuilder text = new StringBuilder();
-        for (int i = Math.max(0, lines.length() - 12); i < lines.length(); i++) {
-            JSONObject line = lines.optJSONObject(i);
-            if (line != null && !"안내".equals(line.optString("who"))) text.append(Brand.NAME.equals(line.optString("who")) ? Brand.NAME : "사용자").append(": ").append(line.optString("text")).append('\n');
-        }
+        JSONArray lines = store.conversation(); java.util.List<JSONObject> recent = new java.util.ArrayList<>();
+        for (int i = Math.max(0, lines.length() - 12); i < lines.length(); i++) { JSONObject line = lines.optJSONObject(i); if (line != null && !"안내".equals(line.optString("who"))) recent.add(line); }
+        return transcript(recent);
+    }
+    /** Caption lines as the recap the next connection reads: "퍼레: …" / "사용자: …", one a line. */
+    private static String transcript(java.util.List<JSONObject> lines) {
+        StringBuilder text = new StringBuilder();
+        for (JSONObject line : lines) text.append(Brand.NAME.equals(line.optString("who")) ? Brand.NAME : "사용자").append(": ").append(line.optString("text")).append('\n');
         return text.toString();
     }
     /**
@@ -3079,6 +3085,22 @@ public final class AssistantService extends Service {
      * After a voice assistant conversation, picks lasting facts out of it with a text model and keeps them, when automatic
      * memory is on. Quiet on failure: the conversation is still in the records.
      */
+    /** A finished call's title and one-line summary (Gemini), for its row in 기록 → 대화; without a Gemini key it keeps its date. */
+    private void nameSession(JSONObject session) {
+        if (session == null) return;
+        String transcript = AppStore.sessionText(session); if (transcript.isBlank()) return;
+        if (transcript.length() > 8_000) transcript = transcript.substring(transcript.length() - 8_000);
+        String input = transcript, id = session.optString("id");
+        archives.execute(() -> {
+            String key;
+            try { key = store.secrets.get(); } catch (Exception e) { return; }
+            if (key.isBlank()) return;
+            try {
+                dev.jun.gyeot.core.SessionTitles.Title named = dev.jun.gyeot.core.SessionTitles.parse(GeminiAudioClient.summarize(key, dev.jun.gyeot.core.SessionTitles.PROMPT, input));
+                if (named != null) store.nameSession(id, named.title(), named.summary());
+            } catch (Exception ignored) {}
+        });
+    }
     private void learnFrom(JSONObject session) {
         List<String> steps = new ArrayList<>(phoneSteps); phoneSteps.clear(); lastScreen = null;
         if (session == null || !ASSISTANT.equals(session.optString("mode")) || !store.autoMemory()) return;
@@ -3182,7 +3204,7 @@ public final class AssistantService extends Service {
         unwatchNetwork();
         // The user's own stop (the stop button, the notification, or saying so): the wake word then keeps quiet for a while.
         store.lastCallStopped = "음성을 종료했어요".equals(status);
-        PhoneService.userStopped = null; PhoneService.userArmed = null; PhoneService.stop(); learnFrom(store.endSession());
+        PhoneService.userStopped = null; PhoneService.userArmed = null; PhoneService.stop(); JSONObject finished = store.endSession(); nameSession(finished); learnFrom(finished);
         if (phoneRun != null) phoneRun.cancel("음성 연결이 끝나 폰 조작을 취소했어요.");
         phoneRun = null; phoneAgent = null;
         // A work_start still in its window goes with the call: nothing could cancel it any more, so it is never sent.

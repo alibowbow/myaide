@@ -620,6 +620,26 @@ final class AppStore {
         changed();
         return lineKey(line);
     }
+    /** How long after a call its words still carry into the next one (calling again, or with another voice engine). */
+    static final long CARRY_MS = 60 * 60_000L;
+    /**
+     * The words (no notices) of the voice assistant's calls in the last CARRY_MS before the one now open, oldest first, at most
+     * max: a new call picks the conversation up from them.
+     */
+    synchronized java.util.List<JSONObject> carriedLines(int max) {
+        long since = System.currentTimeMillis() - CARRY_MS; java.util.List<JSONObject> out = new java.util.ArrayList<>();
+        for (int s = sessions.length() - 1; s >= 0 && out.size() < max; s--) {
+            JSONObject session = sessions.optJSONObject(s);
+            if (session == null || session.optString("id").equals(openSession) || !GeminiProtocol.ASSISTANT.equals(session.optString("mode"))) continue;
+            if (session.optLong("endedAt") < since) break;
+            JSONArray lines = session.optJSONArray("lines");
+            for (int i = lines == null ? -1 : lines.length() - 1; i >= 0 && out.size() < max; i--) {
+                JSONObject line = lines.optJSONObject(i);
+                if (line != null && !"안내".equals(line.optString("who")) && line.optLong("at") >= since) out.add(line);
+            }
+        }
+        java.util.Collections.reverse(out); return out;
+    }
     /** Starts saving a voice session's lines under its mode; an empty previous session is dropped. */
     synchronized void startSession(String mode, String language) {
         endSession();
@@ -630,7 +650,8 @@ final class AppStore {
             put(session, "direction", pair.description()); put(session, "languageA", pair.a); put(session, "languageB", pair.b); put(session, "translationMode", pair.mode);
         }
         sessions.put(session); openSession = session.optString("id");
-        while (sessions.length() > SESSION_LIMIT) sessions.remove(0);
+        // Over the limit, the oldest go first; a pinned one stays.
+        for (int i = 0; sessions.length() > SESSION_LIMIT && i < sessions.length(); ) { if (sessions.optJSONObject(i).optBoolean("pinned")) i++; else sessions.remove(i); }
         sessionsVersion++;
     }
     /** Whether anything was said in the voice session that ended last. */
@@ -671,6 +692,7 @@ final class AppStore {
         if (open == null) return null;
         boolean said = spoken(open); lastCallSpoken = said; lastCallAsked = asked(open);
         for (int i = sessions.length() - 1; i >= 0; i--) if (!spoken(sessions.optJSONObject(i))) sessions.remove(i);
+        pruneSessions();
         saveSessionsSoon(0); sessionsVersion++; changed();
         return said ? copy(open) : null;
     }
@@ -690,10 +712,45 @@ final class AppStore {
         return added;
     }
     /** Saved sessions of one mode, newest first, as copies. */
+    /** One mode's saved sessions with words: the pinned first, then the newest. */
     synchronized JSONArray sessions(String mode) {
         JSONArray result = new JSONArray();
-        for (int i = sessions.length() - 1; i >= 0; i--) { JSONObject session = sessions.optJSONObject(i); if (session.optString("mode").equals(mode) && spoken(session)) result.put(copy(session)); }
+        for (boolean pinned : new boolean[] {true, false})
+            for (int i = sessions.length() - 1; i >= 0; i--) { JSONObject session = sessions.optJSONObject(i); if (session.optString("mode").equals(mode) && spoken(session) && session.optBoolean("pinned") == pinned) result.put(copy(session)); }
         return result;
+    }
+    /** 고정: a pinned session stays at the top and is never cleared by age or the limit. */
+    synchronized void pinSession(String id, boolean on) {
+        JSONObject session = session(id); if (session == null) return;
+        put(session, "pinned", on); saveSessionsSoon(0); sessionsVersion++; changed();
+    }
+    /** A finished call's title and one-line summary (written by the AI after it ends). */
+    synchronized void nameSession(String id, String title, String summary) {
+        JSONObject session = session(id); if (session == null || title == null || title.isBlank()) return;
+        put(session, "title", title.strip()); put(session, "summary", summary == null ? "" : summary.strip()); saveSessionsSoon(0); sessionsVersion++; changed();
+    }
+    /** 자동 정리: unpinned sessions older than this many days are cleared (0 keeps them all, up to the limit). */
+    static final int[] KEEP_DAYS = {0, 30, 90, 365};
+    int sessionKeepDays() { return settings.getInt("sessionKeepDays", 0); }
+    synchronized void sessionKeepDays(int days) { settings.edit().putInt("sessionKeepDays", days).apply(); pruneSessions(); saveSessionsSoon(0); sessionsVersion++; changed(); }
+    private void pruneSessions() {
+        int days = sessionKeepDays(); if (days <= 0) return;
+        long before = System.currentTimeMillis() - days * 86_400_000L;
+        for (int i = sessions.length() - 1; i >= 0; i--) {
+            JSONObject session = sessions.optJSONObject(i);
+            if (session != null && !session.optString("id").equals(openSession) && !session.optBoolean("pinned") && session.optLong("endedAt") < before) sessions.remove(i);
+        }
+    }
+    /** 이어서 말하기: the session the next call picks up (taken once, by the call that starts). */
+    private String resumeSession = "";
+    synchronized void continueFrom(String id) { resumeSession = id == null ? "" : id; }
+    /** The words (no notices) the next call picks up from the session chosen with continueFrom, at most max of its last; null when none was chosen. */
+    synchronized java.util.List<JSONObject> takeResume(int max) {
+        String id = resumeSession; resumeSession = "";
+        JSONObject session = session(id); if (session == null) return null;
+        java.util.List<JSONObject> out = new java.util.ArrayList<>(); JSONArray lines = session.optJSONArray("lines");
+        for (int i = lines == null ? -1 : lines.length() - 1; i >= 0 && out.size() < max; i--) { JSONObject line = lines.optJSONObject(i); if (line != null && !"안내".equals(line.optString("who"))) out.add(line); }
+        java.util.Collections.reverse(out); return out;
     }
     synchronized boolean deleteSession(String id) throws Exception {
         for (int i = 0; i < sessions.length(); i++) if (sessions.optJSONObject(i).optString("id").equals(id)) {

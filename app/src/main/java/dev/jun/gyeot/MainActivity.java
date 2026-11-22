@@ -741,7 +741,7 @@ public final class MainActivity extends Activity {
         LinearLayout live = ui.card(); liveCard = live;
         liveGrounding = groundingView(); loadedGrounding = ""; LinearLayout.LayoutParams groundingParams = new LinearLayout.LayoutParams(-1, ui.dp(110));
         live.addView(liveGrounding, groundingParams);
-        liveActions = ui.actions(ui.chip("대화를 메모로 저장", this::saveConversation), ui.chip("기록 보기", () -> showRecords(INTERPRETER.equals(mode) ? 2 : DICTATION.equals(mode) ? 3 : 1)));
+        liveActions = ui.actions(ui.chip("전체 보기", this::fullConversation), ui.chip("대화를 메모로 저장", this::saveConversation), ui.chip("기록 보기", () -> showRecords(INTERPRETER.equals(mode) ? 2 : DICTATION.equals(mode) ? 3 : 1)));
         live.addView(liveActions);
         add(live, 14);
         int asideFrom = body.getChildCount();
@@ -1039,6 +1039,16 @@ public final class MainActivity extends Activity {
         send(new Intent(this, AssistantService.class).setAction(AssistantService.TASK).putExtra("request", text).putExtra("engine", engine));
         return true;
     }
+    /** 전체 보기: every caption kept, on a sheet of its own, while no call is on too (the card shows only its last turns). */
+    private void fullConversation() {
+        JSONArray lines = store.conversation();
+        Ui.Sheet sheet = ui.selectionSheet("대화 전체", lines.length() == 0 ? "아직 대화가 없어요 · 지난 대화는 ‘기록 보기’에 있어요" : "최근 대화 " + lines.length() + "줄");
+        LinearLayout all = ui.column();
+        for (int i = 0; i < lines.length(); i++) { JSONObject line = lines.optJSONObject(i); if (line != null) all.addView(turn(line.optString("who"), rich(line.optString("text")), false, AppStore.lineKey(line))); }
+        sheet.body.addView(all);
+        sheet.primary.setText("닫기"); sheet.primary.setOnClickListener(v -> sheet.dismiss());
+        sheet.show();
+    }
     private void saveConversation() {
         String text = store.conversationText();
         if (text.isEmpty()) { store.error("저장할 대화가 아직 없어요."); return; }
@@ -1263,6 +1273,10 @@ public final class MainActivity extends Activity {
     /** Saved voice sessions of one mode, newest first, each with its lines and actions. */
     private void buildSessions(LinearLayout list, String mode) {
         JSONArray sessions = store.sessions(mode); boolean anyShown = false;
+        // 자동 정리: how long unpinned records stay (고정 ones always do), one slim chip above the list.
+        int keep = store.sessionKeepDays();
+        Button cleanup = ui.smallChip("자동 정리 · " + keepLabel(keep), this::chooseKeepDays); cleanup.setContentDescription("기록 자동 정리 기간 바꾸기");
+        LinearLayout tools = ui.row(); tools.addView(cleanup); ui.add(list, tools, 8);
         for (int i = 0; i < sessions.length(); i++) {
             JSONObject session = sessions.optJSONObject(i); String text = AppStore.sessionText(session);
             if (!matches(text)) continue;
@@ -1275,10 +1289,15 @@ public final class MainActivity extends Activity {
     private View sessionCard(JSONObject session, String mode) {
         String id = session.optString("id"); JSONArray lines = session.optJSONArray("lines");
         long started = session.optLong("startedAt"), length = Math.max(0, session.optLong("endedAt") - started);
-        String title = when(started) + (INTERPRETER.equals(mode) ? " · " + session.optString("direction", "한국어 ↔ " + languageLabel(session.optString("language"))) : "");
+        boolean pinned = session.optBoolean("pinned");
+        // The AI's title for it once the call is over (else its date), the date then moving to the small line above.
+        String named = session.optString("title"), summary = session.optString("summary");
+        String date = when(started) + (INTERPRETER.equals(mode) ? " · " + session.optString("direction", "한국어 ↔ " + languageLabel(session.optString("language"))) : "");
+        String title = named.isBlank() ? date : named;
         LinearLayout card = ui.card();
-        card.addView(meta(INTERPRETER.equals(mode) ? Ui.TEAL : DICTATION.equals(mode) ? Ui.ORANGE : ACCENT, AssistantService.durationText(length) + " · " + lines.length() + "줄"));
+        card.addView(meta(INTERPRETER.equals(mode) ? Ui.TEAL : DICTATION.equals(mode) ? Ui.ORANGE : ACCENT, (pinned ? "고정 · " : "") + (named.isBlank() ? "" : date + " · ") + AssistantService.durationText(length) + " · " + lines.length() + "줄"));
         TextView sessionTitle = ui.title(title, 17); sessionTitle.setPadding(0, ui.dp(6), 0, 0); card.addView(sessionTitle);
+        if (!summary.isBlank()) { TextView about = ui.label(summary, 14, MUTED); about.setPadding(0, ui.dp(4), 0, 0); card.addView(about); }
         LinearLayout body = ui.column(); body.setPadding(0, ui.dp(8), 0, 0); card.addView(body);
         int preview = Math.min(lines.length(), 6);
         Runnable[] fill = new Runnable[1]; boolean[] expanded = {false};
@@ -1297,12 +1316,38 @@ public final class MainActivity extends Activity {
         toggle.setOnClickListener(v -> { expanded[0] = !expanded[0]; fill[0].run(); });
         fill[0].run(); card.addView(toggle);
         String text = AppStore.sessionText(session), heading = (INTERPRETER.equals(mode) ? "통역 " : DICTATION.equals(mode) ? "받아쓰기 " : "대화 ") + when(started);
+        // 이어서 말하기: a call that picks this conversation up (the voice assistant's records); 고정 keeps it on top and from clean-up.
+        LinearLayout lead = ui.row();
+        if (ASSISTANT.equals(mode)) { Button resume = withIcon(ui.smallChip("이어서 말하기", () -> continueCall(id)), R.drawable.ic_mic); resume.setTextColor(ACCENT); lead.addView(resume); }
+        Button pin = ui.smallChip(pinned ? "고정 해제" : "고정", () -> store.pinSession(id, !pinned)); LinearLayout.LayoutParams pinAt = new LinearLayout.LayoutParams(-2, -2); pinAt.leftMargin = ui.dp(6);
+        lead.addView(pin, lead.getChildCount() == 0 ? new LinearLayout.LayoutParams(-2, -2) : pinAt);
+        LinearLayout.LayoutParams leadAt = new LinearLayout.LayoutParams(-2, -2); leadAt.topMargin = ui.dp(8); card.addView(lead, leadAt);
         card.addView(ui.actions(ui.chip("문서로 보기", () -> showDocument(heading, sessionMarkdown(lines), null)), ui.chip("복사", () -> copy(text)), ui.chip("공유", () -> share(heading + "\n\n" + text)),
             ui.chip("메모로 저장", () -> saveAsNote(heading, text)), archiveChip(heading, sessionMarkdown(lines), "", Brand.NAME + " · Gemini Live"),
             ui.chip("삭제", () -> confirm("이 기록을 지울까요?", "지우기", () -> { try { store.deleteSession(id); } catch (Exception e) { store.error("기록을 지우지 못했어요."); } }))));
         return SwipeDelete.wrap(ui, card, "이 기록", () -> {
             try { store.deleteSession(id); return true; } catch (Exception e) { store.error("기록을 지우지 못했어요."); return false; }
         });
+    }
+    /** A chip with a small leading icon in its label's color. */
+    private Button withIcon(Button chip, int icon) {
+        android.graphics.drawable.Drawable d = getDrawable(icon); if (d == null) return chip;
+        d = d.mutate(); d.setTint(ACCENT); d.setBounds(0, 0, ui.dp(16), ui.dp(16)); chip.setCompoundDrawablesRelative(d, null, null, null); chip.setCompoundDrawablePadding(ui.dp(6));
+        return chip;
+    }
+    /** 이어서 말하기: the voice assistant starts a call that picks this saved conversation up. */
+    private void continueCall(String id) {
+        if (store.voiceActive) { android.widget.Toast.makeText(this, "지금 통화 중이에요 · 끝낸 뒤에 이어서 말해 주세요", android.widget.Toast.LENGTH_SHORT).show(); return; }
+        store.continueFrom(id); mode = ASSISTANT; recordingPage = false; showTab(0); startVoice();
+    }
+    private static String keepLabel(int days) { return days <= 0 ? "계속 보관" : days >= 365 ? "1년" : days + "일"; }
+    /** 자동 정리: keep every record (up to 200), or clear unpinned ones older than 30 days, 90 days or a year. */
+    private void chooseKeepDays() {
+        Ui.Sheet sheet = ui.selectionSheet("기록 자동 정리", "고정한 기록은 지우지 않아요");
+        LinearLayout group = ui.group(); int now = store.sessionKeepDays();
+        for (int days : AppStore.KEEP_DAYS) ui.addRow(group, ui.listRow(days == now ? R.drawable.ic_check : 0, ACCENT, days <= 0 ? "계속 보관" : keepLabel(days) + " 지나면 지우기",
+            days <= 0 ? "최근 200개까지 남겨요" : "고정하지 않은 기록만", null, () -> { store.sessionKeepDays(days); sheet.dismiss(); }), true);
+        sheet.body.addView(group); sheet.primary.setText("닫기"); sheet.primary.setOnClickListener(v -> sheet.dismiss()); sheet.show();
     }
     private static String sessionMarkdown(JSONArray lines) {
         StringBuilder markdown = new StringBuilder();
