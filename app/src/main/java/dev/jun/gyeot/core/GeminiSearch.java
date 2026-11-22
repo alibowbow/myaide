@@ -12,8 +12,8 @@ import static dev.jun.gyeot.core.Jsons.*;
  * request on a text model that does ground with Google Search.
  */
 public final class GeminiSearch {
-    /** Tried in order until one answers; the one that worked is remembered by the app. */
-    public static final String[] MODELS = {"gemini-2.5-flash", "gemini-flash-latest", "gemini-2.5-flash-lite"};
+    /** Tried in order until one answers; the one that worked is remembered by the app. Flash-Lite (GeminiWork.FLASH_LITE): 500 a day. */
+    public static final String[] MODELS = GeminiWork.FLASH_LITE;
     public static final String FUNCTION = "search_web";
     private GeminiSearch() {}
 

@@ -10,8 +10,8 @@ import static dev.jun.gyeot.core.Jsons.*;
  * go to them as text. Requests and prompts only; GeminiAudioClient sends them (inline or through the Files API).
  */
 public final class GeminiMedia {
-    /** Models that watch video, tried in order. */
-    public static final String[] MODELS = {"gemini-flash-latest", "gemini-2.5-flash"};
+    /** Models that watch video, tried in order: Flash-Lite, whose free tier allows 500 a day (GeminiWork.FLASH_LITE). */
+    public static final String[] MODELS = GeminiWork.FLASH_LITE;
     /** Videos longer than this are watched at low resolution, which keeps an hour within the model's context; longer ones are refused. */
     public static final long LOW_RESOLUTION_MS = 15 * 60_000L, LONGEST_MS = 60 * 60_000L;
     private GeminiMedia() {}
@@ -38,7 +38,7 @@ public final class GeminiMedia {
      * 영상 요약: models that watch a YouTube video by its address, tried in order. Flash-Lite, whose free tier allows 500 a day
      * (Flash allows 20), 3.5 first, then 3.1.
      */
-    public static final String[] YOUTUBE_MODELS = {"gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"};
+    public static final String[] YOUTUBE_MODELS = GeminiWork.FLASH_LITE;
     /** A public YouTube video by its address: Gemini fetches and watches it itself, sound and picture, with no transcript. */
     public static JSONObject youtube(String id) { return obj("file_data", obj("file_uri", "https://www.youtube.com/watch?v=" + id)); }
     /** The notes from a generateContent answer, thought parts skipped; explains an empty answer. */

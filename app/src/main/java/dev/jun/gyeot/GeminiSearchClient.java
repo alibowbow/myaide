@@ -21,7 +21,8 @@ final class GeminiSearchClient {
         if (query == null || query.isBlank()) throw new IllegalArgumentException("검색어가 비어 있어요.");
         byte[] body = GeminiSearch.request(query.strip(), GeminiProtocol.clock(ZonedDateTime.now())).toString().getBytes(StandardCharsets.UTF_8);
         List<String> models = new ArrayList<>();
-        if (!model(store).isBlank()) models.add(model(store));
+        // The one that answered last goes first, while it is still one of the models search uses (not an older choice).
+        if (java.util.Arrays.asList(GeminiSearch.MODELS).contains(model(store))) models.add(model(store));
         for (String model : GeminiSearch.MODELS) if (!models.contains(model)) models.add(model);
         Exception last = null;
         for (String model : models) {

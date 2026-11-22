@@ -10,8 +10,8 @@ import static dev.jun.gyeot.core.Jsons.*;
  * Recordings never leave the phone until the user asks for a summary.
  */
 public final class GeminiAudio {
-    /** Tried in order; the dedicated transcription model first, then a general model that also understands audio. */
-    public static final String[] MODELS = {GeminiProtocol.FILE_TRANSCRIBE, "gemini-2.5-flash"};
+    /** Tried in order; the dedicated transcription model first (25 a day free), then Flash-Lite, which also understands audio (500 a day). */
+    public static final String[] MODELS = {GeminiProtocol.FILE_TRANSCRIBE, GeminiWork.FLASH_LITE[0], GeminiWork.FLASH_LITE[1], GeminiWork.FLASH_LITE[2]};
     /** Audio up to this size goes inline (base64 keeps the request under Gemini's 20 MB limit); larger files are uploaded. */
     public static final long INLINE_LIMIT = 14L * 1024 * 1024;
     public static final String MIME = "audio/mp4";

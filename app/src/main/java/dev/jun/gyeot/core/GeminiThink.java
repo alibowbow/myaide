@@ -18,8 +18,8 @@ import static dev.jun.gyeot.core.Jsons.*;
  * reports in that error is kept, so settings can show what this key really gets.
  */
 public final class GeminiThink {
-    /** Best first: the newest Flash, the stable 2.5 Flash, then the lighter Flash-Lite models with larger free quotas. */
-    public static final String[] MODELS = {"gemini-flash-latest", "gemini-2.5-flash", "gemini-flash-lite-latest", "gemini-2.5-flash-lite"};
+    /** Best first: the newest Flash, the stable 2.5 Flash (20 a day each), then Flash-Lite with 500 a day (GeminiWork.FLASH_LITE). */
+    public static final String[] MODELS = {"gemini-flash-latest", "gemini-2.5-flash", GeminiWork.FLASH_LITE[0], GeminiWork.FLASH_LITE[1], GeminiWork.FLASH_LITE[2]};
     /** Free daily quotas reset at midnight Pacific time. */
     private static final ZoneId QUOTA_ZONE = ZoneId.of("America/Los_Angeles");
     private static final Pattern LIMIT = Pattern.compile("(?i)limit:\\s*(\\d{1,9})");
@@ -32,6 +32,8 @@ public final class GeminiThink {
             case "gemini-2.5-flash" -> "Gemini 2.5 Flash";
             case "gemini-flash-lite-latest" -> "Gemini Flash-Lite 최신";
             case "gemini-2.5-flash-lite" -> "Gemini 2.5 Flash-Lite";
+            case "gemini-3.5-flash-lite" -> "Gemini 3.5 Flash-Lite";
+            case "gemini-3.1-flash-lite" -> "Gemini 3.1 Flash-Lite";
             default -> model;
         };
     }
