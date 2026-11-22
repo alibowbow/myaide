@@ -64,7 +64,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     /** The screen's two parts: the video with its play buttons, pinned on top across the full width, and the list scrolling under it. */
     private LinearLayout body, videoPane, searchBar, listPane, controlsRow; private ScrollView scroll;
     /** 유튜브 검색 folded into a magnifier (on the 추천 row) until it is wanted. */
-    private View lensButton;
+    private View lensButton, foldButton;
     /** 나란히 보기: the room under the video (what plays, the search box, the 추천 · 저장 rows), scrolling when short; the two rows as one block. */
     private LinearLayout underVideo, feedRows; private ScrollView underScroll;
     /**
@@ -158,9 +158,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         go.setImageTintList(android.content.res.ColorStateList.valueOf(ON_ACCENT)); go.setBackground(ui.shape(ACCENT, PILL)); go.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9));
         LinearLayout.LayoutParams goAt = new LinearLayout.LayoutParams(ui.dp(38), ui.dp(38)); goAt.leftMargin = ui.dp(6); searchBar.addView(go, goAt);
         // ✕ folds the box back into the magnifier.
-        searchBar.addView(ui.bareIcon(R.drawable.ic_close, MUTED, "검색창 닫기", () -> foldSearch(true)), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
-        // Folded until it is wanted: the magnifier at the end of the 추천 row opens it on a line of its own.
-        searchBar.setVisibility(View.GONE);
+        foldButton = ui.bareIcon(R.drawable.ic_close, MUTED, "검색창 닫기", () -> foldSearch(true));
+        searchBar.addView(foldButton, new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
+        // While a video plays it folds into the magnifier at the end of the 추천 row; with none it stays open (searchLooks).
         searchBox.setOnFocusChangeListener((v, hasFocus) -> { if (!hasFocus && searchBox.getText().toString().isBlank()) foldSearch(false); main.post(this::showPlayer); });
         // Its own search button and the keyboard's search key both search (the composer is out of the way meanwhile).
         // 라이브 채널: the channels saved from a search, each straight to its live broadcast.
@@ -475,7 +475,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         MyTube.Video now = player.current();
         boolean signingIn = !player.active() && player.signingIn(), browsing = !player.active() && !signingIn && player.browsing();
         playerCard.setVisibility(player.active() || signingIn || browsing ? View.VISIBLE : View.GONE);
-        videoPane.setVisibility(playerCard.getVisibility());
+        videoPane.setVisibility(playerCard.getVisibility()); searchLooks();
         boolean fill = arrange(player.active() || signingIn || browsing, browsing);
         // A YouTube page (a channel, Shorts, the sign-in) needs room to read and use; a video fills its 16:9 box.
         int screenHeight = getResources().getDisplayMetrics().heightPixels;
@@ -732,21 +732,34 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     /** 직접 검색 (or a link: that video at once). */
     /** The magnifier: the search box comes out on its own line, ready to type in. */
     private void openSearch() {
-        searchBar.setVisibility(View.VISIBLE); if (lensButton != null) lensButton.setVisibility(View.GONE);
+        searchOpened = true; searchLooks();
         searchBox.requestFocus();
         android.view.inputmethod.InputMethodManager keyboard = getSystemService(android.view.inputmethod.InputMethodManager.class);
         if (keyboard != null) searchBox.post(() -> keyboard.showSoftInput(searchBox, 0));
         showPlayer();
     }
-    /** Folds the search box back into the magnifier (clear: its words go too). */
+    /** Folds the search box back into the magnifier (clear: its words go too); with no video it stays open (searchLooks). */
     private void foldSearch(boolean clear) {
-        if (searchBar.getVisibility() == View.GONE) return;
         if (clear) searchBox.setText("");
         android.view.inputmethod.InputMethodManager keyboard = getSystemService(android.view.inputmethod.InputMethodManager.class);
         if (keyboard != null) keyboard.hideSoftInputFromWindow(searchBox.getWindowToken(), 0);
-        searchBar.setVisibility(View.GONE); if (lensButton != null) lensButton.setVisibility(View.VISIBLE);
+        searchOpened = false;
         if (searchBox.hasFocus()) searchBox.clearFocus();
+        searchLooks();
         main.post(this::showPlayer);
+    }
+    /** The search box opened by the magnifier (folded again by a search, ✕ or leaving it empty). */
+    private boolean searchOpened;
+    /**
+     * Whether the search box shows: always while no video plays (searching is what there is to do then), else only when the
+     * magnifier opened it or it is in use; the magnifier and ✕ show when it can fold.
+     */
+    private void searchLooks() {
+        boolean video = playerCard != null && playerCard.getVisibility() == View.VISIBLE;
+        boolean open = !video || searchOpened || searchBox.hasFocus();
+        searchBar.setVisibility(open ? View.VISIBLE : View.GONE);
+        if (lensButton != null) lensButton.setVisibility(open ? View.GONE : View.VISIBLE);
+        if (foldButton != null) foldButton.setVisibility(video ? View.VISIBLE : View.GONE);
     }
     private void search(String words) { search(words, false, null); }
     /** playFirst: the best match plays at once (마이튜브 AI's play); done hears what came of it. */
