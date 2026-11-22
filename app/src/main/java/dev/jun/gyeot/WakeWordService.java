@@ -177,12 +177,20 @@ public final class WakeWordService extends Service {
         WakeWord.Listener listener = new WakeWord.Listener(model);
         reader = new Thread(() -> {
             short[] chunk = new short[1600];
+            // The last few seconds, for 호출어 확인: the clip the match came from.
+            short[] ring = new short[CLIP]; int at = 0; boolean full = false;
             try {
                 microphone.startRecording();
                 while (reading) {
                     int n = microphone.read(chunk, 0, chunk.length);
                     if (n <= 0) continue;
-                    if (listener.feed(chunk, n)) { double score = listener.lastScore(), threshold = listener.threshold(); main.post(() -> woke(score, threshold)); break; }
+                    for (int i = 0; i < n; i++) { ring[at] = chunk[i]; at = (at + 1) % CLIP; if (at == 0) full = true; }
+                    if (listener.feed(chunk, n)) {
+                        double score = listener.lastScore(), threshold = listener.threshold();
+                        int count = full ? CLIP : at; byte[] pcm = new byte[count * 2];
+                        for (int i = 0; i < count; i++) { short v = ring[(full ? at + i : i) % CLIP]; pcm[2 * i] = (byte) v; pcm[2 * i + 1] = (byte) (v >> 8); }
+                        main.post(() -> candidate(score, threshold, pcm)); break;
+                    }
                 }
             } catch (RuntimeException stopped) { /* released while reading */ }
         }, "gyeot-wake-word");
@@ -191,6 +199,43 @@ public final class WakeWordService extends Service {
     private void stopReading() {
         reading = false; AudioRecord microphone = record; record = null;
         if (microphone != null) { try { microphone.stop(); } catch (RuntimeException ignored) {} microphone.release(); }
+    }
+    /** The clip kept for 호출어 확인: the last 2.6 seconds. */
+    private static final int CLIP = WakeWord.RATE * 26 / 10;
+    private volatile boolean verifying;
+    /**
+     * A match on the phone: while music plays the threshold is tighter; a match that is not plainly the user's own (or any
+     * while music plays) is checked by Flash-Lite with the clip it came from (호출어 확인, on by default). A clear one, or one
+     * the check could not answer in time, wakes as before; one the check says is lyrics or noise does not, and listening goes on.
+     */
+    private void candidate(double score, double threshold, byte[] pcm) {
+        stopReading();
+        android.media.AudioManager audio = getSystemService(android.media.AudioManager.class);
+        boolean music = audio != null && audio.isMusicActive();
+        if (music && score > threshold * WakeWord.MUSIC) {
+            store.phoneLog(String.format(java.util.Locale.ROOT, "● 호출어 후보 넘김 · 음악 재생 중 · 점수 %.1f / 기준 %.1f", score, threshold * WakeWord.MUSIC));
+            apply(); return;
+        }
+        boolean check = store.settings.getBoolean("wakeVerify", true) && (music || score > threshold * WakeWord.SURE);
+        String key = "";
+        try { key = store.secrets.workKey(); } catch (Exception ignored) {}
+        if (!check || key.isBlank() || verifying) { woke(score, threshold); return; }
+        verifying = true; String gemini = key; long started = SystemClock.elapsedRealtime();
+        new Thread(() -> {
+            Boolean said;
+            try { said = GeminiAudioClient.heardWakeWord(gemini, dev.jun.gyeot.core.GeminiSpeech.wav(pcm, WakeWord.RATE), 4_500); }
+            catch (Exception unanswered) { said = null; }
+            Boolean answer = said; long took = SystemClock.elapsedRealtime() - started;
+            main.post(() -> {
+                verifying = false;
+                if (Boolean.FALSE.equals(answer)) {
+                    store.phoneLog(String.format(java.util.Locale.ROOT, "● 호출어 후보 넘김 · AI 확인: 노래나 잡음 · 점수 %.1f / 기준 %.1f · %dms", score, threshold, took) + (music ? " · 음악 재생 중" : ""));
+                    apply(); return;
+                }
+                if (answer == null) store.phoneLog("● 호출어 AI 확인이 늦거나 안 돼서 그대로 깨웠어요 · " + took + "ms");
+                woke(score, threshold);
+            });
+        }, "gyeot-wake-verify").start();
     }
     /** The wake word: the microphone is released first (the call needs it), then the quick voice start opens. */
     private void woke(double score, double threshold) {

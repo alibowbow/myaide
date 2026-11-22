@@ -55,6 +55,22 @@ final class GeminiAudioClient {
     static String watchYouTube(String key, JSONObject request, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
         return generate(key, GeminiMedia.YOUTUBE_MODELS, request, GeminiMedia::answer, guard, cancel);
     }
+    /**
+     * 호출어 확인: did a person really say the wake word in this short clip (not song lyrics, the radio or noise)? Flash-Lite
+     * listens once; true or false, or an exception when it could not answer within timeoutMs (the caller decides then).
+     */
+    static boolean heardWakeWord(String key, byte[] wav, int timeoutMs) throws Exception {
+        AtomicReference<Runnable> cancel = new AtomicReference<>();
+        java.util.Timer timer = new java.util.Timer(true);
+        timer.schedule(new java.util.TimerTask() { @Override public void run() { Runnable abort = cancel.getAndSet(null); if (abort != null) abort.run(); } }, timeoutMs);
+        try {
+            JSONObject body = new JSONObject().put("contents", new org.json.JSONArray().put(new JSONObject().put("role", "user").put("parts", new org.json.JSONArray()
+                .put(GeminiMedia.inline(wav, "audio/wav")).put(new JSONObject().put("text", dev.jun.gyeot.core.WakeWord.VERIFY)))));
+            body.put("generationConfig", new JSONObject().put("maxOutputTokens", 5).put("temperature", 0));
+            String answer = generate(key, dev.jun.gyeot.core.GeminiWork.FLASH_LITE, body, GeminiAudio::answer, () -> {}, cancel);
+            return answer != null && answer.strip().toUpperCase(java.util.Locale.ROOT).startsWith("Y");
+        } finally { timer.cancel(); }
+    }
     static String summarize(String key, String instructions, String transcript) throws Exception {
         return generate(key, GeminiSearch.MODELS, GeminiAudio.text(instructions, transcript), GeminiAudio::answer, () -> {}, null);
     }

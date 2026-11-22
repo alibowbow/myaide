@@ -19,6 +19,17 @@ public final class WakeWord {
     public static final int MIN_FRAMES = 25, MAX_FRAMES = 200;
     /** Recordings the user makes: this many is enough to set a threshold; more is better. */
     public static final int ENROLL = 5;
+    /**
+     * 호출어 확인 (WakeWordService): what Flash-Lite is asked about the clip a match came from. The phone's own match is easily
+     * fooled by song lyrics and road noise in a car; a model that understands speech is not.
+     */
+    public static final String VERIFY = "This is a 2-3 second clip from a microphone in a car. Did a person clearly say the Korean call word "
+        + "\"들퍼레\" or \"퍼레\" (an assistant's name; a request may follow it)? Song lyrics, singing, the radio, a podcast, talk without that word, "
+        + "or noise do not count. Answer with only YES or NO.";
+    /** A match this close is the user, sure: no check. Over it (but within the threshold), Flash-Lite checks. As a share of the threshold. */
+    public static final double SURE = 0.8;
+    /** While music plays, the threshold is tightened to this share of it. */
+    public static final double MUSIC = 0.85;
     /** Sensitivity steps the user picks, 1 strict to 5 loose; 3 by default. */
     public static final int SENSITIVITY_MIN = 1, SENSITIVITY_MAX = 5, SENSITIVITY_DEFAULT = 3;
     /** The threshold's widening over the recordings' spread: SPREAD_BASE + SPREAD_STEP × sensitivity (Model.factor). */

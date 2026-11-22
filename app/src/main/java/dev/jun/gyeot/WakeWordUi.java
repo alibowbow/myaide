@@ -64,9 +64,12 @@ final class WakeWordUi {
             if (!on) { WakeWordService.stop(activity); store.status("차에서 호출어를 껐어요"); refresh.run(); return; }
             if (!permitted()) { ask(); return; }
             WakeWordService.start(activity); store.status("호출어 대기를 시작했어요 · 차가 연결되면 들어요"); refresh.run();
-        }), false);
+        }), true);
+        // 호출어 확인: a match that is not plainly the user's (or any while music plays) is checked by Flash-Lite with its clip.
+        ui.addRow(use, ui.switchRow("노래·잡음에 켜지지 않게 AI로 확인", "애매하게 들렸거나 음악이 나올 때만, 그 2~3초를 Gemini가 한 번 더 들어 봐요",
+            store.settings.getBoolean("wakeVerify", true), on -> store.settings.edit().putBoolean("wakeVerify", on).apply()), false);
         page.addView(use);
-        page.addView(ui.footer("소리는 폰 안에서만 비교하고 어디에도 보내지 않아요."));
+        page.addView(ui.footer("평소에는 소리를 폰 안에서만 비교해요. AI 확인을 켜 두면 애매한 순간의 2~3초만 Gemini로 보내 사람이 ‘퍼레’라고 했는지 물어요. 음악이 나오는 동안에는 호출어 기준도 더 엄격해져요."));
 
         page.addView(ui.sectionHeader("1단계 · 내 차"));
         LinearLayout car = ui.group();
