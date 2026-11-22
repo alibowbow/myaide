@@ -128,6 +128,7 @@
         <service android:name=".BrowserTaskService" android:exported="false" android:foregroundServiceType="dataSync" />
         <!-- 예약 작업: only this app's own alarm reaches it (no intent filter, not exported, no boot listener). -->
         <receiver android:name=".WorkScheduleAlarm" android:exported="false" />
+        <service android:name=".BriefingJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
         <!-- 차에서 호출어: started from the settings while the app is in front, so Android lets it use the microphone later. -->
         <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone" />
         <!-- The main chat's spoken conversation: started from the chat screen, so it keeps hearing with the screen off. -->

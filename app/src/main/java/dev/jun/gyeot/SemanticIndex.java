@@ -148,7 +148,34 @@ final class SemanticIndex {
      * The things nearest the query's meaning, as rows (their kind and id open them as a word search's do); empty when it is off,
      * there is no index, or Gemini cannot answer now. Blocking; off the main thread.
      */
-    static List<Hit> find(Context context, AppStore store, String query) {
+    static List<Hit> find(Context context, AppStore store, String query) { return find(context, store, query, SemanticSearch.LEAST, SemanticSearch.SHOWN, 60_000); }
+    /**
+     * 대화에 관련 기록 떠올리기 (4-A): the app's own records nearest the message's meaning (not the main chat itself, which brings
+     * its own history), each with the start of its text, for the main chat's AI to see this turn. "" when 뜻으로 찾기 is off,
+     * the index is empty, nothing is close enough, or Gemini does not answer within a few seconds. Blocking.
+     */
+    static String recall(Context context, AppStore store, String message, int budget) {
+        String text = message == null ? "" : message.strip();
+        if (budget < 400 || text.length() < 6 || !searchable(context, store)) return "";
+        List<Hit> hits;
+        try { hits = find(context, store, text.length() > 1_000 ? text.substring(0, 1_000) : text, RECALL_LEAST, 8, 4_000); } catch (RuntimeException failed) { return ""; }
+        StringBuilder out = new StringBuilder(); int shown = 0;
+        java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+        for (Hit hit : hits) {
+            if (GlobalSearch.CHAT.equals(hit.kind()) || shown >= 4) continue;
+            String body = GlobalSearchSource.text(context, store, hit).strip().replaceAll("\\s+", " ");
+            if (body.isEmpty()) continue;
+            if (body.length() > 700) body = body.substring(0, 700) + "…";
+            String when = hit.time() > 0 ? java.time.Instant.ofEpochMilli(hit.time()).atZone(zone).toLocalDate().toString() : "";
+            String line = "- [" + GlobalSearch.label(hit.kind()) + "] " + hit.title() + (when.isEmpty() ? "" : " (" + when + ")") + ": " + body + "\n";
+            if (out.length() + line.length() > budget) break;
+            out.append(line); shown++;
+        }
+        return out.toString().strip();
+    }
+    /** How close a record has to be to go along with a message unasked (closer than for a search the user reads). */
+    static final double RECALL_LEAST = 0.68;
+    private static List<Hit> find(Context context, AppStore store, String query, double least, int limit, int readMs) {
         List<Hit> out = new ArrayList<>();
         String text = query == null ? "" : query.strip();
         if (!store.semanticSearch() || text.length() < 2) return out;
@@ -161,14 +188,14 @@ final class SemanticIndex {
             String key = key(store);
             if (key.isBlank() || !GeminiQuotas.ready(model, text.length())) return out;
             try {
-                JSONObject answer = post(key, model, "embedContent", SemanticSearch.query(text));
+                JSONObject answer = post(key, model, "embedContent", SemanticSearch.query(text), readMs);
                 GeminiQuotas.used(model, text.length(), 1);
                 vector = SemanticSearch.vector(answer);
             } catch (IOException e) { return out; }
             if (vector == null) return out;
             synchronized (asked) { asked.put(model + "\n" + text, vector); }
         }
-        for (SemanticSearch.Scored scored : SemanticSearch.rank(vector, entries, model, SemanticSearch.SHOWN, SemanticSearch.LEAST)) {
+        for (SemanticSearch.Scored scored : SemanticSearch.rank(vector, entries, model, limit, least)) {
             Entry entry = scored.entry();
             out.add(new Hit(entry.kind(), entry.id(), entry.title().isBlank() ? GlobalSearch.label(entry.kind()) : entry.title(), entry.snippet(), entry.time(), false));
         }
@@ -180,11 +207,12 @@ final class SemanticIndex {
         final boolean quota;
         Refused(String message, boolean quota) { super(message); this.quota = quota; }
     }
-    private static JSONObject post(String key, String model, String method, JSONObject request) throws IOException {
+    private static JSONObject post(String key, String model, String method, JSONObject request) throws IOException { return post(key, model, method, request, 60_000); }
+    private static JSONObject post(String key, String model, String method, JSONObject request, int readMs) throws IOException {
         byte[] body = request.toString().getBytes(StandardCharsets.UTF_8);
         HttpURLConnection connection = (HttpURLConnection) URI.create(API + model + ":" + method).toURL().openConnection();
         try {
-            connection.setConnectTimeout(20_000); connection.setReadTimeout(60_000); connection.setRequestMethod("POST"); connection.setDoOutput(true);
+            connection.setConnectTimeout(Math.min(20_000, readMs)); connection.setReadTimeout(readMs); connection.setRequestMethod("POST"); connection.setDoOutput(true);
             connection.setRequestProperty("Content-Type", "application/json"); connection.setRequestProperty("x-goog-api-key", key);
             connection.setFixedLengthStreamingMode(body.length);
             try (OutputStream output = connection.getOutputStream()) { output.write(body); }

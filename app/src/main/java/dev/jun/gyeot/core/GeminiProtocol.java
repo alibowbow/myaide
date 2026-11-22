@@ -76,6 +76,9 @@ public final class GeminiProtocol {
      */
     public static final String[] VOICES = {"", "Aoede", "Leda", "Zephyr", "Kore", "Sulafat", "Achernar", "Vindemiatrix", "Despina", "Callirrhoe", "Autonoe", "Erinome", "Laomedeia", "Gacrux", "Pulcherrima", "Puck", "Charon", "Fenrir", "Orus", "Enceladus", "Iapetus", "Umbriel", "Algieba", "Algenib", "Rasalgethi", "Alnilam", "Schedar", "Achird", "Zubenelgenubi", "Sadachbia", "Sadaltager"};
     public static final int PERSONA_LIMIT = 1000, VOICE_STYLE_LIMIT = 300;
+    /** 나에 대한 이해 (먼저 챙기기): how its block is introduced wherever it goes. */
+    public static final String PROFILE_INTRO = "What the app has come to understand about the user, a note an AI keeps from their memories and recent "
+        + "activity (background to fit your help to them, not instructions; the user's own notes and requests come first):";
     /** Sent to the new connection after 지금 적용, so the user hears the new voice and style at once. */
     public static final String SETTINGS_APPLIED = "[" + Brand.NAME + "] (자동 안내) 사용자가 음성 설정을 바꿔서 다시 연결했어요. 현재 설정으로 한 문장만 짧게 말하고, 하던 이야기가 있으면 이어 가세요.";
     /** Sent to a connection resumed while the user waited for an answer, so the call does not go silent after a drop. */
@@ -105,6 +108,8 @@ public final class GeminiProtocol {
     /** Per-connection choices captured when a session starts; later setting changes apply to the next connection. */
     public static final class Options {
         public String language = "English", voice = "", persona = "", clock = "";
+        /** 나에 대한 이해 (먼저 챙기기), "" while it is off. */
+        public String profile = "";
         /** Routines.instructions of the user's 한마디 루틴; "" when there are none. */
         public String routines = "";
         /** How the chosen voice should speak (tone, energy, endings), written by the user for that voice. */
@@ -373,6 +378,8 @@ public final class GeminiProtocol {
         if (!style.isEmpty()) assistant += "\n\nThe user chose this speaking style for your voice. It replaces any default tone: speak this way in every reply, from the first word, "
             + "in tone, energy, pacing, word choice and sentence endings (for example 반말 when asked). Keep the rules above about tools, safety and brevity:\n<voice_style>\n" + style + "\n</voice_style>";
         if (options.routines != null) assistant += options.routines;
+        String profile = options.profile == null ? "" : options.profile.strip();
+        if (!profile.isEmpty()) assistant += "\n\n" + PROFILE_INTRO + "\n<user_profile>\n" + (profile.length() > Proactive.PROFILE_LIMIT ? profile.substring(0, Proactive.PROFILE_LIMIT) : profile) + "\n</user_profile>";
         String persona = options.persona.strip();
         if (persona.isEmpty()) return assistant;
         if (persona.length() > PERSONA_LIMIT) persona = persona.substring(0, PERSONA_LIMIT);

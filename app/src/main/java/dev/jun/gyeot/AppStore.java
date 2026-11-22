@@ -583,7 +583,7 @@ final class AppStore {
      */
     GeminiProtocol.Options options(boolean inputTranscription, String model) {
         GeminiProtocol.Options options = new GeminiProtocol.Options();
-        options.language = language(); options.voice = voice(); options.voiceStyle = voiceStyle(styleVoice()); options.persona = persona(); options.routines = dev.jun.gyeot.core.Routines.instructions(routines()); options.quietSpeech = quietSpeech(); options.model = model == null ? liveModel() : model;
+        options.language = language(); options.voice = voice(); options.voiceStyle = voiceStyle(styleVoice()); options.persona = persona(); options.profile = Briefing.profile(this); options.routines = dev.jun.gyeot.core.Routines.instructions(routines()); options.quietSpeech = quietSpeech(); options.model = model == null ? liveModel() : model;
         options.thinkingLevel = liveThinkingLevel(); options.translateToKorean = translateToKorean();
         options.interpreter = interpreterConfig();
         // Built-in Google Search only when Gemini answers searches and this model may ground on this key; otherwise search_web.
@@ -1153,7 +1153,7 @@ final class AppStore {
             markUsed(recall.matched());
             notes = recall.text();
         }
-        return WorkBook.background(persona(), pinnedNotes(), notes);
+        return WorkBook.background(persona(), Briefing.profile(this), pinnedNotes(), notes);
     }
     /** Keeps the notes a room picked (WorkBook.memory) without redrawing anything: no screen shows them. */
     synchronized void keepMemoryPick(String id, JSONObject pick) {
