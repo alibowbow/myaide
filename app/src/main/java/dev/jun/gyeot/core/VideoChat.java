@@ -29,6 +29,40 @@ public final class VideoChat {
     /** The questions and answers kept with the video while the app runs, at most this many turns. */
     public static final int MOST_TURNS = 40;
 
+    /** Conversations kept on the phone (summaries and questions), the newest this many videos; older ones go by themselves. */
+    public static final int KEPT = 30;
+    /** One video's kept conversation: the video, when it last changed, and its turns. */
+    public record Kept(String id, String title, String channel, long at, List<Turn> turns) {}
+    /** The kept conversations as the file holds them: oldest first, only those with an answer, the newest KEPT. */
+    public static JSONObject save(List<Kept> conversations) {
+        List<Kept> kept = new java.util.ArrayList<>();
+        for (Kept one : conversations) if (one != null && one.turns().stream().anyMatch(t -> !t.user())) kept.add(one);
+        if (kept.size() > KEPT) kept = kept.subList(kept.size() - KEPT, kept.size());
+        JSONArray list = new JSONArray();
+        for (Kept one : kept) {
+            JSONArray turns = new JSONArray();
+            for (Turn t : one.turns()) turns.put(obj("role", t.role(), "shown", t.shown(), "sent", t.sent(), "by", t.by(), "summary", t.summary(), "note", t.note()));
+            list.put(obj("id", one.id(), "title", one.title(), "channel", one.channel(), "at", one.at(), "turns", turns));
+        }
+        return obj("version", 1, "videos", list);
+    }
+    /** The kept conversations in a file's JSON, oldest first; anything unreadable is left out. */
+    public static List<Kept> load(JSONObject file) {
+        List<Kept> out = new java.util.ArrayList<>();
+        JSONArray list = file == null ? null : file.optJSONArray("videos");
+        for (int i = 0; list != null && i < list.length(); i++) {
+            JSONObject one = list.optJSONObject(i); if (one == null || one.optString("id").isBlank()) continue;
+            List<Turn> turns = new java.util.ArrayList<>(); JSONArray saved = one.optJSONArray("turns");
+            for (int k = 0; saved != null && k < saved.length(); k++) {
+                JSONObject t = saved.optJSONObject(k); if (t == null) continue;
+                String role = "model".equals(t.optString("role")) ? "model" : "user";
+                turns.add(new Turn(role, t.optString("shown"), t.optString("sent", t.optString("shown")), t.optString("by"), t.optBoolean("summary"), t.optString("note")));
+            }
+            if (!turns.isEmpty()) out.add(new Kept(one.optString("id"), one.optString("title"), one.optString("channel"), one.optLong("at"), turns));
+        }
+        return out.size() <= KEPT ? out : new java.util.ArrayList<>(out.subList(out.size() - KEPT, out.size()));
+    }
+
     /** What goes ahead of the conversation when Gemini watches the video. */
     static String preface(MyTube.Video video) {
         return "You are watching this YouTube video with the user and answer their requests about it in Korean, in Markdown. When you refer to a "

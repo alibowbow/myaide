@@ -34,8 +34,58 @@ import static dev.jun.gyeot.Ui.*;
 final class VideoAskPanel {
     /** What the panel needs from 마이튜브. */
     interface Host { MyTubePlayer player(); void closed(); boolean gone(); }
-    /** Each video's conversation for the run (the newest 30 videos). */
+    /**
+     * Each video's conversation, oldest first: read from the phone once (mytube-chats.json) and written back after every
+     * answer, so it stays when the app is closed; the newest VideoChat.KEPT videos with an answer are kept, older ones go.
+     */
     private static final Map<String, List<VideoChat.Turn>> CHATS = new LinkedHashMap<>();
+    /** Each kept video's title and channel, and when its conversation last changed. */
+    private static final Map<String, String[]> ABOUT = new LinkedHashMap<>();
+    private static boolean loaded;
+    private static java.io.File file(android.content.Context context) { return new java.io.File(context.getFilesDir(), "mytube-chats.json"); }
+    /** Reads the kept conversations once. */
+    private static void load(android.content.Context context) {
+        synchronized (CHATS) {
+            if (loaded) return; loaded = true;
+            java.io.File file = file(context); if (!file.isFile()) return;
+            try {
+                String text = new String(java.nio.file.Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+                for (VideoChat.Kept one : VideoChat.load(new org.json.JSONObject(text))) {
+                    CHATS.put(one.id(), new ArrayList<>(one.turns()));
+                    ABOUT.put(one.id(), new String[]{one.title(), one.channel(), String.valueOf(one.at())});
+                }
+            } catch (Exception unreadable) { /* Starts empty; the file is written again with the next answer. */ }
+        }
+    }
+    /** The video's conversation changed: it becomes the newest, older ones past the limit go, and the file is written. */
+    private void keep(MyTube.Video v) {
+        String json;
+        synchronized (CHATS) {
+            List<VideoChat.Turn> list = CHATS.remove(v.id()); if (list != null) CHATS.put(v.id(), list);
+            ABOUT.put(v.id(), new String[]{v.title(), v.channel(), String.valueOf(System.currentTimeMillis())});
+            List<VideoChat.Kept> all = new ArrayList<>();
+            for (Map.Entry<String, List<VideoChat.Turn>> e : CHATS.entrySet()) {
+                String[] about = ABOUT.getOrDefault(e.getKey(), new String[]{"", "", "0"}); long at; try { at = Long.parseLong(about[2]); } catch (Exception x) { at = 0; }
+                all.add(new VideoChat.Kept(e.getKey(), about[0], about[1], at, new ArrayList<>(e.getValue())));
+            }
+            org.json.JSONObject saved = VideoChat.save(all);
+            json = saved.toString();
+            // In memory too, only what the file keeps (and the one shown now).
+            java.util.Set<String> kept = new java.util.HashSet<>();
+            org.json.JSONArray videos = saved.optJSONArray("videos");
+            for (int i = 0; videos != null && i < videos.length(); i++) kept.add(videos.optJSONObject(i).optString("id"));
+            CHATS.keySet().removeIf(id -> !kept.contains(id) && (video == null || !id.equals(video.id())));
+            ABOUT.keySet().removeIf(id -> !CHATS.containsKey(id));
+        }
+        android.content.Context app = activity.getApplicationContext();
+        work.execute(() -> {
+            java.io.File file = file(app), next = new java.io.File(file.getPath() + ".new");
+            try {
+                java.nio.file.Files.write(next.toPath(), json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                if (!next.renameTo(file)) { file.delete(); next.renameTo(file); }
+            } catch (Exception failed) { next.delete(); }
+        });
+    }
     /** The transcript characters a question takes along. */
     private static final int TRANSCRIPT_CHARS = 60_000;
 
@@ -107,7 +157,8 @@ final class VideoAskPanel {
         if (open && video != null && video.id().equals(v.id())) { draw(); return; }
         abandon();
         video = v; open = true; error = ""; transcript = null;
-        synchronized (CHATS) { turns = CHATS.computeIfAbsent(v.id(), id -> new ArrayList<>()); while (CHATS.size() > 30) CHATS.remove(CHATS.keySet().iterator().next()); }
+        load(activity.getApplicationContext());
+        synchronized (CHATS) { turns = CHATS.computeIfAbsent(v.id(), id -> new ArrayList<>()); }
         view.setVisibility(View.VISIBLE);
         // Nothing starts by itself: a summary begins when 타임라인 요약 or 일반 요약 above is pressed, or a question is sent.
         draw();
@@ -251,6 +302,7 @@ final class VideoAskPanel {
                     error = why == null ? "답하지 못했어요." : why;
                     if (!question.summary() && input.getText().length() == 0) input.setText(question.shown());
                 }
+                if (answer != null && !answer.isBlank()) keep(v);
                 if (open) draw();
             });
         });
