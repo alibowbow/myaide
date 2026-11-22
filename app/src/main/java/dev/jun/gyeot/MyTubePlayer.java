@@ -297,6 +297,8 @@ final class MyTubePlayer {
                 // Off the screen without background play nothing plays (the page starting a video by itself included).
                 if (!onScreen && !background()) { send("pause"); leftPaused = true; return; }
                 playing = true; wantPlay = true; status = event.optBoolean("ad") ? "광고 재생 중" : "재생 중";
+                // 마이튜브 plays: 배경음악 (Lyria) stops.
+                LyriaPlayer.stopIfPlaying();
                 if (rate != 1f && !event.optBoolean("ad")) sendRate(); // YouTube starts each video at 1×
                 changed();
             }

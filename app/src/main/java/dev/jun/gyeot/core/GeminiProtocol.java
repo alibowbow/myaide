@@ -274,6 +274,7 @@ public final class GeminiProtocol {
         JSONArray device = DeviceActions.declarations();
         for (int i = 0; i < device.length(); i++) functions.put(device.optJSONObject(i));
         functions.put(Notices.declaration());
+        functions.put(Bgm.declaration());
         // 작업창 by voice, only when the user turned it on: they overlap browser_task and phone control.
         if (options.voiceWork) { JSONArray work = VoiceWork.declarations(options.thinkAsync); for (int i = 0; i < work.length(); i++) functions.put(work.optJSONObject(i)); }
         // Phone control is declared for every assistant session; each call is refused unless the user enabled it in the app.

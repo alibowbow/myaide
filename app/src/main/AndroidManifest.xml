@@ -141,6 +141,7 @@
         <!-- The main chat's spoken conversation: started from the chat screen, so it keeps hearing with the screen off. -->
         <service android:name=".VoiceChatService" android:exported="false" android:foregroundServiceType="microphone" />
         <service android:name=".MyTubeService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <service android:name=".LyriaService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".AssistantService" android:exported="false"
             android:foregroundServiceType="microphone|mediaPlayback|dataSync" android:stopWithTask="false" />
         <provider android:name=".ManagedDocumentsProvider" android:authorities="dev.jun.gyeot.shared-documents"

@@ -3889,6 +3889,7 @@ public final class AssistantService extends Service {
             if (AppGallery.SHOW.equals(name)) { showVoiceImage(session, id, name, args); continue; }
             if (AppNavigation.FUNCTION.equals(name)) { if ("mytube".equals(args.optString("screen"))) MyTubeActivity.ask(args.optString("play")); openAppScreen(session, id, name, args.optString("screen")); continue; }
             if (dev.jun.gyeot.core.VoiceBoard.FUNCTION.equals(name)) { boardExplain(session, id, name, args); continue; }
+            if (dev.jun.gyeot.core.Bgm.FUNCTION.equals(name)) { touch(); session.tool(id, name, backgroundMusic(args)); continue; }
             if (dev.jun.gyeot.core.Notices.FUNCTION.equals(name)) { touch(); session.tool(id, name, dev.jun.gyeot.core.Notices.answer(NoticeListener.on(this) && NoticeListener.allowed(this), NoticeListener.list(this), System.currentTimeMillis(), args.optDouble("hours", 6))); continue; }
             if (DeviceActions.NAMES.contains(name)) { deviceAction(session, id, name, args); continue; }
             if (dev.jun.gyeot.core.CalendarQuery.VOICE.contains(name)) { calendarFor(session, id, name, args); continue; }
@@ -4242,6 +4243,23 @@ public final class AssistantService extends Service {
             result = DeviceActionRunner.run(this, action, bubble != null && bubble.visible());
         } catch (IllegalArgumentException invalid) { result = obj("ok", false, "tool", name, "outcome", "invalid", "error", invalid.getMessage()); }
         touch(); session.tool(id, name, result);
+    }
+    /** 배경음악 (Lyria): play (or change the mood), pause, resume, stop; the answer says how it went. */
+    private JSONObject backgroundMusic(JSONObject args) {
+        LyriaPlayer music = LyriaPlayer.get(this);
+        String action = args.optString("action", "play");
+        switch (action) {
+            case "pause" -> { music.pause(); return obj("ok", true, "say", "배경음악을 잠깐 멈췄어요."); }
+            case "resume" -> { music.resume(); return obj("ok", music.active(), "say", music.active() ? "배경음악을 다시 틀었어요." : "틀어 둔 배경음악이 없어요."); }
+            case "stop" -> { music.stop(); return obj("ok", true, "say", "배경음악을 껐어요."); }
+            default -> {
+                String mood = args.optString("mood").strip(); if (mood.isEmpty()) mood = "calm ambient, soft piano, warm";
+                String problem = music.play(mood, args.optInt("bpm", 0));
+                store.phoneLog("● 배경음악 · " + mood + (problem.isEmpty() ? "" : " · " + problem));
+                return problem.isEmpty() ? obj("ok", true, "mood", mood, "say", "Say briefly in Korean that the background music is starting in that mood (it takes a few seconds).")
+                    : obj("ok", false, "error", problem);
+            }
+        }
     }
     /** The places a navigate call last offered to choose from (main thread), for its pick; kept PLACES_MS, for that destination only. */
     private String placesFor = ""; private java.util.List<dev.jun.gyeot.core.NaverPlaces.Place> placesOffered = java.util.List.of(); private long placesAt;
