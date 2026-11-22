@@ -51,6 +51,10 @@ final class GeminiAudioClient {
     static String watchYouTube(String key, String id, String prompt, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
         return generate(key, GeminiMedia.YOUTUBE_MODELS, GeminiMedia.request(GeminiMedia.youtube(id), prompt, true), GeminiMedia::answer, guard, cancel);
     }
+    /** 이 영상에 대해 물어보세요: a whole conversation about a YouTube video (core/VideoChat.watch), the video watched again each turn. */
+    static String watchYouTube(String key, JSONObject request, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        return generate(key, GeminiMedia.YOUTUBE_MODELS, request, GeminiMedia::answer, guard, cancel);
+    }
     static String summarize(String key, String instructions, String transcript) throws Exception {
         return generate(key, GeminiSearch.MODELS, GeminiAudio.text(instructions, transcript), GeminiAudio::answer, () -> {}, null);
     }
