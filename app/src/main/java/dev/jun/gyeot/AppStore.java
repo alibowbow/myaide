@@ -330,7 +330,10 @@ final class AppStore {
         try { nim.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
     }
     String liveThinkingLevel() { return GeminiProtocol.thinkingLevel(settings.getString("liveThinkingLevel", "MEDIUM")); }
-    boolean translateToKorean() { return settings.getBoolean("translateToKorean", true); }
+    /** 뜻으로 찾기 (SemanticIndex): off until turned on, since it sends what the app keeps to Gemini's embedding model. */
+    boolean semanticSearch() { return settings.getBoolean("semanticSearch", false); }
+    void semanticSearch(boolean on) { settings.edit().putBoolean("semanticSearch", on).apply(); changed(); }
+        boolean translateToKorean() { return settings.getBoolean("translateToKorean", true); }
     InterpreterConfig interpreterConfig() {
         return new InterpreterConfig(settings.getString("translateLanguageA", "ko"),
             settings.getString("translateLanguageB", InterpreterConfig.code(language(), "en")), settings.getString("translateMode", InterpreterConfig.AUTO));

@@ -119,6 +119,66 @@ final class GlobalSearchSource {
     }
     static String keptName(String kind) { return YouTubeTranscriptClient.KIND.equals(kind) ? "유튜브 대본" : "가져온 웹 글"; }
 
+    /** The newest main chat messages 뜻으로 찾기 indexes. */
+    static final int SEMANTIC_CHAT = 300;
+    /**
+     * Everything 뜻으로 찾기 (SemanticIndex) indexes, one Doc a thing, with the same kind and id a word search gives, so a
+     * result opens the same way. Off the main thread.
+     */
+    static List<dev.jun.gyeot.core.SemanticSearch.Doc> docs(Context context, AppStore store) {
+        List<dev.jun.gyeot.core.SemanticSearch.Doc> out = new ArrayList<>();
+        try {
+            long before = 0;
+            for (int read = 0; read < SEMANTIC_CHAT; ) {
+                JSONArray rows = store.mainChat.page(before, 40); if (rows.length() == 0) break;
+                for (int i = rows.length() - 1; i >= 0; i--) {
+                    JSONObject row = rows.optJSONObject(i); if (row == null) continue;
+                    String role = row.optString("role");
+                    if ("user".equals(role) || "assistant".equals(role)) out.add(new dev.jun.gyeot.core.SemanticSearch.Doc(GlobalSearch.CHAT, "" + row.optLong("id"), "user".equals(role) ? "내가 쓴 말" : Brand.NAME + "의 답", row.optString("text"), row.optLong("created")));
+                }
+                read += rows.length(); long first = rows.optJSONObject(0) == null ? 0 : rows.optJSONObject(0).optLong("id");
+                if (first <= 1 || first == before) break; before = first;
+            }
+        } catch (RuntimeException closed) { /* The main chat is not open yet. */ }
+        JSONArray threads = store.works();
+        for (int i = 0; i < threads.length(); i++) {
+            JSONObject thread = threads.optJSONObject(i); if (thread == null) continue;
+            out.add(new dev.jun.gyeot.core.SemanticSearch.Doc(GlobalSearch.WORK, thread.optString("id"), thread.optString("title"), workText(thread), Math.max(thread.optLong("updatedAt"), thread.optLong("createdAt"))));
+        }
+        PageBook book = PageStore.book(context);
+        for (PageBook.Page page : book.pages()) {
+            String body; try { body = book.body(page.id()); } catch (Exception missing) { body = ""; }
+            out.add(new dev.jun.gyeot.core.SemanticSearch.Doc(GlobalSearch.PAGE, page.id(), page.title(), body, page.updated()));
+        }
+        JSONArray list = store.memories();
+        for (int i = 0; i < list.length(); i++) {
+            JSONObject memory = list.optJSONObject(i); if (memory == null) continue;
+            out.add(new dev.jun.gyeot.core.SemanticSearch.Doc(GlobalSearch.MEMORY, memory.optString("id", "" + i), "기억", memory.optString("text"), Math.max(memory.optLong("updatedAt"), memory.optLong("createdAt"))));
+        }
+        list = store.notes();
+        for (int i = 0; i < list.length(); i++) { JSONObject note = list.optJSONObject(i); if (note != null) out.add(new dev.jun.gyeot.core.SemanticSearch.Doc(GlobalSearch.NOTE, note.optString("id"), note.optString("title"), note.optString("body"), note.optLong("createdAt"))); }
+        list = store.allSessions();
+        for (int i = 0; i < list.length(); i++) {
+            JSONObject session = list.optJSONObject(i); if (session == null) continue;
+            String title = session.optString("title").isBlank() ? voiceTitle(session) : session.optString("title"), summary = session.optString("summary");
+            out.add(new dev.jun.gyeot.core.SemanticSearch.Doc(GlobalSearch.VOICE, session.optString("id"), title, (summary.isBlank() ? "" : summary + "\n") + AppStore.sessionText(session), session.optLong("startedAt")));
+        }
+        list = store.recordings();
+        for (int i = 0; i < list.length(); i++) {
+            JSONObject recording = list.optJSONObject(i); if (recording == null) continue;
+            String summary = recording.optString("summary");
+            out.add(new dev.jun.gyeot.core.SemanticSearch.Doc(GlobalSearch.RECORDING, recording.optString("id"), recording.optString("title"), (summary.isBlank() ? "" : summary + "\n") + recording.optString("transcript"), recording.optLong("createdAt")));
+        }
+        for (String kind : KEPT_KINDS) {
+            File[] files = new File(context.getFilesDir(), kind).listFiles((dir, name) -> name.endsWith(".txt"));
+            for (int i = 0; files != null && i < files.length; i++) {
+                String key = files[i].getName().substring(0, files[i].getName().length() - 4), text = KeptText.saved(context, kind, key), title = GlobalSearch.keptTitle(text);
+                out.add(new dev.jun.gyeot.core.SemanticSearch.Doc(GlobalSearch.KEPT, kind + "/" + key, title.isEmpty() ? keptName(kind) : title, GlobalSearch.keptBody(text), files[i].lastModified()));
+            }
+        }
+        return out;
+    }
+
     /** The whole text of one result, to read in a sheet; "" when it is gone. */
     static String text(Context context, AppStore store, Hit hit) {
         try {

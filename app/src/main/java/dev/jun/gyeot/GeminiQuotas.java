@@ -41,4 +41,22 @@ final class GeminiQuotas {
         AppStore s = store; if (s == null) return false;
         return s.changeGeminiQuota(state -> GeminiQuota.refused(state, model, status, body, System.currentTimeMillis()), true);
     }
+    /** The first of models this key can use, or null when it can use none (no store: the first). */
+    static String usable(String[] models) {
+        AppStore s = store;
+        return s == null ? models[0] : GeminiQuota.usable(models, s.geminiQuota());
+    }
+    /** The model can take a request of about tokens now (no store: yes). */
+    static boolean ready(String model, int tokens) {
+        AppStore s = store;
+        return s == null || GeminiQuota.ready(model, s.geminiQuota(), System.currentTimeMillis(), tokens);
+    }
+    /** Requests to the model today, and its free requests a day (0: not known). */
+    static int uses(String model) { AppStore s = store; return s == null ? 0 : GeminiQuota.uses(s.geminiQuota(), model, System.currentTimeMillis()); }
+    static int perDay(String model) { AppStore s = store; return s == null ? 0 : GeminiQuota.perDay(s.geminiQuota(), model); }
+    /** count requests the model answered at once (a batch), with the tokens they took together. */
+    static void used(String model, int tokens, int count) {
+        AppStore s = store; if (s == null || count <= 0) return;
+        s.changeGeminiQuota(state -> { long now = System.currentTimeMillis(); for (int i = 0; i < count; i++) GeminiQuota.used(state, model, now, i == 0 ? tokens : 0); return null; }, false);
+    }
 }

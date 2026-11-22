@@ -35,11 +35,31 @@ public final class GeminiQuota {
         "gemini-2.5-flash", new Free(5, 20), "gemini-2.5-flash-lite", new Free(10, 20));
     /** Every Gemma 4 model (31B, 26B and any size the key lists): many requests a day, few tokens a minute. */
     static final Free GEMMA_4 = new Free(30, 14_400, 16_000);
+    /** Gemini's embedding models (뜻으로 찾기): many requests a minute, a thousand a day each. */
+    static final Free EMBEDDING = new Free(100, 1_000, 30_000);
     /** A model's free tier as known, or null. */
     public static Free free(String model) {
         Free known = KNOWN.get(model);
-        if (known != null) return known;
-        return model != null && model.startsWith("gemma-4-") ? GEMMA_4 : null;
+        if (known != null || model == null) return known;
+        return model.startsWith("gemma-4-") ? GEMMA_4 : model.startsWith("gemini-embedding-") ? EMBEDDING : null;
+    }
+    /** The first of models this key can use (not found missing), or null. */
+    public static String usable(String[] models, JSONObject state) {
+        for (String model : models) { JSONObject entry = state == null ? null : state.optJSONObject(model); if (entry == null || !entry.optBoolean("missing")) return model; }
+        return null;
+    }
+    /** The model can take a request of about tokens now: not missing, its day not used up, not resting, under its minute's limits. */
+    public static boolean ready(String model, JSONObject state, long now, int tokens) {
+        JSONObject entry = state == null ? null : state.optJSONObject(model);
+        if (entry != null && entry.optBoolean("missing")) return false;
+        boolean current = entry != null && day(now).equals(entry.optString("day"));
+        if (current && entry.optBoolean("full")) return false;
+        if (entry != null && entry.optLong("rest") > now) return false;
+        int perDay = perDay(state, model); if (perDay > 0 && uses(state, model, now) >= perDay) return false;
+        Free known = free(model);
+        boolean minute = entry != null && now - entry.optLong("minute") < MINUTE;
+        if (known != null && known.perMinute() > 0 && minute && entry.optInt("minuteUses") >= known.perMinute()) return false;
+        return known == null || known.tokensPerMinute() <= 0 || tokens <= 0 || (minute ? entry.optInt("minuteTokens") : 0) + tokens <= known.tokensPerMinute();
     }
     private static final ZoneId PACIFIC = ZoneId.of("America/Los_Angeles");
     static final long MINUTE = 60_000, LONGEST_REST = 10 * MINUTE;
@@ -79,21 +99,12 @@ public final class GeminiQuota {
      */
     public static List<String> order(String[] models, JSONObject state, long now, int tokens) {
         List<String> ready = new ArrayList<>();
-        String today = day(now), fallback = null;
+        String fallback = null;
         for (String model : models) {
             JSONObject entry = state == null ? null : state.optJSONObject(model);
             if (entry != null && entry.optBoolean("missing")) continue;
             if (fallback == null) fallback = model;
-            boolean current = entry != null && today.equals(entry.optString("day"));
-            if (current && entry.optBoolean("full")) continue;
-            if (entry != null && entry.optLong("rest") > now) continue;
-            int perDay = perDay(state, model); if (perDay > 0 && uses(state, model, now) >= perDay) continue;
-            Free known = free(model);
-            boolean minute = entry != null && now - entry.optLong("minute") < MINUTE;
-            if (known != null && known.perMinute() > 0 && minute && entry.optInt("minuteUses") >= known.perMinute()) continue;
-            if (known != null && known.tokensPerMinute() > 0 && tokens > 0
-                && (minute ? entry.optInt("minuteTokens") : 0) + tokens > known.tokensPerMinute()) continue;
-            if (!ready.contains(model)) ready.add(model);
+            if (ready(model, state, now, tokens) && !ready.contains(model)) ready.add(model);
         }
         if (ready.isEmpty()) ready.add(fallback != null ? fallback : models[0]);
         return ready;
