@@ -272,6 +272,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         videoPane.setLayoutParams(side && shorts ? new LinearLayout.LayoutParams(shortsWidth(), -1) : side ? new LinearLayout.LayoutParams(0, -1, 1.3f)
             : full ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
         stage.setLayoutParams(fill ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
+        // One column on a phone: a band of the stage's black over the video, so it does not sit hard against the top.
+        stage.setPadding(0, !side && !full && !typing ? ui.dp(16) : 0, 0, 0);
         listPane.setLayoutParams(side ? new LinearLayout.LayoutParams(0, -1, 1) : new LinearLayout.LayoutParams(-1, 0, 1));
         // 이 동영상에 대해 물어보세요 takes the list's place (beside the video, side by side) while it is open.
         listPane.setVisibility(full || asking ? View.GONE : View.VISIBLE);
