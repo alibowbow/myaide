@@ -109,9 +109,8 @@ final class VideoAskPanel {
         video = v; open = true; error = ""; transcript = null;
         synchronized (CHATS) { turns = CHATS.computeIfAbsent(v.id(), id -> new ArrayList<>()); while (CHATS.size() > 30) CHATS.remove(CHATS.keySet().iterator().next()); }
         view.setVisibility(View.VISIBLE);
-        boolean fresh; synchronized (CHATS) { fresh = turns.isEmpty(); }
-        if (fresh) { String first = store.settings.getBoolean("mytubeTimeline", true) ? VideoChat.TIMELINE : VideoChat.PLAIN; ask(VideoChat.Turn.user(first, VideoChat.request(v, first), true)); }
-        else draw();
+        // Nothing starts by itself: a summary begins when 타임라인 요약 or 일반 요약 above is pressed, or a question is sent.
+        draw();
     }
     /** ✕ or back: the panel goes, an answer being made stops, and the list comes back. */
     void close() {
@@ -133,6 +132,10 @@ final class VideoAskPanel {
     private void draw() {
         talk.removeAllViews();
         List<VideoChat.Turn> shown; synchronized (CHATS) { shown = new ArrayList<>(turns); }
+        if (shown.isEmpty() && !busy && error.isEmpty()) {
+            TextView hint = ui.text("위에서 타임라인 요약이나 일반 요약을 누르거나, 아래에 물어보세요.", FOOTNOTE, 450, MUTED); hint.setPadding(0, ui.dp(8), 0, 0);
+            talk.addView(hint);
+        }
         for (int i = 0; i < shown.size(); i++) {
             VideoChat.Turn turn = shown.get(i);
             if (turn.user()) talk.addView(asked(turn)); else talk.addView(answered(turn, i == shown.size() - 1 && i > 0));
