@@ -326,7 +326,7 @@ public final class MainActivity extends Activity {
         }
     }
     @Override protected void onPause() { hostResumed=false;if(mainChat!=null)mainChat.pause(); if (composerDictation != null) composerDictation.pause(); if (videoDialog != null) videoDialog.background(); super.onPause(); }
-    @Override protected void onResume() { super.onResume();hostResumed=true;AppNavigator.inFront("main");store.refreshModelListsIfDue();WorkScheduleAlarm.refresh(this, store);if(showingMainChat&&mainChat!=null)mainChat.resume(); if (videoDialog != null) videoDialog.foreground(); BrowserRuntime.prepareWhenIdle(this);
+    @Override protected void onResume() { super.onResume();hostResumed=true;AppNavigator.inFront("main");store.refreshModelListsIfDue();SemanticIndex.catchUpIfDue(this, store);Briefing.catchUp(this, store);WorkScheduleAlarm.refresh(this, store);if(showingMainChat&&mainChat!=null)mainChat.resume(); if (videoDialog != null) videoDialog.foreground(); BrowserRuntime.prepareWhenIdle(this);
         if(isLauncher(getIntent())&&StorageSetupActivity.maybeOffer(this))return;
         if(pendingLaunchVoice){pendingLaunchVoice=false;if(store.voiceOnOpen()&&!store.voiceActive){mode=ASSISTANT;recordingPage=false;showTab(0);startVoice();}}
     }
@@ -3986,9 +3986,8 @@ public final class MainActivity extends Activity {
             default -> ui.chip("ChatGPT 연결하기", () -> openSettings("chatgpt"));
         }), 0);
         if (chosen.equals("gemini")) {
-            String today = dev.jun.gyeot.core.GeminiThink.day(java.time.Instant.now());
-            TextView used = ui.label("오늘: " + dev.jun.gyeot.core.GeminiThink.summary(store.flashState(), today), 12, ACCENT); used.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), 0); add(used, 0);
-            add(ui.details("무료 한도와 모델 순서", "Flash 최신 → 2.5 Flash → Flash-Lite 최신 → 2.5 Flash-Lite 순서로 써요. 무료 하루 한도가 차면 다음 모델로 넘어가고, 한도는 미국 서부 자정(한국 오후 4~5시)에 다시 채워져요."), 0);
+            TextView used = ui.label("오늘: " + dev.jun.gyeot.core.GeminiQuota.summary(store.geminiQuota(), dev.jun.gyeot.core.GeminiThink.MODELS, System.currentTimeMillis()), 12, ACCENT); used.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), 0); add(used, 0);
+            add(ui.details("무료 한도와 모델 순서", "Flash 최신 → 2.5 Flash(하루 20번씩) → 3.5 Flash-Lite → 3.1 Flash-Lite(하루 500번씩) → Flash-Lite 최신 순서로 써요. 무료 하루 한도가 차거나 분당 한도에 걸리면 다음 모델로 넘어가고, 한도는 미국 서부 자정(한국 오후 4~5시)에 다시 채워져요. 앱의 검색·영상 요약 같은 다른 Gemini 사용과 한도를 함께 세요(설정 → 사용량)."), 0);
             add(ui.actions(ui.chip("내 키의 무료 한도 보기", () -> open("https://aistudio.google.com/rate-limit"))), 0);
         }
         if (chosen.equals("nim") && ready) { TextView nim = ui.quietRow("NVIDIA NIM 설정 열기 ›", () -> openSettings("nim")); nim.setPadding(ui.dp(16), 0, ui.dp(16), 0); add(nim, 0); }
@@ -4333,11 +4332,15 @@ public final class MainActivity extends Activity {
 
         add(ui.sectionHeader("말하기와 알림"), 0);
         LinearLayout speak = ui.group();
+        String[] levels = {"원래대로", "고르게 · 차에서는 더 크게 (기본)", "크게 · 어디서나 크게"};
+        ui.addRow(speak, ui.choiceRow("목소리 크기", "목소리 크기", "작게 들리는 목소리를 키워요 · 차·블루투스 스피커에서는 더 크게", levels, store.voiceLevelChoice(),
+            position -> store.settings.edit().putInt("voiceLevel", position).apply()), false);
         ui.addRow(speak, ui.switchRow("켤 때 인사하기", "켜자마자 ‘틱’ 소리나 “네, 말씀하세요.”로 알려요", store.greetOnStart(), value -> store.settings.edit().putBoolean("greetOnStart", value).apply()), false);
         ui.addRow(speak, ui.switchRow("완료된 작업을 음성으로 안내", "대화 중 맡긴 일이 끝나면 말로 알려 줘요", store.announce(), value -> store.settings.edit().putBoolean("announce", value).apply()), false);
         ui.addRow(speak, ui.switchRow("음성으로 작업창에 일 시키기", "긴 일을 작업창에 맡겨요 · 기본은 꺼져 있어요.", store.voiceWork(), value -> store.settings.edit().putBoolean("voiceWork", value).apply()), false);
         add(speak, 0);
-        add(ui.details("자세히", "켤 때 인사하기 · 연결을 기다리지 않고 바로 인사해요. 스피커·차·블루투스 스피커에서는 짧고 작은 ‘틱’ 소리만 나요. 마이크 달린 이어폰에서는 그 목소리의 인사 음성이 저장돼 있으면 “네, 말씀하세요.”라고 하고, 없으면 ‘틱’ 소리가 나요. ‘기본’ 목소리는 ‘틱’ 소리로만 인사해요. 인사하는 동안 하시는 말도 막지 않고 모두 전달해요.\n"
+        add(ui.details("자세히", "목소리 크기 · 고르게는 작게 들리는 목소리(GPT 음성 등)를 다른 목소리만큼 키우고, 차나 블루투스 스피커가 연결돼 있으면 더 크게 해요. 이미 큰 목소리는 줄이지 않고, 키운 소리가 찢어지지 않게 끝만 눌러 줘요. 바꾸면 바로 적용돼요. 화면의 음성 대화에서 GPT 최신 음성은 통화로 나가서 휴대폰·차의 통화 음량을 따라요.\n"
+            + "켤 때 인사하기 · 연결을 기다리지 않고 바로 인사해요. 스피커·차·블루투스 스피커에서는 짧고 작은 ‘틱’ 소리만 나요. 마이크 달린 이어폰에서는 그 목소리의 인사 음성이 저장돼 있으면 “네, 말씀하세요.”라고 하고, 없으면 ‘틱’ 소리가 나요. ‘기본’ 목소리는 ‘틱’ 소리로만 인사해요. 인사하는 동안 하시는 말도 막지 않고 모두 전달해요.\n"
             + "음성으로 작업창에 일 시키기 · 저장소 수정 같은 긴 일을 작업창에 맡기고, 진행을 알려 주고, 말로 멈출 수 있어요. 웹 일은 브라우저, 폰 일은 폰 조작이 맡아요. 다음 음성 대화부터 적용돼요."), 0);
 
         add(ui.sectionHeader("통역 언어"), 0);
@@ -4545,6 +4548,122 @@ public final class MainActivity extends Activity {
         add(memoryBackup().section(), 0);
         add(ui.footer("저장 위치: 휴대폰 내장 저장공간 › 들퍼레 › 백업 폴더에 ‘기억-날짜-시간.json’(가져오기용)과 같은 이름의 .md(읽기용)로 저장돼요. 내 파일 앱에서도 열 수 있어요."), 0);
     }
+    /**
+     * 설정 → 기억 → 먼저 챙기기 (Briefing): the switch, 나에 대한 이해 (read, changed, made again), when 오늘의 제안 comes, and
+     * a try now. Gemma 4 makes both on the Gemini key; the cards wait over 메인 대화's message box.
+     */
+    private void proactiveSection() {
+        boolean on = Briefing.on(store);
+        add(ui.sectionHeader("먼저 챙기기"), 0);
+        LinearLayout group = ui.group();
+        ui.addRow(group, ui.switchRow("나를 이해하고 먼저 챙기기", "AI가 나에 대한 노트를 정리하고, 매일 아침 제안을 드려요", on, value -> { Briefing.turn(this, store, value); showTab(2); }), true);
+        String note = Briefing.note(store).strip(); long at = Briefing.noteAt(store);
+        String first = note.isEmpty() ? (on ? "곧 만들어요 (하루에 한 번 새로 정리해요)" : "켜면 만들어요") : note.replaceAll("(?m)^#+\\s*", "").replaceAll("\\s+", " ");
+        if (first.length() > 60) first = first.substring(0, 60) + "…";
+        ui.addRow(group, ui.listRow(R.drawable.ic_person, Ui.ORANGE, "나에 대한 이해", first + (at > 0 ? " · " + PagesActivity.when(at, java.time.ZonedDateTime.now()) : ""), ui.chevron(), this::aboutMeSheet), true);
+        int minutes = Briefing.minutes(store);
+        ui.addRow(group, ui.listRow(R.drawable.ic_calendar, Ui.BLUE, "오늘의 제안 시각", dev.jun.gyeot.core.Proactive.clock(minutes) + " · 알림과 메인 대화에", ui.chevron(), () ->
+            new android.app.TimePickerDialog(this, (picker, h, m) -> { Briefing.minutes(this, store, h * 60 + m); showTab(2); }, minutes / 60, minutes % 60, true).show()), true);
+        ui.addRow(group, ui.listRow(R.drawable.ic_bulb, Ui.GREEN, "지금 제안 받아 보기", on ? "오늘의 제안을 새로 만들어 메인 대화에 띄워요" : "먼저 위 스위치를 켜 주세요", ui.chevron(), () -> {
+            if (!Briefing.on(store)) { android.widget.Toast.makeText(this, "먼저 ‘나를 이해하고 먼저 챙기기’를 켜 주세요.", android.widget.Toast.LENGTH_SHORT).show(); return; }
+            android.widget.Toast.makeText(this, "제안을 만드는 중이에요…", android.widget.Toast.LENGTH_SHORT).show();
+            android.content.Context app = getApplicationContext();
+            new Thread(() -> {
+                String said;
+                try { said = "오늘의 제안 " + Briefing.morning(app, store, false).size() + "개를 메인 대화에 띄웠어요"; }
+                catch (Exception e) { said = e.getMessage() == null ? "제안을 만들지 못했어요." : e.getMessage(); }
+                String text = said; runOnUiThread(() -> { if (!isDestroyed()) { android.widget.Toast.makeText(this, text, android.widget.Toast.LENGTH_LONG).show(); if (text.startsWith("오늘의")) navigateMenu("chat"); } });
+            }, "briefing-now").start();
+        }), false);
+        add(group, 0);
+        add(ui.footer("노트와 제안은 기억·최근 대화·작업창·기록을 바탕으로 Gemini 키의 Gemma 4가 만들어요(무료 한도 안). 노트는 메인 대화·음성 비서·작업창이 참고해요."), 0);
+        // 하루 돌아보기: each evening, the day's review as a page (페이지 → 하루 돌아보기), with a notification.
+        add(ui.sectionHeader("하루 돌아보기"), 0);
+        LinearLayout review = ui.group();
+        ui.addRow(review, ui.switchRow("저녁마다 하루 돌아보기", on ? "오늘 한 일·남은 일·내일 챙길 것을 페이지로 정리해 알려 드려요" : "먼저 위의 ‘먼저 챙기기’를 켜 주세요", Briefing.reviewOn(store),
+            value -> { if (!Briefing.on(store)) { android.widget.Toast.makeText(this, "먼저 ‘나를 이해하고 먼저 챙기기’를 켜 주세요.", android.widget.Toast.LENGTH_SHORT).show(); showTab(2); return; } Briefing.review(this, store, value); showTab(2); }), true);
+        int evening = Briefing.reviewMinutes(store);
+        ui.addRow(review, ui.listRow(R.drawable.ic_calendar, Ui.PURPLE, "돌아보기 시각", dev.jun.gyeot.core.Proactive.clock(evening), ui.chevron(), () ->
+            new android.app.TimePickerDialog(this, (picker, h, m) -> { Briefing.reviewMinutes(this, store, h * 60 + m); showTab(2); }, evening / 60, evening % 60, true).show()), true);
+        ui.addRow(review, ui.listRow(R.drawable.ic_pages, Ui.TEAL, "지금 돌아보기", "오늘 지금까지를 정리해 페이지로 열어요", ui.chevron(), () -> {
+            android.widget.Toast.makeText(this, "오늘을 정리하는 중이에요…", android.widget.Toast.LENGTH_SHORT).show();
+            android.content.Context app = getApplicationContext();
+            new Thread(() -> {
+                String id = null, why = "";
+                try { id = Briefing.evening(app, store, false); } catch (Exception e) { why = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
+                String page = id, reason = why;
+                runOnUiThread(() -> { if (isDestroyed()) return;
+                    if (page == null) android.widget.Toast.makeText(this, reason, android.widget.Toast.LENGTH_LONG).show();
+                    else startActivity(new Intent(this, PagesActivity.class).putExtra(PagesActivity.OPEN, page).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP)); });
+            }, "review-now").start();
+        }), false);
+        add(review, 0);
+    }
+    /** 기억 정리: the plan made first, shown line by line, applied only on 적용 (the notes before kept for 되돌리기). */
+    private void tidyMemory() {
+        JSONArray notes = store.memories();
+        String listed = dev.jun.gyeot.core.Memory.prompt(notes, false);
+        if (listed.isEmpty()) { android.widget.Toast.makeText(this, "정리할 기억이 아직 없어요.", android.widget.Toast.LENGTH_SHORT).show(); return; }
+        android.widget.Toast.makeText(this, "기억을 살펴보는 중이에요…", android.widget.Toast.LENGTH_SHORT).show();
+        android.content.Context app = getApplicationContext();
+        new Thread(() -> {
+            String answer = null, why = "";
+            try { String key = store.secrets.workKey(); if (key.isBlank()) throw new IllegalStateException("설정 → Gemini API 키를 먼저 넣어 주세요."); answer = GeminiAudioClient.light(key, dev.jun.gyeot.core.Memory.cleanup(listed), "기억을 정리해 주세요."); }
+            catch (Exception e) { why = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
+            String plan = answer == null ? null : dev.jun.gyeot.core.Memory.withoutAdd(answer), reason = why;
+            runOnUiThread(() -> {
+                if (isDestroyed()) return;
+                if (plan == null) { android.widget.Toast.makeText(this, reason, android.widget.Toast.LENGTH_LONG).show(); return; }
+                java.util.List<String> changes = dev.jun.gyeot.core.Memory.preview(store.memories(), plan);
+                if (changes.isEmpty()) { android.widget.Toast.makeText(this, "정리할 게 없어요. 기억이 깔끔해요 👍", android.widget.Toast.LENGTH_SHORT).show(); return; }
+                Ui.Sheet sheet = ui.selectionSheet("기억 정리", changes.size() + "가지를 바꿔요 · 적용 전에 확인해 주세요");
+                TextView list = ui.text(String.join("\n\n", changes), 14, 400, TEXT); list.setLineSpacing(ui.dp(3), 1); list.setTextIsSelectable(true); ui.add(sheet.body, list, 8);
+                sheet.primary.setText("적용");
+                sheet.primary.setOnClickListener(v -> {
+                    try {
+                        store.settings.edit().putString("memoryUndo", store.memories().toString()).apply();
+                        int changed = store.changeMemory(memories -> dev.jun.gyeot.core.Memory.apply(memories, plan, System.currentTimeMillis()));
+                        android.widget.Toast.makeText(this, "기억 " + changed + "가지를 정리했어요", android.widget.Toast.LENGTH_SHORT).show();
+                    } catch (Exception e) { android.widget.Toast.makeText(this, "정리하지 못했어요.", android.widget.Toast.LENGTH_SHORT).show(); }
+                    sheet.dismiss(); showTab(2);
+                });
+                sheet.show();
+            });
+        }, "memory-tidy").start();
+    }
+    /** Puts the notes back as they were before the last 기억 정리. */
+    private void undoTidy() {
+        String saved = store.settings.getString("memoryUndo", ""); if (saved.isEmpty()) return;
+        new AlertDialog.Builder(this).setTitle("마지막 정리를 되돌릴까요?").setMessage("정리하기 전 기억으로 돌아가요. 그 뒤에 새로 생긴 기억은 사라져요.")
+            .setNegativeButton("취소", null).setPositiveButton("되돌리기", (d, w) -> {
+                try {
+                    JSONArray before = new JSONArray(saved);
+                    store.changeMemory(memories -> { while (memories.length() > 0) memories.remove(0); for (int i = 0; i < before.length(); i++) memories.put(before.opt(i)); return before.length(); });
+                    store.settings.edit().remove("memoryUndo").apply();
+                    android.widget.Toast.makeText(this, "되돌렸어요", android.widget.Toast.LENGTH_SHORT).show();
+                } catch (Exception e) { android.widget.Toast.makeText(this, "되돌리지 못했어요.", android.widget.Toast.LENGTH_SHORT).show(); }
+                showTab(2);
+            }).show();
+    }
+    /** 나에 대한 이해: the note to read and change (kept as written), or made again now. */
+    private void aboutMeSheet() {
+        Ui.Sheet sheet = ui.selectionSheet("나에 대한 이해", "AI가 정리한 노트예요 · 고치면 그대로 지켜요");
+        EditText field = ui.input("아직 없어요. ‘지금 다시 정리’를 눌러 보세요.", 8, dev.jun.gyeot.core.Proactive.PROFILE_LIMIT);
+        field.setText(Briefing.note(store)); ui.add(sheet.body, field, 8);
+        ui.add(sheet.body, ui.button("지금 다시 정리", false, () -> {
+            android.widget.Toast.makeText(this, "정리하는 중이에요…", android.widget.Toast.LENGTH_SHORT).show();
+            android.content.Context app = getApplicationContext();
+            new Thread(() -> {
+                String made = null, why = "";
+                try { made = Briefing.remake(app, store); } catch (Exception e) { why = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
+                String text = made, reason = why;
+                runOnUiThread(() -> { if (isDestroyed()) return; if (text != null) { field.setText(text); android.widget.Toast.makeText(this, "새로 정리했어요", android.widget.Toast.LENGTH_SHORT).show(); } else android.widget.Toast.makeText(this, reason, android.widget.Toast.LENGTH_LONG).show(); });
+            }, "about-me").start();
+        }), 8);
+        sheet.primary.setText("저장");
+        sheet.primary.setOnClickListener(v -> { Briefing.edit(store, field.getText().toString()); sheet.dismiss(); showTab(2); });
+        sheet.show();
+    }
     private void pageMemory() {
         add(ui.text("대화에서 알게 된 것과 배운 폰 사용법을 기억해 두고, 다음 대화에서 써요.", 15, 400, MUTED), 4);
         boolean memoryOn = store.memoryOn();
@@ -4559,6 +4678,7 @@ public final class MainActivity extends Activity {
         add(use, 0);
         add(ui.footer("“이거 기억해 줘”, “그건 잊어 줘”라고 말해도 돼요. 비밀번호·인증번호·카드번호는 기억하지 않아요."), 0);
         add(ui.details("자동으로 기억하는 방법", "대화가 끝난 뒤 오래 쓸 만한 내용(호칭, 가족, 취향, 진행 중인 일)만 골라 기억하고, 폰 조작으로 한 일은 실제로 누른 단계를 사용법으로 정리해 둬요. 다음에 같은 앱이나 사이트를 다룰 때 그 순서대로 해요."), 0);
+        proactiveSection();
         // Counted as the 기억한 것 page lists them.
         JSONArray notes = store.memories(); int about = 0, phone = 0;
         for (int i = 0; i < notes.length(); i++) {
@@ -4568,6 +4688,10 @@ public final class MainActivity extends Activity {
         add(ui.sectionHeader("기억한 것"), 0);
         LinearLayout kept = ui.group();
         ui.addRow(kept, ui.listRow(R.drawable.ic_bulb, Ui.ORANGE, "기억한 것 보기", about + phone == 0 ? "아직 없어요" : "나에 대해 " + about + "개 · 폰 사용법 " + phone + "개", ui.chevron(), () -> openSettings("memories")), true);
+        // 기억 정리: Gemma 4 tidies the notes about the user; what it would change shows first, and the last tidy can be undone.
+        ui.addRow(kept, ui.listRow(R.drawable.ic_refresh, Ui.GREEN, "기억 정리 (AI)", "겹치는 기억은 합치고, 지난 일은 지워요 · 바꾸기 전에 보여 드려요", ui.chevron(), this::tidyMemory), true);
+        if (!store.settings.getString("memoryUndo", "").isEmpty())
+            ui.addRow(kept, ui.listRow(R.drawable.ic_back, Ui.BLUE, "마지막 정리 되돌리기", "정리하기 전 기억으로 돌아가요", ui.chevron(), this::undoTidy), true);
         add(kept, 0);
         // Two lines at 360dp, so it keeps a footer's distance from the group above.
         TextView pinned = ui.quietRow("메인 대화의 고정 기억은 메인 대화 ⋯ → 기억·제약에서 고쳐요 ›", () -> navigateMenu("chat")); pinned.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(4)); add(pinned, 0);

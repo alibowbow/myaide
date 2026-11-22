@@ -44,7 +44,9 @@ public final class SearchActivity extends Activity {
     private Ui ui; private AppStore store; private MainNavigation navigation; private LinearLayout root, list; private FrameLayout kinds; private EditText field;
     private String query = "", kind = GlobalSearch.ALL; private List<Hit> hits = new ArrayList<>();
     private long searches; private boolean destroyed, searched; private Ui.Sheet open;
-    private final Runnable search = this::search;
+    private final Runnable search = this::search, meaning = this::meaning;
+    /** 뜻으로 찾기: the results nearest the query's meaning (SemanticIndex), asked once typing has paused a little longer. */
+    private List<Hit> similar = new ArrayList<>(); private long meanings;
 
     /** Opens this screen with query already searched ("" for an empty box). */
     static void open(Activity from, String query) {
@@ -75,19 +77,20 @@ public final class SearchActivity extends Activity {
         setContentView(navigation); root.requestApplyInsets();
         LinearLayout heading = ui.row(); heading.addView(back(), new LinearLayout.LayoutParams(-2, ui.dp(48))); root.addView(heading);
         TextView title = ui.title("전체 검색", 26); title.setAccessibilityHeading(true); ui.add(root, title, 4);
-        ui.add(root, ui.label("메인 대화·작업창·페이지·기억·메모·음성 기록·녹음·가져온 글에서 한 번에 찾아요.", 13, MUTED), 12);
+        ui.add(root, ui.label("메인 대화·작업창·페이지·기억·메모·음성 기록·녹음·영상 요약·가져온 글에서 한 번에 찾아요.", 13, MUTED), 12);
         field = ui.searchField(ui.input("찾을 말 · 두 글자부터", 1, 100)); field.setText(query); field.setSelection(field.getText().length()); field.setContentDescription("전체 검색");
         field.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
             // Searching reads files: it waits until typing pauses.
-            @Override public void afterTextChanged(Editable s) { if (s.toString().equals(query)) return; query = s.toString(); main.removeCallbacks(search); main.postDelayed(search, 250); }
+            @Override public void afterTextChanged(Editable s) { if (s.toString().equals(query)) return; query = s.toString(); main.removeCallbacks(search); main.removeCallbacks(meaning); similar = new ArrayList<>(); meanings++; main.postDelayed(search, 250); }
         });
         ui.add(root, field, 10);
         kinds = new FrameLayout(this); ui.add(root, kinds, 4);
         ScrollView scroll = new ScrollView(this); list = ui.column(); list.setPadding(0, 0, 0, ui.dp(24)); scroll.addView(list);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         if (query.isBlank()) { draw(); field.requestFocus(); } else search();
+        SemanticIndex.catchUpIfDue(this, store);
     }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent); setIntent(intent);
@@ -95,8 +98,9 @@ public final class SearchActivity extends Activity {
         if (asked != null && !asked.equals(query)) { kind = GlobalSearch.ALL; field.setText(asked); }
     }
     @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putString("query", query); state.putString("kind", kind); }
-    @Override protected void onResume() { super.onResume(); AppNavigator.inFront("search"); if (searched) search(); }
-    @Override protected void onDestroy() { destroyed = true; main.removeCallbacks(search); if (open != null && open.isShowing()) open.dismiss(); worker.shutdown(); super.onDestroy(); }
+    @Override protected void onResume() { super.onResume(); AppNavigator.inFront("search"); SemanticIndex.listener = () -> { if (!destroyed) draw(); }; if (searched) search(); }
+    @Override protected void onPause() { SemanticIndex.listener = null; super.onPause(); }
+    @Override protected void onDestroy() { destroyed = true; main.removeCallbacks(search); main.removeCallbacks(meaning); if (open != null && open.isShowing()) open.dismiss(); worker.shutdown(); super.onDestroy(); }
     @Override public void onBackPressed() {
         if (navigation != null && navigation.close()) return;
         if (!GlobalSearch.ALL.equals(kind)) { kind = GlobalSearch.ALL; draw(); return; }
@@ -118,28 +122,69 @@ public final class SearchActivity extends Activity {
             List<Hit> found;
             try { found = GlobalSearchSource.find(getApplicationContext(), store, asked); } catch (RuntimeException failed) { found = new ArrayList<>(); }
             List<Hit> result = found;
-            Runnable show = () -> { if (destroyed || mine != searches) return; hits = result; searched = true; if (GlobalSearch.of(hits, kind).isEmpty()) kind = GlobalSearch.ALL; draw(); };
+            Runnable show = () -> {
+                if (destroyed || mine != searches) return; hits = result; searched = true; if (GlobalSearch.of(hits, kind).isEmpty()) kind = GlobalSearch.ALL; draw();
+                main.removeCallbacks(meaning); main.postDelayed(meaning, 600);
+            };
             if (work != null) show.run(); else main.post(show);
         };
         if (work != null) work.execute(job); else worker.execute(job);
+    }
+    /** Asks for the query's meaning (one Gemini request, none for a query asked before); dropped when typed over since. */
+    private void meaning() {
+        if (work != null || !SemanticIndex.searchable(this, store)) return;
+        long mine = ++meanings; String asked = query; android.content.Context app = getApplicationContext();
+        worker.execute(() -> {
+            List<Hit> found;
+            try { found = SemanticIndex.find(app, store, asked); } catch (RuntimeException failed) { found = new ArrayList<>(); }
+            List<Hit> result = found;
+            main.post(() -> { if (destroyed || mine != meanings || !asked.equals(query)) return; similar = result; draw(); });
+        });
     }
 
     private static int icon(String kind) {
         return switch (kind) {
             case GlobalSearch.CHAT -> R.drawable.ic_chat; case GlobalSearch.WORK -> R.drawable.ic_work; case GlobalSearch.PAGE -> R.drawable.ic_pages; case GlobalSearch.MEMORY -> R.drawable.ic_bulb;
-            case GlobalSearch.NOTE -> R.drawable.ic_file; case GlobalSearch.VOICE -> R.drawable.ic_wave; case GlobalSearch.RECORDING -> R.drawable.ic_mic; default -> R.drawable.ic_globe;
+            case GlobalSearch.NOTE -> R.drawable.ic_file; case GlobalSearch.VOICE -> R.drawable.ic_wave; case GlobalSearch.RECORDING -> R.drawable.ic_mic; case GlobalSearch.VIDEO -> R.drawable.ic_play; default -> R.drawable.ic_globe;
         };
     }
     private static int tint(String kind) {
         return switch (kind) {
             case GlobalSearch.CHAT -> BLUE; case GlobalSearch.WORK -> INDIGO; case GlobalSearch.PAGE -> TEAL; case GlobalSearch.MEMORY -> ORANGE;
-            case GlobalSearch.NOTE -> GREEN; case GlobalSearch.VOICE -> PURPLE; case GlobalSearch.RECORDING -> RED; default -> MINT;
+            case GlobalSearch.NOTE -> GREEN; case GlobalSearch.VOICE -> PURPLE; case GlobalSearch.RECORDING -> RED; case GlobalSearch.VIDEO -> RED; default -> MINT;
         };
     }
 
     /** The kinds that have results (with how many), then the results: a few of each kind in 전체, all of one kind otherwise. */
     private void draw() {
         kinds.removeAllViews(); list.removeAllViews();
+        drawHits();
+        if (searched && !GlobalSearch.words(query).isEmpty() && GlobalSearch.ALL.equals(kind)) drawSimilar();
+        drawMeaningSwitch();
+    }
+    /** 뜻이 비슷한 것: the nearest by meaning that the words did not find already. */
+    private void drawSimilar() {
+        java.util.Set<String> found = new java.util.HashSet<>(); for (Hit hit : hits) found.add(hit.kind() + "/" + hit.id());
+        List<Hit> more = new ArrayList<>(); for (Hit hit : similar) if (!found.contains(hit.kind() + "/" + hit.id())) more.add(hit);
+        if (more.isEmpty()) return;
+        list.addView(ui.sectionHeader("뜻이 비슷한 것"));
+        rows(more, PREVIEW * 2, ZonedDateTime.now());
+    }
+    /** The switch for 뜻으로 찾기, with how far its index has come. */
+    private void drawMeaningSwitch() {
+        boolean on = store.semanticSearch();
+        String note = on ? SemanticIndex.progress() + "\n낱말이 달라도 뜻이 비슷한 것을 함께 찾아요."
+            : "낱말이 달라도 뜻이 비슷한 것을 찾아요. 켜면 글의 앞부분을 Gemini로 보내 이 폰에 색인을 만들어요.";
+        list.addView(ui.sectionHeader("뜻으로 찾기"));
+        LinearLayout group = ui.group();
+        group.addView(ui.switchRow("뜻으로도 찾기 (Gemini)", note, on, value -> {
+            store.semanticSearch(value);
+            if (value) SemanticIndex.start(this, store); else { SemanticIndex.forget(this); similar = new ArrayList<>(); }
+            draw(); if (value) { main.removeCallbacks(meaning); main.postDelayed(meaning, 600); }
+        }));
+        list.addView(group);
+    }
+    private void drawHits() {
         if (GlobalSearch.words(query).isEmpty()) { ui.add(list, ui.label(query.isBlank() ? "찾을 말을 적으면 여기에 나와요. 낱말을 띄어 쓰면 모두 들어 있는 것만 찾아요." : "두 글자부터 찾아요.", 14, MUTED), 20); return; }
         if (!searched) { ui.add(list, ui.label("찾는 중…", 14, MUTED), 20); return; }
         if (hits.isEmpty()) { ui.add(list, ui.label("‘" + query.strip() + "’이(가) 들어 있는 것이 없어요.", 14, MUTED), 20); return; }

@@ -122,6 +122,35 @@ public final class PhoneService extends AccessibilityService {
 
     static boolean connected() { return instance != null; }
     /**
+     * 내비게이션 → 안내 시작 대신 누르기: right after the app opened an app on the user's word (Naver Map's navigation), its
+     * button with one of these labels is pressed once it shows, within withinMs; only in that app's window, only a button
+     * whose whole text is the label. Quietly nothing when the service is off or the button never shows.
+     */
+    static void pressWhenShown(String pkg, java.util.List<String> labels, long withinMs, java.util.function.Consumer<String> pressed) {
+        if (instance == null) return;
+        android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        long until = SystemClock.uptimeMillis() + withinMs;
+        Runnable[] tick = new Runnable[1];
+        tick[0] = () -> {
+            PhoneService service = instance; if (service == null || SystemClock.uptimeMillis() > until) return;
+            try {
+                AccessibilityNodeInfo root = service.getRootInActiveWindow();
+                if (root != null && root.getPackageName() != null && pkg.contentEquals(root.getPackageName())) {
+                    for (String label : labels) for (AccessibilityNodeInfo node : root.findAccessibilityNodeInfosByText(label)) {
+                        CharSequence text = node.getText() != null ? node.getText() : node.getContentDescription();
+                        if (text == null || !text.toString().replaceAll("\\s+", "").equals(label.replaceAll("\\s+", ""))) continue;
+                        AccessibilityNodeInfo target = node; while (target != null && !target.isClickable()) target = target.getParent();
+                        if (target != null && target.isEnabled() && target.isVisibleToUser() && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                            if (pressed != null) pressed.accept(label); return;
+                        }
+                    }
+                }
+            } catch (RuntimeException gone) { /* The window changed under it: try again. */ }
+            main.postDelayed(tick[0], 400);
+        };
+        main.postDelayed(tick[0], 700);
+    }
+    /**
      * Starts one of DeviceActionRunner's system intents from this bound service, which Android lets start activities from the
      * background. It reads no screen and dispatches no gesture, so it needs no arming.
      */

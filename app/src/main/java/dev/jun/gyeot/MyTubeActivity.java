@@ -24,6 +24,7 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import dev.jun.gyeot.core.MyTube;
+import dev.jun.gyeot.core.VideoChat;
 import dev.jun.gyeot.core.MyTubeBook;
 import java.util.ArrayList;
 import java.util.List;
@@ -62,6 +63,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private TextView nowTitle, nowLine, header, about, when; private ShimmerText statusLine; private View feedActions;
     /** The screen's two parts: the video with its play buttons, pinned on top across the full width, and the list scrolling under it. */
     private LinearLayout body, videoPane, searchBar, listPane, controlsRow; private ScrollView scroll;
+    /** 유튜브 검색 folded into a magnifier (on the 추천 row) until it is wanted. */
+    private View lensButton, foldButton;
+    /** 나란히 보기: the room under the video (what plays, the search box, the 추천 · 저장 rows), scrolling when short; the two rows as one block. */
+    private LinearLayout underVideo, feedRows; private ScrollView underScroll;
     /**
      * 보기: 가로 꽉 (the video across the width, the list under it), 나란히 (a wide screen: the video on the left, the list on the
      * right; a Short always so) or 전체화면 (the video alone). The video sits on a stage, with the way out of 전체화면 on it.
@@ -90,7 +95,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     /** 라이브 채널: saved channels, one tap each to their broadcast on air now. */
     private LinearLayout liveChannels; private View liveScroll;
     /** 내용 정리 made in this run, by video. */
-    private static final java.util.Map<String, String> SUMMARIES = new java.util.LinkedHashMap<>();
+    /** 이 영상에 대해 물어보세요: the panel that takes the list's place while it is open. */
+    private VideoAskPanel askPanel;
     private String feedId; private boolean refreshing, destroyed;
     private final AtomicReference<Runnable> cancel = new AtomicReference<>();
     private final Runnable playerChanged = () -> main.post(this::showPlayer);
@@ -111,6 +117,14 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         scroll.addView(content);
         listPane = ui.column(); listPane.addView(searchBar, new LinearLayout.LayoutParams(-1, -2)); listPane.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         body.addView(videoPane, new LinearLayout.LayoutParams(-1, -2)); body.addView(listPane, new LinearLayout.LayoutParams(-1, 0, 1));
+        askPanel = new VideoAskPanel(this, ui, store, work, main, new VideoAskPanel.Host() {
+            @Override public MyTubePlayer player() { return player; }
+            @Override public void closed() { arranged = ""; showPlayer(); }
+            @Override public boolean gone() { return destroyed; }
+        });
+        body.addView(askPanel.view, new LinearLayout.LayoutParams(-1, 0, 1));
+        // The room changed (the composer, the keyboard, turning the phone): a dragged size is kept within it again.
+        body.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (b - t != ob - ot && sizeRatio > 0f && !dragging) main.post(this::showPlayer); });
         root.addView(body, new LinearLayout.LayoutParams(-1, 0, 1));
         root.post(() -> {
             // Under the page: 음성 대화's bar while it talks, else the composer.
@@ -145,7 +159,11 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         ImageView go = ui.quietIcon(R.drawable.ic_search, "검색", () -> search(searchBox.getText().toString()));
         go.setImageTintList(android.content.res.ColorStateList.valueOf(ON_ACCENT)); go.setBackground(ui.shape(ACCENT, PILL)); go.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9));
         LinearLayout.LayoutParams goAt = new LinearLayout.LayoutParams(ui.dp(38), ui.dp(38)); goAt.leftMargin = ui.dp(6); searchBar.addView(go, goAt);
-        searchBox.setOnFocusChangeListener((v, hasFocus) -> main.post(this::showPlayer));
+        // ✕ folds the box back into the magnifier.
+        foldButton = ui.bareIcon(R.drawable.ic_close, MUTED, "검색창 닫기", () -> foldSearch(true));
+        searchBar.addView(foldButton, new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
+        // While a video plays it folds into the magnifier at the end of the 추천 row; with none it stays open (searchLooks).
+        searchBox.setOnFocusChangeListener((v, hasFocus) -> { if (!hasFocus && searchBox.getText().toString().isBlank()) foldSearch(false); main.post(this::showPlayer); });
         // Its own search button and the keyboard's search key both search (the composer is out of the way meanwhile).
         // 라이브 채널: the channels saved from a search, each straight to its live broadcast.
         liveChannels = ui.row(); HorizontalScrollView liveRow = new HorizontalScrollView(this); liveRow.setHorizontalScrollBarEnabled(false); liveRow.addView(liveChannels); liveScroll = liveRow;
@@ -154,11 +172,23 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         chat = new MyTubeChat(this, ui, store, book, work, main, this);
         LinearLayout.LayoutParams chatGap = new LinearLayout.LayoutParams(-1, -2); chatGap.bottomMargin = ui.dp(8); content.addView(chat.card, chatGap);
         buildPlayer(content);
-        // Two rows: 추천, the feeds the AI fills; 저장, the lists of what the user saved (never replaced).
+        // Two rows: 추천, the feeds the AI fills; 저장, the lists of what the user saved (never replaced). One block, which
+        // 나란히 보기 sets under the video (arrange).
+        feedRows = ui.column();
         chips = ui.row(); chips.setGravity(Gravity.CENTER_VERTICAL); HorizontalScrollView chipScroll = new HorizontalScrollView(this); chipScroll.setHorizontalScrollBarEnabled(false); chipScroll.addView(chips);
-        LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); chipGap.topMargin = ui.dp(4); content.addView(chipScroll, chipGap);
+        // The 추천 row, with the magnifier at its end: a tap opens the search box on its own line (openSearch).
+        LinearLayout recommendLine = ui.row(); recommendLine.setGravity(Gravity.CENTER_VERTICAL);
+        recommendLine.addView(chipScroll, new LinearLayout.LayoutParams(0, -2, 1));
+        // The same round accent button as the search box's own (검색), so it is as easy to find and tap.
+        ImageView opener = ui.quietIcon(R.drawable.ic_search, "유튜브 검색 열기", this::openSearch);
+        opener.setImageTintList(android.content.res.ColorStateList.valueOf(ON_ACCENT)); opener.setBackground(ui.shape(ACCENT, PILL)); opener.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9));
+        lensButton = opener;
+        LinearLayout.LayoutParams lensAt = new LinearLayout.LayoutParams(ui.dp(38), ui.dp(38)); lensAt.leftMargin = ui.dp(6); lensAt.rightMargin = ui.dp(4); recommendLine.addView(lensButton, lensAt);
+        // The three lines (the video's buttons, 추천, 저장) close together: the chips' own height keeps them apart.
+        LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); feedRows.addView(recommendLine, chipGap);
         savedChips = ui.row(); savedChips.setGravity(Gravity.CENTER_VERTICAL); HorizontalScrollView savedScroll = new HorizontalScrollView(this); savedScroll.setHorizontalScrollBarEnabled(false); savedScroll.addView(savedChips);
-        LinearLayout.LayoutParams savedGap = new LinearLayout.LayoutParams(-1, -2); savedGap.topMargin = ui.dp(6); content.addView(savedScroll, savedGap);
+        LinearLayout.LayoutParams savedGap = new LinearLayout.LayoutParams(-1, -2); savedGap.topMargin = ui.dp(-4); feedRows.addView(savedScroll, savedGap);
+        content.addView(feedRows, new LinearLayout.LayoutParams(-1, -2));
         header = ui.title("", 17); header.setPadding(0, ui.dp(12), 0, 0); content.addView(header);
         about = ui.label("", 13, MUTED); about.setPadding(0, ui.dp(2), 0, 0); content.addView(about);
         when = ui.label("", 12, MUTED); when.setPadding(0, ui.dp(2), 0, 0); content.addView(when);
@@ -201,7 +231,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         destroyed = true; Runnable abort = cancel.getAndSet(null); if (abort != null) abort.run();
         for (Dialog d : new ArrayList<>(dialogs)) d.dismiss(); work.shutdownNow(); super.onDestroy();
     }
-    @Override public void onBackPressed() { if (navigation != null && navigation.close()) return; if ("full".equals(viewMode)) { setView(lastView); return; } super.onBackPressed(); }
+    @Override public void onBackPressed() { if (navigation != null && navigation.close()) return; if (askPanel != null && askPanel.isOpen()) { askPanel.close(); return; } if ("full".equals(viewMode)) { setView(lastView); return; } super.onBackPressed(); }
     /** 보기 바꾸기: 가로 꽉 · 나란히 are remembered; 전체화면 lasts until it is left (✕ on the video, or back). */
     private void setView(String mode) {
         viewMode = mode; if (!"full".equals(mode)) { lastView = mode; store.settings.edit().putString(VIEW, mode).apply(); }
@@ -218,31 +248,46 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         boolean full = shown && "full".equals(viewMode), side = shown && !full && wideScreen && ("side".equals(viewMode) || shorts), fill = full || side && page;
         sideToggle.setVisibility(wideScreen ? View.VISIBLE : View.GONE); sideToggle.setAlpha(side ? 1f : 0.6f);
         sideToggle.setContentDescription(side ? "가로 꽉 차게 보기 · 목록은 아래로" : "나란히 보기 · 왼쪽 영상, 오른쪽 목록");
-        // Typing in the search box with the keyboard up (one column): the play buttons, the size bar and the composer step aside.
+        // Side by side, under the video: what plays and its buttons; beside a video (not a YouTube page, which needs the room)
+        // the search box and the 추천 · 저장 rows as well.
+        boolean under = side && !shorts, tools = under && !page;
+        // Typing in the search box with the keyboard up (one column, or side by side with the box under the video): the play
+        // buttons, the size bar and the composer step aside, and the video shrinks so the box stays over the keyboard.
         boolean searching = searchBox.hasFocus();
-        typing = shown && searching && !full && !side;
+        typing = shown && searching && !full && (!side || tools);
         // A Short has its own size buttons; the video's 작게 ↔ 크게 and size bar step aside for it.
         sizeToggle.setVisibility(shorts ? View.GONE : View.VISIBLE); shortsSizer.setVisibility(shorts && !full ? View.VISIBLE : View.GONE);
         if (side && shorts && body.getWidth() == 0) body.post(this::showPlayer);
-        String key = full + "/" + side + "/" + fill + "/" + shorts + "/" + typing + "/" + searching + (side && shorts ? "/" + shortsSize + "/" + body.getWidth() + "x" + body.getHeight() : "");
+        boolean asking = askPanel != null && askPanel.isOpen() && !full;
+        String key = full + "/" + side + "/" + fill + "/" + shorts + "/" + typing + "/" + searching + "/" + asking + (side && shorts ? "/" + shortsSize + "/" + body.getWidth() + "x" + body.getHeight() : "");
         if (key.equals(arranged)) return fill;
         arranged = key;
         body.setOrientation(side ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
-        // Side by side: what plays and its buttons (안 볼래요 · 화질 · 캡처 · 저장 …) under the video, the list on its own beside it.
-        ViewGroup home = side && !shorts ? videoPane : content;
-        if (playerCard != null && playerCard.getParent() != home) {
-            if (playerCard.getParent() instanceof ViewGroup was) was.removeView(playerCard);
-            if (home == videoPane) { LinearLayout.LayoutParams under = new LinearLayout.LayoutParams(-1, -2); under.setMargins(ui.dp(16), ui.dp(4), ui.dp(16), 0); videoPane.addView(playerCard, under); }
-            else content.addView(playerCard, 0);
-        }
+        // Side by side: what plays and its buttons (안 볼래요 · 화질 · 캡처 · 저장 …) under the video, then beside a video the
+        // search box and the 추천 · 저장 rows, in the room left there; the list on its own beside it. Otherwise each in its place:
+        // what plays at the top of the list, the search box over it, the rows before the feed's heading.
+        LinearLayout.LayoutParams card = new LinearLayout.LayoutParams(-1, -2); card.setMargins(ui.dp(16), ui.dp(4), ui.dp(16), 0);
+        LinearLayout.LayoutParams rows = new LinearLayout.LayoutParams(-1, -2); rows.setMargins(ui.dp(16), 0, ui.dp(16), ui.dp(12));
+        place(playerCard, under ? underVideo : content, 0, under ? card : new LinearLayout.LayoutParams(-1, -2));
+        place(searchBar, tools ? underVideo : listPane, tools ? underVideo.indexOfChild(playerCard) + 1 : 0, new LinearLayout.LayoutParams(-1, -2));
+        place(feedRows, tools ? underVideo : content, tools ? underVideo.indexOfChild(searchBar) + 1 : content.indexOfChild(header), tools ? rows : new LinearLayout.LayoutParams(-1, -2));
+        underScroll.setVisibility(under ? View.VISIBLE : View.GONE);
+        // Beside a video it takes the height left (scrolling when short); beside a YouTube page, only what it holds.
+        underScroll.setLayoutParams(tools ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
         videoPane.setLayoutParams(side && shorts ? new LinearLayout.LayoutParams(shortsWidth(), -1) : side ? new LinearLayout.LayoutParams(0, -1, 1.3f)
             : full ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
         stage.setLayoutParams(fill ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
+        // One column on a phone: a band of the stage's black over the video, so it does not sit hard against the top.
+        stage.setPadding(0, !side && !full && !typing ? ui.dp(16) : 0, 0, 0);
         listPane.setLayoutParams(side ? new LinearLayout.LayoutParams(0, -1, 1) : new LinearLayout.LayoutParams(-1, 0, 1));
-        listPane.setVisibility(full ? View.GONE : View.VISIBLE);
+        // 이 동영상에 대해 물어보세요 takes the list's place (beside the video, side by side) while it is open.
+        listPane.setVisibility(full || asking ? View.GONE : View.VISIBLE);
+        if (askPanel != null) {
+            LinearLayout.LayoutParams panelAt = side ? new LinearLayout.LayoutParams(0, -1, 1) : new LinearLayout.LayoutParams(-1, 0, 1);
+            panelAt.setMargins(ui.dp(8), ui.dp(4), ui.dp(8), ui.dp(8)); askPanel.view.setLayoutParams(panelAt); askPanel.view.setVisibility(asking ? View.VISIBLE : View.GONE); }
         controlsRow.setVisibility(full || typing ? View.GONE : View.VISIBLE); gripView.setVisibility(fill || typing || shorts ? View.GONE : View.VISIBLE); exitFull.setVisibility(full ? View.VISIBLE : View.GONE);
         // The search box in use: 마이튜브에게 말하기 steps aside, so it never covers the box; it comes back when the search ends.
-        if (chat != null) chat.composer.setVisibility(full || searching ? View.GONE : View.VISIBLE);
+        if (chat != null) chat.composer.setVisibility(full || searching || asking ? View.GONE : View.VISIBLE);
         if (navigation != null) navigation.immersive(full);
         android.view.WindowInsetsController bars = getWindow().getInsetsController();
         if (bars != null) {
@@ -250,6 +295,12 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             else bars.show(WindowInsets.Type.systemBars());
         }
         return fill;
+    }
+    /** Moves a part of the screen into the group the view puts it in, at that place; one already there stays as it is. */
+    private static void place(View part, ViewGroup group, int at, ViewGroup.LayoutParams params) {
+        if (part == null || part.getParent() == group) return;
+        if (part.getParent() instanceof ViewGroup was) was.removeView(part);
+        group.addView(part, Math.max(0, Math.min(at, group.getChildCount())), params);
     }
 
     // ── the player ───────────────────────────────────────────────────────────
@@ -272,7 +323,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         stage.addView(leave, leaveAt);
         videoPane.addView(stage, new LinearLayout.LayoutParams(-1, -2));
         viewMode = lastView = "side".equals(store.settings.getString(VIEW, "wide")) ? "side" : "wide";
-        playerCard = ui.column(); playerCard.setVisibility(View.GONE); playerCard.setPadding(0, ui.dp(2), 0, ui.dp(8));
+        playerCard = ui.column(); playerCard.setVisibility(View.GONE); playerCard.setPadding(0, ui.dp(2), 0, ui.dp(2));
         nowTitle = ui.text("", 14, 650, TEXT); nowTitle.setMaxLines(2); nowTitle.setEllipsize(TextUtils.TruncateAt.END);
         nowLine = ui.label("", 12, MUTED); nowLine.setMaxLines(3);
         playerCard.addView(nowTitle); playerCard.addView(nowLine);
@@ -336,21 +387,25 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             return true;
         });
         gripView = grip; videoPane.addView(grip, new LinearLayout.LayoutParams(-1, ui.dp(14)));
+        // 나란히 보기: the room under the video and its buttons (arrange fills it), scrolling when the screen or the keyboard leaves it short.
+        underVideo = ui.column(); underScroll = new ScrollView(this); underScroll.setBackgroundColor(BG); underScroll.setVisibility(View.GONE); underScroll.addView(underVideo);
+        videoPane.addView(underScroll, new LinearLayout.LayoutParams(-1, -2));
         // The picture quality, as chosen and as it plays now.
         qualityChip = ui.smallChip("화질", this::chooseQuality);
-        LinearLayout qualityRow = ui.row(); qualityRow.setGravity(Gravity.CENTER); qualityRow.setPadding(0, ui.dp(6), 0, 0);
+        LinearLayout qualityRow = ui.row(); qualityRow.setGravity(Gravity.CENTER); qualityRow.setPadding(0, ui.dp(4), 0, 0);
         qualityRow.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         // 좋아요 is not offered here any more (the AI learns from 안 볼래요 and what is watched); kept off the row.
         heart = withIcon(ui.smallChip("좋아요", () -> player.like()), R.drawable.ic_heart); heart.setVisibility(View.GONE);
-        skipChip = withIcon(ui.smallChip("안 볼래요", () -> player.skip()), R.drawable.ic_close); skipChip.setContentDescription("안 볼래요 · 다음 추천에서 빼고 다음 영상");
-        qualityRow.addView(skipChip, new LinearLayout.LayoutParams(-2, -2));
-        LinearLayout.LayoutParams qualityAt = new LinearLayout.LayoutParams(-2, -2); qualityAt.leftMargin = ui.dp(6); qualityRow.addView(qualityChip, qualityAt);
+        // 안 볼래요: only its ✕, at the end of the row right of 저장 (its name for long press and TalkBack).
+        skipChip = withIcon(ui.smallChip("", this::confirmSkip), R.drawable.ic_close); skipChip.setCompoundDrawablePadding(0);
+        skipChip.setContentDescription("안 볼래요 · 다음 추천에서 빼고 다음 영상"); skipChip.setTooltipText("안 볼래요");
+        qualityRow.addView(qualityChip, new LinearLayout.LayoutParams(-2, -2));
         // 배속: 0.5× to 2×, kept for the next videos.
-        speedChip = withIcon(ui.smallChip("1×", this::chooseSpeed), R.drawable.ic_bolt);
+        speedChip = ui.smallChip("1×", this::chooseSpeed);
         LinearLayout.LayoutParams speedAt = new LinearLayout.LayoutParams(-2, -2); speedAt.leftMargin = ui.dp(6); qualityRow.addView(speedChip, speedAt);
-        // 캡처: the frame now, into 들퍼레/마이튜브 캡처. 영상 요약: what this video says, by the main chat's AI.
+        // 캡처: the frame now, into 들퍼레/마이튜브 캡처. 요약: 이 동영상에 대해 물어보세요 (VideoAskPanel).
         captureChip = withIcon(ui.smallChip("캡처", () -> player.capture(this::toast)), R.drawable.ic_gallery);
-        summaryChip = withAiMark(ui.smallChip("영상 요약", () -> { MyTube.Video v = player.current(); if (v != null) summarize(v); }));
+        summaryChip = withAiMark(ui.smallChip("요약", () -> { MyTube.Video v = player.current(); if (v != null) summarize(v); }));
         LinearLayout.LayoutParams chipGapLeft = new LinearLayout.LayoutParams(-2, -2); chipGapLeft.leftMargin = ui.dp(6);
         qualityRow.addView(captureChip, chipGapLeft);
         LinearLayout.LayoutParams chipGapLeft2 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft2.leftMargin = ui.dp(6);
@@ -359,6 +414,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         saveChip = withIcon(ui.smallChip("저장", this::saveCurrent), R.drawable.ic_add); saveChip.setContentDescription("저장 · 저장 피드에 넣기");
         LinearLayout.LayoutParams chipGapLeft3 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft3.leftMargin = ui.dp(6);
         qualityRow.addView(saveChip, chipGapLeft3);
+        LinearLayout.LayoutParams skipAt = new LinearLayout.LayoutParams(-2, -2); skipAt.leftMargin = ui.dp(6); qualityRow.addView(skipChip, skipAt);
+        // Square around its ✕ once laid out (a chip is as tall as it is, so the same width).
+        skipChip.post(() -> { int h = skipChip.getHeight(); if (h > 0) { skipChip.setMinWidth(h); skipChip.setMinimumWidth(h); skipChip.setPadding((h - ui.dp(16)) / 2, 0, (h - ui.dp(16)) / 2, 0); } });
         HorizontalScrollView qualityScroll = new HorizontalScrollView(this); qualityScroll.setHorizontalScrollBarEnabled(false); qualityScroll.addView(qualityRow);
         playerCard.addView(qualityScroll);
         content.addView(playerCard, 0);
@@ -379,8 +437,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private void chooseSpeed() {
         String[] labels = new String[SPEEDS.length]; int at = 2;
         for (int i = 0; i < SPEEDS.length; i++) { labels[i] = speedLabel(SPEEDS[i]); if (Math.abs(SPEEDS[i] - player.rate()) < 0.01f) at = i; }
-        Ui.Sheet sheet = ui.choices("배속", "다음 영상에도 같은 속도로 재생해요", labels, at, i -> player.rate(SPEEDS[i]));
-        dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet)); sheet.show();
+        // A small menu at the button; the speed stays for the next videos.
+        ui.miniMenu(speedChip, labels, at, i -> player.rate(SPEEDS[i]));
     }
     /** The small size: three quarters of the fitted video, at most 40% of the screen, never under 160dp. */
     private int smallVideo(int screenHeight) { return Math.max(ui.dp(160), Math.min(videoHeight * 3 / 4, screenHeight * 40 / 100)); }
@@ -393,7 +451,18 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         showPlayer();
     }
     /** A dragged height kept between a small strip (120dp) and most of the screen (80%). */
-    private int clampVideo(int height, int screenHeight) { return Math.max(ui.dp(120), Math.min(height, screenHeight * 80 / 100)); }
+    /**
+     * A dragged video height kept in reach: at least 120dp, at most 80% of the screen and never so tall that the buttons and
+     * the size bar under it leave the room there is (so the bar can always be dragged back up).
+     */
+    private int clampVideo(int height, int screenHeight) {
+        int most = screenHeight * 80 / 100;
+        if (body != null && body.getHeight() > 0) {
+            int under = (controlsRow != null && controlsRow.getVisibility() == View.VISIBLE ? Math.max(controlsRow.getHeight(), ui.dp(56)) : 0) + ui.dp(14) + ui.dp(24);
+            most = Math.min(most, body.getHeight() - (stage == null ? 0 : stage.getPaddingTop()) - under);
+        }
+        return Math.max(ui.dp(120), Math.min(height, most));
+    }
     /** The video's height for a width: 16:9, never under 160dp nor over half the screen. */
     private int videoFit(int width) { return Math.max(ui.dp(160), Math.min(width * 9 / 16, getResources().getDisplayMetrics().heightPixels / 2)); }
     /**
@@ -424,7 +493,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         MyTube.Video now = player.current();
         boolean signingIn = !player.active() && player.signingIn(), browsing = !player.active() && !signingIn && player.browsing();
         playerCard.setVisibility(player.active() || signingIn || browsing ? View.VISIBLE : View.GONE);
-        videoPane.setVisibility(playerCard.getVisibility());
+        videoPane.setVisibility(playerCard.getVisibility()); searchLooks();
         boolean fill = arrange(player.active() || signingIn || browsing, browsing);
         // A YouTube page (a channel, Shorts, the sign-in) needs room to read and use; a video fills its 16:9 box.
         int screenHeight = getResources().getDisplayMetrics().heightPixels;
@@ -458,7 +527,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         speedChip.setText(speedLabel(player.rate())); speedChip.setContentDescription("배속 " + speedLabel(player.rate()) + ", 눌러서 바꾸기");
         for (View chip : new View[]{skipChip, speedChip}) chip.setVisibility(player.active() ? View.VISIBLE : View.GONE);
         String chosen = MyTube.QUALITY_LABELS[MyTube.qualityIndex(player.quality())], playingAt = player.qualityNow();
-        qualityChip.setText("화질 · " + chosen + (playingAt.isEmpty() || playingAt.equals(chosen) ? "" : " · 지금 " + playingAt));
+        qualityChip.setText(chosen + (playingAt.isEmpty() || playingAt.equals(chosen) ? "" : " · 지금 " + playingAt));
         qualityChip.setContentDescription("화질, " + chosen + (playingAt.isEmpty() ? "" : ", 지금 " + playingAt) + ", 눌러서 바꾸기");
         qualityChip.setVisibility(player.active() ? View.VISIBLE : View.GONE);
         captureChip.setVisibility(player.active() ? View.VISIBLE : View.GONE); summaryChip.setVisibility(player.active() ? View.VISIBLE : View.GONE);
@@ -679,6 +748,37 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         });
     }
     /** 직접 검색 (or a link: that video at once). */
+    /** The magnifier: the search box comes out on its own line, ready to type in. */
+    private void openSearch() {
+        searchOpened = true; searchLooks();
+        searchBox.requestFocus();
+        android.view.inputmethod.InputMethodManager keyboard = getSystemService(android.view.inputmethod.InputMethodManager.class);
+        if (keyboard != null) searchBox.post(() -> keyboard.showSoftInput(searchBox, 0));
+        showPlayer();
+    }
+    /** Folds the search box back into the magnifier (clear: its words go too); with no video it stays open (searchLooks). */
+    private void foldSearch(boolean clear) {
+        if (clear) searchBox.setText("");
+        android.view.inputmethod.InputMethodManager keyboard = getSystemService(android.view.inputmethod.InputMethodManager.class);
+        if (keyboard != null) keyboard.hideSoftInputFromWindow(searchBox.getWindowToken(), 0);
+        searchOpened = false;
+        if (searchBox.hasFocus()) searchBox.clearFocus();
+        searchLooks();
+        main.post(this::showPlayer);
+    }
+    /** The search box opened by the magnifier (folded again by a search, ✕ or leaving it empty). */
+    private boolean searchOpened;
+    /**
+     * Whether the search box shows: always while no video plays (searching is what there is to do then), else only when the
+     * magnifier opened it or it is in use; the magnifier and ✕ show when it can fold.
+     */
+    private void searchLooks() {
+        boolean video = playerCard != null && playerCard.getVisibility() == View.VISIBLE;
+        boolean open = !video || searchOpened || searchBox.hasFocus();
+        searchBar.setVisibility(open ? View.VISIBLE : View.GONE);
+        if (lensButton != null) lensButton.setVisibility(open ? View.GONE : View.VISIBLE);
+        if (foldButton != null) foldButton.setVisibility(video ? View.VISIBLE : View.GONE);
+    }
     private void search(String words) { search(words, false, null); }
     /** playFirst: the best match plays at once (마이튜브 AI's play); done hears what came of it. */
     private void search(String words, boolean playFirst, java.util.function.Consumer<String> done) {
@@ -686,6 +786,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         android.view.inputmethod.InputMethodManager keyboard = getSystemService(android.view.inputmethod.InputMethodManager.class);
         if (keyboard != null) keyboard.hideSoftInputFromWindow(searchBox.getWindowToken(), 0);
         searchBox.clearFocus();
+        // Searched: the box folds back into the magnifier; the results show below.
+        foldSearch(false);
         String linked = MyTube.linkedVideo(w);
         // A new search: no channel shown; Shorts stay Shorts if that is what was being looked at.
         shownChannel = null; if ("live".equals(listKind)) listKind = "videos"; boolean shorts = "shorts".equals(listKind) && linked.isEmpty();
@@ -940,49 +1042,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             } catch (Exception unavailable) { /* the gray circle stays */ }
         });
     }
-    /**
-     * 내용 정리: what the video says (its transcript, as the main chat reads a YouTube link), summed up by the main chat's AI in
-     * a sheet; kept for the run, so it opens again at once. The video goes on playing meanwhile.
-     */
-    private void summarize(MyTube.Video v) {
-        Ui.Sheet sheet = ui.selectionSheet("영상 요약", v.title());
-        sheet.primary.setVisibility(View.GONE); dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet));
-        TextView body = ui.text("", BODY, 450, TEXT); body.setTextIsSelectable(true); body.setLineSpacing(ui.dp(3), 1);
-        sheet.body.addView(body);
-        String[] made = {SUMMARIES.get(v.id())};
-        LinearLayout actions = ui.row(); actions.setPadding(0, ui.dp(12), 0, 0);
-        Button copy = ui.chip("복사", () -> { if (made[0] != null) { getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("영상 요약", made[0])); toast("복사했어요"); } });
-        Button transcript = ui.chip("대본 보기", () -> YouTubeTranscriptUi.show(this, MyTube.watch(v.id())));
-        Button again = ui.chip("다시 정리", null);
-        for (Button b : new Button[]{copy, transcript, again}) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(8); actions.addView(b, p); }
-        sheet.body.addView(actions);
-        AtomicReference<Runnable> stop = new AtomicReference<>();
-        sheet.setOnDismissListener(d -> { dialogs.remove(sheet); Runnable abort = stop.getAndSet(null); if (abort != null) abort.run(); });
-        Runnable[] make = new Runnable[1];
-        make[0] = () -> {
-            made[0] = null; body.setText("대본을 가져오는 중…"); body.setTextColor(MUTED);
-            boolean[] closed = {false}; sheet.setOnCancelListener(d -> closed[0] = true);
-            work.execute(() -> {
-                String said, failure = null;
-                try {
-                    String block = YouTubeTranscriptClient.block(this, v.id(), () -> closed[0], step -> main.post(() -> { if (sheet.isShowing() && made[0] == null) body.setText(step); }), stop);
-                    if (block == null || block.isBlank()) throw new java.io.IOException("이 영상의 대본을 가져오지 못했어요.");
-                    main.post(() -> { if (sheet.isShowing() && made[0] == null) body.setText("AI가 정리하는 중…"); });
-                    said = MyTubeClient.ask(store, MyTube.SUMMARY, MyTube.summaryInput(v, block), stop);
-                } catch (Exception e) { said = null; failure = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
-                String answer = said, why = failure;
-                main.post(() -> {
-                    if (answer != null && !answer.isBlank()) { synchronized (SUMMARIES) { SUMMARIES.put(v.id(), answer); while (SUMMARIES.size() > 30) SUMMARIES.remove(SUMMARIES.keySet().iterator().next()); } }
-                    if (!sheet.isShowing()) return;
-                    if (answer == null || answer.isBlank()) { body.setText(why == null ? "정리하지 못했어요." : why); body.setTextColor(MUTED); return; }
-                    made[0] = answer; body.setText(RichText.render(answer)); body.setTextColor(TEXT);
-                });
-            });
-        };
-        again.setOnClickListener(x -> make[0].run());
-        if (made[0] != null) body.setText(RichText.render(made[0])); else make[0].run();
-        sheet.show();
-    }
+    /** 이 영상에 대해 물어보세요: the panel in place of the list, under (or beside) the video (VideoAskPanel). */
+    private void summarize(MyTube.Video v) { if (askPanel == null) return; askPanel.open(v); arranged = ""; showPlayer(); }
     private void refreshIfStale() {
         MyTube.Feed f = feed(); if (f == null) return;
         long at = book.refreshedAt(f.id());
@@ -1232,8 +1293,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         LinearLayout login = ui.listRow(R.drawable.ic_person, ACCENT, "유튜브 로그인", state, ui.chevron(), () -> { player.signIn(); player.attach(screen); showPlayer(); });
         accountLine = findText(login, state);
         ui.addRow(group, login, true);
-        ui.addRow(group, ui.choiceRow("화질", "마이튜브 화질", "영상에 그 화질이 없으면 그보다 낮은 것 중 가장 좋은 화질로 틀어요", MyTube.QUALITY_LABELS,
-            MyTube.qualityIndex(player.quality()), i -> player.quality(MyTube.QUALITY_CODES[i])), true);
+        // 화질 is chosen only on the video's own button row (the small menu there); not repeated here.
         ui.addRow(group, ui.switchRow("화면 꺼져도 계속 재생", "유튜브 프리미엄 회원용 · 음악 앱처럼 화면을 끄거나 다른 앱으로 가도 이어서 나와요", player.background(),
             value -> { store.settings.edit().putBoolean(MyTubePlayer.BACKGROUND, value).apply(); if (value && player.playing()) MyTubeService.start(this); if (!value) MyTubeService.stop(this); }), false);
         content.addView(group);
@@ -1242,13 +1302,18 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     }
 
     /** The quality sheet: the choices, and what this video has (or that it is chosen on the video itself). */
+    /** ✕ (안 볼래요) asks once, so a stray tap does not drop the video. */
+    private void confirmSkip() {
+        if (player.current() == null) return;
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this).setTitle("삭제하시겠습니까?")
+            .setMessage("이 영상을 다음 추천에서 빼고 다음 영상으로 넘어가요.")
+            .setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> player.skip()).create();
+        dialogs.add(dialog); dialog.setOnDismissListener(d -> dialogs.remove(dialog)); dialog.show();
+    }
+    /** 화질: a small menu at the button; a video whose quality the app cannot set says so instead. */
     private void chooseQuality() {
-        List<String> has = player.levels();
-        String note = !player.qualitySettable() ? "이 영상은 앱에서 화질을 바꿀 수 없어요 · 영상 화면의 ⚙에서 바꿔 주세요"
-            : has.isEmpty() ? "영상에 그 화질이 없으면 그보다 낮은 것 중 가장 좋은 화질로 틀어요" : "이 영상: " + String.join(" · ", has);
-        Ui.Sheet sheet = ui.choices("화질", note, MyTube.QUALITY_LABELS, MyTube.qualityIndex(player.quality()), i -> player.quality(MyTube.QUALITY_CODES[i]));
-        dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet));
-        sheet.show();
+        if (!player.qualitySettable()) { toast("이 영상은 앱에서 화질을 바꿀 수 없어요 · 영상 화면의 ⚙에서 바꿔 주세요"); return; }
+        ui.miniMenu(qualityChip, MyTube.QUALITY_LABELS, MyTube.qualityIndex(player.quality()), i -> player.quality(MyTube.QUALITY_CODES[i]));
     }
 
     // ── small things ─────────────────────────────────────────────────────────

@@ -34,6 +34,8 @@ public final class GyeotApp extends Application {
             });
             DiagnosticsExport.installCrashRecorder(this);
             store = new AppStore(this);
+            // Gemini 무료 한도, shared by every Gemini call the app makes on its own.
+            GeminiQuotas.use(store);
             if (SecurityWatch.enabled(this)) SecurityWatch.restore(this);
             // How Android ended the previous process; a system kill during a call or task gets one notice.
             String exit = DiagnosticsExport.readExits(this);

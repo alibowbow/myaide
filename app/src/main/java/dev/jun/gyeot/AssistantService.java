@@ -3096,7 +3096,7 @@ public final class AssistantService extends Service {
             try { key = store.secrets.get(); } catch (Exception e) { return; }
             if (key.isBlank()) return;
             try {
-                dev.jun.gyeot.core.SessionTitles.Title named = dev.jun.gyeot.core.SessionTitles.parse(GeminiAudioClient.summarize(key, dev.jun.gyeot.core.SessionTitles.PROMPT, input));
+                dev.jun.gyeot.core.SessionTitles.Title named = dev.jun.gyeot.core.SessionTitles.parse(GeminiAudioClient.light(key, dev.jun.gyeot.core.SessionTitles.PROMPT, input));
                 if (named != null) store.nameSession(id, named.title(), named.summary());
             } catch (Exception ignored) {}
         });
@@ -3119,11 +3119,11 @@ public final class AssistantService extends Service {
             if (key.isBlank()) return;
             int remembered = 0, learned = 0;
             if (facts) try {
-                String answer = GeminiAudioClient.summarize(key, Memory.extraction(Memory.prompt(store.memories(), false)), input);
+                String answer = GeminiAudioClient.light(key, Memory.extraction(Memory.prompt(store.memories(), false)), input);
                 remembered = store.changeMemory(list -> Memory.apply(list, answer, System.currentTimeMillis()));
             } catch (Exception ignored) {}
             if (phone) try {
-                String answer = GeminiAudioClient.summarize(key, Memory.phoneExtraction(Memory.recipes(store.memories())), input + "\n\n폰 조작 기록:\n" + log);
+                String answer = GeminiAudioClient.light(key, Memory.phoneExtraction(Memory.recipes(store.memories())), input + "\n\n폰 조작 기록:\n" + log);
                 learned = store.changeMemory(list -> Memory.applyPhone(list, answer, System.currentTimeMillis()));
             } catch (Exception ignored) {}
             String news = (remembered > 0 ? "새로 기억한 것 " + remembered + "개" : "") + (remembered > 0 && learned > 0 ? " · " : "") + (learned > 0 ? "폰 사용법 " + learned + "개" : "");
@@ -3889,6 +3889,8 @@ public final class AssistantService extends Service {
             if (AppGallery.SHOW.equals(name)) { showVoiceImage(session, id, name, args); continue; }
             if (AppNavigation.FUNCTION.equals(name)) { if ("mytube".equals(args.optString("screen"))) MyTubeActivity.ask(args.optString("play")); openAppScreen(session, id, name, args.optString("screen")); continue; }
             if (dev.jun.gyeot.core.VoiceBoard.FUNCTION.equals(name)) { boardExplain(session, id, name, args); continue; }
+            if (dev.jun.gyeot.core.Bgm.FUNCTION.equals(name)) { touch(); session.tool(id, name, backgroundMusic(args)); continue; }
+            if (dev.jun.gyeot.core.Notices.FUNCTION.equals(name)) { touch(); session.tool(id, name, dev.jun.gyeot.core.Notices.answer(NoticeListener.on(this) && NoticeListener.allowed(this), NoticeListener.list(this), System.currentTimeMillis(), args.optDouble("hours", 6))); continue; }
             if (DeviceActions.NAMES.contains(name)) { deviceAction(session, id, name, args); continue; }
             if (dev.jun.gyeot.core.CalendarQuery.VOICE.contains(name)) { calendarFor(session, id, name, args); continue; }
             if (VoiceWork.NAMES.contains(name)) {
@@ -4242,6 +4244,23 @@ public final class AssistantService extends Service {
         } catch (IllegalArgumentException invalid) { result = obj("ok", false, "tool", name, "outcome", "invalid", "error", invalid.getMessage()); }
         touch(); session.tool(id, name, result);
     }
+    /** 배경음악 (Lyria): play (or change the mood), pause, resume, stop; the answer says how it went. */
+    private JSONObject backgroundMusic(JSONObject args) {
+        LyriaPlayer music = LyriaPlayer.get(this);
+        String action = args.optString("action", "play");
+        switch (action) {
+            case "pause" -> { music.pause(); return obj("ok", true, "say", "배경음악을 잠깐 멈췄어요."); }
+            case "resume" -> { music.resume(); return obj("ok", music.active(), "say", music.active() ? "배경음악을 다시 틀었어요." : "틀어 둔 배경음악이 없어요."); }
+            case "stop" -> { music.stop(); return obj("ok", true, "say", "배경음악을 껐어요."); }
+            default -> {
+                String mood = args.optString("mood").strip(); if (mood.isEmpty()) mood = "calm ambient, soft piano, warm";
+                String problem = music.play(mood, args.optInt("bpm", 0));
+                store.phoneLog("● 배경음악 · " + mood + (problem.isEmpty() ? "" : " · " + problem));
+                return problem.isEmpty() ? obj("ok", true, "mood", mood, "say", "Say briefly in Korean that the background music is starting in that mood (it takes a few seconds).")
+                    : obj("ok", false, "error", problem);
+            }
+        }
+    }
     /** The places a navigate call last offered to choose from (main thread), for its pick; kept PLACES_MS, for that destination only. */
     private String placesFor = ""; private java.util.List<dev.jun.gyeot.core.NaverPlaces.Place> placesOffered = java.util.List.of(); private long placesAt;
     private static final long PLACES_MS = 10 * 60_000L;
@@ -4261,19 +4280,64 @@ public final class AssistantService extends Service {
      */
     private void navigateToPlace(LiveVoiceSession session, String id, JSONObject args) {
         String destination, mode;
-        try { destination = DeviceActions.destination(args); mode = dev.jun.gyeot.core.NaverPlaces.mode(args.optString("mode")); }
+        try { destination = DeviceActions.destination(args); mode = dev.jun.gyeot.core.NaverPlaces.mode(args.optString("mode").isBlank() ? store.navigationMode() : args.optString("mode")); }
         catch (IllegalArgumentException invalid) { touch(); session.tool(id, DeviceActions.NAVIGATE, obj("ok", false, "tool", DeviceActions.NAVIGATE, "outcome", "invalid", "error", invalid.getMessage())); return; }
+        // 경유지: each placed first (a saved place, an address, or 지역 검색's surest match), then the destination as always.
+        java.util.List<String> stops = new java.util.ArrayList<>();
+        org.json.JSONArray said = args.optJSONArray("via");
+        if (said != null) for (int i = 0; i < said.length(); i++) { String stop = said.optString(i).strip(); if (!stop.isEmpty() && stops.size() < dev.jun.gyeot.core.NaverPlaces.MOST_VIA) stops.add(stop); }
+        else for (String stop : args.optString("via").split("[,，、]+")) if (!stop.isBlank() && stops.size() < dev.jun.gyeot.core.NaverPlaces.MOST_VIA) stops.add(stop.strip());
+        if (stops.isEmpty()) { navigateVia(session, id, args, destination, mode, null, ""); return; }
+        long epochAt = voiceEpoch;
+        new Thread(() -> {
+            java.util.List<dev.jun.gyeot.core.NaverPlaces.Place> via = new java.util.ArrayList<>(); java.util.List<String> missed = new java.util.ArrayList<>();
+            java.util.List<dev.jun.gyeot.core.SavedPlaces.Saved> saved = store.savedPlaces();
+            for (String stop : stops) {
+                dev.jun.gyeot.core.SavedPlaces.Saved own = dev.jun.gyeot.core.SavedPlaces.match(stop, saved);
+                if (own != null) { via.add(own.place()); continue; }
+                java.util.List<dev.jun.gyeot.core.NaverPlaces.Place> found = PlaceLocator.find(this, store, stop);
+                dev.jun.gyeot.core.NaverPlaces.Place pick = dev.jun.gyeot.core.NaverPlaces.sure(stop, found);
+                if (pick == null && !found.isEmpty()) pick = found.get(0);
+                if (pick != null) via.add(pick); else missed.add(stop);
+            }
+            String note = missed.isEmpty() ? "" : "경유지 ‘" + String.join("’, ‘", missed) + "’는 찾지 못해 빼고 안내해요.";
+            store.phoneLog("  · 경유지 " + via.size() + "곳" + (missed.isEmpty() ? "" : " · 못 찾음 " + missed.size()));
+            main.post(() -> { if (live(epochAt, session)) navigateVia(session, id, args, destination, mode, via, note); });
+        }, "gyeot-waypoints").start();
+    }
+    /** navigateToPlace with its waypoints placed (null: none said, so a saved place's own are used). */
+    private void navigateVia(LiveVoiceSession session, String id, JSONObject args, String destination, String mode, java.util.List<dev.jun.gyeot.core.NaverPlaces.Place> spoken, String viaNote) {
+        java.util.List<dev.jun.gyeot.core.NaverPlaces.Place> via = spoken == null ? java.util.List.of() : spoken;
+        // 내비게이션 → 자주 가는 곳: "집으로 가자" goes straight to the saved place, no search and no question.
+        dev.jun.gyeot.core.SavedPlaces.Saved saved = dev.jun.gyeot.core.SavedPlaces.match(destination, store.savedPlaces());
+        if (saved != null) {
+            store.phoneLog("  · 자주 가는 곳 · " + destination + " → " + saved.name());
+            // Its own way of travel, unless the user named one now.
+            String travel = args.optString("mode").isBlank() && !saved.mode().isEmpty() ? saved.mode() : mode;
+            java.util.List<dev.jun.gyeot.core.NaverPlaces.Place> stops = spoken == null || spoken.isEmpty() ? saved.via() : spoken;
+            finishNavigation(session, id, DeviceActions.navigateTo(saved.place(), travel, stops), saved.place(), viaNote, stops); return;
+        }
         if (args.optBoolean("nearby")) { finishNavigation(session, id, DeviceActions.search(destination, true), null, ""); return; }
-        // An address goes to the maps app's own search, which knows addresses; 지역 검색 knows places by name and would
-        // offer whatever is called by the address's last words.
+        // An address: its coordinates from the phone's geocoder, so navigation starts at once; the maps app's own search only
+        // when it cannot be placed (지역 검색 knows places by name, not addresses).
         if (dev.jun.gyeot.core.NaverPlaces.address(destination)) {
-            store.phoneLog("  · 주소로 봄 · 지도 앱의 검색으로 엶");
-            finishNavigation(session, id, DeviceActions.search(destination, true), null, ""); return;
+            long epochAt = voiceEpoch; String travel = mode;
+            new Thread(() -> {
+                java.util.List<dev.jun.gyeot.core.NaverPlaces.Place> found = PlaceLocator.geocode(this, destination);
+                main.post(() -> {
+                    if (!live(epochAt, session)) return;
+                    if (found.isEmpty()) { store.phoneLog("  · 주소로 봄 · 좌표를 못 찾아 지도 앱의 검색으로 엶"); finishNavigation(session, id, DeviceActions.search(destination, true), null, ""); return; }
+                    dev.jun.gyeot.core.NaverPlaces.Place at = new dev.jun.gyeot.core.NaverPlaces.Place(destination, found.get(0).address(), found.get(0).lat(), found.get(0).lng());
+                    store.phoneLog("  · 주소로 봄 · 좌표로 바로 길안내");
+                    finishNavigation(session, id, DeviceActions.navigateTo(at, travel, via), at, viaNote, via);
+                });
+            }, "gyeot-geocode").start();
+            return;
         }
         int pick = args.optInt("pick", 0);
         if (pick > 0 && destination.equals(placesFor) && SystemClock.elapsedRealtime() - placesAt < PLACES_MS && pick <= placesOffered.size()) {
             dev.jun.gyeot.core.NaverPlaces.Place chosen = placesOffered.get(pick - 1);
-            finishNavigation(session, id, DeviceActions.navigateTo(chosen, mode), chosen, ""); return;
+            finishNavigation(session, id, DeviceActions.navigateTo(chosen, mode, via), chosen, viaNote, via); return;
         }
         long epoch = voiceEpoch, started = SystemClock.elapsedRealtime();
         int serial = ++navigateSerial; wordsSinceNavigate.setLength(0);
@@ -4308,7 +4372,7 @@ public final class AssistantService extends Service {
                     placesFor = destination; placesOffered = places; placesAt = SystemClock.elapsedRealtime();
                     answerNavigation(session, id, looser.isEmpty() ? dev.jun.gyeot.core.NaverPlaces.choose(destination, places) : dev.jun.gyeot.core.NaverPlaces.looser(destination, looser, places)); return;
                 }
-                finishNavigation(session, id, DeviceActions.navigateTo(chosen, mode), chosen, "");
+                finishNavigation(session, id, DeviceActions.navigateTo(chosen, mode, via), chosen, viaNote, via);
             };
             main.post(() -> {
                 if (!live(epoch, session)) return;
@@ -4329,11 +4393,27 @@ public final class AssistantService extends Service {
     }
     /** Opens the maps app for a navigate call and answers it once, with the place and why it fell back to a search, if it did. */
     private void finishNavigation(LiveVoiceSession session, String id, DeviceActions.Action action, dev.jun.gyeot.core.NaverPlaces.Place place, String note) {
+        finishNavigation(session, id, action, place, note, "", java.util.List.of());
+    }
+    private void finishNavigation(LiveVoiceSession session, String id, DeviceActions.Action action, dev.jun.gyeot.core.NaverPlaces.Place place, String viaNote, java.util.List<dev.jun.gyeot.core.NaverPlaces.Place> via) {
+        finishNavigation(session, id, action, place, "", viaNote, via);
+    }
+    /** note: why it fell back to a search; with the waypoints it goes through (said in its answer) and a note about any left out. */
+    private void finishNavigation(LiveVoiceSession session, String id, DeviceActions.Action action, dev.jun.gyeot.core.NaverPlaces.Place place, String note, String viaNote, java.util.List<dev.jun.gyeot.core.NaverPlaces.Place> via) {
         JSONObject result;
         try { result = DeviceActionRunner.run(this, action, bubble != null && bubble.visible()); }
         catch (RuntimeException refused) { result = DeviceActions.failed(action, "지도 앱을 열지 못했어요."); }
         if (place != null) put(result, "place", obj("name", place.name(), "address", place.address()));
+        // Naver Map's navigation opened: its 안내 시작 is pressed too, when 폰 조작 is on and the user left that on.
+        if (("navigation".equals(result.optString("outcome")) || via != null && !via.isEmpty() && "route".equals(result.optString("outcome"))) && "네이버 지도".equals(result.optString("app")) && store.phoneControl() && store.pressNavigationStart() && PhoneService.connected())
+            PhoneService.pressWhenShown("com.nhn.android.nmap", java.util.List.of("안내 시작", "안내시작", "길안내 시작", "경로 안내 시작"), 15_000, label -> store.phoneLog("  · 네이버 지도 ‘" + label + "’ 눌렀어요"));
         if (!note.isEmpty()) { put(result, "note", note); put(result, "say", note + " 대신 " + result.optString("say")); }
+        if (via != null && !via.isEmpty()) {
+            org.json.JSONArray stops = new org.json.JSONArray(); for (dev.jun.gyeot.core.NaverPlaces.Place stop : via) stops.put(stop.name());
+            put(result, "via", stops);
+            put(result, "say", result.optString("say") + " 경유지: " + String.join(", ", via.stream().map(dev.jun.gyeot.core.NaverPlaces.Place::name).toList()) + ".");
+        }
+        if (viaNote != null && !viaNote.isEmpty()) put(result, "say", result.optString("say") + " " + viaNote);
         answerNavigation(session, id, result);
     }
     /** A navigate call's result: its reply, or, for a call Gemini cancelled meanwhile, a note the model answers from (NaverPlaces.late). */

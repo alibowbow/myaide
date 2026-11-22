@@ -11,8 +11,17 @@ html.gyeot-mytube #player-container-id,
 html.gyeot-mytube .player-container {
   position: fixed !important; top: 0 !important; left: 0 !important; right: 0 !important; bottom: 0 !important;
   width: 100vw !important; height: 100vh !important; min-height: 0 !important; max-height: none !important;
-  margin: 0 !important; padding: 0 !important; transform: none !important; z-index: 2147483646 !important; background: #000 !important;
+  margin: 0 !important; padding: 0 !important; transform: none !important; z-index: 2147483640 !important; background: #000 !important;
 }
+/* YouTube's own ⚙ settings (화질 · 자막 · 재생 속도), its ⋮ menus and dialogs open outside the player, fixed over the page at
+   z-index 4–5: under the raised player they opened unseen behind the video. They go over it, in YouTube's own order. The
+   sheet's dimming goes up only when it is the sheet's sibling: inside the sheet, the sheet's own order is left as it is. */
+html.gyeot-mytube #menu,
+html.gyeot-mytube .menu-container,
+html.gyeot-mytube .dialog-container { z-index: 2147483644 !important; }
+html.gyeot-mytube c3-overlay.bottom-sheet-overlay-scrim:not(bottom-sheet-container *) { z-index: 2147483645 !important; }
+html.gyeot-mytube bottom-sheet-container,
+html.gyeot-mytube c3-toast { z-index: 2147483646 !important; }
 html.gyeot-mytube #player,
 html.gyeot-mytube #player-control-container,
 html.gyeot-mytube #movie_player,

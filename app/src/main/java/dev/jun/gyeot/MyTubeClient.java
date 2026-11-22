@@ -195,6 +195,13 @@ final class MyTubeClient {
         if (ai == null) throw new IOException("마이튜브 AI를 쓰려면 모델을 고르거나 AI를 연결해 주세요.");
         return ai.ask(instructions, input, cancel);
     }
+    /** The AI scope chose asked once with no tools; who answered goes to by ("Claude · Opus 4.7"). Blocking. */
+    static String askScoped(AppStore store, ScopedModels scope, String instructions, String input, AtomicReference<Runnable> cancel, java.util.function.Consumer<String> by) throws Exception {
+        Ai ai = Ai.of(store, scope);
+        if (ai == null) throw new IOException("물어보려면 아래에서 AI와 모델을 골라 주세요.");
+        if (by != null) by.accept(ai.name + " · " + new TeamRoster(store, scope).label(ai.engine, ai.model));
+        return ai.ask(instructions, input, cancel);
+    }
     /** The name and model 마이튜브 AI talks with, for its model chip ("" when none is connected). */
     static String myTubeModel(AppStore store) {
         try { Ai ai = Ai.of(store, ScopedModels.mytube(store)); return ai == null ? "" : ai.name + " · " + new TeamRoster(store).label(ai.engine, ai.model); }
@@ -216,7 +223,9 @@ final class MyTubeClient {
                 ScopedModels models = scope != null ? scope : ScopedModels.main(store); String engine = models.engine();
                 if (engine == null || engine.isBlank() || !store.ready(engine)) return null;
                 String model = models.model(engine);
-                String effort = new TeamRoster(store).profile(engine, model).normalize("low");
+                // A screen's own choice keeps its 생각 깊이; the main chat's is asked lightly.
+                String chosen = scope == null ? "" : scope.effort(engine, model);
+                String effort = new TeamRoster(store).profile(engine, model).normalize(chosen == null || chosen.isBlank() ? "low" : chosen);
                 return new Ai(store, engine, model, effort, dev.jun.gyeot.core.WorkBook.author(engine));
             } catch (Exception unavailable) { return null; }
         }

@@ -205,6 +205,15 @@ final class BrowserEngine {
     private final BrowserPersistence persistence;
     private final java.util.concurrent.Executor storageIo;
     private final String workScope;
+    /**
+     * A Work job whose only effects may safely happen twice, on this host alone (YouTubeGeminiWeb: one question typed to
+     * Gemini). Its steps there take no global Work fence and leave none: another job's unsettled step does not stop it, and
+     * a stop in the middle of it does not stop the jobs after it. Set by native code for its own job, never by a page or a
+     * model; "" for every other job.
+     */
+    String repeatSafeHost = "";
+    /** Work jobs that are repeat-safe by their name (YouTubeGeminiWeb's), whose leftover fences may be released (releaseRepeatSafeWork). */
+    static final String REPEAT_SAFE_SCOPE = "youtube-";
     private boolean workTaskWritable;
     private boolean restoring = true, restorePending = true;
     private boolean tabsWritable;
@@ -415,6 +424,7 @@ final class BrowserEngine {
         boolean navigationProposalAccepted, recoveryChecked;
         boolean pdfAnswered; // pdfOpened answers it; the readiness loop stops
         boolean routine; // the gate classified this step routine (BrowserAgent): it leaves no fence
+        boolean repeatSafe; // a step of a repeat-safe Work job on its own site (repeatSafeHost): no global fence, settled as dispatched
         boolean nativeTap; // a click on the page's upload button while a file is ready: tapped for real (BrowserTouch)
         JSONObject fileStarted; // the file a click on a file control started fetching instead of navigating (scriptedFile)
         String action = "", navigationAction = "", previousDocument = "", previousUrl = "", navigationTarget = "", committedUrl = "";
@@ -1240,6 +1250,32 @@ final class BrowserEngine {
         });
         return true;
     }
+    /** Whether a step on this tab is a repeat-safe job's, on its own site (repeatSafeHost). */
+    private boolean repeatSafe(Tab tab) {
+        if (!workEngine || repeatSafeHost.isEmpty() || tab == null || tab.url == null) return false;
+        try { String host = java.net.URI.create(tab.url).getHost(); return host != null && host.equalsIgnoreCase(repeatSafeHost); }
+        catch (RuntimeException malformed) { return false; }
+    }
+    /**
+     * Releases a global Work fence an earlier repeat-safe job left (REPEAT_SAFE_SCOPE: one question typed to Gemini, which may
+     * safely be sent twice) when no running job holds it, as such jobs left before they took none. Any other job's fence
+     * stays for the user to look at (Work 실행 확인). Native code only; done hears on the main thread whether one went.
+     */
+    static void releaseRepeatSafeWork(Context context, Consumer<Boolean> done) {
+        AppStore store = ((GyeotApp) context.getApplicationContext()).store();
+        Handler main = new Handler(Looper.getMainLooper());
+        WORK_STORAGE_IO.execute(() -> {
+            boolean released = false;
+            try {
+                JSONObject pending = readWorkPending(store);
+                if (pending != null && pending.optString("job_id").startsWith(REPEAT_SAFE_SCOPE) && !activeWorkReceipts.contains(pending.optString("receipt_id"))) {
+                    store.secrets.put(WORK_PENDING_KEY, ""); released = true;
+                }
+            } catch (Exception unreadable) { /* The fence stays. */ }
+            final boolean value = released;
+            if (done != null) main.post(() -> done.accept(value));
+        });
+    }
     private JSONObject mutationBlocked() {
         return obj("ok", false, "requires_user", true, "error_code", "mutation_unresolved", "action_executed", false,
             "action_may_have_run", false, "previous_action_may_have_run", true, "retryable", false,
@@ -1273,8 +1309,9 @@ final class BrowserEngine {
             }
             p.mutationSaved = true; dispatch.run();
         };
-        // A routine step needs no durable record: if the app stops mid-step, nothing is left that must not be repeated.
-        if (p.routine) { ready.accept(true); return; }
+        // A routine step needs no durable record: if the app stops mid-step, nothing is left that must not be repeated. Nor does
+        // a repeat-safe job's step on its own site: doing it twice is harmless, so it takes no global fence.
+        if (p.routine || p.repeatSafe) { ready.accept(true); return; }
         if (!workEngine) { persistTask(p.tab, ready); return; }
         if (workScope.isEmpty() || !workTaskWritable || restorePending || p.tab != restoreTab) { ready.accept(false); return; }
         // Reserve globally, then dispatch only after both encrypted records commit. Serial Work IO
@@ -1490,7 +1527,7 @@ final class BrowserEngine {
         if (action.equals("attach")) { callback.accept(stageUpload(tab, lease, args.optString("file"))); return; }
         if (action.equals("click")) tab.clickLabel = elementLabel(tab, args.optString("ref"));
         Pending p = new Pending(); p.id = Long.toString(++sequence); p.tab = tab; p.generation = lease; p.callback = callback; p.action = action; p.readReceiptId = tab.task.pendingMutation().optString("id");
-        p.routine = routine;
+        p.routine = routine; p.repeatSafe = repeatSafe(tab);
         if (args.optBoolean("navigation_only") && Set.of("open", "back").contains(action)) {
             p.navigationAction = action; p.previousDocument = tab.document; p.previousUrl = tab.url; p.navigationTarget = args.optString("url");
         }
@@ -1765,7 +1802,8 @@ final class BrowserEngine {
         if(p==null||!isPending(p))return;
         if (recoverReadNavigation(p, result)) return;
         settleUnsent(p);lane(p.generation).pending=null;
-        if (p.routine && p.mutation && p.dispatched && !p.dispatchId.isEmpty() && p.tab.task.settleRoutine(p.dispatchId)) {
+        if ((p.routine || p.repeatSafe) && p.mutation && p.dispatched && !p.dispatchId.isEmpty()
+                && (p.routine ? p.tab.task.settleRoutine(p.dispatchId) : p.tab.task.settleRepeatSafe(p.dispatchId))) {
             activeWorkReceipts.remove(p.dispatchId); p.tab.taskChanged = true; persistTask(p.tab, null);
         }
         if (result.optBoolean("ok") && !result.optBoolean("requires_user") && !result.optString("document").isBlank()

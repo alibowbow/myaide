@@ -3,6 +3,8 @@
     <!-- Explicit user Settings approval only. App code confines writes to primary/들퍼레;
          old Download/들퍼레 is readable only by the verified-copy migration adapter. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- 화면 방향 (음성 “가로로 바꿔 줘”): only after the user allows ‘시스템 설정 변경’ for this app in Settings. -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- A voice call notices at once when the default network drops or returns (install-time, no prompt). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -66,6 +68,11 @@
         android:icon="@mipmap/ic_launcher" android:allowBackup="false" android:fullBackupContent="@xml/backup_rules" android:dataExtractionRules="@xml/data_extraction_rules" android:usesCleartextTraffic="false"
         android:supportsRtl="true">
         <activity android:name=".PhoneSecurityActivity" android:enableOnBackInvokedCallback="true" android:windowSoftInputMode="adjustResize" android:exported="false" />
+        <activity android:name=".NavigationActivity" android:windowSoftInputMode="adjustResize" android:exported="false" />
+        <activity android:name=".NoticeActivity" android:exported="false" />
+        <service android:name=".NoticeListener" android:exported="true" android:label="들퍼레 알림 비서" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
+        </service>
         <service android:name=".SecurityJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
         <service android:name=".AppFirewall" android:exported="false"
             android:permission="android.permission.BIND_VPN_SERVICE" android:foregroundServiceType="specialUse">
@@ -128,11 +135,13 @@
         <service android:name=".BrowserTaskService" android:exported="false" android:foregroundServiceType="dataSync" />
         <!-- 예약 작업: only this app's own alarm reaches it (no intent filter, not exported, no boot listener). -->
         <receiver android:name=".WorkScheduleAlarm" android:exported="false" />
+        <service android:name=".BriefingJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
         <!-- 차에서 호출어: started from the settings while the app is in front, so Android lets it use the microphone later. -->
         <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone" />
         <!-- The main chat's spoken conversation: started from the chat screen, so it keeps hearing with the screen off. -->
         <service android:name=".VoiceChatService" android:exported="false" android:foregroundServiceType="microphone" />
         <service android:name=".MyTubeService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <service android:name=".LyriaService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".AssistantService" android:exported="false"
             android:foregroundServiceType="microphone|mediaPlayback|dataSync" android:stopWithTask="false" />
         <provider android:name=".ManagedDocumentsProvider" android:authorities="dev.jun.gyeot.shared-documents"

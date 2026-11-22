@@ -42,6 +42,11 @@ public final class BrowserTaskContext {
      * nothing, so its outcome is simply whatever the next read shows. It makes no success claim.
      */
     public boolean settleRoutine(String id) { return settleMutation(id, "routine_step"); }
+    /**
+     * A repeat-safe job's step on its own site (BrowserEngine.repeatSafeHost) is not fenced either: doing it twice is
+     * harmless, so it is settled once dispatched and the next read shows its outcome. It makes no success claim.
+     */
+    public boolean settleRepeatSafe(String id) { return settleMutation(id, "repeat_safe_step"); }
     private boolean settleMutation(String id, String resolution) {
         if (pendingMutation == null || !pendingMutation.optString("id").equals(id)) return false;
         lastMutation = obj("id", id, "action", pendingMutation.optString("action"),
@@ -107,7 +112,7 @@ public final class BrowserTaskContext {
         if (!(row.opt("id") instanceof String) || !row.getString("id").matches("[A-Za-z0-9_-]{1,80}")
                 || !java.util.Set.of("click", "type", "select", "press", "vault_fill").contains(row.optString("action"))
                 || !(pending ? row.optString("state").equals("awaiting_acknowledgement")
-                    : java.util.Set.of("acknowledged_once", "definitely_not_dispatched", "user_inspected", "observed_read_navigation", "routine_step").contains(row.optString("state"))))
+                    : java.util.Set.of("acknowledged_once", "definitely_not_dispatched", "user_inspected", "observed_read_navigation", "routine_step", "repeat_safe_step").contains(row.optString("state"))))
             throw new IllegalArgumentException("Invalid mutation receipt");
         JSONObject copy = obj("id", row.getString("id"), "action", row.getString("action"), "state", row.getString("state"));
         if (row.has("request") || row.has("url")) {

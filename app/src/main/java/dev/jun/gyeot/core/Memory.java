@@ -457,6 +457,47 @@ public final class Memory {
             + "Do not repeat what is already remembered; update a note when the user corrected it. Answer only with JSON: {\"add\":[\"note\", ...], \"update\":[{\"id\":\"...\",\"text\":\"...\"}], \"remove\":[\"id\", ...]}. Notes are short Korean sentences. "
             + "Empty lists are fine.\n\nAlready remembered:\n" + (notes == null || notes.isBlank() ? "(nothing yet)" : notes);
     }
+    /**
+     * 기억 정리: the notes about the user, tidied by a model: the same thing said twice becomes one note (one kept and
+     * rewritten, the others removed), what a later note contradicts or what is clearly over goes, and nothing new is added.
+     * The answer is the same plan apply takes, without "add".
+     */
+    public static String cleanup(String notes) {
+        return "You tidy the long-term memory of a Korean personal assistant. Below are the notes about the user, each with its id. "
+            + "Merge notes that say the same or overlapping things into one (update the best one with the merged text, remove the others), "
+            + "remove a note that a newer note contradicts or that is clearly over (a finished one-off plan), and fix a note only when it is "
+            + "unclear. Keep everything else exactly as it is. Never add new facts and never guess. Notes are short Korean sentences. "
+            + "Answer only with JSON: {\"update\":[{\"id\":\"...\",\"text\":\"...\"}],\"remove\":[\"id\", ...]}; empty lists when all is fine.\n\nNotes:\n"
+            + (notes == null || notes.isBlank() ? "(none)" : notes);
+    }
+    /** What a cleanup plan would do, one line each (변경: old → new, 삭제: text), for the user to look at first; empty for none. */
+    public static java.util.List<String> preview(JSONArray list, String answer) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        String text = answer == null ? "" : answer.strip();
+        int start = text.indexOf('{'), end = text.lastIndexOf('}');
+        if (start < 0 || end <= start) return out;
+        JSONObject plan;
+        try { plan = new JSONObject(text.substring(start, end + 1)); } catch (Exception e) { return out; }
+        JSONArray update = plan.optJSONArray("update"), remove = plan.optJSONArray("remove");
+        for (int i = 0; update != null && i < update.length(); i++) {
+            JSONObject u = update.optJSONObject(i); if (u == null) continue;
+            String old = noteText(list, u.optString("id")); if (old == null || u.optString("text").isBlank() || old.equals(u.optString("text").strip())) continue;
+            out.add("고침: " + old + " → " + u.optString("text").strip());
+        }
+        for (int i = 0; remove != null && i < remove.length(); i++) { String old = noteText(list, remove.optString(i)); if (old != null) out.add("지움: " + old); }
+        return out;
+    }
+    /** Only the update and remove of a plan (a cleanup never adds). */
+    public static String withoutAdd(String answer) {
+        String text = answer == null ? "" : answer.strip();
+        int start = text.indexOf('{'), end = text.lastIndexOf('}');
+        if (start < 0 || end <= start) return "{}";
+        try { JSONObject plan = new JSONObject(text.substring(start, end + 1)); plan.remove("add"); return plan.toString(); } catch (Exception e) { return "{}"; }
+    }
+    private static String noteText(JSONArray list, String id) {
+        for (int i = 0; i < list.length(); i++) { JSONObject note = list.optJSONObject(i); if (note != null && ABOUT.equals(note.optString("kind")) && note.optString("id").equals(id)) return note.optString("text"); }
+        return null;
+    }
     /** Applies an extraction answer (JSON, possibly in a code block); returns how many notes were added or changed. */
     public static int apply(JSONArray list, String answer, long now) {
         String text = answer == null ? "" : answer.strip();

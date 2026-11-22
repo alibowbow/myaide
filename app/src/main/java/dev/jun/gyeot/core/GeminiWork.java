@@ -24,6 +24,12 @@ public final class GeminiWork {
     public static final String[][] DEFAULT_MODELS = {{"gemini-flash-latest", "Gemini Flash 최신"}, {"gemini-pro-latest", "Gemini Pro 최신"}, {"gemini-flash-lite-latest", "Gemini Flash-Lite 최신"}};
     /** For small jobs (filing a conversation): the lightest model. */
     public static final String LIGHT = "gemini-flash-lite-latest";
+    /**
+     * The app's own Gemini jobs (search, titles, watching video, hearing recordings): Flash-Lite, whose free tier allows 500 a
+     * day per model, where Flash allows 20; 3.5 first, then 3.1, then whatever Flash-Lite is newest. Work that needs more than
+     * Flash-Lite goes to Claude, GPT or Grok, not to a Gemini Flash.
+     */
+    public static final String[] FLASH_LITE = {"gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"};
     private static final Pattern ALIAS = Pattern.compile("^gemini-(flash|pro|flash-lite)-latest$");
     /** A numbered model of any family: "gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-4-argon", "gemini-3.8-pro-preview". */
     private static final Pattern VERSIONED = Pattern.compile("^gemini-(\\d+(?:\\.\\d+)?)-([a-z]+(?:-lite)?)(-preview)?$");

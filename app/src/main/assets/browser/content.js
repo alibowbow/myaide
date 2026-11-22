@@ -432,6 +432,16 @@
       v.addEventListener('pause',()=>{ if(!v.ended) mytubeSay(connection,'paused',{ad:mytubeAd()}); });
       v.addEventListener('error',()=>mytubeSay(connection,'error'));
     }
+    // Already playing when the listener came (YouTube started it by itself first): told now, so the app does not wait for a
+    // 'playing' that has passed and call it stuck.
+    if (!mytubeStarted) {
+      const api=mytubeApi(), state=api?mytubeCall(api,'getPlayerState'):null;
+      if ((v && !v.paused && !v.ended && v.readyState>2) || state===1) {
+        mytubeStarted=true; mytubeStuck=false;
+        if (!mytubeAd() && mytubeQualityFor!==mytubeFor) mytubeApplyQuality(connection);
+        mytubeSay(connection,'playing',{ad:mytubeAd()});
+      }
+    }
     if (mytubeWant!=='play' || mytubeStarted) { if (mytubeStarted && !mytubeAd()) mytubeReport(connection); return; }
     mytubeStart(v);
     if (!mytubeStuck && Date.now()-mytubeSince>15000) {
@@ -458,9 +468,9 @@
     else if (command==='quality') mytubeApplyQuality(connection);
     else if (command==='account') mytubeAccount(connection, 0);
     else if (command==='frame') mytubeFrame(connection);
-    // 앞뒤 이동 (seconds from where it plays) and 배속 (0.25–2, kept for the next videos: the app sends it again as each one plays).
+    // 앞뒤 이동 (seconds from where it plays, or to a second: 영상 요약's times) and 배속 (0.25–2, kept for the next videos: the app sends it again as each one plays).
     else if (command==='seek') {
-      const api=mytubeApi(), by=Number(message.by)||0, now=v?v.currentTime:(Number(mytubeCall(api,'getCurrentTime'))||0), to=Math.max(0,now+by);
+      const api=mytubeApi(), by=Number(message.by)||0, now=v?v.currentTime:(Number(mytubeCall(api,'getCurrentTime'))||0), to=Math.max(0,typeof message.to==='number'?message.to:now+by);
       if (api && typeof api.seekTo==='function') mytubeCall(api,'seekTo',to,true); else if (v) v.currentTime=to;
     }
     else if (command==='rate') {

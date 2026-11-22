@@ -13,9 +13,9 @@ import java.util.Map;
  */
 public final class GlobalSearch {
     private GlobalSearch() {}
-    public static final String ALL = "all", CHAT = "chat", WORK = "work", PAGE = "page", MEMORY = "memory", NOTE = "note", VOICE = "voice", RECORDING = "recording", KEPT = "kept";
-    public static final String[] KINDS = {ALL, CHAT, WORK, PAGE, MEMORY, NOTE, VOICE, RECORDING, KEPT};
-    public static final String[] LABELS = {"전체", "메인 대화", "작업창", "페이지", "기억", "메모", "음성 기록", "녹음", "가져온 글"};
+    public static final String ALL = "all", CHAT = "chat", WORK = "work", PAGE = "page", MEMORY = "memory", NOTE = "note", VOICE = "voice", RECORDING = "recording", KEPT = "kept", VIDEO = "video";
+    public static final String[] KINDS = {ALL, CHAT, WORK, PAGE, MEMORY, NOTE, VOICE, RECORDING, VIDEO, KEPT};
+    public static final String[] LABELS = {"전체", "메인 대화", "작업창", "페이지", "기억", "메모", "음성 기록", "녹음", "영상 요약", "가져온 글"};
     /** Words past this many are left out; a shorter query than LEAST letters searches nothing. */
     public static final int WORDS = 8, LEAST = 2, SNIPPET = 90;
 

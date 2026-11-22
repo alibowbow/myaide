@@ -44,8 +44,47 @@ final class GeminiAudioClient {
             return generate(key, GeminiMedia.MODELS, GeminiMedia.request(media, GeminiMedia.videoPrompt(request), lowResolution), GeminiMedia::answer, guard, cancel);
         } finally { cleanup(key, fileName.get(), cancel); }
     }
+    /**
+     * 영상 요약: Gemini watches a YouTube video by its address (GeminiMedia.youtube) and answers the prompt, at low resolution
+     * so a long video fits the free tier's tokens a minute. No transcript and no upload.
+     */
+    static String watchYouTube(String key, String id, String prompt, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        return generate(key, GeminiMedia.YOUTUBE_MODELS, GeminiMedia.request(GeminiMedia.youtube(id), prompt, true), GeminiMedia::answer, guard, cancel);
+    }
+    /** 이 영상에 대해 물어보세요: a whole conversation about a YouTube video (core/VideoChat.watch), the video watched again each turn. */
+    static String watchYouTube(String key, JSONObject request, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        return generate(key, GeminiMedia.YOUTUBE_MODELS, request, GeminiMedia::answer, guard, cancel);
+    }
+    /**
+     * 호출어 확인: did a person really say the wake word in this short clip (not song lyrics, the radio or noise)? Flash-Lite
+     * listens once; true or false, or an exception when it could not answer within timeoutMs (the caller decides then).
+     */
+    static boolean heardWakeWord(String key, byte[] wav, int timeoutMs) throws Exception {
+        AtomicReference<Runnable> cancel = new AtomicReference<>();
+        java.util.Timer timer = new java.util.Timer(true);
+        timer.schedule(new java.util.TimerTask() { @Override public void run() { Runnable abort = cancel.getAndSet(null); if (abort != null) abort.run(); } }, timeoutMs);
+        try {
+            JSONObject body = new JSONObject().put("contents", new org.json.JSONArray().put(new JSONObject().put("role", "user").put("parts", new org.json.JSONArray()
+                .put(GeminiMedia.inline(wav, "audio/wav")).put(new JSONObject().put("text", dev.jun.gyeot.core.WakeWord.VERIFY)))));
+            body.put("generationConfig", new JSONObject().put("maxOutputTokens", 5).put("temperature", 0));
+            String answer = generate(key, dev.jun.gyeot.core.GeminiWork.FLASH_LITE, body, GeminiAudio::answer, () -> {}, cancel);
+            return answer != null && answer.strip().toUpperCase(java.util.Locale.ROOT).startsWith("Y");
+        } finally { timer.cancel(); }
+    }
     static String summarize(String key, String instructions, String transcript) throws Exception {
         return generate(key, GeminiSearch.MODELS, GeminiAudio.text(instructions, transcript), GeminiAudio::answer, () -> {}, null);
+    }
+    /** As above, bound to a run's guard and its stop. */
+    static String summarize(String key, String instructions, String transcript, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        return generate(key, GeminiSearch.MODELS, GeminiAudio.text(instructions, transcript), GeminiAudio::answer, guard, cancel);
+    }
+    /**
+     * Light work (대화 제목, 기억 추출): Gemma 4 first, for its 14,400 free requests a day, and Gemini Flash-Lite when Gemma
+     * cannot take it now (GeminiLight). The instructions go in the one user turn.
+     */
+    static String light(String key, String instructions, String input) throws Exception {
+        return generate(key, dev.jun.gyeot.core.GeminiLight.models(GeminiQuotas.gemma()), dev.jun.gyeot.core.GeminiLight.request(instructions, input),
+            GeminiAudio::answer, () -> {}, null, dev.jun.gyeot.core.GeminiLight.tokens(instructions, input));
     }
     private static byte[] local(File file, Runnable guard) throws Exception {
         try (InputStream input = new FileInputStream(file); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
@@ -60,18 +99,29 @@ final class GeminiAudioClient {
     }
     private static String generate(String key, String[] models, JSONObject request, java.util.function.Function<JSONObject, String> answer,
                                    Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        return generate(key, models, request, answer, guard, cancel, 0);
+    }
+    /** tokens: an estimate of the request's tokens, for models with a tokens-a-minute limit (0: not counted). */
+    private static String generate(String key, String[] models, JSONObject request, java.util.function.Function<JSONObject, String> answer,
+                                   Runnable guard, AtomicReference<Runnable> cancel, int tokens) throws Exception {
         guard.run(); byte[] body = request.toString().getBytes(StandardCharsets.UTF_8); Exception last = null;
-        for (String model : models) {
+        // In the given order, leaving out models whose free quota is used up or resting now (GeminiQuotas).
+        for (String model : GeminiQuotas.order(models, tokens)) {
             guard.run();
             try (Bound bound = new Bound(open("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", "POST", key, 600_000), guard, cancel)) {
                 HttpURLConnection connection = bound.connection;
                 connection.setDoOutput(true); connection.setFixedLengthStreamingMode(body.length); connection.setRequestProperty("Content-Type", "application/json");
                 try (OutputStream output = connection.getOutputStream()) { transfer(new ByteArrayInputStream(body), output, guard, body.length); }
                 guard.run(); int status = connection.getResponseCode(); guard.run(); JSONObject json = json(connection, status, guard);
-                if (status == 200) { guard.run(); return answer.apply(json); }
+                if (status == 200) {
+                    JSONObject usage = json.optJSONObject("usageMetadata");
+                    GeminiQuotas.used(model, usage == null ? 0 : usage.optInt("totalTokenCount")); guard.run(); return answer.apply(json);
+                }
                 JSONObject error = json.optJSONObject("error"); String message = error == null ? "" : error.optString("message");
                 IllegalStateException failure = new IllegalStateException(GeminiProtocol.explain(status + " " + message));
-                guard.run(); if (!GeminiSearch.tryNext(status, message) && status != 400) throw failure; last = failure;
+                guard.run(); last = failure;
+                if (GeminiQuotas.refused(model, status, json.toString())) continue;
+                if (!GeminiSearch.tryNext(status, message) && status != 400) throw failure;
             }
         }
         guard.run(); throw last != null ? last : new IllegalStateException("녹음을 처리할 모델을 찾지 못했어요.");

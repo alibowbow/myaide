@@ -63,6 +63,16 @@ final class ScopedModels {
         }
         return new ScopedModels(store, "", "mytubeModels");
     }
+    /** 이 영상에 대해 물어보세요's own choice: copied from 마이튜브 AI's the first time, independent after. */
+    static ScopedModels videoChat(AppStore store) {
+        synchronized (store) {
+            if (!store.settings.contains("videoChatModels")) {
+                JSONObject value = mytube(store).snapshot();
+                if (!store.settings.edit().putString("videoChatModels", value.toString()).commit()) throw new IllegalStateException("영상 대화 모델 설정을 저장하지 못했어요.");
+            }
+        }
+        return new ScopedModels(store, "", "videoChatModels");
+    }
     static JSONObject copy(JSONObject value) { try { return new JSONObject(value.toString()); } catch (Exception e) { throw new IllegalStateException(e); } }
     static JSONObject saved(AppStore store, String key) {
         try { return new JSONObject(store.settings.getString(key, "{}")); } catch (Exception e) { throw new IllegalStateException("모델 설정을 읽지 못했어요. 기존 설정은 보존했어요.", e); }

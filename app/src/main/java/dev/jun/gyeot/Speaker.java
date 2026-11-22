@@ -45,6 +45,15 @@ final class Speaker implements AutoCloseable {
     private final LinkedBlockingQueue<Packet> queue = new LinkedBlockingQueue<>();
     private final AtomicLong queuedBytes = new AtomicLong();
     private final AtomicInteger epoch = new AtomicInteger();
+    /**
+     * 목소리 크기 (목소리와 대화 → 말하기와 알림): each chunk is brought up to the chosen level just before it is written
+     * (core/VoiceLevel), higher while a car or a Bluetooth speaker is connected. The writer thread alone uses these.
+     */
+    private final dev.jun.gyeot.core.VoiceLevel leveler = new dev.jun.gyeot.core.VoiceLevel();
+    private boolean intoCar; private long outputsAt = Long.MIN_VALUE;
+    /** How often the connected outputs are looked at again for intoCar. */
+    private static final long OUTPUTS_MS = 2000;
+    private final Context app;
     private final AudioManager manager;
     private final AudioFocusRequest focus;
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -79,6 +88,7 @@ final class Speaker implements AutoCloseable {
      * microphone, and a user speaking over it is heard at an ordinary voice; otherwise as an assistant's speech.
      */
     Speaker(Context context, boolean call) {
+        app = context.getApplicationContext();
         manager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         AudioAttributes attributes = new AudioAttributes.Builder().setUsage(call ? AudioAttributes.USAGE_VOICE_COMMUNICATION : AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
         focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).setAudioAttributes(attributes)
@@ -145,15 +155,17 @@ final class Speaker implements AutoCloseable {
                     playing = true; track.play();
                 }
                 if (packet.audible != null) { watch = packet.audible; watchFrame = frames; watchSince = SystemClock.uptimeMillis(); watchWritten = System.nanoTime(); }
-                for (int offset = 0; running && offset < packet.bytes.length;) {
+                // As it will sound: the echo guard below measures what is really played (core/BargeIn).
+                byte[] bytes = leveler.apply(packet.bytes, mode(), intoCar());
+                for (int offset = 0; running && offset < bytes.length;) {
                     if (packet.epoch != epoch.get()) { discardStale(); playing = false; break; }
-                    int written = track.write(packet.bytes, offset, Math.min(4096, packet.bytes.length - offset), AudioTrack.WRITE_BLOCKING);
+                    int written = track.write(bytes, offset, Math.min(4096, bytes.length - offset), AudioTrack.WRITE_BLOCKING);
                     if (written <= 0) break;
                     offset += written; frames += written / 2;
                     if (packet.epoch != epoch.get()) { discardStale(); playing = false; break; }
                     long now = SystemClock.uptimeMillis(), from = Math.max(now, audibleUntil);
                     audibleUntil = from + written * 1000L / BYTES_PER_SECOND;
-                    playsAt(from, audibleUntil, dev.jun.gyeot.core.BargeIn.rms(java.util.Arrays.copyOfRange(packet.bytes, offset - written, offset)));
+                    playsAt(from, audibleUntil, dev.jun.gyeot.core.BargeIn.rms(java.util.Arrays.copyOfRange(bytes, offset - written, offset)));
                 }
             }
         } catch (Exception ignored) {
@@ -179,6 +191,45 @@ final class Speaker implements AutoCloseable {
     }
     /** A flush raced a blocking write; clear whatever stale chunk landed in the track buffer after it. */
     private void discardStale() { try { track.pause(); track.flush(); } catch (Exception ignored) {} }
+    /** The 목소리 크기 chosen now (read for each chunk, so a change applies at once); as it comes outside the app's process. */
+    private dev.jun.gyeot.core.VoiceLevel.Mode mode() {
+        try { return ((GyeotApp) app).store().voiceLevel(); } catch (RuntimeException outside) { return dev.jun.gyeot.core.VoiceLevel.Mode.OFF; }
+    }
+    /** intoCar(Context, AudioManager), looked at again at most every OUTPUTS_MS. */
+    private boolean intoCar() {
+        long now = SystemClock.uptimeMillis();
+        if (outputsAt == Long.MIN_VALUE || now - outputsAt >= OUTPUTS_MS) { outputsAt = now; intoCar = intoCar(app, manager); }
+        return intoCar;
+    }
+    /**
+     * Whether the voice goes into a car or a Bluetooth speaker: a connected Bluetooth output that is not earphones
+     * (core/VoiceRoute.loudBluetooth, the echo guard's own rule; the wake word's car always counts).
+     */
+    static boolean intoCar(Context context, AudioManager audio) {
+        if (audio == null) return false;
+        try {
+            String car = "";
+            try { car = ((GyeotApp) context.getApplicationContext()).store().settings.getString(WakeWordFiles.CAR, ""); } catch (RuntimeException none) { /* no car chosen */ }
+            java.util.List<dev.jun.gyeot.core.VoiceRoute.Output> outputs = new java.util.ArrayList<>();
+            for (android.media.AudioDeviceInfo device : audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+                int type = device.getType();
+                if (type != android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP && type != android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO) continue;
+                String address = device.getAddress() == null ? "" : device.getAddress();
+                outputs.add(new dev.jun.gyeot.core.VoiceRoute.Output(dev.jun.gyeot.core.VoiceRoute.Kind.BLUETOOTH, bluetoothClass(context, address), !car.isEmpty() && car.equalsIgnoreCase(address)));
+            }
+            return dev.jun.gyeot.core.VoiceRoute.loudBluetooth(outputs);
+        } catch (RuntimeException unknown) { return false; }
+    }
+    /** A Bluetooth device's class (headphones, hands-free, car audio …), or -1 when Android does not tell this app. */
+    private static int bluetoothClass(Context context, String address) {
+        try {
+            android.bluetooth.BluetoothManager bluetooth = context.getSystemService(android.bluetooth.BluetoothManager.class);
+            android.bluetooth.BluetoothAdapter adapter = bluetooth == null ? null : bluetooth.getAdapter();
+            if (adapter == null || !android.bluetooth.BluetoothAdapter.checkBluetoothAddress(address)) return -1;
+            android.bluetooth.BluetoothClass kind = adapter.getRemoteDevice(address).getBluetoothClass();
+            return kind == null ? -1 : kind.getDeviceClass();
+        } catch (RuntimeException denied) { return -1; }
+    }
     void flush() {
         epoch.incrementAndGet();
         Packet pending;

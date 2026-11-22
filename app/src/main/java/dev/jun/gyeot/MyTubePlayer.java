@@ -226,7 +226,14 @@ final class MyTubePlayer {
     void previous() { if (at > 0) load(at - 1); }
     /** 앞뒤 이동: seconds forward (or back, negative) from where the video is. */
     void seek(int seconds) { if (active()) post(dev.jun.gyeot.core.Jsons.obj("command", "seek", "by", seconds)); }
-    /** 배속: 0.25 to 2; it stays for the next videos too. */
+    /** 타임라인: to this second of the video, when it is the one playing; false when another one is. */
+    boolean seekTo(String id, int second) {
+        MyTube.Video v = current(); if (v == null || !v.id().equals(id)) return false;
+        post(dev.jun.gyeot.core.Jsons.obj("command", "seek", "to", Math.max(0, second)));
+        if (!playing) resume();
+        return true;
+    }
+        /** 배속: 0.25 to 2; it stays for the next videos too. */
     void rate(float value) { rate = Math.max(0.25f, Math.min(2f, value)); if (active()) sendRate(); changed(); }
     private void sendRate() { post(dev.jun.gyeot.core.Jsons.obj("command", "rate", "rate", (double) rate)); }
     private void post(JSONObject command) {
@@ -290,6 +297,8 @@ final class MyTubePlayer {
                 // Off the screen without background play nothing plays (the page starting a video by itself included).
                 if (!onScreen && !background()) { send("pause"); leftPaused = true; return; }
                 playing = true; wantPlay = true; status = event.optBoolean("ad") ? "광고 재생 중" : "재생 중";
+                // 마이튜브 plays: 배경음악 (Lyria) stops.
+                LyriaPlayer.stopIfPlaying();
                 if (rate != 1f && !event.optBoolean("ad")) sendRate(); // YouTube starts each video at 1×
                 changed();
             }

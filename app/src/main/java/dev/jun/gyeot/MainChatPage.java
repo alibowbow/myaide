@@ -114,6 +114,10 @@ final class MainChatPage implements AutoCloseable {
         messages.addOnLayoutChangeListener((v, l, t, r, b, oldL, oldT, oldR, oldB) -> { follow(oldB - oldT, b - t); awayFromNewest(); });
         scroll.setOnScrollChangeListener((v, x, y, oldX, oldY) -> { nearSuggestions(); awayFromNewest(); });
         talkStatus = ui.text("", FOOTNOTE, 560, MUTED); talkStatus.setPadding(ui.dp(14), ui.dp(4), ui.dp(14), 0); talkStatus.setMaxLines(2); talkStatus.setEllipsize(TextUtils.TruncateAt.END); talkStatus.setVisibility(View.GONE);
+        // 오늘의 제안 (먼저 챙기기, Briefing): this morning's cards over the composer while there are any left.
+        briefStrip = new HorizontalScrollView(activity); briefStrip.setHorizontalScrollBarEnabled(false); briefStrip.setVisibility(View.GONE);
+        briefCards = ui.row(); briefCards.setPadding(ui.dp(8), ui.dp(6), ui.dp(8), ui.dp(2)); briefStrip.addView(briefCards);
+        root.addView(briefStrip, new LinearLayout.LayoutParams(-1, -2));
         root.addView(talkStatus, new LinearLayout.LayoutParams(-1, -2));
         chipRow = ui.row();
         // 검색: 자동/항상/끔 for the next replies; a tap shows the three with what each does on the engine in use.
@@ -478,8 +482,40 @@ final class MainChatPage implements AutoCloseable {
         org.json.JSONArray last = store.mainChat.page(0, 1); org.json.JSONObject m = last.optJSONObject(last.length() - 1);
         return m != null && "assistant".equals(m.optString("role")) && "error".equals(m.optString("state"));
     }
+    private HorizontalScrollView briefStrip; private LinearLayout briefCards; private String briefShown = "";
+    /**
+     * 오늘의 제안: each card its title, a line about it and ✕; a tap starts it (its words in the message box, or the work room
+     * it continues) and counts as used, ✕ puts it away; the next mornings learn from both.
+     */
+    private void briefs() {
+        if (briefStrip == null) return;
+        java.util.List<dev.jun.gyeot.core.Proactive.Card> cards = Briefing.cards(store);
+        String signature = cards.toString(); if (signature.equals(briefShown)) return; briefShown = signature;
+        briefCards.removeAllViews(); briefStrip.setVisibility(cards.isEmpty() ? View.GONE : View.VISIBLE);
+        for (dev.jun.gyeot.core.Proactive.Card card : cards) {
+            LinearLayout box = ui.column(); box.setBackground(ui.shape(CARD, 16)); box.setPadding(ui.dp(12), ui.dp(8), ui.dp(4), ui.dp(10));
+            LinearLayout top = ui.row(); top.setGravity(Gravity.CENTER_VERTICAL);
+            TextView title = ui.text(card.title(), 14, 650, TEXT); title.setMaxLines(1); title.setEllipsize(TextUtils.TruncateAt.END);
+            top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+            ImageView close = ui.bareIcon(R.drawable.ic_close, MUTED, "이 제안 넘기기", () -> { Briefing.react(store, card, false); briefs(); });
+            close.setPadding(ui.dp(10), ui.dp(10), ui.dp(10), ui.dp(10)); top.addView(close, new LinearLayout.LayoutParams(ui.dp(32), ui.dp(32)));
+            box.addView(top);
+            TextView about = ui.text(card.body(), 12.5f, 450, MUTED); about.setMaxLines(2); about.setEllipsize(TextUtils.TruncateAt.END); about.setPadding(0, 0, ui.dp(8), 0);
+            box.addView(about);
+            box.setContentDescription("오늘의 제안: " + card.title() + ". " + card.body());
+            box.setOnClickListener(v -> {
+                Briefing.react(store, card, true); briefs();
+                if (!card.work().isEmpty() && dev.jun.gyeot.core.WorkBook.find(store.works(), card.work()) != null)
+                    activity.startActivity(new android.content.Intent(activity, MainActivity.class).putExtra("tab", 3).putExtra("work", card.work()).addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP));
+                else suggested(card.ask());
+            });
+            Ui.pressable(box, true);
+            LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(ui.dp(236), -2); at.rightMargin = ui.dp(8); briefCards.addView(box, at);
+        }
+    }
     private void refresh() {
         if (activity.isFinishing() || activity.isDestroyed() || messages == null || stopped) return;
+        briefs();
         try {
             if(modelPickerRefresh!=null)modelPickerRefresh.run();voice.refresh();
             // The living avatar thinks while replies are being prepared, is briefly happy when they have arrived (sad when the last one failed), dozes when quiet.

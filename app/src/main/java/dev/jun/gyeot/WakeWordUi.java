@@ -51,7 +51,8 @@ final class WakeWordUi {
      */
     View page() {
         LinearLayout page = ui.column();
-        TextView about = ui.text("차 블루투스가 연결된 동안에만 마이크를 켜고, 내 목소리로 녹음한 “들퍼레”·“퍼레”가 들리면 음성 대화를 시작해요.", 14, 400, Ui.MUTED);
+        TextView about = ui.text("차 블루투스가 연결된 동안에만 마이크를 켜고, 내 목소리로 녹음한 “들퍼레”·“퍼레”가 들리면 음성 대화를 시작해요. "
+            + "연결할 때 차와 앱이 내는 안내 소리에 켜지지 않도록, 연결되고 " + dev.jun.gyeot.core.WakeRest.words(dev.jun.gyeot.core.WakeRest.SETTLE_MS) + " 뒤부터 들어요.", 14, 400, Ui.MUTED);
         about.setPadding(ui.dp(16), 0, ui.dp(16), 0); ui.add(page, about, 12);
         boolean ready = WakeWordFiles.complete(activity) && !store.settings.getString(WakeWordFiles.CAR, "").isBlank(), enabled = store.settings.getBoolean(WakeWordFiles.ENABLED, false);
         String carName = store.settings.getString(WakeWordFiles.CAR_NAME, "");
@@ -63,9 +64,12 @@ final class WakeWordUi {
             if (!on) { WakeWordService.stop(activity); store.status("차에서 호출어를 껐어요"); refresh.run(); return; }
             if (!permitted()) { ask(); return; }
             WakeWordService.start(activity); store.status("호출어 대기를 시작했어요 · 차가 연결되면 들어요"); refresh.run();
-        }), false);
+        }), true);
+        // 호출어 확인: a match that is not plainly the user's (or any while music plays) is checked by Flash-Lite with its clip.
+        ui.addRow(use, ui.switchRow("노래·잡음에 켜지지 않게 AI로 확인", "애매하게 들렸거나 음악이 나올 때만, 그 2~3초를 Gemini가 한 번 더 들어 봐요",
+            store.settings.getBoolean("wakeVerify", true), on -> store.settings.edit().putBoolean("wakeVerify", on).apply()), false);
         page.addView(use);
-        page.addView(ui.footer("소리는 폰 안에서만 비교하고 어디에도 보내지 않아요."));
+        page.addView(ui.footer("평소에는 소리를 폰 안에서만 비교해요. AI 확인을 켜 두면 애매한 순간의 2~3초만 Gemini로 보내 사람이 ‘퍼레’라고 했는지 물어요. 음악이 나오는 동안에는 호출어 기준도 더 엄격해져요."));
 
         page.addView(ui.sectionHeader("1단계 · 내 차"));
         LinearLayout car = ui.group();

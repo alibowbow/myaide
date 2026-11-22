@@ -98,7 +98,7 @@ final class GeminiWorkAccount {
             try {
                 JSONObject list = GeminiWorkClient.list(key); JSONArray models = GeminiWork.models(list);
                 synchronized (this) { secrets.putWork(key); label = null; }
-                keepModels(models); keepLive(list); notice("");
+                keepModels(models); keepLive(list); keepGemma(list); notice("");
             } catch (Exception error) { notice(error instanceof java.io.IOException ? Net.explain(error) : error.getMessage() == null ? "키를 확인하지 못했어요." : error.getMessage()); }
         });
     }
@@ -113,11 +113,26 @@ final class GeminiWorkAccount {
         long now = System.currentTimeMillis();
         if (!hasKey() || !dev.jun.gyeot.core.ModelWatch.due(settings.getLong("geminiWorkModelsAt", 0), now) || now - modelsTried < 10 * 60_000L) return;
         modelsTried = now;
-        network.execute(() -> { try { JSONObject list = GeminiWorkClient.list(apiKey()); keepModels(GeminiWork.models(list)); keepLive(list); } catch (Exception quiet) { /* kept */ } });
+        network.execute(() -> { try { JSONObject list = GeminiWorkClient.list(apiKey()); keepModels(GeminiWork.models(list)); keepLive(list); keepGemma(list); } catch (Exception quiet) { /* kept */ } });
     }
     private void refresh() {
-        try { if (hasKey()) { JSONObject list = GeminiWorkClient.list(apiKey()); keepModels(GeminiWork.models(list)); keepLive(list); notice(""); } }
+        try { if (hasKey()) { JSONObject list = GeminiWorkClient.list(apiKey()); keepModels(GeminiWork.models(list)); keepLive(list); keepGemma(list); notice(""); } }
         catch (Exception error) { notice(error instanceof java.io.IOException ? Net.explain(error) : error.getMessage() == null ? "모델 목록을 불러오지 못했어요." : error.getMessage()); }
+    }
+    /** The key's Gemma 4 models (GeminiLight), larger first, kept with the list; none listed keeps the guessed ones. */
+    private void keepGemma(JSONObject list) {
+        String[] found = dev.jun.gyeot.core.GeminiLight.gemma(list);
+        if (found == null) settings.edit().remove("geminiGemmaModels").apply();
+        else settings.edit().putString("geminiGemmaModels", new JSONArray(java.util.List.of(found)).toString()).apply();
+    }
+    /** The Gemma 4 models for light work: as the key's list named them, else null (GeminiLight guesses). */
+    String[] gemma() {
+        try {
+            JSONArray saved = new JSONArray(settings.getString("geminiGemmaModels", "[]"));
+            if (saved.length() == 0) return null;
+            String[] ids = new String[saved.length()]; for (int i = 0; i < ids.length; i++) ids[i] = saved.optString(i);
+            return ids;
+        } catch (Exception e) { return null; }
     }
     /** The Live models newer than the app's own (for 음성 비서·판서 voice choices), kept with the list. */
     private void keepLive(JSONObject list) {

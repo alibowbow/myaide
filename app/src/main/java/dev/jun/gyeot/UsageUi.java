@@ -187,6 +187,12 @@ final class UsageUi {
         if (limits.getChildCount() == 0) box.addView(ui.footer("연결된 AI가 없어요. 설정 → AI 연결에서 연결하면 여기에 보여요."));
         else box.addView(limits);
         box.addView(ui.footer("회사가 답에 함께 보낸 한도만 보여요. 보내지 않으면 ‘남은 한도 모름’이에요."));
+        if (store.secrets.hasKey() || store.secrets.hasWorkKey()) {
+            box.addView(ui.sectionHeader("Gemini 무료 한도"));
+            box.addView(geminiQuota(System.currentTimeMillis()));
+            box.addView(ui.footer("앱이 스스로 쓰는 Gemini(검색·대화 제목·영상 요약·첨부 분석·받아쓰기·두뇌)를 이 폰에서 센 거예요. 한도가 찬 모델은 건너뛰고 다음 모델을 써요. "
+                + "같은 키를 다른 곳에서도 쓰면 실제 남은 양은 더 적을 수 있어요. 한도는 Google이 바꿀 수 있고, Google이 알려 준 한도가 있으면 그걸로 보여요."));
+        }
         box.addView(ui.sectionHeader("최근 7일"));
         LinearLayout recent = recent(page.totals());
         if (recent.getChildCount() == 0) box.addView(ui.footer("아직 기록이 없어요. 답을 받을 때마다 쌓여요."));
@@ -239,6 +245,46 @@ final class UsageUi {
         box.addView(track, new LinearLayout.LayoutParams(-1, ui.dp(8)));
         box.setContentDescription(Limits.heading(window) + ", " + Limits.remaining(window) + ", " + Limits.until(window, now));
         return box;
+    }
+    /**
+     * Gemini 무료 한도 (core/GeminiQuota): a card with each model the app uses on its own, today's requests against the free
+     * requests a day, when they are filled again, and a bar filled by what is left.
+     */
+    private LinearLayout geminiQuota(long now) {
+        LinearLayout card = ui.column();
+        android.graphics.drawable.GradientDrawable surface = ui.shape(Ui.CARD, 18); surface.setStroke(Math.max(1, ui.dp(.5f)), Ui.SEPARATOR);
+        card.setBackground(surface); card.setPadding(ui.dp(16), ui.dp(2), ui.dp(16), ui.dp(14));
+        // Gemma 4 (light work, the key's two largest), Flash-Lite (search, summaries), Transcribe (recordings).
+        String[] listed = store.gemini.gemma(), gemma = listed == null ? dev.jun.gyeot.core.GeminiLight.GEMMA : listed;
+        java.util.List<String> shown = new java.util.ArrayList<>(java.util.List.of(gemma).subList(0, Math.min(2, gemma.length)));
+        shown.add(dev.jun.gyeot.core.GeminiWork.FLASH_LITE[0]); shown.add(dev.jun.gyeot.core.GeminiWork.FLASH_LITE[1]); shown.add(dev.jun.gyeot.core.GeminiProtocol.FILE_TRANSCRIBE);
+        String[] models = shown.toArray(new String[0]);
+        String reset = refill(dev.jun.gyeot.core.GeminiQuota.resetAt(now));
+        for (dev.jun.gyeot.core.GeminiQuota.Row row : dev.jun.gyeot.core.GeminiQuota.rows(store.geminiQuota(), models, now)) {
+            LinearLayout box = ui.column(); box.setPadding(0, ui.dp(12), 0, 0);
+            box.addView(ui.text(row.label(), 15, 650, Ui.TEXT));
+            LinearLayout line = ui.row(); line.setPadding(0, ui.dp(4), 0, ui.dp(8));
+            String used = "오늘 " + row.uses() + (row.perDay() > 0 ? " / " + row.perDay() : "") + "회";
+            line.addView(ui.text(row.status().isEmpty() ? reset : row.status(), 13, 450, row.status().isEmpty() ? Ui.MUTED : Ui.WARNING), new LinearLayout.LayoutParams(0, -2, 1));
+            line.addView(ui.text(used, 13, 500, Ui.TEXT));
+            box.addView(line);
+            double left = row.status().startsWith("오늘 한도") ? 0 : row.perDay() > 0 ? Math.max(0, Math.min(1, 1 - row.uses() / (double) row.perDay())) : 1;
+            int ink = left < 0.1 ? Ui.ERROR : left < 0.25 ? Ui.WARNING : Ui.TEXT;
+            LinearLayout track = ui.row(); track.setBackground(ui.shape(Ui.FILL, Ui.PILL)); track.setClipToOutline(true);
+            android.view.View filled = new android.view.View(box.getContext()); filled.setBackground(ui.shape(ink, Ui.PILL));
+            track.addView(filled, new LinearLayout.LayoutParams(0, -1, (float) left));
+            track.addView(new android.view.View(box.getContext()), new LinearLayout.LayoutParams(0, -1, (float) (1 - left)));
+            box.addView(track, new LinearLayout.LayoutParams(-1, ui.dp(8)));
+            box.setContentDescription(row.label() + ", " + used + ", " + (row.status().isEmpty() ? reset : row.status()));
+            card.addView(box);
+        }
+        return card;
+    }
+    /** "오후 5시에 다시 채워져요": when the free daily quotas reset, in the phone's own time. */
+    static String refill(long at) {
+        java.time.ZonedDateTime local = java.time.Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault());
+        int hour = local.getHour(), minute = local.getMinute();
+        return (hour < 12 ? "오전 " : "오후 ") + (hour % 12 == 0 ? 12 : hour % 12) + "시" + (minute > 0 ? " " + minute + "분" : "") + "에 다시 채워져요";
     }
     /** One row per company with requests in the last seven days, most requests first. */
     private LinearLayout recent(JSONArray totals) {

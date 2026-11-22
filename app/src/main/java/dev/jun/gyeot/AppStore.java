@@ -330,7 +330,17 @@ final class AppStore {
         try { nim.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
     }
     String liveThinkingLevel() { return GeminiProtocol.thinkingLevel(settings.getString("liveThinkingLevel", "MEDIUM")); }
-    boolean translateToKorean() { return settings.getBoolean("translateToKorean", true); }
+    /** 내비게이션 → 자주 가는 곳 (core/SavedPlaces): the words for places and where they are. */
+    java.util.List<dev.jun.gyeot.core.SavedPlaces.Saved> savedPlaces() { return dev.jun.gyeot.core.SavedPlaces.load(settings.getString("savedPlaces", "[]")); }
+    void savedPlaces(java.util.List<dev.jun.gyeot.core.SavedPlaces.Saved> places) { settings.edit().putString("savedPlaces", dev.jun.gyeot.core.SavedPlaces.save(places)).apply(); changed(); }
+    /** 내비게이션 → 기본 이동 수단: car, public, walk or bicycle, when the user names none. */
+    String navigationMode() { String mode = settings.getString("navigationMode", "car"); return dev.jun.gyeot.core.NaverPlaces.MODES.contains(mode) ? mode : "car"; }
+    /** 내비게이션 → 안내 시작 대신 누르기 (폰 조작이 켜져 있을 때). */
+    boolean pressNavigationStart() { return settings.getBoolean("pressNavigationStart", true); }
+    /** 뜻으로 찾기 (SemanticIndex): off until turned on, since it sends what the app keeps to Gemini's embedding model. */
+    boolean semanticSearch() { return settings.getBoolean("semanticSearch", false); }
+    void semanticSearch(boolean on) { settings.edit().putBoolean("semanticSearch", on).apply(); changed(); }
+        boolean translateToKorean() { return settings.getBoolean("translateToKorean", true); }
     InterpreterConfig interpreterConfig() {
         return new InterpreterConfig(settings.getString("translateLanguageA", "ko"),
             settings.getString("translateLanguageB", InterpreterConfig.code(language(), "en")), settings.getString("translateMode", InterpreterConfig.AUTO));
@@ -402,10 +412,16 @@ final class AppStore {
         return switch (brain()) { case "gpt" -> openai.connected(); case "claude" -> claude.connected(); case "gemini" -> secrets.hasKey(); case "nim" -> nim.connected(); default -> false; };
     }
     String brainName() { return switch (brain()) { case "claude" -> "Claude"; case "gemini" -> "Gemini Flash"; case "none" -> "없음"; case "nim" -> dev.jun.gyeot.core.NimProtocol.label(nim.model()); default -> "ChatGPT"; }; }
-    /** Gemini Flash brain's per-model use today and the free quotas it ran into (core/GeminiThink). */
-    synchronized org.json.JSONObject flashState() { try { return new org.json.JSONObject(settings.getString("flashBrain", "{}")); } catch (Exception e) { return new org.json.JSONObject(); } }
-    synchronized void changeFlash(java.util.function.Consumer<org.json.JSONObject> change) {
-        org.json.JSONObject state = flashState(); change.accept(state); settings.edit().putString("flashBrain", state.toString()).apply(); changed();
+    /**
+     * Gemini 무료 한도: what the app's own Gemini calls used of each model's free tier today (core/GeminiQuota), shared by
+     * search, titles, attachments, recordings, video summaries and the Gemini brain (GeminiQuotas).
+     */
+    synchronized org.json.JSONObject geminiQuota() { try { return new org.json.JSONObject(settings.getString("geminiQuota", "{}")); } catch (Exception e) { return new org.json.JSONObject(); } }
+    /** Changes it in one step; listeners hear of it only when told (a count on every answer would redraw every screen). */
+    synchronized <T> T changeGeminiQuota(java.util.function.Function<org.json.JSONObject, T> change, boolean tell) {
+        org.json.JSONObject state = geminiQuota(); T result = change.apply(state); settings.edit().putString("geminiQuota", state.toString()).apply();
+        if (tell) changed();
+        return result;
     }
     /**
      * Who takes the longer work (작업창, analysis tasks, recording summaries): "chatgpt", "claude" or "gemini", as chosen when
@@ -549,6 +565,14 @@ final class AppStore {
     /** 켤 때 인사하기: the voice assistant greets the moment a call starts, before it is connected (Greeter); on by default. */
     boolean greetOnStart() { return settings.getBoolean("greetOnStart", true); }
     /**
+     * 목소리 크기 (core/VoiceLevel), the choice's position: 0 원래대로, 1 고르게 (the default: quiet voices raised, more into a
+     * car or a Bluetooth speaker), 2 크게 (always the louder level).
+     */
+    int voiceLevelChoice() { return Math.max(0, Math.min(2, settings.getInt("voiceLevel", 1))); }
+    dev.jun.gyeot.core.VoiceLevel.Mode voiceLevel() {
+        return switch (voiceLevelChoice()) { case 0 -> dev.jun.gyeot.core.VoiceLevel.Mode.OFF; case 2 -> dev.jun.gyeot.core.VoiceLevel.Mode.LOUD; default -> dev.jun.gyeot.core.VoiceLevel.Mode.EVEN; };
+    }
+    /**
      * Gemini text-to-speech (gemini-*-tts): off by default. Its free tier allows a few requests a minute
      * and ten a day, which reading aloud and the start greeting used up. Off, reading aloud uses the phone's own voice, the
      * greeting plays a clip saved earlier or its short tick, and 작업창 offers no voice-file tool. Turning it back on is this
@@ -566,7 +590,7 @@ final class AppStore {
      */
     GeminiProtocol.Options options(boolean inputTranscription, String model) {
         GeminiProtocol.Options options = new GeminiProtocol.Options();
-        options.language = language(); options.voice = voice(); options.voiceStyle = voiceStyle(styleVoice()); options.persona = persona(); options.routines = dev.jun.gyeot.core.Routines.instructions(routines()); options.quietSpeech = quietSpeech(); options.model = model == null ? liveModel() : model;
+        options.language = language(); options.voice = voice(); options.voiceStyle = voiceStyle(styleVoice()); options.persona = persona(); options.profile = Briefing.profile(this); options.routines = dev.jun.gyeot.core.Routines.instructions(routines()) + dev.jun.gyeot.core.SavedPlaces.instructions(savedPlaces()); options.quietSpeech = quietSpeech(); options.model = model == null ? liveModel() : model;
         options.thinkingLevel = liveThinkingLevel(); options.translateToKorean = translateToKorean();
         options.interpreter = interpreterConfig();
         // Built-in Google Search only when Gemini answers searches and this model may ground on this key; otherwise search_web.
@@ -1136,7 +1160,7 @@ final class AppStore {
             markUsed(recall.matched());
             notes = recall.text();
         }
-        return WorkBook.background(persona(), pinnedNotes(), notes);
+        return WorkBook.background(persona(), Briefing.profile(this), pinnedNotes(), notes);
     }
     /** Keeps the notes a room picked (WorkBook.memory) without redrawing anything: no screen shows them. */
     synchronized void keepMemoryPick(String id, JSONObject pick) {

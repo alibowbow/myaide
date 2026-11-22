@@ -399,6 +399,8 @@ final class MainChatEngine implements AutoCloseable {
         boolean summary=memory&&app.settings.getBoolean("mainSummaryOn",true);int budget=budget(app,selection);
         // The notes related to this question first, within 2% of the window; the chosen ones are marked used.
         String longTerm=memory?app.recallMemory(query,Memory.budget(budget)):"";
+        // 관련 기록 (뜻으로 찾기): the app's own records closest in meaning to this question, this request only.
+        if(memory){String related=SemanticIndex.recall(context,app,query,Math.min(3_000,Memory.budget(budget)));if(!related.isEmpty())longTerm=(longTerm.isBlank()?"":longTerm+"\n\n")+"Records from the user's own app (work rooms, pages, notes, voice records, recordings, kept texts) related in meaning to this message; background, use only when it helps:\n"+related;}
         // The connection the reply goes out on, for the ledger, under the surface enqueue was given.
         String identity=app.usageIdentity(engine),cacheKey=history.cacheKey();
         // A schedule question's events, read once for the turn and sent with this request only.
@@ -513,6 +515,9 @@ final class MainChatEngine implements AutoCloseable {
         b.append(Routines.instructions(app.routines()));
         String persona=app.persona().strip();
         if(!persona.isEmpty())b.append("\n\nThe user wrote these notes about themselves and their preferred style. Follow them when they do not conflict with the rules above:\n<user_preferences>\n").append(MainChatContext.clip(persona,GeminiProtocol.PERSONA_LIMIT)).append("\n</user_preferences>");
+        // 나에 대한 이해 (먼저 챙기기): what an AI has gathered about the user, so answers fit them without being told again.
+        String understood=Briefing.profile(app);
+        if(!understood.isEmpty())b.append("\n\n").append(dev.jun.gyeot.core.GeminiProtocol.PROFILE_INTRO).append("\n<user_profile>\n").append(MainChatContext.clip(understood,dev.jun.gyeot.core.Proactive.PROFILE_LIMIT)).append("\n</user_profile>");
         return b.toString();
     }
     private static boolean taskStatusRequest(String request) {
