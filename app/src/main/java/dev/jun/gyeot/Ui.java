@@ -756,6 +756,36 @@ final class Ui {
     /** A short tick under the finger for a choice made (a switch, a pill, a row picked); a firmer one for something done (copied, sent). */
     static void tick(View view) { if (view != null) view.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK); }
     static void done(View view) { if (view != null) view.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM); }
+    /**
+     * A small menu right at a button (마이튜브's 화질 and 배속): just the choices, a check by the one in use, no title or notes;
+     * below the button, or above it when there is no room below. A tap picks and closes; a tap outside closes.
+     */
+    android.widget.PopupWindow miniMenu(View anchor, String[] labels, int selected, java.util.function.IntConsumer pick) {
+        LinearLayout card = column(); card.setBackground(shape(CARD, 14)); card.setPadding(0, dp(4), 0, dp(4)); card.setClipToOutline(true);
+        android.widget.ScrollView scroll = new android.widget.ScrollView(context); scroll.setVerticalScrollBarEnabled(false); scroll.addView(card);
+        android.widget.PopupWindow[] window = new android.widget.PopupWindow[1];
+        for (int i = 0; i < labels.length; i++) {
+            int index = i; boolean on = i == selected;
+            TextView row = text(labels[i], 14, on ? 650 : 450, on ? ACCENT : TEXT); row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(16), 0, dp(20), 0); row.setMinHeight(dp(40)); row.setMinimumHeight(dp(40));
+            if (on) { android.graphics.drawable.Drawable check = context.getDrawable(R.drawable.ic_check); if (check != null) { check = check.mutate(); check.setTint(ACCENT); check.setBounds(0, 0, dp(16), dp(16)); row.setCompoundDrawablesRelative(null, null, check, null); row.setCompoundDrawablePadding(dp(12)); } }
+            row.setContentDescription(labels[i] + (on ? ", 선택됨" : ""));
+            row.setOnClickListener(v -> { tick(v); if (window[0] != null) window[0].dismiss(); pick.accept(index); }); pressable(row, true);
+            card.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
+        card.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        android.util.DisplayMetrics screen = context.getResources().getDisplayMetrics();
+        int width = Math.max(dp(104), Math.max(anchor.getWidth(), card.getMeasuredWidth())), height = Math.min(card.getMeasuredHeight(), screen.heightPixels - dp(96));
+        window[0] = new android.widget.PopupWindow(scroll, width, height, true);
+        window[0].setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0)); window[0].setOutsideTouchable(true); window[0].setElevation(dp(12));
+        window[0].setAnimationStyle(android.R.style.Animation_Dialog);
+        int[] at = new int[2]; anchor.getLocationInWindow(at);
+        boolean below = at[1] + anchor.getHeight() + dp(6) + height < screen.heightPixels - dp(24);
+        int x = Math.max(dp(8), Math.min(at[0], screen.widthPixels - width - dp(8)));
+        int y = below ? at[1] + anchor.getHeight() + dp(6) : Math.max(dp(12), at[1] - height - dp(6));
+        window[0].showAtLocation(anchor.getRootView(), Gravity.NO_GRAVITY, x, y);
+        return window[0];
+    }
     /** A round icon button, e.g. send. */
     ImageView iconButton(int icon, int background, int tint, String description, Runnable action) {
         ImageView view = new ImageView(context); view.setImageResource(icon); view.setImageTintList(ColorStateList.valueOf(tint));

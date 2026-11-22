@@ -428,8 +428,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private void chooseSpeed() {
         String[] labels = new String[SPEEDS.length]; int at = 2;
         for (int i = 0; i < SPEEDS.length; i++) { labels[i] = speedLabel(SPEEDS[i]); if (Math.abs(SPEEDS[i] - player.rate()) < 0.01f) at = i; }
-        Ui.Sheet sheet = ui.choices("배속", "다음 영상에도 같은 속도로 재생해요", labels, at, i -> player.rate(SPEEDS[i]));
-        dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet)); sheet.show();
+        // A small menu at the button; the speed stays for the next videos.
+        ui.miniMenu(speedChip, labels, at, i -> player.rate(SPEEDS[i]));
     }
     /** The small size: three quarters of the fitted video, at most 40% of the screen, never under 160dp. */
     private int smallVideo(int screenHeight) { return Math.max(ui.dp(160), Math.min(videoHeight * 3 / 4, screenHeight * 40 / 100)); }
@@ -1270,13 +1270,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     }
 
     /** The quality sheet: the choices, and what this video has (or that it is chosen on the video itself). */
+    /** 화질: a small menu at the button; a video whose quality the app cannot set says so instead. */
     private void chooseQuality() {
-        List<String> has = player.levels();
-        String note = !player.qualitySettable() ? "이 영상은 앱에서 화질을 바꿀 수 없어요 · 영상 화면의 ⚙에서 바꿔 주세요"
-            : has.isEmpty() ? "영상에 그 화질이 없으면 그보다 낮은 것 중 가장 좋은 화질로 틀어요" : "이 영상: " + String.join(" · ", has);
-        Ui.Sheet sheet = ui.choices("화질", note, MyTube.QUALITY_LABELS, MyTube.qualityIndex(player.quality()), i -> player.quality(MyTube.QUALITY_CODES[i]));
-        dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet));
-        sheet.show();
+        if (!player.qualitySettable()) { toast("이 영상은 앱에서 화질을 바꿀 수 없어요 · 영상 화면의 ⚙에서 바꿔 주세요"); return; }
+        ui.miniMenu(qualityChip, MyTube.QUALITY_LABELS, MyTube.qualityIndex(player.quality()), i -> player.quality(MyTube.QUALITY_CODES[i]));
     }
 
     // ── small things ─────────────────────────────────────────────────────────
