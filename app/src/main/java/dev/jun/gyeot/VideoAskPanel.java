@@ -138,13 +138,14 @@ final class VideoAskPanel {
         }
         for (int i = 0; i < shown.size(); i++) {
             VideoChat.Turn turn = shown.get(i);
-            if (turn.user()) talk.addView(asked(turn)); else talk.addView(answered(turn, i == shown.size() - 1 && i > 0));
+            // A summary chip's request is not shown as a turn: its answer stands alone.
+            if (turn.user()) { if (!turn.summary()) talk.addView(asked(turn)); }
+            else talk.addView(answered(turn, i == shown.size() - 1 && i > 0));
         }
         if (busy) {
             LinearLayout row = ui.row(); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(0, ui.dp(16), 0, 0);
-            row.addView(sparkle(), new LinearLayout.LayoutParams(ui.dp(22), ui.dp(22)));
             if (waiting.getParent() != null) ((android.view.ViewGroup) waiting.getParent()).removeView(waiting);
-            LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(-2, -2); wp.leftMargin = ui.dp(10); row.addView(waiting, wp);
+            row.addView(waiting, new LinearLayout.LayoutParams(-2, -2));
             talk.addView(row);
         } else if (!error.isEmpty()) {
             TextView why = ui.text(error, FOOTNOTE, 450, MUTED); why.setPadding(0, ui.dp(14), 0, 0); talk.addView(why);
@@ -167,11 +168,10 @@ final class VideoAskPanel {
         wrap.addView(box, new LinearLayout.LayoutParams(-2, -2));
         return wrap;
     }
-    /** An answer: the sparkle, the text (its times jump the video), and its icons; the AI that gave it, quietly. */
+    /** An answer: the text (its times jump the video), and its icons; the AI that gave it, quietly. */
     private View answered(VideoChat.Turn turn, boolean last) {
         LinearLayout wrap = ui.column(); wrap.setPadding(0, ui.dp(18), 0, 0);
-        wrap.addView(sparkle(), new LinearLayout.LayoutParams(ui.dp(22), ui.dp(22)));
-        TextView answer = ui.text("", BODY, 450, TEXT); answer.setLineSpacing(ui.dp(4), 1); answer.setPadding(0, ui.dp(10), 0, 0);
+        TextView answer = ui.text("", BODY, 450, TEXT); answer.setLineSpacing(ui.dp(4), 1);
         answer.setText(timed(RichText.render(turn.shown()))); answer.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         wrap.addView(answer, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout foot = ui.row(); foot.setGravity(Gravity.CENTER_VERTICAL);
@@ -184,10 +184,6 @@ final class VideoAskPanel {
         if (!turn.by().isEmpty()) { TextView who = ui.text(turn.by(), FOOTNOTE, 450, MUTED); who.setPadding(ui.dp(6), 0, 0, 0); foot.addView(who); }
         wrap.addView(foot, new LinearLayout.LayoutParams(-2, -2));
         return wrap;
-    }
-    private ImageView sparkle() {
-        ImageView mark = new ImageView(activity); mark.setImageResource(R.drawable.ic_sparkle); mark.setImageTintList(android.content.res.ColorStateList.valueOf(TEXT));
-        mark.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); return mark;
     }
     /** 다시 답하기: the last answer goes and its request is asked again. */
     private void again() {
