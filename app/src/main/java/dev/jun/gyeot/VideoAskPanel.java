@@ -183,6 +183,7 @@ final class VideoAskPanel {
         if (last) foot.addView(ui.footIcon(R.drawable.ic_refresh, "다시 답하기", this::again));
         if (!turn.by().isEmpty()) { TextView who = ui.text(turn.by(), FOOTNOTE, 450, MUTED); who.setPadding(ui.dp(6), 0, 0, 0); foot.addView(who); }
         wrap.addView(foot, new LinearLayout.LayoutParams(-2, -2));
+        if (!turn.note().isEmpty()) { TextView note = ui.text(turn.note(), FOOTNOTE, 450, MUTED); note.setPadding(ui.dp(4), 0, 0, 0); wrap.addView(note, new LinearLayout.LayoutParams(-1, -2)); }
         return wrap;
     }
     /** 다시 답하기: the last answer goes and its request is asked again. */
@@ -233,12 +234,16 @@ final class VideoAskPanel {
                     name -> { by[0] = name; status(mine, name + " 생각하는 중"); });
             } catch (java.util.concurrent.CancellationException stopped) { said = null; failure = "멈췄어요."; }
             catch (Exception e) { said = null; failure = (watched.isEmpty() ? "" : watched + " 대본으로 정리하려 했지만 안 됐어요. ") + (e.getMessage() == null ? "답하지 못했어요." : e.getMessage()); }
+            // A summary the chosen AI made from the transcript: said so under it, with why Gemini could not watch.
+            String reason = watched.replaceFirst("^Gemini가 영상을 직접 보지 못해서\\s*", "").replaceAll("^\\((.*)\\)$", "$1").strip();
+            String how = question.summary() && !"Gemini".equals(by[0]) && !watched.isEmpty() ? "Gemini가 영상을 직접 보지 못해 대본으로 정리했어요" + (reason.isEmpty() ? "" : " · " + reason) : "";
+            if (!how.isEmpty()) store.phoneLog("마이튜브 · 영상 요약 · " + how);
             String answer = said, why = failure, who = by[0];
             main.post(() -> {
                 if (mine != generation) return;
                 busy = false; stop.set(null);
                 synchronized (CHATS) {
-                    if (answer != null && !answer.isBlank()) turns.add(VideoChat.Turn.model(answer.strip(), who, question.summary()));
+                    if (answer != null && !answer.isBlank()) turns.add(VideoChat.Turn.model(answer.strip(), who, question.summary(), how));
                     // Not answered: the question leaves the conversation and goes back into the box, to send again.
                     else if (!turns.isEmpty() && turns.get(turns.size() - 1) == question) turns.remove(turns.size() - 1);
                 }

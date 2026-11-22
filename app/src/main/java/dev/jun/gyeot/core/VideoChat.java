@@ -17,9 +17,11 @@ public final class VideoChat {
      * One turn: who (user or model), what the screen shows, what was sent (a summary chip sends a fuller request), and for an
      * answer who gave it ("Gemini", "Claude · Opus 4.7"). summary: a summary request and its answer, which Gemini makes.
      */
-    public record Turn(String role, String shown, String sent, String by, boolean summary) {
-        public static Turn user(String shown, String sent, boolean summary) { return new Turn("user", shown, sent, "", summary); }
-        public static Turn model(String text, String by, boolean summary) { return new Turn("model", text, text, by == null ? "" : by, summary); }
+    public record Turn(String role, String shown, String sent, String by, boolean summary, String note) {
+        public static Turn user(String shown, String sent, boolean summary) { return new Turn("user", shown, sent, "", summary, ""); }
+        public static Turn model(String text, String by, boolean summary) { return model(text, by, summary, ""); }
+        /** note: how it was made when not as asked (a summary from the transcript because Gemini could not watch, and why). */
+        public static Turn model(String text, String by, boolean summary, String note) { return new Turn("model", text, text, by == null ? "" : by, summary, note == null ? "" : note); }
         public boolean user() { return "user".equals(role); }
     }
     /** The two summaries offered above the conversation. */
