@@ -135,6 +135,16 @@ public final class MyTubeBook {
         JSONObject file = read("pins-" + feed + ".json"); put(file, "videos", out); write("pins-" + feed + ".json", file);
         mark(feed, video, true);
     }
+    /** How many the feed holds (곡 수 · 영상 수): one of MyTube.SIZES, MyTube.SIZE unless chosen. */
+    public synchronized int size(String feed) { int n = read("pins-" + feed + ".json").optInt("size", MyTube.SIZE); return n > 0 ? Math.min(100, n) : MyTube.SIZE; }
+    public synchronized void size(String feed, int n) throws IOException {
+        JSONObject file = read("pins-" + feed + ".json"); put(file, "size", Math.max(1, Math.min(100, n))); write("pins-" + feed + ".json", file);
+    }
+    /** 라이브만 보기 of a 저장 목록: it shows only the broadcasts on air now of the channels saved in it. */
+    public synchronized boolean liveWatch(String feed) { return read("pins-" + feed + ".json").optBoolean("live", false); }
+    public synchronized void liveWatch(String feed, boolean on) throws IOException {
+        JSONObject file = read("pins-" + feed + ".json"); put(file, "live", on); write("pins-" + feed + ".json", file);
+    }
     /** The videos saved into the feed by hand: they stay at its top whatever the AI chooses next. */
     public synchronized List<MyTube.Video> pinned(String feed) { return list(read("pins-" + feed + ".json").optJSONArray("videos")); }
     public synchronized void unpin(String feed, String id) throws IOException {

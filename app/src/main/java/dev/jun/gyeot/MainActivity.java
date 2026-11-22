@@ -622,15 +622,17 @@ public final class MainActivity extends Activity {
         bubble.setBackground(shape); if (faint) bubble.setAlpha(0.62f);
         String plain = text.toString(); bubble.setContentDescription((mine ? "나" : who) + ": " + plain);
         bubble.setOnLongClickListener(v -> { copy(plain); return true; });
-        if (clip == null || faint) line.addView(bubble, new LinearLayout.LayoutParams(-2, -2));
+        // ▶ beside the AI's words only: what the user said needs no replay.
+        if (clip == null || faint || mine) line.addView(bubble, new LinearLayout.LayoutParams(-2, -2));
         else {
-            // ▶ on the bubble's inner side: before the user's, after everyone else's.
             boolean now = VoiceClips.playing(clip), kept = VoiceClips.has(clip);
             android.widget.ImageView play = ui.footIcon(now ? R.drawable.ic_stop : R.drawable.ic_play,
                 now ? "다시 듣기 멈추기" : kept ? "다시 듣기 · 말한 목소리 그대로" : "다시 듣기 · 읽어 주기", () -> VoiceClips.toggle(this, store, clip, plain));
             if (now) play.setColorFilter(ACCENT);
+            // An 18dp mark in a 36dp target (footIcon's own padding left only a dot of it here).
+            play.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9));
             LinearLayout row = ui.row(); row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            LinearLayout.LayoutParams playAt = new LinearLayout.LayoutParams(ui.dp(32), ui.dp(32)), bubbleAt = new LinearLayout.LayoutParams(-2, -2, 1);
+            LinearLayout.LayoutParams playAt = new LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)), bubbleAt = new LinearLayout.LayoutParams(-2, -2, 1);
             if (mine) { row.addView(play, playAt); row.addView(bubble, bubbleAt); } else { row.addView(bubble, bubbleAt); row.addView(play, playAt); }
             line.addView(row, new LinearLayout.LayoutParams(-2, -2));
         }
@@ -667,6 +669,7 @@ public final class MainActivity extends Activity {
         homeGreeting.setLineSpacing(ui.dp(3), 1); add(homeGreeting, 16); homeIntro = homeGreeting;
         int selectedMode = recordingPage ? 3 : Math.max(0, java.util.Arrays.asList(MODE_IDS).indexOf(mode));
         View homeModes = ui.pills(HOME_MODE_NAMES, selectedMode, this::selectHomeMode);
+        assistantArrow((TextView) ((ViewGroup) ((ViewGroup) homeModes).getChildAt(0)).getChildAt(0));
         // Keep the selected tab reachable on narrow phones, large text and folded screens.
         homeModes.post(() -> {
             View selected = ((ViewGroup) ((ViewGroup) homeModes).getChildAt(0)).getChildAt(selectedMode);
@@ -738,7 +741,7 @@ public final class MainActivity extends Activity {
         LinearLayout live = ui.card(); liveCard = live;
         liveGrounding = groundingView(); loadedGrounding = ""; LinearLayout.LayoutParams groundingParams = new LinearLayout.LayoutParams(-1, ui.dp(110));
         live.addView(liveGrounding, groundingParams);
-        liveActions = ui.actions(ui.chip("대화를 메모로 저장", this::saveConversation), ui.chip("기록 보기", () -> showRecords(INTERPRETER.equals(mode) ? 2 : DICTATION.equals(mode) ? 3 : 1)));
+        liveActions = ui.actions(ui.chip("전체 보기", this::fullConversation), ui.chip("대화를 메모로 저장", this::saveConversation), ui.chip("기록 보기", () -> showRecords(INTERPRETER.equals(mode) ? 2 : DICTATION.equals(mode) ? 3 : 1)));
         live.addView(liveActions);
         add(live, 14);
         int asideFrom = body.getChildCount();
@@ -775,14 +778,35 @@ public final class MainActivity extends Activity {
         add(ui.listRow(R.drawable.ic_sparkle, ACCENT, "녹음 요약 모델 · 생각 깊이",
             WorkBook.author(models.engine()) + " · " + modelChip(models, models.engine()), ui.chevron(), this::pickRecordingModel), 8);
     }
+    /** Whether the touch on 음성 비서 landed on its ▾ (the voice settings) rather than its name (just the mode). */
+    private boolean arrowTapped;
+    /**
+     * 음성 비서's ▾ as a touch area of its own: the name selects the mode, the larger ▾ a little apart from it opens the voice
+     * settings (a long press opens them too).
+     */
+    private void assistantArrow(TextView pill) {
+        android.graphics.drawable.Drawable arrow = getDrawable(R.drawable.ic_chevron_down); if (arrow == null) return;
+        int size = ui.dp(20), gap = ui.dp(8);
+        arrow = arrow.mutate(); arrow.setBounds(0, 0, size, size);
+        pill.setText("음성 비서"); pill.setCompoundDrawablesRelative(null, null, arrow, null); pill.setCompoundDrawablePadding(gap);
+        pill.setCompoundDrawableTintList(new android.content.res.ColorStateList(new int[][] {{android.R.attr.state_selected}, {}}, new int[] {Ui.BG, Ui.TEXT}));
+        pill.setPaddingRelative(pill.getPaddingStart(), pill.getPaddingTop(), ui.dp(13), pill.getPaddingBottom());
+        View.OnTouchListener press = Ui.press(false);
+        pill.setOnTouchListener((v, e) -> {
+            if (e.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) arrowTapped = e.getX() >= v.getWidth() - v.getPaddingEnd() - size - gap;
+            return press.onTouch(v, e);
+        });
+        pill.setOnLongClickListener(v -> { arrowTapped = true; v.performClick(); return true; });
+    }
     private void selectHomeMode(int index) {
+        boolean settings = arrowTapped; arrowTapped = false;
         recordingPage = index == 3;
         if (recordingPage) { stopCamera(); showTab(0); return; }
         String chosen = MODE_IDS[index];
         boolean unchanged = chosen.equals(mode) && (!store.voiceActive || chosen.equals(store.voiceMode));
         selectMode(chosen);
         if (unchanged) showTab(0);
-        if (ASSISTANT.equals(chosen)) voiceModeSheet();
+        if (ASSISTANT.equals(chosen) && settings) voiceModeSheet();
     }
     private void voiceModeSheet() {
         Ui.Sheet sheet = ui.selectionSheet("음성 비서", "음성 엔진 · 모델 · 생각 깊이");
@@ -1015,6 +1039,16 @@ public final class MainActivity extends Activity {
         send(new Intent(this, AssistantService.class).setAction(AssistantService.TASK).putExtra("request", text).putExtra("engine", engine));
         return true;
     }
+    /** 전체 보기: every caption kept, on a sheet of its own, while no call is on too (the card shows only its last turns). */
+    private void fullConversation() {
+        JSONArray lines = store.conversation();
+        Ui.Sheet sheet = ui.selectionSheet("대화 전체", lines.length() == 0 ? "아직 대화가 없어요 · 지난 대화는 ‘기록 보기’에 있어요" : "최근 대화 " + lines.length() + "줄");
+        LinearLayout all = ui.column();
+        for (int i = 0; i < lines.length(); i++) { JSONObject line = lines.optJSONObject(i); if (line != null) all.addView(turn(line.optString("who"), rich(line.optString("text")), false, AppStore.lineKey(line))); }
+        sheet.body.addView(all);
+        sheet.primary.setText("닫기"); sheet.primary.setOnClickListener(v -> sheet.dismiss());
+        sheet.show();
+    }
     private void saveConversation() {
         String text = store.conversationText();
         if (text.isEmpty()) { store.error("저장할 대화가 아직 없어요."); return; }
@@ -1239,6 +1273,10 @@ public final class MainActivity extends Activity {
     /** Saved voice sessions of one mode, newest first, each with its lines and actions. */
     private void buildSessions(LinearLayout list, String mode) {
         JSONArray sessions = store.sessions(mode); boolean anyShown = false;
+        // 자동 정리: how long unpinned records stay (고정 ones always do), one slim chip above the list.
+        int keep = store.sessionKeepDays();
+        Button cleanup = ui.smallChip("자동 정리 · " + keepLabel(keep), this::chooseKeepDays); cleanup.setContentDescription("기록 자동 정리 기간 바꾸기");
+        LinearLayout tools = ui.row(); tools.addView(cleanup); ui.add(list, tools, 8);
         for (int i = 0; i < sessions.length(); i++) {
             JSONObject session = sessions.optJSONObject(i); String text = AppStore.sessionText(session);
             if (!matches(text)) continue;
@@ -1251,10 +1289,15 @@ public final class MainActivity extends Activity {
     private View sessionCard(JSONObject session, String mode) {
         String id = session.optString("id"); JSONArray lines = session.optJSONArray("lines");
         long started = session.optLong("startedAt"), length = Math.max(0, session.optLong("endedAt") - started);
-        String title = when(started) + (INTERPRETER.equals(mode) ? " · " + session.optString("direction", "한국어 ↔ " + languageLabel(session.optString("language"))) : "");
+        boolean pinned = session.optBoolean("pinned");
+        // The AI's title for it once the call is over (else its date), the date then moving to the small line above.
+        String named = session.optString("title"), summary = session.optString("summary");
+        String date = when(started) + (INTERPRETER.equals(mode) ? " · " + session.optString("direction", "한국어 ↔ " + languageLabel(session.optString("language"))) : "");
+        String title = named.isBlank() ? date : named;
         LinearLayout card = ui.card();
-        card.addView(meta(INTERPRETER.equals(mode) ? Ui.TEAL : DICTATION.equals(mode) ? Ui.ORANGE : ACCENT, AssistantService.durationText(length) + " · " + lines.length() + "줄"));
+        card.addView(meta(INTERPRETER.equals(mode) ? Ui.TEAL : DICTATION.equals(mode) ? Ui.ORANGE : ACCENT, (pinned ? "고정 · " : "") + (named.isBlank() ? "" : date + " · ") + AssistantService.durationText(length) + " · " + lines.length() + "줄"));
         TextView sessionTitle = ui.title(title, 17); sessionTitle.setPadding(0, ui.dp(6), 0, 0); card.addView(sessionTitle);
+        if (!summary.isBlank()) { TextView about = ui.label(summary, 14, MUTED); about.setPadding(0, ui.dp(4), 0, 0); card.addView(about); }
         LinearLayout body = ui.column(); body.setPadding(0, ui.dp(8), 0, 0); card.addView(body);
         int preview = Math.min(lines.length(), 6);
         Runnable[] fill = new Runnable[1]; boolean[] expanded = {false};
@@ -1273,12 +1316,38 @@ public final class MainActivity extends Activity {
         toggle.setOnClickListener(v -> { expanded[0] = !expanded[0]; fill[0].run(); });
         fill[0].run(); card.addView(toggle);
         String text = AppStore.sessionText(session), heading = (INTERPRETER.equals(mode) ? "통역 " : DICTATION.equals(mode) ? "받아쓰기 " : "대화 ") + when(started);
+        // 이어서 말하기: a call that picks this conversation up (the voice assistant's records); 고정 keeps it on top and from clean-up.
+        LinearLayout lead = ui.row();
+        if (ASSISTANT.equals(mode)) { Button resume = withIcon(ui.smallChip("이어서 말하기", () -> continueCall(id)), R.drawable.ic_mic); resume.setTextColor(ACCENT); lead.addView(resume); }
+        Button pin = ui.smallChip(pinned ? "고정 해제" : "고정", () -> store.pinSession(id, !pinned)); LinearLayout.LayoutParams pinAt = new LinearLayout.LayoutParams(-2, -2); pinAt.leftMargin = ui.dp(6);
+        lead.addView(pin, lead.getChildCount() == 0 ? new LinearLayout.LayoutParams(-2, -2) : pinAt);
+        LinearLayout.LayoutParams leadAt = new LinearLayout.LayoutParams(-2, -2); leadAt.topMargin = ui.dp(8); card.addView(lead, leadAt);
         card.addView(ui.actions(ui.chip("문서로 보기", () -> showDocument(heading, sessionMarkdown(lines), null)), ui.chip("복사", () -> copy(text)), ui.chip("공유", () -> share(heading + "\n\n" + text)),
             ui.chip("메모로 저장", () -> saveAsNote(heading, text)), archiveChip(heading, sessionMarkdown(lines), "", Brand.NAME + " · Gemini Live"),
             ui.chip("삭제", () -> confirm("이 기록을 지울까요?", "지우기", () -> { try { store.deleteSession(id); } catch (Exception e) { store.error("기록을 지우지 못했어요."); } }))));
         return SwipeDelete.wrap(ui, card, "이 기록", () -> {
             try { store.deleteSession(id); return true; } catch (Exception e) { store.error("기록을 지우지 못했어요."); return false; }
         });
+    }
+    /** A chip with a small leading icon in its label's color. */
+    private Button withIcon(Button chip, int icon) {
+        android.graphics.drawable.Drawable d = getDrawable(icon); if (d == null) return chip;
+        d = d.mutate(); d.setTint(ACCENT); d.setBounds(0, 0, ui.dp(16), ui.dp(16)); chip.setCompoundDrawablesRelative(d, null, null, null); chip.setCompoundDrawablePadding(ui.dp(6));
+        return chip;
+    }
+    /** 이어서 말하기: the voice assistant starts a call that picks this saved conversation up. */
+    private void continueCall(String id) {
+        if (store.voiceActive) { android.widget.Toast.makeText(this, "지금 통화 중이에요 · 끝낸 뒤에 이어서 말해 주세요", android.widget.Toast.LENGTH_SHORT).show(); return; }
+        store.continueFrom(id); mode = ASSISTANT; recordingPage = false; showTab(0); startVoice();
+    }
+    private static String keepLabel(int days) { return days <= 0 ? "계속 보관" : days >= 365 ? "1년" : days + "일"; }
+    /** 자동 정리: keep every record (up to 200), or clear unpinned ones older than 30 days, 90 days or a year. */
+    private void chooseKeepDays() {
+        Ui.Sheet sheet = ui.selectionSheet("기록 자동 정리", "고정한 기록은 지우지 않아요");
+        LinearLayout group = ui.group(); int now = store.sessionKeepDays();
+        for (int days : AppStore.KEEP_DAYS) ui.addRow(group, ui.listRow(days == now ? R.drawable.ic_check : 0, ACCENT, days <= 0 ? "계속 보관" : keepLabel(days) + " 지나면 지우기",
+            days <= 0 ? "최근 200개까지 남겨요" : "고정하지 않은 기록만", null, () -> { store.sessionKeepDays(days); sheet.dismiss(); }), true);
+        sheet.body.addView(group); sheet.primary.setText("닫기"); sheet.primary.setOnClickListener(v -> sheet.dismiss()); sheet.show();
     }
     private static String sessionMarkdown(JSONArray lines) {
         StringBuilder markdown = new StringBuilder();
@@ -2527,12 +2596,6 @@ public final class MainActivity extends Activity {
             TextView bubble = ui.bubble(text); bubble.setTextIsSelectable(true);
             bubble.setMaxWidth(Math.round(readingWidth() * 0.85f));
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.gravity = android.view.Gravity.END; column.addView(bubble, p);
-            // Said aloud in 음성 대화: 다시 듣기 in the user's own voice, when it was kept (VoiceClips).
-            String clip = VoiceChat.clipKey("work", message.optLong("at"));
-            if (WorkBook.SPOKEN.equals(message.optString("kind")) && VoiceClips.has(clip)) {
-                LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)); right.gravity = android.view.Gravity.END;
-                column.addView(ui.footIcon(R.drawable.ic_play, "내 목소리 다시 듣기 · 다시 누르면 멈춰요", () -> VoiceClips.toggle(this, store, clip, text)), right);
-            }
         }
         return column;
     }

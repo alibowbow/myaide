@@ -127,12 +127,11 @@ final class MyTubePlayer {
                             if (json.optBoolean("ready")) {
                                 port = source;
                                 if (active()) { if (wantPlay) sendQuality("watch"); else send("pause"); }
-                                // Each YouTube page tells whether it is signed in: kept for 마이튜브 설정's 유튜브 로그인 line.
-                                if (!signingIn) send("account");
                                 // A YouTube page in the player (a Short above all): the page drops its own top bar.
-                                else if (browsing) send("browse");
-                                // Back on YouTube from Google's sign-in: is YouTube signed in now?
-                                else if (signingIn && sawAccounts && onYouTube) send("account");
+                                if (browsing) send("browse");
+                                // Each YouTube page tells whether it is signed in (마이튜브 설정's 유튜브 로그인 line); during
+                                // the sign-in, once back on YouTube from Google's pages.
+                                if (!signingIn || sawAccounts && onYouTube) send("account");
                             }
                             JSONObject event = json.optJSONObject("mytube");
                             if (event != null && source == port) heard(event);
@@ -425,6 +424,8 @@ final class MyTubePlayer {
     static final String ACCOUNT = "mytubeAccount", ACCOUNT_AT = "mytubeAccountAt";
     /** The sign-in state YouTube last told (in, out, or "" when never), and when. */
     String account() { return store.settings.getString(ACCOUNT, ""); }
+    /** Asks the page now in the player (if any) again, e.g. as 마이튜브 opens. */
+    void checkAccount() { if (!signingIn) send("account"); }
     long accountAt() { return store.settings.getLong(ACCOUNT_AT, 0); }
     /** What YouTube said of its sign-in: kept for the settings line; after Google's sign-in, signed in (back to the list), or not yet. */
     private void signedIn(boolean in, boolean known) {

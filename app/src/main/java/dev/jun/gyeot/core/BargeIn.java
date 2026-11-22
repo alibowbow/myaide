@@ -18,8 +18,8 @@ public final class BargeIn {
     static final double QUIET_PLAYBACK = 200;
     /** Echo-only frames remembered (about five seconds of 100 ms frames), and how many are needed before they are trusted. */
     static final int WINDOW = 50, LEARNED = 5;
-    /** How long the user must speak (ms, a short gap forgiven) before the answer stops. */
-    static final int NEEDED_MS = 300;
+    /** How long the user must speak (ms, a short gap forgiven) before the answer stops: a cough or a knock is shorter. */
+    static final int NEEDED_MS = 400;
 
     private final double[] ratios = new double[WINDOW];
     private int count, next;

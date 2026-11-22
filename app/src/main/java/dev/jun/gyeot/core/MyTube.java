@@ -28,7 +28,9 @@ public final class MyTube {
         VIDEOS("영상 추천", "주제나 기준 채널과 비슷한, 볼 만한 영상"),
         NEWS("최신 소식", "정해 둔 기간 안에 올라온 영상만"),
         MUSIC("음악", "취향에 맞는 노래를 이어서"),
-        LIVE("라이브 방송", "지금 방송 중인 라이브만 (저장한 채널의 방송 먼저)");
+        LIVE("라이브 방송", "지금 방송 중인 라이브만 (저장한 채널의 방송 먼저)"),
+        /** A 저장 목록: only what the user saved (videos, and channels for 라이브만 보기); no AI ever chooses into it. */
+        SAVED("저장 목록", "직접 저장한 영상");
         public final String label, about;
         Kind(String label, String about) { this.label = label; this.about = about; }
         public static Kind of(String name) { for (Kind k : values()) if (k.name().equalsIgnoreCase(name == null ? "" : name)) return k; return VIDEOS; }
@@ -42,9 +44,11 @@ public final class MyTube {
         }
         public Feed with(String newId) { return new Feed(newId, name, kind, about, channel, days); }
         /** How long a refresh stays fresh: news soon goes stale, the rest for a day. */
-        public long freshMs() { return liveOnly() ? 15 * 60_000L : kind == Kind.NEWS ? 3 * 3600_000L : 24 * 3600_000L; }
+        public long freshMs() { return kind == Kind.SAVED ? 5 * 60_000L : liveOnly() ? 15 * 60_000L : kind == Kind.NEWS ? 3 * 3600_000L : 24 * 3600_000L; }
+        /** A 저장 목록 (the 저장 row), not a feed the AI fills (the 추천 row). */
+        public boolean saved() { return kind == Kind.SAVED; }
         /** Only broadcasts on air now: a 라이브 방송 feed, or one named for live broadcasts (시황 라이브, 생방송 …). */
-        public boolean liveOnly() { return kind == Kind.LIVE || kind != Kind.MUSIC && name.matches("(?is).*(라이브|생방송|실시간 방송|\\blive\\b).*"); }
+        public boolean liveOnly() { return kind == Kind.LIVE || kind != Kind.MUSIC && kind != Kind.SAVED && name.matches("(?is).*(라이브|생방송|실시간 방송|\\blive\\b).*"); }
         /** What the feed is, as shown: a live-only feed says so whatever kind it was made as. */
         public String label() { return liveOnly() ? Kind.LIVE.label : kind.label; }
     }
@@ -68,7 +72,7 @@ public final class MyTube {
     public static List<Feed> starters() {
         return List.of(
             new Feed("", "최신 AI 뉴스", Kind.NEWS, "AI 업계의 새 모델·서비스·연구 발표와 중요한 소식. 원래 발표나 믿을 만한 해설 위주, 한국어와 영어 모두", "", 3),
-            new Feed("", "내 취향 음악", Kind.MUSIC, "내가 좋아요를 누른 노래와 비슷한 곡. 처음에는 요즘 많이 듣는 좋은 노래", "", 0),
+            new Feed("", "내 음악", Kind.MUSIC, "내가 좋아요를 누른 노래와 비슷한 곡. 처음에는 요즘 많이 듣는 좋은 노래", "", 0),
             new Feed("", "내 채널과 비슷한 영상", Kind.VIDEOS, "내 채널과 주제가 비슷하고 배울 점이 있는 다른 사람들의 좋은 영상", "", 0));
     }
 
@@ -365,7 +369,7 @@ public final class MyTube {
         }
     }
     public static final String QUERIES = "You choose YouTube searches for one feed of the user's own video page, which replaces YouTube's recommendation algorithm. "
-        + "Write 2 to 4 short search queries that will find the best videos for the feed as described, in the languages that fit it (Korean and English when both make sense). "
+        + "Write 2 to 4 short search queries (more, up to the number the input asks, for a bigger feed) that will find the best videos for the feed as described, in the languages that fit it (Korean and English when both make sense). "
         + "For news, aim at the newest developments (the results are already limited to recent uploads). For music, search for whole songs (artist and song, or genre and mood with 'official audio' or 'MV'), "
         + "guided by what the user liked and away from what they skipped, and vary them so the feed does not repeat itself. When a reference channel's recent videos are given, "
         + "search for similar topics by other creators, not for that channel. Return JSON only: {\"queries\":[\"...\"]}.";
@@ -399,10 +403,11 @@ public final class MyTube {
         return in.toString();
     }
     /** The queries an answer gives, at most four. */
-    public static List<String> queries(String answer) {
+    public static List<String> queries(String answer) { return queries(answer, 4); }
+    public static List<String> queries(String answer, int max) {
         List<String> out = new ArrayList<>();
         JSONObject json = jsonIn(answer); JSONArray list = json == null ? null : json.optJSONArray("queries");
-        for (int i = 0; list != null && i < list.length() && out.size() < 4; i++) { String q = list.optString(i).strip(); if (!q.isEmpty() && q.length() <= 120 && !out.contains(q)) out.add(q); }
+        for (int i = 0; list != null && i < list.length() && out.size() < max; i++) { String q = list.optString(i).strip(); if (!q.isEmpty() && q.length() <= 120 && !out.contains(q)) out.add(q); }
         return out;
     }
     /** The picks an answer gives, as the candidates they name (with their reasons), in its order; names that were not candidates are dropped. */
@@ -430,15 +435,29 @@ public final class MyTube {
     }
 
     // ── 저장 (the feed a video belongs in) ──────────────────────────────────
-    public static final String SAVE = "The user saves one YouTube video into their own feeds (a page of chosen videos that replaces YouTube's algorithm). "
-        + "Choose the one feed it belongs in by what each feed is for. When none fits, propose one new feed for it: a short Korean name, its kind "
-        + "(VIDEOS for videos on a topic, NEWS for the latest news, MUSIC for songs, LIVE for broadcasts on air now) and a sentence of what it gathers. Return JSON only: "
-        + "{\"feed\":\"<id>\"} or {\"new\":{\"name\":\"...\",\"kind\":\"VIDEOS|NEWS|MUSIC|LIVE\",\"about\":\"...\"}}.";
+    public static final String SAVE = "The user saves one YouTube video into their saved lists (videos they keep by hand, grouped by topic). "
+        + "Choose the one list it belongs in by its name and what is already in it. When none fits, name one new list for it: a short Korean topic "
+        + "(2 to 8 characters, e.g. 음악, 요리, 코인 라이브, 영어 공부). Prefer an existing list when it is close. Return JSON only: "
+        + "{\"feed\":\"<id>\"} or {\"new\":{\"name\":\"...\"}}.";
     public static String saveInput(List<Feed> feeds, Video video) {
         StringBuilder in = new StringBuilder("저장할 영상: ").append(video.title());
         if (!video.channel().isEmpty()) in.append(" · ").append(video.channel());
         in.append("\n\n피드:\n");
         for (Feed f : feeds) in.append("- id ").append(f.id()).append(" · ").append(f.name()).append(" · ").append(f.kind().label).append(" · ").append(f.about()).append('\n');
+        return in.toString();
+    }
+    /** As saveInput, for the 저장 목록s: each with a few of the titles already in it. */
+    public static String saveListInput(List<Feed> lists, java.util.function.Function<String, List<Video>> inside, Video video) {
+        StringBuilder in = new StringBuilder("저장할 영상: ").append(video.title());
+        if (!video.channel().isEmpty()) in.append(" · ").append(video.channel());
+        in.append("\n\n저장 목록:\n");
+        if (lists.isEmpty()) in.append("(아직 없음)\n");
+        for (Feed f : lists) {
+            in.append("- id ").append(f.id()).append(" · ").append(f.name());
+            List<Video> some = inside.apply(f.id());
+            for (int i = 0; i < Math.min(5, some.size()); i++) in.append(i == 0 ? " · 예: " : " / ").append(some.get(i).title());
+            in.append('\n');
+        }
         return in.toString();
     }
     /** Where the AI said to save it: one of the feeds (feed), or a new one to make (made, with no id yet); null for neither. */
@@ -452,13 +471,26 @@ public final class MyTube {
             String name = n.optString("name").strip(), about = n.optString("about").strip();
             if (name.isEmpty()) return null;
             if (name.length() > 30) name = name.substring(0, 30).strip();
+            // Among 저장 목록s (or none yet), a new one is a 저장 목록 too.
+            if (feeds.stream().allMatch(Feed::saved)) return new SavePick(null, savedList(name));
             Kind kind = Kind.of(n.optString("kind"));
             return new SavePick(null, new Feed("", name, kind, about.isEmpty() ? name : about, "", kind == Kind.NEWS ? 7 : 0));
         }
         return null;
     }
     /** Where a video goes when no AI chose: the feed it played from, else one named for saved videos. */
-    public static final String SAVED_FEED_NAME = "저장한 영상";
+    public static final String SAVED_FEED_NAME = "저장";
+    /** How many a feed holds (곡 수 · 영상 수), chosen per feed; 20 unless chosen. */
+    public static final int[] SIZES = {20, 40, 60, 100};
+    public static final int SIZE = 20;
+    /** Searches for a feed of this size (each finds about 20): 4 for 20, up to 12 for 100. */
+    public static int queriesFor(int size) { return size <= 20 ? 4 : size <= 40 ? 6 : size <= 60 ? 8 : 12; }
+    /** A new 저장 목록 by this name (made by hand, by 저장's AI, or for channels). */
+    public static Feed savedList(String name) { return new Feed("", name, Kind.SAVED, "직접 저장한 영상", "", 0); }
+    /** The saved feed's name before it was shortened to 저장; such a feed is renamed as 마이튜브 opens. */
+    public static final String OLD_SAVED_FEED_NAME = "저장한 영상";
+    /** Feed names made shorter since (old → new): an existing feed takes the new name as 마이튜브 opens. */
+    public static final java.util.Map<String, String> RENAMED = java.util.Map.of(OLD_SAVED_FEED_NAME, SAVED_FEED_NAME, "내 취향 음악", "내 음악");
 
     // ── 마이튜브 AI (its own conversation, typed or spoken) ─────────────────────
     /** What the app can do when the AI says so; one JSON object each, done in order. */
