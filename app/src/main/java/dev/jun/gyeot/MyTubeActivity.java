@@ -982,16 +982,27 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         sheet.setOnDismissListener(d -> { dialogs.remove(sheet); Runnable abort = stop.getAndSet(null); if (abort != null) abort.run(); });
         Runnable[] make = new Runnable[1];
         make[0] = () -> {
-            made[0] = null; body.setText("대본을 가져오는 중…"); body.setTextColor(MUTED);
+            made[0] = null; body.setText("Gemini가 영상을 직접 보는 중…"); body.setTextColor(MUTED);
             boolean[] closed = {false}; sheet.setOnCancelListener(d -> closed[0] = true);
             work.execute(() -> {
-                String said, failure = null;
+                String said = null, failure = null, watched = "";
+                // Gemini watches the video by its address itself (Flash-Lite's free tier: 500 a day), no transcript needed.
                 try {
+                    String key = store.secrets.workKey();
+                    if (key.isBlank()) watched = "Gemini API 키가 없어서";
+                    else said = GeminiAudioClient.watchYouTube(key, v.id(), MyTube.watchSummary(v),
+                        () -> { if (closed[0]) throw new java.util.concurrent.CancellationException("영상 요약을 멈췄어요."); }, stop);
+                } catch (java.util.concurrent.CancellationException halted) { return; }
+                catch (Exception e) { watched = "Gemini가 영상을 직접 보지 못해서" + (e.getMessage() == null || e.getMessage().isBlank() ? "" : " (" + e.getMessage() + ")"); }
+                // Otherwise the transcript, read and summed up as before.
+                if (said == null || said.isBlank()) try {
+                    String note = watched;
+                    main.post(() -> { if (sheet.isShowing() && made[0] == null) body.setText(note + " 대본을 가져오는 중…"); });
                     String block = YouTubeTranscriptClient.block(this, v.id(), () -> closed[0], step -> main.post(() -> { if (sheet.isShowing() && made[0] == null) body.setText(step); }), stop);
                     if (block == null || block.isBlank()) throw new java.io.IOException("이 영상의 대본을 가져오지 못했어요.");
                     main.post(() -> { if (sheet.isShowing() && made[0] == null) body.setText("AI가 정리하는 중…"); });
                     said = MyTubeClient.ask(store, MyTube.SUMMARY, MyTube.summaryInput(v, block), stop);
-                } catch (Exception e) { said = null; failure = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
+                } catch (Exception e) { said = null; failure = (watched.isEmpty() ? "" : watched + " 대본으로 정리하려 했지만 안 됐어요. ") + (e.getMessage() == null ? "정리하지 못했어요." : e.getMessage()); }
                 String answer = said, why = failure;
                 main.post(() -> {
                     if (answer != null && !answer.isBlank()) { synchronized (SUMMARIES) { SUMMARIES.put(v.id(), answer); while (SUMMARIES.size() > 30) SUMMARIES.remove(SUMMARIES.keySet().iterator().next()); } }

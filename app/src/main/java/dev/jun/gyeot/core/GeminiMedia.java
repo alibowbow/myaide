@@ -34,6 +34,13 @@ public final class GeminiMedia {
     }
     public static JSONObject inline(byte[] bytes, String mime) { return obj("inline_data", obj("mime_type", mime, "data", Base64.getEncoder().encodeToString(bytes))); }
     public static JSONObject uploaded(String fileUri, String mime) { return obj("file_data", obj("mime_type", mime, "file_uri", fileUri)); }
+    /**
+     * 영상 요약: models that watch a YouTube video by its address, tried in order. Flash-Lite, whose free tier allows 500 a day
+     * (Flash allows 20), 3.5 first, then 3.1.
+     */
+    public static final String[] YOUTUBE_MODELS = {"gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"};
+    /** A public YouTube video by its address: Gemini fetches and watches it itself, sound and picture, with no transcript. */
+    public static JSONObject youtube(String id) { return obj("file_data", obj("file_uri", "https://www.youtube.com/watch?v=" + id)); }
     /** The notes from a generateContent answer, thought parts skipped; explains an empty answer. */
     public static String answer(JSONObject response) {
         JSONArray candidates = response.optJSONArray("candidates");

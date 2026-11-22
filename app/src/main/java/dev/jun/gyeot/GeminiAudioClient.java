@@ -44,6 +44,13 @@ final class GeminiAudioClient {
             return generate(key, GeminiMedia.MODELS, GeminiMedia.request(media, GeminiMedia.videoPrompt(request), lowResolution), GeminiMedia::answer, guard, cancel);
         } finally { cleanup(key, fileName.get(), cancel); }
     }
+    /**
+     * 영상 요약: Gemini watches a YouTube video by its address (GeminiMedia.youtube) and answers the prompt, at low resolution
+     * so a long video fits the free tier's tokens a minute. No transcript and no upload.
+     */
+    static String watchYouTube(String key, String id, String prompt, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        return generate(key, GeminiMedia.YOUTUBE_MODELS, GeminiMedia.request(GeminiMedia.youtube(id), prompt, true), GeminiMedia::answer, guard, cancel);
+    }
     static String summarize(String key, String instructions, String transcript) throws Exception {
         return generate(key, GeminiSearch.MODELS, GeminiAudio.text(instructions, transcript), GeminiAudio::answer, () -> {}, null);
     }
