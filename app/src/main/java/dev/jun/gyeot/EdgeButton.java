@@ -38,7 +38,7 @@ final class EdgeButton implements AutoCloseable {
     private final AppStore store;
     private final WindowManager manager;
     private final WindowManager.LayoutParams params;
-    private final View view;
+    private final EdgeHandleView view;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final float density;
     private final int width, height, slop, swipe;
@@ -53,10 +53,11 @@ final class EdgeButton implements AutoCloseable {
         manager = context.getSystemService(WindowManager.class);
         density = context.getResources().getDisplayMetrics().density;
         // A generous touch strip around a slim pill; a short swipe inward is enough to call.
-        width = dp(28); height = dp(96); slop = ViewConfiguration.get(context).getScaledTouchSlop(); swipe = dp(16);
+        // A short handle (60dp drawn in a 76dp strip); a pull of 36dp calls, and the strip widens while it is pulled.
+        width = dp(28); height = dp(76); slop = ViewConfiguration.get(context).getScaledTouchSlop(); swipe = dp(36);
         params = new WindowManager.LayoutParams(width, height, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT);
-        view = new View(context);
+        view = new EdgeHandleView(context, HANDLE);
         view.setContentDescription(Brand.NAME + " 부르기. 화면 쪽으로 밀거나 누르면 음성 대화, 길게 누르면 메뉴");
         view.setOnTouchListener((v, event) -> touch(event));
         // Touches are handled above; these serve TalkBack's double tap and double-tap-and-hold.
@@ -87,11 +88,18 @@ final class EdgeButton implements AutoCloseable {
         Rect screen = screen();
         params.gravity = Gravity.TOP | (right ? Gravity.END : Gravity.START); params.x = 0;
         params.y = Math.max(0, Math.min(y < 0 ? screen.height() / 3 : y, screen.height() - height));
-        // A slim pill against the edge; the rest of the window is a transparent touch margin.
-        GradientDrawable pill = new GradientDrawable(); pill.setColor(HANDLE); pill.setCornerRadius(dp(4));
-        int inner = width - dp(6) - dp(3);
-        view.setBackground(new InsetDrawable(pill, right ? inner : dp(3), dp(8), right ? dp(3) : inner, dp(8)));
+        // A flat rounded trapezoid against the edge (EdgeHandleView); the rest of the window is a transparent touch margin.
+        view.side(right);
     }
+    /** While pulled the strip widens inward so the stretched handle has room; at rest it is the slim touch strip again. */
+    private void widen(boolean wide) {
+        int want = wide ? width + dp(96) : width;
+        if (params.width == want || !attached) return;
+        params.width = want;
+        try { manager.updateViewLayout(view, params); } catch (RuntimeException ignored) {}
+    }
+    /** The window's top on the screen, so a raw touch height becomes one inside the handle. */
+    private float screenY() { int[] at = new int[2]; view.getLocationOnScreen(at); return at[1]; }
     private Rect screen() {
         try { return manager.getCurrentWindowMetrics().getBounds(); }
         catch (RuntimeException e) { android.util.DisplayMetrics m = context.getResources().getDisplayMetrics(); return new Rect(0, 0, m.widthPixels, m.heightPixels); }
@@ -106,11 +114,17 @@ final class EdgeButton implements AutoCloseable {
                 if (swiped) return true;
                 float dx = event.getRawX() - startX, dy = event.getRawY() - startY, inward = right() ? -dx : dx;
                 if (!moved && !pressed) {
-                    // Pulled into the screen: call right away, without waiting for the finger to lift.
-                    if (inward > swipe && inward > Math.abs(dy)) {
-                        swiped = true; main.removeCallbacks(longPress); view.performHapticFeedback(HapticFeedbackConstants.CONFIRM); talk(); return true;
+                    // Pulled inward, it stretches after the finger (a little resistance); far enough, it calls at once and snaps back.
+                    if (inward > slop && inward > Math.abs(dy) * 0.8f) {
+                        main.removeCallbacks(longPress); widen(true);
+                        view.pull(Math.min(dp(84), inward * 0.85f), event.getRawY() - screenY());
+                        if (inward > swipe) {
+                            swiped = true; view.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
+                            view.release(() -> widen(false)); talk(); return true;
+                        }
+                        return true;
                     }
-                    if (Math.abs(dy) > slop && Math.abs(dy) > Math.abs(dx)) { moved = true; main.removeCallbacks(longPress); hideMenu(); }
+                    if (Math.abs(dy) > slop && Math.abs(dy) > Math.abs(dx)) { moved = true; main.removeCallbacks(longPress); hideMenu(); view.release(() -> widen(false)); }
                 }
                 if (moved && attached) {
                     Rect screen = screen();
@@ -120,10 +134,12 @@ final class EdgeButton implements AutoCloseable {
             }
             case MotionEvent.ACTION_UP -> {
                 main.removeCallbacks(longPress);
+                // Let go before it called: the strand springs back.
+                if (!swiped && view.pull() > 0) { view.release(() -> widen(false)); return true; }
                 if (moved) store.settings.edit().putInt("edgeY", params.y).apply();
                 else if (!pressed && !swiped) talk();
             }
-            case MotionEvent.ACTION_CANCEL -> main.removeCallbacks(longPress);
+            case MotionEvent.ACTION_CANCEL -> { main.removeCallbacks(longPress); view.release(() -> widen(false)); }
             default -> {}
         }
         return true;
@@ -181,7 +197,7 @@ final class EdgeButton implements AutoCloseable {
         if (current != null) try { manager.removeView(current); } catch (RuntimeException ignored) {}
     }
     private void detach() {
-        hideMenu(); main.removeCallbacks(longPress);
+        hideMenu(); main.removeCallbacks(longPress); params.width = width;
         if (attached) try { manager.removeView(view); } catch (RuntimeException ignored) {}
         attached = false;
     }
