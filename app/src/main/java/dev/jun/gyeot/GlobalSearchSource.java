@@ -29,6 +29,7 @@ final class GlobalSearchSource {
         out.addAll(GlobalSearch.ranked(notes(store, words), PER_KIND));
         out.addAll(GlobalSearch.ranked(voices(store, words), PER_KIND));
         out.addAll(GlobalSearch.ranked(recordings(store, words), PER_KIND));
+        out.addAll(GlobalSearch.ranked(videos(context, words), PER_KIND));
         out.addAll(GlobalSearch.ranked(kept(context, words), PER_KIND));
         return out;
     }
@@ -105,6 +106,13 @@ final class GlobalSearchSource {
         for (int i = 0; i < list.length(); i++) { JSONObject recording = list.optJSONObject(i); if (recording != null) add(out, GlobalSearch.hit(GlobalSearch.RECORDING, recording.optString("id"), recording.optString("title"), recording.optString("transcript") + "\n" + recording.optString("summary"), recording.optLong("createdAt"), words)); }
         return out;
     }
+    /** 영상 요약: each kept video conversation (마이튜브's 이 동영상에 대해 물어보세요), by its title and everything said. */
+    private static List<Hit> videos(Context context, List<String> words) {
+        List<Hit> out = new ArrayList<>();
+        for (dev.jun.gyeot.core.VideoChat.Kept one : VideoAskPanel.saved(context))
+            add(out, GlobalSearch.hit(GlobalSearch.VIDEO, one.id(), one.title().isEmpty() ? "유튜브 영상" : one.title(), VideoAskPanel.text(one), one.at(), words));
+        return out;
+    }
     private static List<Hit> kept(Context context, List<String> words) {
         List<Hit> out = new ArrayList<>();
         for (String kind : KEPT_KINDS) {
@@ -169,6 +177,11 @@ final class GlobalSearchSource {
             String summary = recording.optString("summary");
             out.add(new dev.jun.gyeot.core.SemanticSearch.Doc(GlobalSearch.RECORDING, recording.optString("id"), recording.optString("title"), (summary.isBlank() ? "" : summary + "\n") + recording.optString("transcript"), recording.optLong("createdAt")));
         }
+        for (dev.jun.gyeot.core.VideoChat.Kept one : VideoAskPanel.saved(context)) {
+            StringBuilder said = new StringBuilder();
+            for (dev.jun.gyeot.core.VideoChat.Turn turn : one.turns()) if (!turn.user()) said.append(turn.shown()).append('\n');
+            out.add(new dev.jun.gyeot.core.SemanticSearch.Doc(GlobalSearch.VIDEO, one.id(), one.title().isEmpty() ? "유튜브 영상" : one.title(), said.toString(), one.at()));
+        }
         for (String kind : KEPT_KINDS) {
             File[] files = new File(context.getFilesDir(), kind).listFiles((dir, name) -> name.endsWith(".txt"));
             for (int i = 0; files != null && i < files.length; i++) {
@@ -190,6 +203,7 @@ final class GlobalSearchSource {
                 case GlobalSearch.NOTE -> { JSONArray list = store.notes(); for (int i = 0; i < list.length(); i++) if (list.optJSONObject(i).optString("id").equals(hit.id())) return list.optJSONObject(i).optString("body"); return ""; }
                 case GlobalSearch.VOICE -> { JSONArray list = store.allSessions(); for (int i = 0; i < list.length(); i++) if (list.optJSONObject(i).optString("id").equals(hit.id())) return AppStore.sessionText(list.optJSONObject(i)); return ""; }
                 case GlobalSearch.RECORDING -> { JSONArray list = store.recordings(); for (int i = 0; i < list.length(); i++) if (list.optJSONObject(i).optString("id").equals(hit.id())) { String summary = list.optJSONObject(i).optString("summary"); return (summary.isBlank() ? "" : summary.strip() + "\n\n") + list.optJSONObject(i).optString("transcript"); } return ""; }
+                case GlobalSearch.VIDEO -> { for (dev.jun.gyeot.core.VideoChat.Kept one : VideoAskPanel.saved(context)) if (one.id().equals(hit.id())) return VideoAskPanel.text(one); return ""; }
                 case GlobalSearch.KEPT -> { int cut = hit.id().indexOf('/'); return cut < 0 ? "" : GlobalSearch.keptBody(KeptText.saved(context, hit.id().substring(0, cut), hit.id().substring(cut + 1))); }
                 default -> { return ""; }
             }

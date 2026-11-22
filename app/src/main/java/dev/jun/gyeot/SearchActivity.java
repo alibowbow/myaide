@@ -77,7 +77,7 @@ public final class SearchActivity extends Activity {
         setContentView(navigation); root.requestApplyInsets();
         LinearLayout heading = ui.row(); heading.addView(back(), new LinearLayout.LayoutParams(-2, ui.dp(48))); root.addView(heading);
         TextView title = ui.title("전체 검색", 26); title.setAccessibilityHeading(true); ui.add(root, title, 4);
-        ui.add(root, ui.label("메인 대화·작업창·페이지·기억·메모·음성 기록·녹음·가져온 글에서 한 번에 찾아요.", 13, MUTED), 12);
+        ui.add(root, ui.label("메인 대화·작업창·페이지·기억·메모·음성 기록·녹음·영상 요약·가져온 글에서 한 번에 찾아요.", 13, MUTED), 12);
         field = ui.searchField(ui.input("찾을 말 · 두 글자부터", 1, 100)); field.setText(query); field.setSelection(field.getText().length()); field.setContentDescription("전체 검색");
         field.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
@@ -145,13 +145,13 @@ public final class SearchActivity extends Activity {
     private static int icon(String kind) {
         return switch (kind) {
             case GlobalSearch.CHAT -> R.drawable.ic_chat; case GlobalSearch.WORK -> R.drawable.ic_work; case GlobalSearch.PAGE -> R.drawable.ic_pages; case GlobalSearch.MEMORY -> R.drawable.ic_bulb;
-            case GlobalSearch.NOTE -> R.drawable.ic_file; case GlobalSearch.VOICE -> R.drawable.ic_wave; case GlobalSearch.RECORDING -> R.drawable.ic_mic; default -> R.drawable.ic_globe;
+            case GlobalSearch.NOTE -> R.drawable.ic_file; case GlobalSearch.VOICE -> R.drawable.ic_wave; case GlobalSearch.RECORDING -> R.drawable.ic_mic; case GlobalSearch.VIDEO -> R.drawable.ic_play; default -> R.drawable.ic_globe;
         };
     }
     private static int tint(String kind) {
         return switch (kind) {
             case GlobalSearch.CHAT -> BLUE; case GlobalSearch.WORK -> INDIGO; case GlobalSearch.PAGE -> TEAL; case GlobalSearch.MEMORY -> ORANGE;
-            case GlobalSearch.NOTE -> GREEN; case GlobalSearch.VOICE -> PURPLE; case GlobalSearch.RECORDING -> RED; default -> MINT;
+            case GlobalSearch.NOTE -> GREEN; case GlobalSearch.VOICE -> PURPLE; case GlobalSearch.RECORDING -> RED; case GlobalSearch.VIDEO -> RED; default -> MINT;
         };
     }
 

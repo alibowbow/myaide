@@ -4578,6 +4578,52 @@ public final class MainActivity extends Activity {
         add(group, 0);
         add(ui.footer("노트와 제안은 기억·최근 대화·작업창·기록을 바탕으로 Gemini 키의 Gemma 4가 만들어요(무료 한도 안). 노트는 메인 대화·음성 비서·작업창이 참고해요."), 0);
     }
+    /** 기억 정리: the plan made first, shown line by line, applied only on 적용 (the notes before kept for 되돌리기). */
+    private void tidyMemory() {
+        JSONArray notes = store.memories();
+        String listed = dev.jun.gyeot.core.Memory.prompt(notes, false);
+        if (listed.isEmpty()) { android.widget.Toast.makeText(this, "정리할 기억이 아직 없어요.", android.widget.Toast.LENGTH_SHORT).show(); return; }
+        android.widget.Toast.makeText(this, "기억을 살펴보는 중이에요…", android.widget.Toast.LENGTH_SHORT).show();
+        android.content.Context app = getApplicationContext();
+        new Thread(() -> {
+            String answer = null, why = "";
+            try { String key = store.secrets.workKey(); if (key.isBlank()) throw new IllegalStateException("설정 → Gemini API 키를 먼저 넣어 주세요."); answer = GeminiAudioClient.light(key, dev.jun.gyeot.core.Memory.cleanup(listed), "기억을 정리해 주세요."); }
+            catch (Exception e) { why = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
+            String plan = answer == null ? null : dev.jun.gyeot.core.Memory.withoutAdd(answer), reason = why;
+            runOnUiThread(() -> {
+                if (isDestroyed()) return;
+                if (plan == null) { android.widget.Toast.makeText(this, reason, android.widget.Toast.LENGTH_LONG).show(); return; }
+                java.util.List<String> changes = dev.jun.gyeot.core.Memory.preview(store.memories(), plan);
+                if (changes.isEmpty()) { android.widget.Toast.makeText(this, "정리할 게 없어요. 기억이 깔끔해요 👍", android.widget.Toast.LENGTH_SHORT).show(); return; }
+                Ui.Sheet sheet = ui.selectionSheet("기억 정리", changes.size() + "가지를 바꿔요 · 적용 전에 확인해 주세요");
+                TextView list = ui.text(String.join("\n\n", changes), 14, 400, TEXT); list.setLineSpacing(ui.dp(3), 1); list.setTextIsSelectable(true); ui.add(sheet.body, list, 8);
+                sheet.primary.setText("적용");
+                sheet.primary.setOnClickListener(v -> {
+                    try {
+                        store.settings.edit().putString("memoryUndo", store.memories().toString()).apply();
+                        int changed = store.changeMemory(memories -> dev.jun.gyeot.core.Memory.apply(memories, plan, System.currentTimeMillis()));
+                        android.widget.Toast.makeText(this, "기억 " + changed + "가지를 정리했어요", android.widget.Toast.LENGTH_SHORT).show();
+                    } catch (Exception e) { android.widget.Toast.makeText(this, "정리하지 못했어요.", android.widget.Toast.LENGTH_SHORT).show(); }
+                    sheet.dismiss(); showTab(2);
+                });
+                sheet.show();
+            });
+        }, "memory-tidy").start();
+    }
+    /** Puts the notes back as they were before the last 기억 정리. */
+    private void undoTidy() {
+        String saved = store.settings.getString("memoryUndo", ""); if (saved.isEmpty()) return;
+        new AlertDialog.Builder(this).setTitle("마지막 정리를 되돌릴까요?").setMessage("정리하기 전 기억으로 돌아가요. 그 뒤에 새로 생긴 기억은 사라져요.")
+            .setNegativeButton("취소", null).setPositiveButton("되돌리기", (d, w) -> {
+                try {
+                    JSONArray before = new JSONArray(saved);
+                    store.changeMemory(memories -> { while (memories.length() > 0) memories.remove(0); for (int i = 0; i < before.length(); i++) memories.put(before.opt(i)); return before.length(); });
+                    store.settings.edit().remove("memoryUndo").apply();
+                    android.widget.Toast.makeText(this, "되돌렸어요", android.widget.Toast.LENGTH_SHORT).show();
+                } catch (Exception e) { android.widget.Toast.makeText(this, "되돌리지 못했어요.", android.widget.Toast.LENGTH_SHORT).show(); }
+                showTab(2);
+            }).show();
+    }
     /** 나에 대한 이해: the note to read and change (kept as written), or made again now. */
     private void aboutMeSheet() {
         Ui.Sheet sheet = ui.selectionSheet("나에 대한 이해", "AI가 정리한 노트예요 · 고치면 그대로 지켜요");
@@ -4621,6 +4667,10 @@ public final class MainActivity extends Activity {
         add(ui.sectionHeader("기억한 것"), 0);
         LinearLayout kept = ui.group();
         ui.addRow(kept, ui.listRow(R.drawable.ic_bulb, Ui.ORANGE, "기억한 것 보기", about + phone == 0 ? "아직 없어요" : "나에 대해 " + about + "개 · 폰 사용법 " + phone + "개", ui.chevron(), () -> openSettings("memories")), true);
+        // 기억 정리: Gemma 4 tidies the notes about the user; what it would change shows first, and the last tidy can be undone.
+        ui.addRow(kept, ui.listRow(R.drawable.ic_refresh, Ui.GREEN, "기억 정리 (AI)", "겹치는 기억은 합치고, 지난 일은 지워요 · 바꾸기 전에 보여 드려요", ui.chevron(), this::tidyMemory), true);
+        if (!store.settings.getString("memoryUndo", "").isEmpty())
+            ui.addRow(kept, ui.listRow(R.drawable.ic_back, Ui.BLUE, "마지막 정리 되돌리기", "정리하기 전 기억으로 돌아가요", ui.chevron(), this::undoTidy), true);
         add(kept, 0);
         // Two lines at 360dp, so it keeps a footer's distance from the group above.
         TextView pinned = ui.quietRow("메인 대화의 고정 기억은 메인 대화 ⋯ → 기억·제약에서 고쳐요 ›", () -> navigateMenu("chat")); pinned.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(4)); add(pinned, 0);

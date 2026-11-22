@@ -57,6 +57,25 @@ final class VideoAskPanel {
             } catch (Exception unreadable) { /* Starts empty; the file is written again with the next answer. */ }
         }
     }
+    /** The kept conversations, newest last (전체 검색 · 뜻으로 찾기), read from the phone when not read yet. Any thread. */
+    static List<VideoChat.Kept> saved(android.content.Context context) {
+        load(context);
+        List<VideoChat.Kept> out = new ArrayList<>();
+        synchronized (CHATS) {
+            for (Map.Entry<String, List<VideoChat.Turn>> e : CHATS.entrySet()) {
+                if (e.getValue().stream().noneMatch(t -> !t.user())) continue;
+                String[] about = ABOUT.getOrDefault(e.getKey(), new String[]{"", "", "0"}); long at; try { at = Long.parseLong(about[2]); } catch (Exception x) { at = 0; }
+                out.add(new VideoChat.Kept(e.getKey(), about[0], about[1], at, new ArrayList<>(e.getValue())));
+            }
+        }
+        return out;
+    }
+    /** One kept conversation as text to read: the video, then each request and answer. */
+    static String text(VideoChat.Kept one) {
+        StringBuilder out = new StringBuilder((one.title().isEmpty() ? "유튜브 영상" : one.title()) + (one.channel().isEmpty() ? "" : " · " + one.channel()) + "\nhttps://youtu.be/" + one.id());
+        for (VideoChat.Turn turn : one.turns()) out.append("\n\n").append(turn.user() ? "■ " + turn.shown() : turn.shown() + (turn.by().isEmpty() ? "" : "\n(" + turn.by() + ")"));
+        return out.toString();
+    }
     /** The video's conversation changed: it becomes the newest, older ones past the limit go, and the file is written. */
     private void keep(MyTube.Video v) {
         String json;
