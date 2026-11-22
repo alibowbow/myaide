@@ -62,6 +62,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private TextView nowTitle, nowLine, header, about, when; private ShimmerText statusLine; private View feedActions;
     /** The screen's two parts: the video with its play buttons, pinned on top across the full width, and the list scrolling under it. */
     private LinearLayout body, videoPane, searchBar, listPane, controlsRow; private ScrollView scroll;
+    /** 나란히 보기: the room under the video (what plays, the search box, the 추천 · 저장 rows), scrolling when short; the two rows as one block. */
+    private LinearLayout underVideo, feedRows; private ScrollView underScroll;
     /**
      * 보기: 가로 꽉 (the video across the width, the list under it), 나란히 (a wide screen: the video on the left, the list on the
      * right; a Short always so) or 전체화면 (the video alone). The video sits on a stage, with the way out of 전체화면 on it.
@@ -154,11 +156,14 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         chat = new MyTubeChat(this, ui, store, book, work, main, this);
         LinearLayout.LayoutParams chatGap = new LinearLayout.LayoutParams(-1, -2); chatGap.bottomMargin = ui.dp(8); content.addView(chat.card, chatGap);
         buildPlayer(content);
-        // Two rows: 추천, the feeds the AI fills; 저장, the lists of what the user saved (never replaced).
+        // Two rows: 추천, the feeds the AI fills; 저장, the lists of what the user saved (never replaced). One block, which
+        // 나란히 보기 sets under the video (arrange).
+        feedRows = ui.column();
         chips = ui.row(); chips.setGravity(Gravity.CENTER_VERTICAL); HorizontalScrollView chipScroll = new HorizontalScrollView(this); chipScroll.setHorizontalScrollBarEnabled(false); chipScroll.addView(chips);
-        LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); chipGap.topMargin = ui.dp(4); content.addView(chipScroll, chipGap);
+        LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); chipGap.topMargin = ui.dp(4); feedRows.addView(chipScroll, chipGap);
         savedChips = ui.row(); savedChips.setGravity(Gravity.CENTER_VERTICAL); HorizontalScrollView savedScroll = new HorizontalScrollView(this); savedScroll.setHorizontalScrollBarEnabled(false); savedScroll.addView(savedChips);
-        LinearLayout.LayoutParams savedGap = new LinearLayout.LayoutParams(-1, -2); savedGap.topMargin = ui.dp(6); content.addView(savedScroll, savedGap);
+        LinearLayout.LayoutParams savedGap = new LinearLayout.LayoutParams(-1, -2); savedGap.topMargin = ui.dp(6); feedRows.addView(savedScroll, savedGap);
+        content.addView(feedRows, new LinearLayout.LayoutParams(-1, -2));
         header = ui.title("", 17); header.setPadding(0, ui.dp(12), 0, 0); content.addView(header);
         about = ui.label("", 13, MUTED); about.setPadding(0, ui.dp(2), 0, 0); content.addView(about);
         when = ui.label("", 12, MUTED); when.setPadding(0, ui.dp(2), 0, 0); content.addView(when);
@@ -218,9 +223,13 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         boolean full = shown && "full".equals(viewMode), side = shown && !full && wideScreen && ("side".equals(viewMode) || shorts), fill = full || side && page;
         sideToggle.setVisibility(wideScreen ? View.VISIBLE : View.GONE); sideToggle.setAlpha(side ? 1f : 0.6f);
         sideToggle.setContentDescription(side ? "가로 꽉 차게 보기 · 목록은 아래로" : "나란히 보기 · 왼쪽 영상, 오른쪽 목록");
-        // Typing in the search box with the keyboard up (one column): the play buttons, the size bar and the composer step aside.
+        // Side by side, under the video: what plays and its buttons; beside a video (not a YouTube page, which needs the room)
+        // the search box and the 추천 · 저장 rows as well.
+        boolean under = side && !shorts, tools = under && !page;
+        // Typing in the search box with the keyboard up (one column, or side by side with the box under the video): the play
+        // buttons, the size bar and the composer step aside, and the video shrinks so the box stays over the keyboard.
         boolean searching = searchBox.hasFocus();
-        typing = shown && searching && !full && !side;
+        typing = shown && searching && !full && (!side || tools);
         // A Short has its own size buttons; the video's 작게 ↔ 크게 and size bar step aside for it.
         sizeToggle.setVisibility(shorts ? View.GONE : View.VISIBLE); shortsSizer.setVisibility(shorts && !full ? View.VISIBLE : View.GONE);
         if (side && shorts && body.getWidth() == 0) body.post(this::showPlayer);
@@ -228,13 +237,17 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         if (key.equals(arranged)) return fill;
         arranged = key;
         body.setOrientation(side ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
-        // Side by side: what plays and its buttons (안 볼래요 · 화질 · 캡처 · 저장 …) under the video, the list on its own beside it.
-        ViewGroup home = side && !shorts ? videoPane : content;
-        if (playerCard != null && playerCard.getParent() != home) {
-            if (playerCard.getParent() instanceof ViewGroup was) was.removeView(playerCard);
-            if (home == videoPane) { LinearLayout.LayoutParams under = new LinearLayout.LayoutParams(-1, -2); under.setMargins(ui.dp(16), ui.dp(4), ui.dp(16), 0); videoPane.addView(playerCard, under); }
-            else content.addView(playerCard, 0);
-        }
+        // Side by side: what plays and its buttons (안 볼래요 · 화질 · 캡처 · 저장 …) under the video, then beside a video the
+        // search box and the 추천 · 저장 rows, in the room left there; the list on its own beside it. Otherwise each in its place:
+        // what plays at the top of the list, the search box over it, the rows before the feed's heading.
+        LinearLayout.LayoutParams card = new LinearLayout.LayoutParams(-1, -2); card.setMargins(ui.dp(16), ui.dp(4), ui.dp(16), 0);
+        LinearLayout.LayoutParams rows = new LinearLayout.LayoutParams(-1, -2); rows.setMargins(ui.dp(16), ui.dp(2), ui.dp(16), ui.dp(12));
+        place(playerCard, under ? underVideo : content, 0, under ? card : new LinearLayout.LayoutParams(-1, -2));
+        place(searchBar, tools ? underVideo : listPane, tools ? underVideo.indexOfChild(playerCard) + 1 : 0, new LinearLayout.LayoutParams(-1, -2));
+        place(feedRows, tools ? underVideo : content, tools ? underVideo.indexOfChild(searchBar) + 1 : content.indexOfChild(header), tools ? rows : new LinearLayout.LayoutParams(-1, -2));
+        underScroll.setVisibility(under ? View.VISIBLE : View.GONE);
+        // Beside a video it takes the height left (scrolling when short); beside a YouTube page, only what it holds.
+        underScroll.setLayoutParams(tools ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
         videoPane.setLayoutParams(side && shorts ? new LinearLayout.LayoutParams(shortsWidth(), -1) : side ? new LinearLayout.LayoutParams(0, -1, 1.3f)
             : full ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
         stage.setLayoutParams(fill ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
@@ -250,6 +263,12 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             else bars.show(WindowInsets.Type.systemBars());
         }
         return fill;
+    }
+    /** Moves a part of the screen into the group the view puts it in, at that place; one already there stays as it is. */
+    private static void place(View part, ViewGroup group, int at, ViewGroup.LayoutParams params) {
+        if (part == null || part.getParent() == group) return;
+        if (part.getParent() instanceof ViewGroup was) was.removeView(part);
+        group.addView(part, Math.max(0, Math.min(at, group.getChildCount())), params);
     }
 
     // ── the player ───────────────────────────────────────────────────────────
@@ -336,6 +355,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             return true;
         });
         gripView = grip; videoPane.addView(grip, new LinearLayout.LayoutParams(-1, ui.dp(14)));
+        // 나란히 보기: the room under the video and its buttons (arrange fills it), scrolling when the screen or the keyboard leaves it short.
+        underVideo = ui.column(); underScroll = new ScrollView(this); underScroll.setBackgroundColor(BG); underScroll.setVisibility(View.GONE); underScroll.addView(underVideo);
+        videoPane.addView(underScroll, new LinearLayout.LayoutParams(-1, -2));
         // The picture quality, as chosen and as it plays now.
         qualityChip = ui.smallChip("화질", this::chooseQuality);
         LinearLayout qualityRow = ui.row(); qualityRow.setGravity(Gravity.CENTER); qualityRow.setPadding(0, ui.dp(6), 0, 0);
