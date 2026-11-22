@@ -4468,8 +4468,9 @@ public final class MainActivity extends Activity {
             if (value && !store.secrets.has(SecretStore.GEMINI)) { store.error("Gemini 디시전은 Gemini API 키로 써요. 설정 → Gemini에서 키를 먼저 넣어 주세요."); store.changed(); showTab(2); return; }
             store.settings.edit().putBoolean("phoneDecisions", value).apply(); store.changed();
         }), false);
+        ui.addRow(better, ui.listRow(R.drawable.ic_bolt, Ui.ORANGE, "디시전 테스트 (속도·정확도)", "폰 조작 화면 10개로 디시전과 Flash-Lite를 비교해요", ui.chevron(), this::decisionBench), false);
         add(better, 0);
-        add(ui.footer("디시전 요금은 Gemini API 키의 프로젝트에 나가요(입력 100만 토큰당 약 0.1달러). 다음 음성 대화부터 적용돼요."), 0);
+        add(ui.footer("무료 키는 디시전을 하루 10,000번(분당 200번)까지 쓸 수 있어요. 유료 프로젝트면 입력 100만 토큰당 약 0.1달러가 나가요. 다음 음성 대화부터 적용돼요."), 0);
         add(ui.details("자세히", "여러 단계 일도 끝까지 이어서 하고, 로딩·생성은 기다렸다가 다시 확인해요. 폰 조작은 Gemini가 해요. 두뇌를 따로 두면 두뇌가 작업 순서와 입력할 글을 쓰고, Gemini가 그대로 화면을 읽고 조작해요.\n"
             + "디시전 · 켜면 여러 단계 폰 일을 Gemini 디시전에 넘겨 단계마다 생각하는 시간을 줄여요. 확신이 낮거나 맞는 동작이 없으면 음성 비서가 이어받고, 보내기·결제·삭제·전화 같은 규칙은 그대로예요."), 0);
 
@@ -4598,6 +4599,54 @@ public final class MainActivity extends Activity {
             }, "review-now").start();
         }), false);
         add(review, 0);
+    }
+    /**
+     * 디시전 테스트: the ten made-up phone screens (core/DecisionBench) asked of Gemini 디시전 and of Flash-Lite with the user's
+     * Gemini key, one after the other; how many each got right and how fast, then each screen's answers.
+     */
+    private void decisionBench() {
+        String key;
+        try { key = store.secrets.get(); } catch (Exception e) { key = ""; }
+        if (key.isBlank()) { android.widget.Toast.makeText(this, "설정 → Gemini에서 API 키를 먼저 넣어 주세요.", android.widget.Toast.LENGTH_LONG).show(); return; }
+        Ui.Sheet sheet = ui.selectionSheet("디시전 테스트", "같은 화면 10개 · 디시전과 Flash-Lite 비교");
+        TextView out = ui.text("시작하는 중…", 14, 400, TEXT); out.setLineSpacing(ui.dp(3), 1); out.setTextIsSelectable(true); ui.add(sheet.body, out, 8);
+        sheet.primary.setText("닫기");
+        boolean[] closed = {false}; sheet.setOnDismissListener(d -> closed[0] = true);
+        sheet.show();
+        String gemini = key;
+        new Thread(() -> {
+            java.util.List<dev.jun.gyeot.core.DecisionBench.Scenario> all = dev.jun.gyeot.core.DecisionBench.scenarios();
+            java.util.List<dev.jun.gyeot.core.DecisionBench.Result> decision = new java.util.ArrayList<>(), lite = new java.util.ArrayList<>();
+            StringBuilder lines = new StringBuilder();
+            for (int i = 0; i < all.size() && !closed[0]; i++) {
+                dev.jun.gyeot.core.DecisionBench.Scenario one = all.get(i);
+                int at = i + 1; runOnUiThread(() -> { if (!closed[0]) out.setText("테스트 중 " + at + "/" + all.size() + " · " + one.name() + "\n\n" + lines); });
+                long started = System.nanoTime(); dev.jun.gyeot.core.DecisionBench.Result d;
+                try {
+                    JSONObject answer = GeminiDecisions.decide(gemini, one.request(), null);
+                    JSONObject next = answer.optJSONObject("answers") == null ? null : answer.optJSONObject("answers").optJSONObject("next");
+                    d = dev.jun.gyeot.core.DecisionBench.score(one, next == null ? "" : next.optString("choice"), next == null ? 0 : next.optDouble("confidence", 0), (System.nanoTime() - started) / 1_000_000, null);
+                } catch (Exception e) { d = dev.jun.gyeot.core.DecisionBench.score(one, "", 0, (System.nanoTime() - started) / 1_000_000, e.getMessage() == null ? "오류" : e.getMessage()); }
+                decision.add(d);
+                started = System.nanoTime(); dev.jun.gyeot.core.DecisionBench.Result f;
+                try {
+                    JSONObject answer = dev.jun.gyeot.core.DecisionBench.plainAnswer(GeminiAudioClient.summarize(gemini, dev.jun.gyeot.core.DecisionBench.plainInstructions(), dev.jun.gyeot.core.DecisionBench.plainInput(one)));
+                    f = dev.jun.gyeot.core.DecisionBench.score(one, answer.optString("choice"), answer.optDouble("confidence", Double.NaN), (System.nanoTime() - started) / 1_000_000, null);
+                } catch (Exception e) { f = dev.jun.gyeot.core.DecisionBench.score(one, "", Double.NaN, (System.nanoTime() - started) / 1_000_000, e.getMessage() == null ? "오류" : e.getMessage()); }
+                lite.add(f);
+                lines.append(at).append(". ").append(one.name()).append("\n   디시전 ").append(mark(d)).append("\n   Flash-Lite ").append(mark(f)).append("\n");
+            }
+            String d = dev.jun.gyeot.core.DecisionBench.summary(decision), f = dev.jun.gyeot.core.DecisionBench.summary(lite);
+            long dRight = decision.stream().filter(dev.jun.gyeot.core.DecisionBench.Result::right).count(), fRight = lite.stream().filter(dev.jun.gyeot.core.DecisionBench.Result::right).count();
+            String verdict = decision.stream().allMatch(r -> !r.error().isEmpty()) ? "디시전을 쓸 수 없었어요. 오류를 확인해 주세요."
+                : dRight >= fRight ? "디시전이 정확도는 같거나 더 좋고 더 빠르면 켜는 걸 추천해요." : "이번엔 Flash-Lite가 더 정확했어요. 디시전은 끄고 쓰는 걸 추천해요.";
+            store.phoneLog("● 디시전 테스트 · 디시전 " + d + " · Flash-Lite " + f);
+            runOnUiThread(() -> { if (!closed[0]) out.setText("디시전: " + d + "\nFlash-Lite: " + f + "\n\n" + verdict + "\n\n" + lines); });
+        }, "decision-bench").start();
+    }
+    private static String mark(dev.jun.gyeot.core.DecisionBench.Result r) {
+        if (!r.error().isEmpty()) return "✕ 오류 · " + (r.error().length() > 80 ? r.error().substring(0, 80) + "…" : r.error());
+        return (r.right() ? "✓ " : "✕ ") + (r.option().isEmpty() ? "?" : r.option()) + (Double.isNaN(r.confidence()) ? "" : " · " + Math.round(r.confidence() * 100) + "%") + " · " + r.ms() + "ms";
     }
     /** 기억 정리: the plan made first, shown line by line, applied only on 적용 (the notes before kept for 되돌리기). */
     private void tidyMemory() {
