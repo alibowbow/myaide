@@ -80,6 +80,14 @@ public final class Drawing {
      * keep their normal AI/tools path. Messages and attachments are the stored conversation BEFORE the new user turn.
      */
     public static JSONObject chatArguments(String text, JSONArray messages, JSONArray attached, boolean codex) {
+        return chatArgumentsLazily(text, () -> messages, attached, codex);
+    }
+    /**
+     * chatArguments reading the conversation only when the draft could be an image request (a drawing command, a retry or
+     * edit wording); the answer is the same. The 작업창 composer asks on every keystroke while a turn runs, and most drafts
+     * are ordinary instructions that never need the room's messages.
+     */
+    public static JSONObject chatArgumentsLazily(String text, java.util.function.Supplier<JSONArray> history, JSONArray attached, boolean codex) {
         String latest = text == null ? "" : text.strip();
         // Quoted examples/code and questions about image generation are not commands to render them.
         String command = latest.replaceAll("(?s)```.*?```|`[^`]*`|\"[^\"]*\"|“[^”]*”|‘[^’]*’|'[^']*'", " ");
@@ -87,6 +95,12 @@ public final class Drawing {
         if (command.matches("(?is).*\\b(don['’]t|do\\s+not|never)\\s+(draw|paint|illustrate|render|generate|create|make)\\b.*")) return null;
         if (command.matches("(?is).*(코드로|svg|mermaid|ascii|아스키|html|canvas|how\\s+(to|do|can)|what\\s+does).*")) return null;
         if (command.matches("(?is).*(프롬프트|prompt|방법|사용법|기능|버튼|코드|오류|에러|뜻|의미).*(써|작성|알려|설명|추천|고쳐|수정|추가|도입|번역|translate|write|explain).*")) return null;
+        boolean ratioOnly = !aspect(latest).isEmpty() && RATIO.matcher(latest).replaceAll("").replaceAll("비율|으로|로|[\\s.!?。]", "").isEmpty();
+        boolean editing = ratioOnly || command.matches("(?is).*(바꿔|고쳐|수정해|편집해|밝게|어둡게|지워|추가해|넣어\\s*줘|빼\\s*줘|색.*변경|edit\\b|change\\b|brighter\\b|darker\\b).*"),
+            draw = imageCommand(command), retrying = retry(latest);
+        // Without one of these the answer below is null whatever came before, so the messages are not read at all.
+        if (!draw && !retrying && !editing) return null;
+        JSONArray messages = history == null ? null : history.get();
         boolean reference = hasImage(attached), previousPicture = false, earlierPhoto = false; String previousShape = "";
         JSONObject lastAnswer = null;
         for (int i = messages == null ? -1 : messages.length() - 1; i >= 0; i--) {
@@ -106,10 +120,7 @@ public final class Drawing {
         }
         boolean recentImage = previousPicture || earlierPhoto;
         String previous = formPrompt("", messages);
-        boolean ratioOnly = !aspect(latest).isEmpty() && RATIO.matcher(latest).replaceAll("").replaceAll("비율|으로|로|[\\s.!?。]", "").isEmpty();
-        boolean continuation = continuation(latest), editing = ratioOnly || command.matches("(?is).*(바꿔|고쳐|수정해|편집해|밝게|어둡게|지워|추가해|넣어\\s*줘|빼\\s*줘|색.*변경|edit\\b|change\\b|brighter\\b|darker\\b).*"),
-            draw = imageCommand(command),
-            again = retry(latest) && (recentImage || imageCommand(previous));
+        boolean continuation = continuation(latest), again = retrying && (recentImage || imageCommand(previous));
         if (!draw && !again && !((reference || recentImage) && editing)) return null;
         boolean edit = reference || recentImage && (editing || continuation || command.matches("(?is).*(이\\s*(그림|사진|이미지)|방금|직전|이전|same|this|that).*"));
         String prompt = latest;
