@@ -254,7 +254,11 @@ final class UsageUi {
         LinearLayout card = ui.column();
         android.graphics.drawable.GradientDrawable surface = ui.shape(Ui.CARD, 18); surface.setStroke(Math.max(1, ui.dp(.5f)), Ui.SEPARATOR);
         card.setBackground(surface); card.setPadding(ui.dp(16), ui.dp(2), ui.dp(16), ui.dp(14));
-        String[] models = {dev.jun.gyeot.core.GeminiWork.FLASH_LITE[0], dev.jun.gyeot.core.GeminiWork.FLASH_LITE[1], dev.jun.gyeot.core.GeminiProtocol.FILE_TRANSCRIBE};
+        // Gemma 4 (light work, the key's two largest), Flash-Lite (search, summaries), Transcribe (recordings).
+        String[] listed = store.gemini.gemma(), gemma = listed == null ? dev.jun.gyeot.core.GeminiLight.GEMMA : listed;
+        java.util.List<String> shown = new java.util.ArrayList<>(java.util.List.of(gemma).subList(0, Math.min(2, gemma.length)));
+        shown.add(dev.jun.gyeot.core.GeminiWork.FLASH_LITE[0]); shown.add(dev.jun.gyeot.core.GeminiWork.FLASH_LITE[1]); shown.add(dev.jun.gyeot.core.GeminiProtocol.FILE_TRANSCRIBE);
+        String[] models = shown.toArray(new String[0]);
         String reset = refill(dev.jun.gyeot.core.GeminiQuota.resetAt(now));
         for (dev.jun.gyeot.core.GeminiQuota.Row row : dev.jun.gyeot.core.GeminiQuota.rows(store.geminiQuota(), models, now)) {
             LinearLayout box = ui.column(); box.setPadding(0, ui.dp(12), 0, 0);

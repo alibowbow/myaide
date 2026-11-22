@@ -24,13 +24,23 @@ import org.json.JSONObject;
  */
 public final class GeminiQuota {
     private GeminiQuota() {}
-    /** A model's free tier: requests a minute and a day (0: not known). */
-    public record Free(int perMinute, int perDay) {}
+    /** A model's free tier: requests a minute and a day, and tokens a minute (0: not known). */
+    public record Free(int perMinute, int perDay, int tokensPerMinute) {
+        Free(int perMinute, int perDay) { this(perMinute, perDay, 0); }
+    }
     /** As Google's rate-limit page showed them for a free key; Google may change them, and what it names in a refusal wins. */
     static final Map<String, Free> KNOWN = Map.of(
         "gemini-3.5-flash-lite", new Free(15, 500), "gemini-3.1-flash-lite", new Free(15, 500),
         "gemini-3.5-transcribe", new Free(3, 25), "gemini-flash-latest", new Free(5, 20),
         "gemini-2.5-flash", new Free(5, 20), "gemini-2.5-flash-lite", new Free(10, 20));
+    /** Every Gemma 4 model (31B, 26B and any size the key lists): many requests a day, few tokens a minute. */
+    static final Free GEMMA_4 = new Free(30, 14_400, 16_000);
+    /** A model's free tier as known, or null. */
+    public static Free free(String model) {
+        Free known = KNOWN.get(model);
+        if (known != null) return known;
+        return model != null && model.startsWith("gemma-4-") ? GEMMA_4 : null;
+    }
     private static final ZoneId PACIFIC = ZoneId.of("America/Los_Angeles");
     static final long MINUTE = 60_000, LONGEST_REST = 10 * MINUTE;
     /** "Please retry in 23.4s" or "retryDelay": "23s" in a 429's body. */
@@ -48,7 +58,7 @@ public final class GeminiQuota {
         JSONObject entry = state == null ? null : state.optJSONObject(model);
         int named = entry == null ? 0 : entry.optInt("limit");
         if (named > 0) return named;
-        Free known = KNOWN.get(model);
+        Free known = free(model);
         return known == null ? 0 : known.perDay();
     }
     /** Requests today (0 when the last were on another day). */
@@ -62,7 +72,12 @@ public final class GeminiQuota {
      * against the known limit), not resting, and under the known per-minute limit. When none is left, the first one this key
      * can use is tried anyway: the counts may be off, or the quota may have reset.
      */
-    public static List<String> order(String[] models, JSONObject state, long now) {
+    public static List<String> order(String[] models, JSONObject state, long now) { return order(models, state, now, 0); }
+    /**
+     * As above, also leaving out a model whose tokens a minute this request (an estimate) would go past, counting what it
+     * answered in the current minute; a request bigger than the whole minute's tokens leaves it out too.
+     */
+    public static List<String> order(String[] models, JSONObject state, long now, int tokens) {
         List<String> ready = new ArrayList<>();
         String today = day(now), fallback = null;
         for (String model : models) {
@@ -73,19 +88,25 @@ public final class GeminiQuota {
             if (current && entry.optBoolean("full")) continue;
             if (entry != null && entry.optLong("rest") > now) continue;
             int perDay = perDay(state, model); if (perDay > 0 && uses(state, model, now) >= perDay) continue;
-            Free known = KNOWN.get(model);
-            if (known != null && known.perMinute() > 0 && entry != null && now - entry.optLong("minute") < MINUTE && entry.optInt("minuteUses") >= known.perMinute()) continue;
+            Free known = free(model);
+            boolean minute = entry != null && now - entry.optLong("minute") < MINUTE;
+            if (known != null && known.perMinute() > 0 && minute && entry.optInt("minuteUses") >= known.perMinute()) continue;
+            if (known != null && known.tokensPerMinute() > 0 && tokens > 0
+                && (minute ? entry.optInt("minuteTokens") : 0) + tokens > known.tokensPerMinute()) continue;
             if (!ready.contains(model)) ready.add(model);
         }
         if (ready.isEmpty()) ready.add(fallback != null ? fallback : models[0]);
         return ready;
     }
     /** One request the model answered. */
-    public static void used(JSONObject state, String model, long now) {
+    public static void used(JSONObject state, String model, long now) { used(state, model, now, 0); }
+    /** One request the model answered, with the tokens it counted (usageMetadata.totalTokenCount; 0 when not given). */
+    public static void used(JSONObject state, String model, long now, int tokens) {
         JSONObject entry = today(state, model, now);
         put(entry, "uses", entry.optInt("uses") + 1);
-        if (now - entry.optLong("minute") >= MINUTE) { put(entry, "minute", now); put(entry, "minuteUses", 0); }
+        if (now - entry.optLong("minute") >= MINUTE) { put(entry, "minute", now); put(entry, "minuteUses", 0); put(entry, "minuteTokens", 0); }
         put(entry, "minuteUses", entry.optInt("minuteUses") + 1);
+        put(entry, "minuteTokens", entry.optInt("minuteTokens") + Math.max(0, tokens));
     }
     /**
      * Google refused the model (status and the whole error body): today's quota used up (kept with the limit it named), its
@@ -151,8 +172,8 @@ public final class GeminiQuota {
         StringBuilder out = new StringBuilder(gemma ? "Gemma" : "Gemini");
         for (String part : rest.split("-")) {
             if (part.isEmpty() || gemma && part.equals("it")) continue;
-            // Sizes in billions ("31b") as written: 31B.
-            out.append(' ').append(part.matches("\\d+b") ? part.toUpperCase(Locale.ROOT) : part.substring(0, 1).toUpperCase(Locale.ROOT) + part.substring(1));
+            // Sizes in billions ("31b", "a4b" active, "e4b" effective) as written: 31B, A4B.
+            out.append(' ').append(part.matches("[ae]?\\d+b") ? part.toUpperCase(Locale.ROOT) : part.substring(0, 1).toUpperCase(Locale.ROOT) + part.substring(1));
         }
         return out.toString();
     }

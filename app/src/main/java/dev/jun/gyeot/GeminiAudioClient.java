@@ -54,6 +54,14 @@ final class GeminiAudioClient {
     static String summarize(String key, String instructions, String transcript) throws Exception {
         return generate(key, GeminiSearch.MODELS, GeminiAudio.text(instructions, transcript), GeminiAudio::answer, () -> {}, null);
     }
+    /**
+     * Light work (대화 제목, 기억 추출): Gemma 4 first, for its 14,400 free requests a day, and Gemini Flash-Lite when Gemma
+     * cannot take it now (GeminiLight). The instructions go in the one user turn.
+     */
+    static String light(String key, String instructions, String input) throws Exception {
+        return generate(key, dev.jun.gyeot.core.GeminiLight.models(GeminiQuotas.gemma()), dev.jun.gyeot.core.GeminiLight.request(instructions, input),
+            GeminiAudio::answer, () -> {}, null, dev.jun.gyeot.core.GeminiLight.tokens(instructions, input));
+    }
     private static byte[] local(File file, Runnable guard) throws Exception {
         try (InputStream input = new FileInputStream(file); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             transfer(input, output, guard, GeminiAudio.INLINE_LIMIT); return output.toByteArray();
@@ -67,16 +75,24 @@ final class GeminiAudioClient {
     }
     private static String generate(String key, String[] models, JSONObject request, java.util.function.Function<JSONObject, String> answer,
                                    Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        return generate(key, models, request, answer, guard, cancel, 0);
+    }
+    /** tokens: an estimate of the request's tokens, for models with a tokens-a-minute limit (0: not counted). */
+    private static String generate(String key, String[] models, JSONObject request, java.util.function.Function<JSONObject, String> answer,
+                                   Runnable guard, AtomicReference<Runnable> cancel, int tokens) throws Exception {
         guard.run(); byte[] body = request.toString().getBytes(StandardCharsets.UTF_8); Exception last = null;
         // In the given order, leaving out models whose free quota is used up or resting now (GeminiQuotas).
-        for (String model : GeminiQuotas.order(models)) {
+        for (String model : GeminiQuotas.order(models, tokens)) {
             guard.run();
             try (Bound bound = new Bound(open("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", "POST", key, 600_000), guard, cancel)) {
                 HttpURLConnection connection = bound.connection;
                 connection.setDoOutput(true); connection.setFixedLengthStreamingMode(body.length); connection.setRequestProperty("Content-Type", "application/json");
                 try (OutputStream output = connection.getOutputStream()) { transfer(new ByteArrayInputStream(body), output, guard, body.length); }
                 guard.run(); int status = connection.getResponseCode(); guard.run(); JSONObject json = json(connection, status, guard);
-                if (status == 200) { GeminiQuotas.used(model); guard.run(); return answer.apply(json); }
+                if (status == 200) {
+                    JSONObject usage = json.optJSONObject("usageMetadata");
+                    GeminiQuotas.used(model, usage == null ? 0 : usage.optInt("totalTokenCount")); guard.run(); return answer.apply(json);
+                }
                 JSONObject error = json.optJSONObject("error"); String message = error == null ? "" : error.optString("message");
                 IllegalStateException failure = new IllegalStateException(GeminiProtocol.explain(status + " " + message));
                 guard.run(); last = failure;

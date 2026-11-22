@@ -19,10 +19,22 @@ final class GeminiQuotas {
         AppStore s = store;
         return s == null ? List.of(models) : GeminiQuota.order(models, s.geminiQuota(), System.currentTimeMillis());
     }
+    /** As order(models), also leaving out models whose tokens a minute this request (an estimate) would go past. */
+    static List<String> order(String[] models, int tokens) {
+        AppStore s = store;
+        return s == null ? List.of(models) : GeminiQuota.order(models, s.geminiQuota(), System.currentTimeMillis(), tokens);
+    }
     /** The model answered: one more request today. */
-    static void used(String model) {
+    static void used(String model) { used(model, 0); }
+    /** The model answered, counting the tokens it said it took (0 when not given). */
+    static void used(String model, int tokens) {
         AppStore s = store; if (s == null) return;
-        s.changeGeminiQuota(state -> { GeminiQuota.used(state, model, System.currentTimeMillis()); return null; }, false);
+        s.changeGeminiQuota(state -> { GeminiQuota.used(state, model, System.currentTimeMillis(), tokens); return null; }, false);
+    }
+    /** The Gemma 4 models the key lists (GeminiLight), or null to go with the guessed ones. */
+    static String[] gemma() {
+        AppStore s = store;
+        try { return s == null ? null : s.gemini.gemma(); } catch (RuntimeException e) { return null; }
     }
     /** Google refused it (status and error body): true when the next model should be tried (quota used up, resting, or not usable). */
     static boolean refused(String model, int status, String body) {

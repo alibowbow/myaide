@@ -3096,7 +3096,7 @@ public final class AssistantService extends Service {
             try { key = store.secrets.get(); } catch (Exception e) { return; }
             if (key.isBlank()) return;
             try {
-                dev.jun.gyeot.core.SessionTitles.Title named = dev.jun.gyeot.core.SessionTitles.parse(GeminiAudioClient.summarize(key, dev.jun.gyeot.core.SessionTitles.PROMPT, input));
+                dev.jun.gyeot.core.SessionTitles.Title named = dev.jun.gyeot.core.SessionTitles.parse(GeminiAudioClient.light(key, dev.jun.gyeot.core.SessionTitles.PROMPT, input));
                 if (named != null) store.nameSession(id, named.title(), named.summary());
             } catch (Exception ignored) {}
         });
@@ -3119,11 +3119,11 @@ public final class AssistantService extends Service {
             if (key.isBlank()) return;
             int remembered = 0, learned = 0;
             if (facts) try {
-                String answer = GeminiAudioClient.summarize(key, Memory.extraction(Memory.prompt(store.memories(), false)), input);
+                String answer = GeminiAudioClient.light(key, Memory.extraction(Memory.prompt(store.memories(), false)), input);
                 remembered = store.changeMemory(list -> Memory.apply(list, answer, System.currentTimeMillis()));
             } catch (Exception ignored) {}
             if (phone) try {
-                String answer = GeminiAudioClient.summarize(key, Memory.phoneExtraction(Memory.recipes(store.memories())), input + "\n\n폰 조작 기록:\n" + log);
+                String answer = GeminiAudioClient.light(key, Memory.phoneExtraction(Memory.recipes(store.memories())), input + "\n\n폰 조작 기록:\n" + log);
                 learned = store.changeMemory(list -> Memory.applyPhone(list, answer, System.currentTimeMillis()));
             } catch (Exception ignored) {}
             String news = (remembered > 0 ? "새로 기억한 것 " + remembered + "개" : "") + (remembered > 0 && learned > 0 ? " · " : "") + (learned > 0 ? "폰 사용법 " + learned + "개" : "");
