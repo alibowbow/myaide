@@ -386,15 +386,16 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         qualityRow.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         // 좋아요 is not offered here any more (the AI learns from 안 볼래요 and what is watched); kept off the row.
         heart = withIcon(ui.smallChip("좋아요", () -> player.like()), R.drawable.ic_heart); heart.setVisibility(View.GONE);
-        skipChip = withIcon(ui.smallChip("안 볼래요", () -> player.skip()), R.drawable.ic_close); skipChip.setContentDescription("안 볼래요 · 다음 추천에서 빼고 다음 영상");
-        qualityRow.addView(skipChip, new LinearLayout.LayoutParams(-2, -2));
-        LinearLayout.LayoutParams qualityAt = new LinearLayout.LayoutParams(-2, -2); qualityAt.leftMargin = ui.dp(6); qualityRow.addView(qualityChip, qualityAt);
+        // 안 볼래요: only its ✕, at the end of the row right of 저장 (its name for long press and TalkBack).
+        skipChip = withIcon(ui.smallChip("", () -> player.skip()), R.drawable.ic_close); skipChip.setCompoundDrawablePadding(0);
+        skipChip.setContentDescription("안 볼래요 · 다음 추천에서 빼고 다음 영상"); skipChip.setTooltipText("안 볼래요");
+        qualityRow.addView(qualityChip, new LinearLayout.LayoutParams(-2, -2));
         // 배속: 0.5× to 2×, kept for the next videos.
-        speedChip = withIcon(ui.smallChip("1×", this::chooseSpeed), R.drawable.ic_bolt);
+        speedChip = ui.smallChip("1×", this::chooseSpeed);
         LinearLayout.LayoutParams speedAt = new LinearLayout.LayoutParams(-2, -2); speedAt.leftMargin = ui.dp(6); qualityRow.addView(speedChip, speedAt);
-        // 캡처: the frame now, into 들퍼레/마이튜브 캡처. 영상 요약: what this video says, by the main chat's AI.
+        // 캡처: the frame now, into 들퍼레/마이튜브 캡처. 요약: 이 동영상에 대해 물어보세요 (VideoAskPanel).
         captureChip = withIcon(ui.smallChip("캡처", () -> player.capture(this::toast)), R.drawable.ic_gallery);
-        summaryChip = withAiMark(ui.smallChip("영상 요약", () -> { MyTube.Video v = player.current(); if (v != null) summarize(v); }));
+        summaryChip = withAiMark(ui.smallChip("요약", () -> { MyTube.Video v = player.current(); if (v != null) summarize(v); }));
         LinearLayout.LayoutParams chipGapLeft = new LinearLayout.LayoutParams(-2, -2); chipGapLeft.leftMargin = ui.dp(6);
         qualityRow.addView(captureChip, chipGapLeft);
         LinearLayout.LayoutParams chipGapLeft2 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft2.leftMargin = ui.dp(6);
@@ -403,6 +404,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         saveChip = withIcon(ui.smallChip("저장", this::saveCurrent), R.drawable.ic_add); saveChip.setContentDescription("저장 · 저장 피드에 넣기");
         LinearLayout.LayoutParams chipGapLeft3 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft3.leftMargin = ui.dp(6);
         qualityRow.addView(saveChip, chipGapLeft3);
+        LinearLayout.LayoutParams skipAt = new LinearLayout.LayoutParams(-2, -2); skipAt.leftMargin = ui.dp(6); qualityRow.addView(skipChip, skipAt);
+        // Square around its ✕ once laid out (a chip is as tall as it is, so the same width).
+        skipChip.post(() -> { int h = skipChip.getHeight(); if (h > 0) { skipChip.setMinWidth(h); skipChip.setMinimumWidth(h); skipChip.setPadding((h - ui.dp(16)) / 2, 0, (h - ui.dp(16)) / 2, 0); } });
         HorizontalScrollView qualityScroll = new HorizontalScrollView(this); qualityScroll.setHorizontalScrollBarEnabled(false); qualityScroll.addView(qualityRow);
         playerCard.addView(qualityScroll);
         content.addView(playerCard, 0);
@@ -502,7 +506,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         speedChip.setText(speedLabel(player.rate())); speedChip.setContentDescription("배속 " + speedLabel(player.rate()) + ", 눌러서 바꾸기");
         for (View chip : new View[]{skipChip, speedChip}) chip.setVisibility(player.active() ? View.VISIBLE : View.GONE);
         String chosen = MyTube.QUALITY_LABELS[MyTube.qualityIndex(player.quality())], playingAt = player.qualityNow();
-        qualityChip.setText("화질 · " + chosen + (playingAt.isEmpty() || playingAt.equals(chosen) ? "" : " · 지금 " + playingAt));
+        qualityChip.setText(chosen + (playingAt.isEmpty() || playingAt.equals(chosen) ? "" : " · 지금 " + playingAt));
         qualityChip.setContentDescription("화질, " + chosen + (playingAt.isEmpty() ? "" : ", 지금 " + playingAt) + ", 눌러서 바꾸기");
         qualityChip.setVisibility(player.active() ? View.VISIBLE : View.GONE);
         captureChip.setVisibility(player.active() ? View.VISIBLE : View.GONE); summaryChip.setVisibility(player.active() ? View.VISIBLE : View.GONE);
