@@ -31,14 +31,18 @@ final class GitHubRunner extends WorkTools {
     private JSONObject mergeOutcome;
     /** A terminal PR/check observation, derived from GitHub data rather than model prose. */
     private JSONObject mergeInspectionOutcome;
+    /** Several PRs in one request (MergeTask.numbers): which one is current, and those merged before it. */
+    private int mergeIndex;
+    private final JSONArray mergedSoFar = new JSONArray();
 
     GitHubRunner(GitHubTools github, AtomicReference<Runnable> cancel, java.util.function.BooleanSupplier stopped) { this.github = github; this.cancel = cancel; this.stopped = stopped; }
     boolean write() { return github.write; }
     @Override JSONArray declarations() { return GitHubFunctions.declarations(github.write); }
     boolean inspectMerge(JSONArray turns) {
         MergeTask next = MergeTask.from(turns, github.repo);
-        if (!mergeTask.repo.equalsIgnoreCase(next.repo) || mergeTask.number != next.number || !mergeTask.base.equals(next.base)) {
-            reviewedHead = ""; reviewedBase = ""; mergeInspectionOutcome = null;
+        if (!mergeTask.repo.equalsIgnoreCase(next.repo) || !mergeTask.numbers.equals(next.numbers) || !mergeTask.base.equals(next.base)) {
+            reviewedHead = ""; reviewedBase = ""; mergeInspectionOutcome = null; mergeIndex = 0;
+            while (mergedSoFar.length() > 0) mergedSoFar.remove(0);
         }
         mergeTask = next;
         return github.write && mergeTask.requested;
@@ -61,7 +65,7 @@ final class GitHubRunner extends WorkTools {
                 case GitHubFunctions.EDIT -> edit(args);
                 case GitHubFunctions.WRITE -> writeFile(args);
                 case GitHubFunctions.PULL -> pull(args);
-                case GitHubFunctions.MERGE -> { JSONObject result = merge(args); mergeOutcome = result; yield result; }
+                case GitHubFunctions.MERGE -> { JSONObject result = merge(args); mergeOutcome = result; yield advance(result); }
                 default -> GitHubFunctions.failure("unknown function " + name);
             };
         } catch (java.util.concurrent.CancellationException e) { throw e; }
@@ -95,7 +99,7 @@ final class GitHubRunner extends WorkTools {
     private JSONObject get(JSONObject args) throws Exception {
         String path = GitHubFunctions.getPath(args.optString("path"));
         String route = path.split("\\?", 2)[0], repo = GitHubFunctions.API + "/repos/" + mergeTask.repo;
-        boolean prRead = mergeTask.exact() && route.equalsIgnoreCase(repo + "/pulls/" + mergeTask.number);
+        boolean prRead = mergeTask.exact() && route.equalsIgnoreCase(repo + "/pulls/" + current());
         boolean statusRead = mergeTask.exact() && !reviewedHead.isEmpty() && route.equalsIgnoreCase(repo + "/commits/" + reviewedHead + "/status");
         boolean checksRead = mergeTask.exact() && !reviewedHead.isEmpty() && route.equalsIgnoreCase(repo + "/commits/" + reviewedHead + "/check-runs");
         Reply reply;
@@ -105,7 +109,13 @@ final class GitHubRunner extends WorkTools {
             if (prRead || statusRead || checksRead) mergeInspectionOutcome = GitHubFunctions.failure("병합 확인 중 GitHub 조회에 실패했어요. " + e.getMessage());
             throw e;
         }
-        if (prRead) observeMergePr(reply.json instanceof JSONObject pr ? pr : new JSONObject());
+        String already = "";
+        if (prRead) {
+            observeMergePr(reply.json instanceof JSONObject pr ? pr : new JSONObject());
+            // Already merged, with more to go: on to the next one in the list.
+            if (mergeInspectionOutcome != null && mergeInspectionOutcome.optBoolean("merged") && mergeIndex + 1 < mergeTask.numbers.size())
+                already = advance(mergeInspectionOutcome).optString("note");
+        }
         if (statusRead && reply.json instanceof JSONObject status && java.util.Set.of("pending", "failure", "error").contains(status.optString("state"))
                 && (status.optInt("total_count") > 0 || status.optJSONArray("statuses") != null && status.getJSONArray("statuses").length() > 0))
             mergeInspectionOutcome = GitHubFunctions.failure("PR의 커밋 검사가 아직 성공하지 않았어요. GitHub 검사 상태: " + status.optString("state"));
@@ -117,7 +127,31 @@ final class GitHubRunner extends WorkTools {
                     mergeInspectionOutcome = GitHubFunctions.failure("PR의 GitHub 검사가 진행 중이거나 성공하지 않았어요. 검사 결과를 확인한 뒤 다시 요청해 주세요.");
             }
         }
-        return ok().put("data", GitHubFunctions.clip(String.valueOf(GitHubFunctions.compactGet(route, reply.json))));
+        JSONObject answer = ok().put("data", GitHubFunctions.clip(String.valueOf(GitHubFunctions.compactGet(route, reply.json))));
+        return already.isEmpty() ? answer : answer.put("note", already);
+    }
+    /** The PR of the request now being merged (the first, then each next one after a merge). */
+    private int current() { return mergeTask.numbers.isEmpty() ? 0 : mergeTask.numbers.get(Math.min(mergeIndex, mergeTask.numbers.size() - 1)); }
+    /**
+     * One PR of a list is done. Merged with more to go: it is kept, the next becomes current with a fresh review, and the
+     * result names it. Not merged (or the last one): the result says which were merged before and which were not.
+     */
+    private JSONObject advance(JSONObject result) {
+        if (mergeTask.numbers.size() < 2) return result;
+        try {
+            int done = current();
+            if (result.optBoolean("merged") && mergeIndex + 1 < mergeTask.numbers.size()) {
+                mergedSoFar.put(done); mergeIndex++;
+                reviewedHead = ""; reviewedBase = ""; mergeAttempted = false; mergeOutcome = null; mergeInspectionOutcome = null;
+                return result.put("next_pr", current()).put("note", "PR #" + done + " 병합 완료. 다음 PR #" + current() + "도 같은 방법으로: 먼저 repos/" + mergeTask.repo + "/pulls/" + current() + "를 읽고 확인한 뒤 병합하세요.");
+            }
+            JSONArray merged = new JSONArray(mergedSoFar.toString()), left = new JSONArray();
+            if (result.optBoolean("merged")) merged.put(done);
+            for (int i = mergeIndex + (result.optBoolean("merged") ? 1 : 0); i < mergeTask.numbers.size(); i++) left.put(mergeTask.numbers.get(i));
+            result.put("merged_prs", merged).put("not_merged_prs", left);
+            if (left.length() > 0) result.put("note", "PR #" + done + "에서 멈췄어요. 그 뒤의 PR은 병합하지 않았어요: " + left);
+            return result;
+        } catch (org.json.JSONException impossible) { return result; }
     }
     private void observeMergePr(JSONObject pr) throws Exception {
         JSONObject head = pr.optJSONObject("head"), base = pr.optJSONObject("base");
@@ -131,7 +165,7 @@ final class GitHubRunner extends WorkTools {
         if (reviewedHead.isEmpty()) { reviewedHead = sha; reviewedBase = target; }
         if (pr.optBoolean("merged")) {
             mergeInspectionOutcome = pr.optString("merge_commit_sha").matches("[0-9a-fA-F]{40}")
-                ? merged(pr, mergeTask.number, sha, target, "", true)
+                ? merged(pr, current(), sha, target, "", true)
                 : GitHubFunctions.failure("PR은 병합됨으로 표시되지만 병합 커밋을 확인하지 못했어요.").put("outcome", "unknown");
         } else if (!"open".equals(pr.optString("state"))) mergeInspectionOutcome = GitHubFunctions.failure("닫힌 PR은 병합할 수 없어요. PR 상태를 확인하세요.");
         else if (pr.optBoolean("draft")) mergeInspectionOutcome = GitHubFunctions.failure("아직 초안인 PR이에요. 검토 준비 상태로 바꾼 뒤 병합하세요.");
@@ -226,7 +260,7 @@ final class GitHubRunner extends WorkTools {
         if (!expected.matches("[0-9a-f]{40}")) return GitHubFunctions.failure("expected_head_sha must be the full head.sha read from the current PR");
         String base = GitHubFunctions.branch(args.optString("base")), method = args.optString("merge_method").strip();
         if (!method.isEmpty() && !java.util.Set.of("merge", "squash", "rebase").contains(method)) return GitHubFunctions.failure("merge_method must be merge, squash or rebase");
-        if (!repo.equalsIgnoreCase(mergeTask.repo) || number != mergeTask.number || !expected.equals(reviewedHead) || !base.equals(reviewedBase))
+        if (!repo.equalsIgnoreCase(mergeTask.repo) || number != current() || !expected.equals(reviewedHead) || !base.equals(reviewedBase))
             return GitHubFunctions.failure("승인한 PR의 실제 조회 결과와 병합 대상이 일치하지 않아요. 정확한 PR을 github_get으로 먼저 읽어 주세요. 변경된 커밋이나 다른 대상은 새 승인이 필요해요.");
         String url = GitHubFunctions.API + "/repos/" + repo + "/pulls/" + number;
         // A second model tool call, even with a new call ID, must never replay a mutation.
