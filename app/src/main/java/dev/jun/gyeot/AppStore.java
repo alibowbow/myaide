@@ -838,6 +838,35 @@ final class AppStore {
         JSONObject thread = id == null || id.isEmpty() ? null : WorkBook.find(works, id);
         return thread == null ? "" : thread.optString("state");
     }
+    /**
+     * One 작업창 room's messages cut down to what Drawing.chatArguments reads (role, text, drawn pictures and attachment
+     * kinds), for the composer's drawing check while a turn runs. Texts are shared, not copied, and the other rooms and the
+     * rest of each message (tool logs, file details) are never touched, unlike works().
+     */
+    synchronized JSONArray workDrawingHistory(String id) {
+        JSONObject thread = id == null || id.isEmpty() ? null : WorkBook.find(works, id);
+        JSONArray messages = thread == null ? null : thread.optJSONArray("messages"), slim = new JSONArray();
+        for (int i = 0; messages != null && i < messages.length(); i++) {
+            JSONObject message = messages.optJSONObject(i); if (message == null) continue;
+            try {
+                JSONObject copy = new JSONObject().put("role", message.optString("role")).put("text", message.optString("text"));
+                JSONArray files = message.optJSONArray("files"), pictures = new JSONArray();
+                for (int f = 0; files != null && f < files.length(); f++) {
+                    JSONObject file = files.optJSONObject(f);
+                    if (file != null && !file.optString("picture").isEmpty()) pictures.put(new JSONObject().put("picture", file.optString("picture")).put("pictureAspect", file.optString("pictureAspect")));
+                }
+                if (pictures.length() > 0) copy.put("files", pictures);
+                JSONArray attachments = message.optJSONArray("attachments"), kinds = new JSONArray();
+                for (int a = 0; attachments != null && a < attachments.length(); a++) {
+                    JSONObject attachment = attachments.optJSONObject(a);
+                    if (attachment != null) kinds.put(new JSONObject().put("kind", attachment.optString("kind")));
+                }
+                if (kinds.length() > 0) copy.put("attachments", kinds);
+                slim.put(copy);
+            } catch (Exception e) { /* a message that cannot be copied is left out, as a missing one would be */ }
+        }
+        return slim;
+    }
     synchronized boolean hasWorkSteering(String id, String engine) {
         return dev.jun.gyeot.core.WorkQueue.canSteer(WorkBook.find(works, id), engine);
     }

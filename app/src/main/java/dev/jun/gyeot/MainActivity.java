@@ -3239,10 +3239,15 @@ public final class MainActivity extends Activity {
     private boolean workRunning() {
         return !workId.isEmpty() && WorkBook.RUNNING.equals(store.workState(workId));
     }
+    /**
+     * Read on every keystroke while a turn runs: the room's messages are read only for a draft that could ask for a picture,
+     * and then only this room's, trimmed to what the check needs (AppStore.workDrawingHistory), never a copy of every room.
+     */
     private boolean composerCreatesMedia() {
         if (composerVideo || !composerImageAspect.isEmpty()) return true;
         if (composerInput == null || composerInput.getText().toString().isBlank()) return false;
-        try { JSONObject thread = WorkBook.find(store.works(), workId); return Drawing.chatArguments(composerInput.getText().toString(), thread == null ? null : thread.optJSONArray("messages"), store.workFiles, store.codexImages.connected()) != null; }
+        String id = workId;
+        try { return Drawing.chatArgumentsLazily(composerInput.getText().toString(), () -> store.workDrawingHistory(id), store.workFiles, store.codexImages.connected()) != null; }
         catch (Exception e) { return false; }
     }
     private void composerAction() {
