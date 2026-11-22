@@ -330,6 +330,13 @@ final class AppStore {
         try { nim.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
     }
     String liveThinkingLevel() { return GeminiProtocol.thinkingLevel(settings.getString("liveThinkingLevel", "MEDIUM")); }
+    /** 내비게이션 → 자주 가는 곳 (core/SavedPlaces): the words for places and where they are. */
+    java.util.List<dev.jun.gyeot.core.SavedPlaces.Saved> savedPlaces() { return dev.jun.gyeot.core.SavedPlaces.load(settings.getString("savedPlaces", "[]")); }
+    void savedPlaces(java.util.List<dev.jun.gyeot.core.SavedPlaces.Saved> places) { settings.edit().putString("savedPlaces", dev.jun.gyeot.core.SavedPlaces.save(places)).apply(); changed(); }
+    /** 내비게이션 → 기본 이동 수단: car, public, walk or bicycle, when the user names none. */
+    String navigationMode() { String mode = settings.getString("navigationMode", "car"); return dev.jun.gyeot.core.NaverPlaces.MODES.contains(mode) ? mode : "car"; }
+    /** 내비게이션 → 안내 시작 대신 누르기 (폰 조작이 켜져 있을 때). */
+    boolean pressNavigationStart() { return settings.getBoolean("pressNavigationStart", true); }
     /** 뜻으로 찾기 (SemanticIndex): off until turned on, since it sends what the app keeps to Gemini's embedding model. */
     boolean semanticSearch() { return settings.getBoolean("semanticSearch", false); }
     void semanticSearch(boolean on) { settings.edit().putBoolean("semanticSearch", on).apply(); changed(); }
@@ -583,7 +590,7 @@ final class AppStore {
      */
     GeminiProtocol.Options options(boolean inputTranscription, String model) {
         GeminiProtocol.Options options = new GeminiProtocol.Options();
-        options.language = language(); options.voice = voice(); options.voiceStyle = voiceStyle(styleVoice()); options.persona = persona(); options.profile = Briefing.profile(this); options.routines = dev.jun.gyeot.core.Routines.instructions(routines()); options.quietSpeech = quietSpeech(); options.model = model == null ? liveModel() : model;
+        options.language = language(); options.voice = voice(); options.voiceStyle = voiceStyle(styleVoice()); options.persona = persona(); options.profile = Briefing.profile(this); options.routines = dev.jun.gyeot.core.Routines.instructions(routines()) + dev.jun.gyeot.core.SavedPlaces.instructions(savedPlaces()); options.quietSpeech = quietSpeech(); options.model = model == null ? liveModel() : model;
         options.thinkingLevel = liveThinkingLevel(); options.translateToKorean = translateToKorean();
         options.interpreter = interpreterConfig();
         // Built-in Google Search only when Gemini answers searches and this model may ground on this key; otherwise search_web.

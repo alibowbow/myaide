@@ -3,6 +3,8 @@
     <!-- Explicit user Settings approval only. App code confines writes to primary/들퍼레;
          old Download/들퍼레 is readable only by the verified-copy migration adapter. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <!-- 화면 방향 (음성 “가로로 바꿔 줘”): only after the user allows ‘시스템 설정 변경’ for this app in Settings. -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- A voice call notices at once when the default network drops or returns (install-time, no prompt). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -66,6 +68,7 @@
         android:icon="@mipmap/ic_launcher" android:allowBackup="false" android:fullBackupContent="@xml/backup_rules" android:dataExtractionRules="@xml/data_extraction_rules" android:usesCleartextTraffic="false"
         android:supportsRtl="true">
         <activity android:name=".PhoneSecurityActivity" android:enableOnBackInvokedCallback="true" android:windowSoftInputMode="adjustResize" android:exported="false" />
+        <activity android:name=".NavigationActivity" android:windowSoftInputMode="adjustResize" android:exported="false" />
         <service android:name=".SecurityJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
         <service android:name=".AppFirewall" android:exported="false"
             android:permission="android.permission.BIND_VPN_SERVICE" android:foregroundServiceType="specialUse">

@@ -26,8 +26,12 @@ import static dev.jun.gyeot.core.Jsons.*;
  */
 public final class DeviceActions {
     public static final String ALARM = "device_alarm", TIMER = "device_timer", SHOW_ALARMS = "show_alarms", NAVIGATE = "navigate",
-        MEDIA = "media", TORCH = "torch", SETTINGS = "settings_panel";
-    public static final Set<String> NAMES = Set.of(ALARM, TIMER, SHOW_ALARMS, NAVIGATE, MEDIA, TORCH, SETTINGS);
+        MEDIA = "media", TORCH = "torch", SETTINGS = "settings_panel", ROTATION = "screen_rotation";
+    public static final Set<String> NAMES = Set.of(ALARM, TIMER, SHOW_ALARMS, NAVIGATE, MEDIA, TORCH, SETTINGS, ROTATION);
+    /** A screen rotation action as done (a toggle resolved to the way it went). */
+    public static Action rotation(String mode) { return new Action(ROTATION, mode, List.of(), false, false, false, 0); }
+    /** 화면 방향: portrait (세로), landscape (가로), the other of the two (바꿔), or auto (자동 회전). */
+    public static final List<String> ROTATIONS = List.of("portrait", "landscape", "toggle", "auto");
     // android.provider.AlarmClock values (DeviceActionRunnerTests checks them against the SDK).
     public static final String SET_ALARM = "android.intent.action.SET_ALARM", SET_TIMER = "android.intent.action.SET_TIMER",
         LIST_ALARMS = "android.intent.action.SHOW_ALARMS", VIEW = "android.intent.action.VIEW", SETTINGS_HOME = "android.settings.SETTINGS",
@@ -113,6 +117,11 @@ public final class DeviceActions {
             case NAVIGATE -> navigate(values);
             case MEDIA -> media(values);
             case TORCH -> torch(values);
+            case ROTATION -> {
+                String mode = values.optString("mode").strip().toLowerCase(java.util.Locale.ROOT);
+                if (!ROTATIONS.contains(mode)) throw new IllegalArgumentException("화면 방향(mode)은 portrait, landscape, toggle, auto 중 하나예요.");
+                yield new Action(ROTATION, mode, List.of(), false, false, false, 0);
+            }
             case SETTINGS -> settings(values);
             default -> throw new IllegalArgumentException("지원하지 않는 시스템 동작이에요.");
         };
@@ -186,6 +195,14 @@ public final class DeviceActions {
      * To a place 지역 검색 found (NaverPlaces): Naver Map's navigation from where the user is (car) or its route for another
      * way of travel, then KakaoMap's route and, by car, Google Maps' navigation to the same coordinates, then any maps app's pin.
      */
+    /** With waypoints (경유지): Naver Map's route through them (its 안내 시작 starts navigation); the other apps go straight there. */
+    public static Action navigateTo(NaverPlaces.Place place, String mode, List<NaverPlaces.Place> via) {
+        Action plain = navigateTo(place, mode);
+        if (via == null || via.isEmpty() || "public".equals(mode)) return plain;
+        List<Launch> launches = new ArrayList<>(plain.launches);
+        launches.set(0, new Launch(VIEW, NaverPlaces.link(place, mode, APP_ID, via), "네이버 지도", "route", Map.of()));
+        return new Action(NAVIGATE, place.name(), launches, false, false, false, 0);
+    }
     public static Action navigateTo(NaverPlaces.Place place, String mode) {
         String at = String.format(Locale.ROOT, "%.7f,%.7f", place.lat(), place.lng()), name = URLEncoder.encode(place.name(), StandardCharsets.UTF_8).replace("+", "%20");
         String by = switch (mode) { case "public" -> "PUBLICTRANSIT"; case "walk" -> "FOOT"; case "bicycle" -> "BICYCLE"; default -> "CAR"; };
@@ -290,6 +307,7 @@ public final class DeviceActions {
             };
             case MEDIA -> "‘" + action.readback + "’ 신호를 보냈어요. " + (action.mediaKey == MEDIA_KEYS[0] ? "마지막으로 재생하던 앱이 받아요." : "재생 중인 앱이 받아요.");
             case TORCH -> action.torchOn ? "손전등을 켰어요." : "손전등을 껐어요.";
+            case ROTATION -> "auto".equals(action.readback) ? "화면 자동 회전을 켰어요." : "화면을 " + ("landscape".equals(action.readback) ? "가로" : "세로") + "로 고정했어요.";
             default -> "settings_home".equals(launch.outcome) ? action.readback + " 화면은 바로 열 수 없어서 설정 앱을 열었어요."
                 : action.readback + " 설정 " + ("panel".equals(launch.outcome) ? "창" : "화면") + "을 열었어요.";
         };
@@ -399,10 +417,13 @@ public final class DeviceActions {
                 obj("seconds", obj("type", "INTEGER"), "label", obj("type", "STRING"), "confirmed", confirmed), "seconds"),
             function(SHOW_ALARMS, "Open the clock app's alarm list.", obj()),
             function(NAVIGATE, "A place in a maps app; with the 네이버 길안내 key, Naver Map navigation or route. On choose, ask, then call again with pick.",
-                obj("destination", obj("type", "STRING", "description", "As the user said it"), "mode", obj("type", "STRING", "enum", arr("car", "public", "walk", "bicycle"), "description", "car unless the user names another way; never ask"),
-                    "nearby", obj("type", "BOOLEAN", "description", "근처/가까운"), "pick", obj("type", "INTEGER")), "destination"),
+                obj("destination", obj("type", "STRING", "description", "As the user said it"), "mode", obj("type", "STRING", "enum", arr("car", "public", "walk", "bicycle"), "description", "Only when the user names a way of travel; leave it out otherwise (the user's default is used); never ask"),
+                    "nearby", obj("type", "BOOLEAN", "description", "근처/가까운"), "pick", obj("type", "INTEGER"),
+                    "via", obj("type", "ARRAY", "items", obj("type", "STRING"), "description", "경유지 in order, as said (\"회사 들렀다가 집으로\": via [회사], destination 집); at most 5")), "destination"),
             function(MEDIA, "Send a media key to the app playing music or video.", obj("command", obj("type", "STRING", "enum", commands)), "command"),
             function(TORCH, "Turn the flashlight on or off.", obj("on", obj("type", "BOOLEAN")), "on"),
+            function(ROTATION, "Turn the phone's screen to portrait (세로) or landscape (가로), the other of the two (toggle: 화면 돌려 줘, 가로세로 바꿔 줘), or back to auto-rotate.",
+                obj("mode", obj("type", "STRING", "enum", arr("portrait", "landscape", "toggle", "auto"))), "mode"),
             function(SETTINGS, "Open a phone settings screen for the user to change.", obj("panel", obj("type", "STRING", "enum", panels)), "panel"));
     }
     private static JSONObject function(String name, String description, JSONObject props, String... required) {

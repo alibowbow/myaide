@@ -64,11 +64,12 @@ public final class FileExplorerActivity extends Activity {
         if(!explorerPage){
             // Three things that each do something when tapped: how full the phone is, its files, its
             // safety. What needs a folder to work on (AI 정리, 저장 공간 분석, 작업 기록, 저장 위치) is in the explorer's 더보기.
-            ui.add(content,ui.title("내 휴대폰",26),12);ui.add(content,ui.label("저장 공간, 파일, 보안을 한곳에서 확인해요.",13,Ui.MUTED),12);
+            ui.add(content,ui.title("내 휴대폰",26),12);ui.add(content,ui.label("저장 공간, 파일, 보안, 내비게이션을 한곳에서 확인해요.",13,Ui.MUTED),12);
             LinearLayout menu=ui.column();
             ui.add(menu,storageCard(),10);
             ui.add(menu,ui.feature(R.drawable.ic_folder,"파일 탐색기","파일과 폴더 · 검색 · AI 파일 작업",Ui.ACCENT,this::showExplorer),10);
             ui.add(menu,ui.feature(R.drawable.ic_lock,"휴대폰 보안","설정 점검 · 최근 변경 · 의심 앱 인터넷 차단",Ui.GREEN,this::phoneCheck),10);
+            ui.add(menu,ui.feature(R.drawable.ic_navigation,"내비게이션","자주 가는 곳 · 경유지 · 말로 바로 길안내",Ui.BLUE,()->startActivity(new Intent(this,NavigationActivity.class))),10);
             ScrollView menuScroll=new ScrollView(this);menuScroll.setFillViewport(false);menuScroll.addView(menu);content.addView(menuScroll,new LinearLayout.LayoutParams(-1,0,1));
         }else{
             searchPanel=ui.column();searchInput=ui.input("파일 이름 또는 찾을 조건",1,500);searchInput.setText(query);ui.add(searchPanel,searchInput,4);

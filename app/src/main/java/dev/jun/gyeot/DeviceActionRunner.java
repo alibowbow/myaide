@@ -46,6 +46,7 @@ final class DeviceActionRunner {
     static JSONObject run(Context context, DeviceActions.Action action, boolean overlayVisible) {
         if (SecurityWatch.paused(context)) return dev.jun.gyeot.core.Jsons.obj("ok",false,"error",SecurityWatch.PAUSE_MESSAGE);
         if (DeviceActions.TORCH.equals(action.tool)) return torch(context, action);
+        if (DeviceActions.ROTATION.equals(action.tool)) return rotation(context, action, overlayVisible);
         if (DeviceActions.MEDIA.equals(action.tool)) return media(context, action);
         PackageManager packages = context.getPackageManager();
         DeviceActions.Launch chosen = null; Intent intent = null;
@@ -149,6 +150,34 @@ final class DeviceActionRunner {
         return id;
     }
     /** The back camera's flash; turning it on needs no permission. */
+    /**
+     * 화면 방향: auto-rotate off with the screen held portrait (rotation 0) or landscape (90), or auto-rotate on again. It needs
+     * ‘시스템 설정 변경’ for this app; without it that screen opens and the result says so. The current way the screen faces
+     * decides a toggle.
+     */
+    private static JSONObject rotation(Context context, DeviceActions.Action action, boolean overlayVisible) {
+        if (!android.provider.Settings.System.canWrite(context)) {
+            Intent allow = new Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS, android.net.Uri.parse("package:" + context.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try { start(context, allow, overlayVisible); } catch (RuntimeException ignored) { /* Said below. */ }
+            return DeviceActions.failed(action, "화면 방향을 바꾸려면 ‘시스템 설정 변경’을 허용해야 해요. 허용 화면을 열었으니 들퍼레를 켜 주고 다시 말해 주세요.");
+        }
+        android.content.ContentResolver settings = context.getContentResolver();
+        try {
+            String mode = action.readback;
+            if ("auto".equals(mode)) {
+                android.provider.Settings.System.putInt(settings, android.provider.Settings.System.ACCELEROMETER_ROTATION, 1);
+                return DeviceActions.result(action, null, "direct");
+            }
+            if ("toggle".equals(mode)) {
+                android.view.Display display = context.getSystemService(android.hardware.display.DisplayManager.class).getDisplay(android.view.Display.DEFAULT_DISPLAY);
+                int now = display == null ? android.view.Surface.ROTATION_0 : display.getRotation();
+                mode = now == android.view.Surface.ROTATION_0 || now == android.view.Surface.ROTATION_180 ? "landscape" : "portrait";
+            }
+            android.provider.Settings.System.putInt(settings, android.provider.Settings.System.ACCELEROMETER_ROTATION, 0);
+            android.provider.Settings.System.putInt(settings, android.provider.Settings.System.USER_ROTATION, "landscape".equals(mode) ? android.view.Surface.ROTATION_90 : android.view.Surface.ROTATION_0);
+            return DeviceActions.result(DeviceActions.rotation(mode), null, "direct");
+        } catch (RuntimeException refused) { return DeviceActions.failed(action, "화면 방향을 바꾸지 못했어요."); }
+    }
     private static JSONObject torch(Context context, DeviceActions.Action action) {
         CameraManager cameras = context.getSystemService(CameraManager.class);
         if (cameras == null) return DeviceActions.failed(action, "이 폰에서는 손전등을 쓸 수 없어요.");

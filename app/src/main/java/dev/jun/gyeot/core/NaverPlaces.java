@@ -95,9 +95,25 @@ public final class NaverPlaces {
      * the place's name. appname is this app's id, as Naver Map asks.
      */
     public static String link(Place place, String mode, String appName) {
-        String target = "dlat=" + String.format(Locale.ROOT, "%.7f", place.lat()) + "&dlng=" + String.format(Locale.ROOT, "%.7f", place.lng())
-            + "&dname=" + URLEncoder.encode(place.name(), StandardCharsets.UTF_8).replace("+", "%20") + "&appname=" + appName;
+        String target = point(place, "d") + "&appname=" + appName;
         return "car".equals(mode) ? "nmap://navigation?" + target : "nmap://route/" + mode + "?" + target;
+    }
+    /** Waypoints Naver Map's route takes (v1 to v5). */
+    public static final int MOST_VIA = 5;
+    /**
+     * With waypoints (경유지): Naver Map's route for that way of travel through them in order, the destination last (its
+     * 안내 시작 starts navigation). 대중교통 takes no waypoints: its route goes straight there.
+     */
+    public static String link(Place place, String mode, String appName, List<Place> via) {
+        if (via == null || via.isEmpty() || "public".equals(mode)) return link(place, mode, appName);
+        StringBuilder out = new StringBuilder("nmap://route/").append(mode).append('?').append(point(place, "d"));
+        for (int i = 0; i < Math.min(MOST_VIA, via.size()); i++) out.append('&').append(point(via.get(i), "v" + (i + 1)));
+        return out.append("&appname=").append(appName).toString();
+    }
+    /** One point of a link: its latitude, longitude and name under prefix (d for the destination, v1… for waypoints). */
+    static String point(Place place, String prefix) {
+        return prefix + "lat=" + String.format(Locale.ROOT, "%.7f", place.lat()) + "&" + prefix + "lng=" + String.format(Locale.ROOT, "%.7f", place.lng())
+            + "&" + prefix + "name=" + URLEncoder.encode(place.name(), StandardCharsets.UTF_8).replace("+", "%20");
     }
     /**
      * Whether a destination is an address and not a place's name: it ends in a road (…로, …길), a neighbourhood (…동, …리, …가)
