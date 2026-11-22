@@ -2776,8 +2776,10 @@ public final class MainActivity extends Activity {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
             @Override public void afterTextChanged(Editable s) {
-                boolean now = s.toString().isBlank(); if (now && !blank) composerEmptiedAt = android.os.SystemClock.elapsedRealtime(); blank = now;
-                updateComposer();
+                boolean now = s.toString().isBlank(), flipped = now != blank; if (now && !blank) composerEmptiedAt = android.os.SystemClock.elapsedRealtime(); blank = now;
+                // Off a run, the hint, button and chips change only when the field turns empty or filled; while a turn runs a typed
+                // drawing request changes them too (composerCreatesMedia). Other keystrokes skip the room's lookups.
+                if (flipped || workRunning()) updateComposer();
             }
         });
         bar.addView(composerSend, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
@@ -3233,9 +3235,9 @@ public final class MainActivity extends Activity {
         if (open != null) { view.setOnClickListener(v -> open.run()); Ui.pressable(view, false); }
         return view;
     }
+    /** Read on every redraw and, while a turn runs, every keystroke: only this room's state, never a copy of every room (AppStore.workState). */
     private boolean workRunning() {
-        JSONObject thread = workId.isEmpty() ? null : WorkBook.find(store.works(), workId);
-        return thread != null && WorkBook.RUNNING.equals(thread.optString("state"));
+        return !workId.isEmpty() && WorkBook.RUNNING.equals(store.workState(workId));
     }
     private boolean composerCreatesMedia() {
         if (composerVideo || !composerImageAspect.isEmpty()) return true;
