@@ -765,7 +765,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
                 book.keep(target.id(), v.because("직접 저장"));
                 // A broadcast kept: its channel too, so the list can show that channel's broadcasts (라이브만 보기).
                 if (v.live()) { MyTube.Channel from = MyTubeClient.channelOf(v.id(), cancel); if (from != null) book.addSource(target.id(), from); }
-                said = "‘" + target.name() + "’ 목록에 저장했어요";
+                said = "‘" + target.name() + "’ 목록에 저장했어요" + (!v.live() && book.liveWatch(target.id()) ? " · 라이브만 보기 목록이라 ‘목록 편집’에서 보여요" : "");
             } catch (Exception e) { said = "저장하지 못했어요" + (e.getMessage() == null ? "." : " · " + e.getMessage()); }
             String told = said;
             main.post(() -> { if (destroyed) return; status(""); if (done != null) done.accept(told); else toast(told); render(); });
@@ -1021,8 +1021,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         long at = book.refreshedAt(f.id());
         if (at == 0 || System.currentTimeMillis() - at > f.freshMs()) refresh();
     }
-    private void refresh() {
-        MyTube.Feed f = feed(); if (f == null || refreshing) return;
+    private void refresh() { refreshFeed(feed()); }
+    /** Chooses this feed afresh in the background (a 라이브만 보기 list: checks its channels); the screen shows it when done. */
+    private void refreshFeed(MyTube.Feed f) {
+        if (f == null || refreshing || destroyed) return;
         refreshing = true; status("고르기 시작");
         work.execute(() -> {
             String failure = null;
@@ -1035,7 +1037,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
                 refreshing = false; status(why == null ? "" : why);
                 render();
                 // Asked by voice to play this feed: it plays once its choice is ready.
-                if (why == null && playWhenReady) { playWhenReady = false; playFrom(0); }
+                MyTube.Feed shownNow = feed();
+                if (why == null && playWhenReady && shownNow != null && shownNow.id().equals(f.id())) { playWhenReady = false; playFrom(0); }
             });
         });
     }
@@ -1125,10 +1128,19 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         sheet.show();
     }
 
-    /** 목록 편집: a 저장 목록's name, 라이브만 보기, its channels (added by address, ✕ to take one off), its place, and deleting it. */
+    /**
+     * 목록 편집: a 저장 목록's name, 라이브만 보기, its channels (added by address, ✕ to take one off), its saved videos (✕ to take
+     * one out), its place, and deleting it. When its channels changed, it is checked again as the sheet closes.
+     */
     private void editList(MyTube.Feed editing) {
         Ui.Sheet sheet = ui.selectionSheet("목록 편집", "직접 저장한 영상과 채널 · AI가 바꾸지 않아요");
-        dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet));
+        boolean[] changed = {false};
+        dialogs.add(sheet);
+        sheet.setOnDismissListener(d -> {
+            dialogs.remove(sheet);
+            MyTube.Feed now = book.feed(editing.id()); // none after 목록 지우기
+            if (changed[0] && !destroyed && now != null && book.refreshedAt(now.id()) == 0) refreshFeed(now);
+        });
         boolean[] live = {book.liveWatch(editing.id())};
         LinearLayout group = ui.group();
         ui.addRow(group, ui.switchRow("라이브만 보기", "이 목록의 채널이 지금 방송 중인 라이브만 보여요", live[0], on -> live[0] = on), false);
@@ -1144,7 +1156,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             if (channels.isEmpty()) kept.addView(ui.label("채널이 없어요 · 아래에 주소를 넣거나 채널의 ‘저장’으로 넣어요", 12, MUTED));
             for (MyTube.Channel c : channels) {
                 Button chip = withIcon(ui.smallChip(c.title(), () -> {}), R.drawable.ic_close); chip.setContentDescription(c.title() + " 이 목록에서 빼기");
-                chip.setOnClickListener(v -> { try { book.removeSource(editing.id(), c.path()); showKept[0].run(); render(); } catch (Exception e) { toast(e.getMessage()); } });
+                chip.setOnClickListener(v -> { try { book.removeSource(editing.id(), c.path()); book.stale(editing.id()); changed[0] = true; showKept[0].run(); render(); } catch (Exception e) { toast(e.getMessage()); } });
                 kept.addView(chip, chipAfter());
             }
         };
@@ -1155,11 +1167,30 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             String path = MyTube.channelPath(address.getText().toString().strip());
             if (path.isEmpty()) { address.setError("@채널이름이나 youtube.com/@채널이름 형식으로 적어 주세요."); return; }
             String handle = path.startsWith("/") ? path.substring(1) : path;
-            try { book.addSource(editing.id(), new MyTube.Channel("", handle, path, handle, "", "")); address.setText(""); showKept[0].run(); render(); } catch (Exception e) { toast(e.getMessage()); }
+            try { book.addSource(editing.id(), new MyTube.Channel("", handle, path, handle, "", "")); book.stale(editing.id()); changed[0] = true; address.setText(""); showKept[0].run(); render(); } catch (Exception e) { toast(e.getMessage()); }
         });
         adding.addView(address, new LinearLayout.LayoutParams(0, -2, 1));
         LinearLayout.LayoutParams addAt = new LinearLayout.LayoutParams(-2, -2); addAt.leftMargin = ui.dp(6); adding.addView(addChannel, addAt);
         LinearLayout.LayoutParams gap2 = new LinearLayout.LayoutParams(-1, -2); gap2.topMargin = ui.dp(8); sheet.body.addView(adding, gap2);
+        // 저장한 영상: the videos saved into this list, a tap to take one out (a 라이브만 보기 list keeps them too, shown when it is off).
+        sheet.body.addView(ui.sectionHeader("저장한 영상"));
+        LinearLayout pinsBox = ui.column();
+        Runnable[] showPins = new Runnable[1];
+        showPins[0] = () -> {
+            pinsBox.removeAllViews();
+            List<MyTube.Video> pins = book.pinned(editing.id());
+            if (pins.isEmpty()) { pinsBox.addView(ui.label("저장한 영상이 없어요 · 영상을 보다가 ‘저장’을 누르면 여기에 모여요", 12, MUTED)); return; }
+            LinearLayout pinGroup = ui.group();
+            for (MyTube.Video v : pins) {
+                LinearLayout row = ui.listRow(R.drawable.ic_close, ACCENT, v.title(), join(v.channel(), "누르면 이 목록에서 빼요"), null, () -> {
+                    try { book.unpin(editing.id(), v.id()); showPins[0].run(); render(); toast("‘" + v.title() + "’ · 이 목록에서 뺐어요"); } catch (Exception e) { toast(e.getMessage()); }
+                });
+                row.setContentDescription(v.title() + " 이 목록에서 빼기");
+                ui.addRow(pinGroup, row, true);
+            }
+            pinsBox.addView(pinGroup);
+        };
+        showPins[0].run(); sheet.body.addView(pinsBox);
         sheet.body.addView(ui.actions(ui.chip("앞으로", () -> { try { book.move(editing.id(), true); render(); } catch (Exception ignored) {} }),
             ui.chip("뒤로", () -> { try { book.move(editing.id(), false); render(); } catch (Exception ignored) {} }),
             ui.chip("목록 지우기", () -> { try { book.remove(editing.id()); feedId = null; sheet.dismiss(); render(); } catch (Exception e) { toast(e.getMessage()); } })));
@@ -1187,7 +1218,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             ui.addRow(group, ui.listRow(in ? R.drawable.ic_check : R.drawable.ic_add, ACCENT, f.name(), in ? "들어 있어요 · 누르면 빼요" : book.liveWatch(f.id()) ? "라이브만 보기" : "저장 목록", null, () -> {
                 try {
                     if (in) book.removeSource(f.id(), c.path()); else book.addSource(f.id(), c);
-                    sheet.dismiss(); render(); toast(in ? "‘" + f.name() + "’에서 뺐어요" : "‘" + f.name() + "’에 넣었어요" + (book.liveWatch(f.id()) ? "" : " · ‘목록 편집’에서 라이브만 보기를 켤 수 있어요"));
+                    // A 라이브만 보기 list is checked again at once, so its broadcasts on air show without waiting.
+                    boolean watching = book.liveWatch(f.id()); book.stale(f.id());
+                    sheet.dismiss(); render(); if (watching) refreshFeed(f);
+                    toast(in ? "‘" + f.name() + "’에서 뺐어요" : "‘" + f.name() + "’에 넣었어요" + (watching ? " · 방송 중인지 확인할게요" : " · ‘목록 편집’에서 라이브만 보기를 켤 수 있어요"));
                 } catch (Exception e) { toast(e.getMessage()); }
             }), true);
             count++;
@@ -1203,7 +1237,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
                 // A list made for channels shows their broadcasts on air (라이브만 보기 on; 목록 편집 turns it off).
                 MyTube.Feed made = book.save(MyTube.savedList(title)); book.addSource(made.id(), c); book.liveWatch(made.id(), true);
                 // The search stays: the next channel can go into the same list.
-                sheet.dismiss(); render(); toast("‘" + title + "’ 목록을 만들어 넣었어요 · 라이브만 보기");
+                sheet.dismiss(); render(); refreshFeed(made); toast("‘" + title + "’ 목록을 만들어 넣었어요 · 라이브만 보기 · 방송 중인지 확인할게요");
             } catch (Exception e) { toast(e.getMessage()); }
         });
         sheet.show();
