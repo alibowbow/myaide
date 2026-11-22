@@ -10,7 +10,8 @@ import org.json.JSONObject;
 
 /**
  * Reads a YouTube video's transcript for the main chat: the video's own page, then the caption file the page points to
- * (core/YouTubeTranscript reads both), with no sign-in and no key, from YouTube's own site only. When that gives nothing
+ * (core/YouTubeTranscript reads both), with no sign-in, from YouTube's own site only. When the page lists no track or its
+ * file comes empty, the tracks YouTube's player service gives its Android app, with the key the page carries. When that gives nothing
  * and 유튜브 대본을 Gemini 홈페이지에서 받아 오기 is on, the app's own browser asks Gemini's site in the background
  * (YouTubeGeminiWeb). A transcript read either way is kept in the app's private files for the user to read (유튜브 대본
  * 보기). When neither works the request carries a note that says why, so the answer says so instead of guessing.
@@ -70,16 +71,35 @@ final class YouTubeTranscriptClient {
             if (player == null) why = "유튜브가 보낸 영상 페이지에 영상 정보가 없었어요 (페이지 " + html.length() + "자).";
             else {
                 YouTubeTranscript.Track track = YouTubeTranscript.pick(tracks);
-                if (track == null) why = YouTubeTranscript.noTrack(video).replace("이 영상에는 자막이 없어요.", "유튜브가 보낸 영상 정보에 자막 목록이 없었어요 (휴대폰용·컴퓨터용 페이지 모두).");
-                else {
+                List<YouTubeTranscript.Line> lines = List.of(); String body = "";
+                if (track != null) {
                     headers.put("Accept", "*/*");
                     // The caption file as the page names it, then the same file in YouTube's JSON form.
-                    String body = get(track.url(), headers, CAPTION_BYTES, cancel);
-                    List<YouTubeTranscript.Line> lines = YouTubeTranscript.lines(body);
+                    body = get(track.url(), headers, CAPTION_BYTES, cancel);
+                    lines = YouTubeTranscript.lines(body);
                     if (lines.isEmpty()) { String json = get(track.url() + "&fmt=json3", headers, CAPTION_BYTES, cancel); lines = YouTubeTranscript.lines(json); body = body.length() >= json.length() ? body : json; }
-                    if (!lines.isEmpty()) { save(context, id, YouTubeTranscript.readable(video, YouTubeTranscript.source(track), YouTubeTranscript.text(lines))); return keep(id, YouTubeTranscript.block(video, track, lines, YouTubeTranscript.LIMIT)); }
-                    why = "영상에 자막은 있는데(" + tracks.size() + "개) 유튜브가 자막 파일을 비워서 보냈어요 (받은 글자 " + body.length() + "자).";
                 }
+                // Nothing from the page (no track listed, or its file came empty: an address that needs a token the app
+                // cannot make): the captions as YouTube's Android app is given them.
+                String app = "";
+                if (lines.isEmpty()) {
+                    try {
+                        YouTubeTranscript.Track other = YouTubeTranscript.pick(appTracks(id, html, cancel));
+                        if (other == null) app = " 유튜브 앱 방식으로도 자막 목록을 받지 못했어요.";
+                        else {
+                            Map<String, String> asApp = appHeaders(); asApp.put("Accept", "*/*");
+                            List<YouTubeTranscript.Line> got = YouTubeTranscript.lines(get(other.url(), asApp, CAPTION_BYTES, cancel));
+                            if (got.isEmpty()) app = " 유튜브 앱 방식으로 받은 자막 파일도 비어 있었어요.";
+                            else { track = other; lines = got; }
+                        }
+                    } catch (IOException | RuntimeException failed) {
+                        if (failed instanceof java.util.concurrent.CancellationException) throw (RuntimeException) failed;
+                        app = " 유튜브 앱 방식으로도 받지 못했어요" + (failed.getMessage() == null || failed.getMessage().isBlank() ? "." : ": " + failed.getMessage());
+                    }
+                }
+                if (!lines.isEmpty()) { save(context, id, YouTubeTranscript.readable(video, YouTubeTranscript.source(track), YouTubeTranscript.text(lines))); return keep(id, YouTubeTranscript.block(video, track, lines, YouTubeTranscript.LIMIT)); }
+                why = (tracks.isEmpty() ? YouTubeTranscript.noTrack(video).replace("이 영상에는 자막이 없어요.", "유튜브가 보낸 영상 정보에 자막 목록이 없었어요 (휴대폰용·컴퓨터용 페이지 모두).")
+                    : "영상에 자막은 있는데(" + tracks.size() + "개) 유튜브가 자막 파일을 비워서 보냈어요 (받은 글자 " + body.length() + "자).") + app;
             }
         } catch (IOException | RuntimeException failed) {
             if (failed instanceof java.util.concurrent.CancellationException) throw (RuntimeException) failed;
@@ -104,6 +124,37 @@ final class YouTubeTranscriptClient {
     static String saved(android.content.Context context, String id) { return KeptText.saved(context, KIND, id); }
     private static void save(android.content.Context context, String id, String text) { KeptText.save(context, KIND, id, text); }
     private static String keep(String id, String block) { synchronized (READ) { READ.put(id, block); } return block; }
+    /**
+     * The caption tracks YouTube's player service lists for the video when asked as its Android app asks
+     * (YouTubeTranscript.appRequest), with the key the watch page carries; none without a key. Addresses that would need the
+     * token the app cannot make are left out; the rest are asked for in plain XML.
+     */
+    private static List<YouTubeTranscript.Track> appTracks(String id, String html, AtomicReference<Runnable> cancel) throws IOException {
+        String key = YouTubeTranscript.serviceKey(html);
+        if (key.isEmpty()) return List.of();
+        Map<String, String> headers = appHeaders(); headers.put("Content-Type", "application/json"); headers.put("Accept", "application/json");
+        String answer = post(YouTubeTranscript.appPlayer(key), headers, YouTubeTranscript.appRequest(id).toString().getBytes(java.nio.charset.StandardCharsets.UTF_8), PAGE_BYTES, cancel);
+        JSONObject player;
+        try { player = new JSONObject(answer); } catch (org.json.JSONException unreadable) { throw new IOException("유튜브 플레이어 서비스의 답을 읽지 못했어요."); }
+        List<YouTubeTranscript.Track> out = new java.util.ArrayList<>();
+        for (YouTubeTranscript.Track track : YouTubeTranscript.tracks(player))
+            if (!YouTubeTranscript.needsToken(track.url())) out.add(new YouTubeTranscript.Track(YouTubeTranscript.plainXml(track.url()), track.language(), track.name(), track.auto()));
+        return out;
+    }
+    /** The headers the Android app's requests carry. */
+    private static Map<String, String> appHeaders() {
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("User-Agent", YouTubeTranscript.APP_AGENT); headers.put("Accept-Language", "ko-KR,ko;q=0.9,en;q=0.6");
+        return headers;
+    }
+    /** One answer from YouTube's own player service (an address this class built, on www.youtube.com). */
+    private static String post(String url, Map<String, String> headers, byte[] body, int limit, AtomicReference<Runnable> cancel) throws IOException {
+        try (OpenAiAccount.Http.Exchange response = OpenAiAccount.Http.open("POST", url, headers, body, TIMEOUT_MS, cancel)) {
+            if (response.status == 429) throw new IOException("유튜브가 지금은 요청이 많다고 거절했어요. 잠시 뒤에 다시 시도해 주세요.");
+            if (response.status >= 300) throw new IOException("유튜브 플레이어 서비스가 응답하지 않았어요 (HTTP " + response.status + ").");
+            return OpenAiAccount.Http.read(response.body, limit);
+        }
+    }
     /** One page from YouTube's own site, following its redirects there (at most three) and nowhere else. */
     private static String get(String url, Map<String, String> headers, int limit, AtomicReference<Runnable> cancel) throws IOException {
         String address = url;
