@@ -177,8 +177,11 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         // The 추천 row, with the magnifier at its end: a tap opens the search box on its own line (openSearch).
         LinearLayout recommendLine = ui.row(); recommendLine.setGravity(Gravity.CENTER_VERTICAL);
         recommendLine.addView(chipScroll, new LinearLayout.LayoutParams(0, -2, 1));
-        lensButton = ui.bareIcon(R.drawable.ic_search, TEXT, "유튜브 검색 열기", this::openSearch);
-        LinearLayout.LayoutParams lensAt = new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)); lensAt.leftMargin = ui.dp(4); recommendLine.addView(lensButton, lensAt);
+        // The same round accent button as the search box's own (검색), so it is as easy to find and tap.
+        ImageView opener = ui.quietIcon(R.drawable.ic_search, "유튜브 검색 열기", this::openSearch);
+        opener.setImageTintList(android.content.res.ColorStateList.valueOf(ON_ACCENT)); opener.setBackground(ui.shape(ACCENT, PILL)); opener.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9));
+        lensButton = opener;
+        LinearLayout.LayoutParams lensAt = new LinearLayout.LayoutParams(ui.dp(38), ui.dp(38)); lensAt.leftMargin = ui.dp(6); lensAt.rightMargin = ui.dp(4); recommendLine.addView(lensButton, lensAt);
         // The three lines (the video's buttons, 추천, 저장) close together: the chips' own height keeps them apart.
         LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); feedRows.addView(recommendLine, chipGap);
         savedChips = ui.row(); savedChips.setGravity(Gravity.CENTER_VERTICAL); HorizontalScrollView savedScroll = new HorizontalScrollView(this); savedScroll.setHorizontalScrollBarEnabled(false); savedScroll.addView(savedChips);
