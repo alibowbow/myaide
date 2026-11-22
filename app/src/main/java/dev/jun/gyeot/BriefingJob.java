@@ -11,7 +11,9 @@ public final class BriefingJob extends JobService {
         AppStore store = ((GyeotApp) getApplication()).store();
         if (!Briefing.on(store)) return false;
         new Thread(() -> {
-            try { Briefing.due(getApplicationContext(), store); } catch (RuntimeException quiet) { /* The next morning, or opening the app, tries again. */ }
+            boolean evening = Briefing.EVENING.equals(params.getExtras().getString(Briefing.KIND));
+            try { if (evening) Briefing.eveningDue(getApplicationContext(), store); else Briefing.due(getApplicationContext(), store); }
+            catch (RuntimeException quiet) { /* The next time, or opening the app, tries again. */ }
             new Handler(Looper.getMainLooper()).post(() -> jobFinished(params, false));
         }, "briefing-job").start();
         return true;

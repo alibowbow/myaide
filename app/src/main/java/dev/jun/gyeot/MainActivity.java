@@ -4577,6 +4577,27 @@ public final class MainActivity extends Activity {
         }), false);
         add(group, 0);
         add(ui.footer("노트와 제안은 기억·최근 대화·작업창·기록을 바탕으로 Gemini 키의 Gemma 4가 만들어요(무료 한도 안). 노트는 메인 대화·음성 비서·작업창이 참고해요."), 0);
+        // 하루 돌아보기: each evening, the day's review as a page (페이지 → 하루 돌아보기), with a notification.
+        add(ui.sectionHeader("하루 돌아보기"), 0);
+        LinearLayout review = ui.group();
+        ui.addRow(review, ui.switchRow("저녁마다 하루 돌아보기", on ? "오늘 한 일·남은 일·내일 챙길 것을 페이지로 정리해 알려 드려요" : "먼저 위의 ‘먼저 챙기기’를 켜 주세요", Briefing.reviewOn(store),
+            value -> { if (!Briefing.on(store)) { android.widget.Toast.makeText(this, "먼저 ‘나를 이해하고 먼저 챙기기’를 켜 주세요.", android.widget.Toast.LENGTH_SHORT).show(); showTab(2); return; } Briefing.review(this, store, value); showTab(2); }), true);
+        int evening = Briefing.reviewMinutes(store);
+        ui.addRow(review, ui.listRow(R.drawable.ic_calendar, Ui.PURPLE, "돌아보기 시각", dev.jun.gyeot.core.Proactive.clock(evening), ui.chevron(), () ->
+            new android.app.TimePickerDialog(this, (picker, h, m) -> { Briefing.reviewMinutes(this, store, h * 60 + m); showTab(2); }, evening / 60, evening % 60, true).show()), true);
+        ui.addRow(review, ui.listRow(R.drawable.ic_pages, Ui.TEAL, "지금 돌아보기", "오늘 지금까지를 정리해 페이지로 열어요", ui.chevron(), () -> {
+            android.widget.Toast.makeText(this, "오늘을 정리하는 중이에요…", android.widget.Toast.LENGTH_SHORT).show();
+            android.content.Context app = getApplicationContext();
+            new Thread(() -> {
+                String id = null, why = "";
+                try { id = Briefing.evening(app, store, false); } catch (Exception e) { why = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
+                String page = id, reason = why;
+                runOnUiThread(() -> { if (isDestroyed()) return;
+                    if (page == null) android.widget.Toast.makeText(this, reason, android.widget.Toast.LENGTH_LONG).show();
+                    else startActivity(new Intent(this, PagesActivity.class).putExtra(PagesActivity.OPEN, page).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP)); });
+            }, "review-now").start();
+        }), false);
+        add(review, 0);
     }
     /** 기억 정리: the plan made first, shown line by line, applied only on 적용 (the notes before kept for 되돌리기). */
     private void tidyMemory() {
