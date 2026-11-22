@@ -50,7 +50,8 @@ public final class WakeWordService extends Service {
     private BroadcastReceiver bluetooth;
     private volatile WakeWord.Model model; private boolean carConnected, foreground;
     private AudioRecord record; private Thread reader; private volatile boolean reading;
-    private long wokeAt;
+    /** connectedAt: when the chosen car last connected (0 when the standby started with it already connected). */
+    private long wokeAt, connectedAt;
 
     static void start(Context context) { context.startForegroundService(new Intent(context, WakeWordService.class).setAction(START)); }
     static void stop(Context context) { context.startService(new Intent(context, WakeWordService.class).setAction(STOP)); }
@@ -69,8 +70,12 @@ public final class WakeWordService extends Service {
                 if (device == null || !car(device.getAddress())) return;
                 carConnected = BluetoothDevice.ACTION_ACL_CONNECTED.equals(intent.getAction());
                 // A new drive (the car away long enough) starts afresh; a short drop of Bluetooth keeps this drive's rest.
-                if (carConnected) rest.connected(SystemClock.elapsedRealtime()); else rest.disconnected(SystemClock.elapsedRealtime());
-                store.phoneLog(carConnected ? "● 차 블루투스 연결 · 호출어 듣기 시작" : "● 차 블루투스 끊김 · 호출어 마이크 끔");
+                // Either way it first lets the sounds of connecting pass (WakeRest.SETTLE_MS).
+                long now = SystemClock.elapsedRealtime();
+                if (carConnected) { rest.connected(now); connectedAt = now; } else rest.disconnected(now);
+                store.phoneLog(!carConnected ? "● 차 블루투스 끊김 · 호출어 마이크 끔"
+                    : rest.restingForDrive(now) ? "● 차 블루투스 다시 연결 · 이번 운행 동안은 호출어를 쉬어요"
+                    : "● 차 블루투스 연결 · 연결할 때 나는 소리가 지나도록 " + dev.jun.gyeot.core.WakeRest.words(dev.jun.gyeot.core.WakeRest.SETTLE_MS) + " 뒤부터 호출어를 들어요");
                 apply();
             }
         };
@@ -190,7 +195,9 @@ public final class WakeWordService extends Service {
     /** The wake word: the microphone is released first (the call needs it), then the quick voice start opens. */
     private void woke(double score, double threshold) {
         stopReading(); wokeAt = SystemClock.elapsedRealtime(); rest.woke(wokeAt);
-        store.phoneLog(String.format(java.util.Locale.ROOT, "● 호출어 들림 · 점수 %.1f / 기준 %.1f", score, threshold));
+        // How long after the car connected, so a wake by the car's own sounds shows in the log.
+        String since = connectedAt <= 0 ? "" : " · 차 연결 " + dev.jun.gyeot.core.WakeRest.words(wokeAt - connectedAt) + " 뒤";
+        store.phoneLog(String.format(java.util.Locale.ROOT, "● 호출어 들림 · 점수 %.1f / 기준 %.1f", score, threshold) + since);
         if (store.voiceActive) { apply(); return; }
         Intent quick = new Intent(this, QuickVoiceActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         String route;

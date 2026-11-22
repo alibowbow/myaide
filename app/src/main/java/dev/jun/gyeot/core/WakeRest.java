@@ -6,10 +6,16 @@ package dev.jun.gyeot.core;
  * nobody asked anything in (it never started, nothing was said, or only "꺼", "그만", "잘못 불렀어"), it rests two minutes,
  * and after a second one in a row for the rest of the drive: sounds other than the user (the radio, music, its own voice
  * through the car) can match the word over and over, and turning it off must keep it off. A conversation clears the
- * count; so does a new drive, when the car connects again after being away for DRIVE_GAP_MS. Times are any steady clock's
- * milliseconds. Not thread-safe: the service's main thread.
+ * count; so does a new drive, when the car connects again after being away for DRIVE_GAP_MS. Each time the car connects
+ * it first waits SETTLE_MS. Times are any steady clock's milliseconds. Not thread-safe: the service's main thread.
  */
 public final class WakeRest {
+    /**
+     * After the car connects, it waits this long before it listens: the sounds of connecting come then (the car's chime and
+     * voice, "블루투스가 연결되었습니다", a navigation app starting with the car and greeting, music starting again), and a
+     * voice like that matches the word as easily as the user's does. Every connection, a short drop of Bluetooth too.
+     */
+    public static final long SETTLE_MS = 10_000;
     /** After a wake that was answered: not again for this long, from the call's end (and from the wake, until the call is seen). */
     public static final long COOLDOWN_MS = 8000;
     /** After a wake that was answered and then turned off by the user: they want quiet for a while. */
@@ -23,7 +29,7 @@ public final class WakeRest {
     /** The car away this long and back again is a new drive; a shorter drop of Bluetooth is the same one. */
     static final long DRIVE_GAP_MS = 10 * 60_000L;
 
-    private int unanswered; private long until = Long.MIN_VALUE, wokeAt, away = Long.MIN_VALUE; private boolean pending, called;
+    private int unanswered; private long until = Long.MIN_VALUE, wokeAt, away = Long.MIN_VALUE, settled = Long.MIN_VALUE; private boolean pending, called;
 
     /** The wake word fired. */
     public void woke(long now) { pending = true; called = false; wokeAt = now; until = now + COOLDOWN_MS; }
@@ -43,18 +49,24 @@ public final class WakeRest {
         long rest = RESTS_MS[Math.min(unanswered, RESTS_MS.length) - 1];
         until = now + rest; return rest;
     }
-    /** The chosen car connected: a new drive when it was away long enough (or never seen leaving), else the same one. */
+    /**
+     * The chosen car connected: it settles for SETTLE_MS, and starts a new drive when the car was away long enough (or never
+     * seen leaving), else goes on with the same one.
+     */
     public void connected(long now) {
+        settled = now + SETTLE_MS;
         if (away != Long.MIN_VALUE && now - away < DRIVE_GAP_MS) return;
         unanswered = 0; pending = false; called = false; until = Long.MIN_VALUE;
     }
     /** The chosen car disconnected. */
     public void disconnected(long now) { away = now; }
-    public boolean resting(long now) { return now < until; }
-    /** Whether it rests for the rest of this drive. */
-    public boolean restingForDrive(long now) { return until - now > DRIVE / 2; }
+    public boolean resting(long now) { return now < until || settling(now); }
+    /** Whether the car connected less than SETTLE_MS ago. */
+    public boolean settling(long now) { return now < settled; }
+    /** Whether it rests for the rest of this drive (until > now first: with no rest, until - now would overflow). */
+    public boolean restingForDrive(long now) { return until > now && until - now > DRIVE / 2; }
     /** Milliseconds until it may listen again; 0 when it may now. */
-    public long left(long now) { return Math.max(0, until - now); }
+    public long left(long now) { long end = Math.max(until, settled); return end <= now ? 0 : end - now; }
     /** Wakes in a row that nobody answered. */
     public int unanswered() { return unanswered; }
     /** Whether a wake's outcome is still awaited (its call has not ended, or has not started yet). */

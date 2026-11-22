@@ -51,7 +51,8 @@ final class WakeWordUi {
      */
     View page() {
         LinearLayout page = ui.column();
-        TextView about = ui.text("차 블루투스가 연결된 동안에만 마이크를 켜고, 내 목소리로 녹음한 “들퍼레”·“퍼레”가 들리면 음성 대화를 시작해요.", 14, 400, Ui.MUTED);
+        TextView about = ui.text("차 블루투스가 연결된 동안에만 마이크를 켜고, 내 목소리로 녹음한 “들퍼레”·“퍼레”가 들리면 음성 대화를 시작해요. "
+            + "연결할 때 차와 앱이 내는 안내 소리에 켜지지 않도록, 연결되고 " + dev.jun.gyeot.core.WakeRest.words(dev.jun.gyeot.core.WakeRest.SETTLE_MS) + " 뒤부터 들어요.", 14, 400, Ui.MUTED);
         about.setPadding(ui.dp(16), 0, ui.dp(16), 0); ui.add(page, about, 12);
         boolean ready = WakeWordFiles.complete(activity) && !store.settings.getString(WakeWordFiles.CAR, "").isBlank(), enabled = store.settings.getBoolean(WakeWordFiles.ENABLED, false);
         String carName = store.settings.getString(WakeWordFiles.CAR_NAME, "");
