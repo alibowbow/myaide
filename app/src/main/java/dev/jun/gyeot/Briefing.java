@@ -159,7 +159,10 @@ final class Briefing {
         long now = System.currentTimeMillis(); ZoneId zone = ZoneId.systemDefault();
         String schedule = "";
         try { schedule = MainChatCalendar.context(context, store, "오늘 일정 알려줘", now); } catch (RuntimeException unreadable) { /* No calendar. */ }
-        String input = Proactive.briefInput(now, zone, note(store), schedule, chat(store, 60), works(store, 10, true), records(store), feedback(store));
+        List<String> records = records(store);
+        // 알림 비서, when on: what came in overnight (the last 12 hours), so a card can say what needs an answer.
+        if (NoticeListener.on(context)) for (String line : dev.jun.gyeot.core.Notices.lines(dev.jun.gyeot.core.Notices.recent(NoticeListener.list(context), now, 12, 15), now)) records.add("알림: " + line);
+        String input = Proactive.briefInput(now, zone, note(store), schedule, chat(store, 60), works(store, 10, true), records, feedback(store));
         List<Card> cards = Proactive.cards(GeminiAudioClient.light(key, Proactive.BRIEF, input));
         if (cards.isEmpty()) throw new IllegalStateException("오늘은 드릴 제안을 만들지 못했어요.");
         JSONArray saved = new JSONArray(); for (Card card : cards) saved.put(card.json());

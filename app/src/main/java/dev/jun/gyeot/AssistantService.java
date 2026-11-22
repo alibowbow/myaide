@@ -3889,6 +3889,7 @@ public final class AssistantService extends Service {
             if (AppGallery.SHOW.equals(name)) { showVoiceImage(session, id, name, args); continue; }
             if (AppNavigation.FUNCTION.equals(name)) { if ("mytube".equals(args.optString("screen"))) MyTubeActivity.ask(args.optString("play")); openAppScreen(session, id, name, args.optString("screen")); continue; }
             if (dev.jun.gyeot.core.VoiceBoard.FUNCTION.equals(name)) { boardExplain(session, id, name, args); continue; }
+            if (dev.jun.gyeot.core.Notices.FUNCTION.equals(name)) { touch(); session.tool(id, name, dev.jun.gyeot.core.Notices.answer(NoticeListener.on(this) && NoticeListener.allowed(this), NoticeListener.list(this), System.currentTimeMillis(), args.optDouble("hours", 6))); continue; }
             if (DeviceActions.NAMES.contains(name)) { deviceAction(session, id, name, args); continue; }
             if (dev.jun.gyeot.core.CalendarQuery.VOICE.contains(name)) { calendarFor(session, id, name, args); continue; }
             if (VoiceWork.NAMES.contains(name)) {
