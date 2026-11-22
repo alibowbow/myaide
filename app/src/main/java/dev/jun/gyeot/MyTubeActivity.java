@@ -93,6 +93,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     /** 라이브 채널: saved channels, one tap each to their broadcast on air now. */
     private LinearLayout liveChannels; private View liveScroll;
     /** 내용 정리 made in this run, by video. */
+    /** The transcript characters a question takes along. */
+    private static final int TRANSCRIPT_CHARS = 60_000;
     /** 이 영상에 대해 물어보세요: each video's conversation for the run (the newest 30 videos). */
     private static final java.util.Map<String, List<VideoChat.Turn>> CHATS = new java.util.LinkedHashMap<>();
     private String feedId; private boolean refreshing, destroyed;
@@ -992,19 +994,27 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         android.widget.ImageView send = ui.sendButton("보내기", () -> {
             if (busy[0]) { halted[0] = true; Runnable abort = stop.getAndSet(null); if (abort != null) abort.run(); return; }
             String text = field.getText().toString().strip(); if (text.isEmpty()) return;
-            field.setText(""); ask[0].accept(VideoChat.Turn.user(text, text));
+            field.setText(""); ask[0].accept(VideoChat.Turn.user(text, text, false));
         });
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)); sp.leftMargin = ui.dp(6); composer.addView(send, sp);
+        // The AI that answers the questions, chosen here as in 작업창 (its own choice, first copied from 마이튜브 AI's).
+        Button model = ui.smallChip("", null);
+        Runnable named = () -> model.setText(videoChatModel() + " ▾");
+        model.setOnClickListener(x -> FileExplorerModelUi.show(this, store, () -> ScopedModels.videoChat(store), "영상 대화", "영상 대화에 적용", () -> !isDestroyed(), dialog -> dialog.show(), named));
+        named.run(); model.setContentDescription("질문에 답할 AI와 모델 고르기");
+        LinearLayout.LayoutParams mp = new LinearLayout.LayoutParams(-2, -2); mp.bottomMargin = ui.dp(6);
+        sheet.footer.addView(model, mp);
         sheet.footer.addView(composer, new LinearLayout.LayoutParams(-1, -2));
-        for (String each : new String[]{VideoChat.TIMELINE, VideoChat.PLAIN, VideoChat.SHORT}) {
+        for (String each : new String[]{VideoChat.TIMELINE, VideoChat.PLAIN}) {
             Button chip = ui.chip(each, () -> {
                 if (busy[0]) return;
-                if (!VideoChat.SHORT.equals(each)) store.settings.edit().putBoolean("mytubeTimeline", VideoChat.TIMELINE.equals(each)).apply();
-                ask[0].accept(VideoChat.Turn.user(each, VideoChat.request(v, each)));
+                store.settings.edit().putBoolean("mytubeTimeline", VideoChat.TIMELINE.equals(each)).apply();
+                ask[0].accept(VideoChat.Turn.user(each, VideoChat.request(v, each), true));
             });
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(8); suggestions.addView(chip, p);
         }
-        Button script = ui.chip("대본 보기", () -> YouTubeTranscriptUi.show(this, MyTube.watch(v.id())));
+        Button script = ui.chip("대본 보기", null);
+        script.setOnClickListener(x -> transcript(v, script));
         suggestions.addView(script, new LinearLayout.LayoutParams(-2, -2));
         TextView waiting = ui.text("", BODY, 450, MUTED);
         draw[0] = () -> {
@@ -1019,6 +1029,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
                     talk.addView(bubble, lp);
                     continue;
                 }
+                if (!turn.by().isEmpty()) { TextView who = ui.text(turn.by(), FOOTNOTE, 600, MUTED); LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(-2, -2); wp.topMargin = ui.dp(14); talk.addView(who, wp); }
                 TextView answer = ui.text("", BODY, 450, TEXT); answer.setLineSpacing(ui.dp(3), 1);
                 answer.setText(timed(RichText.render(turn.shown()), v)); answer.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
                 LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1, -2); ap.topMargin = ui.dp(12); talk.addView(answer, ap);
@@ -1043,35 +1054,47 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             if (busy[0]) return;
             List<VideoChat.Turn> sent;
             synchronized (CHATS) { turns.add(question); while (turns.size() > VideoChat.MOST_TURNS) turns.remove(0); while (!turns.isEmpty() && !turns.get(0).user()) turns.remove(0); sent = new ArrayList<>(turns); }
-            busy[0] = true; halted[0] = false; waiting.setText("Gemini가 영상을 보는 중…"); draw[0].run();
+            busy[0] = true; halted[0] = false;
+            waiting.setText(question.summary() ? "Gemini가 영상을 보는 중…" : "생각하는 중…"); draw[0].run();
             work.execute(() -> {
                 String said = null, failure = null, watched = "";
+                String[] by = {""};
                 Runnable guard = () -> { if (closed[0] || halted[0]) throw new java.util.concurrent.CancellationException("멈췄어요."); };
-                // Gemini watches the video by its address itself (Flash-Lite's free tier: 500 a day), no transcript needed.
-                try {
-                    String key = store.secrets.workKey();
-                    if (key.isBlank()) watched = "Gemini API 키가 없어서";
-                    else said = GeminiAudioClient.watchYouTube(key, VideoChat.watch(v, sent), guard, stop);
-                } catch (java.util.concurrent.CancellationException stopped) { failure = "멈췄어요."; }
-                catch (Exception e) { watched = "Gemini가 영상을 직접 보지 못해서" + (e.getMessage() == null || e.getMessage().isBlank() ? "" : " (" + e.getMessage() + ")"); }
-                // Otherwise the transcript and the conversation, to the main chat's AI.
+                if (question.summary()) {
+                    // 요약: Gemini watches the video by its address itself (Flash-Lite's free tier: 500 a day), no transcript needed.
+                    try {
+                        String key = store.secrets.workKey();
+                        if (key.isBlank()) watched = "Gemini API 키가 없어서";
+                        else { said = GeminiAudioClient.watchYouTube(key, VideoChat.watch(v, List.of(question)), guard, stop); by[0] = "Gemini"; }
+                    } catch (java.util.concurrent.CancellationException stopped) { failure = "멈췄어요."; }
+                    catch (Exception e) { watched = "Gemini가 영상을 직접 보지 못해서" + (e.getMessage() == null || e.getMessage().isBlank() ? "" : " (" + e.getMessage() + ")"); }
+                }
                 if (halted[0]) failure = "멈췄어요.";
+                // A question (or a summary Gemini could not make): the transcript when there is one, to the AI chosen here.
                 if ((said == null || said.isBlank()) && failure == null && !closed[0]) try {
                     String note = watched;
                     if (transcript[0] == null) {
-                        main.post(() -> { if (sheet.isShowing()) waiting.setText(note + " 대본을 가져오는 중…"); });
-                        String block = YouTubeTranscriptClient.block(this, v.id(), () -> closed[0] || halted[0], step -> main.post(() -> { if (sheet.isShowing()) waiting.setText(step); }), stop);
-                        if (block == null || block.isBlank()) throw new java.io.IOException("이 영상의 대본을 가져오지 못했어요.");
-                        transcript[0] = block;
+                        if (question.summary()) main.post(() -> { if (sheet.isShowing()) waiting.setText(note + " 대본을 가져오는 중…"); });
+                        if (!YouTubeTranscriptClient.kept(this, v.id()))
+                            YouTubeTranscriptClient.block(this, v.id(), () -> closed[0] || halted[0], step -> { if (question.summary()) main.post(() -> { if (sheet.isShowing()) waiting.setText(step); }); }, stop);
+                        // Only a transcript really kept (read from YouTube, or written down by Gemini on 대본 보기); without one the
+                        // question still goes, with the summaries.
+                        String kept = YouTubeTranscriptClient.saved(this, v.id());
+                        transcript[0] = kept.length() <= TRANSCRIPT_CHARS ? kept : kept.substring(0, TRANSCRIPT_CHARS) + "\n…(대본이 길어 앞부분만)";
                     }
-                    main.post(() -> { if (sheet.isShowing()) waiting.setText("AI가 답하는 중…"); });
-                    said = MyTubeClient.ask(store, VideoChat.TRANSCRIPT, VideoChat.transcriptInput(v, transcript[0], sent), stop);
-                } catch (Exception e) { said = null; failure = (watched.isEmpty() ? "" : watched + " 대본으로 답하려 했지만 안 됐어요. ") + (e.getMessage() == null ? "답하지 못했어요." : e.getMessage()); }
-                String answer = said, why = failure;
+                    if (question.summary() && transcript[0].isBlank()) throw new java.io.IOException("이 영상의 대본을 가져오지 못했어요.");
+                    if (question.summary()) {
+                        main.post(() -> { if (sheet.isShowing()) waiting.setText("AI가 정리하는 중…"); });
+                        said = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.TRANSCRIPT, VideoChat.transcriptInput(v, transcript[0], List.of(question)), stop, name -> by[0] = name);
+                    } else said = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.CHAT, VideoChat.chatInput(v, transcript[0], sent), stop,
+                        name -> { by[0] = name; main.post(() -> { if (sheet.isShowing()) waiting.setText(name + " 답하는 중…"); }); });
+                } catch (java.util.concurrent.CancellationException stopped) { said = null; failure = "멈췄어요."; }
+                catch (Exception e) { said = null; failure = (watched.isEmpty() ? "" : watched + " 대본으로 정리하려 했지만 안 됐어요. ") + (e.getMessage() == null ? "답하지 못했어요." : e.getMessage()); }
+                String answer = said, why = failure, who = by[0];
                 main.post(() -> {
                     busy[0] = false; stop.set(null);
                     synchronized (CHATS) {
-                        if (answer != null && !answer.isBlank()) turns.add(VideoChat.Turn.model(answer.strip()));
+                        if (answer != null && !answer.isBlank()) turns.add(VideoChat.Turn.model(answer.strip(), who, question.summary()));
                         // Not answered: the question goes back into the box, so it can be sent again.
                         else if (!turns.isEmpty() && turns.get(turns.size() - 1) == question) turns.remove(turns.size() - 1);
                     }
@@ -1079,7 +1102,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
                     draw[0].run();
                     if (answer == null || answer.isBlank()) {
                         TextView error = ui.text(why == null ? "답하지 못했어요." : why, FOOTNOTE, 450, MUTED); LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(-1, -2); ep.topMargin = ui.dp(12); talk.addView(error, ep);
-                        if (question.shown().equals(question.sent()) && field.getText().length() == 0) field.setText(question.shown());
+                        if (!question.summary() && field.getText().length() == 0) field.setText(question.shown());
                     }
                 });
             });
@@ -1089,9 +1112,54 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         // A new conversation starts with a summary, in the way last chosen.
         if (turns.isEmpty()) {
             String first = store.settings.getBoolean("mytubeTimeline", true) ? VideoChat.TIMELINE : VideoChat.PLAIN;
-            ask[0].accept(VideoChat.Turn.user(first, VideoChat.request(v, first)));
+            ask[0].accept(VideoChat.Turn.user(first, VideoChat.request(v, first), true));
         }
         sheet.show();
+    }
+    /**
+     * 대본 보기: the kept transcript, else read now (YouTube's captions, else Gemini writes it down from the video), then shown.
+     * The chip says what it is doing meanwhile.
+     */
+    private void transcript(MyTube.Video v, Button chip) {
+        if (YouTubeTranscriptClient.kept(this, v.id())) { YouTubeTranscriptUi.show(this, MyTube.watch(v.id())); return; }
+        if (!chip.isEnabled()) return;
+        chip.setEnabled(false); chip.setText("대본 가져오는 중…");
+        work.execute(() -> {
+            String why = null;
+            try {
+                String block = YouTubeTranscriptClient.block(this, v.id(), () -> destroyed, step -> {}, null);
+                if (!YouTubeTranscriptClient.kept(this, v.id())) {
+                    String key = store.secrets.workKey();
+                    if (key.isBlank()) why = firstLine(block);
+                    else {
+                        main.post(() -> chip.setText("Gemini가 받아 적는 중…"));
+                        YouTubeTranscriptClient.writeDown(this, v.id(), v.title(), v.channel(), key, () -> { if (destroyed) throw new java.util.concurrent.CancellationException(); }, null);
+                    }
+                }
+            } catch (java.util.concurrent.CancellationException stopped) { return; }
+            catch (Exception e) { why = e.getMessage() == null || e.getMessage().isBlank() ? "대본을 가져오지 못했어요." : e.getMessage(); }
+            String reason = why;
+            main.post(() -> {
+                chip.setEnabled(true); chip.setText("대본 보기");
+                if (destroyed) return;
+                if (YouTubeTranscriptClient.kept(this, v.id())) YouTubeTranscriptUi.show(this, MyTube.watch(v.id()));
+                else Toast.makeText(this, "대본을 가져오지 못했어요" + (reason == null || reason.isBlank() ? "" : ": " + reason), Toast.LENGTH_LONG).show();
+            });
+        });
+    }
+    private static String firstLine(String text) {
+        String value = text == null ? "" : text.strip(); int cut = value.indexOf('\n');
+        value = cut < 0 ? value : value.substring(0, cut);
+        return value.length() <= 120 ? value : value.substring(0, 120) + "…";
+    }
+    /** 영상 대화's AI and model, for its chip ("AI 연결·선택" when none is connected). */
+    private String videoChatModel() {
+        try {
+            ScopedModels selection = ScopedModels.videoChat(store); String engine = selection.engine();
+            if (engine == null || engine.isBlank() || !store.ready(engine)) return "AI 연결·선택";
+            String id = selection.model(engine);
+            return id.isBlank() ? dev.jun.gyeot.core.WorkBook.author(engine) + " · 모델 고르기" : new TeamRoster(store, selection).label(engine, id);
+        } catch (Exception unavailable) { return "AI 연결·선택"; }
     }
     /** Makes each time in an answer (03:12, 1:02:03) a link that jumps the video there, when it is the one playing. */
     private CharSequence timed(CharSequence rendered, MyTube.Video v) {

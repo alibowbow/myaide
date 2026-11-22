@@ -117,6 +117,17 @@ final class YouTubeTranscriptClient {
         }
         return YouTubeTranscript.missing(video, why);
     }
+    /**
+     * 대본 보기 when YouTube would not give the captions: Gemini watches the video and writes down what is said, with times, and it
+     * is kept like a transcript (saying where it came from). Blocking.
+     */
+    static String writeDown(android.content.Context context, String id, String title, String channel, String key, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        String words = GeminiAudioClient.watchYouTube(key, id, YouTubeTranscript.WRITE_DOWN, guard, cancel);
+        if (words == null || words.isBlank()) throw new IOException("Gemini가 대본을 적어 주지 않았어요.");
+        save(context, id, YouTubeTranscript.readable(new YouTubeTranscript.Video(id, title == null ? "" : title, channel == null ? "" : channel, 0, true, ""),
+            "Gemini가 영상을 보고 받아 적은 대본 (빠지거나 틀린 부분이 있을 수 있어요)", words));
+        return saved(context, id);
+    }
     static final String KIND = "youtube";
     /** Whether a transcript is kept for this video. */
     static boolean kept(android.content.Context context, String id) { return KeptText.kept(context, KIND, id); }
