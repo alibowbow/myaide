@@ -3789,40 +3789,57 @@ public final class MainActivity extends Activity {
         requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, SETTINGS_MIC);
     }
     /** Gemini: the voice assistant's API key, typed only in a sheet, its checks, and an optional second key below. */
+    /**
+     * 설정 → Gemini, in four parts: API 키 (the voice assistant's key and the optional 작업창·메인 대화 key, and where each
+     * is used), 모델, 한도·점검 (연결 확인, today's free quota, the per-model limits), and 연결 해제 last.
+     */
     private void pageKey() {
         boolean saved = store.secrets.hasKey();
         add(ui.statusCard(R.drawable.ic_sparkle, Ui.BLUE, saved ? "연결됨" : "연결 안 됨", !saved ? "음성 비서를 쓰려면 API 키가 필요해요"
-            : store.gemini.ownKey() ? "API 키 2개 · 음성 비서용과 다른 기능용" : "API 키 · 음성 비서·메인 대화·작업창에서 써요", null), 0);
-        add(ui.sectionHeader("Gemini API 키"), 0);
+            : store.gemini.ownKey() ? "API 키 2개 · 음성 비서용과 다른 기능용" : "API 키 1개 · 모든 기능에서 같이 써요", null), 0);
+
+        add(ui.sectionHeader("API 키"), 0);
         if (!saved) {
             add(ui.button("API 키 넣기", true, () -> geminiKeySheet(false)), 0);
             TextView studio = ui.quietRow("키가 없나요? AI Studio에서 무료로 받아요 ›", () -> open("https://aistudio.google.com/api-keys")); studio.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), 0);
             add(studio, 0);
         } else {
-            // A check's lines and its fix sit right under the group; the probe stays hidden until a check runs.
-            TextView probe = ui.label("", 13, TEXT); probe.setPadding(ui.dp(16), ui.dp(10), ui.dp(16), 0); probe.setVisibility(View.GONE);
-            LinearLayout probeFix = ui.column(); probeFix.setPadding(ui.dp(16), 0, ui.dp(16), 0);
-            LinearLayout key = ui.group();
-            LinearLayout check = ui.listRow(0, 0, "연결 확인", "음성·통역·받아쓰기 모델과 검색을 차례로 확인해요", ui.chevron(), () -> geminiCheck(probe, probeFix));
-            LinearLayout voice = ui.listRow(0, 0, "음성 모델", AppStore.modelLabel(store.liveModel()) + " · 목소리와 대화에서 바꿔요", ui.chevron(), () -> openSettings("voice"));
-            // Two lines, so the list of checks and a long model name stay whole at 360dp.
-            for (LinearLayout row : List.of(check, voice)) { TextView sub = ((Ui.ListRow) row).parts.subtitle(); sub.setSingleLine(false); sub.setMaxLines(2); }
-            ui.addRow(key, check, false); ui.addRow(key, voice, false);
-            ui.addRow(key, ui.listRow(0, 0, "모델별 한도 보기", "aistudio.google.com", ui.chevron(), () -> open("https://aistudio.google.com/rate-limit")), false);
-            ui.addRow(key, ui.listRow(0, 0, "키 바꾸기", "저장하면 다음 음성 대화부터 새 키를 써요", ui.chevron(), () -> geminiKeySheet(true)), false);
-            add(key, 0); add(probe, 0); add(probeFix, 16);
-            LinearLayout off = ui.group();
-            ui.addRow(off, ui.dangerRow("연결 해제", "음성 대화를 끝내고 이 기기의 키를 지워요", () -> confirm("진행 중인 음성 대화를 끝내고 이 기기의 Gemini API 키를 지울까요?", "해제", () -> {
-                send(AssistantService.STOP, null, null);
-                try { store.secrets.put(""); store.status("Gemini 연결을 해제했어요"); showTab(2); } catch (Exception e) { store.error("키를 지우지 못했어요."); }
-            })), false);
-            add(off, 0);
+            LinearLayout keys = ui.group();
+            ui.addRow(keys, ui.listRow(0, 0, "음성 비서 키", "저장됨 · 음성 대화·Gemini 두뇌·디시전 · 눌러서 바꾸기", ui.chevron(), () -> geminiKeySheet(true)), false);
+            add(keys, 0);
         }
-        add(ui.footer("음성과 요청은 Google API로 보내요. 키는 이 기기에만 암호화해 두고 앱 백업에서 빼요."), 0);
-        add(ui.sectionHeader("작업창·메인 대화용 키 (선택)"), 0);
+        // The optional second key (its row redraws by itself when its state changes).
         geminiWorkBox = ui.column(); add(geminiWorkBox, 0); lastGeminiWork = ""; refreshGeminiWork();
-        add(ui.footer("무료 한도는 Google Cloud 프로젝트마다 따로예요. 다른 프로젝트의 키를 넣으면 음성 대화와 한도를 나눠 쓰지 않고, 같은 프로젝트의 키는 한도를 함께 써요."), 0);
-        add(ui.details("이 키를 쓰는 곳", "메인 대화·작업창·입력칸 받아쓰기·파일 AI·에이전트 팀·Gemini 분석·브라우저의 Gemini가 이 키를 먼저 써요. 음성 대화·Gemini Flash 두뇌·Gemini 디시전은 위의 키를 써요."), 16);
+        add(ui.footer("무료 한도는 Google Cloud 프로젝트마다 따로예요. 다른 프로젝트의 키를 넣으면 음성 대화와 한도를 나눠 쓰지 않아요."), 0);
+        add(ui.details("어느 키를 어디에 쓰나요", "작업창·메인 대화 키: 메인 대화·작업창·입력칸 받아쓰기·파일 AI·에이전트 팀·Gemini 분석·브라우저의 Gemini, 요약·검색·임베딩 같은 앱의 가벼운 일. 비워 두면 음성 비서 키를 같이 써요.\n음성 비서 키: 음성 대화·Gemini Flash 두뇌·Gemini 디시전."), 12);
+        if (!saved) return;
+
+        add(ui.sectionHeader("모델"), 0);
+        LinearLayout models = ui.group();
+        LinearLayout voice = ui.listRow(0, 0, "음성 모델", AppStore.modelLabel(store.liveModel()) + " · 목소리와 대화에서 바꿔요", ui.chevron(), () -> openSettings("voice"));
+        ((Ui.ListRow) voice).parts.subtitle().setSingleLine(false); ((Ui.ListRow) voice).parts.subtitle().setMaxLines(2);
+        ui.addRow(models, voice, false);
+        add(models, 0);
+
+        add(ui.sectionHeader("한도 · 점검"), 0);
+        // A check's lines and its fix sit right under the group; the probe stays hidden until a check runs.
+        TextView probe = ui.label("", 13, TEXT); probe.setPadding(ui.dp(16), ui.dp(10), ui.dp(16), 0); probe.setVisibility(View.GONE);
+        LinearLayout probeFix = ui.column(); probeFix.setPadding(ui.dp(16), 0, ui.dp(16), 0);
+        LinearLayout checks = ui.group();
+        LinearLayout check = ui.listRow(0, 0, "연결 확인", "음성·통역·받아쓰기 모델과 검색을 차례로 확인해요", ui.chevron(), () -> geminiCheck(probe, probeFix));
+        ((Ui.ListRow) check).parts.subtitle().setSingleLine(false); ((Ui.ListRow) check).parts.subtitle().setMaxLines(2);
+        ui.addRow(checks, check, false);
+        ui.addRow(checks, ui.listRow(0, 0, "오늘 무료 한도", "앱이 쓴 Gemini 무료 요청 · 모델별로", ui.chevron(), () -> openSettings("usage")), false);
+        ui.addRow(checks, ui.listRow(0, 0, "모델별 한도 보기", "aistudio.google.com", ui.chevron(), () -> open("https://aistudio.google.com/rate-limit")), false);
+        add(checks, 0); add(probe, 0); add(probeFix, 12);
+
+        LinearLayout off = ui.group();
+        ui.addRow(off, ui.dangerRow("연결 해제", "음성 대화를 끝내고 이 기기의 키를 지워요", () -> confirm("진행 중인 음성 대화를 끝내고 이 기기의 Gemini API 키를 지울까요?", "해제", () -> {
+            send(AssistantService.STOP, null, null);
+            try { store.secrets.put(""); store.status("Gemini 연결을 해제했어요"); showTab(2); } catch (Exception e) { store.error("키를 지우지 못했어요."); }
+        })), false);
+        add(off, 0);
+        add(ui.footer("음성과 요청은 Google API로 보내요. 키는 이 기기에만 암호화해 두고 앱 백업에서 빼요."), 16);
     }
     /** The voice assistant's key, typed only in this sheet: 넣기 or 바꾸기. Closing it saves nothing. */
     private void geminiKeySheet(boolean change) {
@@ -3847,7 +3864,7 @@ public final class MainActivity extends Activity {
         if (!lastGeminiWork.isEmpty() && !lastGeminiWork.startsWith(own + "\u0000") && tab == 2 && "key".equals(settingsPage)) { showTab(2); return; }
         lastGeminiWork = fingerprint; geminiWorkBox.removeAllViews();
         LinearLayout group = ui.group();
-        ui.addRow(group, ui.listRow(0, 0, "따로 쓰는 키", own ? "저장됨 · " + store.gemini.label() : store.secrets.hasKey() ? "비워 둠 · 위의 키를 같이 써요" : "비워 둠 · 키가 없어요",
+        ui.addRow(group, ui.listRow(0, 0, "작업창·메인 대화 키 (선택)", own ? "저장됨 · " + store.gemini.label() : store.secrets.hasKey() ? "비워 둠 · 음성 비서 키를 같이 써요" : "비워 둠 · 키가 없어요",
             ui.chevron(), this::geminiWorkKeySheet), false);
         geminiWorkBox.addView(group);
         if (!store.gemini.notice.isBlank()) {
