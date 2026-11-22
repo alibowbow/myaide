@@ -374,10 +374,27 @@ public final class BrowserActivity extends Activity {
             });
         } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show(); }
     }
+    /** A private-mode tab, opened from the menu or the tab screen; told once what it leaves behind (nothing). */
+    private void newSecretTab() {
+        try {
+            BrowserEngine.Tab created = engine.newSecretTab("https://www.google.com/");
+            Toast.makeText(this, "시크릿 탭이에요 · 닫으면 방문·로그인·AI 대화가 남지 않아요", Toast.LENGTH_LONG).show();
+            address.post(() -> {
+                if (engine.current != created || !engine.tabs.contains(created) || isFinishing() || isDestroyed()) return;
+                address.setText(created.url); address.requestFocus(); address.selectAll();
+                getSystemService(InputMethodManager.class).showSoftInput(address, InputMethodManager.SHOW_IMPLICIT);
+            });
+        } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show(); }
+    }
+    /** The tab's name in the strip and the tab screen; a secret tab leads with 🕶, which also becomes its monogram. */
+    private static String tabName(BrowserEngine.Tab tab) {
+        String name = tab.title == null || tab.title.isBlank() ? host(tab.url) : tab.title;
+        return tab.secret ? "🕶 " + name : name;
+    }
     private void refreshTabStrip() {
         List<BrowserTabStrip.Item> items = new ArrayList<>();
         for (BrowserEngine.Tab tab : new ArrayList<>(engine.tabs)) {
-            String title = tab.title == null || tab.title.isBlank() ? host(tab.url) : tab.title;
+            String title = tabName(tab);
             items.add(new BrowserTabStrip.Item(tab.id, title, tab == engine.current, engine.aiWorking(tab),
                 () -> { if (engine.tabs.contains(tab)) { hideKeyboard(); engine.select(tab); } },
                 () -> { if (engine.tabs.contains(tab)) { hideKeyboard(); engine.close(tab); } }));
@@ -493,7 +510,7 @@ public final class BrowserActivity extends Activity {
     /** The request ids a saved state holds, into ids. */
     static void restoreOpened(Bundle state, Collection<String> ids) { ArrayList<String> kept = state.getStringArrayList(OPENED); if (kept != null) ids.addAll(kept); }
     private void saveDraft() {
-        if (request != null && draftTab != null && (engine == null || !engine.historyRestorePending())) DRAFTS.save(draftTab, draftConversation, request.getText().toString(), request.getSelectionStart(), request.getSelectionEnd());
+        if (request != null && draftTab != null && !draftTab.secret && (engine == null || !engine.historyRestorePending())) DRAFTS.save(draftTab, draftConversation, request.getText().toString(), request.getSelectionStart(), request.getSelectionEnd());
     }
     /** A transient draft follows this exact tab/conversation, never the last visible global input. */
     private void bindDraftScope() {
@@ -834,7 +851,8 @@ public final class BrowserActivity extends Activity {
      */
     private void submit(String visible, String text, boolean remember) {
         if (text.isBlank()) return;
-        if (remember && !engine.running() && engine.connected()) saveRecents(BrowserPrompts.remember(stored(), text));
+        boolean secret = engine.current != null && engine.current.secret; // a secret tab leaves no recent requests either
+        if (remember && !secret && !engine.running() && engine.connected()) saveRecents(BrowserPrompts.remember(stored(), text));
         run(visible, withMemory(text));
     }
     /** 기억: with it on, the notes the app keeps about the user that fit this request go along, marked as for the answer only. */
@@ -1081,6 +1099,8 @@ public final class BrowserActivity extends Activity {
         LinearLayout moves = ui.group();
         ui.addRow(moves, menuRow(R.drawable.ic_home, MUTED, "앱으로 돌아가기", true, this::leaveBrowser, sheet), true);
         ui.addRow(moves, menuRow(R.drawable.ic_layers, MUTED, "열린 탭 " + engine.tabs.size() + "개", true, this::tabs, sheet), true);
+        // 시크릿 탭: its own cookies and logins, nothing kept once it closes (no restore, no 대화 기록).
+        ui.addRow(moves, menuRow(R.drawable.ic_lock, MUTED, "새 시크릿 탭", engine.tabs.size() < 6, this::newSecretTab, sheet), true);
         boolean marked = dev.jun.gyeot.core.BrowserKit.bookmarked(engine.store.settings.getString(BOOKMARKS, ""), tab.url);
         ui.addRow(moves, menuRow(marked ? R.drawable.ic_heart_filled : R.drawable.ic_heart, Ui.PINK, marked ? "북마크에서 빼기" : "북마크에 추가", pageReady(tab), () -> toggleBookmark(tab), sheet), true);
         ui.addRow(moves, menuRow(R.drawable.ic_book, Ui.PINK, "북마크", true, this::bookmarks, sheet), true);
@@ -1605,7 +1625,11 @@ public final class BrowserActivity extends Activity {
                 }); }
             catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_SHORT).show(); }
         });
-        add.setContentDescription("새 탭 열기"); header.addView(add, new LinearLayout.LayoutParams(-2, ui.dp(48))); root.addView(header);
+        add.setContentDescription("새 탭 열기"); header.addView(add, new LinearLayout.LayoutParams(-2, ui.dp(48)));
+        Button secret = ui.smallChip("🕶 시크릿", () -> { overview.dismiss(); newSecretTab(); });
+        secret.setContentDescription("새 시크릿 탭 열기");
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-2, ui.dp(48)); sp.setMarginStart(ui.dp(6));
+        header.addView(secret, sp); root.addView(header);
         TextView subtitle = ui.text("", 13, 450, MUTED); subtitle.setPadding(ui.dp(20), 0, ui.dp(20), ui.dp(12)); root.addView(subtitle);
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setClipToPadding(false);
         LinearLayout cards = ui.column(); cards.setPadding(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(16)); scroll.addView(cards);
@@ -1624,6 +1648,7 @@ public final class BrowserActivity extends Activity {
             int count = engine.tabs.size(); heading.setText("탭 " + count);
             subtitle.setText(count >= 6 ? "탭은 최대 6개까지 열 수 있어요. 먼저 탭을 닫아 주세요." : "카드로 전환 · ×로 닫기");
             add.setEnabled(count < 6); add.setAlpha(count < 6 ? 1f : .38f);
+            secret.setEnabled(count < 6); secret.setAlpha(count < 6 ? 1f : .38f);
             android.content.res.Configuration config = getResources().getConfiguration();
             int cardWidth = Math.round(168 * Math.max(1f, config.fontScale));
             int columns = Math.max(1, Math.min(3, (config.screenWidthDp - 24) / cardWidth));
@@ -1631,7 +1656,7 @@ public final class BrowserActivity extends Activity {
             for (BrowserEngine.Tab tab : new ArrayList<>(engine.tabs)) {
                 if (index % columns == 0) { row = ui.row(); row.setGravity(Gravity.TOP); cards.addView(row, new LinearLayout.LayoutParams(-1, -2)); }
                 boolean selected = tab == engine.current;
-                String name = tab.title == null || tab.title.isBlank() ? host(tab.url) : tab.title;
+                String name = tabName(tab);
                 LinearLayout card = ui.column(); card.setPadding(ui.dp(3), ui.dp(3), ui.dp(3), ui.dp(3));
                 android.graphics.drawable.GradientDrawable surface = ui.shape(selected ? ACCENT_SOFT : CARD, 20); surface.setStroke(ui.dp(selected ? 2 : 1), selected ? ACCENT : FILL); card.setBackground(surface);
                 card.setMinimumHeight(ui.dp(228)); card.setSelected(selected); card.setContentDescription(name + ", " + host(tab.url) + (selected ? ", 현재 탭" : "") + ", 탭 열기");
@@ -1647,12 +1672,12 @@ public final class BrowserActivity extends Activity {
                 }), square()); card.addView(top);
                 // Chrome-like card hierarchy without saving screenshots of private page contents.
                 LinearLayout preview = ui.column(); preview.setGravity(Gravity.CENTER); preview.setPadding(ui.dp(12), ui.dp(18), ui.dp(12), ui.dp(16)); preview.setBackground(ui.shape(FILL, 16));
-                TextView monogram = ui.text(host(tab.url).isBlank() ? "W" : host(tab.url).substring(0, 1).toUpperCase(Locale.ROOT), 28, 650, selected ? ACCENT : MUTED);
+                TextView monogram = ui.text(tab.secret ? "🕶" : host(tab.url).isBlank() ? "W" : host(tab.url).substring(0, 1).toUpperCase(Locale.ROOT), 28, 650, selected ? ACCENT : MUTED);
                 monogram.setGravity(Gravity.CENTER); monogram.setBackground(ui.shape(selected ? ACCENT_SOFT : CARD, 99)); monogram.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
                 preview.addView(monogram, new LinearLayout.LayoutParams(ui.dp(60), ui.dp(60)));
                 TextView domain = ui.text(host(tab.url), 12, 450, MUTED); domain.setMaxLines(1); domain.setEllipsize(android.text.TextUtils.TruncateAt.END); domain.setGravity(Gravity.CENTER); domain.setPadding(0, ui.dp(12), 0, 0); preview.addView(domain, new LinearLayout.LayoutParams(-1, -2));
                 boolean ai = engine.aiWorking(tab);
-                TextView marker = ui.text(ai ? "AI 작업 중 · 열어서 보기·멈추기" : selected ? "✓ 현재 탭" : "탭 열기", 12, 650, selected || ai ? ACCENT : MUTED);
+                TextView marker = ui.text(ai ? "AI 작업 중 · 열어서 보기·멈추기" : selected ? (tab.secret ? "✓ 현재 탭 · 시크릿" : "✓ 현재 탭") : tab.secret ? "시크릿 · 닫으면 기록 없음" : "탭 열기", 12, 650, selected || ai ? ACCENT : MUTED);
                 if (ai) card.setContentDescription(name + ", AI 작업 중" + (selected ? ", 현재 탭" : "") + ", 탭 열기"); marker.setGravity(Gravity.CENTER); marker.setPadding(0, ui.dp(12), 0, 0); preview.addView(marker);
                 preview.setMinimumHeight(ui.dp(176)); card.addView(preview, new LinearLayout.LayoutParams(-1, -2));
                 LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, -2, 1); cp.setMargins(ui.dp(6), ui.dp(6), ui.dp(6), ui.dp(6)); row.addView(card, cp); index++;

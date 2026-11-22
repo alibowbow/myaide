@@ -127,6 +127,8 @@ final class MyTubePlayer {
                             if (json.optBoolean("ready")) {
                                 port = source;
                                 if (active()) { if (wantPlay) sendQuality("watch"); else send("pause"); }
+                                // Each YouTube page tells whether it is signed in: kept for 마이튜브 설정's 유튜브 로그인 line.
+                                if (!signingIn) send("account");
                                 // A YouTube page in the player (a Short above all): the page drops its own top bar.
                                 else if (browsing) send("browse");
                                 // Back on YouTube from Google's sign-in: is YouTube signed in now?
@@ -420,8 +422,13 @@ final class MyTubePlayer {
             store.phoneLog("마이튜브 · Google이 로그인을 거절함 · " + String.join(" → ", signInPath)); changed();
         }
     }
-    /** What YouTube said of its sign-in after Google's: signed in (back to the list), or not yet (the page stays). */
+    static final String ACCOUNT = "mytubeAccount", ACCOUNT_AT = "mytubeAccountAt";
+    /** The sign-in state YouTube last told (in, out, or "" when never), and when. */
+    String account() { return store.settings.getString(ACCOUNT, ""); }
+    long accountAt() { return store.settings.getLong(ACCOUNT_AT, 0); }
+    /** What YouTube said of its sign-in: kept for the settings line; after Google's sign-in, signed in (back to the list), or not yet. */
     private void signedIn(boolean in, boolean known) {
+        if (known) { store.settings.edit().putString(ACCOUNT, in ? "in" : "out").putLong(ACCOUNT_AT, System.currentTimeMillis()).apply(); changed(); }
         if (!signingIn) return;
         store.phoneLog("마이튜브 · 유튜브 로그인 " + (in ? "됨" : known ? "안 됨" : "확인 못 함") + " · " + String.join(" → ", signInPath));
         if (in) {

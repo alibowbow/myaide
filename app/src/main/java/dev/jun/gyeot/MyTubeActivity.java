@@ -1000,13 +1000,18 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private void buildSettings(LinearLayout content) {
         content.addView(ui.sectionHeader("재생"));
         LinearLayout group = ui.group();
-        ui.addRow(group, ui.listRow(R.drawable.ic_person, ACCENT, "유튜브 로그인", "AI 브라우저와 같은 로그인을 써요 · 프리미엄이면 광고 없이 재생돼요", ui.chevron(), () -> { player.signIn(); player.attach(screen); showPlayer(); }), true);
+        // What YouTube itself last said of the sign-in (each played page asks), so it is plain whether it took.
+        String account = player.account(); long at = player.accountAt(), ago = at <= 0 ? -1 : Math.max(0, System.currentTimeMillis() - at) / 60_000;
+        String when = ago < 0 ? "" : ago < 1 ? " · 방금 확인" : ago < 60 ? " · " + ago + "분 전 확인" : ago < 1_440 ? " · " + ago / 60 + "시간 전 확인" : " · " + ago / 1_440 + "일 전 확인";
+        String state = "in".equals(account) ? "✓ 로그인됨" + when : "out".equals(account) ? "로그인 안 됨" + when + " · 눌러서 로그인" : "확인 전 · 영상을 하나 틀면 로그인 여부를 확인해요";
+        ui.addRow(group, ui.listRow(R.drawable.ic_person, ACCENT, "유튜브 로그인", state, ui.chevron(), () -> { player.signIn(); player.attach(screen); showPlayer(); }), true);
         ui.addRow(group, ui.choiceRow("화질", "마이튜브 화질", "영상에 그 화질이 없으면 그보다 낮은 것 중 가장 좋은 화질로 틀어요", MyTube.QUALITY_LABELS,
             MyTube.qualityIndex(player.quality()), i -> player.quality(MyTube.QUALITY_CODES[i])), true);
         ui.addRow(group, ui.switchRow("화면 꺼져도 계속 재생", "유튜브 프리미엄 회원용 · 음악 앱처럼 화면을 끄거나 다른 앱으로 가도 이어서 나와요", player.background(),
             value -> { store.settings.edit().putBoolean(MyTubePlayer.BACKGROUND, value).apply(); if (value && player.playing()) MyTubeService.start(this); if (!value) MyTubeService.stop(this); }), false);
         content.addView(group);
-        content.addView(ui.footer("피드와 고른 목록, 좋아요는 이 휴대폰에만 저장돼요. 고르는 AI는 메인 대화의 AI예요. 재생은 유튜브 페이지 그대로라, 업로더가 막은 영상은 건너뛰어요."));
+        content.addView(ui.footer("유튜브 로그인은 AI 브라우저와 같은 로그인을 써요. 프리미엄이면 광고 없이 재생돼요(프리미엄 라이트는 음악 영상에 광고가 나오고 백그라운드 재생이 안 될 수 있어요). "
+            + "피드와 고른 목록, 좋아요는 이 휴대폰에만 저장돼요. 고르는 AI는 메인 대화의 AI예요. 재생은 유튜브 페이지 그대로라, 업로더가 막은 영상은 건너뛰어요."));
     }
 
     /** The quality sheet: the choices, and what this video has (or that it is chosen on the video itself). */

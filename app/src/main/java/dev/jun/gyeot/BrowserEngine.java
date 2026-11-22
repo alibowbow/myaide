@@ -153,7 +153,17 @@ final class BrowserEngine {
         volatile String conversationId = UUID.randomUUID().toString();
         long navigationEpoch;
         volatile boolean retained = true;
-        final GeckoSession session = new GeckoSession();
+        /**
+         * 시크릿 탭: Gecko's private mode, so cookies, logins and site data live apart from the other tabs and go with it; it is
+         * never restored, and its AI conversation is deleted when it closes.
+         */
+        final boolean secret;
+        final GeckoSession session;
+        Tab() { this(false); }
+        Tab(boolean secret) {
+            this.secret = secret;
+            session = secret ? new GeckoSession(new GeckoSessionSettings.Builder().usePrivateMode(true).build()) : new GeckoSession();
+        }
         final BrowserTaskContext task = new BrowserTaskContext();
         String unreadTask = "";
         JSONObject lastReadObservation; // ephemeral, same-document proof for public GET recovery only
@@ -595,7 +605,9 @@ final class BrowserEngine {
     boolean canManageConversations() { return !running() && pending(current) == null && !restorePending && tabsWritable && transcriptWritable; }
     boolean taskOnCurrentTab() { return true; }
     private void archiveConversation(Tab tab) {
-        if (tab != null) transcript.archive(tab.conversationId);
+        // A secret tab leaves no conversation behind; any other is kept in the 대화 기록.
+        if (tab != null && tab.secret) { try { transcript.delete(tab.conversationId); } catch (RuntimeException ignored) {} }
+        else if (tab != null) transcript.archive(tab.conversationId);
     }
     boolean deleteConversation(String id) { return deleteConversation(id, saved -> {}); }
     boolean deleteConversation(String id, Consumer<Boolean> callback) {
@@ -698,6 +710,8 @@ final class BrowserEngine {
         finally {
             disposed = true; workDownload = null; observer = null;
             List<Tab> closing = new ArrayList<>(tabs);
+            // Secret tabs are not restored: their conversations go now, not left behind unarchived.
+            for (Tab tab : closing) if (tab.secret) try { transcript.delete(tab.conversationId); } catch (RuntimeException ignored) {}
             for (Tab tab : closing) tab.retained = false;
             tabs.clear(); current = null;
             for (Tab tab : closing) {
@@ -799,18 +813,22 @@ final class BrowserEngine {
         refreshPosted = true;
         main.postDelayed(() -> { refreshPosted = false; if (observer != null) { observer.run(); settleDisplays(); } }, 16);
     }
-    Tab newTab(String url, boolean open) {
+    Tab newTab(String url, boolean open) { return newTab(url, open, false); }
+    /** A tab in private mode (시크릿 탭): nothing of it is kept once it closes. */
+    Tab newSecretTab(String url) { return newTab(url, true, true); }
+    Tab newTab(String url, boolean open, boolean secret) {
         BrowserTools.url(url);
         restoring = false;
-        Tab tab = addTab(url, open); persist(); return tab;
+        Tab tab = addTab(url, open, secret); persist(); return tab;
     }
     private boolean live(Tab tab) { return !disposed && tab != null && tabs.contains(tab); }
     boolean liveSession(GeckoSession session) { return !disposed && tabs.stream().anyMatch(tab -> tab.session == session); }
-    private Tab addTab(String url, boolean open) {
+    private Tab addTab(String url, boolean open) { return addTab(url, open, false); }
+    private Tab addTab(String url, boolean open, boolean secret) {
         if (disposed) throw new IllegalStateException("작업 브라우저가 종료됐어요.");
         if (workEngine && tabs.size() >= 2) throw new IllegalStateException("작업별 탭은 2개까지 열 수 있어요. 별도 병렬 작업을 사용해 주세요.");
         if (tabs.size() >= 6) throw new IllegalStateException("탭은 6개까지 열 수 있어요. 사용하지 않는 탭을 닫아 주세요.");
-        Tab tab = new Tab(); tab.url = BrowserTools.url(url); tabs.add(tab); current = tab; viewEpoch++;
+        Tab tab = new Tab(secret); tab.url = BrowserTools.url(url); tabs.add(tab); current = tab; viewEpoch++;
         tab.session.setPromptDelegate(gatedPrompts);
         tab.session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
             @Override public GeckoResult<AllowOrDeny> onLoadRequest(GeckoSession session, LoadRequest request) {
@@ -1307,6 +1325,7 @@ final class BrowserEngine {
         }
         JSONArray urls = arr();
         for (Tab tab : tabs) try {
+            if (tab.secret) continue; // never restored
             URI u = URI.create(BrowserTools.url(tab.url));
             boolean login = BrowserTools.googleLogin(tab.url);
             // Keep interrupted task memory, never the authentication URL, query or redirect token.
