@@ -179,9 +179,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         recommendLine.addView(chipScroll, new LinearLayout.LayoutParams(0, -2, 1));
         lensButton = ui.bareIcon(R.drawable.ic_search, TEXT, "유튜브 검색 열기", this::openSearch);
         LinearLayout.LayoutParams lensAt = new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)); lensAt.leftMargin = ui.dp(4); recommendLine.addView(lensButton, lensAt);
-        LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); chipGap.topMargin = ui.dp(4); feedRows.addView(recommendLine, chipGap);
+        // The three lines (the video's buttons, 추천, 저장) close together: the chips' own height keeps them apart.
+        LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); feedRows.addView(recommendLine, chipGap);
         savedChips = ui.row(); savedChips.setGravity(Gravity.CENTER_VERTICAL); HorizontalScrollView savedScroll = new HorizontalScrollView(this); savedScroll.setHorizontalScrollBarEnabled(false); savedScroll.addView(savedChips);
-        LinearLayout.LayoutParams savedGap = new LinearLayout.LayoutParams(-1, -2); savedGap.topMargin = ui.dp(6); feedRows.addView(savedScroll, savedGap);
+        LinearLayout.LayoutParams savedGap = new LinearLayout.LayoutParams(-1, -2); savedGap.topMargin = ui.dp(-4); feedRows.addView(savedScroll, savedGap);
         content.addView(feedRows, new LinearLayout.LayoutParams(-1, -2));
         header = ui.title("", 17); header.setPadding(0, ui.dp(12), 0, 0); content.addView(header);
         about = ui.label("", 13, MUTED); about.setPadding(0, ui.dp(2), 0, 0); content.addView(about);
@@ -261,7 +262,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         // search box and the 추천 · 저장 rows, in the room left there; the list on its own beside it. Otherwise each in its place:
         // what plays at the top of the list, the search box over it, the rows before the feed's heading.
         LinearLayout.LayoutParams card = new LinearLayout.LayoutParams(-1, -2); card.setMargins(ui.dp(16), ui.dp(4), ui.dp(16), 0);
-        LinearLayout.LayoutParams rows = new LinearLayout.LayoutParams(-1, -2); rows.setMargins(ui.dp(16), ui.dp(2), ui.dp(16), ui.dp(12));
+        LinearLayout.LayoutParams rows = new LinearLayout.LayoutParams(-1, -2); rows.setMargins(ui.dp(16), 0, ui.dp(16), ui.dp(12));
         place(playerCard, under ? underVideo : content, 0, under ? card : new LinearLayout.LayoutParams(-1, -2));
         place(searchBar, tools ? underVideo : listPane, tools ? underVideo.indexOfChild(playerCard) + 1 : 0, new LinearLayout.LayoutParams(-1, -2));
         place(feedRows, tools ? underVideo : content, tools ? underVideo.indexOfChild(searchBar) + 1 : content.indexOfChild(header), tools ? rows : new LinearLayout.LayoutParams(-1, -2));
@@ -313,7 +314,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         stage.addView(leave, leaveAt);
         videoPane.addView(stage, new LinearLayout.LayoutParams(-1, -2));
         viewMode = lastView = "side".equals(store.settings.getString(VIEW, "wide")) ? "side" : "wide";
-        playerCard = ui.column(); playerCard.setVisibility(View.GONE); playerCard.setPadding(0, ui.dp(2), 0, ui.dp(8));
+        playerCard = ui.column(); playerCard.setVisibility(View.GONE); playerCard.setPadding(0, ui.dp(2), 0, ui.dp(2));
         nowTitle = ui.text("", 14, 650, TEXT); nowTitle.setMaxLines(2); nowTitle.setEllipsize(TextUtils.TruncateAt.END);
         nowLine = ui.label("", 12, MUTED); nowLine.setMaxLines(3);
         playerCard.addView(nowTitle); playerCard.addView(nowLine);
@@ -382,7 +383,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         videoPane.addView(underScroll, new LinearLayout.LayoutParams(-1, -2));
         // The picture quality, as chosen and as it plays now.
         qualityChip = ui.smallChip("화질", this::chooseQuality);
-        LinearLayout qualityRow = ui.row(); qualityRow.setGravity(Gravity.CENTER); qualityRow.setPadding(0, ui.dp(6), 0, 0);
+        LinearLayout qualityRow = ui.row(); qualityRow.setGravity(Gravity.CENTER); qualityRow.setPadding(0, ui.dp(4), 0, 0);
         qualityRow.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
         // 좋아요 is not offered here any more (the AI learns from 안 볼래요 and what is watched); kept off the row.
         heart = withIcon(ui.smallChip("좋아요", () -> player.like()), R.drawable.ic_heart); heart.setVisibility(View.GONE);
