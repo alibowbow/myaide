@@ -155,7 +155,7 @@ final class MyTubeChat {
             return new String[]{roster.label(engine, id), level};
         } catch (Exception unavailable) { return new String[]{"AI 연결·선택", ""}; }
     }
-    private static String effortWord(String engine, String effort) {
+    static String effortWord(String engine, String effort) {
         return dev.jun.gyeot.core.WorkBook.CHATGPT.equals(engine) ? dev.jun.gyeot.core.Reasoning.gptShortLabel(effort)
             : dev.jun.gyeot.core.WorkBook.CLAUDE.equals(engine) ? dev.jun.gyeot.core.Reasoning.claudeLabel(effort) : MainActivity.effortName(effort);
     }

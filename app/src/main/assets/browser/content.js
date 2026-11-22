@@ -432,6 +432,16 @@
       v.addEventListener('pause',()=>{ if(!v.ended) mytubeSay(connection,'paused',{ad:mytubeAd()}); });
       v.addEventListener('error',()=>mytubeSay(connection,'error'));
     }
+    // Already playing when the listener came (YouTube started it by itself first): told now, so the app does not wait for a
+    // 'playing' that has passed and call it stuck.
+    if (!mytubeStarted) {
+      const api=mytubeApi(), state=api?mytubeCall(api,'getPlayerState'):null;
+      if ((v && !v.paused && !v.ended && v.readyState>2) || state===1) {
+        mytubeStarted=true; mytubeStuck=false;
+        if (!mytubeAd() && mytubeQualityFor!==mytubeFor) mytubeApplyQuality(connection);
+        mytubeSay(connection,'playing',{ad:mytubeAd()});
+      }
+    }
     if (mytubeWant!=='play' || mytubeStarted) { if (mytubeStarted && !mytubeAd()) mytubeReport(connection); return; }
     mytubeStart(v);
     if (!mytubeStuck && Date.now()-mytubeSince>15000) {
