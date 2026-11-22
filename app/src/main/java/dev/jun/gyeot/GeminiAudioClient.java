@@ -68,17 +68,20 @@ final class GeminiAudioClient {
     private static String generate(String key, String[] models, JSONObject request, java.util.function.Function<JSONObject, String> answer,
                                    Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
         guard.run(); byte[] body = request.toString().getBytes(StandardCharsets.UTF_8); Exception last = null;
-        for (String model : models) {
+        // In the given order, leaving out models whose free quota is used up or resting now (GeminiQuotas).
+        for (String model : GeminiQuotas.order(models)) {
             guard.run();
             try (Bound bound = new Bound(open("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent", "POST", key, 600_000), guard, cancel)) {
                 HttpURLConnection connection = bound.connection;
                 connection.setDoOutput(true); connection.setFixedLengthStreamingMode(body.length); connection.setRequestProperty("Content-Type", "application/json");
                 try (OutputStream output = connection.getOutputStream()) { transfer(new ByteArrayInputStream(body), output, guard, body.length); }
                 guard.run(); int status = connection.getResponseCode(); guard.run(); JSONObject json = json(connection, status, guard);
-                if (status == 200) { guard.run(); return answer.apply(json); }
+                if (status == 200) { GeminiQuotas.used(model); guard.run(); return answer.apply(json); }
                 JSONObject error = json.optJSONObject("error"); String message = error == null ? "" : error.optString("message");
                 IllegalStateException failure = new IllegalStateException(GeminiProtocol.explain(status + " " + message));
-                guard.run(); if (!GeminiSearch.tryNext(status, message) && status != 400) throw failure; last = failure;
+                guard.run(); last = failure;
+                if (GeminiQuotas.refused(model, status, json.toString())) continue;
+                if (!GeminiSearch.tryNext(status, message) && status != 400) throw failure;
             }
         }
         guard.run(); throw last != null ? last : new IllegalStateException("녹음을 처리할 모델을 찾지 못했어요.");

@@ -402,10 +402,16 @@ final class AppStore {
         return switch (brain()) { case "gpt" -> openai.connected(); case "claude" -> claude.connected(); case "gemini" -> secrets.hasKey(); case "nim" -> nim.connected(); default -> false; };
     }
     String brainName() { return switch (brain()) { case "claude" -> "Claude"; case "gemini" -> "Gemini Flash"; case "none" -> "없음"; case "nim" -> dev.jun.gyeot.core.NimProtocol.label(nim.model()); default -> "ChatGPT"; }; }
-    /** Gemini Flash brain's per-model use today and the free quotas it ran into (core/GeminiThink). */
-    synchronized org.json.JSONObject flashState() { try { return new org.json.JSONObject(settings.getString("flashBrain", "{}")); } catch (Exception e) { return new org.json.JSONObject(); } }
-    synchronized void changeFlash(java.util.function.Consumer<org.json.JSONObject> change) {
-        org.json.JSONObject state = flashState(); change.accept(state); settings.edit().putString("flashBrain", state.toString()).apply(); changed();
+    /**
+     * Gemini 무료 한도: what the app's own Gemini calls used of each model's free tier today (core/GeminiQuota), shared by
+     * search, titles, attachments, recordings, video summaries and the Gemini brain (GeminiQuotas).
+     */
+    synchronized org.json.JSONObject geminiQuota() { try { return new org.json.JSONObject(settings.getString("geminiQuota", "{}")); } catch (Exception e) { return new org.json.JSONObject(); } }
+    /** Changes it in one step; listeners hear of it only when told (a count on every answer would redraw every screen). */
+    synchronized <T> T changeGeminiQuota(java.util.function.Function<org.json.JSONObject, T> change, boolean tell) {
+        org.json.JSONObject state = geminiQuota(); T result = change.apply(state); settings.edit().putString("geminiQuota", state.toString()).apply();
+        if (tell) changed();
+        return result;
     }
     /**
      * Who takes the longer work (작업창, analysis tasks, recording summaries): "chatgpt", "claude" or "gemini", as chosen when

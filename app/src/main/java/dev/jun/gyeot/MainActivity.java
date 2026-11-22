@@ -3981,9 +3981,8 @@ public final class MainActivity extends Activity {
             default -> ui.chip("ChatGPT 연결하기", () -> openSettings("chatgpt"));
         }), 0);
         if (chosen.equals("gemini")) {
-            String today = dev.jun.gyeot.core.GeminiThink.day(java.time.Instant.now());
-            TextView used = ui.label("오늘: " + dev.jun.gyeot.core.GeminiThink.summary(store.flashState(), today), 12, ACCENT); used.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), 0); add(used, 0);
-            add(ui.details("무료 한도와 모델 순서", "Flash 최신 → 2.5 Flash → Flash-Lite 최신 → 2.5 Flash-Lite 순서로 써요. 무료 하루 한도가 차면 다음 모델로 넘어가고, 한도는 미국 서부 자정(한국 오후 4~5시)에 다시 채워져요."), 0);
+            TextView used = ui.label("오늘: " + dev.jun.gyeot.core.GeminiQuota.summary(store.geminiQuota(), dev.jun.gyeot.core.GeminiThink.MODELS, System.currentTimeMillis()), 12, ACCENT); used.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), 0); add(used, 0);
+            add(ui.details("무료 한도와 모델 순서", "Flash 최신 → 2.5 Flash(하루 20번씩) → 3.5 Flash-Lite → 3.1 Flash-Lite(하루 500번씩) → Flash-Lite 최신 순서로 써요. 무료 하루 한도가 차거나 분당 한도에 걸리면 다음 모델로 넘어가고, 한도는 미국 서부 자정(한국 오후 4~5시)에 다시 채워져요. 앱의 검색·영상 요약 같은 다른 Gemini 사용과 한도를 함께 세요(설정 → 사용량)."), 0);
             add(ui.actions(ui.chip("내 키의 무료 한도 보기", () -> open("https://aistudio.google.com/rate-limit"))), 0);
         }
         if (chosen.equals("nim") && ready) { TextView nim = ui.quietRow("NVIDIA NIM 설정 열기 ›", () -> openSettings("nim")); nim.setPadding(ui.dp(16), 0, ui.dp(16), 0); add(nim, 0); }

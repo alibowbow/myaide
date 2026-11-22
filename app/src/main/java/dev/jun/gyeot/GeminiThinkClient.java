@@ -7,7 +7,6 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import org.json.JSONObject;
 
 /** Gemini Flash as the brain: one generateContent request on the best model whose free quota is left. Blocking; call it off the main thread. */
@@ -18,9 +17,9 @@ final class GeminiThinkClient {
     /** cancel, when given, always holds an action that aborts the request in flight (safe from any thread). */
     static Answer ask(AppStore store, String key, String instructions, String input, java.util.concurrent.atomic.AtomicReference<Runnable> cancel) throws Exception {
         byte[] body = GeminiThink.request(instructions, input).toString().getBytes(StandardCharsets.UTF_8);
-        String today = GeminiThink.day(Instant.now());
         Exception last = null;
-        for (String model : GeminiThink.order(store.flashState(), today)) {
+        // Best first, leaving out models whose free quota is used up or resting now (GeminiQuotas, shared with the app's other Gemini calls).
+        for (String model : GeminiQuotas.order(GeminiThink.MODELS)) {
             HttpURLConnection connection = (HttpURLConnection) URI.create(GeminiThink.url(model)).toURL().openConnection();
             if (cancel != null) cancel.set(connection::disconnect);
             try {
@@ -35,17 +34,14 @@ final class GeminiThinkClient {
                 JSONObject json; try { json = new JSONObject(text); } catch (Exception e) { json = new JSONObject(); }
                 if (status == 200) {
                     String answer = GeminiThink.answer(json);
-                    store.changeFlash(state -> GeminiThink.used(state, model, today));
+                    GeminiQuotas.used(model);
                     return new Answer(answer, model);
                 }
                 JSONObject error = json.optJSONObject("error");
                 String message = error == null ? "" : error.optString("message");
                 last = new IllegalStateException(GeminiProtocol.explain(status + " " + message));
                 // The whole error body: the per-day quota id sits in its details, not always in the message.
-                String quota = GeminiThink.quota(status, text);
-                if (quota.equals("day")) { int limit = GeminiThink.limit(text); store.changeFlash(state -> GeminiThink.full(state, model, today, limit)); continue; }
-                if (quota.equals("minute") || status >= 500) continue;
-                if (GeminiThink.missing(status, message)) { store.changeFlash(state -> GeminiThink.missing(state, model)); continue; }
+                if (GeminiQuotas.refused(model, status, text) || status >= 500) continue;
                 throw (IllegalStateException) last;
             } finally { connection.disconnect(); if (cancel != null) cancel.set(null); }
         }

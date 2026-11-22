@@ -25,7 +25,8 @@ final class GeminiSearchClient {
         if (java.util.Arrays.asList(GeminiSearch.MODELS).contains(model(store))) models.add(model(store));
         for (String model : GeminiSearch.MODELS) if (!models.contains(model)) models.add(model);
         Exception last = null;
-        for (String model : models) {
+        // Leaving out models whose free quota is used up or resting now (GeminiQuotas).
+        for (String model : GeminiQuotas.order(models.toArray(new String[0]))) {
             HttpURLConnection connection = (HttpURLConnection) URI.create(GeminiSearch.url(model)).toURL().openConnection();
             try {
                 connection.setInstanceFollowRedirects(false); connection.setConnectTimeout(15_000); connection.setReadTimeout(30_000);
@@ -38,6 +39,7 @@ final class GeminiSearchClient {
                 String text = input == null ? "" : OpenAiAccount.Http.read(input, 2 * 1024 * 1024);
                 JSONObject json; try { json = new JSONObject(text); } catch (Exception e) { json = new JSONObject(); }
                 if (status == 200) {
+                    GeminiQuotas.used(model);
                     GeminiSearch.Result result = GeminiSearch.parse(json);
                     if (!model.equals(model(store))) store.settings.edit().putString("searchModel", model).apply();
                     return result;
@@ -45,8 +47,9 @@ final class GeminiSearchClient {
                 JSONObject error = json.optJSONObject("error");
                 String message = error == null ? "" : error.optString("message");
                 IllegalStateException failure = new IllegalStateException(GeminiProtocol.explain(status + " " + message));
-                if (!GeminiSearch.tryNext(status, message)) throw failure;
                 last = failure;
+                if (GeminiQuotas.refused(model, status, text)) continue;
+                if (!GeminiSearch.tryNext(status, message)) throw failure;
             } finally { connection.disconnect(); }
         }
         throw last != null ? last : new IllegalStateException("검색할 모델을 찾지 못했어요.");
