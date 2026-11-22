@@ -227,11 +227,13 @@ final class VideoAskPanel {
         wrap.addView(answer, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout foot = ui.row(); foot.setGravity(Gravity.CENTER_VERTICAL);
         String text = turn.shown();
-        foot.addView(ui.footIcon(R.drawable.ic_copy, "복사", () -> {
+        // Small icons: a 16dp mark in a 36dp target, quiet under the text.
+        ImageView copy = ui.footIcon(R.drawable.ic_copy, "복사", () -> {
             activity.getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("영상 답", text));
             Toast.makeText(activity, "복사했어요", Toast.LENGTH_SHORT).show();
-        }));
-        if (last) foot.addView(ui.footIcon(R.drawable.ic_refresh, "다시 답하기", this::again));
+        });
+        copy.setPadding(ui.dp(10), ui.dp(10), ui.dp(10), ui.dp(10)); foot.addView(copy, new LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)));
+        if (last) { ImageView redo = ui.footIcon(R.drawable.ic_refresh, "다시 답하기", this::again); redo.setPadding(ui.dp(10), ui.dp(10), ui.dp(10), ui.dp(10)); foot.addView(redo, new LinearLayout.LayoutParams(ui.dp(36), ui.dp(36))); }
         if (!turn.by().isEmpty()) { TextView who = ui.text(turn.by(), FOOTNOTE, 450, MUTED); who.setPadding(ui.dp(6), 0, 0, 0); foot.addView(who); }
         wrap.addView(foot, new LinearLayout.LayoutParams(-2, -2));
         if (!turn.note().isEmpty()) { TextView note = ui.text(turn.note(), FOOTNOTE, 450, MUTED); note.setPadding(ui.dp(4), 0, 0, 0); wrap.addView(note, new LinearLayout.LayoutParams(-1, -2)); }

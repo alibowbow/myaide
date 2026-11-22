@@ -395,7 +395,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         // 좋아요 is not offered here any more (the AI learns from 안 볼래요 and what is watched); kept off the row.
         heart = withIcon(ui.smallChip("좋아요", () -> player.like()), R.drawable.ic_heart); heart.setVisibility(View.GONE);
         // 안 볼래요: only its ✕, at the end of the row right of 저장 (its name for long press and TalkBack).
-        skipChip = withIcon(ui.smallChip("", () -> player.skip()), R.drawable.ic_close); skipChip.setCompoundDrawablePadding(0);
+        skipChip = withIcon(ui.smallChip("", this::confirmSkip), R.drawable.ic_close); skipChip.setCompoundDrawablePadding(0);
         skipChip.setContentDescription("안 볼래요 · 다음 추천에서 빼고 다음 영상"); skipChip.setTooltipText("안 볼래요");
         qualityRow.addView(qualityChip, new LinearLayout.LayoutParams(-2, -2));
         // 배속: 0.5× to 2×, kept for the next videos.
@@ -1289,6 +1289,14 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     }
 
     /** The quality sheet: the choices, and what this video has (or that it is chosen on the video itself). */
+    /** ✕ (안 볼래요) asks once, so a stray tap does not drop the video. */
+    private void confirmSkip() {
+        if (player.current() == null) return;
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this).setTitle("삭제하시겠습니까?")
+            .setMessage("이 영상을 다음 추천에서 빼고 다음 영상으로 넘어가요.")
+            .setNegativeButton("취소", null).setPositiveButton("삭제", (d, w) -> player.skip()).create();
+        dialogs.add(dialog); dialog.setOnDismissListener(d -> dialogs.remove(dialog)); dialog.show();
+    }
     /** 화질: a small menu at the button; a video whose quality the app cannot set says so instead. */
     private void chooseQuality() {
         if (!player.qualitySettable()) { toast("이 영상은 앱에서 화질을 바꿀 수 없어요 · 영상 화면의 ⚙에서 바꿔 주세요"); return; }
