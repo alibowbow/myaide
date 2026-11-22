@@ -25,7 +25,7 @@ import static dev.jun.gyeot.Ui.*;
 
 /**
  * 이 동영상에 대해 물어보세요, as YouTube shows it: a panel in place of the list under the video (beside it, side by side),
- * the video playing on above. At its top the title and ✕; then the conversation, starting with a summary in the way last
+ * the video playing on above. At its top a slim bar of the suggestions and ✕ (no title line); then the conversation, starting with a summary in the way last
  * chosen and the suggestions (타임라인 요약 · 일반 요약 · 대본 보기); at its foot the composer of 작업창 and 마이튜브 AI — the
  * words, the model with its thinking level (ModelPopover), 음성 입력 and the round button. Summaries come from Gemini watching
  * the video; questions go to the AI and model chosen here, with the summaries, the transcript when there is one and the
@@ -49,13 +49,27 @@ final class VideoAskPanel {
 
     VideoAskPanel(Activity activity, Ui ui, AppStore store, ExecutorService work, android.os.Handler main, Host host) {
         this.activity = activity; this.ui = ui; this.store = store; this.work = work; this.main = main; this.host = host;
-        view = ui.column(); view.setBackgroundColor(BG); view.setVisibility(View.GONE);
-        // The title and ✕, a hairline under them.
-        LinearLayout header = ui.row(); header.setGravity(Gravity.CENTER_VERTICAL); header.setPadding(ui.dp(18), ui.dp(6), ui.dp(6), ui.dp(6));
-        TextView title = ui.text("이 동영상에 대해 물어보세요", 19, 720, TEXT); title.setSingleLine(true); title.setEllipsize(TextUtils.TruncateAt.END); title.setAccessibilityHeading(true);
-        header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        header.addView(ui.bareIcon(R.drawable.ic_close, TEXT, "닫기", this::close), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
-        view.addView(header, new LinearLayout.LayoutParams(-1, -2));
+        // Its own card, set apart from the page: the card color, rounded, a hairline around it and a soft lift.
+        view = ui.column(); view.setVisibility(View.GONE);
+        android.graphics.drawable.GradientDrawable surface = ui.shape(CARD, 20); surface.setStroke(Math.max(1, ui.dp(1)), SEPARATOR);
+        view.setBackground(surface); view.setClipToOutline(true); view.setElevation(ui.dp(3));
+        // No title line: the summary chips and ✕ in one slim bar at the top, a hairline under them.
+        LinearLayout top = ui.row(); top.setGravity(Gravity.CENTER_VERTICAL); top.setPadding(ui.dp(12), ui.dp(2), ui.dp(4), ui.dp(2));
+        HorizontalScrollView strip = new HorizontalScrollView(activity); strip.setHorizontalScrollBarEnabled(false);
+        LinearLayout chips = ui.row(); chips.setGravity(Gravity.CENTER_VERTICAL); strip.addView(chips);
+        for (String each : new String[]{VideoChat.TIMELINE, VideoChat.PLAIN}) {
+            Button chip = ui.smallChip(each, () -> {
+                if (busy || video == null) return;
+                store.settings.edit().putBoolean("mytubeTimeline", VideoChat.TIMELINE.equals(each)).apply();
+                ask(VideoChat.Turn.user(each, VideoChat.request(video, each), true));
+            });
+            LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-2, -2); at.rightMargin = ui.dp(6); chips.addView(chip, at);
+        }
+        Button script = ui.smallChip("대본 보기", null); script.setOnClickListener(x -> transcriptSheet(script));
+        chips.addView(script, new LinearLayout.LayoutParams(-2, -2));
+        top.addView(strip, new LinearLayout.LayoutParams(0, -2, 1));
+        top.addView(ui.bareIcon(R.drawable.ic_close, TEXT, "닫기", this::close), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
+        view.addView(top, new LinearLayout.LayoutParams(-1, -2));
         View line = new View(activity); line.setBackgroundColor(SEPARATOR); view.addView(line, new LinearLayout.LayoutParams(-1, Math.max(1, ui.dp(.5f))));
         // The conversation.
         scroll = new ScrollView(activity); scroll.setFillViewport(true); scroll.setClipToPadding(false);
@@ -118,19 +132,6 @@ final class VideoAskPanel {
     /** The suggestions, the turns and what is being made, then to the newest; the model and the button as they are now. */
     private void draw() {
         talk.removeAllViews();
-        HorizontalScrollView strip = new HorizontalScrollView(activity); strip.setHorizontalScrollBarEnabled(false);
-        LinearLayout chips = ui.row(); strip.addView(chips);
-        for (String each : new String[]{VideoChat.TIMELINE, VideoChat.PLAIN}) {
-            Button chip = ui.chip(each, () -> {
-                if (busy || video == null) return;
-                store.settings.edit().putBoolean("mytubeTimeline", VideoChat.TIMELINE.equals(each)).apply();
-                ask(VideoChat.Turn.user(each, VideoChat.request(video, each), true));
-            });
-            LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-2, -2); at.rightMargin = ui.dp(8); chips.addView(chip, at);
-        }
-        Button script = ui.chip("대본 보기", null); script.setOnClickListener(x -> transcriptSheet(script));
-        chips.addView(script, new LinearLayout.LayoutParams(-2, -2));
-        talk.addView(strip, new LinearLayout.LayoutParams(-1, -2));
         List<VideoChat.Turn> shown; synchronized (CHATS) { shown = new ArrayList<>(turns); }
         for (int i = 0; i < shown.size(); i++) {
             VideoChat.Turn turn = shown.get(i);

@@ -280,7 +280,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         listPane.setLayoutParams(side ? new LinearLayout.LayoutParams(0, -1, 1) : new LinearLayout.LayoutParams(-1, 0, 1));
         // 이 동영상에 대해 물어보세요 takes the list's place (beside the video, side by side) while it is open.
         listPane.setVisibility(full || asking ? View.GONE : View.VISIBLE);
-        if (askPanel != null) { askPanel.view.setLayoutParams(side ? new LinearLayout.LayoutParams(0, -1, 1) : new LinearLayout.LayoutParams(-1, 0, 1)); askPanel.view.setVisibility(asking ? View.VISIBLE : View.GONE); }
+        if (askPanel != null) {
+            LinearLayout.LayoutParams panelAt = side ? new LinearLayout.LayoutParams(0, -1, 1) : new LinearLayout.LayoutParams(-1, 0, 1);
+            panelAt.setMargins(ui.dp(8), ui.dp(4), ui.dp(8), ui.dp(8)); askPanel.view.setLayoutParams(panelAt); askPanel.view.setVisibility(asking ? View.VISIBLE : View.GONE); }
         controlsRow.setVisibility(full || typing ? View.GONE : View.VISIBLE); gripView.setVisibility(fill || typing || shorts ? View.GONE : View.VISIBLE); exitFull.setVisibility(full ? View.VISIBLE : View.GONE);
         // The search box in use: 마이튜브에게 말하기 steps aside, so it never covers the box; it comes back when the search ends.
         if (chat != null) chat.composer.setVisibility(full || searching || asking ? View.GONE : View.VISIBLE);
