@@ -58,6 +58,10 @@ final class GeminiAudioClient {
     static String summarize(String key, String instructions, String transcript) throws Exception {
         return generate(key, GeminiSearch.MODELS, GeminiAudio.text(instructions, transcript), GeminiAudio::answer, () -> {}, null);
     }
+    /** As above, bound to a run's guard and its stop. */
+    static String summarize(String key, String instructions, String transcript, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        return generate(key, GeminiSearch.MODELS, GeminiAudio.text(instructions, transcript), GeminiAudio::answer, guard, cancel);
+    }
     /**
      * Light work (대화 제목, 기억 추출): Gemma 4 first, for its 14,400 free requests a day, and Gemini Flash-Lite when Gemma
      * cannot take it now (GeminiLight). The instructions go in the one user turn.

@@ -254,47 +254,56 @@ final class VideoAskPanel {
         busy = true; halted = false; error = "";
         waiting.setText(question.summary() ? "Gemini가 영상을 보는 중" : "생각하는 중"); draw();
         work.execute(() -> {
-            String said = null, failure = null, watched = "";
+            String said = null, failure = null;
             String[] by = {""};
             Runnable guard = () -> { if (halted || mine != generation || host.gone()) throw new java.util.concurrent.CancellationException("멈췄어요."); };
-            if (question.summary()) {
-                // Gemini watches the video by its address itself (Flash-Lite's free tier: 500 a day), no transcript needed.
-                try {
-                    String key = store.secrets.workKey();
-                    if (key.isBlank()) watched = "Gemini API 키가 없어서";
-                    else { said = GeminiAudioClient.watchYouTube(key, VideoChat.watch(v, List.of(question)), guard, stop); by[0] = "Gemini"; }
-                } catch (java.util.concurrent.CancellationException stopped) { failure = "멈췄어요."; }
-                catch (Exception e) { watched = "Gemini가 영상을 직접 보지 못해서" + (e.getMessage() == null || e.getMessage().isBlank() ? "" : " (" + e.getMessage() + ")"); }
-            }
-            if (halted) failure = "멈췄어요.";
-            if ((said == null || said.isBlank()) && failure == null) try {
+            String gemini; try { gemini = store.secrets.workKey(); } catch (Exception e) { gemini = ""; }
+            String[] how = {""};
+            try {
+                // The transcript first (kept, or read now): far fewer tokens than the video, and it carries the times.
                 if (transcript == null) {
-                    String note = watched;
-                    if (question.summary()) status(mine, note + " 대본을 가져오는 중");
+                    status(mine, "대본을 가져오는 중");
                     if (!YouTubeTranscriptClient.kept(activity, v.id()))
-                        YouTubeTranscriptClient.block(activity, v.id(), () -> halted || mine != generation, step -> { if (question.summary()) status(mine, step); }, stop);
-                    // Only a transcript really kept (from YouTube, or written down by Gemini on 대본 보기); without one a question still goes.
+                        YouTubeTranscriptClient.block(activity, v.id(), () -> halted || mine != generation, step -> status(mine, step), stop);
+                    // Only a transcript really kept (from YouTube, or written down by Gemini on 대본 보기).
                     String kept = YouTubeTranscriptClient.saved(activity, v.id());
                     transcript = kept.length() <= TRANSCRIPT_CHARS ? kept : kept.substring(0, TRANSCRIPT_CHARS) + "\n…(대본이 길어 앞부분만)";
                 }
-                if (question.summary() && transcript.isBlank()) throw new java.io.IOException("이 영상의 대본을 가져오지 못했어요.");
+                guard.run();
                 if (question.summary()) {
-                    status(mine, "AI가 정리하는 중");
-                    said = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.TRANSCRIPT, VideoChat.transcriptInput(v, transcript, List.of(question)), stop, name -> by[0] = name);
+                    boolean timeline = VideoChat.TIMELINE.equals(question.shown());
+                    String textFail = "", watchFail = "";
+                    // 1. Gemini Flash-Lite sums up the transcript.
+                    if (!transcript.isBlank() && !gemini.isBlank()) try {
+                        status(mine, "Gemini가 대본을 정리하는 중");
+                        said = GeminiAudioClient.summarize(gemini, VideoChat.transcriptSummary(timeline), MyTube.summaryInput(v, transcript), guard, stop); by[0] = "Gemini · 대본";
+                    } catch (java.util.concurrent.CancellationException stopped) { throw stopped; } catch (Exception e) { textFail = reason(e); }
+                    // 2. No transcript: Gemini watches the video itself.
+                    if ((said == null || said.isBlank()) && transcript.isBlank() && !gemini.isBlank()) try {
+                        status(mine, "Gemini가 영상을 보는 중");
+                        said = GeminiAudioClient.watchYouTube(gemini, VideoChat.watch(v, List.of(question)), guard, stop); by[0] = "Gemini · 영상";
+                    } catch (java.util.concurrent.CancellationException stopped) { throw stopped; } catch (Exception e) { watchFail = reason(e); }
+                    // 3. Gemini could not: the AI chosen here, from the transcript.
+                    if ((said == null || said.isBlank()) && !transcript.isBlank()) {
+                        status(mine, "AI가 정리하는 중");
+                        said = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.transcriptSummary(timeline), MyTube.summaryInput(v, transcript), stop, name -> by[0] = name);
+                        how[0] = "Gemini가 정리하지 못해 고른 AI가 대본으로 정리했어요" + (gemini.isBlank() ? " · Gemini API 키가 없어요" : textFail.isEmpty() ? "" : " · " + textFail);
+                        store.phoneLog("마이튜브 · 영상 요약 · " + how[0]);
+                    }
+                    if (said == null || said.isBlank()) throw new java.io.IOException(!transcript.isBlank() ? "요약하지 못했어요."
+                        : gemini.isBlank() ? "대본을 가져오지 못했고, 영상을 직접 볼 Gemini API 키도 없어요."
+                        : "대본을 가져오지 못했고, Gemini가 영상을 직접 보지도 못했어요" + (watchFail.isEmpty() ? "." : " · " + watchFail));
                 } else said = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.CHAT, VideoChat.chatInput(v, transcript, sent), stop,
                     name -> { by[0] = name; status(mine, name + " 생각하는 중"); });
             } catch (java.util.concurrent.CancellationException stopped) { said = null; failure = "멈췄어요."; }
-            catch (Exception e) { said = null; failure = (watched.isEmpty() ? "" : watched + " 대본으로 정리하려 했지만 안 됐어요. ") + (e.getMessage() == null ? "답하지 못했어요." : e.getMessage()); }
-            // A summary the chosen AI made from the transcript: said so under it, with why Gemini could not watch.
-            String reason = watched.replaceFirst("^Gemini가 영상을 직접 보지 못해서\\s*", "").replaceAll("^\\((.*)\\)$", "$1").strip();
-            String how = question.summary() && !"Gemini".equals(by[0]) && !watched.isEmpty() ? "Gemini가 영상을 직접 보지 못해 대본으로 정리했어요" + (reason.isEmpty() ? "" : " · " + reason) : "";
-            if (!how.isEmpty()) store.phoneLog("마이튜브 · 영상 요약 · " + how);
+            catch (Exception e) { said = null; failure = reason(e); }
+            if (halted) { said = null; failure = "멈췄어요."; }
             String answer = said, why = failure, who = by[0];
             main.post(() -> {
                 if (mine != generation) return;
                 busy = false; stop.set(null);
                 synchronized (CHATS) {
-                    if (answer != null && !answer.isBlank()) turns.add(VideoChat.Turn.model(answer.strip(), who, question.summary(), how));
+                    if (answer != null && !answer.isBlank()) turns.add(VideoChat.Turn.model(answer.strip(), who, question.summary(), how[0]));
                     // Not answered: the question leaves the conversation and goes back into the box, to send again.
                     else if (!turns.isEmpty() && turns.get(turns.size() - 1) == question) turns.remove(turns.size() - 1);
                 }
@@ -307,6 +316,7 @@ final class VideoAskPanel {
             });
         });
     }
+    private static String reason(Exception e) { return e.getMessage() == null || e.getMessage().isBlank() ? "답하지 못했어요." : e.getMessage().strip(); }
     private void status(long mine, String text) { main.post(() -> { if (mine == generation && busy) waiting.setText(text); }); }
 
     /** Makes each time in an answer (03:12, 1:02:03) a link that jumps the video there, when it is the one playing. */
