@@ -481,6 +481,7 @@
     } catch(e) { mytubeSay(connection,'frame',{error:String((e&&e.name)||e)}); }
   }
   // Whether YouTube is signed in on this page (its own page settings say so), asked again for a few seconds while they load.
+  // YouTube's own setting first; else its sign-in cookie (YouTube's scripts read it too), which only a signed-in browser holds.
   function mytubeAccount(connection, tries) {
     let known=false, loggedIn=false;
     try {
@@ -488,7 +489,11 @@
       const value=cfg && (typeof cfg.get==='function' ? cfg.get('LOGGED_IN') : (cfg.data_ && cfg.data_.LOGGED_IN));
       if (typeof value==='boolean') { known=true; loggedIn=value; }
     } catch(_) {}
+    const youtube=/(^|\.)youtube\.com$/.test(location.hostname);
+    let cookie=false; try { cookie=/(?:^|;\s*)(?:SAPISID|__Secure-3PAPISID|__Secure-1PAPISID)=/.test(document.cookie); } catch(_) {}
+    if (!known && youtube && cookie) { known=true; loggedIn=true; }
     if (!known && tries<10) { setTimeout(()=>mytubeAccount(connection, tries+1), 500); return; }
+    if (!known && youtube) known=true;
     mytubeSay(connection,'account',{known, loggedIn});
   }
   function connect() {

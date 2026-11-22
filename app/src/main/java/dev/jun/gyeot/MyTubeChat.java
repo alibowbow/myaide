@@ -131,9 +131,10 @@ final class MyTubeChat {
         bubble.setContentDescription((mine ? "나" : "마이튜브 AI") + (l.spoken() ? " (음성)" : "") + ": " + l.text());
         // Spoken: 다시 듣기 in the voice it was said in (VoiceClips), when it was kept.
         String clip = VoiceChat.clipKey("mytube", l.id());
-        boolean replay = l.spoken() && VoiceClips.has(clip);
+        boolean replay = !mine && l.spoken() && VoiceClips.has(clip); // the AI's words only
         ImageView play = replay ? ui.footIcon(VoiceClips.playing(clip) ? R.drawable.ic_stop : R.drawable.ic_play, mine ? "내 목소리 다시 듣기" : "다시 듣기 · 말한 목소리 그대로", () -> VoiceClips.toggle(activity, store, clip, l.text())) : null;
-        LinearLayout.LayoutParams bubbleAt = new LinearLayout.LayoutParams(-2, -2, 1), playAt = new LinearLayout.LayoutParams(ui.dp(32), ui.dp(32));
+        if (play != null) play.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9)); // an 18dp mark in a 36dp target
+        LinearLayout.LayoutParams bubbleAt = new LinearLayout.LayoutParams(-2, -2, 1), playAt = new LinearLayout.LayoutParams(ui.dp(36), ui.dp(36));
         if (mine) { if (play != null) row.addView(play, playAt); row.addView(bubble, bubbleAt); }
         else { row.addView(bubble, bubbleAt); if (play != null) row.addView(play, playAt); }
         LinearLayout wrap = ui.column(); wrap.setGravity(mine ? Gravity.END : Gravity.START); wrap.addView(row, new LinearLayout.LayoutParams(-2, -2));

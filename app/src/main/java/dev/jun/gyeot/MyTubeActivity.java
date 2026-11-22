@@ -13,6 +13,7 @@ import android.text.TextUtils;
 import android.util.LruCache;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.widget.Button;
 import android.widget.EditText;
@@ -55,7 +56,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private final List<Dialog> dialogs = new ArrayList<>();
     private static final LruCache<String, Bitmap> FRAMES = new LruCache<>(80);
     private Ui ui; private MyTubeBook book; private MyTubePlayer player; private AppStore store;
-    private MainNavigation navigation; private LinearLayout root, playerCard, list, chips; private GeckoView screen;
+    private MainNavigation navigation; private LinearLayout root, playerCard, list, chips, savedChips, content; private GeckoView screen;
+    /** 새로 고르기 (라이브 확인 on a live 저장 목록) and 피드 편집 (목록 편집): their words follow what is shown. */
+    private Button refreshChip, editChip;
     private TextView nowTitle, nowLine, header, about, when; private ShimmerText statusLine; private View feedActions;
     /** The screen's two parts: the video with its play buttons, pinned on top across the full width, and the list scrolling under it. */
     private LinearLayout body, videoPane, searchBar, listPane, controlsRow; private ScrollView scroll;
@@ -104,7 +107,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         videoPane = ui.column(); videoPane.setVisibility(View.GONE); videoPane.setBackgroundColor(BG);
         searchBar = ui.row(); searchBar.setGravity(Gravity.CENTER_VERTICAL); searchBar.setBackgroundColor(BG); searchBar.setPadding(ui.dp(12), ui.dp(6), ui.dp(12), ui.dp(6));
         scroll = new ScrollView(this); scroll.setFillViewport(true);
-        LinearLayout content = ui.column(); content.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), ui.dp(24));
+        content = ui.column(); content.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), ui.dp(24));
         scroll.addView(content);
         listPane = ui.column(); listPane.addView(searchBar, new LinearLayout.LayoutParams(-1, -2)); listPane.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         body.addView(videoPane, new LinearLayout.LayoutParams(-1, -2)); body.addView(listPane, new LinearLayout.LayoutParams(-1, 0, 1));
@@ -151,12 +154,17 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         chat = new MyTubeChat(this, ui, store, book, work, main, this);
         LinearLayout.LayoutParams chatGap = new LinearLayout.LayoutParams(-1, -2); chatGap.bottomMargin = ui.dp(8); content.addView(chat.card, chatGap);
         buildPlayer(content);
-        chips = ui.row(); HorizontalScrollView chipScroll = new HorizontalScrollView(this); chipScroll.setHorizontalScrollBarEnabled(false); chipScroll.addView(chips);
+        // Two rows: 추천, the feeds the AI fills; 저장, the lists of what the user saved (never replaced).
+        chips = ui.row(); chips.setGravity(Gravity.CENTER_VERTICAL); HorizontalScrollView chipScroll = new HorizontalScrollView(this); chipScroll.setHorizontalScrollBarEnabled(false); chipScroll.addView(chips);
         LinearLayout.LayoutParams chipGap = new LinearLayout.LayoutParams(-1, -2); chipGap.topMargin = ui.dp(4); content.addView(chipScroll, chipGap);
+        savedChips = ui.row(); savedChips.setGravity(Gravity.CENTER_VERTICAL); HorizontalScrollView savedScroll = new HorizontalScrollView(this); savedScroll.setHorizontalScrollBarEnabled(false); savedScroll.addView(savedChips);
+        LinearLayout.LayoutParams savedGap = new LinearLayout.LayoutParams(-1, -2); savedGap.topMargin = ui.dp(6); content.addView(savedScroll, savedGap);
         header = ui.title("", 17); header.setPadding(0, ui.dp(12), 0, 0); content.addView(header);
         about = ui.label("", 13, MUTED); about.setPadding(0, ui.dp(2), 0, 0); content.addView(about);
         when = ui.label("", 12, MUTED); when.setPadding(0, ui.dp(2), 0, 0); content.addView(when);
-        feedActions = ui.actions(withIcon(ui.smallChip("새로 고르기", this::refresh), R.drawable.ic_refresh), withIcon(ui.smallChip("모두 재생", () -> playFrom(0)), R.drawable.ic_play), ui.smallChip("피드 편집", () -> { MyTube.Feed f = feed(); if (f != null) editFeed(f); }));
+        refreshChip = withIcon(ui.smallChip("새로 고르기", this::refresh), R.drawable.ic_refresh);
+        editChip = ui.smallChip("피드 편집", () -> { MyTube.Feed f = feed(); if (f != null) { if (f.saved()) editList(f); else editFeed(f); } });
+        feedActions = ui.actions(refreshChip, withIcon(ui.smallChip("모두 재생", () -> playFrom(0)), R.drawable.ic_play), editChip);
         content.addView(feedActions);
         searchPlayAll = withIcon(ui.smallChip("모두 재생", () -> playFound(0)), R.drawable.ic_play);
         // A search's or a channel's tools in one slim row: 모두 재생 · 동영상|쇼츠(|라이브) · 최신|조회수 · 유튜브 화면 · 닫기.
@@ -181,7 +189,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putString("feed", feedId); }
     @Override protected void onResume() {
         super.onResume(); AppNavigator.inFront("mytube"); front = new java.lang.ref.WeakReference<>(this); if (chat != null) chat.attach();
-        player.listen(playerChanged); if (player.active()) player.attach(screen); showPlayer();
+        player.listen(playerChanged); if (player.active()) player.attach(screen); player.checkAccount(); showPlayer();
     }
     @Override protected void onPause() { if (!isFinishing()) AppNavigator.inFront("mytube"); super.onPause(); }
     @Override protected void onStop() { player.unlisten(playerChanged); player.detach(screen); if (chat != null) chat.detach(); super.onStop(); }
@@ -220,6 +228,13 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         if (key.equals(arranged)) return fill;
         arranged = key;
         body.setOrientation(side ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+        // Side by side: what plays and its buttons (안 볼래요 · 화질 · 캡처 · 저장 …) under the video, the list on its own beside it.
+        ViewGroup home = side && !shorts ? videoPane : content;
+        if (playerCard != null && playerCard.getParent() != home) {
+            if (playerCard.getParent() instanceof ViewGroup was) was.removeView(playerCard);
+            if (home == videoPane) { LinearLayout.LayoutParams under = new LinearLayout.LayoutParams(-1, -2); under.setMargins(ui.dp(16), ui.dp(4), ui.dp(16), 0); videoPane.addView(playerCard, under); }
+            else content.addView(playerCard, 0);
+        }
         videoPane.setLayoutParams(side && shorts ? new LinearLayout.LayoutParams(shortsWidth(), -1) : side ? new LinearLayout.LayoutParams(0, -1, 1.3f)
             : full ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
         stage.setLayoutParams(fill ? new LinearLayout.LayoutParams(-1, 0, 1) : new LinearLayout.LayoutParams(-1, -2));
@@ -335,13 +350,13 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         LinearLayout.LayoutParams speedAt = new LinearLayout.LayoutParams(-2, -2); speedAt.leftMargin = ui.dp(6); qualityRow.addView(speedChip, speedAt);
         // 캡처: the frame now, into 들퍼레/마이튜브 캡처. 영상 요약: what this video says, by the main chat's AI.
         captureChip = withIcon(ui.smallChip("캡처", () -> player.capture(this::toast)), R.drawable.ic_gallery);
-        summaryChip = withIcon(ui.smallChip("영상 요약", () -> { MyTube.Video v = player.current(); if (v != null) summarize(v); }), R.drawable.ic_sparkle);
+        summaryChip = withAiMark(ui.smallChip("영상 요약", () -> { MyTube.Video v = player.current(); if (v != null) summarize(v); }));
         LinearLayout.LayoutParams chipGapLeft = new LinearLayout.LayoutParams(-2, -2); chipGapLeft.leftMargin = ui.dp(6);
         qualityRow.addView(captureChip, chipGapLeft);
         LinearLayout.LayoutParams chipGapLeft2 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft2.leftMargin = ui.dp(6);
         qualityRow.addView(summaryChip, chipGapLeft2);
-        // 나중에 보기: into 저장한 영상, the first feed chip, to watch again whenever (the AI never replaces what is there).
-        saveChip = withIcon(ui.smallChip("나중에 보기", this::saveCurrent), R.drawable.ic_add); saveChip.setContentDescription("나중에 보기 · 저장한 영상에 넣기");
+        // 저장: into the 저장 feed, the first feed chip, to watch again whenever (the AI never replaces what is there).
+        saveChip = withIcon(ui.smallChip("저장", this::saveCurrent), R.drawable.ic_add); saveChip.setContentDescription("저장 · 저장 피드에 넣기");
         LinearLayout.LayoutParams chipGapLeft3 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft3.leftMargin = ui.dp(6);
         qualityRow.addView(saveChip, chipGapLeft3);
         HorizontalScrollView qualityScroll = new HorizontalScrollView(this); qualityScroll.setHorizontalScrollBarEnabled(false); qualityScroll.addView(qualityRow);
@@ -404,6 +419,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         return Math.max(width * 30 / 100, Math.min(width * 70 / 100, wanted));
     }
     private void showPlayer() {
+        if (accountLine != null) { String state = accountState(); if (!state.contentEquals(accountLine.getText())) accountLine.setText(state); }
         if (destroyed) return;
         MyTube.Video now = player.current();
         boolean signingIn = !player.active() && player.signingIn(), browsing = !player.active() && !signingIn && player.browsing();
@@ -458,20 +474,20 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     }
     private void render() {
         renderLiveChannels();
+        migrate();
         List<MyTube.Feed> feeds = new ArrayList<>(book.feeds()); MyTube.Feed shown = searched != null ? null : feed();
-        // 저장한 영상 (나중에 보기) first, where it is easy to find again.
-        feeds.sort(java.util.Comparator.comparing((MyTube.Feed f) -> !MyTube.SAVED_FEED_NAME.equals(f.name())));
         if (shown != null) { feedId = shown.id(); store.settings.edit().putString("mytubeFeed", feedId).apply(); }
-        chips.removeAllViews();
-        for (MyTube.Feed f : feeds) {
-            Button chip = ui.smallChip(f.name(), () -> { searched = null; feedId = f.id(); render(); refreshIfStale(); });
-            boolean on = searched == null && f.id().equals(feedId);
-            chip.setBackground(ui.shape(on ? ACCENT : FILL, PILL)); chip.setTextColor(on ? ON_ACCENT : TEXT); chip.setSelected(on);
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(8); chips.addView(chip, p);
-        }
+        // 추천: the feeds the AI fills. 저장: the lists of what the user saved, 저장 first (where 저장 goes when no AI chose).
+        List<MyTube.Feed> lists = new ArrayList<>(); for (MyTube.Feed f : feeds) if (f.saved()) lists.add(f);
+        feeds.removeAll(lists);
+        lists.sort(java.util.Comparator.comparing((MyTube.Feed f) -> !MyTube.SAVED_FEED_NAME.equals(f.name())));
+        chips.removeAllViews(); savedChips.removeAllViews();
+        rowLabel(chips, "추천");
+        for (MyTube.Feed f : feeds) chips.addView(feedChip(f), chipAfter());
         Button add = ui.smallChip("＋ 피드", () -> editFeed(null)); chips.addView(add);
-        // 정리: 마이튜브 AI puts the feeds in order (it also does this by itself when a feed is added).
-        if (feeds.size() >= 2) { Button tidy = withIcon(ui.smallChip("피드 정리", () -> organize(this::toast)), R.drawable.ic_sparkle); tidy.setContentDescription("피드 정리 · AI가 피드 순서와 이름을 정리"); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.leftMargin = ui.dp(8); chips.addView(tidy, p); }
+        rowLabel(savedChips, "저장");
+        for (MyTube.Feed f : lists) savedChips.addView(feedChip(f), chipAfter());
+        if (lists.isEmpty()) savedChips.addView(ui.label("영상에서 ‘저장’을 누르면 주제별 목록이 생겨요", 12, MUTED));
         list.removeAllViews();
         searchActions.setVisibility(searched != null && !searching ? View.VISIBLE : View.GONE);
         searchPlayAll.setVisibility(found.isEmpty() ? View.GONE : View.VISIBLE);
@@ -491,6 +507,24 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         }
         feedActions.setVisibility(shown == null ? View.GONE : View.VISIBLE);
         if (shown == null) { header.setText("피드를 만들어 볼까요?"); about.setText("볼 것을 정해 두면 AI가 유튜브에서 골라 와요. 하나를 눌러 바로 시작하세요."); when.setText(""); starters(); tidyHeadings(); return; }
+        boolean savedList = shown.saved(), liveList = savedList && book.liveWatch(shown.id());
+        refreshChip.setText(liveList ? "라이브 확인" : "새로 고르기"); refreshChip.setVisibility(savedList && !liveList ? View.GONE : View.VISIBLE);
+        editChip.setText(savedList ? "목록 편집" : "피드 편집");
+        if (savedList) {
+            // A 저장 목록: what was saved, as saved; with 라이브만 보기, its channels' broadcasts on air now.
+            List<MyTube.Channel> kept = book.sources(shown.id());
+            StringBuilder names = new StringBuilder(); for (MyTube.Channel c : kept) names.append(names.length() == 0 ? "" : " · ").append(c.title());
+            header.setText(shown.name() + " · " + (liveList ? "라이브만" : "저장 목록"));
+            about.setText(liveList ? (kept.isEmpty() ? "채널이 아직 없어요 · ‘목록 편집’이나 채널의 ‘저장’으로 넣어 주세요" : "채널 · " + names + "\n지금 방송 중인 라이브만 보여요")
+                : "직접 저장한 영상 · AI가 바꾸지 않아요" + (kept.isEmpty() ? "" : "\n채널 · " + names));
+            long checked = book.refreshedAt(shown.id());
+            when.setText(liveList && checked > 0 ? "확인한 때 · " + ago(checked) : "");
+            List<MyTube.Video> saved = book.videos(shown.id());
+            if (saved.isEmpty() && !refreshing) { TextView empty = ui.label(liveList ? "지금 방송 중인 라이브가 없어요" : "영상을 보다가 ‘저장’을 누르면 여기에 모여요", 14, MUTED); empty.setPadding(0, ui.dp(12), 0, 0); list.addView(empty); }
+            for (int i = 0; i < saved.size(); i++) { int index = i; list.addView(videoRow(saved.get(i), () -> playFrom(index))); }
+            markPlaying(); tidyHeadings();
+            return;
+        }
         header.setText(shown.name() + " · " + shown.label() + (shown.kind() == MyTube.Kind.NEWS ? " (" + Math.max(1, shown.days()) + "일)" : ""));
         StringBuilder sources = new StringBuilder(); for (MyTube.Channel c : book.sources(shown.id())) sources.append(sources.length() == 0 ? "" : " · ").append(c.title());
         about.setText(shown.about() + (shown.kind() == MyTube.Kind.VIDEOS && !shown.channel().isBlank() ? "\n기준 채널 · " + shown.channel() : "")
@@ -501,6 +535,48 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         if (videos.isEmpty() && !refreshing) { TextView empty = ui.label("‘새로 고르기’를 누르면 AI가 유튜브에서 골라 와요.", 14, MUTED); empty.setPadding(0, ui.dp(12), 0, 0); list.addView(empty); }
         for (int i = 0; i < videos.size(); i++) { int index = i; list.addView(videoRow(videos.get(i), () -> playFrom(index))); }
         markPlaying(); tidyHeadings();
+    }
+    /** A feed's or a list's chip: the slim capsule of ＋ 피드 beside it, the accent when shown; ● before a list that shows live broadcasts. */
+    private Button feedChip(MyTube.Feed f) {
+        Button chip = ui.smallChip((f.saved() && book.liveWatch(f.id()) ? "● " : "") + f.name(), () -> { searched = null; feedId = f.id(); render(); refreshIfStale(); });
+        boolean on = searched == null && f.id().equals(feedId);
+        chip.setBackground(ui.centeredCapsule(on ? ACCENT : FILL, ui.dp(28))); chip.setPadding(ui.dp(12), 0, ui.dp(12), 0);
+        chip.setTextColor(on ? ON_ACCENT : TEXT); chip.setSelected(on);
+        return chip;
+    }
+    private LinearLayout.LayoutParams chipAfter() { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(8); return p; }
+    /** 추천 · 저장 at the start of their rows, the same width so both rows' chips line up. */
+    private void rowLabel(LinearLayout row, String name) {
+        TextView label = ui.text(name, 12, 650, MUTED); label.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(label, new LinearLayout.LayoutParams(ui.dp(34), ui.dp(36)));
+    }
+    /**
+     * Older shapes into today's: shorter names (저장한 영상 → 저장, 내 취향 음악 → 내 음악), the older 저장 feed a 저장 목록, and the
+     * 라이브 채널 saved before into a 저장 목록 ‘라이브’ that shows their broadcasts on air.
+     */
+    private void migrate() {
+        try {
+            for (MyTube.Feed f : book.feeds()) {
+                String name = MyTube.RENAMED.getOrDefault(f.name(), f.name());
+                boolean toList = MyTube.SAVED_FEED_NAME.equals(name) && !f.saved();
+                if (toList) book.save(new MyTube.Feed(f.id(), name, MyTube.Kind.SAVED, "직접 저장한 영상", "", 0));
+                else if (!name.equals(f.name())) book.save(new MyTube.Feed(f.id(), name, f.kind(), f.about(), f.channel(), f.days()));
+            }
+            List<MyTube.Channel> earlier = book.channels();
+            if (!earlier.isEmpty()) {
+                MyTube.Feed live = null; for (MyTube.Feed f : book.feeds()) if (f.saved() && "라이브".equals(f.name())) live = f;
+                if (live == null) live = book.save(MyTube.savedList("라이브"));
+                for (MyTube.Channel c : earlier) book.addSource(live.id(), c);
+                book.liveWatch(live.id(), true);
+                for (MyTube.Channel c : earlier) book.removeChannel(c.id());
+            }
+        } catch (Exception ignored) {}
+    }
+    /** Every channel kept in a 저장 목록 (for 라이브 by name). */
+    private List<MyTube.Channel> savedChannels() {
+        List<MyTube.Channel> out = new ArrayList<>(book.channels());
+        for (MyTube.Feed f : book.feeds()) if (f.saved()) out.addAll(book.sources(f.id()));
+        return out;
     }
     /** Lines with nothing to say take no room (a search has no 고른 때, a fresh one no count yet). */
     private void tidyHeadings() { for (TextView t : new TextView[]{about, when}) t.setVisibility(t.getText().length() == 0 ? View.GONE : View.VISIBLE); }
@@ -565,6 +641,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         int kindAt = "shorts".equals(listKind) ? 1 : "live".equals(listKind) ? 2 : 0;
         addTool(ui.switcher(kinds, kindAt, i -> { String next = i == 1 ? "shorts" : i == 2 ? "live" : "videos"; if (!next.equals(listKind)) { listKind = next; reload(); } }));
         addTool(ui.switcher(new String[]{channel ? "최신" : "관련", "조회수"}, byViews ? 1 : 0, i -> { boolean views = i == 1; if (views != byViews) { byViews = views; render(); } }));
+        // A channel shown: 저장 into a 저장 목록 (with 라이브만 보기, its broadcasts on air show there).
+        if (channel) { MyTube.Channel shownNow = shownChannel; addTool(withIcon(ui.smallChip("저장", () -> saveChannel(shownNow)), R.drawable.ic_add)); }
         // YouTube itself: the channel's own page (인기순, playlists, community …) or the full results (every kind).
         Button youtube = withIcon(ui.smallChip(channel ? "채널 화면" : "유튜브에서", () -> {
             player.browse(channel ? MyTube.channelPage(shownChannel.path()) : MyTube.resultsPage(searched)); player.attach(screen); showPlayer(); scroll.smoothScrollTo(0, 0);
@@ -637,25 +715,35 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     }
     /**
      * 저장: the playing video into the feed it fits, chosen by the main chat's AI from what each feed is for (or a new feed
-     * it proposes, made at once); without an AI, the feed it plays from, else 저장한 영상. It goes to the top of that feed
+     * it proposes, made at once); without an AI, the feed it plays from, else 저장. It goes to the top of that feed
      * and counts as liked there.
      */
     private void saveCurrent() { saveCurrent(null); }
     private void saveCurrent(java.util.function.Consumer<String> done) {
         MyTube.Video v = player.current(); if (v == null) { if (done != null) done.accept("재생 중인 영상이 없어요"); return; }
-        MyTube.Feed from = player.feed();
-        status("어느 피드에 넣을지 고르는 중");
+        status("어느 목록에 넣을지 고르는 중");
         work.execute(() -> {
             String said;
             try {
-                // 나중에 보기: always 저장한 영상, a list of its own that 새로 고르기 never replaces (no AI picks where it goes).
-                List<MyTube.Feed> feeds = book.feeds(); MyTube.Feed target = null; boolean made = false;
-                for (MyTube.Feed f : feeds) if (MyTube.SAVED_FEED_NAME.equals(f.name())) { target = f; break; }
-                if (target == null) { target = book.save(new MyTube.Feed("", MyTube.SAVED_FEED_NAME, MyTube.Kind.VIDEOS, "직접 찾아 저장한 영상", "", 0)); made = true; }
+                // 저장: into the 저장 목록 it fits, chosen by 마이튜브 AI (or a new list it names); without an AI, the list 저장.
+                List<MyTube.Feed> lists = new ArrayList<>(); for (MyTube.Feed f : book.feeds()) if (f.saved()) lists.add(f);
+                MyTube.Feed target = null;
+                try {
+                    MyTube.SavePick pick = MyTube.savePick(MyTubeClient.askMyTube(store, MyTube.SAVE, MyTube.saveListInput(lists, book::pinned, v), cancel), lists);
+                    if (pick != null && pick.feed() != null) target = pick.feed();
+                    else if (pick != null && pick.made() != null) {
+                        for (MyTube.Feed f : lists) if (f.name().equals(pick.made().name())) target = f;
+                        if (target == null) target = book.save(pick.made());
+                    }
+                } catch (java.util.concurrent.CancellationException stop) { throw stop; } catch (Exception noAi) { /* the list 저장 */ }
+                if (target == null) {
+                    for (MyTube.Feed f : lists) if (MyTube.SAVED_FEED_NAME.equals(f.name())) target = f;
+                    if (target == null) target = book.save(MyTube.savedList(MyTube.SAVED_FEED_NAME));
+                }
                 book.keep(target.id(), v.because("직접 저장"));
-                // A broadcast kept (or anything kept in a live feed): its channel too, so each 새로 고르기 finds its broadcast on air then.
-                if (target.liveOnly() || v.live()) { MyTube.Channel from2 = MyTubeClient.channelOf(v.id(), cancel); if (from2 != null) book.addSource(target.id(), from2); }
-                said = "‘" + target.name() + "’에 넣었어요 · 피드 줄 맨 앞 ‘" + target.name() + "’에서 다시 봐요";
+                // A broadcast kept: its channel too, so the list can show that channel's broadcasts (라이브만 보기).
+                if (v.live()) { MyTube.Channel from = MyTubeClient.channelOf(v.id(), cancel); if (from != null) book.addSource(target.id(), from); }
+                said = "‘" + target.name() + "’ 목록에 저장했어요";
             } catch (Exception e) { said = "저장하지 못했어요" + (e.getMessage() == null ? "." : " · " + e.getMessage()); }
             String told = said;
             main.post(() -> { if (destroyed) return; status(""); if (done != null) done.accept(told); else toast(told); render(); });
@@ -674,7 +762,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private final Runnable organizer = () -> { if (!destroyed && book.feeds().size() >= 2) organize(null); };
     /** 정리: the feeds in an order that makes sense (related ones together), unclear names made clear; never dropped or merged. */
     private void organize(java.util.function.Consumer<String> done) {
-        List<MyTube.Feed> feeds = book.feeds();
+        List<MyTube.Feed> feeds = new ArrayList<>(); for (MyTube.Feed f : book.feeds()) if (!f.saved()) feeds.add(f); // the 추천 row only
         if (feeds.size() < 2) { if (done != null) done.accept("정리할 피드가 아직 적어요"); return; }
         work.execute(() -> {
             String said;
@@ -711,7 +799,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             }
             case "play_live" -> {
                 String named = a.optString("channel").strip();
-                MyTube.Channel saved = MyTube.channelNamed(book.channels(), named);
+                MyTube.Channel saved = MyTube.channelNamed(savedChannels(), named);
                 if (saved != null) { playLive(saved, done); return; }
                 if (named.isEmpty()) { done.accept("어느 채널의 라이브인지 몰라요"); return; }
                 work.execute(() -> {
@@ -792,8 +880,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         row.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
         // ● 라이브: its broadcast on air now; 저장: one tap from the top of 마이튜브 from now on.
         Button live = withIcon(ui.smallChip("라이브", () -> playLive(c, this::toast)), R.drawable.ic_play); live.setTextColor(ACCENT);
-        boolean saved = book.channels().stream().anyMatch(k -> k.id().equals(c.id()));
-        Button keep = ui.smallChip(saved ? "저장됨" : "저장", () -> { try { if (book.channels().stream().anyMatch(k -> k.id().equals(c.id()))) book.removeChannel(c.id()); else book.saveChannel(c); } catch (Exception e) { toast(e.getMessage()); } render(); });
+        boolean saved = savedChannels().stream().anyMatch(k -> k.path().equalsIgnoreCase(c.path()));
+        Button keep = ui.smallChip(saved ? "저장됨" : "저장", () -> saveChannel(c));
         LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2); gap.leftMargin = ui.dp(6);
         row.addView(live, new LinearLayout.LayoutParams(-2, -2)); row.addView(keep, gap);
         row.setOnClickListener(v -> openChannel(c)); Ui.pressable(row, false);
@@ -947,7 +1035,13 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         boolean fresh = editing == null || editing.id().isEmpty();
         Ui.Sheet sheet = ui.selectionSheet(fresh ? "새 피드" : "피드 편집", "무엇을 보고 싶은지 적으면 AI가 유튜브에서 골라 와요 · 이 휴대폰에만 저장돼요");
         dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet));
-        MyTube.Kind[] kinds = MyTube.Kind.values(); int[] kind = {editing == null ? 0 : editing.kind().ordinal()}; int[] days = {editing == null || editing.days() <= 0 ? 3 : editing.days()};
+        MyTube.Kind[] kinds = java.util.Arrays.stream(MyTube.Kind.values()).filter(k -> k != MyTube.Kind.SAVED).toArray(MyTube.Kind[]::new);
+        int[] kind = {editing == null ? 0 : Math.max(0, java.util.Arrays.asList(kinds).indexOf(editing.kind()))}; int[] days = {editing == null || editing.days() <= 0 ? 3 : editing.days()};
+        // 개수: how many songs or videos the AI chooses each time (20 unless chosen).
+        int[] size = {fresh ? MyTube.SIZE : book.size(editing.id())};
+        String[] sizeLabels = new String[MyTube.SIZES.length]; int sizeAt = 0;
+        for (int i = 0; i < MyTube.SIZES.length; i++) { sizeLabels[i] = MyTube.SIZES[i] + "개"; if (MyTube.SIZES[i] == size[0]) sizeAt = i; }
+        LinearLayout sizeRow = ui.choiceRow("개수", "곡 수 · 영상 수", "새로 고를 때 AI가 이만큼 골라요 · 많을수록 오래 걸려요", sizeLabels, sizeAt, i -> size[0] = MyTube.SIZES[i]);
         EditText name = ui.input("이름 · 예: 최신 AI 뉴스", 1, 40); name.setText(editing == null ? "" : editing.name());
         EditText what = ui.input("원하는 것 · 예: AI 업계 새 소식, 원래 발표 위주", 3, 400); what.setText(editing == null ? "" : editing.about());
         EditText channel = ui.input("기준 채널 주소 (선택) · 예: @내채널 또는 youtube.com/@내채널", 1, 200); channel.setText(editing == null ? "" : editing.channel());
@@ -957,9 +1051,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         String[] dayLabels = {"1일", "3일", "7일", "30일"}; int[] dayValues = {1, 3, 7, 30};
         int dayAt = 1; for (int i = 0; i < dayValues.length; i++) if (dayValues[i] == days[0]) dayAt = i;
         LinearLayout dayRow = ui.choiceRow("기간", "최신 소식의 기간", "이 기간 안에 올라온 영상만 골라요", dayLabels, dayAt, i -> days[0] = dayValues[i]);
-        Runnable shape = () -> { boolean videos = kinds[kind[0]] == MyTube.Kind.VIDEOS; channel.setVisibility(videos ? View.VISIBLE : View.GONE); channelNote.setVisibility(videos ? View.VISIBLE : View.GONE); dayRow.setVisibility(kinds[kind[0]] == MyTube.Kind.NEWS ? View.VISIBLE : View.GONE); };
+        Runnable shape = () -> { boolean videos = kinds[kind[0]] == MyTube.Kind.VIDEOS; channel.setVisibility(videos ? View.VISIBLE : View.GONE); channelNote.setVisibility(videos ? View.VISIBLE : View.GONE); dayRow.setVisibility(kinds[kind[0]] == MyTube.Kind.NEWS ? View.VISIBLE : View.GONE); sizeRow.setVisibility(kinds[kind[0]] == MyTube.Kind.LIVE ? View.GONE : View.VISIBLE); };
         ui.addRow(group, ui.choiceRow("종류", "피드 종류", "무엇을 고를지", kindLabels, kind[0], i -> { kind[0] = i; shape.run(); }), false);
         ui.addRow(group, dayRow, false);
+        ui.addRow(group, sizeRow, false);
         sheet.body.addView(group);
         LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, -2); gap.topMargin = ui.dp(10);
         sheet.body.addView(name, gap);
@@ -990,21 +1085,119 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             if (chosen == MyTube.Kind.VIDEOS && !from.isEmpty() && MyTube.channelPath(from).isEmpty()) { channel.setError("@채널이름이나 youtube.com/@채널이름 형식으로 적어 주세요."); return; }
             try {
                 MyTube.Feed saved = book.save(new MyTube.Feed(fresh ? "" : editing.id(), title, chosen, want, chosen == MyTube.Kind.VIDEOS ? from : "", chosen == MyTube.Kind.NEWS ? days[0] : 0));
+                book.size(saved.id(), size[0]);
                 feedId = saved.id(); sheet.dismiss(); render(); refresh(); if (fresh) organizeSoon();
             } catch (Exception e) { toast(e.getMessage()); }
         });
         sheet.show();
     }
 
+    /** 목록 편집: a 저장 목록's name, 라이브만 보기, its channels (added by address, ✕ to take one off), its place, and deleting it. */
+    private void editList(MyTube.Feed editing) {
+        Ui.Sheet sheet = ui.selectionSheet("목록 편집", "직접 저장한 영상과 채널 · AI가 바꾸지 않아요");
+        dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet));
+        boolean[] live = {book.liveWatch(editing.id())};
+        LinearLayout group = ui.group();
+        ui.addRow(group, ui.switchRow("라이브만 보기", "이 목록의 채널이 지금 방송 중인 라이브만 보여요", live[0], on -> live[0] = on), false);
+        sheet.body.addView(group);
+        EditText name = ui.input("이름 · 예: 코인 라이브", 1, 40); name.setText(editing.name());
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, -2); gap.topMargin = ui.dp(10); sheet.body.addView(name, gap);
+        sheet.body.addView(ui.sectionHeader("채널"));
+        LinearLayout kept = ui.row(); HorizontalScrollView keptScroll = new HorizontalScrollView(this); keptScroll.setHorizontalScrollBarEnabled(false); keptScroll.addView(kept);
+        Runnable[] showKept = new Runnable[1];
+        showKept[0] = () -> {
+            kept.removeAllViews();
+            List<MyTube.Channel> channels = book.sources(editing.id());
+            if (channels.isEmpty()) kept.addView(ui.label("채널이 없어요 · 아래에 주소를 넣거나 채널의 ‘저장’으로 넣어요", 12, MUTED));
+            for (MyTube.Channel c : channels) {
+                Button chip = withIcon(ui.smallChip(c.title(), () -> {}), R.drawable.ic_close); chip.setContentDescription(c.title() + " 이 목록에서 빼기");
+                chip.setOnClickListener(v -> { try { book.removeSource(editing.id(), c.path()); showKept[0].run(); render(); } catch (Exception e) { toast(e.getMessage()); } });
+                kept.addView(chip, chipAfter());
+            }
+        };
+        showKept[0].run(); sheet.body.addView(keptScroll);
+        LinearLayout adding = ui.row(); adding.setGravity(Gravity.CENTER_VERTICAL);
+        EditText address = ui.input("채널 추가 · @채널이름 또는 주소", 1, 200);
+        Button addChannel = ui.smallChip("추가", () -> {
+            String path = MyTube.channelPath(address.getText().toString().strip());
+            if (path.isEmpty()) { address.setError("@채널이름이나 youtube.com/@채널이름 형식으로 적어 주세요."); return; }
+            String handle = path.startsWith("/") ? path.substring(1) : path;
+            try { book.addSource(editing.id(), new MyTube.Channel("", handle, path, handle, "", "")); address.setText(""); showKept[0].run(); render(); } catch (Exception e) { toast(e.getMessage()); }
+        });
+        adding.addView(address, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams addAt = new LinearLayout.LayoutParams(-2, -2); addAt.leftMargin = ui.dp(6); adding.addView(addChannel, addAt);
+        LinearLayout.LayoutParams gap2 = new LinearLayout.LayoutParams(-1, -2); gap2.topMargin = ui.dp(8); sheet.body.addView(adding, gap2);
+        sheet.body.addView(ui.actions(ui.chip("앞으로", () -> { try { book.move(editing.id(), true); render(); } catch (Exception ignored) {} }),
+            ui.chip("뒤로", () -> { try { book.move(editing.id(), false); render(); } catch (Exception ignored) {} }),
+            ui.chip("목록 지우기", () -> { try { book.remove(editing.id()); feedId = null; sheet.dismiss(); render(); } catch (Exception e) { toast(e.getMessage()); } })));
+        sheet.primary.setText("저장");
+        sheet.primary.setOnClickListener(v -> {
+            String title = name.getText().toString().strip();
+            if (title.isEmpty()) { name.setError("이름을 적어 주세요."); return; }
+            try {
+                MyTube.Feed saved = book.save(new MyTube.Feed(editing.id(), title, MyTube.Kind.SAVED, editing.about(), "", 0));
+                book.liveWatch(saved.id(), live[0]);
+                feedId = saved.id(); sheet.dismiss(); render(); refresh();
+            } catch (Exception e) { toast(e.getMessage()); }
+        });
+        sheet.show();
+    }
+    /** A channel into a 저장 목록 (its broadcasts show there with 라이브만 보기): one of the lists, or a new one by name. */
+    private void saveChannel(MyTube.Channel c) {
+        if (c == null) return;
+        Ui.Sheet sheet = ui.selectionSheet("‘" + c.title() + "’ 저장", "어느 목록에 넣을까요? 목록의 ‘라이브만 보기’를 켜면 방송 중인 라이브만 떠요");
+        dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet));
+        LinearLayout group = ui.group(); int count = 0;
+        for (MyTube.Feed f : book.feeds()) {
+            if (!f.saved()) continue;
+            boolean in = book.sources(f.id()).stream().anyMatch(k -> k.path().equalsIgnoreCase(c.path()));
+            ui.addRow(group, ui.listRow(in ? R.drawable.ic_check : R.drawable.ic_add, ACCENT, f.name(), in ? "들어 있어요 · 누르면 빼요" : book.liveWatch(f.id()) ? "라이브만 보기" : "저장 목록", null, () -> {
+                try {
+                    if (in) book.removeSource(f.id(), c.path()); else book.addSource(f.id(), c);
+                    sheet.dismiss(); render(); toast(in ? "‘" + f.name() + "’에서 뺐어요" : "‘" + f.name() + "’에 넣었어요" + (book.liveWatch(f.id()) ? "" : " · ‘목록 편집’에서 라이브만 보기를 켤 수 있어요"));
+                } catch (Exception e) { toast(e.getMessage()); }
+            }), true);
+            count++;
+        }
+        if (count > 0) sheet.body.addView(group);
+        EditText name = ui.input("새 목록 이름 · 예: 코인 라이브", 1, 40);
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, -2); gap.topMargin = ui.dp(10); sheet.body.addView(name, gap);
+        sheet.primary.setText("새 목록에 넣기");
+        sheet.primary.setOnClickListener(v -> {
+            String title = name.getText().toString().strip();
+            if (title.isEmpty()) { name.setError("새 목록 이름을 적어 주세요."); return; }
+            try {
+                // A list made for channels shows their broadcasts on air (라이브만 보기 on; 목록 편집 turns it off).
+                MyTube.Feed made = book.save(MyTube.savedList(title)); book.addSource(made.id(), c); book.liveWatch(made.id(), true);
+                // The search stays: the next channel can go into the same list.
+                sheet.dismiss(); render(); toast("‘" + title + "’ 목록을 만들어 넣었어요 · 라이브만 보기");
+            } catch (Exception e) { toast(e.getMessage()); }
+        });
+        sheet.show();
+    }
+
     // ── settings ─────────────────────────────────────────────────────────────
+    /** The 유튜브 로그인 line: kept current as the player hears from YouTube, not only as this screen opens. */
+    private TextView accountLine;
+    private String accountState() {
+        String account = player.account(); long at = player.accountAt(), ago = at <= 0 ? -1 : Math.max(0, System.currentTimeMillis() - at) / 60_000;
+        String when = ago < 0 ? "" : ago < 1 ? " · 방금 확인" : ago < 60 ? " · " + ago + "분 전 확인" : ago < 1_440 ? " · " + ago / 60 + "시간 전 확인" : " · " + ago / 1_440 + "일 전 확인";
+        return player.signingIn() ? "로그인하는 중 · 마치면 여기에 표시돼요"
+            : "in".equals(account) ? "✓ 로그인됨" + when : "out".equals(account) ? "로그인 안 됨" + when + " · 눌러서 로그인" : "확인 전 · 영상을 하나 틀면 로그인 여부를 확인해요";
+    }
+    private static TextView findText(View view, String text) {
+        if (view instanceof TextView t && text.contentEquals(t.getText())) return t;
+        if (view instanceof ViewGroup g) for (int i = 0; i < g.getChildCount(); i++) { TextView found = findText(g.getChildAt(i), text); if (found != null) return found; }
+        return null;
+    }
     private void buildSettings(LinearLayout content) {
         content.addView(ui.sectionHeader("재생"));
         LinearLayout group = ui.group();
         // What YouTube itself last said of the sign-in (each played page asks), so it is plain whether it took.
-        String account = player.account(); long at = player.accountAt(), ago = at <= 0 ? -1 : Math.max(0, System.currentTimeMillis() - at) / 60_000;
-        String when = ago < 0 ? "" : ago < 1 ? " · 방금 확인" : ago < 60 ? " · " + ago + "분 전 확인" : ago < 1_440 ? " · " + ago / 60 + "시간 전 확인" : " · " + ago / 1_440 + "일 전 확인";
-        String state = "in".equals(account) ? "✓ 로그인됨" + when : "out".equals(account) ? "로그인 안 됨" + when + " · 눌러서 로그인" : "확인 전 · 영상을 하나 틀면 로그인 여부를 확인해요";
-        ui.addRow(group, ui.listRow(R.drawable.ic_person, ACCENT, "유튜브 로그인", state, ui.chevron(), () -> { player.signIn(); player.attach(screen); showPlayer(); }), true);
+        String state = accountState();
+        LinearLayout login = ui.listRow(R.drawable.ic_person, ACCENT, "유튜브 로그인", state, ui.chevron(), () -> { player.signIn(); player.attach(screen); showPlayer(); });
+        accountLine = findText(login, state);
+        ui.addRow(group, login, true);
         ui.addRow(group, ui.choiceRow("화질", "마이튜브 화질", "영상에 그 화질이 없으면 그보다 낮은 것 중 가장 좋은 화질로 틀어요", MyTube.QUALITY_LABELS,
             MyTube.qualityIndex(player.quality()), i -> player.quality(MyTube.QUALITY_CODES[i])), true);
         ui.addRow(group, ui.switchRow("화면 꺼져도 계속 재생", "유튜브 프리미엄 회원용 · 음악 앱처럼 화면을 끄거나 다른 앱으로 가도 이어서 나와요", player.background(),
@@ -1025,6 +1218,12 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     }
 
     // ── small things ─────────────────────────────────────────────────────────
+    /** The AI 브라우저's AI mark (AiMark, drawn in code) before an AI action's label, in the label's color. */
+    private Button withAiMark(Button chip) {
+        AiMark mark = new AiMark(getResources().getDisplayMetrics().density); mark.setTint(TEXT); mark.setBounds(0, 0, ui.dp(20), ui.dp(20));
+        chip.setCompoundDrawablesRelative(mark, null, null, null); chip.setCompoundDrawablePadding(ui.dp(4));
+        return chip;
+    }
     private Button withIcon(Button chip, int icon) {
         android.graphics.drawable.Drawable d = getDrawable(icon); if (d == null) return chip;
         d = d.mutate(); d.setTint(TEXT); d.setBounds(0, 0, ui.dp(16), ui.dp(16)); chip.setCompoundDrawablesRelative(d, null, null, null); chip.setCompoundDrawablePadding(ui.dp(6));

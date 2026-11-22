@@ -31,11 +31,25 @@ final class MyTubeClient {
         return book;
     }
 
+    /** The broadcasts on air now of these channels (a channel not on air adds nothing). Blocking. */
+    static List<MyTube.Video> onAir(List<MyTube.Channel> channels, Consumer<String> progress, AtomicReference<Runnable> cancel) throws Exception {
+        List<MyTube.Video> out = new ArrayList<>();
+        for (MyTube.Channel c : channels) {
+            progress.accept("‘" + c.title() + "’ 라이브를 확인하는 중");
+            try { for (MyTube.Video v : channelLive(c.path(), cancel)) if (v.live() && out.stream().noneMatch(o -> o.id().equals(v.id()))) out.add(v.because(c.title() + " · 지금 방송 중")); }
+            catch (java.util.concurrent.CancellationException stop) { throw stop; }
+            catch (Exception notOnAir) { /* that channel has no broadcast now */ }
+        }
+        return out;
+    }
     /** Chooses the feed's videos afresh and keeps them; progress says what it is doing. Blocking. */
     static List<MyTube.Video> refresh(Context context, AppStore store, MyTube.Feed feed, Consumer<String> progress, AtomicReference<Runnable> cancel) throws Exception {
         MyTubeBook book = book(context);
-        // 저장한 영상 (나중에 보기) is the user's own list: 새로 고르기 shows it as it is, nothing chosen in.
-        if (MyTube.SAVED_FEED_NAME.equals(feed.name())) { List<MyTube.Video> kept = book.pinned(feed.id()); book.videos(feed.id(), kept, System.currentTimeMillis()); return kept; }
+        // A 저장 목록 is the user's own: shown as saved, nothing chosen in; with 라이브만 보기, its channels' broadcasts on air now.
+        if (feed.saved() || MyTube.SAVED_FEED_NAME.equals(feed.name()) || MyTube.OLD_SAVED_FEED_NAME.equals(feed.name())) {
+            List<MyTube.Video> kept = book.liveWatch(feed.id()) ? onAir(book.sources(feed.id()), progress, cancel) : book.pinned(feed.id());
+            book.videos(feed.id(), kept, System.currentTimeMillis()); return kept;
+        }
         MyTube.Taste taste = book.taste(feed.id());
         String today = java.time.LocalDate.now().toString();
         // The channel a VIDEOS feed is measured against: its newest videos tell what "like it" means, and are never chosen.
@@ -48,10 +62,13 @@ final class MyTubeClient {
             reference = MyTube.videos(data); referenceTitle = MyTube.channelTitle(data);
         }
         Ai ai = Ai.of(store);
+        // 곡 수 · 영상 수: more searches and candidates for a bigger feed.
+        int want = book.size(feed.id()), searches = MyTube.queriesFor(want), pool = Math.min(240, Math.max(CANDIDATES, want * 3));
         List<String> queries = new ArrayList<>();
         if (ai != null) {
             progress.accept("AI(" + ai.name + ")가 검색어를 고르는 중");
-            try { queries = MyTube.queries(ai.ask(MyTube.QUERIES, MyTube.queriesInput(feed, referenceTitle, reference, taste, today), cancel)); }
+            String asked = MyTube.queriesInput(feed, referenceTitle, reference, taste, today) + (want > MyTube.SIZE ? "\n고를 개수: " + want + "개 · 검색어는 " + searches + "개까지" : "");
+            try { queries = MyTube.queries(ai.ask(MyTube.QUERIES, asked, cancel), searches); }
             catch (java.util.concurrent.CancellationException stop) { throw stop; }
             catch (Exception failed) { progress.accept("검색어를 정하지 못해 설명으로 찾아요"); }
         }
@@ -82,10 +99,10 @@ final class MyTubeClient {
                 if (v.live() != live || leaveOut.contains(v.id()) || (!referenceTitle.isEmpty() && referenceTitle.equals(v.channel()))) continue;
                 found.putIfAbsent(v.id(), v);
             }
-            if (found.size() >= CANDIDATES) break;
+            if (found.size() >= pool) break;
         }
         List<MyTube.Video> candidates = new ArrayList<>(found.values());
-        if (candidates.size() > CANDIDATES) candidates = candidates.subList(0, CANDIDATES);
+        if (candidates.size() > pool) candidates = candidates.subList(0, pool);
         if (candidates.isEmpty() && live) {
             if (onAir.isEmpty()) throw new IOException("지금 방송 중인 라이브를 찾지 못했어요. 잠시 뒤에 다시 골라 보세요.");
             book.videos(feed.id(), onAir, System.currentTimeMillis()); return onAir;
@@ -94,11 +111,11 @@ final class MyTubeClient {
         List<MyTube.Video> picks = List.of();
         if (ai != null) {
             progress.accept("AI(" + ai.name + ")가 " + candidates.size() + "개 중에서 고르는 중");
-            try { picks = MyTube.picks(ai.ask(MyTube.PICKS, MyTube.picksInput(feed, candidates, referenceTitle, taste, PICKS, today), cancel), candidates, PICKS); }
+            try { picks = MyTube.picks(ai.ask(MyTube.PICKS, MyTube.picksInput(feed, candidates, referenceTitle, taste, want, today), cancel), candidates, want); }
             catch (java.util.concurrent.CancellationException stop) { throw stop; }
             catch (Exception failed) { progress.accept("AI가 고르지 못해 유튜브 순서대로 보여 줘요"); }
         }
-        if (picks.isEmpty()) picks = new ArrayList<>(candidates.subList(0, Math.min(PICKS, candidates.size())));
+        if (picks.isEmpty()) picks = new ArrayList<>(candidates.subList(0, Math.min(want, candidates.size())));
         // What the user kept stays on top: the saved channels' broadcasts (a live feed), or the videos saved into it.
         List<MyTube.Video> shown = new ArrayList<>(live ? onAir : book.pinned(feed.id()));
         for (MyTube.Video v : picks) if (shown.stream().noneMatch(k -> k.id().equals(v.id()))) shown.add(v);

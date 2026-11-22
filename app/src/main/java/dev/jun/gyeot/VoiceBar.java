@@ -169,7 +169,7 @@ final class VoiceBar {
         words.setTextColor(by == VoiceChat.MINE ? ACCENT : by == VoiceChat.THEIRS ? TEXT : MUTED);
         boolean foreign = spoken && by != VoiceChat.NOTE && dev.jun.gyeot.core.CaptionLanguage.foreign(said);
         words.setClickable(foreign);
-        String clip = c.wordsClip(); boolean replayable = spoken && by != VoiceChat.NOTE && VoiceClips.has(clip), now = VoiceClips.playing(clip);
+        String clip = c.wordsClip(); boolean replayable = spoken && by == VoiceChat.THEIRS && VoiceClips.has(clip), now = VoiceClips.playing(clip); // the AI's words only
         replay.setVisibility(replayable || now ? View.VISIBLE : View.GONE);
         replay.on(now ? R.drawable.ic_stop : R.drawable.ic_play, now ? "다시 듣기 멈추기" : by == VoiceChat.MINE ? "내 말 다시 듣기" : "다시 듣기 · 말한 목소리 그대로", now);
         words.setContentDescription((by == VoiceChat.MINE ? "내 말: " : by == VoiceChat.THEIRS ? c.speaking() + "의 말: " : "") + words.getText() + (foreign ? ", 눌러서 한국어로 보기" : ""));

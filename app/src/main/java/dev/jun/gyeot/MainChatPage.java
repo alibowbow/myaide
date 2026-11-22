@@ -623,13 +623,8 @@ final class MainChatPage implements AutoCloseable {
         String attached = MainAttachments.label(MainAttachments.of(m));
         if (!attached.isEmpty()) { TextView files = ui.text(attached, FOOTNOTE, 520, MUTED); files.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), 0); files.setGravity(Gravity.END); files.setContentDescription("첨부: " + attached); wrap.addView(files, new LinearLayout.LayoutParams(-2, -2)); }
         TextView meta = ui.text(stamp(m), 11.5f, 450, MUTED); meta.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), 0);
-        // Said aloud in 음성 대화: 다시 듣기 in the user's own voice beside its time, when it was kept (VoiceClips).
-        if (VoiceClips.has(readKey(m))) {
-            LinearLayout stamped = ui.row(); stamped.setGravity(Gravity.CENTER_VERTICAL);
-            stamped.addView(ui.footIcon(R.drawable.ic_play, "내 목소리 다시 듣기 · 다시 누르면 멈춰요", () -> VoiceClips.toggle(activity, store, readKey(m), text)), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
-            stamped.addView(meta, new LinearLayout.LayoutParams(-2, -2));
-            wrap.addView(stamped, new LinearLayout.LayoutParams(-2, -2));
-        } else wrap.addView(meta, new LinearLayout.LayoutParams(-2, -2));
+        // What the user said keeps no replay button (only the AI's answers have one).
+        wrap.addView(meta, new LinearLayout.LayoutParams(-2, -2));
         if (suggestsWork(text)) wrap.addView(ui.ghost("작업으로 보내기", () -> confirmJob(id, text)), new LinearLayout.LayoutParams(-2, -2));
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.bottomMargin = ui.dp(16); p.leftMargin = ui.dp(48); messages.addView(wrap, p);
     }

@@ -63,10 +63,13 @@ final class Speaker implements AutoCloseable {
         int i = levelNext; levelNext = (levelNext + 1) % levels.length;
         levelFrom[i] = from; levelTo[i] = to; levels[i] = level;
     }
-    /** The loudest speech playing around now (the last 300 ms to the next 100 ms), as 16-bit RMS; 0 when nothing plays. */
+    /**
+     * The loudest speech playing around now (the last 700 ms to the next 100 ms), as 16-bit RMS; 0 when nothing plays. The
+     * window spans the pause between two words or sentences of one answer, so its room echo is never taken for the user.
+     */
     synchronized double level() {
         long now = SystemClock.uptimeMillis(); double loudest = 0;
-        for (int i = 0; i < levels.length; i++) if (levelTo[i] >= now - 300 && levelFrom[i] <= now + 100) loudest = Math.max(loudest, levels[i]);
+        for (int i = 0; i < levels.length; i++) if (levelTo[i] >= now - 700 && levelFrom[i] <= now + 100) loudest = Math.max(loudest, levels[i]);
         return loudest;
     }
     private synchronized void forgetLevels() { java.util.Arrays.fill(levelTo, 0); java.util.Arrays.fill(levelFrom, 0); java.util.Arrays.fill(levels, 0); }

@@ -622,15 +622,17 @@ public final class MainActivity extends Activity {
         bubble.setBackground(shape); if (faint) bubble.setAlpha(0.62f);
         String plain = text.toString(); bubble.setContentDescription((mine ? "나" : who) + ": " + plain);
         bubble.setOnLongClickListener(v -> { copy(plain); return true; });
-        if (clip == null || faint) line.addView(bubble, new LinearLayout.LayoutParams(-2, -2));
+        // ▶ beside the AI's words only: what the user said needs no replay.
+        if (clip == null || faint || mine) line.addView(bubble, new LinearLayout.LayoutParams(-2, -2));
         else {
-            // ▶ on the bubble's inner side: before the user's, after everyone else's.
             boolean now = VoiceClips.playing(clip), kept = VoiceClips.has(clip);
             android.widget.ImageView play = ui.footIcon(now ? R.drawable.ic_stop : R.drawable.ic_play,
                 now ? "다시 듣기 멈추기" : kept ? "다시 듣기 · 말한 목소리 그대로" : "다시 듣기 · 읽어 주기", () -> VoiceClips.toggle(this, store, clip, plain));
             if (now) play.setColorFilter(ACCENT);
+            // An 18dp mark in a 36dp target (footIcon's own padding left only a dot of it here).
+            play.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9));
             LinearLayout row = ui.row(); row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-            LinearLayout.LayoutParams playAt = new LinearLayout.LayoutParams(ui.dp(32), ui.dp(32)), bubbleAt = new LinearLayout.LayoutParams(-2, -2, 1);
+            LinearLayout.LayoutParams playAt = new LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)), bubbleAt = new LinearLayout.LayoutParams(-2, -2, 1);
             if (mine) { row.addView(play, playAt); row.addView(bubble, bubbleAt); } else { row.addView(bubble, bubbleAt); row.addView(play, playAt); }
             line.addView(row, new LinearLayout.LayoutParams(-2, -2));
         }
@@ -667,6 +669,7 @@ public final class MainActivity extends Activity {
         homeGreeting.setLineSpacing(ui.dp(3), 1); add(homeGreeting, 16); homeIntro = homeGreeting;
         int selectedMode = recordingPage ? 3 : Math.max(0, java.util.Arrays.asList(MODE_IDS).indexOf(mode));
         View homeModes = ui.pills(HOME_MODE_NAMES, selectedMode, this::selectHomeMode);
+        assistantArrow((TextView) ((ViewGroup) ((ViewGroup) homeModes).getChildAt(0)).getChildAt(0));
         // Keep the selected tab reachable on narrow phones, large text and folded screens.
         homeModes.post(() -> {
             View selected = ((ViewGroup) ((ViewGroup) homeModes).getChildAt(0)).getChildAt(selectedMode);
@@ -775,14 +778,35 @@ public final class MainActivity extends Activity {
         add(ui.listRow(R.drawable.ic_sparkle, ACCENT, "녹음 요약 모델 · 생각 깊이",
             WorkBook.author(models.engine()) + " · " + modelChip(models, models.engine()), ui.chevron(), this::pickRecordingModel), 8);
     }
+    /** Whether the touch on 음성 비서 landed on its ▾ (the voice settings) rather than its name (just the mode). */
+    private boolean arrowTapped;
+    /**
+     * 음성 비서's ▾ as a touch area of its own: the name selects the mode, the larger ▾ a little apart from it opens the voice
+     * settings (a long press opens them too).
+     */
+    private void assistantArrow(TextView pill) {
+        android.graphics.drawable.Drawable arrow = getDrawable(R.drawable.ic_chevron_down); if (arrow == null) return;
+        int size = ui.dp(20), gap = ui.dp(8);
+        arrow = arrow.mutate(); arrow.setBounds(0, 0, size, size);
+        pill.setText("음성 비서"); pill.setCompoundDrawablesRelative(null, null, arrow, null); pill.setCompoundDrawablePadding(gap);
+        pill.setCompoundDrawableTintList(new android.content.res.ColorStateList(new int[][] {{android.R.attr.state_selected}, {}}, new int[] {Ui.BG, Ui.TEXT}));
+        pill.setPaddingRelative(pill.getPaddingStart(), pill.getPaddingTop(), ui.dp(13), pill.getPaddingBottom());
+        View.OnTouchListener press = Ui.press(false);
+        pill.setOnTouchListener((v, e) -> {
+            if (e.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) arrowTapped = e.getX() >= v.getWidth() - v.getPaddingEnd() - size - gap;
+            return press.onTouch(v, e);
+        });
+        pill.setOnLongClickListener(v -> { arrowTapped = true; v.performClick(); return true; });
+    }
     private void selectHomeMode(int index) {
+        boolean settings = arrowTapped; arrowTapped = false;
         recordingPage = index == 3;
         if (recordingPage) { stopCamera(); showTab(0); return; }
         String chosen = MODE_IDS[index];
         boolean unchanged = chosen.equals(mode) && (!store.voiceActive || chosen.equals(store.voiceMode));
         selectMode(chosen);
         if (unchanged) showTab(0);
-        if (ASSISTANT.equals(chosen)) voiceModeSheet();
+        if (ASSISTANT.equals(chosen) && settings) voiceModeSheet();
     }
     private void voiceModeSheet() {
         Ui.Sheet sheet = ui.selectionSheet("음성 비서", "음성 엔진 · 모델 · 생각 깊이");
@@ -2527,12 +2551,6 @@ public final class MainActivity extends Activity {
             TextView bubble = ui.bubble(text); bubble.setTextIsSelectable(true);
             bubble.setMaxWidth(Math.round(readingWidth() * 0.85f));
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.gravity = android.view.Gravity.END; column.addView(bubble, p);
-            // Said aloud in 음성 대화: 다시 듣기 in the user's own voice, when it was kept (VoiceClips).
-            String clip = VoiceChat.clipKey("work", message.optLong("at"));
-            if (WorkBook.SPOKEN.equals(message.optString("kind")) && VoiceClips.has(clip)) {
-                LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)); right.gravity = android.view.Gravity.END;
-                column.addView(ui.footIcon(R.drawable.ic_play, "내 목소리 다시 듣기 · 다시 누르면 멈춰요", () -> VoiceClips.toggle(this, store, clip, text)), right);
-            }
         }
         return column;
     }
