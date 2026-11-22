@@ -134,9 +134,10 @@ final class ScopedModels {
                 if (DRAFT.equals(setting) && !selection.has(REPO)) put(selection, REPO, store.githubRepo());
                 return selection;
             }
-            JSONObject thread = WorkBook.find(store.works(), room);
-            if (thread == null || thread.optJSONObject(KEY) == null) throw new IllegalStateException("이 작업의 모델 설정을 찾지 못했어요.");
-            return copy(thread.optJSONObject(KEY));
+            // Only this room's selection is copied (AppStore.workSelection): the composer reads it on every redraw.
+            JSONObject selection = store.workSelection(room);
+            if (selection == null) throw new IllegalStateException("이 작업의 모델 설정을 찾지 못했어요.");
+            return selection;
         }
     }
     private void change(java.util.function.Consumer<JSONObject> update) {

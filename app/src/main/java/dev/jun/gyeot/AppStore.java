@@ -818,6 +818,20 @@ final class AppStore {
     boolean memoryOn() { return settings.getBoolean("memory", true); }
     boolean autoMemory() { return memoryOn() && settings.getBoolean("autoMemory", true); }
     synchronized JSONArray works() { try { return new JSONArray(works.toString()); } catch (Exception e) { return new JSONArray(); } }
+    /**
+     * One 작업창 room's model selection (ScopedModels.KEY), copied alone; null when the room or its selection is missing.
+     * The composer reads it on every redraw, so it never copies the other rooms and their messages as works() does.
+     */
+    synchronized JSONObject workSelection(String id) {
+        JSONObject thread = id == null || id.isEmpty() ? null : WorkBook.find(works, id);
+        JSONObject selection = thread == null ? null : thread.optJSONObject(ScopedModels.KEY);
+        return selection == null ? null : ScopedModels.copy(selection);
+    }
+    /** One 작업창 room's state (WorkBook.RUNNING while it works), "" when it is missing; read without copying the work threads. */
+    synchronized String workState(String id) {
+        JSONObject thread = id == null || id.isEmpty() ? null : WorkBook.find(works, id);
+        return thread == null ? "" : thread.optString("state");
+    }
     synchronized boolean hasWorkSteering(String id, String engine) {
         return dev.jun.gyeot.core.WorkQueue.canSteer(WorkBook.find(works, id), engine);
     }
