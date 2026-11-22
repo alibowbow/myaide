@@ -125,10 +125,15 @@ public final class MyTubeBook {
         write("feed-" + feed + ".json", obj("at", at, "videos", list));
     }
 
-    /** 저장: the video at the top of the feed's list (once), liked, and kept there through every 새로 고르기. */
+    /**
+     * 저장: the video at the top of the feed's list (once), liked, and kept there through every 새로 고르기. A 라이브만 보기
+     * list shows only broadcasts on air, so a video that is not one is kept without joining what it shows (목록 편집 lists it).
+     */
     public synchronized void keep(String feed, MyTube.Video video) throws IOException {
-        List<MyTube.Video> list = videos(feed); list.removeIf(v -> v.id().equals(video.id())); list.add(0, video);
-        videos(feed, list, refreshedAt(feed));
+        if (video.live() || !liveWatch(feed)) {
+            List<MyTube.Video> list = videos(feed); list.removeIf(v -> v.id().equals(video.id())); list.add(0, video);
+            videos(feed, list, refreshedAt(feed));
+        }
         List<MyTube.Video> pins = pinned(feed); pins.removeIf(v -> v.id().equals(video.id())); pins.add(0, video);
         while (pins.size() > 200) pins.remove(pins.size() - 1);
         JSONArray out = new JSONArray(); for (MyTube.Video v : pins) out.put(v.json());
@@ -147,11 +152,16 @@ public final class MyTubeBook {
     }
     /** The videos saved into the feed by hand: they stay at its top whatever the AI chooses next. */
     public synchronized List<MyTube.Video> pinned(String feed) { return list(read("pins-" + feed + ".json").optJSONArray("videos")); }
+    /** Takes a saved video out of the feed: off its pins and off what it shows now (a broadcast on air comes back with the next check). */
     public synchronized void unpin(String feed, String id) throws IOException {
         List<MyTube.Video> pins = pinned(feed); pins.removeIf(v -> v.id().equals(id));
         JSONArray out = new JSONArray(); for (MyTube.Video v : pins) out.put(v.json());
         JSONObject file = read("pins-" + feed + ".json"); put(file, "videos", out); write("pins-" + feed + ".json", file);
+        List<MyTube.Video> shown = videos(feed);
+        if (shown.removeIf(v -> v.id().equals(id))) videos(feed, shown, refreshedAt(feed));
     }
+    /** What the feed shows is out of date (its channels changed): it keeps showing it, and the next showing checks again. */
+    public synchronized void stale(String feed) throws IOException { videos(feed, videos(feed), 0); }
     /** The channels saved into a feed (a live broadcast kept there): each 새로 고르기 looks at them first. */
     public synchronized List<MyTube.Channel> sources(String feed) {
         List<MyTube.Channel> out = new ArrayList<>(); JSONArray list = read("pins-" + feed + ".json").optJSONArray("channels");
