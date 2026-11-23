@@ -664,7 +664,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         ImageView frame = new ImageView(this); frame.setScaleType(ImageView.ScaleType.CENTER_CROP); frame.setBackground(ui.shape(FILL, 12)); frame.setClipToOutline(true);
         frame.setContentDescription("영상 중간 장면");
         row.addView(frame, new LinearLayout.LayoutParams(ui.dp(132), ui.dp(74)));
-        loadFrame(frame, v.id());
+        loadFrame(frame, v.id(), v.live());
         LinearLayout text = ui.column(); text.setPadding(ui.dp(12), 0, 0, 0);
         TextView title = ui.text(v.title(), 14, 600, TEXT); title.setMaxLines(2); title.setEllipsize(TextUtils.TruncateAt.END);
         // A broadcast on air: 실시간 in the accent where its length would be, with how many watch.
@@ -1361,19 +1361,25 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         d = d.mutate(); d.setTint(TEXT); d.setBounds(0, 0, ui.dp(16), ui.dp(16)); chip.setCompoundDrawablesRelative(d, null, null, null); chip.setCompoundDrawablePadding(ui.dp(6));
         return chip;
     }
-    private void loadFrame(ImageView view, String id) {
-        Bitmap kept = FRAMES.get(id); view.setTag(id);
+    private void loadFrame(ImageView view, String id, boolean live) {
+        // A broadcast's picture changes as it goes on: kept only for a few minutes (its own key), others for the session.
+        String key = live ? id + "@live" + (System.currentTimeMillis() / (5 * 60_000)) : id;
+        Bitmap kept = FRAMES.get(key); view.setTag(id);
         if (kept != null) { view.setImageBitmap(kept); return; }
         work.execute(() -> {
-            try {
-                java.net.HttpURLConnection http = (java.net.HttpURLConnection) new java.net.URL(MyTube.frame(id)).openConnection();
-                http.setConnectTimeout(10_000); http.setReadTimeout(15_000);
-                Bitmap bitmap;
-                try (java.io.InputStream in = http.getInputStream()) { bitmap = BitmapFactory.decodeStream(in); } finally { http.disconnect(); }
-                if (bitmap == null) return;
-                FRAMES.put(id, bitmap);
-                main.post(() -> { if (!destroyed && id.equals(view.getTag())) view.setImageBitmap(bitmap); });
-            } catch (Exception unavailable) { /* the gray box stays */ }
+            for (String url : MyTube.frames(id, live)) {
+                try {
+                    java.net.HttpURLConnection http = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                    http.setConnectTimeout(10_000); http.setReadTimeout(15_000);
+                    Bitmap bitmap;
+                    try (java.io.InputStream in = http.getInputStream()) { bitmap = BitmapFactory.decodeStream(in); } finally { http.disconnect(); }
+                    // YouTube answers a missing picture with a tiny gray placeholder: try the next one.
+                    if (bitmap == null || bitmap.getWidth() <= 120) continue;
+                    FRAMES.put(key, bitmap);
+                    main.post(() -> { if (!destroyed && id.equals(view.getTag())) view.setImageBitmap(bitmap); });
+                    return;
+                } catch (Exception unavailable) { /* the next picture */ }
+            }
         });
     }
     private static String join(String... parts) { StringBuilder out = new StringBuilder(); for (String p : parts) if (p != null && !p.isBlank()) out.append(out.length() == 0 ? "" : " · ").append(p); return out.toString(); }

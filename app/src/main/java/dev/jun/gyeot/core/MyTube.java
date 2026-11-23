@@ -103,6 +103,14 @@ public final class MyTube {
     }
     /** The frame from the middle of the video (YouTube's own hq2), shown instead of the uploader's thumbnail. */
     public static String frame(String id) { return "https://i.ytimg.com/vi/" + id + "/hq2.jpg"; }
+    /**
+     * The pictures to try in turn: a broadcast on air has no middle frame (hq2 is missing until it ends), so its live picture
+     * (YouTube refreshes it during the broadcast) and then its thumbnail; any other video its middle frame, then its thumbnail.
+     */
+    public static List<String> frames(String id, boolean live) {
+        String at = "https://i.ytimg.com/vi/" + id + "/";
+        return live ? List.of(at + "hqdefault_live.jpg", at + "hqdefault.jpg", at + "mqdefault.jpg") : List.of(at + "hq2.jpg", at + "hqdefault.jpg", at + "mqdefault.jpg");
+    }
     /** The phone page that plays the video. */
     public static String watch(String id) { return "https://m.youtube.com/watch?v=" + id; }
     /** A YouTube video id from a watch address (also a Shorts one, where YouTube may send a short video), or "". */
