@@ -41,7 +41,6 @@ import static dev.jun.gyeot.Ui.*;
  */
 public final class SchoolActivity extends Activity {
     static final String OPEN = "gyeot.school_teacher";
-    static final String GROQ_LABEL = "Groq · GPT OSS 120B";
     private Ui ui; private AppStore store; private SchoolBook book; private MainNavigation navigation;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService work = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-school"); t.setDaemon(true); return t; });
@@ -92,8 +91,10 @@ public final class SchoolActivity extends Activity {
 
     /** A teacher kept on the retired "Antigravity · 구독" choice: now the app's AIs with Antigravity chosen, as every screen offers it. */
     private void migrateAgy(List<SchoolBook.Teacher> teachers) {
-        for (SchoolBook.Teacher t : teachers) if ("agy".equals(t.ai())) {
-            try { ScopedModels.tutor(store, t.id()).chooseEngine(dev.jun.gyeot.core.WorkBook.ANTIGRAVITY); book.save(t.ai("app")); } catch (Exception ignored) {}
+        for (SchoolBook.Teacher t : teachers) if ("agy".equals(t.ai()) || "groq".equals(t.ai())) {
+            // Groq and Antigravity are AIs of the model menu now: the teacher keeps the one it had, chosen there.
+            String engine = "agy".equals(t.ai()) ? dev.jun.gyeot.core.WorkBook.ANTIGRAVITY : dev.jun.gyeot.core.WorkBook.GROQ;
+            try { if (!"groq".equals(t.ai()) || store.groq.connected()) ScopedModels.tutor(store, t.id()).chooseEngine(engine); book.save(t.ai("app")); } catch (Exception ignored) {}
         }
     }
     /** The whole screen again: both panes on a wide screen, the list or the lesson on a phone. */
@@ -348,10 +349,9 @@ public final class SchoolActivity extends Activity {
         dictation = new ComposerDictation(this, input, () -> "school", message -> Toast.makeText(this, message, Toast.LENGTH_LONG).show());
         dictation.begin(() -> new GeminiComposerSession(store.secrets.workKey()), "Gemini 3.5 Transcribe Live");
     }
-    private boolean groq(SchoolBook.Teacher t) { return "groq".equals(t.ai()) && store.groq.connected(); }
     private void modelLabel(SchoolBook.Teacher t) {
         if (model == null) return;
-        String[] parts = groq(t) ? new String[]{GROQ_LABEL, "무료"} : appParts(t);
+        String[] parts = appParts(t);
         android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(parts[0]);
         label.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, label.length(), 0);
         if (!parts[1].isEmpty()) { int at = label.length(); label.append("  ").append(parts[1]); label.setSpan(new android.text.style.ForegroundColorSpan(MUTED), at, label.length(), 0); }
@@ -371,21 +371,8 @@ public final class SchoolActivity extends Activity {
         } catch (Exception unavailable) { return new String[]{"AI 연결·선택", ""}; }
     }
     /** With Groq connected: Groq's free model or the app's AIs (then their menu); without, the app's AIs' menu at once. */
-    private void chooseModel(SchoolBook.Teacher t) {
-        // Groq's free model and Antigravity (the subscription, in the app's Linux) when they are there, and the app's AIs.
-        java.util.List<String> labels = new java.util.ArrayList<>(), ids = new java.util.ArrayList<>();
-        if (store.groq.connected()) { labels.add(GROQ_LABEL + " · 무료"); ids.add("groq"); }
-        if (ids.isEmpty()) { appModels(t); return; }
-        labels.add("앱의 AI · " + appParts(t)[0]); ids.add("app");
-        String current = groq(t) ? "groq" : "app";
-        ui.miniMenu(model, labels.toArray(new String[0]), ids.indexOf(current), i -> {
-            SchoolBook.Teacher now = book.teacher(t.id()); if (now == null) return;
-            String want = ids.get(i);
-            if (!want.equals(now.ai())) try { book.save(now.ai(want)); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); return; }
-            modelLabel(book.teacher(t.id()));
-            if (want.equals("app")) model.post(() -> appModels(book.teacher(t.id())));
-        });
-    }
+    /** The model chip opens the same model menu as every screen (Groq and Antigravity are AIs in it, as the others). */
+    private void chooseModel(SchoolBook.Teacher t) { appModels(t); }
     private void appModels(SchoolBook.Teacher t) {
         if (t == null || model == null) return;
         ScopedModels selection; try { selection = ScopedModels.tutor(store, t.id()); } catch (Exception e) { store.error(e.getMessage()); return; }
@@ -455,25 +442,13 @@ public final class SchoolActivity extends Activity {
     private String[] answer(SchoolBook.Teacher t) throws Exception {
         if (t == null) throw new IllegalStateException("이 선생님을 찾지 못했어요.");
         List<SchoolBook.Line> all = book.lines(t.id());
-        String system = SchoolBook.tutor(t), groqWhy = null;
-        if (groq(t)) {
-            // The free tier takes about 8,000 tokens a minute, the answer included: the lesson's newest 3,000 characters.
-            List<SchoolBook.Line> recent = SchoolBook.history(all, 3000);
-            int chars = system.length(); JSONArray turns = new JSONArray();
-            for (SchoolBook.Line l : recent) { turns.put(new JSONObject().put("role", l.mine() ? "user" : "assistant").put("content", l.text())); chars += l.text().length(); }
-            if (GroqWork.ready(GroqWork.CHORES, chars + 2000)) {
-                try { return new String[]{GroqWork.converse(GroqWork.CHORES, system, turns, "low", 0.6, 90_000, cancel), GROQ_LABEL}; }
-                catch (Exception e) { if (ticketStopped()) throw e; groqWhy = e.getMessage(); }
-            } else groqWhy = "Groq 무료 한도를 기다리는 중이에요";
-        }
+        String system = SchoolBook.tutor(t);
+        ScopedModels scope = ScopedModels.tutor(store, t.id());
+        // Groq's free tier takes about 8,000 tokens a minute, the answer included: the lesson's newest 3,000 characters there.
+        int budget = dev.jun.gyeot.core.WorkBook.GROQ.equals(scope.engine()) ? 3000 : 16000;
         String[] by = {""};
-        try {
-            String text = MyTubeClient.askScoped(store, ScopedModels.tutor(store, t.id()), system, SchoolBook.transcript(SchoolBook.history(all, 16000)), cancel, b -> by[0] = b);
-            return new String[]{text, by[0] + (groqWhy == null ? "" : " · Groq 대신")};
-        } catch (Exception e) {
-            if (groqWhy != null) throw new IllegalStateException(groqWhy + ". 아래 모델 이름을 눌러 앱의 AI를 골라 두면 그동안 대신 답해요.");
-            throw e;
-        }
+        String text = MyTubeClient.askScoped(store, scope, system, SchoolBook.transcript(SchoolBook.history(all, budget)), cancel, b -> by[0] = b);
+        return new String[]{text, by[0]};
     }
     private boolean ticketStopped() { return thinkingFor == null; }
 
@@ -572,15 +547,18 @@ public final class SchoolActivity extends Activity {
         TextView methodAbout = ui.footer(SchoolBook.METHODS.get(method[0]).name() + "\n" + SchoolBook.METHODS.get(method[0]).about());
         sheet.body.addView(ui.pills(methodNames, method[0], i -> { method[0] = i; methodAbout.setText(SchoolBook.METHODS.get(i).name() + "\n" + SchoolBook.METHODS.get(i).about()); }));
         sheet.body.addView(methodAbout);
-        sheet.body.addView(ui.footer("일부만 적고 ‘AI로 빈칸 채우기’를 누르면 나머지를 어울리게 채워 줘요(Groq 무료 우선). 선생님은 정한 성격과 말투로 1:1 과외를 해요. 기본으로 Groq의 무료 GPT OSS 120B가 답하고, 대화창 아래 모델 이름을 눌러 바꿀 수 있어요."));
+        sheet.body.addView(ui.footer("일부만 적고 ‘AI로 빈칸 채우기’를 누르면 나머지를 어울리게 채워 줘요(Groq 우선). 선생님은 정한 성격과 말투로 1:1 과외를 해요. Groq가 연결돼 있으면 Groq(GPT OSS 120B)가 답하고, 대화창 아래 모델 이름을 눌러 다른 AI로 바꿀 수 있어요."));
         sheet.primary.setText(t == null ? "모시기" : "저장");
         sheet.primary.setOnClickListener(v -> {
             String n = name.getText().toString().strip();
             if (n.isEmpty()) { name.setError("이름을 적어 주세요."); return; }
             try {
                 SchoolBook.Teacher saved;
-                if (t == null) saved = book.add(n, subject.getText().toString(), style.getText().toString(), level.getText().toString(), store.groq.connected() ? "groq" : "app", SchoolBook.METHODS.get(method[0]).id());
-                else { SchoolBook.Teacher now = book.teacher(t.id()); saved = (now == null ? t : now).with(n, subject.getText().toString(), style.getText().toString(), level.getText().toString(), SchoolBook.METHODS.get(method[0]).id()); book.save(saved); }
+                if (t == null) {
+                    saved = book.add(n, subject.getText().toString(), style.getText().toString(), level.getText().toString(), "app", SchoolBook.METHODS.get(method[0]).id());
+                    // A new teacher starts on Groq when it is connected (chosen in the model menu like any AI).
+                    if (store.groq.connected()) try { ScopedModels.tutor(store, saved.id()).chooseEngine(dev.jun.gyeot.core.WorkBook.GROQ); } catch (Exception ignored) {}
+                } else { SchoolBook.Teacher now = book.teacher(t.id()); saved = (now == null ? t : now).with(n, subject.getText().toString(), style.getText().toString(), level.getText().toString(), SchoolBook.METHODS.get(method[0]).id()); book.save(saved); }
                 if (picture[0] != null) book.avatar(saved.id(), picture[0]); else if (cleared[0]) book.avatar(saved.id(), null);
                 this.faces.remove(saved.id());
                 sheet.dismiss();

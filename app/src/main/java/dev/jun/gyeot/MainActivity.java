@@ -2712,7 +2712,7 @@ public final class MainActivity extends Activity {
         return WorkBook.author(WorkBook.engine(message.optString("by", thread.optString("engine", WorkBook.CHATGPT))));
     }
     /** The engine behind a name WorkBook.author gave. */
-    private static String engineNamed(String name) { return "Claude".equals(name) ? WorkBook.CLAUDE : "Gemini".equals(name) ? WorkBook.GEMINI : "Grok".equals(name) ? WorkBook.GROK : "NVIDIA NIM".equals(name) ? WorkBook.NIM : "Antigravity".equals(name) ? WorkBook.ANTIGRAVITY : WorkBook.CHATGPT; }
+    private static String engineNamed(String name) { return "Claude".equals(name) ? WorkBook.CLAUDE : "Gemini".equals(name) ? WorkBook.GEMINI : "Grok".equals(name) ? WorkBook.GROK : "NVIDIA NIM".equals(name) ? WorkBook.NIM : "Antigravity".equals(name) ? WorkBook.ANTIGRAVITY : "Groq".equals(name) ? WorkBook.GROQ : WorkBook.CHATGPT; }
     /** One answer in the chat: who wrote it, the formatted text, notes, the files it made, cited pages, and a few actions. */
     private LinearLayout workAnswer(JSONObject thread, JSONObject message) {
         // A spoken conversation's answer (VoiceTargets.work): what the voice said, under its name; nothing to act on.
@@ -3019,7 +3019,7 @@ public final class MainActivity extends Activity {
     private void pickWorkProvider() {
         ScopedModels selection = workModels();
         Ui.Sheet sheet = ui.selectionSheet("이 작업창의 AI", "다른 작업창과 음성·녹음 설정은 바뀌지 않아요");
-        for (String engine : new String[]{WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY})
+        for (String engine : new String[]{WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY, WorkBook.GROQ})
             sheet.body.addView(ui.listRow(0, ACCENT, WorkBook.author(engine), store.ready(engine) ? modelChip(engine) : "연결 필요", ui.chevron(), () -> { sheet.dismiss(); chooseEngine(selection, engine); }));
         sheet.show();
     }
@@ -3032,18 +3032,18 @@ public final class MainActivity extends Activity {
         if (!store.ready(engine)) {
             boolean gemini = WorkBook.GEMINI.equals(engine);
             store.error(gemini ? "Gemini API 키를 먼저 넣어 주세요." : name + "를 먼저 연결해 주세요.");
-            openSettings(WorkBook.CLAUDE.equals(engine) ? "claude" : gemini ? "key" : WorkBook.GROK.equals(engine) ? "grok" : WorkBook.ANTIGRAVITY.equals(engine) ? "antigravity" : WorkBook.NIM.equals(engine) ? "nim" : "chatgpt"); return;
+            openSettings(WorkBook.CLAUDE.equals(engine) ? "claude" : gemini ? "key" : WorkBook.GROK.equals(engine) ? "grok" : WorkBook.GROQ.equals(engine) ? "groq" : WorkBook.ANTIGRAVITY.equals(engine) ? "antigravity" : WorkBook.NIM.equals(engine) ? "nim" : "chatgpt"); return;
         }
         store.status("다음 메시지부터 " + name + "가 답해요 · 앞의 대화도 이어서 봐요"); store.changed(); updateComposer();
     }
     // Catalogs are account-wide; selections belong only to this room or recording.
     private JSONArray engineModels(String engine) {
-        return WorkBook.CLAUDE.equals(engine) ? store.claude.models() : WorkBook.GEMINI.equals(engine) ? store.gemini.models() : WorkBook.GROK.equals(engine) ? store.grok.models() : WorkBook.ANTIGRAVITY.equals(engine) ? store.antigravity.models() : WorkBook.NIM.equals(engine) ? store.nim.models() : store.openai.models();
+        return WorkBook.CLAUDE.equals(engine) ? store.claude.models() : WorkBook.GEMINI.equals(engine) ? store.gemini.models() : WorkBook.GROK.equals(engine) ? store.grok.models() : WorkBook.GROQ.equals(engine) ? store.groqModels.models() : WorkBook.ANTIGRAVITY.equals(engine) ? store.antigravity.models() : WorkBook.NIM.equals(engine) ? store.nim.models() : store.openai.models();
     }
     private ScopedModels workModels() { return new ScopedModels(store, workId); }
     private String workEngineName() { return WorkBook.author(workModels().engine()); }
     private Reasoning.Profile engineProfile(String engine, String model) {
-        return WorkBook.CLAUDE.equals(engine) ? store.claude.profile(model) : WorkBook.GEMINI.equals(engine) ? store.gemini.profile(model) : WorkBook.GROK.equals(engine) ? store.grok.profile(model) : WorkBook.ANTIGRAVITY.equals(engine) ? store.antigravity.profile(model) : WorkBook.NIM.equals(engine) ? store.nim.profile(model) : store.openai.reasoningProfile(model);
+        return WorkBook.CLAUDE.equals(engine) ? store.claude.profile(model) : WorkBook.GEMINI.equals(engine) ? store.gemini.profile(model) : WorkBook.GROK.equals(engine) ? store.grok.profile(model) : WorkBook.GROQ.equals(engine) ? store.groqModels.profile(model) : WorkBook.ANTIGRAVITY.equals(engine) ? store.antigravity.profile(model) : WorkBook.NIM.equals(engine) ? store.nim.profile(model) : store.openai.reasoningProfile(model);
     }
     /** "Opus 5.5 · 중간": the engine's model and its reasoning level as saved for that model. */
     private String modelChip(String engine) { return modelChip(workModels(), engine); }
@@ -3123,7 +3123,7 @@ public final class MainActivity extends Activity {
             if (WorkBook.GEMINI.equals(engine) && !asked[0] && !store.gemini.listed()) { asked[0] = true; store.gemini.refreshModelsAsync(); }
             String current = selection.model(engine); JSONArray models = engineModels(engine);
             shown[0] = engine + "\u0000" + models + "\u0000" + current + "\u0000" + selection.effort(engine, current) + "\u0000" + store.openai.modelsStatus();
-            providers.removeAllViews(); String[] ids = {WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY};
+            providers.removeAllViews(); String[] ids = {WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY, WorkBook.GROQ};
             providers.addView(ui.pills(new String[]{"ChatGPT", "Claude", "Gemini", "Grok", "NIM"}, java.util.Arrays.asList(ids).indexOf(engine), index -> {
                 if (ids[index].equals(selection.engine())) return;
                 try { selection.chooseEngine(ids[index]); } catch (Exception e) { store.error(e.getMessage()); return; }
@@ -3138,7 +3138,7 @@ public final class MainActivity extends Activity {
             sheet.body.removeAllViews();
             if (engine.isEmpty()) { sheet.body.addView(ui.label("위에서 녹음이나 작업을 맡길 AI를 선택해 주세요.", 14, MUTED)); return; }
             if (!store.ready(engine)) sheet.body.addView(ui.button("선택한 AI 연결하기", false, () -> {
-                sheet.dismiss(); openSettings(WorkBook.CLAUDE.equals(engine) ? "claude" : WorkBook.GEMINI.equals(engine) ? "key" : WorkBook.GROK.equals(engine) ? "grok" : WorkBook.ANTIGRAVITY.equals(engine) ? "antigravity" : WorkBook.NIM.equals(engine) ? "nim" : "chatgpt");
+                sheet.dismiss(); openSettings(WorkBook.CLAUDE.equals(engine) ? "claude" : WorkBook.GEMINI.equals(engine) ? "key" : WorkBook.GROK.equals(engine) ? "grok" : WorkBook.GROQ.equals(engine) ? "groq" : WorkBook.ANTIGRAVITY.equals(engine) ? "antigravity" : WorkBook.NIM.equals(engine) ? "nim" : "chatgpt");
             }));
             LinearLayout selected = ui.row(); selected.setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(12));
             android.graphics.drawable.GradientDrawable selectedBg = ui.shape(ACCENT_SOFT, 16); selectedBg.setStroke(Math.max(1, ui.dp(0.5f)), ACCENT); selected.setBackground(selectedBg);
@@ -4284,7 +4284,7 @@ public final class MainActivity extends Activity {
      * Gemini Live stays its voice and hands, then the 작업창's switches. Models and thinking depth live in each 작업창.
      */
     private void pageAi() {
-        boolean any = false; for (String engine : new String[]{WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY}) any |= store.ready(engine);
+        boolean any = false; for (String engine : new String[]{WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY, WorkBook.GROQ}) any |= store.ready(engine);
         if (!any) { TextView need = ui.banner("작업창과 두뇌에 쓸 AI가 아직 없어요 · 눌러서 연결 ›", WARNING); need.setOnClickListener(v -> openSettings("")); add(need, 12); }
         add(ui.text("목소리와 폰 조작(손)은 항상 Gemini Live가 해요. 어려운 생각만 두뇌에게 맡겨요.", 15, 400, MUTED), 4);
         add(ui.sectionHeader("음성 비서의 두뇌"), 0);

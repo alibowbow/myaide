@@ -24,7 +24,7 @@ public final class WorkBook {
     /** On such a message: the words the app actually heard from the user that led to it, their own authority for automation. */
     public static final String HEARD = "heard";
     /** The engines a thread can run on; a code container belongs to the engine that made it. */
-    public static final String CHATGPT = "chatgpt", CLAUDE = "claude", GEMINI = "gemini", GROK = "grok", NIM = "nim", ANTIGRAVITY = "antigravity";
+    public static final String CHATGPT = "chatgpt", CLAUDE = "claude", GEMINI = "gemini", GROK = "grok", NIM = "nim", ANTIGRAVITY = "antigravity", GROQ = "groq";
     public static final String EMPTY_REPLY = "ChatGPT가 내용이 없는 응답을 보냈어요. 같은 요청을 다시 보내 주세요.";
     /** Fix the old, image-specific app error when displaying saved conversations; never rewrite assistant/user text. */
     public static String errorText(String text) {
@@ -459,9 +459,9 @@ public final class WorkBook {
         return text.toString();
     }
     /** The AI's name as the user reads it. */
-    public static String author(String engine) { return CLAUDE.equals(engine) ? "Claude" : GEMINI.equals(engine) ? "Gemini" : GROK.equals(engine) ? "Grok" : NIM.equals(engine) ? "NVIDIA NIM" : ANTIGRAVITY.equals(engine) ? "Antigravity" : "ChatGPT"; }
+    public static String author(String engine) { return CLAUDE.equals(engine) ? "Claude" : GEMINI.equals(engine) ? "Gemini" : GROK.equals(engine) ? "Grok" : NIM.equals(engine) ? "NVIDIA NIM" : ANTIGRAVITY.equals(engine) ? "Antigravity" : GROQ.equals(engine) ? "Groq" : "ChatGPT"; }
     /** One of the three engines; anything else (an old record) is ChatGPT, the first one there was. */
-    public static String engine(String value) { return CLAUDE.equals(value) || GEMINI.equals(value) || GROK.equals(value) || NIM.equals(value) || ANTIGRAVITY.equals(value) ? value : CHATGPT; }
+    public static String engine(String value) { return CLAUDE.equals(value) || GEMINI.equals(value) || GROK.equals(value) || NIM.equals(value) || ANTIGRAVITY.equals(value) || GROQ.equals(value) ? value : CHATGPT; }
 
     // ── Attachments ─────────────────────────────────────────────────────────
 

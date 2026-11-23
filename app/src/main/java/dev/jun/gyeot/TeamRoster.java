@@ -14,7 +14,7 @@ final class TeamRoster {
     JSONArray catalog(String engine) {
         return switch (engine) {
             case WorkBook.CHATGPT -> store.openai.models(); case WorkBook.CLAUDE -> store.claude.models();
-            case WorkBook.GEMINI -> store.gemini.models(); case WorkBook.GROK -> store.grok.models(); case WorkBook.ANTIGRAVITY -> store.antigravity.models(); case WorkBook.NIM -> store.nim.models();
+            case WorkBook.GEMINI -> store.gemini.models(); case WorkBook.GROK -> store.grok.models(); case WorkBook.GROQ -> store.groqModels.models(); case WorkBook.ANTIGRAVITY -> store.antigravity.models(); case WorkBook.NIM -> store.nim.models();
             default -> arr();
         };
     }
@@ -22,14 +22,14 @@ final class TeamRoster {
         if (selection != null) return selection.model(engine);
         return switch (engine) {
             case WorkBook.CHATGPT -> store.openai.model(); case WorkBook.CLAUDE -> store.claude.model();
-            case WorkBook.GEMINI -> store.gemini.model(); case WorkBook.GROK -> store.grok.model(); case WorkBook.ANTIGRAVITY -> store.antigravity.model(); case WorkBook.NIM -> store.nim.model();
+            case WorkBook.GEMINI -> store.gemini.model(); case WorkBook.GROK -> store.grok.model(); case WorkBook.GROQ -> store.groqModels.model(); case WorkBook.ANTIGRAVITY -> store.antigravity.model(); case WorkBook.NIM -> store.nim.model();
             default -> "";
         };
     }
     Reasoning.Profile profile(String engine, String model) {
         return switch (engine) {
             case WorkBook.CHATGPT -> store.openai.reasoningProfile(model); case WorkBook.CLAUDE -> store.claude.profile(model);
-            case WorkBook.GEMINI -> store.gemini.profile(model); case WorkBook.GROK -> store.grok.profile(model); case WorkBook.ANTIGRAVITY -> store.antigravity.profile(model); case WorkBook.NIM -> store.nim.profile(model);
+            case WorkBook.GEMINI -> store.gemini.profile(model); case WorkBook.GROK -> store.grok.profile(model); case WorkBook.GROQ -> store.groqModels.profile(model); case WorkBook.ANTIGRAVITY -> store.antigravity.profile(model); case WorkBook.NIM -> store.nim.profile(model);
             default -> Reasoning.Profile.of(List.of(), "");
         };
     }
@@ -37,7 +37,7 @@ final class TeamRoster {
         if (selection != null) return selection.effectiveEffort(engine, model);
         return profile(engine, model).resolve(switch (engine) {
             case WorkBook.CHATGPT -> store.openai.reasoningEffort(model); case WorkBook.CLAUDE -> store.claude.effort(model);
-            case WorkBook.GEMINI -> store.gemini.effort(model); case WorkBook.GROK -> store.grok.effort(model); case WorkBook.ANTIGRAVITY -> store.antigravity.effort(model); case WorkBook.NIM -> store.nim.effort(model);
+            case WorkBook.GEMINI -> store.gemini.effort(model); case WorkBook.GROK -> store.grok.effort(model); case WorkBook.GROQ -> store.groqModels.effort(model); case WorkBook.ANTIGRAVITY -> store.antigravity.effort(model); case WorkBook.NIM -> store.nim.effort(model);
             default -> "";
         });
     }

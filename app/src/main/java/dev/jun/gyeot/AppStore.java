@@ -48,6 +48,7 @@ final class AppStore {
     final GroqAccount groq;
     final GeminiKeyRing geminiKeys;
     final AntigravityAccount antigravity;
+    final GroqModels groqModels;
     private JSONArray videos = new JSONArray();
     private boolean videosUnreadable;
     /** The other analysis LLM: Claude with an Anthropic API key. */
@@ -179,6 +180,7 @@ final class AppStore {
         groq = new GroqAccount(secrets, settings, this::changed);
         geminiKeys = new GeminiKeyRing(secrets);
         antigravity = new AntigravityAccount(context.getApplicationContext(), settings, this::changed);
+        groqModels = new GroqModels(groq, settings, this::changed);
         retireDecisions();
         retireGeminiPlan();
         try {
@@ -438,18 +440,18 @@ final class AppStore {
         String chosen = settings.getString("analyst", "claude".equals(brain()) ? "claude" : "chatgpt");
         if (ready(chosen)) return WorkBook.engine(chosen);
         if (settings.contains("analyst")) return ""; // An explicit selection never silently changes provider.
-        for (String engine : new String[]{WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY}) if (ready(engine)) return engine;
+        for (String engine : new String[]{WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY, WorkBook.GROQ}) if (ready(engine)) return engine;
         return "";
     }
     String analystName() { return WorkBook.author(analyst()); }
     String analystChoice() { return settings.contains("analyst") ? WorkBook.engine(settings.getString("analyst", "chatgpt")) : analyst(); }
     /** That engine is connected for 작업창 and analysis. */
     boolean ready(String engine) {
-        return WorkBook.CLAUDE.equals(engine) ? claude.connected() : WorkBook.GEMINI.equals(engine) ? gemini.connected() : WorkBook.GROK.equals(engine) ? grok.connected() : WorkBook.NIM.equals(engine) ? nim.connected() : WorkBook.ANTIGRAVITY.equals(engine) ? antigravity.connected() : WorkBook.CHATGPT.equals(engine) && openai.connected();
+        return WorkBook.CLAUDE.equals(engine) ? claude.connected() : WorkBook.GEMINI.equals(engine) ? gemini.connected() : WorkBook.GROK.equals(engine) ? grok.connected() : WorkBook.NIM.equals(engine) ? nim.connected() : WorkBook.ANTIGRAVITY.equals(engine) ? antigravity.connected() : WorkBook.GROQ.equals(engine) ? groq.connected() : WorkBook.CHATGPT.equals(engine) && openai.connected();
     }
     /** Web search for that engine: on unless turned off, or refused by its connection during this run. */
     boolean webSearch(String engine) {
-        if (WorkBook.NIM.equals(engine) || WorkBook.ANTIGRAVITY.equals(engine)) return false;
+        if (WorkBook.NIM.equals(engine) || WorkBook.ANTIGRAVITY.equals(engine) || WorkBook.GROQ.equals(engine)) return false;
         boolean refused = WorkBook.CLAUDE.equals(engine) ? claudeSearchRefused : WorkBook.GEMINI.equals(engine) ? geminiSearchRefused : WorkBook.GROK.equals(engine) ? grokSearchRefused : chatgptSearchRefused;
         return settings.getBoolean("chatgptSearch", true) && !refused;
     }
@@ -1026,6 +1028,7 @@ final class AppStore {
             : WorkBook.GEMINI.equals(engine) ? gemini.credential()
             : WorkBook.NIM.equals(engine) ? secrets.get(SecretStore.NIM)
             : WorkBook.ANTIGRAVITY.equals(engine) ? (antigravity.connected() ? "antigravity-cli-signed-in" : "")
+            : WorkBook.GROQ.equals(engine) ? secrets.get(SecretStore.GROQ)
             : WorkBook.GROK.equals(engine) ? secrets.get(SecretStore.GROK) : secrets.get(SecretStore.OPENAI);
     }
     /**
@@ -1056,13 +1059,14 @@ final class AppStore {
             : WorkBook.GEMINI.equals(engine) ? secrets.stamp(SecretStore.GEMINI_WORK) + "|" + secrets.stamp(SecretStore.GEMINI)
             : WorkBook.NIM.equals(engine) ? secrets.stamp(SecretStore.NIM)
             : WorkBook.ANTIGRAVITY.equals(engine) ? "agy:" + antigravity.connected()
+            : WorkBook.GROQ.equals(engine) ? secrets.stamp(SecretStore.GROQ)
             : WorkBook.GROK.equals(engine) ? secrets.stamp(SecretStore.GROK) : secrets.stamp(SecretStore.OPENAI);
     }
     /** How engine's requests are paid: a subscription sign-in (ChatGPT plan, Grok) or an API key. */
     String usageRoute(String engine) {
         return switch (WorkBook.engine(engine)) {
             case WorkBook.GROK, WorkBook.ANTIGRAVITY -> UsageLedger.PLAN;
-            case WorkBook.GEMINI, WorkBook.CLAUDE, WorkBook.NIM -> UsageLedger.KEY;
+            case WorkBook.GEMINI, WorkBook.CLAUDE, WorkBook.NIM, WorkBook.GROQ -> UsageLedger.KEY;
             default -> openai.usesPlan() ? UsageLedger.PLAN : UsageLedger.KEY;
         };
     }

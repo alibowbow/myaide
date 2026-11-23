@@ -143,6 +143,8 @@ final class MainAdapters {
             case WorkBook.GROK -> grok(app.grok, model, effort, request, tools, guard, cancel);
             case WorkBook.NIM -> nim(app.nim, app.nim.generation(), model, request, tools, guard, cancel);
             case WorkBook.ANTIGRAVITY -> antigravity(app, model, effort, request, tools, guard, cancel);
+            case WorkBook.GROQ -> { guard.run(); String said = app.groqModels.ask(model, effort, request.instructions(), request.input(), cancel); guard.run();
+                if (request.onText() != null) request.onText().accept(said); yield new Reply(said, new JSONArray(), ""); }
             default -> chatgpt(app.openai, model, effort, s.speed(model), request, tools, guard, cancel);
         };
     }

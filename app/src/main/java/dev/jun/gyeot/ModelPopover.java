@@ -38,7 +38,7 @@ final class ModelPopover {
         String effortHint(String effort, String fallback);
         String team();
     }
-    private static final String[] ENGINES = {WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY};
+    private static final String[] ENGINES = {WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY, WorkBook.GROQ};
     private static final int SHOWN = 5;
     private final Activity activity;
     private final Ui ui;

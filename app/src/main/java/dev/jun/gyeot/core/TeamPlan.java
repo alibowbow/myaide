@@ -9,7 +9,7 @@ import static dev.jun.gyeot.core.Jsons.*;
 
 /** A roster contains model identities, never credentials or mutable global provider settings. */
 public final class TeamPlan {
-    public static final java.util.List<String> ENGINES = java.util.List.of(WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY);
+    public static final java.util.List<String> ENGINES = java.util.List.of(WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY, WorkBook.GROQ);
     public static final String TOOL = "delegate_tasks";
     public static final String SUBMIT_FILES = "submit_team_files", INSPECT_FILES = "inspect_team_files", APPLY_FILES = "apply_team_changes";
     public static final int DEFAULT_PARALLEL = 4, MAX_PARALLEL = 8, MAX_PROFILES = 12, MAX_BATCH = 16, MAX_TASKS = 32;
@@ -107,7 +107,7 @@ public final class TeamPlan {
     public static JSONObject profile(JSONObject raw) {
         if (raw == null) throw new IllegalArgumentException("모델 프로필이 비어 있어요.");
         String engine = raw.optString("engine"), model = ModelIds.current(raw.optString("engine"), raw.optString("model").strip());
-        if (!Set.of(WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY).contains(engine)
+        if (!Set.of(WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY, WorkBook.GROQ).contains(engine)
                 || model.isEmpty() || model.length() > 160 || model.chars().anyMatch(c -> Character.isWhitespace(c) || Character.isISOControl(c)))
             throw new IllegalArgumentException("에이전트의 제공자와 모델을 확인해 주세요.");
         if (WorkBook.NIM.equals(engine)) NimProtocol.model(model);

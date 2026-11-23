@@ -57,7 +57,7 @@ public final class ModelIds {
     /** The id to show and send for engine's saved id: NIM keeps a model NVIDIA lists, else Nemotron Ultra; a replaced or retired Claude or GPT id becomes its successor. */
     public static String current(String engine, String id) {
         if (id == null || id.isBlank()) return id == null ? "" : id;
-        if (WorkBook.ANTIGRAVITY.equals(engine)) return id;
+        if (WorkBook.ANTIGRAVITY.equals(engine) || WorkBook.GROQ.equals(engine)) return id;
         if (WorkBook.NIM.equals(engine)) return NimProtocol.listed(id) ? id : NimProtocol.MODEL;
         if (WorkBook.CLAUDE.equals(engine)) {
             if (CLAUDE_REPLACED.containsKey(id)) return CLAUDE_REPLACED.get(id);
