@@ -142,7 +142,7 @@ final class MainAdapters {
             case WorkBook.GEMINI -> completeGeminiText(app.gemini.key(), model, effort, request, tools, guard, cancel);
             case WorkBook.GROK -> grok(app.grok, model, effort, request, tools, guard, cancel);
             case WorkBook.NIM -> nim(app.nim, app.nim.generation(), model, request, tools, guard, cancel);
-            case WorkBook.ANTIGRAVITY -> antigravity(app.antigravity, model, request, guard, cancel);
+            case WorkBook.ANTIGRAVITY -> antigravity(app, model, effort, request, tools, guard, cancel);
             default -> chatgpt(app.openai, model, effort, s.speed(model), request, tools, guard, cancel);
         };
     }
@@ -167,12 +167,11 @@ final class MainAdapters {
     }
     /** NVIDIA NIM, Chat Completions: text only; stream_options.include_usage when usage is counted. */
     /** Antigravity (agy in the app's Linux): one answer to the whole request, text only, shown when it comes. */
-    private static Reply antigravity(AntigravityAccount account, String model, MainRequest request, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+    private static Reply antigravity(AppStore app, String model, String effort, MainRequest request, WorkTools tools, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
         guard.run();
-        String text = account.ask(model, request.instructions(), request.input(), cancel);
-        guard.run();
-        if (request.onText() != null) request.onText().accept(text);
-        return new Reply(text, new JSONArray(), "");
+        String prompt = request.instructions() + (tools == null ? "" : tools.instructions()) + "\n\n" + request.input();
+        AgyRunner.Result r = AgyRunner.run(app.antigravity.context(), model, effort, "", prompt, tools, request.onText(), null, guard, cancel, 600_000);
+        return new Reply(r.text(), new JSONArray(), "");
     }
     private static Reply nim(NimAccount account, long expected, String model, MainRequest request, WorkTools tools, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
         WorkClient.Result result = NimClient.complete(account, expected, model, request.instructions(), request.input(), request.countsUsage(), tools, guard, cancel, request.onText(), request.parts());

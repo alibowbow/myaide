@@ -21,24 +21,35 @@ final class TeamModels {
     }
     private static String key(java.util.concurrent.Callable<String> read) { try { return read.call(); } catch (Exception e) { return ""; } }
     /**
-     * 작업창 on Antigravity: agy answers the room's conversation in one go, as text. It does not get the app's tools
-     * (GitHub, files, the phone): it says so when a task needs them, instead of pretending.
+     * 작업창 on Antigravity: agy as an agent with the room's own tools over MCP (AgyRunner), its words streamed. The room
+     * keeps one agy conversation (--conversation): a turn sends only the messages since agy last answered, and a changed
+     * room (another model, an edited history) starts a new one with the whole conversation.
      */
-    private WorkClient.Result antigravity(String model, String day, JSONArray turns, String context, Consumer<String> pieces, Consumer<String> stage, Runnable guard, java.util.concurrent.atomic.AtomicReference<Runnable> cancel) throws Exception {
+    private WorkClient.Result antigravity(String model, String effort, String day, JSONArray turns, String context, WorkTools tools, Consumer<String> pieces, Consumer<String> stage, Runnable guard, java.util.concurrent.atomic.AtomicReference<Runnable> cancel) throws Exception {
+        int count = turns == null ? 0 : turns.length();
+        String first = count == 0 ? "" : Integer.toHexString(turns.optJSONObject(0) == null ? 0 : turns.optJSONObject(0).optString("content").hashCode());
+        String key = surface + ":" + first;
+        AntigravityAccount.Session kept = store.antigravity.session(key);
+        boolean resume = kept != null && !kept.id().isEmpty() && kept.model().equals(model) && kept.sent() > 0 && kept.sent() < count;
         StringBuilder talk = new StringBuilder();
-        for (int i = 0; turns != null && i < turns.length(); i++) {
+        for (int i = resume ? kept.sent() : 0; i < count; i++) {
             JSONObject turn = turns.optJSONObject(i); if (turn == null || turn.optString("content").isBlank()) continue;
             talk.append("assistant".equals(turn.optString("role")) ? "AI: " : "사용자: ").append(turn.optString("content").strip()).append("\n\n");
         }
-        String instructions = "오늘: " + day + ". 너는 들퍼레 앱의 작업창에서 Antigravity로 답하는 AI야. 아래 대화에 이어 사용자의 마지막 말에 답해. "
-            + "이 연결에는 앱의 도구(GitHub, 파일, 휴대폰 조작, 검색)가 없으니, 도구가 필요한 일은 할 수 없다고 솔직히 말하고 할 수 있는 만큼만 도와줘."
-            + (context == null || context.isBlank() ? "" : "\n\n" + context);
+        String prompt;
+        if (resume) prompt = "(이어지는 대화)\n" + talk.toString().strip();
+        else prompt = WorkBook.instructions(day, false, false, WorkBook.ANTIGRAVITY, false, false, WorkBook.names(tools == null ? null : tools.declarations()))
+            + (tools == null ? "" : tools.instructions()) + (context == null || context.isBlank() ? "" : "\n\n" + context)
+            + "\n\n아래 대화에 이어 사용자의 마지막 말에 답해." + (tools == null ? " 이 방에는 앱의 도구가 없어요." : " 앱의 일(GitHub·파일·페이지 등)은 gyeot 도구로만 해.")
+            + "\n\n" + talk.toString().strip();
         stage.accept("Antigravity가 답하는 중");
         guard.run();
-        String text = store.antigravity.ask(model, instructions, talk.toString().strip(), cancel);
-        guard.run();
-        pieces.accept(text);
-        return new WorkClient.Result(text, new JSONArray(), new JSONArray(), "", "", new JSONArray(), "", store.antigravity.label(model));
+        AgyRunner.Result r;
+        try { r = AgyRunner.run(store.antigravity.context(), model, effort, resume ? kept.id() : "", prompt, tools, pieces, stage, guard, cancel, 900_000); }
+        catch (Exception e) { if (resume) store.antigravity.remember(key, null); throw e; }
+        // The answer joins the room as the next turn: agy has read up to and including it.
+        if (!r.conversation().isEmpty()) store.antigravity.remember(key, new AntigravityAccount.Session(r.conversation(), count + 1, first, model));
+        return new WorkClient.Result(r.text(), new JSONArray(), new JSONArray(), "", "", new JSONArray(), "", store.antigravity.label(model));
     }
     void check(String engine) {
         if (!store.ready(engine)) throw new CancellationException(WorkBook.author(engine) + " 연결이 해제돼 작업을 멈췄어요.");
@@ -76,7 +87,7 @@ final class TeamModels {
                 case WorkBook.GEMINI -> GeminiWorkClient.work(geminiKey, model, day, turns, context, search, code, tools, effort, pieces, stage, guard, control.request, steering);
                 case WorkBook.GROK -> GrokWorkClient.work(store.grok, grokAccount, model, day, turns, context, search, code, tools, effort, cacheKey, pieces, stage, guard, control.request, steering);
                 case WorkBook.NIM -> NimClient.work(store.nim, nimGeneration, model, day, turns, context, tools, pieces, stage, guard, control.request, steering);
-                case WorkBook.ANTIGRAVITY -> antigravity(model, day, turns, context, pieces, stage, guard, control.request);
+                case WorkBook.ANTIGRAVITY -> antigravity(model, effort, day, turns, context, tools, pieces, stage, guard, control.request);
                 default -> WorkClient.run(store.openai, model, day, turns, context, search, code, draw, tools, container, effort, painter, pieces, stage, guard, control.request, steering, profile.optString("speed", "standard"));
             };
         } catch (dev.jun.gyeot.core.ModelLimit refused) {
