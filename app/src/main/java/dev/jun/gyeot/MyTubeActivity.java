@@ -129,6 +129,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         root.post(() -> {
             // Under the page: 음성 대화's bar while it talks, else the composer.
             LinearLayout.LayoutParams barAt = new LinearLayout.LayoutParams(-1, -2); barAt.setMargins(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(6));
+            // The conversation sits right over the composer it belongs to (never up among the feeds).
+            LinearLayout.LayoutParams talkAt = new LinearLayout.LayoutParams(-1, -2); talkAt.setMargins(ui.dp(12), ui.dp(4), ui.dp(12), 0);
+            root.addView(chat.panel, talkAt);
             root.addView(chat.voice.bar(), barAt);
             chat.composer.setBackgroundColor(BG); root.addView(chat.composer, new LinearLayout.LayoutParams(-1, -2));
         });
@@ -170,7 +173,6 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         LinearLayout.LayoutParams liveGap = new LinearLayout.LayoutParams(-1, -2); liveGap.bottomMargin = ui.dp(8); content.addView(liveRow, liveGap);
         // 마이튜브 AI: say what to watch or do (typed below, or spoken with 음성 대화).
         chat = new MyTubeChat(this, ui, store, book, work, main, this);
-        LinearLayout.LayoutParams chatGap = new LinearLayout.LayoutParams(-1, -2); chatGap.bottomMargin = ui.dp(8); content.addView(chat.card, chatGap);
         buildPlayer(content);
         // Two rows: 추천, the feeds the AI fills; 저장, the lists of what the user saved (never replaced). One block, which
         // 나란히 보기 sets under the video (arrange).
@@ -287,7 +289,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             panelAt.setMargins(ui.dp(8), ui.dp(4), ui.dp(8), ui.dp(8)); askPanel.view.setLayoutParams(panelAt); askPanel.view.setVisibility(asking ? View.VISIBLE : View.GONE); }
         controlsRow.setVisibility(full || typing ? View.GONE : View.VISIBLE); gripView.setVisibility(fill || typing || shorts ? View.GONE : View.VISIBLE); exitFull.setVisibility(full ? View.VISIBLE : View.GONE);
         // The search box in use: 마이튜브에게 말하기 steps aside, so it never covers the box; it comes back when the search ends.
-        if (chat != null) chat.composer.setVisibility(full || searching || asking ? View.GONE : View.VISIBLE);
+        if (chat != null) { chat.composer.setVisibility(full || searching || asking ? View.GONE : View.VISIBLE); chat.away(full || searching || asking); }
         if (navigation != null) navigation.immersive(full);
         android.view.WindowInsetsController bars = getWindow().getInsetsController();
         if (bars != null) {
@@ -924,6 +926,37 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
                     playWhenReady = a.optBoolean("play"); refresh(); organizeSoon();
                     done.accept("새 피드 ‘" + saved.name() + "’를 만들고 고르는 중이에요");
                 } catch (Exception e) { done.accept("피드를 만들지 못했어요 · " + e.getMessage()); }
+            }
+            case "feed_edit" -> {
+                MyTube.Feed f = MyTube.feedNamed(book.feeds(), a.optString("feed")); if (f == null) { done.accept("‘" + a.optString("feed") + "’ 피드를 찾지 못했어요"); return; }
+                MyTube.Feed changed = MyTube.feedEdited(f, a);
+                if (changed.equals(f)) { done.accept("‘" + f.name() + "’에서 바꿀 내용이 없었어요"); return; }
+                try {
+                    MyTube.Feed saved = book.save(changed); searched = null; feedId = saved.id();
+                    boolean gathers = !changed.about().equals(f.about()) || !changed.channel().equals(f.channel()) || changed.days() != f.days();
+                    if (gathers) book.stale(saved.id());
+                    render(); if (gathers && !saved.saved()) refresh();
+                    StringBuilder note = new StringBuilder("‘" + saved.name() + "’ 피드를 고쳤어요");
+                    if (!changed.name().equals(f.name())) note.append(" · 이름 ‘").append(f.name()).append("’ → ‘").append(changed.name()).append("’");
+                    if (!changed.about().equals(f.about())) note.append(" · 수집: ").append(changed.about());
+                    if (changed.days() != f.days()) note.append(" · 최근 ").append(changed.days()).append("일");
+                    if (!changed.channel().equals(f.channel())) note.append(" · 기준 채널 ").append(changed.channel().isEmpty() ? "없음" : changed.channel());
+                    if (gathers && !saved.saved()) note.append(" · 새로 고르는 중");
+                    done.accept(note.toString());
+                } catch (Exception e) { done.accept("피드를 고치지 못했어요 · " + e.getMessage()); }
+            }
+            case "feed_delete" -> {
+                MyTube.Feed f = MyTube.feedNamed(book.feeds(), a.optString("feed")); if (f == null) { done.accept("‘" + a.optString("feed") + "’ 피드를 찾지 못했어요"); return; }
+                Ui.Sheet ask = ui.confirm("‘" + f.name() + "’ 피드를 지울까요? 모아 둔 영상 목록도 함께 지워져요.", "피드 지우기", () -> {
+                    try { book.remove(f.id()); if (f.id().equals(feedId)) feedId = null; render(); done.accept("‘" + f.name() + "’ 피드를 지웠어요"); }
+                    catch (Exception e) { done.accept("피드를 지우지 못했어요 · " + e.getMessage()); }
+                });
+                boolean[] answered = {false};
+                ask.primary.setOnClickListener(v -> { answered[0] = true; ask.dismiss();
+                    try { book.remove(f.id()); if (f.id().equals(feedId)) feedId = null; render(); done.accept("‘" + f.name() + "’ 피드를 지웠어요"); }
+                    catch (Exception e) { done.accept("피드를 지우지 못했어요 · " + e.getMessage()); } });
+                ask.setOnDismissListener(d -> { dialogs.remove(ask); if (!answered[0]) done.accept("‘" + f.name() + "’ 피드는 그대로 뒀어요"); });
+                dialogs.add(ask); ask.show();
             }
             case "organize_feeds" -> organize(done);
             case "control" -> {

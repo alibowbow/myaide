@@ -36,7 +36,10 @@ final class MyTubeChat {
     static final int SHOWN = 6;
     private final Activity activity; private final Ui ui; private final AppStore store; private final MyTubeBook book; private final Actions actions;
     private final ExecutorService work; private final android.os.Handler main;
-    final LinearLayout card, composer; private final LinearLayout lines; private final EditText input; private final ImageView send; private final TextView model, more;
+    final LinearLayout card, composer;
+    /** The conversation over the composer: at most about a third of the screen, scrolled to its newest line. */
+    final android.widget.ScrollView panel;
+    private boolean folded, away; private final LinearLayout lines; private final EditText input; private final ImageView send; private final TextView model, more;
     final VoiceBar voice;
     private boolean expanded, thinking;
     private final AtomicReference<Runnable> cancel = new AtomicReference<>();
@@ -45,9 +48,21 @@ final class MyTubeChat {
         this.activity = activity; this.ui = ui; this.store = store; this.book = book; this.work = work; this.main = main; this.actions = actions;
         // The conversation, only once there is one (no title, no hint): bubbles, as the other chats show them.
         card = ui.card();
+        // A small ✕ folds the conversation away until the next thing said (it stays kept; 지난 대화 보기 shows it again).
+        LinearLayout head = ui.row(); head.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        ImageView fold = ui.quietIcon(R.drawable.ic_close, "대화 접기", () -> { folded = true; render(); });
+        fold.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)); head.addView(fold, new LinearLayout.LayoutParams(ui.dp(32), ui.dp(32)));
+        card.addView(head, new LinearLayout.LayoutParams(-1, -2));
         lines = ui.column(); card.addView(lines);
         more = ui.ghost("지난 대화 보기", () -> { expanded = !expanded; render(); });
         card.addView(more, new LinearLayout.LayoutParams(-2, -2));
+        panel = new android.widget.ScrollView(activity) {
+            @Override protected void onMeasure(int width, int height) {
+                int most = (int) (activity.getResources().getDisplayMetrics().heightPixels * 0.32f);
+                super.onMeasure(width, MeasureSpec.makeMeasureSpec(most, MeasureSpec.AT_MOST));
+            }
+        };
+        panel.setVerticalScrollBarEnabled(false); panel.addView(card);
         // The composer, compact as 작업창's: one rounded card with the words on top, and under them the model (name, thinking
         // level quiet beside it; its menu is ModelPopover), 음성 입력 (into the field) and the round button (the voice with
         // nothing written, a long press choosing the voice; send otherwise).
@@ -98,7 +113,10 @@ final class MyTubeChat {
         List<MyTubeBook.Line> all = book.chat();
         lines.removeAllViews();
         int first = expanded ? 0 : Math.max(0, all.size() - SHOWN);
-        card.setVisibility(all.isEmpty() && !thinking ? View.GONE : View.VISIBLE);
+        boolean none = all.isEmpty() && !thinking;
+        card.setVisibility(none ? View.GONE : View.VISIBLE);
+        panel.setVisibility(none || folded || away ? View.GONE : View.VISIBLE);
+        panel.post(() -> panel.scrollTo(0, Math.max(0, card.getHeight() - panel.getHeight())));
         for (int i = first; i < all.size(); i++) lines.addView(line(all.get(i)));
         if (thinking) {
             // 생각하는 중 with a soft light sweeping across it, as in the other chats.
@@ -191,7 +209,10 @@ final class MyTubeChat {
         ask(text);
     }
     /** The user's words to 마이튜브 AI: written, answered, and what it says done. */
+    /** While the video is full screen, the search box is in use or a video is asked about, the conversation steps aside too. */
+    void away(boolean value) { if (away == value) return; away = value; render(); }
     void ask(String text) {
+        folded = false;
         try { book.say("user", text, false); } catch (Exception unsaved) { /* still asked */ }
         thinking = true; render();
         List<String> said = conversation(); if (!said.isEmpty()) said.remove(said.size() - 1);

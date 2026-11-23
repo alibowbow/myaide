@@ -330,9 +330,9 @@ final class VoiceTargets {
                 String now = onMain(() -> { MyTubeActivity a = MyTubeActivity.front(); return a == null ? "" : a.input("", java.util.List.of()); });
                 return RealtimeVoice.instructions(dev.jun.gyeot.core.Brand.called(store.assistantName()),
                     "마이튜브, the user's own YouTube page in the app, which plays the videos they choose instead of YouTube's algorithm", store.persona(), store.pinnedNotes(), now)
-                    + "\n\nTo find, play or control videos, or to make or order feeds, call mytube_do with the actions (the same ones the screen's AI uses: "
+                    + "\n\nTo find, play or control videos, or to make, change (feed_edit: what it gathers or leaves out, its name, how recent), delete or order feeds, call mytube_do with the actions (the same ones the screen's AI uses: "
                     + String.join(", ", dev.jun.gyeot.core.MyTube.ACTIONS) + "); then say in a few words what happened. Call mytube_screen to see the feeds, what plays and the videos shown."
-                    + " A song or video named means play it; a topic to keep up with means a feed. While a video plays, keep quiet unless asked.";
+                    + " A song or video named means play it; a topic to keep up with means a feed; a wish about what a feed shows means feed_edit, done at once. While a video plays, keep quiet unless asked.";
             }
             @Override public JSONArray tools() {
                 JSONObject action = obj("type", "object", "required", arr("do"), "properties", obj(
