@@ -121,6 +121,37 @@ public final class Proactive {
         }
         return out;
     }
+    // ── 나에 대한 질문: what the assistant asks to know the user better ─────
+    public static final int MOST_QUESTIONS = 3, ASKED_KEPT = 40, ANSWER_LIMIT = 300;
+    public static final String QUESTIONS = "You are the user's personal assistant and want to know them better so you can help before they ask. "
+        + "From what you already know (the note about them and their memories) and the questions already asked, write up to 3 new short, friendly Korean "
+        + "questions whose answers would most help you assist them day to day: their routine and schedule, work and goals, people and places they mention, "
+        + "tastes (food, music, hobbies), how they like to be helped. One question each, under 60 characters, easy to answer in a few words, warm and "
+        + "natural (존댓말). Never ask what is already known or already asked, never anything sensitive (health, money amounts, passwords, ID numbers, "
+        + "religion, politics, exact home address). Return JSON only: {\"questions\":[\"...\"]}.";
+    public static String questionsInput(String profile, List<String> memories, List<String> asked) {
+        StringBuilder in = new StringBuilder("나에 대한 이해:\n").append(profile == null || profile.isBlank() ? "(아직 없음)" : profile.strip()).append("\n\n기억:\n");
+        if (memories.isEmpty()) in.append("(없음)\n");
+        for (String m : memories.subList(0, Math.min(60, memories.size()))) in.append("- ").append(cut(m, 160)).append('\n');
+        in.append("\n이미 한 질문:\n"); if (asked.isEmpty()) in.append("(없음)\n");
+        for (String q : asked) in.append("- ").append(q).append('\n');
+        return in.toString();
+    }
+    /** The questions in an answer (at most MOST_QUESTIONS, none already asked); empty when none could be read. */
+    public static List<String> questions(String answer, List<String> asked) {
+        List<String> out = new ArrayList<>(); String text = answer == null ? "" : answer;
+        int from = text.indexOf('{'), to = text.lastIndexOf('}'); if (from < 0 || to <= from) return out;
+        JSONArray list; try { list = new JSONObject(text.substring(from, to + 1)).optJSONArray("questions"); } catch (Exception broken) { return out; }
+        for (int i = 0; list != null && i < list.length() && out.size() < MOST_QUESTIONS; i++) {
+            String q = cut(list.optString(i).strip(), 80); if (q.isEmpty() || asked.contains(q) || out.contains(q)) continue; out.add(q);
+        }
+        return out;
+    }
+    /** What is kept in memory from an answer: the question and the answer together, so the note reads on its own. */
+    public static String answered(String question, String answer) {
+        String q = question.strip().replaceAll("[?？]+$", ""), a = cut(answer.strip(), ANSWER_LIMIT);
+        return "‘" + q + "’에 대한 내 답: " + a;
+    }
     /** The day a moment falls on, where the phone is. */
     public static String day(long now, ZoneId zone) { return Instant.ofEpochMilli(now).atZone(zone).toLocalDate().toString(); }
     /** The next moment the morning cards are due, at minutes after midnight: today when still ahead and not made, else tomorrow. */

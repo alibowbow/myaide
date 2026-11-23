@@ -613,6 +613,8 @@ final class MainChatPage implements AutoCloseable {
     }
     private long offering = -1;
     /** A suggested request the user tapped: into the message box with the keyboard up, for the user to read, change and send. */
+    /** The voice screen's suggestion on the voice screen, put in this message box. */
+    void suggest(String ask) { suggested(ask); }
     private void suggested(String ask) {
         if (stopped) return;
         input.setText(RichBlocks.drafted(input.getText().toString(), ask)); input.setSelection(input.length()); input.requestFocus();

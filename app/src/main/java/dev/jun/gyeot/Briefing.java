@@ -185,6 +185,51 @@ final class Briefing {
         store.changed();
     }
 
+    // ── 나에 대한 질문 (음성 비서 화면 아래) ──────────────────────────
+    private static volatile boolean asking;
+    /** Today's questions still open (none from another day, none while 먼저 챙기기 is off). */
+    static List<String> questions(AppStore store) {
+        List<String> out = new ArrayList<>();
+        if (!on(store) || !Proactive.day(System.currentTimeMillis(), ZoneId.systemDefault()).equals(store.settings.getString("aboutQuestionsDay", ""))) return out;
+        try { JSONArray saved = new JSONArray(store.settings.getString("aboutQuestions", "[]")); for (int i = 0; i < saved.length(); i++) if (!saved.optString(i).isBlank()) out.add(saved.optString(i)); }
+        catch (Exception broken) { /* None. */ }
+        return out;
+    }
+    /** Whether today's questions are still to be made (once a day, while 먼저 챙기기 is on). */
+    static boolean questionsDue(AppStore store) {
+        return on(store) && !asking && !Proactive.day(System.currentTimeMillis(), ZoneId.systemDefault()).equals(store.settings.getString("aboutQuestionsDay", ""));
+    }
+    /** Makes today's questions (잡일: Groq first). Blocking; off the main thread. */
+    static List<String> makeQuestions(AppStore store) throws Exception {
+        if (asking) return questions(store);
+        asking = true;
+        try {
+            List<String> asked = asked(store);
+            String answer = Chores.run(store, Proactive.QUESTIONS, Proactive.questionsInput(note(store), memories(store), asked), false);
+            List<String> made = Proactive.questions(answer, asked);
+            JSONArray kept = new JSONArray(); for (String q : made) kept.put(q);
+            JSONArray history = new JSONArray(); List<String> all = new ArrayList<>(asked); all.addAll(made);
+            for (String q : all.subList(Math.max(0, all.size() - Proactive.ASKED_KEPT), all.size())) history.put(q);
+            store.settings.edit().putString("aboutQuestions", kept.toString()).putString("aboutQuestionsDay", Proactive.day(System.currentTimeMillis(), ZoneId.systemDefault()))
+                .putString("aboutAsked", history.toString()).apply();
+            return made;
+        } finally { asking = false; }
+    }
+    private static List<String> asked(AppStore store) {
+        List<String> out = new ArrayList<>();
+        try { JSONArray list = new JSONArray(store.settings.getString("aboutAsked", "[]")); for (int i = 0; i < list.length(); i++) out.add(list.optString(i)); } catch (Exception broken) { /* None. */ }
+        return out;
+    }
+    /** The user answered (kept in memory, so every AI knows it) or put the question away: it leaves today's list. */
+    static void answerQuestion(AppStore store, String question, String answer) throws Exception {
+        if (answer != null && !answer.isBlank()) {
+            long now = System.currentTimeMillis(); String note = Proactive.answered(question, answer);
+            store.changeMemory(list -> dev.jun.gyeot.core.Memory.add(list, dev.jun.gyeot.core.Memory.ABOUT, note, null, now));
+        }
+        JSONArray left = new JSONArray(); for (String q : questions(store)) if (!q.equals(question)) left.put(q);
+        store.settings.edit().putString("aboutQuestions", left.toString()).apply(); store.changed();
+    }
+
     /** The job, at the chosen time next (today when still ahead and not made, else tomorrow); it waits for a network. */
     static void schedule(Context context, AppStore store) {
         JobScheduler jobs = context.getSystemService(JobScheduler.class); if (jobs == null) return;

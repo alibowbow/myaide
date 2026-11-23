@@ -762,9 +762,99 @@ public final class MainActivity extends Activity {
         homeRecentWork();
         attachCamera();
         phoneRow = ui.column(); add(phoneRow, 8);
+        homeFeed();
         for (int i = asideFrom; i < body.getChildCount(); i++) callAside.add(body.getChildAt(i));
         // Background work still going: one line, only while there is some.
         taskSummary = ui.banner("", ACCENT); taskSummary.setOnClickListener(v -> showTab(1)); taskSummary.setVisibility(View.GONE); add(taskSummary, 12);
+    }
+    private LinearLayout homeFeedBox;
+    /**
+     * 퍼레가 챙겨 왔어요 (the assistant's own corner), at the foot of the voice screen: today's suggestions (Briefing's cards), what the notifications said, and the
+     * assistant's questions about the user (answered here, kept in memory). With 먼저 챙기기 off, one card to turn it on.
+     */
+    private void homeFeed() {
+        TextView label = ui.text(Brand.I + " 챙겨 왔어요", Ui.FOOTNOTE, 650, MUTED); label.setPadding(ui.dp(4), ui.dp(10), 0, ui.dp(8)); label.setAccessibilityHeading(true); add(label, 0);
+        homeFeedBox = ui.column(); add(homeFeedBox, 14);
+        fillHomeFeed();
+    }
+    private void fillHomeFeed() {
+        LinearLayout box = homeFeedBox; if (box == null || tab != 0) return;
+        box.removeAllViews();
+        if (!Briefing.on(store)) {
+            LinearLayout card = feedCard();
+            card.addView(ui.text("제가 먼저 챙겨 드려도 될까요?", 14.5f, 650, TEXT));
+            TextView about = ui.text("아침마다 오늘 할 만한 일을 골라 오고, 더 잘 도와 드리려고 가끔 궁금한 걸 여쭤볼게요. 여기서 편하게 보시면 돼요.", 12.5f, 450, MUTED); about.setPadding(0, ui.dp(2), 0, ui.dp(4)); card.addView(about);
+            card.addView(ui.pills(ui.pill("좋아요", 0, true, () -> { Briefing.turn(this, store, true); fillHomeFeed(); })));
+            box.addView(card, feedAt());
+        }
+        // 오늘의 제안: a tap hands it to 음성 비서 while it talks, else to 메인 대화's message box (or its 작업창).
+        for (dev.jun.gyeot.core.Proactive.Card c : Briefing.cards(store)) {
+            LinearLayout card = feedCard(); LinearLayout top = ui.row(); top.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            TextView kind = ui.text("이건 어때요?", 11.5f, 650, ACCENT); top.addView(kind, new LinearLayout.LayoutParams(0, -2, 1));
+            android.widget.ImageView close = ui.bareIcon(R.drawable.ic_close, MUTED, "이 제안 넘기기", () -> { Briefing.react(store, c, false); fillHomeFeed(); });
+            close.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9)); top.addView(close, new LinearLayout.LayoutParams(ui.dp(30), ui.dp(30)));
+            card.addView(top);
+            TextView title = ui.text(c.title(), 14.5f, 650, TEXT); card.addView(title);
+            if (!c.body().isEmpty()) { TextView body = ui.text(c.body(), 12.5f, 450, MUTED); body.setMaxLines(3); body.setEllipsize(TextUtils.TruncateAt.END); body.setPadding(0, ui.dp(2), 0, 0); card.addView(body); }
+            card.setContentDescription("오늘의 제안: " + c.title() + ". " + c.body());
+            card.setOnClickListener(v -> {
+                Briefing.react(store, c, true); fillHomeFeed();
+                if (!c.work().isEmpty() && WorkBook.find(store.works(), c.work()) != null) { workId = c.work(); showTab(3); return; }
+                if (store.voiceActive) { send(AssistantService.SAY, "text", c.ask()); return; }
+                showMainChat(); if (mainChat != null) { String ask = c.ask(); main.post(() -> mainChat.suggest(ask)); }
+            });
+            Ui.pressable(card, true); box.addView(card, feedAt());
+        }
+        // 알림 비서: how many came today and the newest two; a tap opens 알림 비서.
+        if (NoticeListener.on(this)) {
+            long now = System.currentTimeMillis();
+            java.util.List<dev.jun.gyeot.core.Notices.Notice> today = dev.jun.gyeot.core.Notices.recent(NoticeListener.list(this), now, 24, 100);
+            if (!today.isEmpty()) {
+                LinearLayout card = feedCard();
+                card.addView(ui.text("오늘 알림이 " + today.size() + "개 왔어요", 11.5f, 650, Ui.GREEN));
+                java.util.List<String> lines = dev.jun.gyeot.core.Notices.lines(today, now);
+                for (String line : lines.subList(0, Math.min(2, lines.size()))) { TextView one = ui.text(line, 13, 450, TEXT); one.setMaxLines(1); one.setEllipsize(TextUtils.TruncateAt.END); one.setPadding(0, ui.dp(3), 0, 0); card.addView(one); }
+                TextView more = ui.text("눌러서 모아 보기 · 요약도 해 드려요", 12, 500, MUTED); more.setPadding(0, ui.dp(4), 0, 0); card.addView(more);
+                card.setOnClickListener(v -> startActivity(new android.content.Intent(this, NoticeActivity.class))); Ui.pressable(card, true);
+                box.addView(card, feedAt());
+            }
+        }
+        // 나에 대한 질문: answered here in a few words, kept in memory so every AI knows it; ✕ puts it away.
+        for (String q : Briefing.questions(store)) {
+            LinearLayout card = feedCard(); LinearLayout top = ui.row(); top.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            top.addView(ui.text("궁금한 게 있어요", 11.5f, 650, Ui.PURPLE), new LinearLayout.LayoutParams(0, -2, 1));
+            android.widget.ImageView close = ui.bareIcon(R.drawable.ic_close, MUTED, "이 질문 넘기기", () -> answerAbout(q, ""));
+            close.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9)); top.addView(close, new LinearLayout.LayoutParams(ui.dp(30), ui.dp(30)));
+            card.addView(top);
+            card.addView(ui.text(q, 14.5f, 600, TEXT));
+            LinearLayout reply = ui.row(); reply.setPadding(0, ui.dp(8), 0, 0);
+            EditText answer = ui.input("편하게 한마디", 1, dev.jun.gyeot.core.Proactive.ANSWER_LIMIT); answer.setBackground(ui.shape(FILL, 99)); answer.setTextSize(Ui.SUBHEAD);
+            answer.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8)); answer.setImeOptions(EditorInfo.IME_ACTION_SEND); answer.setContentDescription(q + " 답하기");
+            Runnable sendAnswer = () -> { String a = answer.getText().toString().strip(); if (!a.isEmpty()) answerAbout(q, a); };
+            answer.setOnEditorActionListener((v, id, e) -> { if (id == EditorInfo.IME_ACTION_SEND) { sendAnswer.run(); return true; } return false; });
+            reply.addView(answer, new LinearLayout.LayoutParams(0, -2, 1));
+            LinearLayout.LayoutParams sendAt = new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)); sendAt.leftMargin = ui.dp(6);
+            reply.addView(ui.iconButton(R.drawable.ic_send, ACCENT, ON_ACCENT, "답 보내기", sendAnswer), sendAt);
+            card.addView(reply);
+            box.addView(card, feedAt());
+        }
+        if (Briefing.questionsDue(store)) new Thread(() -> {
+            try { Briefing.makeQuestions(store); } catch (Exception notNow) { return; }
+            main.post(this::fillHomeFeed);
+        }, "about-questions").start();
+        if (box.getChildCount() == 0) {
+            TextView quiet = ui.text("지금은 조용하네요. 아침 " + dev.jun.gyeot.core.Proactive.clock(Briefing.minutes(store)) + "에 오늘 챙길 것들을 가져올게요.", 12.5f, 450, MUTED);
+            quiet.setPadding(ui.dp(4), 0, 0, 0); box.addView(quiet);
+        }
+    }
+    private LinearLayout feedCard() { LinearLayout card = ui.column(); card.setBackground(ui.shape(CARD, 16)); card.setPadding(ui.dp(14), ui.dp(8), ui.dp(6), ui.dp(12)); return card; }
+    private LinearLayout.LayoutParams feedAt() { LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-1, -2); at.bottomMargin = ui.dp(8); return at; }
+    private void answerAbout(String question, String answer) {
+        new Thread(() -> {
+            try { Briefing.answerQuestion(store, question, answer); }
+            catch (Exception e) { main.post(() -> store.error(e.getMessage() == null ? "기억하지 못했어요." : e.getMessage())); return; }
+            main.post(() -> { if (!answer.isEmpty()) android.widget.Toast.makeText(this, "알려 주셔서 고마워요. 기억해 둘게요!", android.widget.Toast.LENGTH_SHORT).show(); fillHomeFeed(); });
+        }, "about-answer").start();
     }
     /** Recording is its own home tab, not a Live API mode. Opening it never starts a microphone. */
     private void homeRecorder() {
