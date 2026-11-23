@@ -64,8 +64,11 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
     private final LruCache<String, Bitmap> figures = new LruCache<>(24 * 1024 * 1024) { @Override protected int sizeOf(String k, Bitmap b) { return b.getByteCount(); } };
     private final SimpleDateFormat clock = new SimpleDateFormat("HH:mm", Locale.KOREA), day = new SimpleDateFormat("M월 d일 (E)", Locale.KOREA);
 
+    /** The menu and rail look the same on every screen: opening and leaving this one swaps only the content, with no slide or dim. */
+    private void noTransition() { if (android.os.Build.VERSION.SDK_INT >= 34) { overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0); overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0); } else overridePendingTransition(0, 0); }
+    @Override public void finish() { super.finish(); noTransition(); }
     @Override public void onCreate(Bundle state) {
-        super.onCreate(state);
+        super.onCreate(state); noTransition();
         ui = new Ui(this); store = ((GyeotApp) getApplication()).store(); runner = LabRunner.get(this); book = runner.book();
         openId = state != null ? state.getString("open") : getIntent().getStringExtra(OPEN);
         tab = state != null ? state.getInt("tab") : 0;
