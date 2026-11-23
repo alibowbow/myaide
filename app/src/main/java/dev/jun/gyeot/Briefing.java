@@ -21,7 +21,7 @@ import org.json.JSONObject;
  * 먼저 챙기기 on the phone (core/Proactive): 나에 대한 이해 and 오늘의 제안, while the switch is on. The note is made again about
  * once a day when the app comes to the front; the morning cards are made by a job at the chosen time (BriefingJob, network
  * needed) with a notification, or when the app is opened after that time if the job has not run. Both are light work, Gemma
- * 4 first (GeminiAudioClient.light), on the Gemini key. Turning it off stops the job and the note no longer goes anywhere.
+ * 4 or Groq first (Chores), on the Gemini or Groq key. Turning it off stops the job and the note no longer goes anywhere.
  */
 final class Briefing {
     private Briefing() {}
@@ -64,13 +64,11 @@ final class Briefing {
      * Blocking; throws why it could not. Returns the page's id.
      */
     static String evening(Context context, AppStore store, boolean tell) throws Exception {
-        String key = store.secrets.workKey();
-        if (key.isBlank()) throw new IllegalStateException("설정 → Gemini API 키를 먼저 넣어 주세요.");
         long now = System.currentTimeMillis(); ZoneId zone = ZoneId.systemDefault(); long since = Proactive.startOfDay(now, zone);
         String schedule = "";
         try { schedule = MainChatCalendar.context(context, store, "오늘 일정 알려줘", now); } catch (RuntimeException unreadable) { /* No calendar. */ }
         String input = Proactive.reviewInput(now, zone, schedule, chatSince(store, since), worksSince(store, since), recordsSince(store, since));
-        String text = Proactive.profile(GeminiAudioClient.light(key, Proactive.REVIEW, input));
+        String text = Proactive.profile(Chores.run(store, Proactive.REVIEW, input, !tell));
         if (text.isBlank()) throw new IllegalStateException("돌아보기를 만들지 못했어요.");
         String day = Proactive.day(now, zone);
         dev.jun.gyeot.core.PageBook.Page page = PageStore.book(context).save(day + " 하루 돌아보기", "하루 돌아보기", dev.jun.gyeot.core.PageBook.MARKDOWN, text, "", "");
@@ -143,19 +141,17 @@ final class Briefing {
     }
 
     /** Makes 나에 대한 이해 again now. Blocking; throws why it could not. */
-    static String remake(Context context, AppStore store) throws Exception {
-        String key = store.secrets.workKey();
-        if (key.isBlank()) throw new IllegalStateException("설정 → Gemini API 키를 먼저 넣어 주세요.");
+    static String remake(Context context, AppStore store) throws Exception { return remake(context, store, false); }
+    /** waiting: the user pressed 지금 다시 정리 (Groq first, Chores). */
+    static String remake(Context context, AppStore store, boolean waiting) throws Exception {
         String input = Proactive.profileInput(note(store), store.settings.getBoolean("aboutAiEdited", false), store.persona(), memories(store), chat(store, 80), works(store, 12, false), records(store));
-        String made = Proactive.profile(GeminiAudioClient.light(key, Proactive.PROFILE, input));
+        String made = Proactive.profile(Chores.run(store, Proactive.PROFILE, input, waiting));
         if (made.isEmpty()) throw new IllegalStateException("노트를 만들지 못했어요.");
         store.settings.edit().putString("aboutAi", made).putLong("aboutAiAt", System.currentTimeMillis()).apply(); store.changed();
         return made;
     }
     /** Makes today's cards now (tell: with a notification). Blocking; throws why it could not. */
     static List<Card> morning(Context context, AppStore store, boolean tell) throws Exception {
-        String key = store.secrets.workKey();
-        if (key.isBlank()) throw new IllegalStateException("설정 → Gemini API 키를 먼저 넣어 주세요.");
         long now = System.currentTimeMillis(); ZoneId zone = ZoneId.systemDefault();
         String schedule = "";
         try { schedule = MainChatCalendar.context(context, store, "오늘 일정 알려줘", now); } catch (RuntimeException unreadable) { /* No calendar. */ }
@@ -163,7 +159,8 @@ final class Briefing {
         // 알림 비서, when on: what came in overnight (the last 12 hours), so a card can say what needs an answer.
         if (NoticeListener.on(context)) for (String line : dev.jun.gyeot.core.Notices.lines(dev.jun.gyeot.core.Notices.recent(NoticeListener.list(context), now, 12, 15), now)) records.add("알림: " + line);
         String input = Proactive.briefInput(now, zone, note(store), schedule, chat(store, 60), works(store, 10, true), records, feedback(store));
-        List<Card> cards = Proactive.cards(GeminiAudioClient.light(key, Proactive.BRIEF, input));
+        // Made by the job (tell) nobody waits; from 지금 제안 받아 보기 the user does (Chores' order).
+        List<Card> cards = Proactive.cards(Chores.run(store, Proactive.BRIEF, input, !tell));
         if (cards.isEmpty()) throw new IllegalStateException("오늘은 드릴 제안을 만들지 못했어요.");
         JSONArray saved = new JSONArray(); for (Card card : cards) saved.put(card.json());
         store.settings.edit().putString("briefCards", saved.toString()).putString("briefDay", Proactive.day(now, zone)).apply(); store.changed();

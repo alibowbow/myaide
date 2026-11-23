@@ -3626,6 +3626,17 @@ public final class MainActivity extends Activity {
             ui.addRow(off, ui.dangerRow("연결 해제", "이 기기의 Groq 키를 지워요", () -> confirm("이 기기의 Groq API 키를 지울까요?", "해제", () -> { store.groq.remove(); showTab(2); })), false);
             add(off, 12);
         }
+        if (on) {
+            add(ui.sectionHeader("앱이 Groq에 맡기는 일 · 오늘"), 0);
+            String[] work = {GroqWork.CHORES, GroqWork.SEARCH, GroqWork.WHISPER}, what = {"잡일 · 요약·정리·제안·돌아보기 (기다릴 땐 먼저)", "웹 검색 · 음성 비서의 검색", "받아쓰기 · 녹음·첨부 음성"};
+            LinearLayout uses = ui.group(); long now = System.currentTimeMillis();
+            java.util.List<dev.jun.gyeot.core.GeminiQuota.Row> rows = dev.jun.gyeot.core.GeminiQuota.rows(store.geminiQuota(), work, now);
+            for (int i = 0; i < work.length; i++) {
+                dev.jun.gyeot.core.GeminiQuota.Row row = rows.get(i);
+                ui.addRow(uses, ui.listRow(0, 0, what[i], row.label() + " · 오늘 " + row.uses() + (row.perDay() > 0 ? " / " + row.perDay() : "") + "회" + (row.status().isEmpty() ? "" : " · " + row.status()), null, null), i < work.length - 1);
+            }
+            add(uses, 0);
+        }
         add(ui.footer("Groq는 모델마다 매일 무료 한도를 줘요(console.groq.com → Limits). 키는 이 기기에만 암호화해 두고 Groq에만 보내요."), 16);
     }
     private void groqKeySheet() {
@@ -4722,7 +4733,7 @@ public final class MainActivity extends Activity {
         android.content.Context app = getApplicationContext();
         new Thread(() -> {
             String answer = null, why = "";
-            try { String key = store.secrets.workKey(); if (key.isBlank()) throw new IllegalStateException("설정 → Gemini API 키를 먼저 넣어 주세요."); answer = GeminiAudioClient.light(key, dev.jun.gyeot.core.Memory.cleanup(listed), "기억을 정리해 주세요."); }
+            try { answer = Chores.run(store, dev.jun.gyeot.core.Memory.cleanup(listed), "기억을 정리해 주세요.", true); }
             catch (Exception e) { why = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
             String plan = answer == null ? null : dev.jun.gyeot.core.Memory.withoutAdd(answer), reason = why;
             runOnUiThread(() -> {
@@ -4769,7 +4780,7 @@ public final class MainActivity extends Activity {
             android.content.Context app = getApplicationContext();
             new Thread(() -> {
                 String made = null, why = "";
-                try { made = Briefing.remake(app, store); } catch (Exception e) { why = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
+                try { made = Briefing.remake(app, store, true); } catch (Exception e) { why = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
                 String text = made, reason = why;
                 runOnUiThread(() -> { if (isDestroyed()) return; if (text != null) { field.setText(text); android.widget.Toast.makeText(this, "새로 정리했어요", android.widget.Toast.LENGTH_SHORT).show(); } else android.widget.Toast.makeText(this, reason, android.widget.Toast.LENGTH_LONG).show(); });
             }, "about-me").start();

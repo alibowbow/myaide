@@ -969,14 +969,18 @@ public final class AssistantService extends Service {
     private void searchFor(LiveVoiceSession session, String id, String query, BooleanSupplier current, Consumer<JSONArray> onSources) {
         String first = store.searchProvider();
         String clock = GeminiProtocol.clock(ZonedDateTime.now());
-        List<String> order = new ArrayList<>(List.of(first));
+        // Groq compound searches on its own free tier: before Gemini (whose free searches are fewer), after a paid choice.
+        List<String> order = new ArrayList<>("gemini".equals(first) ? List.of("groq", "gemini") : List.of(first, "groq"));
         for (String provider : new String[]{"gemini", "chatgpt", "claude"}) if (!order.contains(provider)) order.add(provider);
         searches.execute(() -> {
             JSONObject reply = null; JSONArray found = new JSONArray(); Exception failure = null;
             for (String provider : order) {
-                if (provider.equals("chatgpt") && !store.openai.connected() || provider.equals("claude") && !store.claude.connected()) continue;
+                if (provider.equals("chatgpt") && !store.openai.connected() || provider.equals("claude") && !store.claude.connected() || provider.equals("groq") && !store.groq.connected()) continue;
                 try {
-                    if (!provider.equals("gemini")) {
+                    if (provider.equals("groq")) {
+                        String text = GroqWork.search(OpenAiProtocol.searchInstructions(clock), query);
+                        reply = obj("answer", text, "sources", new JSONArray(), "searched_by", "Groq"); found = new JSONArray();
+                    } else if (!provider.equals("gemini")) {
                         boolean claude = provider.equals("claude"); String name = claude ? "Claude" : "ChatGPT";
                         OpenAiClient.Result answer = claude
                             // A quick lookup the voice waits on: the lowest effort the model offers.
@@ -3093,10 +3097,10 @@ public final class AssistantService extends Service {
         String input = transcript, id = session.optString("id");
         archives.execute(() -> {
             String key;
-            try { key = store.secrets.get(); } catch (Exception e) { return; }
-            if (key.isBlank()) return;
+            try { key = store.secrets.get(); } catch (Exception e) { key = ""; }
+            if (key.isBlank() && !store.groq.connected()) return;
             try {
-                dev.jun.gyeot.core.SessionTitles.Title named = dev.jun.gyeot.core.SessionTitles.parse(GeminiAudioClient.light(key, dev.jun.gyeot.core.SessionTitles.PROMPT, input));
+                dev.jun.gyeot.core.SessionTitles.Title named = dev.jun.gyeot.core.SessionTitles.parse(Chores.run(store, dev.jun.gyeot.core.SessionTitles.PROMPT, input, false));
                 if (named != null) store.nameSession(id, named.title(), named.summary());
             } catch (Exception ignored) {}
         });
@@ -3115,15 +3119,15 @@ public final class AssistantService extends Service {
         String input = transcript, log = String.join("\n", steps);
         archives.execute(() -> {
             String key;
-            try { key = store.secrets.get(); } catch (Exception e) { return; }
-            if (key.isBlank()) return;
+            try { key = store.secrets.get(); } catch (Exception e) { key = ""; }
+            if (key.isBlank() && !store.groq.connected()) return;
             int remembered = 0, learned = 0;
             if (facts) try {
-                String answer = GeminiAudioClient.light(key, Memory.extraction(Memory.prompt(store.memories(), false)), input);
+                String answer = Chores.run(store, Memory.extraction(Memory.prompt(store.memories(), false)), input, false);
                 remembered = store.changeMemory(list -> Memory.apply(list, answer, System.currentTimeMillis()));
             } catch (Exception ignored) {}
             if (phone) try {
-                String answer = GeminiAudioClient.light(key, Memory.phoneExtraction(Memory.recipes(store.memories())), input + "\n\n폰 조작 기록:\n" + log);
+                String answer = Chores.run(store, Memory.phoneExtraction(Memory.recipes(store.memories())), input + "\n\n폰 조작 기록:\n" + log, false);
                 learned = store.changeMemory(list -> Memory.applyPhone(list, answer, System.currentTimeMillis()));
             } catch (Exception ignored) {}
             String news = (remembered > 0 ? "새로 기억한 것 " + remembered + "개" : "") + (remembered > 0 && learned > 0 ? " · " : "") + (learned > 0 ? "폰 사용법 " + learned + "개" : "");

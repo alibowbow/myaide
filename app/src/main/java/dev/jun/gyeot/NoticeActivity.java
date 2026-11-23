@@ -79,7 +79,7 @@ public final class NoticeActivity extends Activity {
         summary.setVisibility(View.VISIBLE); summary.setText("요약하는 중…");
         new Thread(() -> {
             String said;
-            try { String key = store.secrets.workKey(); if (key.isBlank()) throw new IllegalStateException("설정 → Gemini API 키를 먼저 넣어 주세요."); said = GeminiAudioClient.light(key, Notices.SUMMARY, String.join("\n", lines)); }
+            try { said = Chores.run(store, Notices.SUMMARY, String.join("\n", lines), true); }
             catch (Exception e) { said = e.getMessage() == null ? "요약하지 못했어요." : e.getMessage(); }
             String text = said;
             main.post(() -> { if (!destroyed && summary != null) summary.setText(RichText.render(text)); });

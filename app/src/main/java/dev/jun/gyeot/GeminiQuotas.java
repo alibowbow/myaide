@@ -59,4 +59,20 @@ final class GeminiQuotas {
         AppStore s = store; if (s == null || count <= 0) return;
         s.changeGeminiQuota(state -> { long now = System.currentTimeMillis(); for (int i = 0; i < count; i++) GeminiQuota.used(state, model, now, i == 0 ? tokens : 0); return null; }, false);
     }
+    /** The app's store, for the Groq side (GroqWork), once GyeotApp made it. */
+    static AppStore store() { return store; }
+    /**
+     * Groq refused (status and body): a day's limit (requests or tokens a day) leaves the model out until the day turns, a
+     * minute's rests it as long as Groq said. True when it was a limit, so the next choice should be tried.
+     */
+    static boolean refusedGroq(String model, int status, String body) {
+        AppStore s = store; if (s == null || status != 429) return false;
+        String text = body == null ? "" : body.toLowerCase(java.util.Locale.ROOT);
+        boolean day = text.contains("per day") || text.contains("(rpd)") || text.contains("(tpd)") || text.contains("(asd)");
+        return s.changeGeminiQuota(state -> {
+            long now = System.currentTimeMillis();
+            if (day) GeminiQuota.full(state, model, now); else GeminiQuota.rest(state, model, now, GeminiQuota.groqRetry(body));
+            return true;
+        }, true);
+    }
 }

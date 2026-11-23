@@ -20,6 +20,11 @@ final class GeminiAudioClient {
     static String transcribe(String key, File audio, String mime, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
         guard.run();
         if (!audio.isFile() || audio.length() == 0) throw new IllegalStateException("녹음 파일을 찾지 못했어요.");
+        // Groq's Whisper first when its key is saved (2,000 a day, against Gemini's 25 for transcription); Gemini when it cannot.
+        try { String heard = GroqWork.transcribe(audio, mime, cancel); if (heard != null && !heard.isBlank()) { guard.run(); return heard; } }
+        catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
+        catch (Exception groq) { /* Gemini below */ }
+        guard.run();
         AtomicReference<String> fileName = new AtomicReference<>();
         try {
             JSONObject request;
@@ -82,6 +87,10 @@ final class GeminiAudioClient {
      * Light work (대화 제목, 기억 추출): Gemma 4 first, for its 14,400 free requests a day, and Gemini Flash-Lite when Gemma
      * cannot take it now (GeminiLight). The instructions go in the one user turn.
      */
+    /** As light, on these models only (Gemma 4 alone, or Flash-Lite alone, for Chores' order). */
+    static String light(String key, String instructions, String input, String[] models) throws Exception {
+        return generate(key, models, dev.jun.gyeot.core.GeminiLight.request(instructions, input), GeminiAudio::answer, () -> {}, null, dev.jun.gyeot.core.GeminiLight.tokens(instructions, input));
+    }
     static String light(String key, String instructions, String input) throws Exception {
         return generate(key, dev.jun.gyeot.core.GeminiLight.models(GeminiQuotas.gemma()), dev.jun.gyeot.core.GeminiLight.request(instructions, input),
             GeminiAudio::answer, () -> {}, null, dev.jun.gyeot.core.GeminiLight.tokens(instructions, input));

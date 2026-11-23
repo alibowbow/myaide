@@ -37,11 +37,27 @@ public final class GeminiQuota {
     static final Free GEMMA_4 = new Free(30, 14_400, 16_000);
     /** Gemini's embedding models (뜻으로 찾기): many requests a minute, a thousand a day each. */
     static final Free EMBEDDING = new Free(100, 1_000, 30_000);
+    /** Groq's free tier (console.groq.com → Limits): GPT OSS and Qwen, compound (web search), Whisper. */
+    static final Free GROQ_TEXT = new Free(30, 1_000, 8_000), GROQ_COMPOUND = new Free(30, 250, 0), GROQ_WHISPER = new Free(20, 2_000, 0);
     /** A model's free tier as known, or null. */
     public static Free free(String model) {
         Free known = KNOWN.get(model);
         if (known != null || model == null) return known;
+        if (model.startsWith("openai/gpt-oss-") || model.startsWith("qwen/") || model.startsWith("meta-llama/")) return GROQ_TEXT;
+        if (model.startsWith("groq/compound")) return GROQ_COMPOUND;
+        if (model.startsWith("whisper-")) return GROQ_WHISPER;
         return model.startsWith("gemma-4-") ? GEMMA_4 : model.startsWith("gemini-embedding-") ? EMBEDDING : null;
+    }
+    /** Groq refused for its day (requests or tokens a day used up): left out until the day turns. */
+    public static void full(JSONObject state, String model, long now) { put(today(state, model, now), "full", true); }
+    /** A per-minute refusal: no request to it for ms (within a second and ten minutes). */
+    public static void rest(JSONObject state, String model, long now, long ms) { put(entry(state, model), "rest", now + Math.max(1000, Math.min(LONGEST_REST, ms))); }
+    /** Groq's "Please try again in 1m2.5s" (or "7.66s") in a 429, as ms; a minute when it says none. */
+    public static long groqRetry(String body) {
+        Matcher m = Pattern.compile("try again in (?:(\\d+)m)?([0-9.]+)s").matcher(body == null ? "" : body);
+        if (!m.find()) return MINUTE;
+        double seconds = (m.group(1) == null ? 0 : Integer.parseInt(m.group(1)) * 60) + Double.parseDouble(m.group(2));
+        return Math.round(seconds * 1000) + 500;
     }
     /** The first of models this key can use (not found missing), or null. */
     public static String usable(String[] models, JSONObject state) {
@@ -176,6 +192,7 @@ public final class GeminiQuota {
     /** A model's name as people say it. */
     public static String label(String model) {
         if ("gemini-3.5-transcribe".equals(model)) return "Gemini 3.5 Transcribe";
+        if (model != null && (model.contains("/") || model.startsWith("whisper-"))) return "Groq " + model.replaceFirst("^[^/]+/", "");
         String named = GeminiThink.label(model);
         if (!named.equals(model)) return named;
         boolean gemma = model.startsWith("gemma-");

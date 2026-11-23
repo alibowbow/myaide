@@ -188,7 +188,7 @@ final class UsageUi {
         else box.addView(limits);
         box.addView(ui.footer("회사가 답에 함께 보낸 한도만 보여요. 보내지 않으면 ‘남은 한도 모름’이에요."));
         if (store.secrets.hasKey() || store.secrets.hasWorkKey()) {
-            box.addView(ui.sectionHeader("Gemini 무료 한도"));
+            box.addView(ui.sectionHeader(store.groq.connected() ? "무료 한도 · Gemini · Groq" : "Gemini 무료 한도"));
             box.addView(geminiQuota(System.currentTimeMillis()));
             box.addView(ui.footer("앱이 스스로 쓰는 Gemini(검색·대화 제목·영상 요약·첨부 분석·받아쓰기·두뇌)를 이 폰에서 센 거예요. 한도가 찬 모델은 건너뛰고 다음 모델을 써요. "
                 + "같은 키를 다른 곳에서도 쓰면 실제 남은 양은 더 적을 수 있어요. 한도는 Google이 바꿀 수 있고, Google이 알려 준 한도가 있으면 그걸로 보여요."));
@@ -258,6 +258,8 @@ final class UsageUi {
         String[] listed = store.gemini.gemma(), gemma = listed == null ? dev.jun.gyeot.core.GeminiLight.GEMMA : listed;
         java.util.List<String> shown = new java.util.ArrayList<>(java.util.List.of(gemma).subList(0, Math.min(2, gemma.length)));
         shown.add(dev.jun.gyeot.core.GeminiWork.FLASH_LITE[0]); shown.add(dev.jun.gyeot.core.GeminiWork.FLASH_LITE[1]); shown.add(dev.jun.gyeot.core.GeminiProtocol.FILE_TRANSCRIBE);
+        // Groq, when its key is saved: 잡일, web search and Whisper, each on its own daily free tier.
+        if (store.groq.connected()) { shown.add(GroqWork.CHORES); shown.add(GroqWork.SEARCH); shown.add(GroqWork.WHISPER); }
         String[] models = shown.toArray(new String[0]);
         String reset = refill(dev.jun.gyeot.core.GeminiQuota.resetAt(now));
         for (dev.jun.gyeot.core.GeminiQuota.Row row : dev.jun.gyeot.core.GeminiQuota.rows(store.geminiQuota(), models, now)) {
