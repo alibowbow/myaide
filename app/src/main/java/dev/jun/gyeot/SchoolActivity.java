@@ -345,7 +345,7 @@ public final class SchoolActivity extends Activity {
     private boolean groq(SchoolBook.Teacher t) { return "groq".equals(t.ai()) && store.groq.connected(); }
     private void modelLabel(SchoolBook.Teacher t) {
         if (model == null) return;
-        String[] parts = groq(t) ? new String[]{GROQ_LABEL, "무료"} : appParts(t);
+        String[] parts = groq(t) ? new String[]{GROQ_LABEL, "무료"} : "agy".equals(t.ai()) ? new String[]{"Antigravity", "구독"} : appParts(t);
         android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(parts[0]);
         label.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, label.length(), 0);
         if (!parts[1].isEmpty()) { int at = label.length(); label.append("  ").append(parts[1]); label.setSpan(new android.text.style.ForegroundColorSpan(MUTED), at, label.length(), 0); }
@@ -366,14 +366,19 @@ public final class SchoolActivity extends Activity {
     }
     /** With Groq connected: Groq's free model or the app's AIs (then their menu); without, the app's AIs' menu at once. */
     private void chooseModel(SchoolBook.Teacher t) {
-        if (!store.groq.connected()) { appModels(t); return; }
-        String[] labels = {GROQ_LABEL + " · 무료", "앱의 AI · " + appParts(t)[0]};
-        ui.miniMenu(model, labels, groq(t) ? 0 : 1, i -> {
+        // Groq's free model and Antigravity (the subscription, in the app's Linux) when they are there, and the app's AIs.
+        java.util.List<String> labels = new java.util.ArrayList<>(), ids = new java.util.ArrayList<>();
+        if (store.groq.connected()) { labels.add(GROQ_LABEL + " · 무료"); ids.add("groq"); }
+        if (AntigravityCli.installed(this)) { labels.add("Antigravity · 구독"); ids.add("agy"); }
+        if (ids.isEmpty()) { appModels(t); return; }
+        labels.add("앱의 AI · " + appParts(t)[0]); ids.add("app");
+        String current = groq(t) ? "groq" : "agy".equals(t.ai()) && AntigravityCli.installed(this) ? "agy" : "app";
+        ui.miniMenu(model, labels.toArray(new String[0]), ids.indexOf(current), i -> {
             SchoolBook.Teacher now = book.teacher(t.id()); if (now == null) return;
-            String want = i == 0 ? "groq" : "app";
+            String want = ids.get(i);
             if (!want.equals(now.ai())) try { book.save(now.ai(want)); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); return; }
             modelLabel(book.teacher(t.id()));
-            if (i == 1) model.post(() -> appModels(book.teacher(t.id())));
+            if (want.equals("app")) model.post(() -> appModels(book.teacher(t.id())));
         });
     }
     private void appModels(SchoolBook.Teacher t) {
@@ -446,6 +451,8 @@ public final class SchoolActivity extends Activity {
         if (t == null) throw new IllegalStateException("이 선생님을 찾지 못했어요.");
         List<SchoolBook.Line> all = book.lines(t.id());
         String system = SchoolBook.tutor(t), groqWhy = null;
+        if ("agy".equals(t.ai()) && AntigravityCli.installed(this))
+            return new String[]{AntigravityCli.ask(this, system, SchoolBook.transcript(SchoolBook.history(all, 16000)), 240_000), "Antigravity · 구독"};
         if (groq(t)) {
             // The free tier takes about 8,000 tokens a minute, the answer included: the lesson's newest 3,000 characters.
             List<SchoolBook.Line> recent = SchoolBook.history(all, 3000);

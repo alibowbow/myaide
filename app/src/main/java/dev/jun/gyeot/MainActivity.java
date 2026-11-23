@@ -3739,8 +3739,59 @@ public final class MainActivity extends Activity {
         add(box, 0);
         add(ui.footer("필요할 때만 내려받아요. 앱 업데이트로는 내려받거나 켜지 않아요. 앱 안 저장소에만 설치되고, 삭제하면 모두 지워져요. 루트 권한은 필요 없어요."), 0);
         add(ui.sectionHeader("Antigravity CLI"), 0);
-        add(ui.footer(installed ? "다음 버전에서 CLI 설치·업데이트, 공식 로그인(링크 열기 → 코드 붙여 넣기), 남은 한도 보기를 이어서 붙여요." : "Linux 환경을 설치하면 여기서 Google 공식 Antigravity CLI를 설치하고 로그인해요."), 16);
+        if (!installed) add(ui.footer("Linux 환경을 설치하면 여기서 Google 공식 Antigravity CLI를 설치하고 로그인해요."), 16);
+        else antigravitySection();
         paintLinuxState(); if (LinuxRuntime.busy) main.postDelayed(linuxTick, 500);
+    }
+    /** The last Antigravity check (version, sign-in, limits), kept so a redraw does not run agy again; null: check again. */
+    private static volatile AntigravityCli.Status agyStatus; private static volatile boolean agyChecking;
+    private void antigravitySection() {
+        AntigravityCli.Status st = agyStatus;
+        LinearLayout cli = ui.group(); cli.setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(14));
+        String state = st == null ? "확인하는 중…" : !st.installed() ? "설치되지 않음" : st.signedIn() == null ? "확인하지 못했어요" : st.signedIn() ? "로그인됨 · 구독 한도로 답해요" : "로그인 필요";
+        cli.addView(ui.text(state, 15, 600, TEXT));
+        if (st != null && !st.version().isEmpty()) cli.addView(ui.text(st.version(), 12.5f, 450, MUTED));
+        if (st != null) for (String row : st.usage()) { TextView u = ui.text(row, 13, 450, TEXT); u.setPadding(0, ui.dp(3), 0, 0); cli.addView(u); }
+        if (st != null && !st.detail().isEmpty()) { TextView d = ui.text(st.detail(), 12, 450, MUTED); d.setPadding(0, ui.dp(4), 0, 0); d.setTextIsSelectable(true); cli.addView(d); }
+        boolean has = st != null && st.installed(), in = has && Boolean.TRUE.equals(st.signedIn());
+        Runnable refresh = () -> { agyStatus = null; if ("antigravity".equals(settingsPage) && tab == 2) showTab(2); };
+        java.util.List<View> actions = new java.util.ArrayList<>();
+        actions.add(ui.pill(has ? "CLI 업데이트" : "CLI 설치", 0, !has, () -> {
+            try { AntigravityCli.prepare(this); } catch (Exception e) { store.error(e.getMessage()); return; }
+            LinuxTerminal.show(this, ui, has ? "Antigravity CLI 업데이트" : "Antigravity CLI 설치", "Google 공식 설치 스크립트 · 받은 파일을 SHA-512로 확인해요 · 질문이 나오면 아래 버튼으로 답해요",
+                AntigravityCli.installCommand(has), AntigravityCli.env(), refresh);
+        }));
+        if (has) actions.add(ui.pill("로그인", 0, !in, () -> {
+            try { AntigravityCli.prepare(this); } catch (Exception e) { store.error(e.getMessage()); return; }
+            LinuxTerminal.show(this, ui, "Antigravity 로그인", "로그인 링크를 열어 Google 계정으로 로그인하고, 받은 코드를 붙여 넣어요. 로그인되면 ‘끝내기’를 눌러요.",
+                AntigravityCli.loginCommand(), AntigravityCli.env(), refresh);
+        }));
+        if (has) actions.add(ui.pill("상태 확인", 0, false, refresh));
+        if (in) actions.add(ui.pill("질문해 보기", 0, false, this::askAntigravity));
+        cli.addView(ui.pills(actions.toArray(new View[0])));
+        add(cli, 0);
+        add(ui.footer("Google 공식 Antigravity CLI(agy)를 앱 안의 Linux에서 실행해요. 로그인은 CLI가 직접 하고, 로그인 정보는 Linux 안에만 있어요. 나의학교 선생님 AI로 고를 수 있어요."), 16);
+        if (st == null && !agyChecking) {
+            agyChecking = true;
+            new Thread(() -> { AntigravityCli.Status found = AntigravityCli.status(this); agyStatus = found; agyChecking = false;
+                main.post(() -> { if ("antigravity".equals(settingsPage) && tab == 2) showTab(2); }); }, "agy-status").start();
+        }
+    }
+    /** 질문해 보기: one question to Antigravity, its answer under it. */
+    private void askAntigravity() {
+        Ui.Sheet sheet = ui.selectionSheet("Antigravity에게 물어보기", "구독 한도로 답해요");
+        EditText q = ui.input("물어볼 것", 2, 2000); sheet.body.addView(q);
+        TextView answer = ui.text("", 14, 420, TEXT); answer.setTextIsSelectable(true); answer.setPadding(ui.dp(4), ui.dp(12), ui.dp(4), 0); sheet.body.addView(answer);
+        sheet.primary.setText("묻기");
+        sheet.primary.setOnClickListener(v -> {
+            String text = q.getText().toString().strip(); if (text.isEmpty()) return;
+            sheet.primary.setEnabled(false); answer.setText("답을 기다리는 중…");
+            new Thread(() -> {
+                String said; try { said = AntigravityCli.ask(this, "", text, 180_000); } catch (Exception e) { said = e.getMessage() == null ? "답하지 못했어요." : e.getMessage(); }
+                String shown = said; main.post(() -> { if (!sheet.isShowing()) return; sheet.primary.setEnabled(true); answer.setText(RichText.render(shown)); });
+            }, "agy-ask").start();
+        });
+        sheet.show();
     }
     private void paintLinuxState() {
         if (linuxState == null) return;
@@ -3866,7 +3917,7 @@ public final class MainActivity extends Activity {
         settingsRow(connect, "grok", "Grok", store.grok.connected() ? "연결됨 · 구독 로그인" : "연결 안 됨", null);
         settingsRow(connect, "nim", "NVIDIA NIM", store.nim.connected() ? "연결됨 · " + NimProtocol.label(store.nim.model()) : "연결 안 됨", null);
         settingsRow(connect, "groq", "Groq", store.groq.connected() ? "연결됨 · 모델 " + store.groq.models().length() + "개 · 무료 한도" : "연결 안 됨", null);
-        settingsRow(connect, "antigravity", "Antigravity (Gemini)", !LinuxRuntime.supported(this) ? "이 휴대폰에서는 쓸 수 없어요" : LinuxRuntime.installed(this) ? "Linux 환경 설치됨 · CLI 연결은 다음 단계" : "Linux 환경 설치 필요 · 구독 한도 쓰기", null);
+        settingsRow(connect, "antigravity", "Antigravity (Gemini)", !LinuxRuntime.supported(this) ? "이 휴대폰에서는 쓸 수 없어요" : LinuxRuntime.installed(this) ? (AntigravityCli.installed(this) ? "CLI 설치됨 · 로그인과 한도는 눌러서 확인" : "Linux 환경 설치됨 · CLI 설치 필요") : "Linux 환경 설치 필요 · 구독 한도 쓰기", null);
         ui.add(sections, connect, 0);
         ui.add(sections, ui.sectionHeader("AI 활용"), 0);
         LinearLayout use = ui.group();

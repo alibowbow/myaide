@@ -17,9 +17,9 @@ import org.json.JSONObject;
  * the network; SchoolActivity asks the AI with what tutor() and history() give.
  */
 public final class SchoolBook {
-    /** One teacher. ai: "groq" (Groq's free GPT OSS 120B) or "app" (the teacher's own choice of the app's AIs). */
+    /** One teacher. ai: "groq" (Groq's free GPT OSS 120B), "agy" (Antigravity, the user's subscription) or "app" (the teacher's own choice of the app's AIs). */
     public record Teacher(String id, String name, String subject, String style, String level, String ai, long made, String method) {
-        public Teacher { name = clean(name, 30); subject = clean(subject, 40); style = clean(style, 600); level = clean(level, 80); ai = "app".equals(ai) ? "app" : "groq"; method = SchoolBook.method(method).id(); }
+        public Teacher { name = clean(name, 30); subject = clean(subject, 40); style = clean(style, 600); level = clean(level, 80); ai = "app".equals(ai) || "agy".equals(ai) ? ai : "groq"; method = SchoolBook.method(method).id(); }
         JSONObject json() throws Exception {
             return new JSONObject().put("id", id).put("name", name).put("subject", subject).put("style", style).put("level", level).put("ai", ai).put("made", made).put("method", method);
         }
