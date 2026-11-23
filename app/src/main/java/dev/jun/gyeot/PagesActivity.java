@@ -150,8 +150,11 @@ public final class PagesActivity extends Activity {
         if (section == 0) heading.addView(ui.quietIcon(R.drawable.ic_add, "새 카테고리 만들기", this::addCategory), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
         else heading.addView(new View(this), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
         root.addView(heading);
-        TextView title = ui.title("페이지", 26); title.setAccessibilityHeading(true); ui.add(root, title, 10);
-        ui.add(root, ui.segmented(new String[]{"문서", "프로젝트"}, section, i -> { section = i; store.settings.edit().putInt("pagesSection", i).apply(); showList(); }), 12);
+        // The title with the small 문서 · 프로젝트 switch at the end of its line: compact, not a full-width bar of its own.
+        LinearLayout titleRow = ui.row();
+        TextView title = ui.title("페이지", 26); title.setAccessibilityHeading(true); titleRow.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        titleRow.addView(ui.switcher(new String[]{"문서", "프로젝트"}, section, i -> { section = i; store.settings.edit().putInt("pagesSection", i).apply(); showList(); }), new LinearLayout.LayoutParams(-2, -2));
+        ui.add(root, titleRow, 8);
         if (section == 1) { projectsList(); return; }
         ui.add(root, ui.label("작업창과 메인 대화에서 만든 문서를 카테고리별로 모아요.", 13, MUTED), 12);
         EditText search = ui.searchField(ui.input("제목·카테고리·내용 검색", 1, 100)); search.setText(query); search.setContentDescription("페이지 검색");
@@ -223,7 +226,7 @@ public final class PagesActivity extends Activity {
             FrameLayout.LayoutParams ba = new FrameLayout.LayoutParams(-2, -2, android.view.Gravity.START | android.view.Gravity.TOP); ba.leftMargin = ui.dp(12); ba.topMargin = ui.dp(12);
             preview.addView(badge, ba);
         }
-        card.addView(preview, new LinearLayout.LayoutParams(-1, ui.dp(wide ? 136 : 144)));
+        card.addView(preview, new LinearLayout.LayoutParams(-1, ui.dp(wide ? 120 : 128)));
         LinearLayout words = ui.column(); words.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(14));
         TextView name = ui.text(p.title(), 16.5f, 700, TEXT); name.setSingleLine(true); name.setEllipsize(TextUtils.TruncateAt.END); words.addView(name);
         if (!p.about().isBlank()) { TextView a = ui.text(p.about(), 13.5f, 450, MUTED); a.setMaxLines(2); a.setEllipsize(TextUtils.TruncateAt.END); a.setPadding(0, ui.dp(3), 0, 0); words.addView(a); }

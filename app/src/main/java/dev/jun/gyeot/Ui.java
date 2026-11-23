@@ -294,6 +294,11 @@ final class Ui {
         return flow;
     }
     /** iOS segmented control: equal segments on a gray track, the chosen one raised. */
+    /**
+     * The full-width, 48dp switch. The user asked again and again for compact controls: a screen's tabs and a setting's few
+     * choices use switcher() (as wide as its words, 34dp), at the end of a line that is already there. This one only where a
+     * sheet's whole body is that one choice.
+     */
     LinearLayout segmented(String[] labels, int selected, IntConsumer action) { return segmented(labels, selected, action, false); }
     /**
      * A small switch between two or three views of the same thing (a page's 미리보기 and 소스): as wide as its words, to sit at

@@ -21,6 +21,7 @@ import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -282,9 +283,12 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         if (inPane) { pane.addView(headerBox, new LinearLayout.LayoutParams(-1, -2)); headerBox.setPadding(ui.dp(16), ui.dp(6), ui.dp(8), ui.dp(6)); }
         else navigation.bar(headerBox);
         header();
-        LinearLayout tabs = ui.segmented(TABS, tab, i -> { tab = i; expanded.clear(); render(true); });
-        LinearLayout.LayoutParams tabsAt = new LinearLayout.LayoutParams(-1, -2); tabsAt.leftMargin = ui.dp(12); tabsAt.rightMargin = ui.dp(12); tabsAt.topMargin = ui.dp(inPane ? 2 : 4); tabsAt.bottomMargin = ui.dp(4);
-        pane.addView(tabs, tabsAt);
+        // The five views as one small switch, as wide as its words (scrolls sideways on a narrow phone).
+        HorizontalScrollView tabStrip = new HorizontalScrollView(this); tabStrip.setHorizontalScrollBarEnabled(false); tabStrip.setClipToPadding(false);
+        tabStrip.setPadding(ui.dp(12), 0, ui.dp(12), 0);
+        tabStrip.addView(ui.switcher(TABS, tab, i -> { tab = i; expanded.clear(); render(true); }));
+        LinearLayout.LayoutParams tabsAt = new LinearLayout.LayoutParams(-1, -2); tabsAt.topMargin = ui.dp(inPane ? 2 : 4); tabsAt.bottomMargin = ui.dp(4);
+        pane.addView(tabStrip, tabsAt);
         activityStrip = ui.row(); activityStrip.setPadding(ui.dp(16), ui.dp(2), ui.dp(8), ui.dp(2)); activityStrip.setVisibility(View.GONE);
         View pulse = dot(ACCENT); LinearLayout.LayoutParams pulseAt = new LinearLayout.LayoutParams(ui.dp(9), ui.dp(9)); pulseAt.rightMargin = ui.dp(8); activityStrip.addView(pulse, pulseAt);
         activityText = new ShimmerText(this, MUTED, TEXT); activityText.setTextSize(13); activityText.setTypeface(Ui.weight(560)); activityText.setSingleLine(true); activityText.setEllipsize(TextUtils.TruncateAt.END);
@@ -388,18 +392,16 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         card.addView(faces);
         box.addView(card, new LinearLayout.LayoutParams(-1, -2));
         TextView how = ui.text("어떻게 시작할까요?", 13, 650, MUTED); how.setPadding(ui.dp(6), ui.dp(20), 0, ui.dp(8)); box.addView(how);
-        LinearLayout grid1 = ui.row(), grid2 = ui.row();
-        grid1.addView(ui.feature(R.drawable.ic_sparkle, "자율 연구", "책임연구원이 계획부터 보고서까지 알아서 진행해요", ACCENT, () -> autopilot(p)), cell(false));
-        grid1.addView(ui.feature(R.drawable.ic_team, "토론 시작", "연구 질문으로 연구원들이 주장하고 반박해요", roleHue("theorist"), () -> act(p, "debate")), cell(true));
-        grid2.addView(ui.feature(R.drawable.ic_search, "문헌 조사", "논문을 찾아 출처 번호와 함께 정리해요", roleHue("scout"), () -> act(p, "search")), cell(false));
-        grid2.addView(ui.feature(R.drawable.ic_bulb, "계획 세우기", "질문을 나누고 가설과 방법을 정해요", roleHue("pi"), () -> act(p, "plan")), cell(true));
-        box.addView(grid1, new LinearLayout.LayoutParams(-1, -2));
-        LinearLayout.LayoutParams g2 = new LinearLayout.LayoutParams(-1, -2); g2.topMargin = ui.dp(10); box.addView(grid2, g2);
+        LinearLayout starts = ui.group();
+        ui.addRow(starts, ui.listRow(R.drawable.ic_sparkle, ACCENT, "자율 연구", "책임연구원이 계획부터 보고서까지 알아서 진행해요", ui.chevron(), () -> autopilot(p)), true);
+        ui.addRow(starts, ui.listRow(R.drawable.ic_team, roleHue("theorist"), "토론 시작", "연구 질문으로 연구원들이 주장하고 반박해요", ui.chevron(), () -> act(p, "debate")), true);
+        ui.addRow(starts, ui.listRow(R.drawable.ic_search, roleHue("scout"), "문헌 조사", "논문을 찾아 출처 번호와 함께 정리해요", ui.chevron(), () -> act(p, "search")), true);
+        ui.addRow(starts, ui.listRow(R.drawable.ic_bulb, roleHue("pi"), "계획 세우기", "질문을 나누고 가설과 방법을 정해요", ui.chevron(), () -> act(p, "plan")), true);
+        box.addView(starts, new LinearLayout.LayoutParams(-1, -2));
         TextView tip = ui.footer("아래 입력창에 적으면 연구원들이 그 주제로 토론해요. ‘@비평가’처럼 이름을 붙이면 그 연구원만 답해요.");
         tip.setPadding(ui.dp(6), ui.dp(14), ui.dp(6), 0); box.addView(tip);
         return box;
     }
-    private LinearLayout.LayoutParams cell(boolean right) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -1, 1); if (right) p.leftMargin = ui.dp(10); return p; }
     private View typing(LabBook.Role r) {
         LinearLayout row = ui.row(); row.setPadding(0, ui.dp(8), 0, ui.dp(4));
         LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(ui.dp(30), ui.dp(30)); at.rightMargin = ui.dp(10);
@@ -765,12 +767,12 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         }
         sheet.body.addView(group);
         sheet.body.addView(ui.sectionHeader("라운드"));
-        sheet.body.addView(ui.segmented(new String[]{"1라운드", "2라운드", "3라운드"}, rounds[0] - 1, i -> rounds[0] = i + 1));
+        sheet.body.addView(ui.switcher(new String[]{"1라운드", "2라운드", "3라운드"}, rounds[0] - 1, i -> rounds[0] = i + 1), new LinearLayout.LayoutParams(-2, -2));
         sheet.body.addView(ui.footer("1라운드는 서로의 답을 보지 않고 답해요. 2라운드부터는 다른 연구원의 답을 읽고 반박하거나 보완해요."));
         sheet.body.addView(ui.sectionHeader("정리하는 연구원"));
         String[] judges = {LabBook.PI.id(), LabBook.CRITIC.id(), LabBook.SCRIBE.id()};
         int at = Math.max(0, java.util.Arrays.asList(judges).indexOf(judge[0]));
-        sheet.body.addView(ui.segmented(new String[]{"책임연구원", "비평가", "기록원"}, at, i -> judge[0] = judges[i]));
+        sheet.body.addView(ui.switcher(new String[]{"책임연구원", "비평가", "기록원"}, at, i -> judge[0] = judges[i]), new LinearLayout.LayoutParams(-2, -2));
         sheet.primary.setText("저장");
         sheet.primary.setOnClickListener(v -> {
             if (chosen.size() < 2) { Toast.makeText(this, "토론에는 두 명 이상이 필요해요.", Toast.LENGTH_SHORT).show(); return; }
@@ -1032,18 +1034,18 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         content.addView(hero, new LinearLayout.LayoutParams(-1, -2));
         // The budget.
         content.addView(heading("한도", null, null));
-        LinearLayout budget = ui.column(); budget.setBackground(ui.glass(R_GROUP, false)); budget.setPadding(ui.dp(18), ui.dp(16), ui.dp(18), ui.dp(16));
+        LinearLayout budget = ui.column(); budget.setBackground(ui.glass(R_GROUP, false)); budget.setPadding(ui.dp(16), ui.dp(12), ui.dp(12), ui.dp(14));
         int spent = book.spent(p.id()), total = book.total(p.id());
         LinearLayout nums = ui.row();
         SpannableStringBuilder big = new SpannableStringBuilder(String.valueOf(Math.min(spent, p.budget()))); big.setSpan(new StyleSpan(Typeface.BOLD), 0, big.length(), 0);
         int s = big.length(); big.append(" / " + p.budget() + " AI 답"); big.setSpan(new ForegroundColorSpan(MUTED), s, big.length(), 0);
         TextView bt = ui.text("", 17, 600, TEXT); bt.setText(big); nums.addView(bt, new LinearLayout.LayoutParams(0, -2, 1));
-        nums.addView(ui.text("전체 " + total + "번", 12.5f, 500, MUTED));
+        // The budget's few choices as the small switch at the end of its own line.
+        int[] options = {15, 30, 60, 100}; int at = 1; for (int i = 0; i < options.length; i++) if (options[i] == p.budget()) at = i;
+        nums.addView(ui.switcher(new String[]{"15", "30", "60", "100"}, at, i -> { try { book.save(p.settings(options[i], p.approve())); } catch (Exception ignored) {} render(false); }), new LinearLayout.LayoutParams(-2, -2));
         budget.addView(nums);
         budget.addView(meter(Math.min(1f, spent / (float) Math.max(1, p.budget())), spent >= p.budget() ? ORANGE : ACCENT));
-        TextView bh = ui.text("자율 연구 한 번에 쓸 수 있는 AI 답의 수예요. 다 쓰면 멈추고 기다려요.", 12.5f, 450, MUTED); bh.setPadding(0, ui.dp(10), 0, ui.dp(10)); budget.addView(bh);
-        int[] options = {15, 30, 60, 100}; int at = 1; for (int i = 0; i < options.length; i++) if (options[i] == p.budget()) at = i;
-        budget.addView(ui.segmented(new String[]{"15", "30", "60", "100"}, at, i -> { try { book.save(p.settings(options[i], p.approve())); } catch (Exception ignored) {} render(false); }));
+        TextView bh = ui.text("자율 연구 한 번에 쓰는 AI 답 · 지금까지 전체 " + total + "번", 12, 450, MUTED); bh.setPadding(0, ui.dp(8), 0, 0); budget.addView(bh);
         content.addView(budget, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout approvals = ui.group();
         ui.addRow(approvals, ui.switchRow("실험 전에 승인 받기", "자율 연구가 리눅스에서 코드를 돌리기 전에 무엇을 확인할지 보여 주고 기다려요.", p.approve(), on -> { try { book.save(p.settings(p.budget(), on)); } catch (Exception ignored) {} }), false);
