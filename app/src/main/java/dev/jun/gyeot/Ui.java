@@ -179,7 +179,13 @@ final class Ui {
         button.setOnClickListener(v -> action.run()); pressable(button, false); return button;
     }
     /** A capsule drawn 40dp tall inside a 48dp touch target, so rows of them stay light without shrinking the target. */
-    android.graphics.drawable.Drawable capsule(int color) { return new android.graphics.drawable.InsetDrawable(shape(color, PILL), 0, dp(4), 0, dp(4)); }
+    android.graphics.drawable.Drawable capsule(int color) {
+        // No padding of its own: a background swapped on a tap (a pill chosen) must not reset the view's padding, which
+        // squeezed the words against the capsule's ends.
+        return new android.graphics.drawable.InsetDrawable(shape(color, PILL), 0, dp(4), 0, dp(4)) {
+            @Override public boolean getPadding(android.graphics.Rect padding) { padding.set(0, 0, 0, 0); return false; }
+        };
+    }
     /** A compact capsule for secondary actions on cards. */
     /**
      * A capsule at most `tallest` high, centred in its view whatever the view's height (a 48dp touch target or a 36dp row),
@@ -335,14 +341,15 @@ final class Ui {
             TextView pill = text(labels[i], small ? FOOTNOTE : SUBHEAD, i == selected ? 680 : 560, i == selected ? BG : TEXT); pill.setGravity(Gravity.CENTER);
             pill.setBackground(capsule(i == selected ? TEXT : FILL));
             if (small) { pill.setPadding(dp(14), dp(6), dp(14), dp(6)); pill.setMinimumHeight(dp(34)); }
-            else { pill.setPadding(dp(17), dp(10), dp(17), dp(10)); pill.setMinimumHeight(dp(48)); }
+            else { pill.setPadding(dp(14), dp(7), dp(14), dp(7)); pill.setMinimumHeight(dp(42)); }
             pill.setSelected(i == selected); pill.setFocusable(true); pill.setAccessibilityDelegate(new View.AccessibilityDelegate() { @Override public void onInitializeAccessibilityNodeInfo(View host, android.view.accessibility.AccessibilityNodeInfo info) { super.onInitializeAccessibilityNodeInfo(host, info); info.setClassName("android.widget.RadioButton"); info.setCheckable(true); info.setChecked(host.isSelected()); } });
             pill.setContentDescription(labels[i] + (i == selected ? ", 선택됨" : ""));
             pill.setOnClickListener(v -> {
                 if (!v.isSelected()) tick(v);
                 for (int j = 0; j < row.getChildCount(); j++) {
                     TextView option = (TextView) row.getChildAt(j); boolean on = j == index;
-                    option.setSelected(on); option.setTextColor(on ? BG : TEXT); option.setBackground(capsule(on ? TEXT : FILL)); option.setTypeface(weight(on ? 680 : 560));
+                    int l = option.getPaddingLeft(), t = option.getPaddingTop(), r = option.getPaddingRight(), b = option.getPaddingBottom();
+                    option.setSelected(on); option.setTextColor(on ? BG : TEXT); option.setBackground(capsule(on ? TEXT : FILL)); option.setPadding(l, t, r, b); option.setTypeface(weight(on ? 680 : 560));
                     option.setContentDescription(labels[j] + (on ? ", 선택됨" : ""));
                 }
                 action.accept(index);

@@ -232,7 +232,7 @@ public final class PagesActivity extends Activity {
     private TextView chip(String label, boolean on, Runnable tap, Runnable hold) {
         TextView chip = ui.text(label, SUBHEAD, on ? 680 : 560, on ? BG : TEXT); chip.setGravity(android.view.Gravity.CENTER);
         // The capsule first: a background with insets replaces the padding set before it.
-        chip.setBackground(ui.capsule(on ? TEXT : FILL)); chip.setPadding(ui.dp(17), ui.dp(10), ui.dp(17), ui.dp(10)); chip.setMinimumHeight(ui.dp(48));
+        chip.setBackground(ui.capsule(on ? TEXT : FILL)); chip.setPadding(ui.dp(14), ui.dp(7), ui.dp(14), ui.dp(7)); chip.setMinimumHeight(ui.dp(42));
         chip.setSelected(on); chip.setFocusable(true);
         chip.setContentDescription(label + (on ? ", 선택됨" : "") + (hold == null ? "" : ", 길게 누르면 이름 바꾸기와 삭제"));
         chip.setAccessibilityDelegate(new View.AccessibilityDelegate() {
