@@ -3628,7 +3628,7 @@ public final class MainActivity extends Activity {
         }
         if (on) {
             add(ui.sectionHeader("앱이 Groq에 맡기는 일 · 오늘"), 0);
-            String[] work = {GroqWork.CHORES, GroqWork.SEARCH, GroqWork.WHISPER}, what = {"잡일 · 요약·정리·제안·돌아보기 (기다릴 땐 먼저)", "웹 검색 · 음성 비서의 검색", "받아쓰기 · 녹음·첨부 음성"};
+            String[] work = {GroqWork.CHORES, GroqWork.SEARCH, GroqWork.WHISPER}, what = {"잡일 · 요약·정리·제안·돌아보기 (항상 먼저)", "웹 검색 · 음성 비서의 검색", "받아쓰기 · 녹음·첨부 음성"};
             LinearLayout uses = ui.group(); long now = System.currentTimeMillis();
             java.util.List<dev.jun.gyeot.core.GeminiQuota.Row> rows = dev.jun.gyeot.core.GeminiQuota.rows(store.geminiQuota(), work, now);
             for (int i = 0; i < work.length; i++) {
