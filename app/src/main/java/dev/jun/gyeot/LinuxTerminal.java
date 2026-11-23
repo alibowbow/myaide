@@ -26,7 +26,7 @@ import static dev.jun.gyeot.Ui.*;
  * A small terminal for an official CLI in the Linux environment (its installer, its sign-in): the command runs under
  * script(1), so it has a real terminal and asks as it would on a computer. The sheet shows what it prints (colours and
  * cursor moves left out), a sign-in link as a button, a line to answer with (a code, a word) and the keys installers ask
- * for (Enter, y, n, arrows, Tab, Esc, Ctrl+C). 끝내기 or closing the sheet stops it. What is typed is never shown again.
+ * for (Enter, Space to toggle a choice, y, n, arrows, Tab, Esc, Ctrl+C). 끝내기 or closing the sheet stops it. What is typed is never shown again.
  */
 final class LinuxTerminal {
     private static final Pattern URL = Pattern.compile("https://[^\\s\"'<>]+");
@@ -78,7 +78,7 @@ final class LinuxTerminal {
         field.setOnEditorActionListener((v, id, e) -> { if (id == EditorInfo.IME_ACTION_SEND) { sendLine.run(); return true; } return false; });
         reply.addView(ui.iconButton(R.drawable.ic_send, ACCENT, ON_ACCENT, "보내기", sendLine), sendAt);
         sheet.body.addView(reply);
-        String[][] keys = {{"Enter", "\r"}, {"y", "y\r"}, {"n", "n\r"}, {"↑", "\u001B[A"}, {"↓", "\u001B[B"}, {"Tab", "\t"}, {"Esc", "\u001B"}, {"Ctrl+C", "\u0003"}};
+        String[][] keys = {{"Enter", "\r"}, {"Space", " "}, {"y", "y\r"}, {"n", "n\r"}, {"↑", "\u001B[A"}, {"↓", "\u001B[B"}, {"←", "\u001B[D"}, {"→", "\u001B[C"}, {"Tab", "\t"}, {"Esc", "\u001B"}, {"Ctrl+C", "\u0003"}};
         View[] buttons = new View[keys.length];
         for (int i = 0; i < keys.length; i++) { String[] k = keys[i]; buttons[i] = ui.pill(k[0], 0, false, () -> type.accept(k[1])); }
         sheet.body.addView(ui.pills(buttons));
