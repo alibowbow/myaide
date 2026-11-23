@@ -132,6 +132,7 @@ public record MainRequest(String instructions, String input, Consumer<String> on
             case WorkBook.CLAUDE, WorkBook.GEMINI -> EnumSet.of(Option.THINKING_SUMMARY, Option.SEARCH, Option.FETCH, Option.FILES, Option.USAGE);
             case WorkBook.GROK -> EnumSet.of(Option.SEARCH, Option.FILES, Option.USAGE);
             case WorkBook.NIM -> EnumSet.of(Option.FILES, Option.USAGE);
+            case WorkBook.ANTIGRAVITY -> EnumSet.noneOf(Option.class);
             default -> EnumSet.of(Option.THINKING_SUMMARY, Option.SEARCH, Option.FILES, Option.USAGE);
         };
     }

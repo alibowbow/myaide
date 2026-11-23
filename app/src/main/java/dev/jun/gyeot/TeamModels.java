@@ -20,6 +20,26 @@ final class TeamModels {
         geminiKey = store.gemini.connected() ? key(store.gemini::key) : "";
     }
     private static String key(java.util.concurrent.Callable<String> read) { try { return read.call(); } catch (Exception e) { return ""; } }
+    /**
+     * 작업창 on Antigravity: agy answers the room's conversation in one go, as text. It does not get the app's tools
+     * (GitHub, files, the phone): it says so when a task needs them, instead of pretending.
+     */
+    private WorkClient.Result antigravity(String model, String day, JSONArray turns, String context, Consumer<String> pieces, Consumer<String> stage, Runnable guard, java.util.concurrent.atomic.AtomicReference<Runnable> cancel) throws Exception {
+        StringBuilder talk = new StringBuilder();
+        for (int i = 0; turns != null && i < turns.length(); i++) {
+            JSONObject turn = turns.optJSONObject(i); if (turn == null || turn.optString("content").isBlank()) continue;
+            talk.append("assistant".equals(turn.optString("role")) ? "AI: " : "사용자: ").append(turn.optString("content").strip()).append("\n\n");
+        }
+        String instructions = "오늘: " + day + ". 너는 들퍼레 앱의 작업창에서 Antigravity로 답하는 AI야. 아래 대화에 이어 사용자의 마지막 말에 답해. "
+            + "이 연결에는 앱의 도구(GitHub, 파일, 휴대폰 조작, 검색)가 없으니, 도구가 필요한 일은 할 수 없다고 솔직히 말하고 할 수 있는 만큼만 도와줘."
+            + (context == null || context.isBlank() ? "" : "\n\n" + context);
+        stage.accept("Antigravity가 답하는 중");
+        guard.run();
+        String text = store.antigravity.ask(model, instructions, talk.toString().strip(), cancel);
+        guard.run();
+        pieces.accept(text);
+        return new WorkClient.Result(text, new JSONArray(), new JSONArray(), "", "", new JSONArray(), "", store.antigravity.label(model));
+    }
     void check(String engine) {
         if (!store.ready(engine)) throw new CancellationException(WorkBook.author(engine) + " 연결이 해제돼 작업을 멈췄어요.");
         try {
@@ -27,6 +47,7 @@ final class TeamModels {
                 case WorkBook.CHATGPT -> { if (gptGeneration != store.openai.workFormatGeneration()) throw new CancellationException(); }
                 case WorkBook.GROK -> store.grok.check(grokAccount);
                 case WorkBook.NIM -> store.nim.check(nimGeneration);
+                case WorkBook.ANTIGRAVITY -> { if (!store.antigravity.connected()) throw new CancellationException(); }
                 case WorkBook.CLAUDE -> { if (!claudeKey.equals(store.claude.key())) throw new CancellationException(); }
                 case WorkBook.GEMINI -> { if (!geminiKey.equals(store.gemini.key())) throw new CancellationException(); }
                 default -> throw new IllegalArgumentException("연결되지 않은 제공자입니다.");
@@ -55,6 +76,7 @@ final class TeamModels {
                 case WorkBook.GEMINI -> GeminiWorkClient.work(geminiKey, model, day, turns, context, search, code, tools, effort, pieces, stage, guard, control.request, steering);
                 case WorkBook.GROK -> GrokWorkClient.work(store.grok, grokAccount, model, day, turns, context, search, code, tools, effort, cacheKey, pieces, stage, guard, control.request, steering);
                 case WorkBook.NIM -> NimClient.work(store.nim, nimGeneration, model, day, turns, context, tools, pieces, stage, guard, control.request, steering);
+                case WorkBook.ANTIGRAVITY -> antigravity(model, day, turns, context, pieces, stage, guard, control.request);
                 default -> WorkClient.run(store.openai, model, day, turns, context, search, code, draw, tools, container, effort, painter, pieces, stage, guard, control.request, steering, profile.optString("speed", "standard"));
             };
         } catch (dev.jun.gyeot.core.ModelLimit refused) {

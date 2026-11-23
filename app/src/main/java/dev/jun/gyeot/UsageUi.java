@@ -28,7 +28,7 @@ import org.json.JSONObject;
  */
 final class UsageUi {
     static final long WEEK_MS = 7L * 24 * 60 * 60 * 1000;
-    static final String[] ENGINES = {WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM};
+    static final String[] ENGINES = {WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY};
     /** The settings list's line until the last seven days are read, and when there is nothing in them. */
     static final String ABOUT = "답마다 쓴 토큰과 계정별 남은 한도";
     /** One reader for the page and the list's line, whose thread ends after half a minute without work. */
@@ -98,7 +98,7 @@ final class UsageUi {
     }
     /** The settings page that engine is connected on: Gemini's key is on "key", the others on their own page. */
     static String page(String engine) {
-        return switch (engine) { case WorkBook.CLAUDE -> "claude"; case WorkBook.GEMINI -> "key"; case WorkBook.GROK -> "grok"; case WorkBook.NIM -> "nim"; default -> "chatgpt"; };
+        return switch (engine) { case WorkBook.CLAUDE -> "claude"; case WorkBook.GEMINI -> "key"; case WorkBook.GROK -> "grok"; case WorkBook.NIM -> "nim"; case WorkBook.ANTIGRAVITY -> "antigravity"; default -> "chatgpt"; };
     }
     /**
      * The windows the provider last reported for this account and this connection, then when it reported them ("3분 전

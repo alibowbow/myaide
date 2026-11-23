@@ -3380,6 +3380,10 @@ public final class AssistantService extends Service {
             WorkClient.Result answer = GrokWorkClient.complete(store.grok, model, instructions, input, search, effort, onActivity, cancel);
             return new OpenAiClient.Result(answer.text, answer.sources, answer.note.isBlank() ? null : answer.note);
         }
+        if (WorkBook.ANTIGRAVITY.equals(engine)) {
+            String said = store.antigravity.ask(model, instructions.apply(false), input, cancel);
+            return new OpenAiClient.Result(said, new org.json.JSONArray(), null);
+        }
         if (WorkBook.NIM.equals(engine)) {
             WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), model, instructions.apply(false), input, onActivity, cancel);
             return new OpenAiClient.Result(answer.text, answer.sources, null);
@@ -3387,13 +3391,13 @@ public final class AssistantService extends Service {
         return OpenAiClient.complete(store.openai, model, instructions, input, search, effort, speed, onActivity, cancel);
     }
     private String analystModel(String engine) {
-        return WorkBook.CLAUDE.equals(engine) ? store.claude.model() : WorkBook.GEMINI.equals(engine) ? store.gemini.model() : WorkBook.GROK.equals(engine) ? store.grok.model() : WorkBook.NIM.equals(engine) ? store.nim.model() : store.openai.model();
+        return WorkBook.CLAUDE.equals(engine) ? store.claude.model() : WorkBook.GEMINI.equals(engine) ? store.gemini.model() : WorkBook.GROK.equals(engine) ? store.grok.model() : WorkBook.ANTIGRAVITY.equals(engine) ? store.antigravity.model() : WorkBook.NIM.equals(engine) ? store.nim.model() : store.openai.model();
     }
     private String analystEffort(String engine, String model) {
-        return WorkBook.CLAUDE.equals(engine) ? store.claude.effort(model) : WorkBook.GEMINI.equals(engine) ? store.gemini.effort(model) : WorkBook.GROK.equals(engine) ? store.grok.effort(model) : WorkBook.NIM.equals(engine) ? store.nim.effort(model) : store.openai.effectiveReasoningEffort(model);
+        return WorkBook.CLAUDE.equals(engine) ? store.claude.effort(model) : WorkBook.GEMINI.equals(engine) ? store.gemini.effort(model) : WorkBook.GROK.equals(engine) ? store.grok.effort(model) : WorkBook.ANTIGRAVITY.equals(engine) ? store.antigravity.effort(model) : WorkBook.NIM.equals(engine) ? store.nim.effort(model) : store.openai.effectiveReasoningEffort(model);
     }
     private Reasoning.Profile profile(String engine, String model) {
-        return WorkBook.CLAUDE.equals(engine) ? store.claude.profile(model) : WorkBook.GEMINI.equals(engine) ? store.gemini.profile(model) : WorkBook.GROK.equals(engine) ? store.grok.profile(model) : WorkBook.NIM.equals(engine) ? store.nim.profile(model) : store.openai.reasoningProfile(model);
+        return WorkBook.CLAUDE.equals(engine) ? store.claude.profile(model) : WorkBook.GEMINI.equals(engine) ? store.gemini.profile(model) : WorkBook.GROK.equals(engine) ? store.grok.profile(model) : WorkBook.ANTIGRAVITY.equals(engine) ? store.antigravity.profile(model) : WorkBook.NIM.equals(engine) ? store.nim.profile(model) : store.openai.reasoningProfile(model);
     }
     /**
      * withoutSearch is set on the retry after a quota error with search. searchRefusal is set only when that error came at setup,

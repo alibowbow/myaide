@@ -75,7 +75,7 @@ final class LinuxRuntime {
             unpack(archive, staging, changed);
             prepare(staging);
             step("실행해 보는 중", changed);
-            Result check = run(c, staging, "uname -m && head -n 1 /etc/os-release", 60_000, null);
+            Result check = run(c, staging, "uname -m && head -n 1 /etc/os-release", 60_000, null, null);
             if (check.code != 0 || !check.output.contains("aarch64")) throw new IOException("Linux를 실행해 보지 못했어요: " + clip(check.output));
             Files.write(new File(staging, READY).toPath(), (DISTRIBUTION + "\n" + System.currentTimeMillis()).getBytes(StandardCharsets.UTF_8));
             File root = rootfs(c); delete(root);
@@ -178,9 +178,11 @@ final class LinuxRuntime {
     /** Runs a shell command in the installed system (bash -lc), as Linux's root, in /root. Blocking. */
     static Result run(Context c, String command, long timeoutMs) throws Exception { return run(c, command, timeoutMs, null); }
     /** As above, with environment variables of its own (an installed CLI's home and settings). */
-    static Result run(Context c, String command, long timeoutMs, java.util.Map<String, String> env) throws Exception {
+    static Result run(Context c, String command, long timeoutMs, java.util.Map<String, String> env) throws Exception { return run(c, command, timeoutMs, env, null); }
+    /** As above; cancel is handed a stop for the running command (the chat's 멈추기). */
+    static Result run(Context c, String command, long timeoutMs, java.util.Map<String, String> env, java.util.concurrent.atomic.AtomicReference<Runnable> cancel) throws Exception {
         if (!installed(c)) throw new IllegalStateException("Linux 환경이 설치되지 않았어요.");
-        return run(c, rootfs(c), command, timeoutMs, env);
+        return run(c, rootfs(c), command, timeoutMs, env, cancel);
     }
     static Process start(Context c, File root, String command, java.util.Map<String, String> extraEnv) throws IOException {
         File lib = nativeDir(c), tmp = new File(home(c), "tmp"); tmp.mkdirs();
@@ -201,8 +203,9 @@ final class LinuxRuntime {
         builder.environment().put("HOME", home(c).getPath());
         return builder.start();
     }
-    private static Result run(Context c, File root, String command, long timeoutMs, java.util.Map<String, String> env) throws Exception {
+    private static Result run(Context c, File root, String command, long timeoutMs, java.util.Map<String, String> env, java.util.concurrent.atomic.AtomicReference<Runnable> cancel) throws Exception {
         Process p = start(c, root, command, env);
+        if (cancel != null) cancel.set(p::destroyForcibly);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         Thread reader = new Thread(() -> {
             byte[] b = new byte[8192]; int n;

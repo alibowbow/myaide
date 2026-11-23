@@ -85,13 +85,18 @@ final class AntigravityCli {
      * One answer from Antigravity (agy -p): the instructions and the input in one prompt, passed through a file so no
      * quoting can break it. Blocking: a background thread.
      */
-    static String ask(Context c, String instructions, String input, long timeoutMs) throws Exception {
+    static String ask(Context c, String instructions, String input, long timeoutMs) throws Exception { return ask(c, "", instructions, input, timeoutMs, null); }
+    /** As above on a model of agy's list ("" for agy's default), stoppable through cancel. */
+    static String ask(Context c, String model, String instructions, String input, long timeoutMs, java.util.concurrent.atomic.AtomicReference<Runnable> cancel) throws Exception {
         if (!installed(c)) throw new IllegalStateException("Antigravity CLI가 설치되지 않았어요. 설정 → Antigravity에서 설치하고 로그인해 주세요.");
-        File prompt = new File(LinuxRuntime.rootfs(c), "tmp/gyeot-agy-prompt.txt");
+        if (!model.isEmpty() && !model.matches("[a-z0-9][a-z0-9._-]{1,120}")) throw new IllegalArgumentException("Antigravity 모델 이름을 확인해 주세요.");
+        // A prompt file of its own per request, so two answers made at once do not share one.
+        String name = "gyeot-agy-" + System.nanoTime() + ".txt";
+        File prompt = new File(LinuxRuntime.rootfs(c), "tmp/" + name);
         String text = (instructions == null || instructions.isBlank() ? "" : instructions.strip() + "\n\n") + (input == null ? "" : input.strip());
         Files.write(prompt.toPath(), text.getBytes(StandardCharsets.UTF_8));
         try {
-            LinuxRuntime.Result r = LinuxRuntime.run(c, BINARY + " -p \"$(cat /tmp/gyeot-agy-prompt.txt)\" </dev/null", timeoutMs, env());
+            LinuxRuntime.Result r = LinuxRuntime.run(c, BINARY + (model.isEmpty() ? "" : " --model " + model) + " -p \"$(cat /tmp/" + name + ")\" </dev/null", timeoutMs, env(), cancel);
             String out = LinuxTerminal.plain(r.output()).strip();
             if (SIGNED_OUT.matcher(out).find()) throw new IllegalStateException("Antigravity에 로그인해 주세요 (설정 → Antigravity → 로그인).");
             if (r.code() != 0 || out.isEmpty()) throw new IllegalStateException("Antigravity가 답하지 못했어요" + (out.isEmpty() ? "." : ": " + clip(out)));

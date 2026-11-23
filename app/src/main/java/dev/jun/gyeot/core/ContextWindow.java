@@ -51,6 +51,8 @@ public final class ContextWindow {
             case WorkBook.GROK -> m.contains("fast") ? 2_000_000 : 524_288;
             // The hosted NIM endpoints may serve less than the 1M the model cards state.
             case WorkBook.NIM -> 262_144;
+            // agy is handed the conversation as one prompt; its models take about a million tokens.
+            case WorkBook.ANTIGRAVITY -> 1_000_000;
             default -> openAi(m);
         };
     }
@@ -78,6 +80,7 @@ public final class ContextWindow {
             case WorkBook.GEMINI -> 8_000;
             case WorkBook.GROK -> 64_000;
             case WorkBook.NIM -> 20_000;
+            case WorkBook.ANTIGRAVITY -> 32_000;
             default -> tokens(engine, model) >= 400_000 ? 128_000 : 32_000;
         };
     }
@@ -86,7 +89,7 @@ public final class ContextWindow {
         return switch (engine == null ? "" : engine) {
             case WorkBook.CLAUDE -> 0.6;
             case WorkBook.GEMINI -> 1.0;
-            case WorkBook.GROK, WorkBook.NIM -> 0.8;
+            case WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY -> 0.8;
             default -> 0.9;
         };
     }

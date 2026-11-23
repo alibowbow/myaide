@@ -44,6 +44,10 @@ public final class MainAttachments {
      * PDF; the other four take both. Checked before the message is kept, and again before a request is sent (MainRequest).
      */
     public static String refusedBy(String engine, JSONArray files) {
+        if (WorkBook.ANTIGRAVITY.equals(WorkBook.engine(engine))) {
+            for (int i = 0; files != null && i < files.length(); i++) if (binary(files.optJSONObject(i))) return "메인 대화의 Antigravity 연결에는 사진·PDF를 보낼 수 없어요. 글만 보내거나 다른 엔진을 골라 주세요.";
+            return "";
+        }
         if (!WorkBook.NIM.equals(WorkBook.engine(engine))) return "";
         for (int i = 0; files != null && i < files.length(); i++) {
             JSONObject file = files.optJSONObject(i); if (!binary(file)) continue;

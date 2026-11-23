@@ -452,7 +452,7 @@ public final class SchoolActivity extends Activity {
         List<SchoolBook.Line> all = book.lines(t.id());
         String system = SchoolBook.tutor(t), groqWhy = null;
         if ("agy".equals(t.ai()) && AntigravityCli.installed(this))
-            return new String[]{AntigravityCli.ask(this, system, SchoolBook.transcript(SchoolBook.history(all, 16000)), 240_000), "Antigravity · 구독"};
+            return new String[]{store.antigravity.ask(store.antigravity.model(), system, SchoolBook.transcript(SchoolBook.history(all, 16000)), cancel), "Antigravity · " + store.antigravity.label(store.antigravity.model())};
         if (groq(t)) {
             // The free tier takes about 8,000 tokens a minute, the answer included: the lesson's newest 3,000 characters.
             List<SchoolBook.Line> recent = SchoolBook.history(all, 3000);

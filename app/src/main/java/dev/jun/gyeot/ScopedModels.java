@@ -108,7 +108,7 @@ final class ScopedModels {
     }
     private static String rawEffort(AppStore s, String e, String m) {
         return switch (e) { case WorkBook.CLAUDE -> s.claude.effort(m); case WorkBook.GEMINI -> s.gemini.effort(m);
-            case WorkBook.GROK -> s.grok.effort(m); case WorkBook.NIM -> s.nim.effort(m); default -> s.openai.reasoningEffort(m); };
+            case WorkBook.GROK -> s.grok.effort(m); case WorkBook.NIM -> s.nim.effort(m); case WorkBook.ANTIGRAVITY -> s.antigravity.effort(m); default -> s.openai.reasoningEffort(m); };
     }
     /** One-time snapshot, not a reconstruction of historical per-room choices which were never stored. */
     static void initialize(AppStore store) {
