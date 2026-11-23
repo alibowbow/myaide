@@ -89,8 +89,8 @@ final class LinuxTerminal {
             painting[0] = false; if (closed[0]) return;
             String text; synchronized (raw) { text = plain(raw.toString()); }
             screen.setText(text.strip().isEmpty() ? "…" : text.strip());
-            Matcher m = URL.matcher(text); String last = ""; while (m.find()) last = m.group();
-            if (!last.isEmpty()) { url[0] = last.replaceAll("[).,]+$", ""); link.setVisibility(View.VISIBLE); }
+            String last = lastUrl(text);
+            if (!last.isEmpty()) { url[0] = last; link.setVisibility(View.VISIBLE); }
             scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
         };
         sheet.primary.setText("끝내기");
@@ -100,7 +100,7 @@ final class LinuxTerminal {
         new Thread(() -> {
             try {
                 // script(1) gives the command a terminal of its own, wide so a long link stays on one line.
-                String inner = "stty cols 500 rows 40 2>/dev/null; " + command;
+                String inner = "stty cols 4000 rows 40 2>/dev/null; " + command;
                 Process p = LinuxRuntime.start(activity, LinuxRuntime.rootfs(activity), "script -qfec " + quote(inner) + " /dev/null", env);
                 process[0] = p;
                 try (InputStream in = p.getInputStream()) {
@@ -117,6 +117,25 @@ final class LinuxTerminal {
                 main.post(() -> { if (closed[0]) return; screen.setText(why); sheet.primary.setText("닫기"); });
             }
         }, "linux-terminal").start();
+    }
+    private static final Pattern URL_CHARS = Pattern.compile("[A-Za-z0-9%._~:/?#\\[\\]@!$&'()*+,;=-]+");
+    /**
+     * The last link printed, whole: a sign-in link runs to several hundred characters and a CLI may still break it onto
+     * the next lines, so lines that carry on with link characters only (no spaces) are joined to it.
+     */
+    static String lastUrl(String text) {
+        String[] lines = text.split("\n", -1); String found = "";
+        for (int i = 0; i < lines.length; i++) {
+            Matcher m = URL.matcher(lines[i]); int end = -1; String url = "";
+            while (m.find()) { url = m.group(); end = m.end(); }
+            if (url.isEmpty()) continue;
+            StringBuilder whole = new StringBuilder(url);
+            // The link reached the end of its line: the next lines may be the rest of it.
+            if (end == lines[i].stripTrailing().length())
+                for (int j = i + 1; j < lines.length; j++) { String next = lines[j].strip(); if (next.isEmpty() || !URL_CHARS.matcher(next).matches() || next.startsWith("http")) break; whole.append(next); }
+            found = whole.toString().replaceAll("[).,]+$", "");
+        }
+        return found;
     }
     /** One shell word: the text in single quotes. */
     static String quote(String text) { return "'" + text.replace("'", "'\\''") + "'"; }
