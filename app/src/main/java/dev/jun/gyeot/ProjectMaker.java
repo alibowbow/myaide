@@ -39,6 +39,8 @@ final class ProjectMaker {
     void watch(Listener l) { listeners.add(l); }
     void unwatch(Listener l) { listeners.remove(l); }
     private void changed(String id) { main.post(() -> { for (Listener l : listeners) l.changed(id); }); }
+    /** A project changed elsewhere (the chats' tools): the screens showing it draw it again. */
+    void touched(String id) { changed(id); }
     boolean busy(String id) { return running.containsKey(id); }
     String doing(String id) { String w = what.get(id); return w == null ? "" : w; }
     /** The last job's failure (once: reading it clears it). */

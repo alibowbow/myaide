@@ -1620,9 +1620,11 @@ public final class AssistantService extends Service {
                 // 페이지: the user's documents on this phone, for every model; a save or a change only when the run's
                 // own user words ask for it. As media: not for recovery, and not for jobs the main chat delegated (their requests stay as they were).
                 PageWorkTools pages = mediaAllowed ? new PageWorkTools(PageStore.book(this), dev.jun.gyeot.core.PageBook.WORK, title, () -> WorkBook.authority(WorkBook.find(store.works(), id)), "work:" + id) : null;
+                // 프로젝트: the user's small web apps (들퍼레/프로젝트), made or changed only when the run's own words ask; as 페이지.
+                ProjectWorkTools projects = mediaAllowed ? new ProjectWorkTools(this, () -> WorkBook.authority(WorkBook.find(store.works(), id)), "work:" + id) : null;
                 // The 들퍼레 folder: what is in it, and keeping files this job downloaded there when the user's words ask; not for recovery.
                 FolderWorkTools folders = recovering ? null : new FolderWorkTools(this, () -> WorkBook.authority(WorkBook.find(store.works(), id)), FolderWorkTools.room(store, id), () -> control.stopped || destroying || workRuns.get(id) != control);
-                WorkLedger ledger = new WorkLedger(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(repos, team[0]), browser[0]), media.offers() ? media : null), drive), calendar), pages), folders), (tool, target, outcome) ->
+                WorkLedger ledger = new WorkLedger(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(repos, team[0]), browser[0]), media.offers() ? media : null), drive), calendar), pages), projects), folders), (tool, target, outcome) ->
                     saveWorkCheckpoint(id, run, draft.toString(), tool, target, outcome, control));
                 JSONObject submittedModels = checkpoint == null ? null : checkpoint.optJSONObject(ScopedModels.KEY);
                 String submittedSpeed = WorkBook.CHATGPT.equals(engine) && submittedModels != null ? ScopedModels.frozen(store, submittedModels).speed(model) : "standard";

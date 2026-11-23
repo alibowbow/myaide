@@ -44,6 +44,7 @@ public final class ProjectBook {
         }
         public Project titled(String value) { return new Project(id, value, about, kind, made, updated, hue, pinned, folder, seen); }
         public Project pin(boolean value) { return new Project(id, title, about, kind, made, updated, hue, value, folder, seen); }
+        public Project described(String value) { return new Project(id, title, value, kind, made, updated, hue, pinned, folder, seen); }
         Project touched(long at) { return new Project(id, title, about, kind, made, at, hue, pinned, folder, seen); }
         Project at(String place, long time) { return new Project(id, title, about, kind, made, updated, hue, pinned, place, time); }
     }
