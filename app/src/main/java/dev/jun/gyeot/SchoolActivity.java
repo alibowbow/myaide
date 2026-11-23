@@ -557,9 +557,9 @@ public final class SchoolActivity extends Activity {
         // 지도법: a preset way of teaching (기본 과외, or 목표부터 거꾸로 · 페테르손식).
         TextView methodTitle = ui.text("지도법", FOOTNOTE, 620, MUTED); methodTitle.setPadding(ui.dp(4), ui.dp(14), 0, ui.dp(8)); sheet.body.addView(methodTitle);
         int[] method = {Math.max(0, SchoolBook.METHODS.indexOf(SchoolBook.method(t == null ? "" : t.method())))};
-        String[] methodNames = new String[SchoolBook.METHODS.size()]; for (int i = 0; i < methodNames.length; i++) methodNames[i] = SchoolBook.METHODS.get(i).name();
-        TextView methodAbout = ui.footer(SchoolBook.METHODS.get(method[0]).about());
-        sheet.body.addView(ui.pills(methodNames, method[0], i -> { method[0] = i; methodAbout.setText(SchoolBook.METHODS.get(i).about()); }));
+        String[] methodNames = new String[SchoolBook.METHODS.size()]; for (int i = 0; i < methodNames.length; i++) { String n = SchoolBook.METHODS.get(i).name(); methodNames[i] = n.contains(" · ") ? n.substring(n.lastIndexOf(" · ") + 3) : n; }
+        TextView methodAbout = ui.footer(SchoolBook.METHODS.get(method[0]).name() + "\n" + SchoolBook.METHODS.get(method[0]).about());
+        sheet.body.addView(ui.pills(methodNames, method[0], i -> { method[0] = i; methodAbout.setText(SchoolBook.METHODS.get(i).name() + "\n" + SchoolBook.METHODS.get(i).about()); }));
         sheet.body.addView(methodAbout);
         sheet.body.addView(ui.footer("일부만 적고 ‘AI로 빈칸 채우기’를 누르면 나머지를 어울리게 채워 줘요(Groq 무료 우선). 선생님은 정한 성격과 말투로 1:1 과외를 해요. 기본으로 Groq의 무료 GPT OSS 120B가 답하고, 대화창 아래 모델 이름을 눌러 바꿀 수 있어요."));
         sheet.primary.setText(t == null ? "모시기" : "저장");
