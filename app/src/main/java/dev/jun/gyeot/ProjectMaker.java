@@ -32,7 +32,7 @@ final class ProjectMaker {
     private final Map<String, AtomicReference<Runnable>> running = new ConcurrentHashMap<>();
     private final Map<String, String> what = new ConcurrentHashMap<>(), failed = new ConcurrentHashMap<>(), said = new ConcurrentHashMap<>();
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
-    private ProjectMaker(Context app) { this.app = app; this.book = new ProjectBook(new File(app.getFilesDir(), "projects")); }
+    private ProjectMaker(Context app) { this.app = app; this.book = new ProjectBook(new File(app.getFilesDir(), "projects"), () -> ProjectStores.current(app)); }
     ProjectBook book() { return book; }
     private AppStore store() { return ((GyeotApp) app).store(); }
 

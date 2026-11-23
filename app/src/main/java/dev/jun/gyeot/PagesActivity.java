@@ -181,10 +181,15 @@ public final class PagesActivity extends Activity {
         ScrollView scroll = new ScrollView(this); LinearLayout column = ui.column(); column.setPadding(0, 0, 0, ui.dp(24)); scroll.addView(column);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout top = ui.row();
-        TextView about = ui.label(all.isEmpty() ? "말로 만드는 나만의 웹 앱" : "프로젝트 " + all.size() + "개 · 말로 만들고 고치는 웹 앱", 13, MUTED);
+        // Where they are: 들퍼레/프로젝트 (a file manager opens and changes them too), or the app alone until it is connected.
+        String where = maker.book().where();
+        TextView about = ui.label(where.isEmpty() ? "들퍼레 폴더를 연결하면 거기에 저장해요 · 연결하기" : "프로젝트 " + all.size() + "개 · " + where + " 폴더에 저장돼요", 13, where.isEmpty() ? ACCENT : MUTED);
+        about.setMaxLines(2);
+        if (where.isEmpty()) { about.setOnClickListener(v -> StorageSetupActivity.open(this)); Ui.pressable(about, true); }
         top.addView(about, new LinearLayout.LayoutParams(0, -2, 1));
         top.addView(ui.pill("새 프로젝트", R.drawable.ic_add, true, this::newProject), new LinearLayout.LayoutParams(-2, -2));
         ui.add(column, top, 12);
+        syncProjects();
         if (all.isEmpty()) {
             LinearLayout card = ui.card();
             card.addView(ui.text("아직 프로젝트가 없어요", HEADLINE, 700, TEXT));
@@ -203,6 +208,12 @@ public final class PagesActivity extends Activity {
             row.addView(card, at);
             if (i == all.size() - 1 && i % 2 == 0) row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
         }
+    }
+    private long syncedAt;
+    /** The list and 들퍼레/프로젝트 together, off the main thread (at most every few seconds): a change there redraws the list. */
+    private void syncProjects() {
+        long now = android.os.SystemClock.elapsedRealtime(); if (now - syncedAt < 4000) return; syncedAt = now;
+        background(() -> { boolean changed = maker.book().sync(); if (changed) main.post(() -> { if (!destroyed && section == 1 && openId == null) showList(); }); });
     }
     private View projectCard(dev.jun.gyeot.core.ProjectBook.Project p, boolean wide) {
         LinearLayout card = ui.column(); card.setBackground(ui.glass(R_CARD, false)); card.setClipToOutline(true);
@@ -243,7 +254,7 @@ public final class PagesActivity extends Activity {
         ui.miniMenu(anchor, new String[]{"열기", p.pinned() ? "고정 해제" : "맨 위에 고정", "프로젝트 지우기"}, -1, i -> {
             if (i == 0) openProject(p.id());
             else if (i == 1) { try { maker.book().save(p.pin(!p.pinned())); } catch (IOException e) { toast(e.getMessage()); } showList(); }
-            else confirm("‘" + p.title() + "’ 프로젝트를 지울까요? 이전 버전도 함께 지워져요.", "지우기", () -> {
+            else confirm("‘" + p.title() + "’ 프로젝트를 지울까요? 들퍼레/프로젝트의 폴더와 이전 버전도 함께 지워져요.", "지우기", () -> {
                 maker.stop(p.id()); try { maker.book().remove(p.id()); } catch (IOException e) { toast(e.getMessage()); } showList(); });
         });
     }

@@ -63,7 +63,11 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         setContentView(root); root.requestApplyInsets();
         build();
     }
-    @Override protected void onResume() { super.onResume(); AppNavigator.inFront("pages"); maker.watch(this); refresh(); }
+    @Override protected void onResume() {
+        super.onResume(); AppNavigator.inFront("pages"); maker.watch(this); refresh();
+        // Changed in 들퍼레/프로젝트 meanwhile (a file manager, another editor): that page comes in.
+        new Thread(() -> { if (book.pull(id)) main.post(() -> { if (!destroyed) refresh(); }); }, "project-pull").start();
+    }
     @Override protected void onPause() { maker.unwatch(this); snapshot(); super.onPause(); }
     @Override protected void onDestroy() { destroyed = true; if (web != null) { web.destroy(); web = null; } super.onDestroy(); }
     @Override public void onBackPressed() {
@@ -249,16 +253,21 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
     private void menu(View anchor) {
         ProjectBook.Project p = book.project(id); if (p == null) return;
         int versions = book.versions(id).length;
-        String[] labels = {showingSource ? "미리보기로" : "소스 보기", versions == 0 ? "되돌릴 버전 없음" : "이전 버전으로 되돌리기 (" + versions + ")", "이름 바꾸기", p.pinned() ? "고정 해제" : "맨 위에 고정", "HTML 파일로 공유", "프로젝트 지우기"};
+        String[] labels = {showingSource ? "미리보기로" : "소스 보기", versions == 0 ? "되돌릴 버전 없음" : "이전 버전으로 되돌리기 (" + versions + ")", "이름 바꾸기", p.pinned() ? "고정 해제" : "맨 위에 고정", "HTML 파일로 공유", "파일 위치", "프로젝트 지우기"};
         ui.miniMenu(anchor, labels, -1, i -> {
             switch (i) {
+                case 5 -> {
+                    String where = book.where();
+                    Toast.makeText(this, where.isEmpty() || p.folder().isEmpty() ? "아직 앱 안에만 있어요. 내 휴대폰 → 저장 위치에서 들퍼레 폴더를 연결하면 거기에 저장해요."
+                        : "내장 저장공간/" + where + "/" + p.folder() + "/index.html", Toast.LENGTH_LONG).show();
+                }
                 case 0 -> showSource(!showingSource);
                 case 1 -> { if (versions == 0) return; ui.confirm("바로 전 버전으로 되돌릴까요? 지금 버전은 사라져요.", "되돌리기", () -> {
                     try { book.undo(id); loaded = ""; refresh(); Toast.makeText(this, "이전 버전으로 되돌렸어요.", Toast.LENGTH_SHORT).show(); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); } }).show(); }
                 case 2 -> rename();
                 case 3 -> { try { book.save(p.pin(!p.pinned())); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); } }
                 case 4 -> share(p);
-                default -> ui.confirm("‘" + p.title() + "’ 프로젝트를 지울까요? 이전 버전도 함께 지워져요.", "지우기", () -> {
+                default -> ui.confirm("‘" + p.title() + "’ 프로젝트를 지울까요? 들퍼레/프로젝트의 폴더와 이전 버전도 함께 지워져요.", "지우기", () -> {
                     maker.stop(id); try { book.remove(id); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); return; } finish(); }).show();
             }
         });
@@ -281,7 +290,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         sheet.primary.setText("저장");
         sheet.primary.setOnClickListener(v -> {
             String t = name.getText().toString().strip(); if (t.isEmpty()) return;
-            try { book.save(p.titled(t)); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); return; }
+            try { book.rename(id, t); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); return; }
             sheet.dismiss(); refresh();
         });
         sheet.show();

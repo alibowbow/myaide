@@ -16,27 +16,90 @@ import org.json.JSONObject;
 
 /**
  * 페이지 → 프로젝트: the user's own small web apps (as Claude's artifacts and ChatGPT's sites), each one HTML file that runs
- * full screen with the network (charts, data) and keeps its own storage. Kept on this phone in one folder: projects.json,
- * and per project index.html, history/ (the versions before each change, newest last, at most HISTORY) and thumb.jpg (how
- * it last looked). ProjectMaker asks the AI with make() and change(); nothing here talks to the network.
+ * full screen with the network (charts, data) and keeps its own storage.
+ * <p>
+ * Where they live: each project is a folder in the user's 들퍼레 folder, 들퍼레/프로젝트/<이름>/index.html (Store), so a file
+ * manager or another editor can open, change, add or remove them, and they stay when the app is removed. This book keeps,
+ * in the app's own folder, what the folder does not: projects.json (name, description, pinned …), each project's copy of
+ * its page as last seen (index.html, what is shown at once), history/ (the versions before each change, at most HISTORY)
+ * and thumb.jpg. sync() reads the folder: a page changed there comes in (the one before it goes to history), a folder
+ * made there becomes a project, a folder removed there removes it. Without the 들퍼레 folder connected, projects stay in the
+ * app's folder alone and go out to 들퍼레 once it is connected. Nothing here talks to the network.
  */
 public final class ProjectBook {
-    /** One project. kind: "app" (made or changed by the AI or the user) or a template's name; hue: its tile's color. */
-    public record Project(String id, String title, String about, String kind, long made, long updated, int hue, boolean pinned) {
-        public Project { title = clean(title, 60); about = clean(about, 300); kind = kind == null || kind.isBlank() ? "app" : clean(kind, 30); }
+    /**
+     * One project. kind: "app" (made or changed by the AI or the user), "folder" (found in 들퍼레/프로젝트) or a template's
+     * name; hue: its tile's color; folder: its folder's name in 들퍼레/프로젝트 ("" while it is in the app alone); seen: the
+     * page's time in that folder when last read or written.
+     */
+    public record Project(String id, String title, String about, String kind, long made, long updated, int hue, boolean pinned, String folder, long seen) {
+        public Project { title = clean(title, 60); about = clean(about, 300); kind = kind == null || kind.isBlank() ? "app" : clean(kind, 30); folder = folder == null ? "" : folder; }
         JSONObject json() throws Exception {
-            return new JSONObject().put("id", id).put("title", title).put("about", about).put("kind", kind).put("made", made).put("updated", updated).put("hue", hue).put("pinned", pinned);
+            return new JSONObject().put("id", id).put("title", title).put("about", about).put("kind", kind).put("made", made).put("updated", updated).put("hue", hue).put("pinned", pinned)
+                .put("folder", folder).put("seen", seen);
         }
-        static Project of(JSONObject o) { return new Project(o.optString("id"), o.optString("title"), o.optString("about"), o.optString("kind"), o.optLong("made"), o.optLong("updated"), o.optInt("hue"), o.optBoolean("pinned")); }
-        public Project titled(String value) { return new Project(id, value, about, kind, made, updated, hue, pinned); }
-        public Project pin(boolean value) { return new Project(id, title, about, kind, made, updated, hue, value); }
-        Project touched(long at) { return new Project(id, title, about, kind, made, at, hue, pinned); }
+        static Project of(JSONObject o) {
+            return new Project(o.optString("id"), o.optString("title"), o.optString("about"), o.optString("kind"), o.optLong("made"), o.optLong("updated"), o.optInt("hue"), o.optBoolean("pinned"),
+                o.optString("folder"), o.optLong("seen"));
+        }
+        public Project titled(String value) { return new Project(id, value, about, kind, made, updated, hue, pinned, folder, seen); }
+        public Project pin(boolean value) { return new Project(id, title, about, kind, made, updated, hue, value, folder, seen); }
+        Project touched(long at) { return new Project(id, title, about, kind, made, at, hue, pinned, folder, seen); }
+        Project at(String place, long time) { return new Project(id, title, about, kind, made, updated, hue, pinned, place, time); }
     }
+
+    /** The folder the projects live in: 들퍼레/프로젝트, one folder per project with its index.html. */
+    public interface Store {
+        record Item(String folder, long modified) {}
+        /** The project folders (those holding index.html) and their page's time. */
+        List<Item> list() throws IOException;
+        String read(String folder) throws IOException;
+        /** Writes the page (making the folder when needed) and returns its time after writing. */
+        long write(String folder, String html) throws IOException;
+        void rename(String from, String to) throws IOException;
+        void delete(String folder) throws IOException;
+        /** Where it is, for the screen: "들퍼레/프로젝트". */
+        String where();
+    }
+    /** A Store on a plain folder (the phone's all-files access, and tests). */
+    public static final class DirStore implements Store {
+        private final File root; private final String where;
+        public DirStore(File root, String where) { this.root = root; this.where = where; }
+        private File folder(String name) throws IOException {
+            String clean = folderName(name); if (!clean.equals(name)) throw new IOException("안전하지 않은 폴더 이름이에요.");
+            File f = new File(root, name); if (Files.isSymbolicLink(f.toPath())) throw new IOException("링크 폴더는 쓰지 않아요."); return f;
+        }
+        @Override public List<Item> list() throws IOException {
+            List<Item> out = new ArrayList<>(); File[] dirs = root.listFiles();
+            if (dirs == null) { if (!root.exists()) return out; throw new IOException("프로젝트 폴더를 읽지 못했어요."); }
+            for (File d : dirs) {
+                if (!d.isDirectory() || Files.isSymbolicLink(d.toPath()) || d.getName().startsWith(".")) continue;
+                File page = new File(d, "index.html"); if (page.isFile() && !Files.isSymbolicLink(page.toPath())) out.add(new Item(d.getName(), page.lastModified()));
+            }
+            return out;
+        }
+        @Override public String read(String name) throws IOException { return ProjectBook.read(new File(folder(name), "index.html"), ""); }
+        @Override public long write(String name, String html) throws IOException {
+            File d = folder(name); if (!d.isDirectory() && !d.mkdirs()) throw new IOException("프로젝트 폴더를 만들지 못했어요.");
+            File page = new File(d, "index.html"); ProjectBook.write(page, html); return page.lastModified();
+        }
+        @Override public void rename(String from, String to) throws IOException {
+            File a = folder(from), b = folder(to); if (b.exists()) throw new IOException("같은 이름의 프로젝트 폴더가 있어요."); if (!a.renameTo(b)) throw new IOException("폴더 이름을 바꾸지 못했어요.");
+        }
+        @Override public void delete(String name) throws IOException { ProjectBook.delete(folder(name)); }
+        @Override public String where() { return where; }
+    }
+
     public static final int HISTORY = 20, PROJECTS = 100, MAX_HTML = 1_500_000;
-    private final File root;
-    public ProjectBook(File root) { this.root = root; }
+    private final File root; private final java.util.function.Supplier<Store> stores;
+    /** stores: the 들퍼레 folder's projects when it is connected, else null (asked each time: a grant can come and go). */
+    public ProjectBook(File root, java.util.function.Supplier<Store> stores) { this.root = root; this.stores = stores == null ? () -> null : stores; }
+    public ProjectBook(File root) { this(root, null); }
     public File dir(String id) { return new File(root, id.replaceAll("[^A-Za-z0-9_-]", "_")); }
     public File thumb(String id) { return new File(dir(id), "thumb.jpg"); }
+    private Store store() { try { return stores.get(); } catch (RuntimeException unavailable) { return null; } }
+    /** "들퍼레/프로젝트" when the folder is connected, else "" (the projects are in the app alone). */
+    public String where() { Store s = store(); return s == null ? "" : s.where(); }
 
     /** Every project: the pinned first, then the most recently changed. */
     public synchronized List<Project> projects() {
@@ -53,10 +116,12 @@ public final class ProjectBook {
         if (projects().size() >= PROJECTS) throw new IllegalStateException("프로젝트는 " + PROJECTS + "개까지 둘 수 있어요. 쓰지 않는 프로젝트를 지워 주세요.");
         long now = System.currentTimeMillis();
         String name = clean(title, 60).isBlank() ? (clean(about, 24).isBlank() ? "새 프로젝트" : clean(about, 24)) : title;
-        Project p = new Project(UUID.randomUUID().toString().substring(0, 12), name, about, kind, now, now, hue, false);
-        write(new File(dir(p.id()), "index.html"), html == null ? "" : html);
+        Project p = new Project(UUID.randomUUID().toString().substring(0, 12), name, about, kind, now, now, hue, false, "", 0);
+        String page = html == null ? "" : html;
+        write(new File(dir(p.id()), "index.html"), page);
         save(p);
-        return p;
+        if (!page.isBlank()) export(p, page);
+        return project(p.id());
     }
     public synchronized void save(Project p) throws IOException {
         JSONArray out = new JSONArray(); boolean found = false;
@@ -66,24 +131,59 @@ public final class ProjectBook {
         } catch (Exception e) { throw new IOException(e.getMessage(), e); }
         write(new File(root, "projects.json"), out.toString());
     }
+    /** A new name; its folder in 들퍼레/프로젝트 follows it when it can. */
+    public synchronized Project rename(String id, String title) throws IOException {
+        Project p = project(id); if (p == null) throw new IOException("프로젝트를 찾지 못했어요.");
+        Project named = p.titled(title); Store s = store();
+        if (s != null && !p.folder().isEmpty()) {
+            String folder = unique(folderName(named.title()), p.folder());
+            if (!folder.equals(p.folder())) try { s.rename(p.folder(), folder); seen(p.folder(), false); seen(folder, true); named = named.at(folder, p.seen()); } catch (IOException kept) { /* The folder keeps its name. */ }
+        }
+        save(named);
+        return named;
+    }
+    /** Removes the project, and its folder in 들퍼레/프로젝트. */
     public synchronized void remove(String id) throws IOException {
+        Project p = project(id); Store s = store();
+        if (p != null && s != null && !p.folder().isEmpty()) { s.delete(p.folder()); seen(p.folder(), false); }
         JSONArray out = new JSONArray();
         try { for (Project q : projects()) if (!q.id().equals(id)) out.put(q.json()); } catch (Exception e) { throw new IOException(e.getMessage(), e); }
         write(new File(root, "projects.json"), out.toString());
         delete(dir(id));
     }
+    /** The page as last seen (the app's copy; sync() and pull() bring in a change made in the folder). */
     public synchronized String html(String id) { try { return read(new File(dir(id), "index.html"), ""); } catch (IOException e) { return ""; } }
-    /** A new version: the one before goes to history (the oldest past HISTORY are dropped). */
+    /** A new version: the one before goes to history (the oldest past HISTORY are dropped), and the folder gets it too. */
     public synchronized void html(String id, String html) throws IOException {
         Project p = project(id); if (p == null) throw new IOException("프로젝트를 찾지 못했어요.");
         if (html == null || html.isBlank()) throw new IOException("빈 HTML은 저장하지 않아요.");
         if (html.length() > MAX_HTML) throw new IOException("HTML이 너무 커요.");
+        keep(id, html);
+        export(project(id), html);
+    }
+    /** The app's copy becomes html, the one before it goes to history. */
+    private void keep(String id, String html) throws IOException {
+        Project p = project(id); if (p == null) return;
         File current = new File(dir(id), "index.html"), history = new File(dir(id), "history"); history.mkdirs();
-        if (current.isFile() && current.length() > 0) Files.copy(current.toPath(), new File(history, System.currentTimeMillis() + ".html").toPath(), StandardCopyOption.REPLACE_EXISTING);
+        if (current.isFile() && current.length() > 0) {
+            if (read(current, "").equals(html)) return;
+            File to = new File(history, System.currentTimeMillis() + ".html"); int n = 1;
+            while (to.exists()) to = new File(history, (System.currentTimeMillis() + n++) + ".html");
+            Files.copy(current.toPath(), to.toPath());
+        }
         File[] old = versions(id);
         for (int i = 0; i < old.length - HISTORY; i++) old[i].delete();
         write(current, html);
         save(p.touched(System.currentTimeMillis()));
+    }
+    /** The page into the project's folder in 들퍼레/프로젝트 (made with a name from its title the first time). */
+    private void export(Project p, String html) {
+        Store s = store(); if (s == null || p == null) return;
+        try {
+            String folder = p.folder().isEmpty() ? unique(folderName(p.title()), null) : p.folder();
+            long at = s.write(folder, html); seen(folder, true);
+            Project now = project(p.id()); if (now != null) save(now.at(folder, at));
+        } catch (IOException notNow) { /* Kept in the app: sync() writes it out later. */ }
     }
     /** The versions kept before the current one, oldest first. */
     public synchronized File[] versions(String id) {
@@ -95,11 +195,101 @@ public final class ProjectBook {
     /** 되돌리기: the newest version kept becomes the current one again (and leaves history). False when there is none. */
     public synchronized boolean undo(String id) throws IOException {
         File[] all = versions(id); if (all.length == 0) return false;
-        File last = all[all.length - 1];
-        write(new File(dir(id), "index.html"), read(last, ""));
+        File last = all[all.length - 1]; String back = read(last, "");
+        write(new File(dir(id), "index.html"), back);
         last.delete();
-        Project p = project(id); if (p != null) save(p.touched(System.currentTimeMillis()));
+        Project p = project(id); if (p != null) { save(p.touched(System.currentTimeMillis())); export(project(id), back); }
         return true;
+    }
+
+    // ── the 들퍼레 folder ───────────────────────────────────────────
+
+    /**
+     * Brings the projects and the 들퍼레/프로젝트 folder together (off the main thread): a page changed in the folder comes in,
+     * a folder made there becomes a project, a folder removed there (one this phone had seen) removes its project, and a
+     * project kept only in the app (made before the folder was connected, or brought back from a backup) goes out to it.
+     * Returns whether anything changed; false too when the folder is not connected or could not be read.
+     */
+    public synchronized boolean sync() {
+        Store s = store(); if (s == null) return false;
+        List<Store.Item> items;
+        try { items = s.list(); } catch (IOException unreadable) { return false; }
+        java.util.Map<String, Store.Item> byFolder = new java.util.HashMap<>();
+        for (Store.Item i : items) byFolder.put(i.folder(), i);
+        boolean changed = false;
+        java.util.Set<String> known = new java.util.HashSet<>();
+        for (Project p : projects()) {
+            if (p.folder().isEmpty()) { String page = html(p.id()); if (!page.isBlank()) { export(p, page); changed = true; } continue; }
+            known.add(p.folder());
+            Store.Item item = byFolder.get(p.folder());
+            if (item == null) {
+                if (seen(p.folder())) { try { remove(p.id()); } catch (IOException ignored) {} changed = true; }
+                else { String page = html(p.id()); if (!page.isBlank()) { export(p, page); changed = true; } }
+                continue;
+            }
+            if (item.modified() != p.seen()) {
+                try {
+                    String page = s.read(p.folder());
+                    if (!page.isBlank() && page.length() <= MAX_HTML) { keep(p.id(), page); changed = true; }
+                    Project now = project(p.id()); if (now != null) save(now.at(p.folder(), item.modified()));
+                    seen(p.folder(), true);
+                } catch (IOException ignored) {}
+            }
+        }
+        for (Store.Item item : items) {
+            if (known.contains(item.folder())) continue;
+            try {
+                String page = s.read(item.folder()); if (page.isBlank() || page.length() > MAX_HTML) continue;
+                long now = System.currentTimeMillis();
+                String title = title(page); if (title.isBlank()) title = item.folder();
+                Project p = new Project(UUID.randomUUID().toString().substring(0, 12), title, "들퍼레/프로젝트/" + item.folder(), "folder", now, now, Math.floorMod(item.folder().hashCode(), 8), false, item.folder(), item.modified());
+                write(new File(dir(p.id()), "index.html"), page);
+                save(p); seen(item.folder(), true); changed = true;
+            } catch (IOException ignored) {}
+        }
+        return changed;
+    }
+    /** Brings in one project's page when it changed in the folder (opening it). Returns whether it did. */
+    public synchronized boolean pull(String id) {
+        Project p = project(id); Store s = store(); if (p == null || s == null || p.folder().isEmpty()) return false;
+        try {
+            for (Store.Item item : s.list()) if (item.folder().equals(p.folder())) {
+                if (item.modified() == p.seen()) return false;
+                String page = s.read(p.folder()); if (page.isBlank() || page.length() > MAX_HTML) return false;
+                keep(id, page); Project now = project(id); if (now != null) save(now.at(p.folder(), item.modified())); seen(p.folder(), true);
+                return true;
+            }
+        } catch (IOException ignored) {}
+        return false;
+    }
+    /**
+     * The folders this phone has seen in 들퍼레/프로젝트 (.seen, never in a backup): a project whose folder is gone from there
+     * is removed only when this phone saw it, so a project brought back from a backup is written out instead.
+     */
+    private boolean seen(String folder) { try { return lines(new File(root, ".seen")).contains(folder); } catch (IOException e) { return false; } }
+    private void seen(String folder, boolean on) {
+        try {
+            File f = new File(root, ".seen"); java.util.Set<String> all = new java.util.LinkedHashSet<>(lines(f));
+            if (on ? all.add(folder) : all.remove(folder)) write(f, String.join("\n", all));
+        } catch (IOException ignored) {}
+    }
+    private static List<String> lines(File f) throws IOException { List<String> out = new ArrayList<>(); for (String l : read(f, "").split("\n")) if (!l.isBlank()) out.add(l.strip()); return out; }
+    /** A folder name from a title: no path or reserved characters, at most 50 characters. */
+    public static String folderName(String title) {
+        String t = title == null ? "" : title.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", " ").replaceAll("\\s+", " ").strip();
+        while (t.startsWith(".")) t = t.substring(1).strip();
+        if (t.length() > 50) t = t.substring(0, 50).strip();
+        return t.isEmpty() ? "프로젝트" : t;
+    }
+    /** name, or "name 2", "name 3" … when another project already has that folder (except own). */
+    private String unique(String name, String own) {
+        java.util.Set<String> taken = new java.util.HashSet<>();
+        for (Project p : projects()) if (!p.folder().isEmpty() && !p.folder().equals(own)) taken.add(p.folder().toLowerCase(Locale.ROOT));
+        Store s = store();
+        if (s != null) try { for (Store.Item i : s.list()) if (!i.folder().equals(own)) taken.add(i.folder().toLowerCase(Locale.ROOT)); } catch (IOException ignored) {}
+        String out = name; int n = 2;
+        while (taken.contains(out.toLowerCase(Locale.ROOT))) out = name + " " + n++;
+        return out;
     }
 
     // ── what the AI is told ───────────────────────────────────────────
@@ -156,8 +346,8 @@ public final class ProjectBook {
     }
 
     static String clean(String s, int max) { String t = s == null ? "" : s.replace('\u0000', ' ').strip(); return t.length() > max ? t.substring(0, max).strip() : t; }
-    private static String read(File file, String empty) throws IOException { return file.isFile() ? new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8) : empty; }
-    private static void write(File file, String text) throws IOException {
+    static String read(File file, String empty) throws IOException { return file.isFile() ? new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8) : empty; }
+    static void write(File file, String text) throws IOException {
         file.getParentFile().mkdirs();
         File temp = new File(file.getParentFile(), file.getName() + ".tmp");
         Files.write(temp.toPath(), text.getBytes(StandardCharsets.UTF_8));
