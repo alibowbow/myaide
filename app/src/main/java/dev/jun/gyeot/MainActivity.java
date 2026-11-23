@@ -1663,6 +1663,7 @@ public final class MainActivity extends Activity {
             case "grok" -> pageGrok();
             case "nim" -> pageNim();
             case "groq" -> pageGroq();
+            case "antigravity" -> pageAntigravity();
             case "claude" -> pageClaude();
             case "ai" -> pageAi();
             case "connectors" -> pageConnectors();
@@ -1692,7 +1693,7 @@ public final class MainActivity extends Activity {
         return page != null && !page.isEmpty() && SETTINGS_PAGES.contains(page) ? page : null;
     }
     /** Every settings page id; anything else opens the list. */
-    private static final java.util.Set<String> SETTINGS_PAGES = java.util.Set.of("", "key", "chatgpt", "grok", "nim", "groq", "claude", "ai", "connectors", "voice",
+    private static final java.util.Set<String> SETTINGS_PAGES = java.util.Set.of("", "key", "chatgpt", "grok", "nim", "groq", "antigravity", "claude", "ai", "connectors", "voice",
         "quick", "phone", "look", "persona", "routines", "memory", "background", "update", "usage", "calendar", "wake", "about", "github", "drive", "memories", "backup");
     /** The page a sub-page belongs to, "" for the pages listed on the settings home. */
     static String settingsParent(String page) {
@@ -1707,7 +1708,7 @@ public final class MainActivity extends Activity {
         return switch (page) {
             case "grok" -> "Grok";
             case "github" -> "GitHub"; case "drive" -> "Google Drive"; case "memories" -> "기억한 것";
-            case "nim" -> "NVIDIA NIM"; case "groq" -> "Groq";
+            case "nim" -> "NVIDIA NIM"; case "groq" -> "Groq"; case "antigravity" -> "Antigravity (Gemini)";
             case "key" -> "Gemini"; case "chatgpt" -> "ChatGPT"; case "claude" -> "Claude"; case "ai" -> "AI 역할"; case "connectors" -> "커넥터"; case "voice" -> "목소리와 대화";
             case "quick" -> "바로 부르기"; case "phone" -> "폰 조작"; case "look" -> "화면 보기"; case "persona" -> "나에 대해"; case "routines" -> "한마디 루틴"; case "memory" -> "기억";
             case "background" -> "다른 앱 쓰는 동안"; case "backup" -> "백업 · 복원"; case "update" -> "업데이트"; case "usage" -> "사용량 · 남은 한도"; case "calendar" -> "캘린더"; case "wake" -> "차에서 호출어"; default -> "정보";
@@ -3694,6 +3695,63 @@ public final class MainActivity extends Activity {
      * 설정 → Groq: the API key (checked with Groq's model list before it is kept), the models the key can use, 연결 확인 and
      * 연결 해제. What the app does with Groq comes next; for now the key and its models are ready.
      */
+    private TextView linuxState; private final Runnable linuxTick = new Runnable() { @Override public void run() { if (linuxState == null || !"antigravity".equals(settingsPage) || tab != 2) return; paintLinuxState(); if (LinuxRuntime.busy) main.postDelayed(this, 500); } };
+    /**
+     * Antigravity (Gemini): Google's official Antigravity CLI run in the app's own Linux environment, signed in by the CLI
+     * itself, so the subscription's own limits answer. Step one here: the Linux environment (설치 · 실행 확인 · 삭제).
+     */
+    private void pageAntigravity() {
+        boolean supported = LinuxRuntime.supported(this), installed = LinuxRuntime.installed(this);
+        add(ui.statusCard(R.drawable.ic_sparkle, Ui.PURPLE, !supported ? "쓸 수 없어요" : installed ? "Linux 환경 준비됨" : "Linux 환경 필요",
+            !supported ? "ARM64 휴대폰에서만 쓸 수 있어요" : "Google 공식 Antigravity CLI를 앱 안의 Linux에서 실행해 구독 한도로 답해요", null), 0);
+        add(ui.sectionHeader("Linux 환경"), 0);
+        LinearLayout box = ui.group(); box.setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(14));
+        box.addView(ui.text(LinuxRuntime.DISTRIBUTION + " · 다운로드 " + LinuxRuntime.mb(LinuxRuntime.ARCHIVE_BYTES) + " · 필요 공간 " + LinuxRuntime.mb(LinuxRuntime.needed()) + " · 사용 가능 " + LinuxRuntime.mb(LinuxRuntime.free(this)), 13, 450, MUTED));
+        linuxState = ui.text("", 15, 600, TEXT); linuxState.setPadding(0, ui.dp(10), 0, ui.dp(10)); box.addView(linuxState);
+        TextView output = ui.text("", 12.5f, 450, TEXT); output.setTypeface(android.graphics.Typeface.MONOSPACE); output.setTextIsSelectable(true); output.setVisibility(View.GONE);
+        LinearLayout buttons = ui.row();
+        if (supported) {
+            if (LinuxRuntime.busy) buttons.addView(ui.pill("취소", 0, false, () -> { LinuxRuntime.cancel(); }));
+            else if (!installed) buttons.addView(ui.pill("설치", 0, true, () -> {
+                new Thread(() -> {
+                    try { LinuxRuntime.install(this, () -> main.post(this::paintLinuxState)); main.post(() -> { store.status("Linux 환경을 설치했어요"); if ("antigravity".equals(settingsPage)) showTab(2); }); }
+                    catch (Exception e) { main.post(() -> { store.error(e.getMessage() == null ? "설치하지 못했어요." : e.getMessage()); if ("antigravity".equals(settingsPage)) showTab(2); }); }
+                }, "linux-install").start();
+                main.postDelayed(() -> { if ("antigravity".equals(settingsPage)) showTab(2); }, 300);
+            }));
+            else {
+                buttons.addView(ui.pill("실행 확인", 0, true, () -> {
+                    output.setVisibility(View.VISIBLE); output.setText("실행하는 중…");
+                    new Thread(() -> {
+                        String text;
+                        try { LinuxRuntime.Result r = LinuxRuntime.run(this, "uname -m; head -n 1 /etc/os-release; echo; df -h / | tail -n 1", 60_000); text = (r.code() == 0 ? "정상 · " : "종료 코드 " + r.code() + " · ") + "\n" + r.output(); }
+                        catch (Exception e) { text = e.getMessage() == null ? "실행하지 못했어요." : e.getMessage(); }
+                        String shown = text; main.post(() -> output.setText(shown));
+                    }, "linux-check").start();
+                }));
+                LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2); gap.leftMargin = ui.dp(8);
+                buttons.addView(ui.pill("삭제", 0, false, () -> confirm("Linux 환경을 지울까요? 안에 설치한 CLI와 로그인도 함께 지워져요. 다시 쓰려면 새로 설치해야 해요.", "지우기", () -> {
+                    new Thread(() -> { LinuxRuntime.remove(this); main.post(() -> { store.status("Linux 환경을 지웠어요"); showTab(2); }); }, "linux-remove").start();
+                })), gap);
+            }
+        }
+        box.addView(buttons); box.addView(output);
+        add(box, 0);
+        add(ui.footer("필요할 때만 내려받아요. 앱 업데이트로는 내려받거나 켜지 않아요. 앱 안 저장소에만 설치되고, 삭제하면 모두 지워져요. 루트 권한은 필요 없어요."), 0);
+        add(ui.sectionHeader("Antigravity CLI"), 0);
+        add(ui.footer(installed ? "다음 버전에서 CLI 설치·업데이트, 공식 로그인(링크 열기 → 코드 붙여 넣기), 남은 한도 보기를 이어서 붙여요." : "Linux 환경을 설치하면 여기서 Google 공식 Antigravity CLI를 설치하고 로그인해요."), 16);
+        paintLinuxState(); if (LinuxRuntime.busy) main.postDelayed(linuxTick, 500);
+    }
+    private void paintLinuxState() {
+        if (linuxState == null) return;
+        String s;
+        if (!LinuxRuntime.supported(this)) s = "이 휴대폰에서는 쓸 수 없어요";
+        else if (LinuxRuntime.busy) {
+            String step = LinuxRuntime.state.isEmpty() ? "준비하는 중" : LinuxRuntime.state;
+            s = step + (LinuxRuntime.total > 0 && LinuxRuntime.done > 0 ? " · " + LinuxRuntime.mb(LinuxRuntime.done) + (step.startsWith("내려받") ? " / " + LinuxRuntime.mb(LinuxRuntime.total) + " (" + (LinuxRuntime.done * 100 / LinuxRuntime.total) + "%)" : "") : "");
+        } else s = LinuxRuntime.installed(this) ? "설치됨" : "설치되지 않음";
+        linuxState.setText(s);
+    }
     private void pageGroq() {
         boolean on = store.groq.connected();
         JSONArray models = store.groq.models();
@@ -3808,6 +3866,7 @@ public final class MainActivity extends Activity {
         settingsRow(connect, "grok", "Grok", store.grok.connected() ? "연결됨 · 구독 로그인" : "연결 안 됨", null);
         settingsRow(connect, "nim", "NVIDIA NIM", store.nim.connected() ? "연결됨 · " + NimProtocol.label(store.nim.model()) : "연결 안 됨", null);
         settingsRow(connect, "groq", "Groq", store.groq.connected() ? "연결됨 · 모델 " + store.groq.models().length() + "개 · 무료 한도" : "연결 안 됨", null);
+        settingsRow(connect, "antigravity", "Antigravity (Gemini)", !LinuxRuntime.supported(this) ? "이 휴대폰에서는 쓸 수 없어요" : LinuxRuntime.installed(this) ? "Linux 환경 설치됨 · CLI 연결은 다음 단계" : "Linux 환경 설치 필요 · 구독 한도 쓰기", null);
         ui.add(sections, connect, 0);
         ui.add(sections, ui.sectionHeader("AI 활용"), 0);
         LinearLayout use = ui.group();
@@ -3882,6 +3941,7 @@ public final class MainActivity extends Activity {
             case "grok" -> new int[]{R.drawable.ic_sparkle, Ui.GRAY};
             case "nim" -> new int[]{R.drawable.ic_sparkle, Ui.GREEN};
             case "groq" -> new int[]{R.drawable.ic_bolt, Ui.ORANGE};
+            case "antigravity" -> new int[]{R.drawable.ic_sparkle, Ui.PURPLE};
             case "ai" -> new int[]{R.drawable.ic_tune, Ui.INDIGO};
             case "connectors" -> new int[]{R.drawable.ic_plug, Ui.TEAL};
             case "github" -> new int[]{R.drawable.ic_repo, Ui.INDIGO};
