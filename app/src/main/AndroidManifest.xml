@@ -88,6 +88,7 @@
         <activity android:name=".SearchActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".SchoolActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".LabActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ProjectActivity" android:exported="false" android:windowSoftInputMode="adjustResize" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
         <activity android:name=".BoardActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".BrowserActivity" android:exported="false" android:launchMode="singleTop" android:windowSoftInputMode="adjustResize" />
         <!-- Explicit navigation, shortcut and sign-in intents keep a single main window. -->

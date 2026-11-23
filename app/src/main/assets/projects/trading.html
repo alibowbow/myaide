@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>트레이딩</title>
+<style>
+  :root {
+    --bg: #f4f3ef; --card: #ffffff; --raised: #fbfaf7; --text: #1b1a18; --muted: #77736b; --line: rgba(27,26,24,.08);
+    --accent: #c2512f; --accent-soft: rgba(194,81,47,.12); --up: #1f9d6a; --down: #d64545; --shadow: 0 1px 2px rgba(20,18,14,.05), 0 8px 24px rgba(20,18,14,.06);
+    --chart-bg: #ffffff; --chart-grid: rgba(27,26,24,.06);
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #121211; --card: #1c1c1a; --raised: #232321; --text: #f1efe9; --muted: #9b978e; --line: rgba(241,239,233,.09);
+    --accent: #f08a5d; --accent-soft: rgba(240,138,93,.16); --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 28px rgba(0,0,0,.28);
+    --chart-bg: #1c1c1a; --chart-grid: rgba(241,239,233,.06);
+  } }
+  :root[data-theme="dark"] {
+    --bg: #121211; --card: #1c1c1a; --raised: #232321; --text: #f1efe9; --muted: #9b978e; --line: rgba(241,239,233,.09);
+    --accent: #f08a5d; --accent-soft: rgba(240,138,93,.16); --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 28px rgba(0,0,0,.28);
+    --chart-bg: #1c1c1a; --chart-grid: rgba(241,239,233,.06);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font: 15px/1.45 -apple-system, "Pretendard", "Noto Sans KR", system-ui, sans-serif; padding: 16px 14px 40px; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  header { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin: 4px 2px 14px; }
+  .titles { flex: 1 1 200px; min-width: 0; }
+  h1 { font-size: 26px; line-height: 1.15; letter-spacing: -.02em; margin: 0; font-weight: 800; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .live { display: inline-flex; align-items: center; gap: 6px; }
+  .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--up); box-shadow: 0 0 0 3px rgba(31,157,106,.18); }
+  .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .seg { display: inline-flex; background: var(--raised); border: 1px solid var(--line); border-radius: 12px; padding: 3px; }
+  .seg button { min-width: 40px; height: 34px; padding: 0 10px; border-radius: 9px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .seg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .icon { width: 42px; height: 42px; border-radius: 12px; background: var(--raised); border: 1px solid var(--line); display: inline-grid; place-items: center; }
+  .icon svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .tape { background: var(--card); border-radius: 18px; box-shadow: var(--shadow); padding: 4px 6px; margin-bottom: 14px; min-height: 76px; overflow: hidden; }
+  .tape.narrow { min-height: 50px; padding: 2px 0; border-radius: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 14px; }
+  .grid.one { grid-template-columns: 1fr; }
+  .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 640px) { .grid.two { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border-radius: 20px; box-shadow: var(--shadow); overflow: hidden; display: flex; flex-direction: column; }
+  .card-head { display: flex; align-items: center; gap: 10px; padding: 12px 10px 10px 14px; }
+  .badge { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; font-weight: 800; font-size: 12.5px; letter-spacing: -.02em; color: #fff; flex: none; }
+  .name { flex: 1; min-width: 0; }
+  .name b { display: block; font-size: 16px; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .name span { display: block; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chart { height: 420px; position: relative; border-top: 1px solid var(--line); }
+  .grid.one .chart { height: 480px; }
+  .chart .wait { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
+  .chart .tradingview-widget-container, .chart .tradingview-widget-container__widget { height: 100%; width: 100%; }
+  .card.focus { position: fixed; inset: 0; z-index: 20; border-radius: 0; }
+  .card.focus .chart { height: auto; flex: 1; }
+  body.focused { overflow: hidden; }
+  .sheet { position: fixed; inset: 0; z-index: 30; display: none; }
+  .sheet.open { display: block; }
+  .scrim { position: absolute; inset: 0; background: rgba(0,0,0,.38); }
+  .panel { position: absolute; left: 0; right: 0; bottom: 0; max-height: 86vh; overflow: auto; background: var(--card); border-radius: 24px 24px 0 0; padding: 10px 16px 24px; box-shadow: 0 -10px 40px rgba(0,0,0,.2); }
+  @media (min-width: 700px) { .panel { left: 50%; right: auto; width: 560px; transform: translateX(-50%); bottom: 24px; border-radius: 24px; } }
+  .grab { width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: 2px auto 12px; }
+  .panel h2 { font-size: 19px; margin: 0 0 4px; }
+  .panel p { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row .name b { font-size: 15px; }
+  .small { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; color: var(--muted); }
+  .small svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  .add { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .add input { grid-column: span 1; height: 46px; border-radius: 12px; border: 1px solid var(--line); background: var(--raised); color: var(--text); padding: 0 12px; font: inherit; min-width: 0; }
+  .add .wide { grid-column: span 2; }
+  .primary { height: 46px; border-radius: 12px; background: var(--accent); color: #fff; font-weight: 700; }
+  .ghost { height: 46px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="titles">
+    <h1>트레이딩</h1>
+    <div class="sub"><span class="live" id="clock">한국 시간</span> · <span id="count"></span></div>
+  </div>
+  <div class="tools">
+    <div class="seg" id="intervals" role="tablist" aria-label="봉 단위"></div>
+    <button class="icon" id="layout" aria-label="배열 바꾸기"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
+    <button class="icon" id="edit" aria-label="종목 편집"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg></button>
+  </div>
+</header>
+<div class="tape" id="tape"></div>
+<div class="grid" id="grid"></div>
+
+<div class="sheet" id="sheet" aria-hidden="true">
+  <div class="scrim" data-close></div>
+  <div class="panel" role="dialog" aria-label="종목 편집">
+    <div class="grab"></div>
+    <h2>종목 편집</h2>
+    <p>순서를 바꾸거나 빼고, 트레이딩뷰 심볼로 새 종목을 넣어요. 이 휴대폰에 저장돼요.</p>
+    <div id="rows"></div>
+    <div class="add">
+      <input id="sym" class="wide" placeholder="심볼 · 예: NASDAQ:TSLA, BINANCE:ETHUSDT" autocapitalize="characters" autocomplete="off">
+      <input id="label" placeholder="이름 · 예: 테슬라" autocomplete="off">
+      <button class="primary" id="addBtn">추가</button>
+      <button class="ghost wide" id="reset">처음 종목으로 되돌리기</button>
+    </div>
+    <div class="hint">심볼은 ‘거래소:종목’으로 써요. 미국 주식은 NASDAQ·NYSE·AMEX, 코인은 BINANCE·UPBIT 같은 거래소 이름을 앞에 붙여요.</div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const KEY = 'gyeot.trading.v1';
+  const DEFAULTS = [
+    { s: 'AMEX:SOXL', n: 'SOXL', d: '반도체 3배 레버리지 ETF' },
+    { s: 'NASDAQ:NVDA', n: 'NVDA', d: '엔비디아' },
+    { s: 'NASDAQ:QQQ', n: 'QQQ', d: '나스닥 100 ETF' },
+    { s: 'BINANCE:BTCUSDT', n: 'BTCUSDT', d: '비트코인 · 바이낸스' },
+    { s: 'CBOE:BTCZ', n: 'BTCZ', d: '비트코인 2배 인버스 ETF' }
+  ];
+  const INTERVALS = [['15', '15분'], ['60', '1시간'], ['240', '4시간'], ['D', '일'], ['W', '주']];
+  const LAYOUTS = ['auto', 'one', 'two'];
+  const HUES = ['#5b5bd6', '#1f9d6a', '#c2512f', '#d4881c', '#2f7fd6', '#a04bc9', '#0f9aa6', '#d64575'];
+  let state;
+  try { state = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { state = null; }
+  if (!state || !Array.isArray(state.symbols)) state = { symbols: DEFAULTS.slice(), interval: 'D', layout: 'auto' };
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+  const dark = () => { const t = document.documentElement.getAttribute('data-theme'); return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; };
+  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const hue = s => { const i = state.symbols.findIndex(x => x.s === s); return HUES[(i < 0 ? 0 : i) % HUES.length]; };
+  const $ = id => document.getElementById(id);
+
+  function widget(host, src, config) {
+    host.innerHTML = '';
+    const box = document.createElement('div'); box.className = 'tradingview-widget-container';
+    const inner = document.createElement('div'); inner.className = 'tradingview-widget-container__widget';
+    box.appendChild(inner);
+    const script = document.createElement('script'); script.type = 'text/javascript'; script.async = true; script.src = src;
+    script.text = JSON.stringify(config);
+    box.appendChild(script); host.appendChild(box);
+  }
+  // Wide: every quote side by side; a phone: one tape that runs.
+  let narrow = null;
+  function tape() {
+    narrow = innerWidth < 700;
+    $('tape').classList.toggle('narrow', narrow);
+    const symbols = state.symbols.map(x => ({ proName: x.s, title: x.n }));
+    if (narrow) widget($('tape'), 'https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js', {
+      symbols, showSymbolLogo: true, isTransparent: true, displayMode: 'adaptive', colorTheme: dark() ? 'dark' : 'light', locale: 'kr'
+    });
+    else widget($('tape'), 'https://s3.tradingview.com/external-embedding/embed-widget-tickers.js', {
+      symbols, colorTheme: dark() ? 'dark' : 'light', locale: 'kr', isTransparent: true, showSymbolLogo: true
+    });
+  }
+  addEventListener('resize', () => { if ((innerWidth < 700) !== narrow) tape(); });
+  function chart(host, sym) {
+    host.dataset.loaded = '1';
+    widget(host, 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js', {
+      autosize: true, symbol: sym.s, interval: state.interval, timezone: 'Asia/Seoul', theme: dark() ? 'dark' : 'light', style: '1', locale: 'kr',
+      backgroundColor: css('--chart-bg'), gridColor: css('--chart-grid'), hide_side_toolbar: true, allow_symbol_change: false,
+      save_image: false, calendar: false, support_host: 'https://www.tradingview.com'
+    });
+  }
+  const watch = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
+    for (const e of entries) if (e.isIntersecting && !e.target.dataset.loaded) { const sym = state.symbols[+e.target.dataset.index]; if (sym) chart(e.target, sym); }
+  }, { rootMargin: '300px 0px' }) : null;
+
+  function grid() {
+    const g = $('grid'); g.innerHTML = '';
+    g.className = 'grid' + (state.layout === 'one' ? ' one' : state.layout === 'two' ? ' two' : '');
+    $('count').textContent = '관심 종목 ' + state.symbols.length + '개';
+    if (!state.symbols.length) { g.innerHTML = '<div class="empty">종목이 없어요. 오른쪽 위 연필을 눌러 추가해 보세요.</div>'; return; }
+    state.symbols.forEach((sym, i) => {
+      const card = document.createElement('section'); card.className = 'card';
+      const tag = sym.n.replace(/USDT$/, '').slice(0, 4);
+      card.innerHTML = `<div class="card-head"><div class="badge" style="background:${hue(sym.s)}">${tag}</div>
+        <div class="name"><b></b><span></span></div>
+        <button class="small" aria-label="크게 보기"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button></div>
+        <div class="chart" data-index="${i}"><div class="wait">차트를 불러오는 중…</div></div>`;
+      card.querySelector('b').textContent = sym.n;
+      card.querySelector('.name span').textContent = (sym.d ? sym.d + ' · ' : '') + sym.s.split(':')[0];
+      card.querySelector('.small').onclick = () => focus(card);
+      g.appendChild(card);
+      const host = card.querySelector('.chart');
+      if (watch) watch.observe(host); else chart(host, sym);
+    });
+  }
+  function focus(card) {
+    const on = !card.classList.contains('focus');
+    document.querySelectorAll('.card.focus').forEach(c => c.classList.remove('focus'));
+    if (on) card.classList.add('focus');
+    document.body.classList.toggle('focused', on);
+    const btn = card.querySelector('.small'); btn.setAttribute('aria-label', on ? '작게 보기' : '크게 보기');
+    btn.innerHTML = on ? '<svg viewBox="0 0 24 24"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>';
+  }
+  function intervals() {
+    const seg = $('intervals'); seg.innerHTML = '';
+    for (const [v, label] of INTERVALS) {
+      const b = document.createElement('button'); b.textContent = label; b.className = v === state.interval ? 'on' : ''; b.setAttribute('role', 'tab');
+      b.onclick = () => { if (state.interval === v) return; state.interval = v; save(); intervals(); grid(); };
+      seg.appendChild(b);
+    }
+  }
+  function rows() {
+    const box = $('rows'); box.innerHTML = '';
+    state.symbols.forEach((sym, i) => {
+      const r = document.createElement('div'); r.className = 'row';
+      r.innerHTML = `<div class="badge" style="background:${hue(sym.s)}">${sym.n.replace(/USDT$/, '').slice(0, 4)}</div><div class="name"><b></b><span></span></div>
+        <button class="small" data-up aria-label="위로"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+        <button class="small" data-down aria-label="아래로"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button class="small" data-del aria-label="빼기"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
+      r.querySelector('b').textContent = sym.n; r.querySelector('.name span').textContent = sym.s + (sym.d ? ' · ' + sym.d : '');
+      r.querySelector('[data-up]').onclick = () => move(i, -1);
+      r.querySelector('[data-down]').onclick = () => move(i, 1);
+      r.querySelector('[data-del]').onclick = () => { state.symbols.splice(i, 1); changed(); };
+      box.appendChild(r);
+    });
+  }
+  function move(i, by) { const j = i + by; if (j < 0 || j >= state.symbols.length) return; const s = state.symbols; [s[i], s[j]] = [s[j], s[i]]; changed(); }
+  function changed() { save(); rows(); tape(); grid(); }
+  function sheet(open) { $('sheet').classList.toggle('open', open); $('sheet').setAttribute('aria-hidden', open ? 'false' : 'true'); if (open) rows(); }
+  $('edit').onclick = () => sheet(true);
+  $('sheet').addEventListener('click', e => { if (e.target.dataset.close !== undefined) sheet(false); });
+  $('addBtn').onclick = () => {
+    let s = $('sym').value.trim().toUpperCase().replace(/\s+/g, ''); if (!s) { $('sym').focus(); return; }
+    if (!s.includes(':')) s = (/USDT$|USD$|BTC$/.test(s) ? 'BINANCE:' : 'NASDAQ:') + s;
+    if (state.symbols.some(x => x.s === s)) { $('sym').value = ''; return; }
+    const n = s.split(':')[1]; state.symbols.push({ s, n, d: $('label').value.trim() });
+    $('sym').value = ''; $('label').value = ''; changed();
+  };
+  $('reset').onclick = () => { state.symbols = DEFAULTS.slice(); changed(); };
+  $('layout').onclick = () => { state.layout = LAYOUTS[(LAYOUTS.indexOf(state.layout) + 1) % LAYOUTS.length]; save(); grid(); };
+  function tick() {
+    const now = new Date();
+    $('clock').textContent = '한국 시간 ' + now.toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
+  }
+  // The app's back button: a chart shown large or the editor closes first.
+  window.gyeotBack = () => {
+    if ($('sheet').classList.contains('open')) { sheet(false); return true; }
+    const big = document.querySelector('.card.focus'); if (big) { focus(big); return true; }
+    return false;
+  };
+  intervals(); tape(); grid(); tick(); setInterval(tick, 15000);
+})();
+</script>
+</body>
+</html>

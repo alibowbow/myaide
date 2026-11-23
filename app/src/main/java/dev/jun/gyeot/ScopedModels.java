@@ -54,6 +54,16 @@ final class ScopedModels {
         return new ScopedModels(store, "", "boardModels");
     }
     /** 마이튜브 AI's own choice: copied from the main chat's the first time, independent after. */
+    /** 페이지 → 프로젝트's own choice (the AI that makes and changes a project): copied from the main chat's the first time. */
+    static ScopedModels projects(AppStore store) {
+        synchronized (store) {
+            if (!store.settings.contains("projectModels")) {
+                JSONObject value = main(store).snapshot(); value.remove("team");
+                if (!store.settings.edit().putString("projectModels", value.toString()).commit()) throw new IllegalStateException("프로젝트 모델 설정을 저장하지 못했어요.");
+            }
+        }
+        return new ScopedModels(store, "", "projectModels");
+    }
     static ScopedModels mytube(AppStore store) {
         synchronized (store) {
             if (!store.settings.contains("mytubeModels")) {
