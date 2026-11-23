@@ -53,6 +53,8 @@ public final class SchoolActivity extends Activity {
     private final AtomicReference<Runnable> cancel = new AtomicReference<>();
     private volatile int ticket;
     private LinearLayout listColumn;
+    /** On a wide screen the list can fold into a slim column of pictures (kept across visits). */
+    private boolean folded;
     private ComposerDictation dictation;
     private final Map<String, Drawable> faces = new HashMap<>();
 
@@ -61,6 +63,7 @@ public final class SchoolActivity extends Activity {
         ui = new Ui(this); store = ((GyeotApp) getApplication()).store(); book = new SchoolBook(new File(getFilesDir(), "school"));
         openId = state != null ? state.getString("open") : getIntent().getStringExtra(OPEN);
         if (openId == null && state == null) { String last = store.settings.getString("schoolOpen", ""); if (!last.isEmpty() && wideScreen()) openId = last; }
+        folded = store.settings.getBoolean("schoolListFolded", false);
         root = new FrameLayout(this); root.setBackgroundColor(BG);
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             Insets bars = insets.getInsets(WindowInsets.Type.systemBars());
@@ -99,7 +102,7 @@ public final class SchoolActivity extends Activity {
         root.removeAllViews(); lines = null; model = null; input = null; send = null; listColumn = null;
         if (wide) {
             LinearLayout panes = ui.row(); panes.setGravity(Gravity.TOP);
-            panes.addView(listPane(teachers), new LinearLayout.LayoutParams(ui.dp(300), -1));
+            panes.addView(listPane(teachers), new LinearLayout.LayoutParams(ui.dp(folded ? 64 : 236), -1));
             View rule = new View(this); rule.setBackgroundColor(SEPARATOR); panes.addView(rule, new LinearLayout.LayoutParams(Math.max(1, ui.dp(.5f)), -1));
             panes.addView(open == null ? emptyLesson(teachers.isEmpty()) : lessonPane(open, true), new LinearLayout.LayoutParams(0, -1, 1));
             root.addView(panes, new FrameLayout.LayoutParams(-1, -1));
@@ -121,18 +124,22 @@ public final class SchoolActivity extends Activity {
     /** The teachers: each with their picture, subject and the lesson's last words; + 선생님 모시기 at the top. */
     private View listPane(List<SchoolBook.Teacher> teachers) {
         ScrollView list = new ScrollView(this); list.setFillViewport(true);
-        LinearLayout column = ui.column(); column.setPadding(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(24)); list.addView(column);
+        LinearLayout column = ui.column(); list.addView(column);
+        if (wide && folded) { column.setGravity(Gravity.CENTER_HORIZONTAL); column.setPadding(0, ui.dp(4), 0, ui.dp(24)); }
+        else column.setPadding(ui.dp(wide ? 8 : 12), ui.dp(4), ui.dp(wide ? 8 : 12), ui.dp(24));
         listColumn = column; fillList(teachers);
         return list;
     }
     private void fillList(List<SchoolBook.Teacher> teachers) {
         LinearLayout column = listColumn; if (column == null) return;
         column.removeAllViews();
+        if (wide && folded) { foldedList(column, teachers); return; }
         LinearLayout top = ui.row();
+        if (wide) top.addView(ui.bareIcon(R.drawable.ic_back, MUTED, "선생님 목록 접기", () -> fold(true)), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
         TextView about = ui.label(teachers.isEmpty() ? "선생님을 모셔서 1:1로 배워요" : "선생님 " + teachers.size() + "명", 13, MUTED);
         about.setPadding(ui.dp(4), 0, 0, 0);
         top.addView(about, new LinearLayout.LayoutParams(0, -2, 1));
-        top.addView(ui.pill("선생님 모시기", R.drawable.ic_add, true, () -> edit(null)), new LinearLayout.LayoutParams(-2, -2));
+        top.addView(ui.pill(wide ? "모시기" : "선생님 모시기", R.drawable.ic_add, true, () -> edit(null)), new LinearLayout.LayoutParams(-2, -2));
         ui.add(column, top, 8);
         if (teachers.isEmpty()) {
             TextView empty = ui.label("아직 모신 선생님이 없어요.\n배우고 싶은 과목의 선생님을 직접 만들어 보세요. 이름, 과목, 말투와 가르치는 방식, 내 수준을 정하면 그 선생님이 1:1로 가르쳐 줘요.", 14, MUTED);
@@ -144,12 +151,40 @@ public final class SchoolActivity extends Activity {
         }
         for (SchoolBook.Teacher t : teachers) column.addView(teacherRow(t), new LinearLayout.LayoutParams(-1, -2));
     }
+    /** The folded list: 펼치기, 모시기, then each teacher's picture alone (the open one ringed). */
+    private void foldedList(LinearLayout column, List<SchoolBook.Teacher> teachers) {
+        column.addView(ui.bareIcon(R.drawable.ic_chevron, MUTED, "선생님 목록 펼치기", () -> fold(false)), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
+        ImageView add = ui.iconButton(R.drawable.ic_add, ACCENT_SOFT, ACCENT, "선생님 모시기", () -> edit(null));
+        LinearLayout.LayoutParams addAt = new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)); addAt.topMargin = ui.dp(4); addAt.bottomMargin = ui.dp(8);
+        column.addView(add, addAt);
+        for (SchoolBook.Teacher t : teachers) {
+            boolean on = t.id().equals(openId);
+            FrameLayout cell = new FrameLayout(this); cell.setPadding(ui.dp(3), ui.dp(3), ui.dp(3), ui.dp(3));
+            if (on) { GradientDrawable ring = new GradientDrawable(); ring.setShape(GradientDrawable.OVAL); ring.setStroke(ui.dp(2), ACCENT); cell.setBackground(ring); }
+            View picture = face(t, 40);
+            // Here a tap opens the lesson (the picture's own tap would enlarge it); a long press, the teacher's menu.
+            picture.setOnClickListener(v -> open(t.id())); picture.setOnLongClickListener(v -> { teacherMenu(v, t); return true; });
+            picture.setContentDescription(t.name() + " 선생님" + (on ? ", 열려 있음" : "")); picture.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+            cell.addView(picture, new FrameLayout.LayoutParams(ui.dp(40), ui.dp(40)));
+            cell.setTooltipText(t.name() + (t.subject().isBlank() ? "" : " · " + t.subject()));
+            LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(ui.dp(46), ui.dp(46)); at.topMargin = ui.dp(4); at.bottomMargin = ui.dp(4);
+            column.addView(cell, at);
+        }
+    }
+    private void fold(boolean value) {
+        folded = value; store.settings.edit().putBoolean("schoolListFolded", value).apply();
+        String draft = input == null ? "" : input.getText().toString();
+        if (android.animation.ValueAnimator.areAnimatorsEnabled()) android.transition.TransitionManager.beginDelayedTransition(root);
+        draw();
+        if (input != null && !draft.isEmpty()) { input.setText(draft); input.setSelection(draft.length()); }
+    }
     private View teacherRow(SchoolBook.Teacher t) {
         boolean on = wide && t.id().equals(openId);
-        LinearLayout row = ui.row(); row.setPadding(ui.dp(10), ui.dp(9), ui.dp(10), ui.dp(9)); row.setMinimumHeight(ui.dp(64));
+        int size = wide ? 40 : 46;
+        LinearLayout row = ui.row(); row.setPadding(ui.dp(wide ? 8 : 10), ui.dp(8), ui.dp(wide ? 8 : 10), ui.dp(8)); row.setMinimumHeight(ui.dp(wide ? 58 : 64));
         if (on) row.setBackground(ui.shape(FILL, R_CONTROL));
-        row.addView(face(t, 46), new LinearLayout.LayoutParams(ui.dp(46), ui.dp(46)));
-        LinearLayout words = ui.column(); words.setPadding(ui.dp(12), 0, 0, 0);
+        row.addView(face(t, size), new LinearLayout.LayoutParams(ui.dp(size), ui.dp(size)));
+        LinearLayout words = ui.column(); words.setPadding(ui.dp(wide ? 10 : 12), 0, 0, 0);
         TextView name = ui.text(t.name(), 15.5f, 650, TEXT); name.setSingleLine(true); name.setEllipsize(TextUtils.TruncateAt.END);
         words.addView(name);
         List<SchoolBook.Line> said = book.lines(t.id());
