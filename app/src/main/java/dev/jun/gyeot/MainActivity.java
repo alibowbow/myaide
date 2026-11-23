@@ -448,6 +448,7 @@ public final class MainActivity extends Activity {
         navigation.bar(null);
         stopCamera();stopPlayback();if(composerDictation!=null)composerDictation.cancel();
         View focused=root.findFocus();if(focused!=null){android.view.inputmethod.InputMethodManager keyboard=getSystemService(android.view.inputmethod.InputMethodManager.class);if(keyboard!=null)keyboard.hideSoftInputFromWindow(focused.getWindowToken(),0);focused.clearFocus();}
+        if(voiceFull)voiceFull(false);
         showingMainChat=true;ticker.removeCallbacksAndMessages(null);
         if(mainChat==null){mainChat=new MainChatPage(this,mainChatSaved);mainChatSaved=null;contentSlot.addView(mainChat.view(),new FrameLayout.LayoutParams(-1,-1));}
         root.setVisibility(View.GONE);mainChat.view().setVisibility(View.VISIBLE);navigation.selected("chat");navigation.collapsedTitle(true);
@@ -520,6 +521,8 @@ public final class MainActivity extends Activity {
         // The camera stays on only on the 비서 screen; redrawn, its preview moves to the new screen.
         if (cameraFeed != null) { if (selected != 0) stopCamera(); else cameraFeed.detach(); }
         phoneGptCheckState = null;
+        // Full screen belongs to the 비서 page: leaving it ends full screen; drawn again there, home() puts the new card back.
+        closeFullHost(); if (selected != 0) voiceFull = false;
         orb = null; orbTitle = null; orbSub = null; claudeBox = null; geminiWorkBox = null; muteButton = null; stopButton = null; endButton = null; homeIntro = null; liveCard = null; heroStage = null; heroHead = null; heroWords = null; heroCall = false; callAside.clear(); liveActions = null; shownSaid = ""; said = null; saidList = null; sayInput = null; typeButton = null; typing = false; sayRow = null; taskSummary = null; edgeState = null; assistState = null; archiveState = null; phoneRow = null; recordButton = null; recordsList = null; openAiBox = null; updateBox = null; sessionsBox = null; galleryBox = null; cameraBox = null; cameraButton = null; tab = selected; clearBody();
         if (header.getParent() instanceof ViewGroup parent) parent.removeView(header);
         navRow.removeAllViews(); navRow.setVisibility(View.GONE);
@@ -587,6 +590,7 @@ public final class MainActivity extends Activity {
     @SuppressWarnings("deprecation")
     @Override public void onBackPressed() {
         if(navigation!=null&&navigation.close())return;
+        if(voiceFull){voiceFull(false);return;}
         if(showingMainChat){if(mainChat!=null&&mainChat.back())return;showTab(chatReturnTab);return;}
         if (tab == 2 && !settingsPage.isEmpty()) { settingsPage = settingsParent(settingsPage); showTab(2); return; }
         if (tab == 3 && !workId.isEmpty()) { showWorkList(); return; }
@@ -698,7 +702,11 @@ public final class MainActivity extends Activity {
         orbIdleSize = largeType ? 148 : 192;
         // The orb and its words: stacked and centered while idle, one slim row during a call (refresh), so the words said get the card.
         heroStage = stage; heroCall = false; heroHead = ui.column(); heroHead.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
-        orb = new VoiceOrb(this); orb.setOnClickListener(v -> { v.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM); toggleVoice(); }); heroHead.addView(orb, new LinearLayout.LayoutParams(ui.dp(orbIdleSize), ui.dp(orbIdleSize)));
+        orb = new VoiceOrb(this);
+        // The orb: full screen and the conversation at once (a second tap there ends it, as it always did); the card's empty
+        // space around it opens full screen alone. Never a popup.
+        orb.setOnClickListener(v -> { v.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM); if (!voiceFull) { voiceFull(true); if (!store.voiceActive) startVoice(); } else toggleVoice(); });
+        stage.setOnClickListener(v -> voiceFull(true)); heroHead.addView(orb, new LinearLayout.LayoutParams(ui.dp(orbIdleSize), ui.dp(orbIdleSize)));
         LinearLayout words = ui.column(); heroWords = words; words.setGravity(android.view.Gravity.CENTER_HORIZONTAL); words.setPadding(ui.dp(8), ui.dp(4), ui.dp(8), ui.dp(4));
         orbTitle = ui.text("", Ui.TITLE1, 760, TEXT); orbTitle.setLetterSpacing(-0.03f); orbTitle.setGravity(android.view.Gravity.CENTER); words.addView(orbTitle);
         orbSub = ui.text("", Ui.FOOTNOTE, 450, MUTED); orbSub.setGravity(android.view.Gravity.CENTER); orbSub.setPadding(0, ui.dp(6), 0, 0); words.addView(orbSub);
@@ -727,7 +735,7 @@ public final class MainActivity extends Activity {
         sayRow.addView(say, new LinearLayout.LayoutParams(0, -2, 1));
         LinearLayout.LayoutParams sendParams = new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)); sendParams.leftMargin = ui.dp(8);
         sayRow.addView(ui.iconButton(R.drawable.ic_send, ACCENT, ON_ACCENT, "보내기", sendSay), sendParams); stage.addView(sayRow, new LinearLayout.LayoutParams(-1, -2));
-        words.setOnClickListener(v -> toggleVoice()); words.setFocusable(true); words.setContentDescription("음성 대화 시작 또는 끝내기"); Ui.pressable(words, true);
+        words.setOnClickListener(v -> voiceFull(true)); words.setFocusable(true); words.setContentDescription("전체 화면으로 보기");
         // The call's controls: one slim row of round icons with no captions (each says its name to a screen reader), the
         // call's own on the left and ending it alone on the right. They are the foot of the card, not a second card.
         LinearLayout controls = ui.row(); controls.setGravity(android.view.Gravity.CENTER_VERTICAL); controls.setPadding(0, ui.dp(8), 0, 0);
@@ -740,6 +748,8 @@ public final class MainActivity extends Activity {
         controls.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1)); controls.addView(endButton, new LinearLayout.LayoutParams(-2, -2));
         stage.addView(controls, new LinearLayout.LayoutParams(-1, -2));
         add(stage, 14);
+        // Drawn again while full screen (another redraw of the page): the new card goes back there at once.
+        if (voiceFull) { voiceFull = false; voiceFull(true, false); }
         // Under the hero: the search sources an answer used (Google asks for them to be shown), and, once the call is over,
         // keeping what was said. Neither is there while nothing calls for it.
         LinearLayout live = ui.card(); liveCard = live;
@@ -1051,6 +1061,46 @@ public final class MainActivity extends Activity {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 21); return; }
         send(AssistantService.RECORD_START, null, null);
     }
+    // ── 음성 전체 화면 ─────────────────────────────────────────────────────
+
+    /** The voice card full screen: over the whole window (not a dialog), the rail and the page's other parts out of view. */
+    private boolean voiceFull; private LinearLayout fullHost; private ViewGroup heroHome; private ViewGroup.LayoutParams heroHomeAt; private int heroIndex;
+    private void voiceFull(boolean on) { voiceFull(on, true); }
+    /** redraw: false while the page is being drawn (its own refresh follows and sizes the card). */
+    private void voiceFull(boolean on, boolean redraw) {
+        if (on == voiceFull && (!on || fullHost != null)) return;
+        if (on && (heroStage == null || tab != 0)) return;
+        voiceFull = on;
+        if (on) {
+            ViewGroup content = findViewById(android.R.id.content);
+            heroHome = (ViewGroup) heroStage.getParent(); heroHomeAt = heroStage.getLayoutParams(); heroIndex = heroHome == null ? -1 : heroHome.indexOfChild(heroStage);
+            if (heroHome != null) heroHome.removeView(heroStage);
+            LinearLayout host = ui.column(); fullHost = host; host.setBackgroundColor(BG); host.setClickable(true);
+            host.setOnApplyWindowInsetsListener((v, insets) -> {
+                android.graphics.Insets bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.displayCutout());
+                v.setPadding(bars.left + ui.dp(10), bars.top + ui.dp(4), bars.right + ui.dp(10), Math.max(bars.bottom, insets.getInsets(android.view.WindowInsets.Type.ime()).bottom) + ui.dp(10));
+                return insets;
+            });
+            LinearLayout top = ui.row();
+            top.addView(ui.bareIcon(R.drawable.ic_chevron_down, TEXT, "전체 화면 닫기", () -> voiceFull(false)), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+            host.addView(top, new LinearLayout.LayoutParams(-1, -2));
+            host.addView(heroStage, new LinearLayout.LayoutParams(-1, 0, 1));
+            content.addView(host, new FrameLayout.LayoutParams(-1, -1));
+            host.requestApplyInsets();
+        } else {
+            closeFullHost();
+            if (heroStage != null && heroHome != null && heroStage.getParent() == null) heroHome.addView(heroStage, Math.min(Math.max(0, heroIndex), heroHome.getChildCount()), heroHomeAt);
+            heroHome = null;
+        }
+        // The card's layout again for where it is now (refresh sizes it by the call and by full screen).
+        heroCall = !store.voiceActive; if (redraw) refresh();
+    }
+    /** Takes the full-screen host off the window (the card stays with it until put back). */
+    private void closeFullHost() {
+        if (fullHost == null) return;
+        if (heroStage != null && heroStage.getParent() == fullHost) fullHost.removeView(heroStage);
+        ViewGroup content = findViewById(android.R.id.content); content.removeView(fullHost); fullHost = null;
+    }
     private void toggleVoice() { if (store.voiceActive) send(AssistantService.END_LIVE, null, null); else startVoice(); }
     private void startVoice() {
         if (!voiceUsable()) return;
@@ -1203,7 +1253,10 @@ public final class MainActivity extends Activity {
             heroStage.setPadding(ui.dp(call ? 14 : 20), ui.dp(call ? 14 : 26), ui.dp(call ? 14 : 20), ui.dp(call ? 14 : 24));
             // The call is the page: the card takes the height the screen has left and gives it to the conversation, and what
             // is beside the call (the mode pills, the doors, recent work, the phone row) waits until it ends.
-            LinearLayout.LayoutParams stageAt = (LinearLayout.LayoutParams) heroStage.getLayoutParams(); stageAt.height = call ? 0 : -2; stageAt.weight = call ? 1 : 0; heroStage.setLayoutParams(stageAt);
+            boolean fill = call || voiceFull;
+            LinearLayout.LayoutParams stageAt = (LinearLayout.LayoutParams) heroStage.getLayoutParams(); stageAt.height = fill ? 0 : -2; stageAt.weight = fill ? 1 : 0; heroStage.setLayoutParams(stageAt);
+            // Full screen and idle: the big orb in the middle of it; in a call the head stays at the top over the words.
+            heroStage.setGravity(voiceFull && !call ? android.view.Gravity.CENTER : android.view.Gravity.CENTER_HORIZONTAL);
             if (said != null) { LinearLayout.LayoutParams saidAt = (LinearLayout.LayoutParams) said.getLayoutParams(); saidAt.height = call ? 0 : -2; saidAt.weight = call ? 1 : 0; said.setLayoutParams(saidAt); }
             for (View aside : callAside) aside.setVisibility(call ? View.GONE : View.VISIBLE);
         }

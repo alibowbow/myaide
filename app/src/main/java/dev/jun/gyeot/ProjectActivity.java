@@ -89,8 +89,9 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         bar.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
         TextView ai = ui.text("AI로 고치기", FOOTNOTE, 650, ACCENT); ai.setGravity(Gravity.CENTER); ai.setSingleLine(true);
         ai.setBackground(new android.graphics.drawable.InsetDrawable(ui.shape(ACCENT_SOFT, PILL), 0, ui.dp(6), 0, ui.dp(6))); ai.setPadding(ui.dp(14), 0, ui.dp(14), 0);
-        android.graphics.drawable.Drawable spark = getDrawable(R.drawable.ic_sparkle);
-        if (spark != null) { spark = spark.mutate(); spark.setTint(ACCENT); spark.setBounds(0, 0, ui.dp(15), ui.dp(15)); ai.setCompoundDrawablesRelative(spark, null, null, null); ai.setCompoundDrawablePadding(ui.dp(5)); }
+        // The AI mark of the browser and 마이튜브 요약 (AiMark), in the pill's color.
+        AiMark mark = new AiMark(getResources().getDisplayMetrics().density); mark.setTint(ACCENT); mark.setBounds(0, 0, ui.dp(20), ui.dp(20));
+        ai.setCompoundDrawablesRelative(mark, null, null, null); ai.setCompoundDrawablePadding(ui.dp(4));
         ai.setOnClickListener(v -> toggleComposer(!composerOpen)); Ui.pressable(ai, false);
         bar.addView(ai, new LinearLayout.LayoutParams(-2, ui.dp(44)));
         bar.addView(ui.bareIcon(R.drawable.ic_refresh, TEXT, "새로 고침", () -> { loaded = ""; refresh(); }), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
