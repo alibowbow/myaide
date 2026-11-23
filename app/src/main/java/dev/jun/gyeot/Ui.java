@@ -850,7 +850,7 @@ final class Ui {
     GradientDrawable shape(int color, int radius) { GradientDrawable shape = new GradientDrawable(); shape.setColor(color); shape.setCornerRadius(dp(radius)); return shape; }
 
     /** color (with its alpha) drawn over an opaque background, as the eye sees it. */
-    private static int over(int color, int background) {
+    static int over(int color, int background) {
         float a = Color.alpha(color) / 255f;
         return Color.rgb(Math.round(Color.red(color) * a + Color.red(background) * (1 - a)), Math.round(Color.green(color) * a + Color.green(background) * (1 - a)),
             Math.round(Color.blue(color) * a + Color.blue(background) * (1 - a)));

@@ -43,7 +43,7 @@ final class LinuxRuntime {
     static File rootfs(Context c) { return new File(home(c), "rootfs"); }
     private static File nativeDir(Context c) { return new File(c.getApplicationInfo().nativeLibraryDir); }
     /** This phone can run it: an arm64 phone with PRoot installed from the APK. */
-    static boolean supported(Context c) { return new File(nativeDir(c), "libproot.so").isFile() && new File(nativeDir(c), "libproot_loader.so").isFile(); }
+    static boolean supported(Context c) { if (c.getApplicationInfo().nativeLibraryDir == null) return false; return new File(nativeDir(c), "libproot.so").isFile() && new File(nativeDir(c), "libproot_loader.so").isFile(); }
     static boolean installed(Context c) { return new File(rootfs(c), READY).isFile(); }
     /** Room the install needs: the archive, the unpacked system and a working margin. */
     static long needed() { return ARCHIVE_BYTES + MOST_UNPACKED + MARGIN; }

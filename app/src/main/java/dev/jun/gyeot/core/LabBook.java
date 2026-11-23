@@ -1,0 +1,603 @@
+package dev.jun.gyeot.core;
+
+import java.io.File;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+/**
+ * 연구실: research projects run by AI researchers, each with a role (책임연구원, 문헌조사원, 이론가, 실험가, 비평가, 기록원)
+ * and its own model. Kept on this phone in one folder: projects.json, and per project notes.jsonl (the research notes, one
+ * entry a line, append only), state.json (진행판: the stages, what waits for approval, the budget spent), ledger.json (검증
+ * 장부: the claims and their status), sources.json (참고문헌, S1, S2 …) and files/ (보고서 and experiment figures).
+ * Nothing here talks to the network: LabRunner asks the AIs with the prompts below and writes what they say here.
+ */
+public final class LabBook {
+    // ── the researchers ──────────────────────────────────────────────
+
+    /** A research role: what it does on screen (about) and what it is told (duty). */
+    public record Role(String id, String name, String about, String duty, String mark) {}
+    public static final Role PI = new Role("pi", "책임연구원", "계획을 세우고, 다음 단계를 정하고, 결과를 종합해요",
+        "연구 전체를 이끈다. 질문을 작게 나누고, 가설과 방법을 정하고, 무엇을 먼저 확인할지 결정하고, 결과를 종합한다.", "책");
+    public static final Role SCOUT = new Role("scout", "문헌조사원", "논문과 자료를 찾아 출처와 함께 정리해요",
+        "이미 알려진 것을 찾는다. 논문의 주장과 한계를 출처 번호와 함께 정확히 옮기고, 아직 밝혀지지 않은 빈틈을 짚는다.", "문");
+    public static final Role THEORIST = new Role("theorist", "이론가", "가설과 증명 아이디어, 모형을 내요",
+        "가설과 이론적 설명, 증명의 뼈대, 수학적 모형을 낸다. 가정을 분명히 적고, 그 가설이 틀렸다면 무엇이 관찰될지 함께 말한다.", "이");
+    public static final Role EXPERIMENTER = new Role("experimenter", "실험가", "Python으로 계산하고 시뮬레이션해서 확인해요",
+        "주장을 계산·시뮬레이션·데이터로 확인할 방법을 설계하고, 앱 안 리눅스에서 돌릴 Python 코드를 쓰고, 결과를 해석한다.", "실");
+    public static final Role CRITIC = new Role("critic", "비평가", "근거를 따지고 반례와 오류를 찾아요",
+        "모든 주장의 근거를 따진다. 논리 비약, 반례, 빠진 대조군, 과장된 결론을 찾아 구체적으로 지적한다. 동의할 때도 남는 위험을 말한다.", "비");
+    public static final Role SCRIBE = new Role("scribe", "기록원", "토론과 결과를 요약하고 보고서를 써요",
+        "흩어진 기록을 정확하게 요약하고, 검증된 것과 아닌 것을 구분해 보고서로 묶는다. 없는 내용을 보태지 않는다.", "기");
+    public static final List<Role> ROLES = List.of(PI, SCOUT, THEORIST, EXPERIMENTER, CRITIC, SCRIBE);
+    public static Role role(String id) { for (Role r : ROLES) if (r.id().equals(id)) return r; return PI; }
+    public static boolean known(String id) { for (Role r : ROLES) if (r.id().equals(id)) return true; return false; }
+
+    // ── the fields ───────────────────────────────────────────────────
+
+    /** A field of research: how its researchers work, and where its papers are searched first. */
+    public record Field(String id, String name, String guide, List<String> sources, String sample) {}
+    public static final List<Field> FIELDS = List.of(
+        new Field("general", "일반", "분야를 가리지 않는다. 용어를 쉽게 풀고, 사실과 의견을 나눈다.", List.of("openalex", "semantic", "arxiv"), "도시 열섬 현상을 줄이는 가장 효과적인 방법은?"),
+        new Field("math", "수학", "정의와 가정을 정확히 쓴다. 수치 실험은 증명이 아니라 증거일 뿐임을 분명히 한다. 알려진 정리와 추측을 구분한다.", List.of("arxiv", "openalex", "semantic"), "리만 제타 영점 간격의 분포를 수치로 살펴보기"),
+        new Field("physics", "물리·천문", "단위와 차원을 확인한다. 근사의 범위를 밝히고, 관측·실험값과 비교한다.", List.of("arxiv", "openalex", "semantic"), "왜소은하의 회전 곡선은 암흑물질 없이 설명될까?"),
+        new Field("cs", "컴퓨터·AI", "재현 가능한 실험을 설계한다. 기준선과 비교하고, 데이터·평가 지표의 한계를 밝힌다.", List.of("arxiv", "semantic", "openalex"), "작은 언어 모델의 추론 능력은 어디서 생길까?"),
+        new Field("bio", "생명·의학", "근거 수준(메타분석, 무작위 시험, 관찰 연구, 동물·세포 실험)을 구분한다. 진단·치료 조언은 하지 않고 연구로만 다룬다.", List.of("pubmed", "openalex", "semantic"), "CRISPR 오프타깃을 줄이는 최신 방법 정리"),
+        new Field("chem", "화학·소재", "반응 조건과 안전을 함께 본다. 계산 결과와 실험 결과를 구분한다.", List.of("openalex", "semantic", "arxiv"), "상온에서 쓸 수 있는 고체 전해질 후보 비교"),
+        new Field("social", "사회·경제", "인과와 상관을 구분한다. 데이터의 출처·기간·표본을 밝히고, 다른 해석을 함께 적는다.", List.of("openalex", "semantic"), "기본소득 실험들은 노동 공급에 어떤 영향을 줬나?"));
+    public static Field field(String id) { for (Field f : FIELDS) if (f.id().equals(id)) return f; return FIELDS.get(0); }
+
+    // ── the research steps shown on 진행판 ──────────────────────────────
+
+    public record Stage(String id, String name, String about) {}
+    public static final List<Stage> STAGES = List.of(
+        new Stage("plan", "계획", "질문을 나누고 가설과 방법을 정해요"),
+        new Stage("literature", "문헌 조사", "이미 알려진 것을 찾아요"),
+        new Stage("debate", "토론·가설", "연구원들이 주장하고 반박해요"),
+        new Stage("experiment", "실험", "리눅스에서 계산으로 확인해요"),
+        new Stage("analysis", "분석", "결과를 해석해요"),
+        new Stage("review", "비평·검증", "근거와 반례를 따져요"),
+        new Stage("report", "보고서", "검증된 것만 묶어요"));
+
+    // ── records ──────────────────────────────────────────────────────
+
+    /**
+     * One project. budget: how many AI answers one 자율 연구 run may use before it stops and asks; approve: an experiment waits
+     * for the user's yes before it runs; debaters: the roles a 토론 hears (judge sums it up); rounds: 1–3.
+     */
+    public record Project(String id, String title, String question, String field, long made, long touched, int budget, boolean approve, List<String> debaters, int rounds, String judge) {
+        public Project {
+            title = clean(title, 60); question = clean(question, 1200); field = LabBook.field(field).id();
+            budget = Math.max(6, Math.min(200, budget)); rounds = Math.max(1, Math.min(3, rounds));
+            List<String> kept = new ArrayList<>(); if (debaters != null) for (String d : debaters) if (known(d) && !kept.contains(d)) kept.add(d);
+            debaters = List.copyOf(kept); judge = known(judge) ? judge : PI.id();
+        }
+        JSONObject json() throws Exception {
+            return new JSONObject().put("id", id).put("title", title).put("question", question).put("field", field).put("made", made).put("touched", touched)
+                .put("budget", budget).put("approve", approve).put("debaters", new JSONArray(debaters)).put("rounds", rounds).put("judge", judge);
+        }
+        static Project of(JSONObject o) {
+            List<String> debaters = new ArrayList<>(); JSONArray d = o.optJSONArray("debaters");
+            if (d != null) for (int i = 0; i < d.length(); i++) debaters.add(d.optString(i));
+            return new Project(o.optString("id"), o.optString("title"), o.optString("question"), o.optString("field"), o.optLong("made"), o.optLong("touched"),
+                o.optInt("budget", 30), o.optBoolean("approve", true), debaters, o.optInt("rounds", 2), o.optString("judge", PI.id()));
+        }
+        public Project with(String title, String question, String field) { return new Project(id, title, question, field, made, touched, budget, approve, debaters, rounds, judge); }
+        public Project settings(int budget, boolean approve) { return new Project(id, title, question, field, made, touched, budget, approve, debaters, rounds, judge); }
+        public Project debate(List<String> debaters, int rounds, String judge) { return new Project(id, title, question, field, made, touched, budget, approve, debaters, rounds, judge); }
+        Project touched(long at) { return new Project(id, title, question, field, made, at, budget, approve, debaters, rounds, judge); }
+    }
+
+    /**
+     * One entry of the research notes. kind: user (the user's words), say (a researcher in a 토론 or answering), judge (a 토론
+     * summed up), plan, step (책임연구원's choice of the next step), search (문헌 조사), run (an experiment: its code and output),
+     * analysis, critique, report, ask (waiting for the user), system (what happened), error. by: the model that wrote it.
+     */
+    public record Note(String id, long at, String kind, String role, String text, String by, JSONObject data) {
+        JSONObject json() throws Exception {
+            return new JSONObject().put("id", id).put("at", at).put("kind", kind).put("role", role == null ? "" : role).put("text", text == null ? "" : text)
+                .put("by", by == null ? "" : by).put("data", data == null ? new JSONObject() : data);
+        }
+        static Note of(JSONObject o) {
+            JSONObject data = o.optJSONObject("data");
+            return new Note(o.optString("id"), o.optLong("at"), o.optString("kind"), o.optString("role"), o.optString("text"), o.optString("by"), data == null ? new JSONObject() : data);
+        }
+        public boolean mine() { return "user".equals(kind); }
+    }
+
+    /** One claim in 검증 장부: agreed (토론에서 합의), disputed (쟁점), check (확인 필요), verified (근거로 확인), refuted (반박됨). */
+    public record Claim(String text, String status, String evidence, String by, long at) {
+        public Claim { text = clean(text, 400); status = LabBook.status(status); evidence = clean(evidence, 80); by = by == null ? "" : by; }
+        JSONObject json() throws Exception { return new JSONObject().put("text", text).put("status", status).put("evidence", evidence).put("by", by).put("at", at); }
+        static Claim of(JSONObject o) { return new Claim(o.optString("text"), o.optString("status"), o.optString("evidence"), o.optString("by"), o.optLong("at")); }
+    }
+    public static final List<String> STATUSES = List.of("verified", "agreed", "check", "disputed", "refuted");
+    static String status(String s) { String v = s == null ? "" : s.strip().toLowerCase(Locale.ROOT); return STATUSES.contains(v) ? v : "check"; }
+    public static String statusName(String s) {
+        return switch (status(s)) { case "verified" -> "검증됨"; case "agreed" -> "합의"; case "disputed" -> "쟁점"; case "refuted" -> "반박됨"; default -> "미검증"; };
+    }
+
+    /** One paper or page found by 문헌 조사; key is its number in this project (S1, S2 …). */
+    public record Source(String key, String title, String authors, String year, String venue, String url, String summary, String from) {
+        public Source { title = clean(title, 300); authors = clean(authors, 160); year = clean(year, 8); venue = clean(venue, 120); url = clean(url, 400); summary = clean(summary, 900); from = clean(from, 30); }
+        JSONObject json() throws Exception {
+            return new JSONObject().put("key", key).put("title", title).put("authors", authors).put("year", year).put("venue", venue).put("url", url).put("summary", summary).put("from", from);
+        }
+        static Source of(JSONObject o) { return new Source(o.optString("key"), o.optString("title"), o.optString("authors"), o.optString("year"), o.optString("venue"), o.optString("url"), o.optString("summary"), o.optString("from")); }
+        public Source keyed(String value) { return new Source(value, title, authors, year, venue, url, summary, from); }
+        /** One line for a prompt or the 참고문헌 list: "[S3] Title (2024) — Authors · Venue". */
+        public String line() { return "[" + key + "] " + title + (year.isEmpty() ? "" : " (" + year + ")") + (authors.isEmpty() ? "" : " — " + authors) + (venue.isEmpty() ? "" : " · " + venue); }
+    }
+
+    public static final int NOTES = 3000, PROJECTS = 80;
+    private final File root;
+    public LabBook(File root) { this.root = root; }
+    public File root() { return root; }
+    public File dir(String id) { return new File(root, safe(id)); }
+    public File files(String id) { File f = new File(dir(id), "files"); f.mkdirs(); return f; }
+
+    // ── projects ─────────────────────────────────────────────────────
+
+    /** Every project, the most recently touched first. */
+    public synchronized List<Project> projects() {
+        List<Project> out = new ArrayList<>();
+        try {
+            JSONArray list = new JSONArray(read(new File(root, "projects.json"), "[]"));
+            for (int i = 0; i < list.length(); i++) { JSONObject o = list.optJSONObject(i); if (o != null && !o.optString("id").isBlank()) out.add(Project.of(o)); }
+        } catch (Exception ignored) {}
+        out.sort((a, b) -> Long.compare(b.touched(), a.touched()));
+        return out;
+    }
+    public synchronized Project project(String id) { for (Project p : projects()) if (p.id().equals(id)) return p; return null; }
+    /** A new project with the usual team: 이론가, 비평가 and 실험가 debate two rounds, 책임연구원 sums up. */
+    public synchronized Project create(String title, String question, String field) throws IOException {
+        if (clean(title, 60).isBlank() && clean(question, 1200).isBlank()) throw new IllegalArgumentException("연구 제목이나 질문을 적어 주세요.");
+        List<Project> all = projects(); if (all.size() >= PROJECTS) throw new IllegalStateException("연구 프로젝트는 " + PROJECTS + "개까지 둘 수 있어요. 끝난 연구를 지워 주세요.");
+        long now = System.currentTimeMillis();
+        String name = clean(title, 60).isBlank() ? clean(question, 40) : title;
+        Project p = new Project(UUID.randomUUID().toString().substring(0, 12), name, question, field, now, now, 30, true, List.of(THEORIST.id(), CRITIC.id(), EXPERIMENTER.id()), 2, PI.id());
+        save(p);
+        return p;
+    }
+    public synchronized void save(Project p) throws IOException {
+        List<Project> all = projects(); JSONArray out = new JSONArray(); boolean found = false;
+        try {
+            for (Project q : all) { if (q.id().equals(p.id())) { out.put(p.json()); found = true; } else out.put(q.json()); }
+            if (!found) out.put(p.json());
+        } catch (Exception e) { throw new IOException(e.getMessage(), e); }
+        write(new File(root, "projects.json"), out.toString());
+    }
+    public synchronized void remove(String id) throws IOException {
+        List<Project> all = projects(); JSONArray out = new JSONArray();
+        try { for (Project q : all) if (!q.id().equals(id)) out.put(q.json()); } catch (Exception e) { throw new IOException(e.getMessage(), e); }
+        write(new File(root, "projects.json"), out.toString());
+        delete(dir(id));
+    }
+    private void touch(String id, long at) { Project p = project(id); if (p != null) try { save(p.touched(at)); } catch (IOException ignored) {} }
+
+    // ── notes ────────────────────────────────────────────────────────
+
+    public synchronized List<Note> notes(String id) {
+        List<Note> out = new ArrayList<>();
+        File file = new File(dir(id), "notes.jsonl"); if (!file.isFile()) return out;
+        try {
+            for (String line : Files.readAllLines(file.toPath(), StandardCharsets.UTF_8)) {
+                if (line.isBlank()) continue;
+                try { out.add(Note.of(new JSONObject(line))); } catch (Exception ignored) {}
+            }
+        } catch (IOException ignored) {}
+        return out.size() > NOTES ? new ArrayList<>(out.subList(out.size() - NOTES, out.size())) : out;
+    }
+    /** Writes an entry at the end of the notes and returns it. */
+    public synchronized Note note(String id, String kind, String role, String text, String by, JSONObject data) throws IOException {
+        Note n = new Note(UUID.randomUUID().toString().substring(0, 10), System.currentTimeMillis(), kind, role, text, by, data == null ? new JSONObject() : data);
+        File file = new File(dir(id), "notes.jsonl"); file.getParentFile().mkdirs();
+        try { Files.write(file.toPath(), (n.json().toString() + "\n").getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE, StandardOpenOption.APPEND); }
+        catch (IOException e) { throw e; } catch (Exception e) { throw new IOException(e.getMessage(), e); }
+        touch(id, n.at());
+        return n;
+    }
+    public synchronized void clearNotes(String id) throws IOException {
+        Files.deleteIfExists(new File(dir(id), "notes.jsonl").toPath());
+        Files.deleteIfExists(new File(dir(id), "ledger.json").toPath());
+        Files.deleteIfExists(new File(dir(id), "sources.json").toPath());
+        Files.deleteIfExists(new File(dir(id), "state.json").toPath());
+        delete(new File(dir(id), "files"));
+    }
+
+    // ── 진행판 ────────────────────────────────────────────────────────
+
+    public synchronized JSONObject state(String id) {
+        try { return new JSONObject(read(new File(dir(id), "state.json"), "{}")); } catch (Exception e) { return new JSONObject(); }
+    }
+    public synchronized void state(String id, JSONObject value) throws IOException { write(new File(dir(id), "state.json"), value.toString()); }
+    /** A stage's state: "" (아직), doing, done. */
+    public synchronized String stage(String id, String stage) { JSONObject s = state(id).optJSONObject("stages"); return s == null ? "" : s.optString(stage); }
+    public synchronized void stage(String id, String stage, String value) throws IOException {
+        JSONObject state = state(id); JSONObject stages = state.optJSONObject("stages"); if (stages == null) stages = new JSONObject();
+        try { stages.put(stage, value); state.put("stages", stages); } catch (Exception e) { throw new IOException(e.getMessage(), e); }
+        state(id, state);
+    }
+    /** What waits for the user ({action, focus, why}), or null. */
+    public synchronized JSONObject pending(String id) { JSONObject p = state(id).optJSONObject("pending"); return p == null || p.length() == 0 ? null : p; }
+    public synchronized void pending(String id, JSONObject value) throws IOException {
+        JSONObject state = state(id); try { if (value == null) state.remove("pending"); else state.put("pending", value); } catch (Exception e) { throw new IOException(e.getMessage(), e); }
+        state(id, state);
+    }
+    /** The AI answers spent by the current 자율 연구 run, and all of them. */
+    public synchronized int spent(String id) { return state(id).optInt("spent"); }
+    public synchronized int total(String id) { return state(id).optInt("total"); }
+    public synchronized void spend(String id, int calls) throws IOException {
+        JSONObject state = state(id);
+        try { state.put("spent", state.optInt("spent") + calls); state.put("total", state.optInt("total") + calls); } catch (Exception e) { throw new IOException(e.getMessage(), e); }
+        state(id, state);
+    }
+    public synchronized void resetRun(String id) throws IOException { JSONObject state = state(id); try { state.put("spent", 0); state.put("steps", 0); } catch (Exception e) { throw new IOException(e.getMessage(), e); } state(id, state); }
+    /** 자율 연구: "" (off), running, waiting (for the user), paused (budget), done. */
+    public synchronized String autopilot(String id) { return state(id).optString("autopilot"); }
+    public synchronized void autopilot(String id, String value) throws IOException { JSONObject state = state(id); try { state.put("autopilot", value); } catch (Exception e) { throw new IOException(e.getMessage(), e); } state(id, state); }
+
+    // ── 검증 장부 ─────────────────────────────────────────────────────
+
+    public synchronized List<Claim> claims(String id) {
+        List<Claim> out = new ArrayList<>();
+        try { JSONArray list = new JSONArray(read(new File(dir(id), "ledger.json"), "[]")); for (int i = 0; i < list.length(); i++) out.add(Claim.of(list.getJSONObject(i))); } catch (Exception ignored) {}
+        return out;
+    }
+    /** Adds claims; one already there (the same words) takes the newer status and evidence. At most 120 are kept. */
+    public synchronized void claims(String id, List<Claim> added) throws IOException {
+        if (added == null || added.isEmpty()) return;
+        Map<String, Claim> all = new LinkedHashMap<>();
+        for (Claim c : claims(id)) all.put(normal(c.text()), c);
+        for (Claim c : added) if (!c.text().isBlank()) { String k = normal(c.text()); all.remove(k); all.put(k, c); }
+        List<Claim> kept = new ArrayList<>(all.values()); if (kept.size() > 120) kept = kept.subList(kept.size() - 120, kept.size());
+        JSONArray out = new JSONArray(); try { for (Claim c : kept) out.put(c.json()); } catch (Exception e) { throw new IOException(e.getMessage(), e); }
+        write(new File(dir(id), "ledger.json"), out.toString());
+    }
+
+    // ── 참고문헌 ──────────────────────────────────────────────────────
+
+    public synchronized List<Source> sources(String id) {
+        List<Source> out = new ArrayList<>();
+        try { JSONArray list = new JSONArray(read(new File(dir(id), "sources.json"), "[]")); for (int i = 0; i < list.length(); i++) out.add(Source.of(list.getJSONObject(i))); } catch (Exception ignored) {}
+        return out;
+    }
+    /** Adds what was found, numbered after the ones kept (a paper found again keeps its number); returns them with their keys. */
+    public synchronized List<Source> sources(String id, List<Source> found) throws IOException {
+        List<Source> all = sources(id), out = new ArrayList<>();
+        for (Source s : found) {
+            Source same = null;
+            for (Source k : all) if ((!s.url().isEmpty() && s.url().equalsIgnoreCase(k.url())) || normal(s.title()).equals(normal(k.title()))) { same = k; break; }
+            if (same == null) { same = s.keyed("S" + (all.size() + 1)); all.add(same); }
+            if (!out.contains(same)) out.add(same);
+        }
+        JSONArray list = new JSONArray(); try { for (Source s : all) list.put(s.json()); } catch (Exception e) { throw new IOException(e.getMessage(), e); }
+        write(new File(dir(id), "sources.json"), list.toString());
+        return out;
+    }
+
+    // ── 보고서 ────────────────────────────────────────────────────────
+
+    public synchronized String report(String id) { try { return read(new File(dir(id), "report.md"), ""); } catch (IOException e) { return ""; } }
+    public synchronized void report(String id, String markdown) throws IOException { write(new File(dir(id), "report.md"), markdown == null ? "" : markdown); }
+    /** How many experiments have run. */
+    public int experiments(String id) { int n = 0; for (Note note : notes(id)) if ("run".equals(note.kind())) n = Math.max(n, note.data().optInt("n")); return n; }
+
+    // ── what the researchers are told ───────────────────────────────
+
+    /** The part every researcher hears first: who they are, the project, and how to answer. */
+    public static String brief(Project p, Role r) {
+        Field f = field(p.field());
+        return "너는 '들퍼레 연구실'의 " + r.name() + "이야. 역할: " + r.duty() + "\n"
+            + "연구 프로젝트: " + p.title() + "\n"
+            + (p.question().isBlank() ? "" : "연구 질문: " + p.question() + "\n")
+            + "분야: " + f.name() + " — " + f.guide() + "\n"
+            + """
+              원칙:
+              - 한국어로 답해. 마크다운(소제목, 목록, 굵게)을 써도 돼. 수식은 LaTeX 대신 읽기 쉬운 기호(x², √, ∑, ≤)로 써.
+              - 확실한 것과 추측을 구분해. 추측이면 '가설:'이라고 붙여.
+              - 출처가 없는 숫자, 논문, 인용을 지어내지 마. 연구 기록에 있는 근거 번호([S1] 문헌, [E2] 실험)만 인용해. 모르면 모른다고 해.
+              - 위험한 생물·화학 실험 방법(병원체 강화, 독성 물질 합성 등)과 의료 진단·처방은 다루지 않아.
+              """;
+    }
+    /** A 토론's first round: each answers without seeing the others. */
+    public static String debateFirst(String topic, String digest) {
+        return (digest.isBlank() ? "" : "지금까지의 연구 기록(요약):\n" + digest + "\n\n")
+            + "토론 주제: " + topic + "\n\n"
+            + "다른 연구원의 답을 보지 않은 상태야. 네 역할의 관점에서 답해: 핵심 주장 2~4개, 각 주장의 근거나 이유, 그 주장을 확인할 방법(문헌·실험·증명). 700자 안팎으로.";
+    }
+    /** A later round: the others' latest answers, and this one's own. */
+    public static String debateRebut(String topic, String others, String own, int round) {
+        return "토론 주제: " + topic + "\n\n다른 연구원들의 지난 답:\n" + others + "\n\n네 지난 답:\n" + (own.isBlank() ? "(없음)" : own) + "\n\n"
+            + round + "라운드야. 동의하는 점은 한 줄로 짧게. 틀렸거나 약한 주장은 누구의 어떤 말인지 짚어서 구체적으로 반박해. 놓친 점을 보태. 생각이 바뀌었으면 바뀌었다고 말해. 600자 안팎으로.";
+    }
+    public static String judge(String topic, String transcript) {
+        return "토론 주제: " + topic + "\n\n토론 기록:\n" + transcript + "\n\n"
+            + """
+              심판으로서 토론을 정리해. 누구 편도 들지 말고 근거의 힘으로만 판단해. 형식:
+              ## 합의한 것
+              ## 남은 쟁점
+              ## 확인이 필요한 것
+              (각각 어떻게 확인할지: 문헌 조사, 실험, 증명)
+              ## 다음 단계 제안
+              마지막에 검증 장부에 올릴 주장을 ```json 블록으로 붙여(최대 6개):
+              {"claims":[{"text":"주장 한 문장","status":"agreed 또는 disputed 또는 check"}]}
+              """;
+    }
+    public static String plan(String digest) {
+        return (digest.isBlank() ? "" : "지금까지의 연구 기록(요약):\n" + digest + "\n\n")
+            + """
+              이 연구의 계획을 세워. 형식:
+              ## 핵심 질문
+              (연구 질문을 확인할 수 있는 작은 질문 2~4개로 나누기)
+              ## 가설
+              ## 방법
+              (각 질문을 문헌 조사, 토론, 계산 실험 중 무엇으로 확인할지)
+              ## 성공 기준
+              (무엇이 나오면 답을 얻었다고 볼지)
+              700자 안팎으로.
+              """;
+    }
+    public static String searchPrompt(String focus, String digest) {
+        return (digest.isBlank() ? "" : "지금까지의 연구 기록(요약):\n" + digest + "\n\n")
+            + "조사할 초점: " + (focus.isBlank() ? "연구 질문 전체" : focus) + "\n\n"
+            + "학술 검색(arXiv, PubMed, OpenAlex, Semantic Scholar)에 넣을 영어 검색어를 2~3개 만들어. 짧은 핵심어 조합으로(4~8단어), 서로 다른 측면을 겨냥해.\n"
+            + "JSON만 답해: {\"queries\":[\"...\",\"...\"]}";
+    }
+    public static String literature(String focus, String list) {
+        return "조사할 초점: " + (focus.isBlank() ? "연구 질문 전체" : focus) + "\n\n찾은 논문(번호, 제목, 요약):\n" + list + "\n\n"
+            + """
+              이 목록만 근거로 정리해. 문장마다 끝에 근거 번호를 붙여([S3]). 목록에 없는 논문이나 수치는 쓰지 마. 관련 없는 논문은 빼. 형식:
+              ## 핵심 발견
+              ## 서로 다른 견해
+              ## 아직 밝혀지지 않은 것
+              ## 우리 연구에 쓸 것
+              마지막에 검증 장부에 올릴 주장을 ```json 블록으로 붙여(최대 6개, 목록의 근거가 있는 것만):
+              {"claims":[{"text":"주장 한 문장","status":"verified","evidence":"S2"}]}
+              """;
+    }
+    public static String experiment(String goal, String digest) {
+        return (digest.isBlank() ? "" : "지금까지의 연구 기록(요약):\n" + digest + "\n\n")
+            + "실험 목표: " + goal + "\n\n"
+            + """
+              이 목표를 확인할 Python 3 프로그램을 하나 써. 규칙:
+              - 쓸 수 있는 것: 표준 라이브러리, numpy, scipy, sympy, mpmath, matplotlib, pandas. 다른 패키지는 없어.
+              - 인터넷에 접속하지 마. 지금 폴더 밖의 파일을 읽거나 쓰지 마.
+              - 휴대폰에서 돌아가니 90초 안에 끝나게 크기를 정해.
+              - 핵심 숫자와 결론을 print로 또렷하게 출력해. 결과가 가설을 지지하는지 판단할 수 있게.
+              - 그래프가 도움이 되면 matplotlib으로 그려 out/ 폴더에 PNG로 저장해(plt.savefig('out/fig1.png', dpi=130, bbox_inches='tight')). 그래프 글자는 영어로(한글 글꼴이 없어). plt.show()는 쓰지 마.
+              - 무작위를 쓰면 시드를 고정해.
+              답 형식: 무엇을 어떻게 확인하는지 두세 문장, 그다음 ```python 코드 블록 하나.
+              """;
+    }
+    public static String fix(String code, String error) {
+        return "이 Python 코드가 실패했어.\n```python\n" + code + "\n```\n오류(끝부분):\n```\n" + error + "\n```\n"
+            + "원인을 한 문장으로 말하고, 고친 전체 코드를 ```python 블록 하나로 다시 줘. 같은 규칙(표준 라이브러리, numpy, scipy, sympy, mpmath, matplotlib, pandas만, 90초 안, 그림은 out/에 PNG)을 지켜.";
+    }
+    public static String analysis(String goal, int n, String code, String output, int figures) {
+        return "실험 E" + n + "의 목표: " + goal + "\n\n코드:\n```python\n" + clip(code, 3000) + "\n```\n\n출력:\n```\n" + clip(output, 5000) + "\n```\n"
+            + (figures > 0 ? "그림 " + figures + "개를 저장했어.\n" : "")
+            + """
+
+              결과를 해석해. 출력에 있는 숫자만 근거로 써. 형식:
+              ## 결과
+              ## 해석
+              (가설을 지지하나, 반박하나, 아직 모르나)
+              ## 한계
+              (크기, 근사, 빠진 대조군)
+              마지막에 검증 장부에 올릴 주장을 ```json 블록으로 붙여(최대 4개):
+              {"claims":[{"text":"주장 한 문장","status":"verified 또는 refuted 또는 check","evidence":"E%d"}]}
+              """.formatted(n);
+    }
+    public static String critique(String digest, String ledger) {
+        return "최근 연구 기록:\n" + digest + "\n\n" + (ledger.isBlank() ? "" : "검증 장부:\n" + ledger + "\n\n")
+            + """
+              비평가로서 냉정하게 검토해. 근거 없는 주장, 논리 비약, 반례, 빠진 대조군, 과장된 결론을 찾아. 잘된 점은 한 줄로만. 형식:
+              ## 문제점
+              (누구의 어떤 주장인지 짚어서)
+              ## 반례와 다른 설명
+              ## 보완할 것
+              (구체적인 다음 확인 방법)
+              마지막에 장부의 상태를 바꿀 주장을 ```json 블록으로 붙여(최대 6개):
+              {"claims":[{"text":"주장 한 문장","status":"refuted 또는 disputed 또는 check","evidence":"근거 번호나 짧은 이유"}]}
+              """;
+    }
+    public static String report(String digest, String ledger, String sources) {
+        return "연구 기록(요약):\n" + digest + "\n\n검증 장부:\n" + (ledger.isBlank() ? "(비어 있음)" : ledger) + "\n\n참고문헌:\n" + (sources.isBlank() ? "(없음)" : sources) + "\n\n"
+            + """
+              지금까지의 연구를 보고서로 써. 형식:
+              # (연구 제목)
+              ## 요약
+              (세 문장)
+              ## 연구 질문
+              ## 방법
+              ## 결과
+              (검증된 것 위주로, 문장마다 근거 번호 [S1], [E2])
+              ## 논의
+              (쟁점, 반박된 것, 한계)
+              ## 다음 연구
+              ## 참고문헌
+              (위 참고문헌 가운데 본문에 인용한 것만, 받은 그대로)
+              미검증 주장에는 '(미검증)'이라고 붙여. 기록에 없는 내용은 보태지 마.
+              마지막 줄: "_AI 연구원들이 만든 가설과 계산이에요. 중요한 결정 전에는 원문으로 확인해 주세요._"
+              """;
+    }
+    /** 책임연구원's choice of the next step for 자율 연구. */
+    public static String next(String digest, String stages, int left, boolean python, boolean askedBefore) {
+        return "연구 기록(요약):\n" + digest + "\n\n진행판: " + stages + "\n이번 자율 연구에서 남은 AI 답: " + left + "번\n\n"
+            + "다음에 할 일 하나를 골라. 가능한 일:\n"
+            + "- search: 문헌 조사 (focus: 무엇을 찾을지)\n"
+            + "- debate: 연구원 토론 (focus: 토론 주제, 쟁점이 있을 때)\n"
+            + (python ? "- experiment: 계산 실험 (focus: 확인할 것 한 가지, 계산으로 확인할 수 있을 때만)\n" : "- experiment: 지금은 못 써(앱 안 Python이 준비되지 않았어)\n")
+            + "- critique: 비평가의 검토 (결과가 쌓였을 때)\n"
+            + (askedBefore ? "" : "- ask: 사용자에게 질문 (focus: 질문, 정말 사용자만 정할 수 있을 때만)\n")
+            + "- report: 보고서를 쓰고 마치기 (질문에 답할 만큼 모였거나, 남은 답이 6번 아래일 때)\n"
+            + "같은 일을 같은 초점으로 되풀이하지 마. 문헌 조사 없이 결론 내지 마. 비평 없이 보고서로 가지 마.\n"
+            + "JSON만 답해: {\"action\":\"search|debate|experiment|critique|ask|report\",\"focus\":\"...\",\"why\":\"한 문장\"}";
+    }
+    /** A researcher answering the user directly (@이름). */
+    public static String direct(String message, String digest) {
+        return (digest.isBlank() ? "" : "지금까지의 연구 기록(요약):\n" + digest + "\n\n") + "사용자가 너에게 물었어:\n" + message + "\n\n네 역할로 답해. 600자 안팎으로.";
+    }
+
+    // ── reading the answers ─────────────────────────────────────────
+
+    private static final Pattern FENCE_JSON = Pattern.compile("```(?:json)?\\s*(\\{.*?\\})\\s*```", Pattern.DOTALL);
+    private static final Pattern FENCE_CODE = Pattern.compile("```(?:python|py|python3)?[ \\t]*\\n(.*?)```", Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
+    /** The JSON object an answer carries (in a ```json block, else the first balanced {…}), or null. */
+    public static JSONObject json(String text) {
+        if (text == null) return null;
+        Matcher m = FENCE_JSON.matcher(text);
+        while (m.find()) { try { return new JSONObject(m.group(1)); } catch (Exception ignored) {} }
+        int start = text.indexOf('{');
+        while (start >= 0) {
+            int depth = 0; boolean quoted = false, escaped = false;
+            for (int i = start; i < text.length(); i++) {
+                char c = text.charAt(i);
+                if (quoted) { if (escaped) escaped = false; else if (c == '\\') escaped = true; else if (c == '"') quoted = false; continue; }
+                if (c == '"') quoted = true; else if (c == '{') depth++;
+                else if (c == '}' && --depth == 0) { try { return new JSONObject(text.substring(start, i + 1)); } catch (Exception bad) { break; } }
+            }
+            start = text.indexOf('{', start + 1);
+        }
+        return null;
+    }
+    /** The answer without its ```json block (what the notes show). */
+    public static String prose(String text) {
+        if (text == null) return "";
+        String out = text.replaceAll("(?s)```json\\s*\\{.*?\\}\\s*```", "");
+        // A JSON block left at the very end without its fence.
+        out = out.replaceAll("(?s)\\n\\s*\\{\\s*\"claims\"\\s*:.*$", "");
+        return out.strip();
+    }
+    /** The Python in an answer (its ```python block, else the only fenced block), or "". */
+    public static String code(String text) {
+        if (text == null) return "";
+        Matcher m = FENCE_CODE.matcher(text); String best = "";
+        while (m.find()) if (m.group(1).length() > best.length()) best = m.group(1);
+        return best.strip();
+    }
+    /** The words before an answer's code block (its explanation). */
+    public static String beforeCode(String text) { if (text == null) return ""; int at = text.indexOf("```"); return (at < 0 ? text : text.substring(0, at)).strip(); }
+    /** The claims an answer lists for 검증 장부. */
+    public static List<Claim> claims(String text, String by) {
+        List<Claim> out = new ArrayList<>(); JSONObject o = json(text); if (o == null) return out;
+        JSONArray list = o.optJSONArray("claims"); if (list == null) return out;
+        long now = System.currentTimeMillis();
+        for (int i = 0; i < list.length() && out.size() < 8; i++) {
+            JSONObject c = list.optJSONObject(i); if (c == null || c.optString("text").isBlank()) continue;
+            out.add(new Claim(c.optString("text"), c.optString("status"), c.optString("evidence"), by, now));
+        }
+        return out;
+    }
+    /** The search words 문헌조사원 gave (at most three), or the focus itself. */
+    public static List<String> queries(String answer, String fallback) {
+        List<String> out = new ArrayList<>(); JSONObject o = json(answer);
+        JSONArray q = o == null ? null : o.optJSONArray("queries");
+        if (q != null) for (int i = 0; i < q.length() && out.size() < 3; i++) { String s = clean(q.optString(i), 120); if (!s.isBlank() && !out.contains(s)) out.add(s); }
+        if (out.isEmpty() && fallback != null && !fallback.isBlank()) out.add(clean(fallback, 120));
+        return out;
+    }
+    /** 책임연구원's next step: {action, focus, why}; report when it cannot be read. */
+    public record Step(String action, String focus, String why) {}
+    public static Step step(String answer) {
+        JSONObject o = json(answer);
+        String a = o == null ? "" : o.optString("action").strip().toLowerCase(Locale.ROOT);
+        if (!List.of("search", "debate", "experiment", "critique", "ask", "report").contains(a)) a = "report";
+        return new Step(a, o == null ? "" : clean(o.optString("focus"), 300), o == null ? "다음 단계를 읽지 못해 보고서로 마무리해요." : clean(o.optString("why"), 300));
+    }
+    public static String actionName(String action) {
+        return switch (action == null ? "" : action) {
+            case "search" -> "문헌 조사"; case "debate" -> "토론"; case "experiment" -> "실험"; case "critique" -> "비평"; case "ask" -> "질문"; case "report" -> "보고서"; case "plan" -> "계획";
+            default -> "다음 단계";
+        };
+    }
+
+    // ── what the researchers read of the notes ──────────────────────
+
+    /** The research so far, newest kept, in about budget characters: what each prompt is grounded in. */
+    public static String digest(List<Note> notes, int budget) {
+        List<String> parts = new ArrayList<>(); int used = 0;
+        for (int i = notes.size() - 1; i >= 0 && used < budget; i--) {
+            Note n = notes.get(i);
+            if (List.of("system", "error", "ask").contains(n.kind())) continue;
+            String who = n.mine() ? "사용자" : role(n.role()).name();
+            String what = switch (n.kind()) {
+                case "run" -> "실험 E" + n.data().optInt("n") + (n.data().optInt("exit") == 0 ? " 성공" : " 실패") + ": " + n.data().optString("goal") + "\n출력: " + clip(n.data().optString("output"), 900);
+                case "step" -> "다음 단계: " + actionName(n.data().optString("action")) + " — " + n.data().optString("focus");
+                default -> prose(n.text());
+            };
+            int room = Math.max(300, Math.min(1400, budget - used));
+            String line = "[" + kindName(n.kind()) + " · " + who + "] " + clip(what, room);
+            parts.add(line); used += line.length();
+        }
+        java.util.Collections.reverse(parts);
+        return String.join("\n\n", parts);
+    }
+    public static String kindName(String kind) {
+        return switch (kind == null ? "" : kind) {
+            case "user" -> "사용자"; case "say" -> "발언"; case "judge" -> "토론 정리"; case "plan" -> "계획"; case "step" -> "결정"; case "search" -> "문헌 조사";
+            case "run" -> "실험"; case "analysis" -> "분석"; case "critique" -> "비평"; case "report" -> "보고서"; case "ask" -> "승인·질문"; case "error" -> "오류";
+            default -> "기록";
+        };
+    }
+    public static String ledger(List<Claim> claims) {
+        StringBuilder out = new StringBuilder();
+        for (Claim c : claims) out.append("- [").append(statusName(c.status())).append("] ").append(c.text()).append(c.evidence().isEmpty() ? "" : " (" + c.evidence() + ")").append('\n');
+        return out.toString().strip();
+    }
+    public static String sourceList(List<Source> sources, boolean withSummary) {
+        StringBuilder out = new StringBuilder();
+        for (Source s : sources) { out.append(s.line()); if (withSummary && !s.summary().isEmpty()) out.append("\n  ").append(clip(s.summary(), 600)); out.append('\n'); }
+        return out.toString().strip();
+    }
+    /** The stages as one line for 책임연구원: "계획 완료 · 문헌 조사 아직 …". */
+    public static String stages(JSONObject state) {
+        JSONObject s = state == null ? null : state.optJSONObject("stages"); List<String> out = new ArrayList<>();
+        for (Stage st : STAGES) { String v = s == null ? "" : s.optString(st.id()); out.add(st.name() + " " + (v.equals("done") ? "완료" : v.equals("doing") ? "진행 중" : "아직")); }
+        return String.join(" · ", out);
+    }
+    /** "@비평가 …" → the role called, or null. */
+    public static Role mention(String text) {
+        if (text == null) return null; String t = text.strip(); if (!t.startsWith("@")) return null;
+        for (Role r : ROLES) if (t.startsWith("@" + r.name())) return r;
+        return null;
+    }
+    public static String withoutMention(String text, Role r) { return r == null ? text.strip() : text.strip().substring(r.name().length() + 1).strip(); }
+
+    // ── files ────────────────────────────────────────────────────────
+
+    /** Korean particles after a word: 이/가 and 을/를 by whether its last syllable has a final consonant. */
+    public static boolean batchim(String w) { if (w == null || w.isEmpty()) return false; char c = w.charAt(w.length() - 1); return c >= 0xAC00 && c <= 0xD7A3 && (c - 0xAC00) % 28 != 0; }
+    public static String ida(String w) { return w + (batchim(w) ? "이" : "가"); }
+    public static String eul(String w) { return w + (batchim(w) ? "을" : "를"); }
+    static String clean(String s, int max) { String t = s == null ? "" : s.replace('\u0000', ' ').strip(); return t.length() > max ? t.substring(0, max).strip() : t; }
+    public static String clip(String s, int max) { String t = s == null ? "" : s.strip(); return t.length() > max ? t.substring(0, max) + " …" : t; }
+    static String normal(String s) { return s == null ? "" : s.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", ""); }
+    private static String safe(String id) { return id == null ? "_" : id.replaceAll("[^A-Za-z0-9_-]", "_"); }
+    private static String read(File file, String empty) throws IOException { return file.isFile() ? new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8) : empty; }
+    private static void write(File file, String text) throws IOException {
+        file.getParentFile().mkdirs();
+        File temp = new File(file.getParentFile(), file.getName() + ".tmp");
+        Files.write(temp.toPath(), text.getBytes(StandardCharsets.UTF_8));
+        Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+    }
+    static void delete(File f) {
+        if (f == null || !f.exists()) return;
+        File[] kids = f.isDirectory() && !Files.isSymbolicLink(f.toPath()) ? f.listFiles() : null;
+        if (kids != null) for (File k : kids) delete(k);
+        f.delete();
+    }
+}

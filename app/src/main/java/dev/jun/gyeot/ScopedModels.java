@@ -84,6 +84,38 @@ final class ScopedModels {
         }
         return new ScopedModels(store, "", key);
     }
+    /**
+     * A 연구실 researcher's own model ("labModels:<project>:<role>"). A new one starts from the main chat's choice with the
+     * engine its role suits best among those connected, so the team mixes companies (같은 회사 모델은 같은 실수를 하기 쉬워서).
+     */
+    static ScopedModels lab(AppStore store, String project, String role) {
+        String key = "labModels:" + project + ":" + role;
+        synchronized (store) {
+            if (!store.settings.contains(key)) {
+                JSONObject value = main(store).snapshot();
+                for (String engine : labPreference(role)) if (store.ready(engine)) { try { value.put("engine", engine); } catch (Exception ignored) {} break; }
+                value.remove("team");
+                if (!store.settings.edit().putString(key, value.toString()).commit()) throw new IllegalStateException("연구원 모델 설정을 저장하지 못했어요.");
+            }
+        }
+        return new ScopedModels(store, "", key);
+    }
+    static java.util.List<String> labPreference(String role) {
+        return switch (role == null ? "" : role) {
+            case "pi" -> java.util.List.of(WorkBook.CLAUDE, WorkBook.CHATGPT, WorkBook.GEMINI, WorkBook.ANTIGRAVITY, WorkBook.GROK, WorkBook.NIM, WorkBook.GROQ);
+            case "scout" -> java.util.List.of(WorkBook.GEMINI, WorkBook.GROK, WorkBook.CHATGPT, WorkBook.ANTIGRAVITY, WorkBook.CLAUDE, WorkBook.GROQ, WorkBook.NIM);
+            case "theorist" -> java.util.List.of(WorkBook.CHATGPT, WorkBook.ANTIGRAVITY, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.GROQ);
+            case "experimenter" -> java.util.List.of(WorkBook.CLAUDE, WorkBook.CHATGPT, WorkBook.ANTIGRAVITY, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.GROQ);
+            case "critic" -> java.util.List.of(WorkBook.GROK, WorkBook.GEMINI, WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.ANTIGRAVITY, WorkBook.NIM, WorkBook.GROQ);
+            default -> java.util.List.of(WorkBook.GROQ, WorkBook.GEMINI, WorkBook.NIM, WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GROK, WorkBook.ANTIGRAVITY);
+        };
+    }
+    /** A project's researchers' models are forgotten with it. */
+    static void forgetLab(AppStore store, String project) {
+        android.content.SharedPreferences.Editor edit = store.settings.edit();
+        for (dev.jun.gyeot.core.LabBook.Role r : dev.jun.gyeot.core.LabBook.ROLES) edit.remove("labModels:" + project + ":" + r.id());
+        edit.apply();
+    }
     static JSONObject copy(JSONObject value) { try { return new JSONObject(value.toString()); } catch (Exception e) { throw new IllegalStateException(e); } }
     static JSONObject saved(AppStore store, String key) {
         try { return new JSONObject(store.settings.getString(key, "{}")); } catch (Exception e) { throw new IllegalStateException("모델 설정을 읽지 못했어요. 기존 설정은 보존했어요.", e); }

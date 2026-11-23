@@ -87,6 +87,7 @@
         <activity android:name=".MyTubeActivity" android:exported="false" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize" />
         <activity android:name=".SearchActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".SchoolActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".LabActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".BoardActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".BrowserActivity" android:exported="false" android:launchMode="singleTop" android:windowSoftInputMode="adjustResize" />
         <!-- Explicit navigation, shortcut and sign-in intents keep a single main window. -->
@@ -132,6 +133,7 @@
             </intent-filter>
         </activity>
         <service android:name=".BoardJobService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <service android:name=".LabJobService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name=".MainBrowserService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name=".BrowserTaskService" android:exported="false" android:foregroundServiceType="dataSync" />
         <!-- 예약 작업: only this app's own alarm reaches it (no intent filter, not exported, no boot listener). -->
