@@ -523,11 +523,37 @@ public final class SchoolActivity extends Activity {
         LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2); gap.leftMargin = ui.dp(8);
         faces.addView(ui.pill("사진 지우기", 0, false, () -> { picture[0] = null; cleared[0] = true; showFace.run(); }), gap);
         sheet.body.addView(faces);
+        // AI 자동 채우기: the empty fields filled to match the ones written (all of them when nothing is written).
+        TextView[] filling = {null};
+        filling[0] = ui.pill("AI로 빈칸 채우기", R.drawable.ic_sparkle, false, () -> {
+            EditText[] fields = {name, subject, level, style};
+            boolean any = false; for (EditText f : fields) if (f.getText().toString().isBlank()) any = true;
+            if (!any) { Toast.makeText(this, "모든 칸이 채워져 있어요. 바꾸고 싶은 칸을 비우고 다시 눌러 주세요.", Toast.LENGTH_LONG).show(); return; }
+            String asked = SchoolBook.fillInput(name.getText().toString(), subject.getText().toString(), level.getText().toString(), style.getText().toString());
+            filling[0].setEnabled(false); filling[0].setText("채우는 중…");
+            work.execute(() -> {
+                String[] got = null; String why = null;
+                try { got = SchoolBook.parseFill(Chores.run(store, SchoolBook.FILL, asked, true)); }
+                catch (Exception e) { why = e.getMessage() == null ? "채우지 못했어요." : e.getMessage(); }
+                String[] filled = got; String failed = why;
+                main.post(() -> {
+                    if (destroyed || !sheet.isShowing()) return;
+                    filling[0].setEnabled(true); filling[0].setText("AI로 빈칸 채우기");
+                    if (filled == null) { Toast.makeText(this, failed, Toast.LENGTH_LONG).show(); return; }
+                    int put = 0;
+                    for (int i = 0; i < fields.length; i++) if (fields[i].getText().toString().isBlank() && !filled[i].isBlank()) { fields[i].setText(filled[i]); put++; }
+                    if (put == 0) Toast.makeText(this, "AI가 채울 내용을 보내지 않았어요. 다시 눌러 주세요.", Toast.LENGTH_LONG).show();
+                });
+            });
+        });
+        LinearLayout fillRow = ui.row(); fillRow.setGravity(Gravity.CENTER_HORIZONTAL); fillRow.setPadding(0, ui.dp(2), 0, 0);
+        fillRow.addView(filling[0], new LinearLayout.LayoutParams(-2, -2));
+        sheet.body.addView(fillRow);
         for (Object[] field : new Object[][]{{"이름", name}, {"과목·분야", subject}, {"내 수준", level}, {"성격·말투·가르치는 방식", style}}) {
             TextView title = ui.text((String) field[0], FOOTNOTE, 620, MUTED); title.setPadding(ui.dp(4), ui.dp(12), 0, ui.dp(6));
             sheet.body.addView(title); sheet.body.addView((View) field[1]);
         }
-        sheet.body.addView(ui.footer("선생님은 정한 성격과 말투로 1:1 과외를 해요. 기본으로 Groq의 무료 GPT OSS 120B가 답하고, 대화창 아래 모델 이름을 눌러 바꿀 수 있어요."));
+        sheet.body.addView(ui.footer("일부만 적고 ‘AI로 빈칸 채우기’를 누르면 나머지를 어울리게 채워 줘요(Groq 무료 우선). 선생님은 정한 성격과 말투로 1:1 과외를 해요. 기본으로 Groq의 무료 GPT OSS 120B가 답하고, 대화창 아래 모델 이름을 눌러 바꿀 수 있어요."));
         sheet.primary.setText(t == null ? "모시기" : "저장");
         sheet.primary.setOnClickListener(v -> {
             String n = name.getText().toString().strip();

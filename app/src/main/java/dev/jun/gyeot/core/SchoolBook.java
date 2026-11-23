@@ -149,6 +149,33 @@ public final class SchoolBook {
         return ask;
     }
 
+    /** AI 자동 채우기: what the AI is told; it answers only with JSON {name, subject, level, style}. */
+    public static final String FILL = """
+        너는 들퍼레 앱 '나의학교'에서 사용자가 만들 과외 선생님 프로필을 채워 주는 도우미야.
+        입력으로 사용자가 이미 적은 칸과 비어 있는 칸이 와. 이미 적은 칸은 그대로 두고, 비어 있는 칸만 적은 내용과 어울리게 채워.
+        모든 칸이 비어 있으면 배우면 재미있고 쓸모 있을 과목의 개성 있는 선생님을 하나 지어내.
+        - name: 한국어 이름 하나(성+이름, 2~4글자). 과목·말투에 어울리게. 실존 유명인 이름은 쓰지 마.
+        - subject: 과목·분야, 짧게(예: 중학 수학, 영어 회화, 파이썬 입문). 30자 이내.
+        - level: 학생 수준, 짧게(예: 중학교 2학년, 회화 초급, 완전 처음). 이미 적은 과목에 맞게. 40자 이내.
+        - style: 선생님의 성격·말투·가르치는 방식 2~3문장. 어떻게 설명하고, 어떻게 확인하고(퀴즈·질문), 어떤 말투인지. 200자 이내.
+        반드시 JSON 객체 하나만 답해. 설명이나 코드 블록 없이: {"name":"…","subject":"…","level":"…","style":"…"}""";
+    /** The form for FILL: each field as written, "(비어 있음)" for the empty ones. */
+    public static String fillInput(String name, String subject, String level, String style) {
+        return "name: " + shown(name) + "\nsubject: " + shown(subject) + "\nlevel: " + shown(level) + "\nstyle: " + shown(style);
+    }
+    private static String shown(String v) { return v == null || v.isBlank() ? "(비어 있음)" : v.strip(); }
+    /** The AI's JSON read leniently (a code fence or words around it are skipped); {name, subject, level, style}, "" where missing. */
+    public static String[] parseFill(String answer) {
+        String text = answer == null ? "" : answer; int start = text.indexOf('{'), end = text.lastIndexOf('}');
+        String[] out = {"", "", "", ""};
+        if (start < 0 || end <= start) return out;
+        try {
+            JSONObject o = new JSONObject(text.substring(start, end + 1));
+            out[0] = clean(o.optString("name"), 30); out[1] = clean(o.optString("subject"), 40); out[2] = clean(o.optString("level"), 80); out[3] = clean(o.optString("style"), 600);
+        } catch (Exception unreadable) { /* nothing filled */ }
+        return out;
+    }
+
     static String clean(String value, int limit) { String v = value == null ? "" : value.strip(); return v.length() > limit ? v.substring(0, limit) : v; }
     private static String read(File file, String empty) throws IOException { return file.isFile() ? new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8) : empty; }
     private static void write(File file, String text) throws IOException { writeBytes(file, text.getBytes(StandardCharsets.UTF_8)); }
