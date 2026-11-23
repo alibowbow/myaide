@@ -44,6 +44,8 @@ final class AppStore {
     /** The user's own Google Drive for Work tools, through Google's sign-in on the phone. */
     final GoogleDriveAccount drive;
     final NimAccount nim;
+    /** Groq's API key and the models it can use (GroqAccount). */
+    final GroqAccount groq;
     private JSONArray videos = new JSONArray();
     private boolean videosUnreadable;
     /** The other analysis LLM: Claude with an Anthropic API key. */
@@ -172,6 +174,7 @@ final class AppStore {
         grok = new GrokAccount(context, secrets, this::changed);
         drive = new GoogleDriveAccount(context, settings, this::changed);
         nim = new NimAccount(secrets, settings, this::changed);
+        groq = new GroqAccount(secrets, settings, this::changed);
         retireDecisions();
         retireGeminiPlan();
         try {

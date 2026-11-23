@@ -1571,6 +1571,7 @@ public final class MainActivity extends Activity {
             case "chatgpt" -> pageChatgpt();
             case "grok" -> pageGrok();
             case "nim" -> pageNim();
+            case "groq" -> pageGroq();
             case "claude" -> pageClaude();
             case "ai" -> pageAi();
             case "connectors" -> pageConnectors();
@@ -1600,7 +1601,7 @@ public final class MainActivity extends Activity {
         return page != null && !page.isEmpty() && SETTINGS_PAGES.contains(page) ? page : null;
     }
     /** Every settings page id; anything else opens the list. */
-    private static final java.util.Set<String> SETTINGS_PAGES = java.util.Set.of("", "key", "chatgpt", "grok", "nim", "claude", "ai", "connectors", "voice",
+    private static final java.util.Set<String> SETTINGS_PAGES = java.util.Set.of("", "key", "chatgpt", "grok", "nim", "groq", "claude", "ai", "connectors", "voice",
         "quick", "phone", "look", "persona", "routines", "memory", "background", "update", "usage", "calendar", "wake", "about", "github", "drive", "memories", "backup");
     /** The page a sub-page belongs to, "" for the pages listed on the settings home. */
     static String settingsParent(String page) {
@@ -1615,7 +1616,7 @@ public final class MainActivity extends Activity {
         return switch (page) {
             case "grok" -> "Grok";
             case "github" -> "GitHub"; case "drive" -> "Google Drive"; case "memories" -> "기억한 것";
-            case "nim" -> "NVIDIA NIM";
+            case "nim" -> "NVIDIA NIM"; case "groq" -> "Groq";
             case "key" -> "Gemini"; case "chatgpt" -> "ChatGPT"; case "claude" -> "Claude"; case "ai" -> "AI 역할"; case "connectors" -> "커넥터"; case "voice" -> "목소리와 대화";
             case "quick" -> "바로 부르기"; case "phone" -> "폰 조작"; case "look" -> "화면 보기"; case "persona" -> "나에 대해"; case "routines" -> "한마디 루틴"; case "memory" -> "기억";
             case "background" -> "다른 앱 쓰는 동안"; case "backup" -> "백업 · 복원"; case "update" -> "업데이트"; case "usage" -> "사용량 · 남은 한도"; case "calendar" -> "캘린더"; case "wake" -> "차에서 호출어"; default -> "정보";
@@ -3598,6 +3599,43 @@ public final class MainActivity extends Activity {
         sheet.body.addView(ui.actions(ui.chip("NVIDIA에서 키 받기", () -> open("https://build.nvidia.com/settings/api-keys"))));
         sheet.show();
     }
+    /**
+     * 설정 → Groq: the API key (checked with Groq's model list before it is kept), the models the key can use, 연결 확인 and
+     * 연결 해제. What the app does with Groq comes next; for now the key and its models are ready.
+     */
+    private void pageGroq() {
+        boolean on = store.groq.connected();
+        JSONArray models = store.groq.models();
+        add(ui.statusCard(R.drawable.ic_bolt, Ui.ORANGE, on ? "연결됨" : "연결 안 됨", on ? "모델 " + models.length() + "개 · 매일 무료 한도" : "Groq API 키로 빠른 모델을 써요 · 매일 무료 한도", null), 0);
+        if (!store.groq.notice.isBlank()) { TextView notice = ui.label(store.groq.notice, 13, TEXT); notice.setPadding(ui.dp(16), ui.dp(10), ui.dp(16), 0); add(notice, 0); }
+        add(ui.sectionHeader("API 키"), 0);
+        if (!on) {
+            add(ui.button("API 키 넣기", true, this::groqKeySheet), 0);
+            TextView get = ui.quietRow("키가 없나요? Groq에서 무료로 받아요 ›", () -> open("https://console.groq.com/keys")); get.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), 0); add(get, 0);
+        } else {
+            LinearLayout key = ui.group();
+            ui.addRow(key, ui.listRow(0, 0, "연결 확인", "키로 모델 목록을 다시 읽어요", ui.chevron(), () -> { if (!store.groq.busy) store.groq.check(); }), false);
+            ui.addRow(key, ui.listRow(0, 0, "키 바꾸기", "확인되면 새 키로 바꿔요", ui.chevron(), this::groqKeySheet), false);
+            add(key, 0);
+            add(ui.sectionHeader("이 키로 쓸 수 있는 모델"), 0);
+            StringBuilder list = new StringBuilder();
+            for (int i = 0; i < models.length(); i++) list.append(i == 0 ? "" : "\n").append("· ").append(models.optString(i));
+            TextView names = ui.text(list.length() == 0 ? "연결 확인을 누르면 목록을 읽어요." : list.toString(), 13, 450, TEXT); names.setLineSpacing(ui.dp(2), 1);
+            LinearLayout card = ui.card(); card.addView(names); add(card, 0);
+            LinearLayout off = ui.group();
+            ui.addRow(off, ui.dangerRow("연결 해제", "이 기기의 Groq 키를 지워요", () -> confirm("이 기기의 Groq API 키를 지울까요?", "해제", () -> { store.groq.remove(); showTab(2); })), false);
+            add(off, 12);
+        }
+        add(ui.footer("Groq는 모델마다 매일 무료 한도를 줘요(console.groq.com → Limits). 키는 이 기기에만 암호화해 두고 Groq에만 보내요."), 16);
+    }
+    private void groqKeySheet() {
+        Ui.Sheet sheet = ui.secretSheet(store.groq.connected() ? "Groq API 키 바꾸기" : "Groq API 키", "console.groq.com에서 무료로 받을 수 있어요", "Groq API 키 (gsk_…)", 400, "저장", (s, field) -> {
+            if (store.groq.busy) return;
+            store.groq.save(field.getText().toString()); s.dismiss();
+        });
+        sheet.body.addView(ui.actions(ui.chip("Groq에서 키 받기", () -> open("https://console.groq.com/keys"))));
+        sheet.show();
+    }
     /** Grok: a subscription sign-in by device code, shortcuts to what it does and its management. */
     private void pageGrok() {
         grokBox = ui.column(); add(grokBox, 0); lastGrok = ""; refreshGrok();
@@ -3667,6 +3705,7 @@ public final class MainActivity extends Activity {
         settingsRow(connect, "claude", "Claude", store.claude.connected() ? "연결됨 · " + modelName(store.claude.models(), store.claude.model()) : "연결 안 됨", null);
         settingsRow(connect, "grok", "Grok", store.grok.connected() ? "연결됨 · 구독 로그인" : "연결 안 됨", null);
         settingsRow(connect, "nim", "NVIDIA NIM", store.nim.connected() ? "연결됨 · " + NimProtocol.label(store.nim.model()) : "연결 안 됨", null);
+        settingsRow(connect, "groq", "Groq", store.groq.connected() ? "연결됨 · 모델 " + store.groq.models().length() + "개 · 무료 한도" : "연결 안 됨", null);
         ui.add(sections, connect, 0);
         ui.add(sections, ui.sectionHeader("AI 활용"), 0);
         LinearLayout use = ui.group();
@@ -3740,6 +3779,7 @@ public final class MainActivity extends Activity {
             case "claude" -> new int[]{R.drawable.ic_sparkle, Ui.ORANGE};
             case "grok" -> new int[]{R.drawable.ic_sparkle, Ui.GRAY};
             case "nim" -> new int[]{R.drawable.ic_sparkle, Ui.GREEN};
+            case "groq" -> new int[]{R.drawable.ic_bolt, Ui.ORANGE};
             case "ai" -> new int[]{R.drawable.ic_tune, Ui.INDIGO};
             case "connectors" -> new int[]{R.drawable.ic_plug, Ui.TEAL};
             case "github" -> new int[]{R.drawable.ic_repo, Ui.INDIGO};
