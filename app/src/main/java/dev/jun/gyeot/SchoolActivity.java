@@ -447,11 +447,11 @@ public final class SchoolActivity extends Activity {
         List<SchoolBook.Line> all = book.lines(t.id());
         String system = SchoolBook.tutor(t), groqWhy = null;
         if (groq(t)) {
-            // The free tier takes about 8,000 tokens a minute, the answer included: the lesson's newest 4,000 characters.
-            List<SchoolBook.Line> recent = SchoolBook.history(all, 4000);
+            // The free tier takes about 8,000 tokens a minute, the answer included: the lesson's newest 3,000 characters.
+            List<SchoolBook.Line> recent = SchoolBook.history(all, 3000);
             int chars = system.length(); JSONArray turns = new JSONArray();
             for (SchoolBook.Line l : recent) { turns.put(new JSONObject().put("role", l.mine() ? "user" : "assistant").put("content", l.text())); chars += l.text().length(); }
-            if (GroqWork.ready(GroqWork.CHORES, chars + 2500)) {
+            if (GroqWork.ready(GroqWork.CHORES, chars + 2000)) {
                 try { return new String[]{GroqWork.converse(GroqWork.CHORES, system, turns, "low", 0.6, 90_000, cancel), GROQ_LABEL}; }
                 catch (Exception e) { if (ticketStopped()) throw e; groqWhy = e.getMessage(); }
             } else groqWhy = "Groq 무료 한도를 기다리는 중이에요";
