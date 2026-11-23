@@ -265,7 +265,8 @@ public final class SchoolActivity extends Activity {
         if (!detail.isEmpty()) { TextView d = ui.text(detail, 13.5f, 450, MUTED); d.setGravity(Gravity.CENTER); box.addView(d); }
         if (!t.style().isBlank()) { TextView s = ui.label("“" + (t.style().length() > 90 ? t.style().substring(0, 90) + "…" : t.style()) + "”", 13, MUTED); s.setGravity(Gravity.CENTER); s.setPadding(0, ui.dp(8), 0, 0); box.addView(s); }
         String subject = t.subject().isBlank() ? "" : t.subject() + " ";
-        String[] starts = {"오늘은 뭘 배우면 좋을까요?", subject + "기초부터 차근차근 알려 주세요", "제 실력을 간단히 테스트해 주세요"};
+        String[] starts = SchoolBook.method(t.method()).starts().clone();
+        for (int i = 0; i < starts.length; i++) starts[i] = starts[i].replace("%s", subject);
         LinearLayout chips = ui.column(); chips.setGravity(Gravity.CENTER_HORIZONTAL); chips.setPadding(0, ui.dp(18), 0, 0);
         for (String s : starts) chips.addView(ui.pill(s.strip(), 0, false, () -> ask(t, s.strip())), new LinearLayout.LayoutParams(-2, -2));
         for (int i = 1; i < chips.getChildCount(); i++) ((LinearLayout.LayoutParams) chips.getChildAt(i).getLayoutParams()).topMargin = ui.dp(8);
@@ -553,6 +554,13 @@ public final class SchoolActivity extends Activity {
             TextView title = ui.text((String) field[0], FOOTNOTE, 620, MUTED); title.setPadding(ui.dp(4), ui.dp(12), 0, ui.dp(6));
             sheet.body.addView(title); sheet.body.addView((View) field[1]);
         }
+        // 지도법: a preset way of teaching (기본 과외, or 목표부터 거꾸로 · 페테르손식).
+        TextView methodTitle = ui.text("지도법", FOOTNOTE, 620, MUTED); methodTitle.setPadding(ui.dp(4), ui.dp(14), 0, ui.dp(8)); sheet.body.addView(methodTitle);
+        int[] method = {Math.max(0, SchoolBook.METHODS.indexOf(SchoolBook.method(t == null ? "" : t.method())))};
+        String[] methodNames = new String[SchoolBook.METHODS.size()]; for (int i = 0; i < methodNames.length; i++) methodNames[i] = SchoolBook.METHODS.get(i).name();
+        TextView methodAbout = ui.footer(SchoolBook.METHODS.get(method[0]).about());
+        sheet.body.addView(ui.pills(methodNames, method[0], i -> { method[0] = i; methodAbout.setText(SchoolBook.METHODS.get(i).about()); }));
+        sheet.body.addView(methodAbout);
         sheet.body.addView(ui.footer("일부만 적고 ‘AI로 빈칸 채우기’를 누르면 나머지를 어울리게 채워 줘요(Groq 무료 우선). 선생님은 정한 성격과 말투로 1:1 과외를 해요. 기본으로 Groq의 무료 GPT OSS 120B가 답하고, 대화창 아래 모델 이름을 눌러 바꿀 수 있어요."));
         sheet.primary.setText(t == null ? "모시기" : "저장");
         sheet.primary.setOnClickListener(v -> {
@@ -560,8 +568,8 @@ public final class SchoolActivity extends Activity {
             if (n.isEmpty()) { name.setError("이름을 적어 주세요."); return; }
             try {
                 SchoolBook.Teacher saved;
-                if (t == null) saved = book.add(n, subject.getText().toString(), style.getText().toString(), level.getText().toString(), store.groq.connected() ? "groq" : "app");
-                else { SchoolBook.Teacher now = book.teacher(t.id()); saved = (now == null ? t : now).with(n, subject.getText().toString(), style.getText().toString(), level.getText().toString()); book.save(saved); }
+                if (t == null) saved = book.add(n, subject.getText().toString(), style.getText().toString(), level.getText().toString(), store.groq.connected() ? "groq" : "app", SchoolBook.METHODS.get(method[0]).id());
+                else { SchoolBook.Teacher now = book.teacher(t.id()); saved = (now == null ? t : now).with(n, subject.getText().toString(), style.getText().toString(), level.getText().toString(), SchoolBook.METHODS.get(method[0]).id()); book.save(saved); }
                 if (picture[0] != null) book.avatar(saved.id(), picture[0]); else if (cleared[0]) book.avatar(saved.id(), null);
                 this.faces.remove(saved.id());
                 sheet.dismiss();

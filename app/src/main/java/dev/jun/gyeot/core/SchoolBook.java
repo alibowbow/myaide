@@ -18,17 +18,43 @@ import org.json.JSONObject;
  */
 public final class SchoolBook {
     /** One teacher. ai: "groq" (Groq's free GPT OSS 120B) or "app" (the teacher's own choice of the app's AIs). */
-    public record Teacher(String id, String name, String subject, String style, String level, String ai, long made) {
-        public Teacher { name = clean(name, 30); subject = clean(subject, 40); style = clean(style, 600); level = clean(level, 80); ai = "app".equals(ai) ? "app" : "groq"; }
+    public record Teacher(String id, String name, String subject, String style, String level, String ai, long made, String method) {
+        public Teacher { name = clean(name, 30); subject = clean(subject, 40); style = clean(style, 600); level = clean(level, 80); ai = "app".equals(ai) ? "app" : "groq"; method = SchoolBook.method(method).id(); }
         JSONObject json() throws Exception {
-            return new JSONObject().put("id", id).put("name", name).put("subject", subject).put("style", style).put("level", level).put("ai", ai).put("made", made);
+            return new JSONObject().put("id", id).put("name", name).put("subject", subject).put("style", style).put("level", level).put("ai", ai).put("made", made).put("method", method);
         }
         static Teacher of(JSONObject o) {
-            return new Teacher(o.optString("id"), o.optString("name"), o.optString("subject"), o.optString("style"), o.optString("level"), o.optString("ai"), o.optLong("made"));
+            return new Teacher(o.optString("id"), o.optString("name"), o.optString("subject"), o.optString("style"), o.optString("level"), o.optString("ai"), o.optLong("made"), o.optString("method"));
         }
-        public Teacher with(String name, String subject, String style, String level) { return new Teacher(id, name, subject, style, level, ai, made); }
-        public Teacher ai(String value) { return new Teacher(id, name, subject, style, level, value, made); }
+        public Teacher with(String name, String subject, String style, String level, String method) { return new Teacher(id, name, subject, style, level, ai, made, method); }
+        public Teacher ai(String value) { return new Teacher(id, name, subject, style, level, value, made, method); }
     }
+    /**
+     * A teaching method preset: how the lesson goes (lesson replaces the plain 과외 방식) and the ways to begin an empty lesson.
+     * TOP_DOWN is Gabriel Petersson's way of learning with an AI tutor: the goal first, gaps chased down recursively, plain-words
+     * translation, explaining back (Feynman), and trying everything at once.
+     */
+    public record Method(String id, String name, String about, String lesson, String[] starts) {}
+    public static final Method PLAIN = new Method("", "기본 과외", "한 번에 한 개념씩 설명하고, 확인 질문과 연습 문제로 이해를 점검해요.", """
+        과외 방식:
+        - 한 번에 한 개념씩, 학생 수준에 맞춰 짧고 또렷하게 설명해. 쉬운 예시나 비유를 하나 곁들여.
+        - 설명이 끝나면 이해했는지 확인하는 짧은 질문이나 연습 문제를 하나 내. 학생이 답하면 맞은 점을 칭찬하고, 틀린 점은 왜 틀렸는지 힌트부터 줘.
+        - 숙제·문제 풀이를 물으면 정답만 주지 말고 스스로 풀 수 있게 단계별로 이끌어 줘. 학생이 답을 원하면 그때 풀이를 보여 줘.
+        - 학생이 무엇을 배울지 모르면 과목에 맞는 시작점 두세 개를 제안해.
+        """, new String[]{"오늘은 뭘 배우면 좋을까요?", "%s기초부터 차근차근 알려 주세요", "제 실력을 간단히 테스트해 주세요"});
+    public static final Method TOP_DOWN = new Method("topdown", "목표부터 거꾸로 · 페테르손식",
+        "가브리엘 페테르손이 AI로 공부한 방식: 만들 결과물부터 정하고, 해 보다 막히는 곳을 거꾸로 파고들어 빈틈을 메워요. 쉬운 말로 풀고, 내 말로 다시 설명하고, 바로 실험해요.", """
+        지도법: 목표부터 거꾸로 배우기(하향식 프로젝트 학습). 이 순서와 원칙을 지켜.
+        1. 하향식 프로젝트: 1장부터 기초를 가르치지 마. 먼저 학생이 실제로 만들거나 해내고 싶은 최종 결과물(작동하는 프로젝트·풀고 싶은 실제 문제)을 함께 정해. 목표가 정해지면 그 목표에 바로 다가가는 가장 작은 '해 볼 수 있는 첫 단계'(실행할 코드, 직접 풀 실제 문제, 해 볼 과제)부터 줘. 기초는 필요해질 때 배워.
+        2. 꼬리물기 역추적: 학생이 막히거나 '왜?'라고 물으면 그 지점을 단서로 한 층씩 아래로 파고들어: 작동 방식 → 핵심 원리·알고리즘 → 심화(최신 연구·논문의 아이디어) → 바탕이 되는 기초(수학·문법 등). 한 번에 한 층만 내려가고, 지금 어느 층인지 앞에 짧게 표시해(예: [역추적 2층 · 핵심 원리]). 빈틈이 메워지면 '이제 프로젝트로 돌아가요'라며 원래 단계로 돌아와.
+        3. 눈높이 번역·시각화: 어려운 수식이나 개념은 먼저 12살에게 설명하듯 직관과 비유로 풀고, 그다음 정확한 정의나 수식으로 정리해. 그래프·표·그림이 도움이 되면 글로 된 간단한 도식을 그리거나 판서를 권해.
+        4. 역설명(파인만 기법): 개념 하나를 익히면 학생에게 자기 말로 다시 설명해 보라고 해. 학생이 설명하면 틀린 점과 빠진 점을 냉정하고 구체적으로 지적하고, 정확한 부분은 짚어 확인해 줘. 듣기 좋은 칭찬으로 넘기지 마.
+        5. 즉각 실험: 눈으로만 익히게 두지 마. 매번 바로 해 볼 작은 실험 하나를 내(코드를 고쳐 실행하기, 값·파라미터를 바꾸기 전에 결과를 예측하고 확인하기, 직접 계산해 보기). 학생이 결과를 알려 주면 그 결과로 다음 설명을 이어가.
+        - 질문을 많이 하도록 격려해. 하루 수십 개의 질문도 환영이고, 사소한 질문일수록 반겨.
+        - 코딩이 아닌 과목도 같은 원리로: 최종 목표 과제 → 해 보기 → 막힌 곳 역추적 → 내 말로 설명 → 실험.
+        """, new String[]{"제 최종 목표부터 함께 정해 주세요", "바로 해 볼 수 있는 첫 단계를 주세요", "방금 배운 걸 제 말로 설명할게요, 냉정하게 지적해 주세요"});
+    public static final List<Method> METHODS = List.of(PLAIN, TOP_DOWN);
+    public static Method method(String id) { for (Method m : METHODS) if (m.id().equals(id)) return m; return PLAIN; }
     /** One line of a lesson: "user" (the learner) or "teacher", with who answered ("Groq · GPT OSS 120B"). */
     public record Line(String role, String text, long at, String by) {
         JSONObject json() throws Exception { return new JSONObject().put("role", role).put("text", text).put("at", at).put("by", by == null ? "" : by); }
@@ -49,10 +75,11 @@ public final class SchoolBook {
     }
     public synchronized Teacher teacher(String id) { for (Teacher t : teachers()) if (t.id().equals(id)) return t; return null; }
     /** A new teacher, last in the list. */
-    public synchronized Teacher add(String name, String subject, String style, String level, String ai) throws IOException {
+    public synchronized Teacher add(String name, String subject, String style, String level, String ai) throws IOException { return add(name, subject, style, level, ai, ""); }
+    public synchronized Teacher add(String name, String subject, String style, String level, String ai, String method) throws IOException {
         List<Teacher> all = teachers();
         if (all.size() >= TEACHERS) throw new IOException("선생님은 " + TEACHERS + "명까지 모실 수 있어요.");
-        Teacher made = new Teacher(UUID.randomUUID().toString().replace("-", "").substring(0, 12), name, subject, style, level, ai, System.currentTimeMillis());
+        Teacher made = new Teacher(UUID.randomUUID().toString().replace("-", "").substring(0, 12), name, subject, style, level, ai, System.currentTimeMillis(), method);
         if (made.name().isBlank()) throw new IOException("선생님 이름을 적어 주세요.");
         all.add(made); keep(all); return made;
     }
@@ -105,12 +132,9 @@ public final class SchoolBook {
         if (!t.subject().isBlank()) out.append("가르치는 과목·분야: ").append(t.subject()).append('\n');
         if (!t.level().isBlank()) out.append("학생 수준: ").append(t.level()).append('\n');
         if (!t.style().isBlank()) out.append("선생님의 성격·말투·가르치는 방식(이대로 연기해): ").append(t.style()).append('\n');
+        out.append(method(t.method()).lesson());
         out.append("""
-            과외 방식:
-            - 한 번에 한 개념씩, 학생 수준에 맞춰 짧고 또렷하게 설명해. 쉬운 예시나 비유를 하나 곁들여.
-            - 설명이 끝나면 이해했는지 확인하는 짧은 질문이나 연습 문제를 하나 내. 학생이 답하면 맞은 점을 칭찬하고, 틀린 점은 왜 틀렸는지 힌트부터 줘.
-            - 숙제·문제 풀이를 물으면 정답만 주지 말고 스스로 풀 수 있게 단계별로 이끌어 줘. 학생이 답을 원하면 그때 풀이를 보여 줘.
-            - 학생이 무엇을 배울지 모르면 과목에 맞는 시작점 두세 개를 제안해.
+            공통:
             - 모바일 화면이니 길게 늘어놓지 말고, 필요하면 짧은 목록이나 굵은 글씨로 핵심만 정리해. 수식은 평범한 글자로 써(예: x^2 + 3x = 0).
             - 그림이나 칠판 설명이 도움이 될 주제면 '판서 버튼을 누르면 칠판으로 정리해 줄게요'라고 한 줄 덧붙여도 좋아.
             - 학생과 같은 언어로 답하고, 선생님 캐릭터를 끝까지 지켜.""");
