@@ -473,6 +473,10 @@ public final class SchoolActivity extends Activity {
             if (shown != null) avatar.setImageTintList(null);
         };
         showFace.run();
+        avatar.setOnClickListener(v -> {
+            if (picture[0] != null) showLarge(decodeFace(picture[0], 1600), "새 사진 · 저장하면 바뀌어요");
+            else if (t != null && !cleared[0]) showFace(t);
+        });
         EditText name = ui.input("이름 · 예: 김민지", 1, 30), subject = ui.input("과목·분야 · 예: 중학 수학, 영어 회화, 파이썬", 1, 40),
             level = ui.input("내 수준 · 예: 중학교 2학년, 회화 초급, 완전 처음", 1, 80),
             style = ui.input("성격·말투·가르치는 방식 · 예: 다정하고 칭찬을 많이 해요. 비유로 쉽게 설명하고 매번 짧은 퀴즈를 내요.", 3, 600);
@@ -575,7 +579,12 @@ public final class SchoolActivity extends Activity {
     /** The teacher's picture in a circle, or their first letter on a soft color when they have none. */
     private View face(SchoolBook.Teacher t, int size) {
         Drawable picture = faceDrawable(t);
-        if (picture != null) { ImageView view = new ImageView(this); view.setImageDrawable(new AssistantProfile.Circle(picture)); view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); return view; }
+        if (picture != null) {
+            ImageView view = new ImageView(this); view.setImageDrawable(new AssistantProfile.Circle(picture));
+            // Tapped, the picture opens large (the row or bubble under it keeps its own tap).
+            view.setContentDescription(t.name() + " 선생님 사진 크게 보기"); view.setOnClickListener(v -> showFace(t)); Ui.pressable(view, true);
+            return view;
+        }
         TextView letter = ui.text(t.name().isEmpty() ? "?" : t.name().substring(0, Character.charCount(t.name().codePointAt(0))), size * 0.42f, 700, 0xffffffff);
         letter.setGravity(Gravity.CENTER); letter.setIncludeFontPadding(false);
         int[] tones = {0xff5b8def, 0xffe0795a, 0xff3fae8c, 0xffb57bd8, 0xffd9a23c, 0xff5aa7c7, 0xffd1667f};
@@ -592,12 +601,33 @@ public final class SchoolActivity extends Activity {
         catch (Exception | OutOfMemoryError ignored) {}
         return null;
     }
+    /** The teacher's picture large on a dark screen, with their name; a tap anywhere (or back) closes it. */
+    private void showFace(SchoolBook.Teacher t) {
+        File file = book.avatar(t.id()); if (!file.isFile()) return;
+        Drawable large; try { large = decodeFace(java.nio.file.Files.readAllBytes(file.toPath()), 1600); } catch (Exception | OutOfMemoryError e) { large = null; }
+        showLarge(large, t.name() + " 선생님" + (t.subject().isBlank() ? "" : " · " + t.subject()));
+    }
+    private void showLarge(Drawable large, String caption) {
+        if (large == null) return;
+        android.app.Dialog viewer = new android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        LinearLayout box = ui.column(); box.setGravity(Gravity.CENTER); box.setBackgroundColor(0xf0000000); box.setPadding(ui.dp(20), ui.dp(20), ui.dp(20), ui.dp(20));
+        ImageView picture = new ImageView(this); picture.setImageDrawable(large); picture.setScaleType(ImageView.ScaleType.FIT_CENTER); picture.setAdjustViewBounds(true);
+        picture.setBackground(ui.shape(0, R_CARD)); picture.setClipToOutline(true); picture.setContentDescription(caption + " 사진");
+        int side = Math.min(getResources().getDisplayMetrics().widthPixels, getResources().getDisplayMetrics().heightPixels) - ui.dp(40);
+        box.addView(picture, new LinearLayout.LayoutParams(Math.min(side, ui.dp(520)), Math.min(side, ui.dp(520))));
+        TextView name = ui.text(caption, 16, 650, 0xffffffff); name.setGravity(Gravity.CENTER); name.setPadding(0, ui.dp(16), 0, 0);
+        box.addView(name);
+        box.setOnClickListener(v -> viewer.dismiss());
+        viewer.setContentView(box); viewer.setCanceledOnTouchOutside(true);
+        viewer.show();
+    }
     /** A small bitmap of the picture (at most about 192px), enough for the list, the lesson and the form. */
-    private Drawable decodeFace(byte[] bytes) {
+    private Drawable decodeFace(byte[] bytes) { return decodeFace(bytes, 192); }
+    private Drawable decodeFace(byte[] bytes, int largest) {
         try {
             android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
             android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, bounds);
-            int sample = 1; while (Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 192) sample *= 2;
+            int sample = 1; while (Math.max(bounds.outWidth, bounds.outHeight) / (sample * 2) >= largest) sample *= 2;
             android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options(); options.inSampleSize = sample;
             android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
             return bitmap == null ? null : new android.graphics.drawable.BitmapDrawable(getResources(), bitmap);
