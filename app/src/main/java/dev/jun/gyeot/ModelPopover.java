@@ -240,9 +240,14 @@ final class ModelPopover {
         for (String option : ENGINES) {
             String model = selection.model(option);
             String detail = store.ready(option) ? (model.isBlank() ? "" : catalog.label(option, model)) : "연결 필요";
+            // Picking an AI goes straight on to its models (and 생각 깊이) in the same menu, as choosing a model should;
+            // only an AI still to be connected closes it (its settings open instead).
             card.addView(row(WorkBook.author(option), detail, false, option.equals(engine), () -> {
-                dismiss();
-                if (!option.equals(selection.engine())) confirm.accept(() -> chooseEngine.accept(option));
+                if (option.equals(selection.engine())) { main(); return; }
+                confirm.accept(() -> {
+                    chooseEngine.accept(option);
+                    if (window != null && window.isShowing() && store.ready(option) && option.equals(selection.engine())) main(); else dismiss();
+                });
             }));
         }
         resize();
