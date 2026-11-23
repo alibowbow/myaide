@@ -42,6 +42,8 @@ final class TeamRoster {
         });
     }
     String label(String engine, String model) {
+        // Antigravity: a model chosen at one of its levels (a variant's slug) is still shown by the model's name.
+        if (WorkBook.ANTIGRAVITY.equals(engine)) return store.antigravity.label(model);
         JSONArray models = catalog(engine); String name = model;
         for (int i = 0; i < models.length(); i++) {
             JSONObject item = models.optJSONObject(i);

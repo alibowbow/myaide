@@ -90,10 +90,16 @@ public final class SchoolActivity extends Activity {
 
     // ── the layout ───────────────────────────────────────────────────────
 
+    /** A teacher kept on the retired "Antigravity · 구독" choice: now the app's AIs with Antigravity chosen, as every screen offers it. */
+    private void migrateAgy(List<SchoolBook.Teacher> teachers) {
+        for (SchoolBook.Teacher t : teachers) if ("agy".equals(t.ai())) {
+            try { ScopedModels.tutor(store, t.id()).chooseEngine(dev.jun.gyeot.core.WorkBook.ANTIGRAVITY); book.save(t.ai("app")); } catch (Exception ignored) {}
+        }
+    }
     /** The whole screen again: both panes on a wide screen, the list or the lesson on a phone. */
     private void draw() {
         wide = wideScreen();
-        List<SchoolBook.Teacher> teachers = book.teachers();
+        List<SchoolBook.Teacher> teachers = book.teachers(); migrateAgy(teachers); teachers = book.teachers();
         SchoolBook.Teacher open = openId == null ? null : book.teacher(openId);
         if (open == null) openId = null;
         if (open == null && wide && !teachers.isEmpty()) { open = teachers.get(0); openId = open.id(); }
@@ -345,7 +351,7 @@ public final class SchoolActivity extends Activity {
     private boolean groq(SchoolBook.Teacher t) { return "groq".equals(t.ai()) && store.groq.connected(); }
     private void modelLabel(SchoolBook.Teacher t) {
         if (model == null) return;
-        String[] parts = groq(t) ? new String[]{GROQ_LABEL, "무료"} : "agy".equals(t.ai()) ? new String[]{"Antigravity", "구독"} : appParts(t);
+        String[] parts = groq(t) ? new String[]{GROQ_LABEL, "무료"} : appParts(t);
         android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(parts[0]);
         label.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, label.length(), 0);
         if (!parts[1].isEmpty()) { int at = label.length(); label.append("  ").append(parts[1]); label.setSpan(new android.text.style.ForegroundColorSpan(MUTED), at, label.length(), 0); }
@@ -369,10 +375,9 @@ public final class SchoolActivity extends Activity {
         // Groq's free model and Antigravity (the subscription, in the app's Linux) when they are there, and the app's AIs.
         java.util.List<String> labels = new java.util.ArrayList<>(), ids = new java.util.ArrayList<>();
         if (store.groq.connected()) { labels.add(GROQ_LABEL + " · 무료"); ids.add("groq"); }
-        if (AntigravityCli.installed(this)) { labels.add("Antigravity · 구독"); ids.add("agy"); }
         if (ids.isEmpty()) { appModels(t); return; }
         labels.add("앱의 AI · " + appParts(t)[0]); ids.add("app");
-        String current = groq(t) ? "groq" : "agy".equals(t.ai()) && AntigravityCli.installed(this) ? "agy" : "app";
+        String current = groq(t) ? "groq" : "app";
         ui.miniMenu(model, labels.toArray(new String[0]), ids.indexOf(current), i -> {
             SchoolBook.Teacher now = book.teacher(t.id()); if (now == null) return;
             String want = ids.get(i);
@@ -451,8 +456,6 @@ public final class SchoolActivity extends Activity {
         if (t == null) throw new IllegalStateException("이 선생님을 찾지 못했어요.");
         List<SchoolBook.Line> all = book.lines(t.id());
         String system = SchoolBook.tutor(t), groqWhy = null;
-        if ("agy".equals(t.ai()) && AntigravityCli.installed(this))
-            return new String[]{store.antigravity.ask(store.antigravity.model(), system, SchoolBook.transcript(SchoolBook.history(all, 16000)), cancel), "Antigravity · " + store.antigravity.label(store.antigravity.model())};
         if (groq(t)) {
             // The free tier takes about 8,000 tokens a minute, the answer included: the lesson's newest 3,000 characters.
             List<SchoolBook.Line> recent = SchoolBook.history(all, 3000);

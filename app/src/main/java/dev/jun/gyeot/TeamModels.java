@@ -30,7 +30,8 @@ final class TeamModels {
         String first = count == 0 ? "" : Integer.toHexString(turns.optJSONObject(0) == null ? 0 : turns.optJSONObject(0).optString("content").hashCode());
         String key = surface + ":" + first;
         AntigravityAccount.Session kept = store.antigravity.session(key);
-        boolean resume = kept != null && !kept.id().isEmpty() && kept.model().equals(model) && kept.sent() > 0 && kept.sent() < count;
+        String sent = store.antigravity.slug(model, effort);
+        boolean resume = kept != null && !kept.id().isEmpty() && kept.model().equals(sent) && kept.sent() > 0 && kept.sent() < count;
         StringBuilder talk = new StringBuilder();
         for (int i = resume ? kept.sent() : 0; i < count; i++) {
             JSONObject turn = turns.optJSONObject(i); if (turn == null || turn.optString("content").isBlank()) continue;
@@ -45,10 +46,10 @@ final class TeamModels {
         stage.accept("Antigravity가 답하는 중");
         guard.run();
         AgyRunner.Result r;
-        try { r = AgyRunner.run(store.antigravity.context(), model, effort, resume ? kept.id() : "", prompt, tools, pieces, stage, guard, cancel, 900_000); }
+        try { r = AgyRunner.run(store.antigravity.context(), store.antigravity.slug(model, effort), store.antigravity.flag(model, effort), resume ? kept.id() : "", prompt, tools, pieces, stage, guard, cancel, 900_000); }
         catch (Exception e) { if (resume) store.antigravity.remember(key, null); throw e; }
         // The answer joins the room as the next turn: agy has read up to and including it.
-        if (!r.conversation().isEmpty()) store.antigravity.remember(key, new AntigravityAccount.Session(r.conversation(), count + 1, first, model));
+        if (!r.conversation().isEmpty()) store.antigravity.remember(key, new AntigravityAccount.Session(r.conversation(), count + 1, first, sent));
         return new WorkClient.Result(r.text(), new JSONArray(), new JSONArray(), "", "", new JSONArray(), "", store.antigravity.label(model));
     }
     void check(String engine) {

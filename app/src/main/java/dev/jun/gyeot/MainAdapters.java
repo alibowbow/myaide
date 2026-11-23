@@ -170,7 +170,7 @@ final class MainAdapters {
     private static Reply antigravity(AppStore app, String model, String effort, MainRequest request, WorkTools tools, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
         guard.run();
         String prompt = request.instructions() + (tools == null ? "" : tools.instructions()) + "\n\n" + request.input();
-        AgyRunner.Result r = AgyRunner.run(app.antigravity.context(), model, effort, "", prompt, tools, request.onText(), null, guard, cancel, 600_000);
+        AgyRunner.Result r = AgyRunner.run(app.antigravity.context(), app.antigravity.slug(model, effort), app.antigravity.flag(model, effort), "", prompt, tools, request.onText(), null, guard, cancel, 600_000);
         return new Reply(r.text(), new JSONArray(), "");
     }
     private static Reply nim(NimAccount account, long expected, String model, MainRequest request, WorkTools tools, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {

@@ -27,20 +27,66 @@ final class AntigravityAccount {
     /** Installed and signed in at the last check (설정 → Antigravity · 상태 확인). */
     boolean connected() { return settings.getBoolean("agySignedIn", false) && AntigravityCli.installed(context); }
     /** agy's models as [{id, name}], the default first; the list read at the last check. */
+    /**
+     * agy's models as the other engines show theirs: one entry per model ({id, name}), its reasoning levels (agy lists them
+     * as variants, "Gemini 4 Neon (High)") under 생각 깊이 instead of as models of their own. The id is the variant sent when
+     * no level is chosen. "agy 기본 모델" only while agy has listed none.
+     */
     JSONArray models() {
-        JSONArray out = new JSONArray().put(item(DEFAULT, "agy 기본 모델"));
-        try { JSONArray saved = new JSONArray(settings.getString("agyModels", "[]")); for (int i = 0; i < saved.length(); i++) out.put(saved.get(i)); } catch (Exception ignored) {}
+        JSONArray out = new JSONArray();
+        for (Group g : groups()) out.put(item(g.base(), g.name()));
+        if (out.length() == 0) out.put(item(DEFAULT, "agy 기본 모델"));
         return out;
     }
-    String model() { String m = settings.getString("agyModel", DEFAULT); return listed(m) ? m : DEFAULT; }
-    void model(String id) { settings.edit().putString("agyModel", listed(id) ? id : DEFAULT).apply(); changed.run(); }
-    boolean listed(String id) { JSONArray all = models(); for (int i = 0; i < all.length(); i++) if (id.equals(all.optJSONObject(i).optString("id"))) return true; return false; }
-    String label(String id) { JSONArray all = models(); for (int i = 0; i < all.length(); i++) if (id.equals(all.optJSONObject(i).optString("id"))) return all.optJSONObject(i).optString("name", id); return id; }
-    /** The reasoning levels agy's --effort takes (read from agy --help), as agy names them; none when it offers none. */
+    /** One model of agy's list with its reasoning variants: level (lower case, as agy names it) → the slug agy takes. */
+    record Group(String name, java.util.LinkedHashMap<String, String> levels, String plain) {
+        /** The slug used for the model itself: its plain one, else the high variant, else the first. */
+        String base() { return plain != null ? plain : levels.containsKey("high") ? levels.get("high") : levels.values().iterator().next(); }
+        String defaultLevel() { return plain != null || levels.isEmpty() ? "" : levels.containsKey("high") ? "high" : levels.keySet().iterator().next(); }
+    }
+    private static final Pattern VARIANT = Pattern.compile("^(.*?)\\s*\\(\\s*(none|minimal|low|medium|high|xhigh|max|ultra)\\s*\\)\\s*$", Pattern.CASE_INSENSITIVE);
+    List<Group> groups() {
+        java.util.LinkedHashMap<String, Group> byName = new java.util.LinkedHashMap<>();
+        try {
+            JSONArray saved = new JSONArray(settings.getString("agyModels", "[]"));
+            for (int i = 0; i < saved.length(); i++) {
+                JSONObject o = saved.optJSONObject(i); if (o == null) continue;
+                String id = o.optString("id"), name = o.optString("name", id); Matcher v = VARIANT.matcher(name);
+                String base = v.matches() ? v.group(1).strip() : name.strip(), level = v.matches() ? v.group(2).toLowerCase(java.util.Locale.ROOT) : null;
+                Group g = byName.get(base);
+                if (g == null) { g = new Group(base, new java.util.LinkedHashMap<>(), level == null ? id : null); byName.put(base, g); }
+                else if (level == null && g.plain() == null) { g = new Group(base, g.levels(), id); byName.put(base, g); }
+                if (level != null) g.levels().putIfAbsent(level, id);
+            }
+        } catch (Exception ignored) {}
+        return new java.util.ArrayList<>(byName.values());
+    }
+    /** The model a slug belongs to (a variant's slug finds its model too), or null. */
+    Group group(String id) { for (Group g : groups()) if (id.equals(g.plain()) || g.levels().containsValue(id)) return g; return null; }
+    String model() { String m = settings.getString("agyModel", ""); Group g = group(m); return g != null ? g.base() : models().optJSONObject(0).optString("id", DEFAULT); }
+    void model(String id) { Group g = group(id); settings.edit().putString("agyModel", g == null ? DEFAULT : g.base()).apply(); changed.run(); }
+    boolean listed(String id) { return DEFAULT.equals(id) || group(id) != null; }
+    String label(String id) { Group g = group(id); return g != null ? g.name() : DEFAULT.equals(id) ? "agy 기본 모델" : id; }
+    /** 생각 깊이 as the other engines offer it: the model's own variants (or, for a model without them, --effort's levels). */
     Reasoning.Profile profile(String model) {
+        Group g = group(model == null ? "" : model);
+        if (g != null && !g.levels().isEmpty()) return Reasoning.Profile.of(new java.util.ArrayList<>(g.levels().keySet()), g.defaultLevel());
         List<String> levels = new java.util.ArrayList<>();
         try { JSONArray saved = new JSONArray(settings.getString("agyEfforts", "[]")); for (int i = 0; i < saved.length(); i++) levels.add(saved.optString(i)); } catch (Exception ignored) {}
         return Reasoning.Profile.of(levels, "");
+    }
+    /** The slug agy is asked for: the model's variant for the chosen level (its default when none is chosen). */
+    String slug(String model, String effort) {
+        Group g = group(model == null ? "" : model); if (g == null) return model;
+        if (g.levels().isEmpty()) return g.base();
+        String level = profile(model).resolve(effort == null ? "" : effort);
+        return g.levels().getOrDefault(level, g.base());
+    }
+    /** --effort: only for a model agy lists without variants (a variant's level is in its slug already). */
+    String flag(String model, String effort) {
+        Group g = group(model == null ? "" : model);
+        if (g != null && !g.levels().isEmpty()) return "";
+        return profile(model).normalize(effort == null ? "" : effort);
     }
     /** The level chosen in 설정 for agy's own default; a room's own choice (ScopedModels) goes first. */
     String effort(String model) { String e = settings.getString("agyEffort", ""); return profile(model).normalize(e); }
@@ -90,7 +136,7 @@ final class AntigravityAccount {
     /** One answer from agy on the chosen model: the instructions and the input in one message, no tools. Blocking. */
     String ask(String model, String instructions, String input, AtomicReference<Runnable> cancel) throws Exception {
         String prompt = (instructions == null || instructions.isBlank() ? "" : instructions.strip() + "\n\n") + (input == null ? "" : input.strip());
-        return AgyRunner.run(context, model, effort(model), "", prompt, null, null, null, null, cancel, 300_000).text();
+        return AgyRunner.run(context, slug(model, effort(model)), flag(model, effort(model)), "", prompt, null, null, null, null, cancel, 300_000).text();
     }
 
     // ── a room's own agy conversation (--conversation), so a turn sends only what is new ──
