@@ -39,6 +39,8 @@ final class GeminiQuotas {
     /** Google refused it (status and error body): true when the next model should be tried (quota used up, resting, or not usable). */
     static boolean refused(String model, int status, String body) {
         AppStore s = store; if (s == null) return false;
+        // The app's light work goes with the 작업창·메인 대화 key: Google naming the free tier's limit marks that key 무료.
+        if (GeminiKeyRing.freeTierAnswer(status, body)) try { s.geminiKeys.sawFreeTier(s.secrets.workKey()); } catch (Exception ignored) {}
         return s.changeGeminiQuota(state -> GeminiQuota.refused(state, model, status, body, System.currentTimeMillis()), true);
     }
     /** The first of models this key can use, or null when it can use none (no store: the first). */

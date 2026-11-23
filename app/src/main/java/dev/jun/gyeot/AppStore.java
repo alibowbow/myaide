@@ -46,6 +46,7 @@ final class AppStore {
     final NimAccount nim;
     /** Groq's API key and the models it can use (GroqAccount). */
     final GroqAccount groq;
+    final GeminiKeyRing geminiKeys;
     private JSONArray videos = new JSONArray();
     private boolean videosUnreadable;
     /** The other analysis LLM: Claude with an Anthropic API key. */
@@ -175,6 +176,7 @@ final class AppStore {
         drive = new GoogleDriveAccount(context, settings, this::changed);
         nim = new NimAccount(secrets, settings, this::changed);
         groq = new GroqAccount(secrets, settings, this::changed);
+        geminiKeys = new GeminiKeyRing(secrets);
         retireDecisions();
         retireGeminiPlan();
         try {

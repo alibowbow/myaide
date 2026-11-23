@@ -3937,20 +3937,24 @@ public final class MainActivity extends Activity {
      */
     private void pageKey() {
         boolean saved = store.secrets.hasKey();
+        java.util.List<GeminiKeyRing.Key> ring; try { ring = store.geminiKeys.keys(); } catch (Exception e) { ring = new java.util.ArrayList<>(); }
+        int free = 0, paid = 0; for (GeminiKeyRing.Key k : ring) { if (GeminiKeyRing.FREE.equals(k.tier())) free++; else if (GeminiKeyRing.PAID.equals(k.tier())) paid++; }
         add(ui.statusCard(R.drawable.ic_sparkle, Ui.BLUE, saved ? "연결됨" : "연결 안 됨", !saved ? "음성 비서를 쓰려면 API 키가 필요해요"
-            : store.gemini.ownKey() ? "API 키 2개 · 음성 비서용과 다른 기능용" : "API 키 1개 · 모든 기능에서 같이 써요", null), 0);
+            : "API 키 " + ring.size() + "개" + (free + paid == 0 ? "" : " · " + (free > 0 ? "무료 " + free : "") + (free > 0 && paid > 0 ? " · " : "") + (paid > 0 ? "유료 " + paid : "")), null), 0);
 
         add(ui.sectionHeader("API 키"), 0);
-        if (!saved) {
-            add(ui.button("API 키 넣기", true, () -> geminiKeySheet(false)), 0);
-            TextView studio = ui.quietRow("키가 없나요? AI Studio에서 무료로 받아요 ›", () -> open("https://aistudio.google.com/api-keys")); studio.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), 0);
-            add(studio, 0);
-        } else {
-            LinearLayout keys = ui.group();
-            ui.addRow(keys, ui.listRow(0, 0, "음성 비서 키", "저장됨 · 음성 대화·Gemini 두뇌·디시전 · 눌러서 바꾸기", ui.chevron(), () -> geminiKeySheet(true)), false);
-            add(keys, 0);
+        // Every key kept: its name and tier, its start and end, and what it does now; a tap manages it, 키 추가 adds one.
+        LinearLayout keys = ui.group();
+        for (GeminiKeyRing.Key k : ring) {
+            String roles = store.geminiKeys.roles(k);
+            LinearLayout row = ui.listRow(0, 0, k.name() + " · " + GeminiKeyRing.tierLabel(k.tier()), GeminiKeyRing.masked(k.value()) + " · " + (roles.isEmpty() ? "보관만 해 둠" : roles), ui.chevron(), () -> geminiKeyManage(k));
+            ((Ui.ListRow) row).parts.subtitle().setSingleLine(false); ((Ui.ListRow) row).parts.subtitle().setMaxLines(2);
+            ui.addRow(keys, row, false);
         }
-        // The optional second key (its row redraws by itself when its state changes).
+        ui.addRow(keys, ui.listRow(R.drawable.ic_add, ACCENT, ring.isEmpty() ? "API 키 넣기" : "키 추가", "여러 개 넣어 두고 음성 비서·작업창에 나눠 써요", ui.chevron(), this::geminiKeyAdd), false);
+        add(keys, 0);
+        if (ring.isEmpty()) { TextView studio = ui.quietRow("키가 없나요? AI Studio에서 무료로 받아요 ›", () -> open("https://aistudio.google.com/api-keys")); studio.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), 0); add(studio, 0); }
+        // The 작업창 key's check (its model list) says how it went here.
         geminiWorkBox = ui.column(); add(geminiWorkBox, 0); lastGeminiWork = ""; refreshGeminiWork();
         add(ui.footer("무료 한도는 Google Cloud 프로젝트마다 따로예요. 다른 프로젝트의 키를 넣으면 음성 대화와 한도를 나눠 쓰지 않아요."), 0);
         add(ui.details("어느 키를 어디에 쓰나요", "작업창·메인 대화 키: 메인 대화·작업창·입력칸 받아쓰기·파일 AI·에이전트 팀·Gemini 분석·브라우저의 Gemini, 요약·검색·임베딩 같은 앱의 가벼운 일. 비워 두면 음성 비서 키를 같이 써요.\n음성 비서 키: 음성 대화·Gemini Flash 두뇌·Gemini 디시전."), 12);
@@ -3983,17 +3987,62 @@ public final class MainActivity extends Activity {
         add(off, 0);
         add(ui.footer("음성과 요청은 Google API로 보내요. 키는 이 기기에만 암호화해 두고 앱 백업에서 빼요."), 16);
     }
-    /** The voice assistant's key, typed only in this sheet: 넣기 or 바꾸기. Closing it saves nothing. */
-    private void geminiKeySheet(boolean change) {
-        Ui.Sheet sheet = ui.secretSheet(change ? "Gemini API 키 바꾸기" : "Gemini API 키", change ? "저장하면 다음 음성 대화부터 새 키를 써요" : "Google AI Studio에서 무료로 받을 수 있어요",
-            "Gemini API 키 붙여 넣기", 200, change ? "바꾸기" : "저장", (s, field) -> {
-                String value = field.getText().toString();
-                if (value.isBlank()) { field.setError("새 키를 입력해 주세요"); return; }
-                try { store.secrets.put(value.trim()); } catch (Exception e) { field.setError(e.getMessage() == null ? "키 형식을 확인해 주세요." : e.getMessage()); return; }
-                s.dismiss(); store.error = ""; store.status("API 키를 저장했어요 · 연결 확인을 눌러 점검해 보세요"); showTab(2);
-            });
-        sheet.body.addView(ui.label("키는 이 기기에만 암호화해 둬요.", 12, MUTED));
+    /** 키 추가: the key typed only here, its name and tier; the first key becomes 음성 비서's. Closing it saves nothing. */
+    private void geminiKeyAdd() {
+        String[] tier = {GeminiKeyRing.FREE};
+        EditText name = ui.input("이름 (예: 개인 무료, 회사 유료)", 1, 30);
+        Ui.Sheet sheet = ui.secretSheet("Gemini API 키 추가", "Google AI Studio에서 받은 키 · 이 기기에만 암호화해 둬요", "Gemini API 키 붙여 넣기", 200, "추가", (s, field) -> {
+            String value = field.getText().toString().strip();
+            if (value.isEmpty()) { field.setError("키를 입력해 주세요"); return; }
+            try { store.geminiKeys.add(value, name.getText().toString(), tier[0]); } catch (Exception e) { field.setError(e.getMessage() == null ? "키를 저장하지 못했어요." : e.getMessage()); return; }
+            s.dismiss(); store.error = ""; store.status("키를 추가했어요 · 눌러서 음성 비서나 작업창에 쓸 수 있어요"); showTab(2);
+        });
+        TextView nameTitle = ui.text("이름", FOOTNOTE, 620, MUTED); nameTitle.setPadding(ui.dp(4), ui.dp(12), 0, ui.dp(6)); sheet.body.addView(nameTitle); sheet.body.addView(name);
+        TextView tierTitle = ui.text("등급", FOOTNOTE, 620, MUTED); tierTitle.setPadding(ui.dp(4), ui.dp(12), 0, ui.dp(6)); sheet.body.addView(tierTitle);
+        sheet.body.addView(ui.pills(new String[]{"무료", "유료 (결제 연결)"}, 0, i -> tier[0] = i == 0 ? GeminiKeyRing.FREE : GeminiKeyRing.PAID));
+        sheet.body.addView(ui.footer("무료로 고른 키가 아니어도, Google이 무료 한도로 답하면 저절로 ‘무료’로 바꿔 표시해요."));
         sheet.body.addView(ui.actions(ui.chip("AI Studio에서 키 받기", () -> open("https://aistudio.google.com/api-keys"))));
+        sheet.show();
+    }
+    /** One key: its name and tier, where it is used (음성 비서 · 작업창·메인 대화), and 지우기. */
+    private void geminiKeyManage(GeminiKeyRing.Key key) {
+        Ui.Sheet sheet = ui.selectionSheet(key.name(), GeminiKeyRing.masked(key.value()) + " · " + GeminiKeyRing.tierLabel(key.tier()));
+        EditText name = ui.input("이름", 1, 30); name.setText(key.name());
+        TextView nameTitle = ui.text("이름", FOOTNOTE, 620, MUTED); nameTitle.setPadding(ui.dp(4), ui.dp(4), 0, ui.dp(6)); sheet.body.addView(nameTitle); sheet.body.addView(name);
+        String[] tier = {key.tier()};
+        TextView tierTitle = ui.text("등급", FOOTNOTE, 620, MUTED); tierTitle.setPadding(ui.dp(4), ui.dp(12), 0, ui.dp(6)); sheet.body.addView(tierTitle);
+        sheet.body.addView(ui.pills(new String[]{"무료", "유료 (결제 연결)"}, GeminiKeyRing.PAID.equals(key.tier()) ? 1 : GeminiKeyRing.FREE.equals(key.tier()) ? 0 : -1, i -> tier[0] = i == 0 ? GeminiKeyRing.FREE : GeminiKeyRing.PAID));
+        if (!key.note().isBlank()) sheet.body.addView(ui.footer(key.note()));
+        String roles = store.geminiKeys.roles(key);
+        boolean voice = roles.contains("음성 비서"), work = roles.contains("작업창");
+        TextView useTitle = ui.text("어디에 쓸까요 · 지금 " + (roles.isEmpty() ? "쓰지 않아요" : roles), FOOTNOTE, 620, MUTED); useTitle.setPadding(ui.dp(4), ui.dp(16), 0, ui.dp(6)); sheet.body.addView(useTitle);
+        LinearLayout uses = ui.group();
+        if (!voice) ui.addRow(uses, ui.listRow(0, 0, "음성 비서에 쓰기", "음성 대화·Gemini 두뇌·디시전 · 다음 음성 대화부터", ui.chevron(), () -> {
+            try { store.secrets.put(key.value()); } catch (Exception e) { store.error(e.getMessage()); return; }
+            sheet.dismiss(); store.status("‘" + key.name() + "’ 키로 음성 비서를 써요"); showTab(2);
+        }), false);
+        if (!work) ui.addRow(uses, ui.listRow(0, 0, "작업창·메인 대화에 쓰기", "작업창·메인 대화·받아쓰기·요약·검색 같은 앱의 일 · 키를 확인한 뒤 바꿔요", ui.chevron(), () -> {
+            store.gemini.saveKey(voice ? "" : key.value()); sheet.dismiss(); showTab(2);
+        }), false);
+        if (voice && work) uses.addView(ui.footer("음성 비서와 작업창·메인 대화에 모두 쓰고 있어요. 다른 키를 골라 나눠 쓸 수 있어요."));
+        else if (work && !store.gemini.ownKey()) uses.addView(ui.footer("작업창·메인 대화가 음성 비서 키를 같이 쓰는 중이에요."));
+        sheet.body.addView(uses);
+        LinearLayout danger = ui.group();
+        ui.addRow(danger, ui.dangerRow("이 키 지우기", voice ? "음성 비서에 쓰는 키예요 · 지우면 다른 키를 골라야 해요" : work ? "지우면 작업창은 음성 비서 키를 같이 써요" : "보관만 해 둔 키예요", () -> {
+            sheet.dismiss();
+            confirm("‘" + key.name() + "’ 키를 지울까요?" + (voice ? " 음성 비서는 다른 키를 고를 때까지 쓸 수 없어요." : ""), "지우기", () -> {
+                if (voice) send(AssistantService.STOP, null, null);
+                try { store.geminiKeys.remove(key); store.status("키를 지웠어요"); } catch (Exception e) { store.error(e.getMessage()); }
+                showTab(2);
+            });
+        }), false);
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, -2); gap.topMargin = ui.dp(12); sheet.body.addView(danger, gap);
+        sheet.primary.setText("저장");
+        sheet.primary.setOnClickListener(v -> {
+            String n = name.getText().toString().strip();
+            try { store.geminiKeys.change(key.named(n.isEmpty() ? key.name() : n).tiered(tier[0], tier[0].equals(key.tier()) ? key.note() : "")); } catch (Exception e) { store.error(e.getMessage()); return; }
+            sheet.dismiss(); showTab(2);
+        });
         sheet.show();
     }
     /** Rebuilds only the 작업창·메인 대화 key row and its notice when their state changes. */
@@ -4005,32 +4054,10 @@ public final class MainActivity extends Activity {
         // The status card above says how many keys there are: a saved or removed second key redraws the page.
         if (!lastGeminiWork.isEmpty() && !lastGeminiWork.startsWith(own + "\u0000") && tab == 2 && "key".equals(settingsPage)) { showTab(2); return; }
         lastGeminiWork = fingerprint; geminiWorkBox.removeAllViews();
-        LinearLayout group = ui.group();
-        ui.addRow(group, ui.listRow(0, 0, "작업창·메인 대화 키 (선택)", own ? "저장됨 · " + store.gemini.label() : store.secrets.hasKey() ? "비워 둠 · 음성 비서 키를 같이 써요" : "비워 둠 · 키가 없어요",
-            ui.chevron(), this::geminiWorkKeySheet), false);
-        geminiWorkBox.addView(group);
         if (!store.gemini.notice.isBlank()) {
             TextView notice = ui.label(store.gemini.notice, 13, store.gemini.notice.endsWith("…") ? TEXT : ERROR); notice.setPadding(ui.dp(16), ui.dp(10), ui.dp(16), 0);
             geminiWorkBox.addView(notice);
         }
-    }
-    /** The second key, for 작업창 and 메인 대화: checked by reading its model list, then kept; without it they use the key above. */
-    private void geminiWorkKeySheet() {
-        boolean own = store.gemini.ownKey();
-        Ui.Sheet sheet = ui.secretSheet("작업창·메인 대화용 Gemini 키", "비워 두면 위의 키를 같이 써요", own ? "다른 키로 바꾸기" : "Gemini API 키 붙여 넣기", 200, "저장", (s, field) -> {
-            String value = field.getText().toString().strip();
-            if (value.isEmpty()) { field.setError("키를 입력해 주세요"); return; }
-            try { store.gemini.saveKey(value); } catch (Exception e) { field.setError(e.getMessage() == null ? "키를 저장하지 못했어요." : e.getMessage()); return; }
-            s.dismiss();
-        });
-        if (own) {
-            LinearLayout remove = ui.group();
-            ui.addRow(remove, ui.dangerRow("따로 쓰는 키 지우기", "지우면 위의 키를 같이 써요", () -> {
-                sheet.dismiss(); confirm("따로 쓰는 키를 지울까요? 지우면 위의 키를 같이 써요.", "지우기", () -> store.gemini.saveKey(""));
-            }), false);
-            LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, -2); gap.topMargin = ui.dp(6); sheet.body.addView(remove, gap);
-        }
-        sheet.show();
     }
     /** ChatGPT: a subscription sign-in or an OpenAI API key, the voice assistant's model, and 이미지용 Codex. */
     private void pageChatgpt() {
