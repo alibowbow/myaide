@@ -31,8 +31,13 @@ final class GroqWork {
 
     /** One chat request: instructions and input, the answer's text. reasoning: GPT OSS's effort (low keeps 잡일 quick). */
     static String chat(String model, String instructions, String input, String reasoning, int timeoutMs, AtomicReference<Runnable> cancel) throws Exception {
-        JSONObject body = new JSONObject().put("model", model).put("temperature", 0.3)
-            .put("messages", new JSONArray().put(new JSONObject().put("role", "system").put("content", instructions)).put(new JSONObject().put("role", "user").put("content", input)));
+        return converse(model, instructions, new JSONArray().put(new JSONObject().put("role", "user").put("content", input)), reasoning, 0.3, timeoutMs, cancel);
+    }
+    /** A conversation (user/assistant messages, oldest first) after the instructions; the answer's text. */
+    static String converse(String model, String instructions, JSONArray turns, String reasoning, double temperature, int timeoutMs, AtomicReference<Runnable> cancel) throws Exception {
+        JSONArray messages = new JSONArray().put(new JSONObject().put("role", "system").put("content", instructions));
+        for (int i = 0; i < turns.length(); i++) messages.put(turns.get(i));
+        JSONObject body = new JSONObject().put("model", model).put("temperature", temperature).put("messages", messages);
         if (reasoning != null && model.startsWith("openai/gpt-oss")) body.put("reasoning_effort", reasoning);
         JSONObject answer = post(model, "chat/completions", "application/json", body.toString().getBytes(StandardCharsets.UTF_8), timeoutMs, cancel);
         JSONArray choices = answer.optJSONArray("choices");
