@@ -199,7 +199,13 @@ final class ScopedModels {
     String engine() { if (store.scopedModelsUnavailable) return ""; return snapshot().optString("engine"); }
     String readyEngine() { String e = engine(); return store.ready(e) ? e : ""; }
     /** This scope's saved model for engine, a replaced one read as its successor (core/ModelIds). */
-    String model(String engine) { if (store.scopedModelsUnavailable) return ""; JSONObject m = snapshot().optJSONObject("models"); return m == null ? "" : ModelIds.current(engine, m.optString(engine)); }
+    /** The model chosen here for engine; one this selection has none for (an AI added after it was made) is the AI's own default. */
+    String model(String engine) {
+        if (store.scopedModelsUnavailable) return "";
+        JSONObject m = snapshot().optJSONObject("models"); String saved = m == null ? "" : ModelIds.current(engine, m.optString(engine));
+        if (!saved.isBlank() || engine == null || engine.isBlank()) return saved;
+        try { return ModelIds.current(engine, new TeamRoster(store).selected(engine)); } catch (Exception unavailable) { return ""; }
+    }
     String effort(String engine, String model) { if (store.scopedModelsUnavailable) return ""; JSONObject e = snapshot().optJSONObject("efforts"); return new TeamRoster(store).profile(engine, model).normalize(e == null ? "" : e.optString(engine + ":" + model)); }
     String speed(String model) {
         JSONObject saved = snapshot(); JSONObject speeds = saved.optJSONObject("speeds");
