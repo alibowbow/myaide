@@ -45,18 +45,26 @@ public final class RealtimeVoice {
     /** What the transcription is told: Korean speech that calls the assistant 퍼레, so a call is written as its name. */
     static final String TRANSCRIBE_HINT = "한국어 대화예요. 사용자는 비서를 '퍼레', '퍼레야', '들퍼레'라고 불러요.";
     /** As above, with function tools (tools(): JSON Schema parameters) the model may call. */
-    public static JSONObject session(Kind kind, String instructions, String voice, org.json.JSONArray tools) {
+    public static JSONObject session(Kind kind, String instructions, String voice, org.json.JSONArray tools) { return session(kind, instructions, voice, tools, true); }
+    /**
+     * tuned: turn-taking that waits for the whole sentence (a pause of ~0.7s, not the first breath, ends a turn; a little
+     * noise does not start one) and the stronger transcription; false is the servers' plain defaults, for a server that
+     * refuses the tuned fields.
+     */
+    public static JSONObject session(Kind kind, String instructions, String voice, org.json.JSONArray tools, boolean tuned) {
         JSONObject format = obj("type", "audio/pcm", "rate", RATE);
         String chosen = kind.voice(voice);
         JSONObject session;
         if (kind == Kind.GPT) {
             session = obj("type", "realtime", "instructions", instructions, "output_modalities", arr("audio"),
                 "audio", obj(
-                    "input", obj("format", format, "transcription", obj("model", "gpt-4o-mini-transcribe", "language", "ko", "prompt", TRANSCRIBE_HINT),
-                        "turn_detection", obj("type", "semantic_vad", "create_response", true, "interrupt_response", true)),
+                    "input", obj("format", format, "transcription", obj("model", tuned ? "gpt-4o-transcribe" : "gpt-4o-mini-transcribe", "language", "ko", "prompt", TRANSCRIBE_HINT),
+                        "turn_detection", tuned ? obj("type", "semantic_vad", "eagerness", "low", "create_response", true, "interrupt_response", true)
+                            : obj("type", "semantic_vad", "create_response", true, "interrupt_response", true)),
                     "output", obj("format", obj("type", "audio/pcm", "rate", RATE), "voice", chosen)));
         } else {
-            session = obj("instructions", instructions, "voice", chosen, "turn_detection", obj("type", "server_vad"),
+            session = obj("instructions", instructions, "voice", chosen,
+                "turn_detection", tuned ? obj("type", "server_vad", "threshold", 0.6, "prefix_padding_ms", 400, "silence_duration_ms", 750) : obj("type", "server_vad"),
                 "audio", obj("input", obj("format", format), "output", obj("format", obj("type", "audio/pcm", "rate", RATE))));
         }
         if (tools != null && tools.length() > 0) { put(session, "tools", tools); if (kind == Kind.GPT) put(session, "tool_choice", "auto"); }

@@ -84,6 +84,8 @@ final class RealtimeSession implements LiveVoiceSession {
     private volatile String lastError = "";
     /** The session.update, built once (the instructions and declarations are long). */
     private volatile String update;
+    /** The server refused the tuned turn-taking fields: the plain session is sent instead (once). */
+    private volatile boolean plainTurns;
     /** A sign-in's token the server just turned down, refreshed once; whether the token is a sign-in's. SETUP and socket threads. */
     private volatile String rejected; private volatile boolean signedIn; private volatile int attempts;
     private volatile VoiceStartupAudio startupAudio = new VoiceStartupAudio();
@@ -165,7 +167,7 @@ final class RealtimeSession implements LiveVoiceSession {
         if (built != null) return built;
         JSONArray tools = RealtimeVoice.tools(GeminiProtocol.functionDeclarations(GeminiProtocol.ASSISTANT, options));
         built = hands ? RealtimeVoice.handsSession(GeminiProtocol.instructions(GeminiProtocol.ASSISTANT, options), tools).toString()
-            : RealtimeVoice.session(kind, GeminiProtocol.instructions(GeminiProtocol.ASSISTANT, options) + engineNote(kind), voice, tools).toString();
+            : RealtimeVoice.session(kind, GeminiProtocol.instructions(GeminiProtocol.ASSISTANT, options) + engineNote(kind), voice, tools, !plainTurns).toString();
         update = built;
         return built;
     }
@@ -600,6 +602,11 @@ final class RealtimeSession implements LiveVoiceSession {
         synchronized (this) { requestedAt = 0; }
         if (RealtimeVoice.harmless(e)) return;
         String detail = brief((e.status() + " " + e.text()).strip(), "error");
+        // A server that does not take the tuned turn-taking: the plain session once, before giving up.
+        if (!ready && !plainTurns && !hands && detail.toLowerCase(java.util.Locale.ROOT).matches("(?s).*(turn_detection|silence_duration|prefix_padding|threshold|eagerness|transcri|unknown|unrecognized|invalid).*")) {
+            plainTurns = true; update = null; store.phoneLog("  · " + kind.label + " 실시간 음성: 세밀한 말 끊김 설정을 받지 않아 기본 설정으로 다시 보내요");
+            WebSocketClient now = socket; if (now != null) try { now.send(setupText()); return; } catch (Exception lost) { /* falls through */ }
+        }
         if (!ready) { fail(kind.label + " 실시간 음성을 시작하지 못했어요: " + detail, false); return; }
         if (quota(detail)) { fail(refusal(kind, 429, signedIn), false); return; }
         store.phoneLog("  · " + kind.label + " 실시간 음성 오류 · " + detail);

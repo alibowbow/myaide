@@ -79,6 +79,8 @@ final class VoiceChat {
     private final VoiceChatLog log = new VoiceChatLog();
     private final Map<String, StringBuilder> answers = new HashMap<>();
     private volatile WebSocketClient socket;
+    /** The session as first sent (with the tuned turn-taking), kept to send the plain one once if a server refuses it. */
+    private volatile String plainSession; private volatile boolean plainSent;
     private volatile Microphone mic;
     private volatile Speaker speaker;
     /** The realtime conversation's sound route, as a call's (GPT-Live's call keeps its own). */
@@ -202,6 +204,7 @@ final class VoiceChat {
             String token = credential.token();
             WebSocketClient client = new WebSocketClient(URI.create(kind.url()), new Draft_6455(), Map.of("Authorization", "Bearer " + token), 15_000) {
                 @Override public void onOpen(ServerHandshake handshake) {
+                    plainSession = RealtimeVoice.session(kind, instructions, voice, tools, false).toString(); plainSent = false;
                     send(RealtimeVoice.session(kind, instructions, voice, tools).toString());
                     // A server that takes the session without saying so still hears the user.
                     main.postDelayed(() -> { if (!ended && !ready) ready(); }, READY_MS);
@@ -374,6 +377,11 @@ final class VoiceChat {
             }
             case ERROR -> {
                 if (RealtimeVoice.harmless(e)) return;
+                // A server that does not take the tuned turn-taking: the plain session once, before giving up.
+                String why = (e.status() + " " + e.text()).toLowerCase(java.util.Locale.ROOT);
+                if (!ready && !plainSent && plainSession != null && why.matches("(?s).*(turn_detection|silence_duration|prefix_padding|threshold|eagerness|transcri|unknown|unrecognized|invalid).*")) {
+                    plainSent = true; WebSocketClient open = socket; if (open != null) try { open.send(plainSession); return; } catch (Exception lost) { /* falls through */ }
+                }
                 if (live && !ready) { liveFailed("서버 오류 · " + RealtimeVoice.masked(e.text())); return; }
                 if (!ready) { end(kind.label + " 음성 대화를 시작하지 못했어요: " + e.text()); return; }
                 wordsBy = NOTE; words = e.text().isBlank() ? "음성 연결에 문제가 생겼어요" : e.text(); changed();
