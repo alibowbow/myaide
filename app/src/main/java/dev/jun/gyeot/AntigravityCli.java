@@ -47,7 +47,13 @@ final class AntigravityCli {
             if (text.contains("\nDownloadUser")) Files.write(conf.toPath(), text.replace("\nDownloadUser", "\n#DownloadUser").getBytes(StandardCharsets.UTF_8));
         }
     }
-    static boolean installed(Context c) { return LinuxRuntime.installed(c) && new File(LinuxRuntime.rootfs(c), BINARY.substring(1)).isFile(); }
+    /**
+     * agy is there: the installer may leave a link to its versioned build (a path inside Linux, which the app cannot follow
+     * from outside), so the entry itself is looked for, not what it points to.
+     */
+    static boolean installed(Context c) {
+        return LinuxRuntime.installed(c) && java.nio.file.Files.exists(new File(LinuxRuntime.rootfs(c), BINARY.substring(1)).toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS);
+    }
     /** The install, as the terminal runs it: Google's installer fetched with curl, then run (an update installs afresh). */
     static String installCommand(boolean fresh) {
         return (fresh ? "rm -f " + BINARY + "; " : "") + "mkdir -p " + HOME + "/.local/bin && curl -fsSL " + INSTALLER + " -o /tmp/agy-install.sh && bash /tmp/agy-install.sh";

@@ -3756,7 +3756,8 @@ public final class MainActivity extends Activity {
         boolean has = st != null && st.installed(), in = has && Boolean.TRUE.equals(st.signedIn());
         Runnable refresh = () -> { agyStatus = null; if ("antigravity".equals(settingsPage) && tab == 2) showTab(2); };
         java.util.List<View> actions = new java.util.ArrayList<>();
-        actions.add(ui.pill(has ? "CLI 업데이트" : "CLI 설치", 0, !has, () -> {
+        // Until the check answers, no button: 설치 would be offered for a CLI that is already there.
+        if (st != null) actions.add(ui.pill(has ? "CLI 업데이트" : "CLI 설치", 0, !has, () -> {
             try { AntigravityCli.prepare(this); } catch (Exception e) { store.error(e.getMessage()); return; }
             LinuxTerminal.show(this, ui, has ? "Antigravity CLI 업데이트" : "Antigravity CLI 설치", "Google 공식 설치 스크립트 · 받은 파일을 SHA-512로 확인해요 · 질문이 나오면 아래 버튼으로 답해요",
                 AntigravityCli.installCommand(has), AntigravityCli.env(), refresh);
