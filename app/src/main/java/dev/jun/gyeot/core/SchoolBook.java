@@ -172,6 +172,11 @@ public final class SchoolBook {
         out.append("위 대화에 이어 선생님으로서 학생의 마지막 말에 답해.");
         return out.toString();
     }
+    /** What 판서's question field is filled with from the lesson (sent only by the user): the last question, with its subject. */
+    public static String boardDraft(Teacher t, List<Line> lines) {
+        for (int i = lines.size() - 1; i >= 0; i--) if (lines.get(i).mine()) { String q = lines.get(i).text().strip(); if (q.length() > 300) q = q.substring(0, 300); return (t.subject().isBlank() ? "" : "[" + t.subject() + "] ") + q; }
+        return "";
+    }
     /** What 판서 is asked to prepare from the lesson: the topic now, with the last explanation as context. */
     public static String boardAsk(Teacher t, List<Line> lines) {
         String question = "", answer = "";

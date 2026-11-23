@@ -469,11 +469,12 @@ public final class SchoolActivity extends Activity {
 
     // ── 판서 ─────────────────────────────────────────────────────────────
 
-    /** 판서: the lesson's topic now (the last question, the explanation as context) prepared as a board lesson. */
+    /** 판서: opens the board with the lesson's last question in its field, waiting for the user to send it. */
     private void board(SchoolBook.Teacher t) {
-        String ask = SchoolBook.boardAsk(t, book.lines(t.id()));
+        // Only the question field is filled: the board is prepared when the user sends it there.
+        String draft = SchoolBook.boardDraft(t, book.lines(t.id()));
         Intent intent = new Intent(this, BoardActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        if (!ask.isBlank()) intent.putExtra(BoardActivity.ASK, ask);
+        if (!draft.isBlank()) intent.putExtra(BoardActivity.DRAFT, draft);
         startActivity(intent);
     }
 

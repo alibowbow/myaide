@@ -58,7 +58,7 @@ import static dev.jun.gyeot.Ui.*;
  */
 public final class BoardActivity extends Activity {
     /** Opens this board; asks this at once. */
-    static final String OPEN = "gyeot.board_id", ASK = "gyeot.board_ask", INTAKE = "gyeot.board_intake";
+    static final String OPEN = "gyeot.board_id", ASK = "gyeot.board_ask", INTAKE = "gyeot.board_intake", DRAFT = "gyeot.board_draft";
     static final int PICK = 71, FILES = 4, SNAPSHOT_UNITS = 3000, PDF_PAGES = 10, PAGE_PIXELS = 1600;
     /** 글자 크기: how much of the device's own text scale each choice is. */
     static final String[] TEXT_NAMES = {"작게", "보통", "크게", "아주 크게"}; static final float[] TEXT_LEVELS = {.8f, 1f, 1.25f, 1.55f};
@@ -169,13 +169,19 @@ public final class BoardActivity extends Activity {
         BoardIntake.Item intake = state == null ? BoardIntake.take(getIntent().getStringExtra(INTAKE)) : null;
         if (intake != null) main.post(() -> fromVoice(intake));
         else if (ask != null && !ask.isBlank()) main.post(() -> asked(ask));
+        else if (state == null) { String draft = getIntent().getStringExtra(DRAFT); if (draft != null) main.post(() -> drafted(draft)); }
     }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent); setIntent(intent);
         String id = intent.getStringExtra(OPEN), ask = intent.getStringExtra(ASK);
         if (id != null && !id.equals(boardId)) { teacher.stop(); saveNow(); open(id); }
         BoardIntake.Item intake = BoardIntake.take(intent.getStringExtra(INTAKE));
-        if (intake != null) fromVoice(intake); else asked(ask);
+        if (intake != null) fromVoice(intake); else if (ask != null) asked(ask); else drafted(intent.getStringExtra(DRAFT));
+    }
+    /** Words put in the question field only (나의학교's 판서): nothing is prepared until the user sends them. */
+    private void drafted(String draft) {
+        if (draft == null || draft.isBlank() || busy() || input == null) return;
+        input.setText(draft); input.setSelection(input.getText().length());
     }
     @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putString("board", boardId); board.saveViewport(state); state.putString("boardDraft", input.getText().toString()); }
     @Override protected void onResume() { super.onResume(); resumed = true; AppNavigator.inFront("board"); front = new java.lang.ref.WeakReference<>(this); if (voice != null) voice.attach();
