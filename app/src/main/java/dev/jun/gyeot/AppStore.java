@@ -339,6 +339,7 @@ final class AppStore {
         try { gemini.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
         try { grok.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
         try { nim.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
+        try { antigravity.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
     }
     String liveThinkingLevel() { return GeminiProtocol.thinkingLevel(settings.getString("liveThinkingLevel", "MEDIUM")); }
     /** 내비게이션 → 자주 가는 곳 (core/SavedPlaces): the words for places and where they are. */

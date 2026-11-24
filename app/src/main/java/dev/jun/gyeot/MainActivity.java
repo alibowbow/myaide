@@ -3815,6 +3815,11 @@ public final class MainActivity extends Activity {
         if (st != null && !st.version().isEmpty()) cli.addView(ui.text(st.version(), 12.5f, 450, MUTED));
         if (st != null) for (String row : st.usage()) { TextView u = ui.text(row, 13, 450, TEXT); u.setPadding(0, ui.dp(3), 0, 0); cli.addView(u); }
         if (st != null && !st.detail().isEmpty()) { TextView d = ui.text(st.detail(), 12, 450, MUTED); d.setPadding(0, ui.dp(4), 0, 0); d.setTextIsSelectable(true); cli.addView(d); }
+        // The model list agy gave (the pickers' list), or why it could not be read: an old list is never kept without a word.
+        java.util.List<AntigravityAccount.Group> groups = store.antigravity.groups();
+        if (!groups.isEmpty()) { java.util.List<String> names = new java.util.ArrayList<>(); for (AntigravityAccount.Group g : groups) names.add(g.name());
+            TextView m = ui.text("모델 " + groups.size() + "개 · " + String.join(", ", names), 12.5f, 450, MUTED); m.setPadding(0, ui.dp(6), 0, 0); cli.addView(m); }
+        if (!store.antigravity.modelsProblem().isEmpty()) { TextView p = ui.text("모델 목록을 새로 읽지 못했어요 · agy가 보여 준 것: " + store.antigravity.modelsProblem(), 12, 450, ERROR); p.setPadding(0, ui.dp(4), 0, 0); p.setTextIsSelectable(true); cli.addView(p); }
         boolean has = st != null && st.installed(), in = has && Boolean.TRUE.equals(st.signedIn());
         Runnable refresh = () -> { agyStatus = null; if ("antigravity".equals(settingsPage) && tab == 2) showTab(2); };
         java.util.List<View> actions = new java.util.ArrayList<>();

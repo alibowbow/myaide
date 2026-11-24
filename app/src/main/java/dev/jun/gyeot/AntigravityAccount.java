@@ -19,7 +19,7 @@ import org.json.JSONObject;
 final class AntigravityAccount {
     /** The model id that sends no --model: agy's own default. */
     static final String DEFAULT = "agy-default";
-    private static final Pattern MODEL_LINE = Pattern.compile("^\\s*([a-z][a-z0-9._-]+)\\s+(.+)$"), SAFE = Pattern.compile("[a-z0-9][a-z0-9._-]{1,120}");
+    private static final Pattern SAFE = Pattern.compile("[a-z0-9][a-z0-9._-]{1,120}");
     private final Context context; private final SharedPreferences settings; private final Runnable changed;
     AntigravityAccount(Context context, SharedPreferences settings, Runnable changed) { this.context = context; this.settings = settings; this.changed = changed; }
     Context context() { return context; }
@@ -110,19 +110,7 @@ final class AntigravityAccount {
         // The model groups' limits, kept for 설정 → 사용량 · 남은 한도 (UsageUi), with when they were read.
         if (!st.usage().isEmpty()) edit.putString("agyUsage", new JSONArray(st.usage()).toString()).putLong("agyUsageAt", System.currentTimeMillis());
         if (st.signedIn() != null) edit.putBoolean("agySignedIn", st.installed() && st.signedIn());
-        if (st.installed() && Boolean.TRUE.equals(st.signedIn())) {
-            try {
-                LinuxRuntime.Result r = LinuxRuntime.run(context, AntigravityCli.BINARY + " models </dev/null", 90_000, AntigravityCli.env());
-                if (r.code() == 0) {
-                    JSONArray list = new JSONArray();
-                    for (String line : LinuxTerminal.plain(r.output()).split("\n")) {
-                        Matcher m = MODEL_LINE.matcher(line);
-                        if (m.matches() && SAFE.matcher(m.group(1)).matches() && !m.group(1).equals(DEFAULT)) list.put(item(m.group(1), m.group(2).strip()));
-                    }
-                    if (list.length() > 0) edit.putString("agyModels", list.toString()).putLong("agyModelsAt", System.currentTimeMillis());
-                }
-            } catch (Exception ignored) { /* The list read before stays. */ }
-        }
+        if (st.installed() && Boolean.TRUE.equals(st.signedIn())) readModels(edit);
         if (st.installed()) {
             // --effort and the levels agy lists for it, as its help states them.
             try {
@@ -142,6 +130,35 @@ final class AntigravityAccount {
         return st;
     }
 
+    /**
+     * agy models into the list the pickers show (core/AgyModels: one slug a line as newer agy prints them, or a slug and its
+     * name). A list not read keeps the one before, and why goes to agyModelsProblem for the settings page, never silently.
+     */
+    private void readModels(SharedPreferences.Editor edit) {
+        try {
+            LinuxRuntime.Result r = LinuxRuntime.run(context, AntigravityCli.BINARY + " models </dev/null", 90_000, AntigravityCli.env());
+            java.util.LinkedHashMap<String, String> found = r.code() == 0 ? dev.jun.gyeot.core.AgyModels.parse(r.output()) : new java.util.LinkedHashMap<>();
+            JSONArray list = new JSONArray();
+            for (java.util.Map.Entry<String, String> m : found.entrySet()) if (SAFE.matcher(m.getKey()).matches() && !m.getKey().equals(DEFAULT)) list.put(item(m.getKey(), m.getValue()));
+            if (list.length() > 0) edit.putString("agyModels", list.toString()).putLong("agyModelsAt", System.currentTimeMillis()).remove("agyModelsProblem");
+            else { String seen = LinuxTerminal.plain(r.output()).strip(); edit.putString("agyModelsProblem", seen.isEmpty() ? "agy models가 아무것도 보여 주지 않았어요" : seen.length() > 240 ? seen.substring(0, 240) + "…" : seen).putLong("agyModelsAt", System.currentTimeMillis()); }
+        } catch (Exception failed) { edit.putString("agyModelsProblem", failed.getMessage() == null ? "agy models를 실행하지 못했어요" : failed.getMessage()); }
+    }
+    /** Why the model list could not be read the last time ("" when it was). */
+    String modelsProblem() { return settings.getString("agyModelsProblem", ""); }
+    private static volatile boolean readingModels;
+    /**
+     * The model list again when older than 6 hours (the app came to the front): agy's models change (Opus 5.5, Gemini 4 …) and
+     * the list was read only on the settings page before. Off the main thread; one at a time.
+     */
+    void refreshModelsIfDue() {
+        if (readingModels || !connected() || System.currentTimeMillis() - settings.getLong("agyModelsAt", 0) < 6 * 60 * 60_000L) return;
+        readingModels = true;
+        new Thread(() -> {
+            try { SharedPreferences.Editor edit = settings.edit(); readModels(edit); edit.apply(); changed.run(); }
+            finally { readingModels = false; }
+        }, "agy-models").start();
+    }
     /** One answer from agy on the chosen model: the instructions and the input in one message, no tools. Blocking. */
     String ask(String model, String instructions, String input, AtomicReference<Runnable> cancel) throws Exception {
         String prompt = (instructions == null || instructions.isBlank() ? "" : instructions.strip() + "\n\n") + (input == null ? "" : input.strip());
