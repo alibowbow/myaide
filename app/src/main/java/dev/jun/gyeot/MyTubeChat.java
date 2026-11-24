@@ -50,6 +50,16 @@ final class MyTubeChat {
         card = ui.card();
         // A small ✕ folds the conversation away until the next thing said (it stays kept; 지난 대화 보기 shows it again).
         LinearLayout head = ui.row(); head.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        // 모두 지우기: the whole conversation at once (a reply on its way stops first), small and quiet at the head's start.
+        TextView wipe = ui.text("모두 지우기", 12.5f, 600, MUTED); wipe.setGravity(Gravity.CENTER_VERTICAL); wipe.setMinHeight(ui.dp(32));
+        wipe.setPadding(ui.dp(8), 0, ui.dp(8), 0); wipe.setContentDescription("마이튜브 대화 모두 지우기");
+        wipe.setOnClickListener(v -> ui.confirm("마이튜브와 나눈 대화를 모두 지울까요?", "모두 지우기", () -> {
+            Runnable stop = cancel.getAndSet(null); if (stop != null) try { stop.run(); } catch (RuntimeException ignored) {}
+            thinking = false; expanded = false; clear();
+        }).show());
+        Ui.pressable(wipe, true);
+        head.addView(wipe, new LinearLayout.LayoutParams(-2, -2));
+        head.addView(new View(activity), new LinearLayout.LayoutParams(0, 1, 1));
         ImageView fold = ui.quietIcon(R.drawable.ic_close, "대화 접기", () -> { folded = true; render(); });
         fold.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)); head.addView(fold, new LinearLayout.LayoutParams(ui.dp(32), ui.dp(32)));
         card.addView(head, new LinearLayout.LayoutParams(-1, -2));
