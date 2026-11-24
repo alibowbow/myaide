@@ -409,7 +409,8 @@ final class MainChatEngine implements AutoCloseable {
         java.util.concurrent.atomic.AtomicBoolean ran=new java.util.concurrent.atomic.AtomicBoolean();
         // The browser and the 들퍼레 folder, run by this reply itself: offered only when this question's words are about them.
         // Offered also for two follow-ups after a question about them ("이 주소에도 있어", "맡겨 줘"), and those words are the user's too.
-        String browsingWords=MainBrowser.wanted(question)?question:pageWords(turn,question);
+        // A browser task often goes back and forth ("다시 해 봐", "확인했어, 계속해"): the user's last four messages count.
+        String browsingWords=MainBrowser.wanted(question)?question:userWords(turn,question,4);
         MainBrowsing browsing=MainBrowser.wanted(browsingWords)?new MainBrowsing(context,app,turn.run(),browsingWords,userWords(turn,question,6),()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},deltas::status):null;
         WorkTools tools=counted(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(connected,pages),projects),python),browsing==null?null:browsing.tools()),ran);
         String instructions=instructions(memory)+(web.any()?WEB:"")+(connected!=null?TOOLS:pages!=null?PAGE_TOOLS:projects!=null?PROJECT_TOOLS:python!=null?PYTHON_TOOLS:"")+(subject!=null&&pages!=null?aboutPage(subject):"")+(browsing!=null?MainBrowser.INSTRUCTIONS:"");

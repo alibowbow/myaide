@@ -13,7 +13,9 @@ public final class MainBrowser {
     /** Function rounds a reply that browses may take: a large collection is several rounds of downloads and of saves. */
     public static final int ROUNDS = 40;
     private static final Pattern WANTED = Pattern.compile("브라우저|사이트|홈페이지|웹\\s*페이지|다운로드|내려\\s*받|받아\\s*(?:줘|주|서|와|놔|둬)|수집|모아\\s*(?:줘|주|서|와|놔|둬)|백그라운드|뒤에서|들퍼레|폴더"
-        + "|(?i:browser|download|background|folder)");
+        // Work done on a site (posting, uploading, signing up), the sites people do it on, an address, and a document of steps to follow.
+        + "|업로드|올려|올리기|게시|포스팅|발행|예약\\s*(?:해|걸)|신청|예매|주문|접속|유튜브|스튜디오|인스타|틱톡|페이스북|트위터|블로그|네이버|쿠팡|당근|지시서"
+        + "|https?://|www\\.|(?i:browser|download|background|folder|upload|youtube|studio|instagram|tiktok|facebook|twitter|website)");
     /** Whether the user's words are about what the browser and the folder do; only then are they offered. */
     public static boolean wanted(String words) { return words != null && WANTED.matcher(words).find(); }
 
@@ -27,5 +29,7 @@ public final class MainBrowser {
         + "Files you do not keep with folder_save in this reply are removed when it ends, so save every file the user wants kept before you answer; "
         + "a file you cannot tell apart is still saved, under its downloaded name, and you say so. "
         + "Check with folder_list first and do not download what is already there. "
+        + "To upload a file to a site (a video to YouTube Studio, a picture to a post), get it onto the phone first: a Drive file with drive_download (it returns size and sha256; compare them with what the user's document says before going on), then run browser_tasks naming that file to attach. "
+        + "A browser job that comes back with mutation_unresolved met an earlier step whose result is unknown: read the site to see whether it happened (the content list, drafts), tell the user what you found, and ask them to tap the notification '이전 브라우저 작업 확인'; run it again after they confirm. "
         + "When you answer, say plainly what was saved where and what could not be done and why; never claim a download or a save a result did not confirm.";
 }
