@@ -47,6 +47,16 @@ public final class TradingData {
     public static String binanceInterval(String interval) {
         return switch (interval == null ? "" : interval) { case "15" -> "15m"; case "60" -> "1h"; case "240" -> "4h"; case "W" -> "1w"; default -> "1d"; };
     }
+    /** Every timeframe the analysis reads numbers for, longest first (준: "내가 보고 있던 15분봉만 봐버리는데"). */
+    public static final List<String> TIMEFRAMES = List.of("W", "D", "240", "60", "15");
+    /** The charts pictured, longest first: 일봉 · 4시간 · 1시간 and the one the user was on; 주봉 too when there are no numbers. */
+    public static List<String> pictured(String current, boolean numbers) {
+        List<String> out = new ArrayList<>(numbers ? List.of("D", "240", "60") : List.of("W", "D", "240", "60"));
+        String at = TIMEFRAMES.contains(current) ? current : "D";
+        if (!out.contains(at)) out.add(at);
+        out.sort(java.util.Comparator.comparingInt(TIMEFRAMES::indexOf));
+        return out;
+    }
     public static String intervalName(String interval) {
         return switch (interval == null ? "" : interval) { case "15" -> "15분봉"; case "60" -> "1시간봉"; case "240" -> "4시간봉"; case "W" -> "주봉"; default -> "일봉"; };
     }
@@ -131,7 +141,9 @@ public final class TradingData {
         return String.format(Locale.ROOT, intraday ? "%02d-%02d %02d:%02d" : "%04d-%02d-%02d", intraday ? t.getMonthValue() : t.getYear(), intraday ? t.getDayOfMonth() : t.getMonthValue(), intraday ? t.getHour() : t.getDayOfMonth(), t.getMinute());
     }
     /** The numbers, in Korean lines, for the model to check the chart against. */
-    public static String summary(String name, String symbol, String interval, List<Bar> bars, String source) {
+    public static String summary(String name, String symbol, String interval, List<Bar> bars, String source) { return summary(name, symbol, interval, bars, source, true); }
+    /** table: with the last 30 candles (the timeframe the user was on); without them for the other timeframes. */
+    public static String summary(String name, String symbol, String interval, List<Bar> bars, String source, boolean table) {
         if (bars == null || bars.size() < 2) return "";
         Bar last = bars.get(bars.size() - 1); double close = last.close();
         StringBuilder s = new StringBuilder();
@@ -148,8 +160,13 @@ public final class TradingData {
         int span = Math.min(60, bars.size()); Bar hi = null, lo = null; double volume = 0;
         for (int i = bars.size() - span; i < bars.size(); i++) { Bar x = bars.get(i); if (hi == null || x.high() > hi.high()) hi = x; if (lo == null || x.low() < lo.low()) lo = x; }
         s.append("최근 ").append(span).append("봉 고점 ").append(price(hi.high())).append(" (").append(when(hi.time(), interval)).append(") · 저점 ").append(price(lo.low())).append(" (").append(when(lo.time(), interval)).append(")\n");
-        int vs = Math.min(20, bars.size() - 1); for (int i = bars.size() - 1 - vs; i < bars.size() - 1; i++) volume += bars.get(i).volume();
-        if (vs > 0 && volume > 0) s.append("거래량: 마지막 봉이 앞선 ").append(vs).append("봉 평균의 ").append(String.format(Locale.ROOT, "%.2f", last.volume() / (volume / vs))).append("배\n");
+        // Volume of the last finished candle (the newest one is still running, its volume only begun).
+        if (bars.size() > 3) {
+            Bar closed = bars.get(bars.size() - 2); int vs = Math.min(20, bars.size() - 2);
+            for (int i = bars.size() - 2 - vs; i < bars.size() - 2; i++) volume += bars.get(i).volume();
+            if (vs > 0 && volume > 0) s.append("거래량: 마지막으로 끝난 봉(").append(when(closed.time(), interval)).append(")이 앞선 ").append(vs).append("봉 평균의 ").append(String.format(Locale.ROOT, "%.2f", closed.volume() / (volume / vs))).append("배\n");
+        }
+        if (!table) return s.toString();
         s.append("최근 30봉 (시각, 시가, 고가, 저가, 종가):\n");
         for (int i = Math.max(0, bars.size() - 30); i < bars.size(); i++) { Bar x = bars.get(i); s.append(when(x.time(), interval)).append(", ").append(price(x.open())).append(", ").append(price(x.high())).append(", ").append(price(x.low())).append(", ").append(price(x.close())).append('\n'); }
         return s.toString();
@@ -160,8 +177,10 @@ public final class TradingData {
         + "with RSI and MACD below the candles) and, when available, real numbers the app computed from Binance candles. Read the charts (trend on each timeframe and "
         + "whether they agree, structure, candles, patterns, the indicators) and take every price and level from the numbers when they are given, else from the "
         + "charts' price axis; never invent prices, news, fundamentals or levels that are in neither. If the numbers come from a "
-        + "tokenized-stock future, say its price can differ a little from the stock. Answer in Korean, short, in Markdown with exactly these headings: "
-        + "## 한 줄 요약, ## 추세, ## 모멘텀, ## 지지·저항 (prices), ## 시나리오 (상승일 때와 하락일 때, 각각 조건과 가격대), ## 주의할 점. "
+        + "tokenized-stock future, say its price can differ a little from the stock. Judge across all the timeframes given (weekly down to 15 minutes), "
+        + "not only the one the user was looking at: say where they agree and where they conflict, and let the longer ones set the direction. "
+        + "Answer in Korean, short, in Markdown with exactly these headings: ## 한 줄 요약, ## 시간대별 흐름 (one line per timeframe, longest first), "
+        + "## 모멘텀, ## 지지·저항 (prices), ## 시나리오 (상승일 때와 하락일 때, 각각 조건과 가격대), ## 주의할 점. "
         + "End with one line: 참고용 분석이에요. 투자 판단과 책임은 본인에게 있어요.";
     /** Grok's instructions for the news briefing (web and X search on). */
     public static String newsAsk(String name, String symbol, String about) {
