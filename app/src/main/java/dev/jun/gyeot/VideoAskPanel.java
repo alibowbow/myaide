@@ -158,6 +158,8 @@ final class VideoAskPanel {
         input.setOnEditorActionListener((v, id, event) -> { if (id == EditorInfo.IME_ACTION_SEND) { submit(); return true; } return false; });
         box.addView(input, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout bar = ui.row(); bar.setGravity(Gravity.CENTER_VERTICAL);
+        // +: pictures of the video with GPT image (그래픽 레코딩, 인포그래픽, 4컷 만화, or the user's own words).
+        bar.addView(ui.bareIcon(R.drawable.ic_add, TEXT, "더하기 · 그림 그리기", this::plus), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         model = ui.text("", 13.5f, 500, TEXT); model.setSingleLine(true); model.setEllipsize(TextUtils.TruncateAt.END);
         model.setGravity(Gravity.CENTER_VERTICAL | Gravity.END); model.setPadding(ui.dp(10), 0, ui.dp(6), 0); model.setMinHeight(ui.dp(44));
         model.setOnClickListener(v -> chooseModel()); Ui.pressable(model, true);
@@ -195,7 +197,47 @@ final class VideoAskPanel {
     private void halt() { halted = true; Runnable abort = stop.getAndSet(null); if (abort != null) abort.run(); }
     private void submit() {
         String text = input.getText().toString().strip(); if (text.isEmpty() || busy || video == null) return;
-        input.setText(""); ask(VideoChat.Turn.user(text, text, false));
+        input.setText("");
+        boolean draw = drawNext; drawNext(false);
+        ask(VideoChat.Turn.user(text, draw ? DRAW + text : text, false));
+    }
+    /** A request sent with this before it is drawn (+ → 직접 적어서 그리기), whatever its words. */
+    private static final String DRAW = "[그림] ";
+    /** + → 직접 적어서 그리기: the next words sent are drawn; the box says so until then. */
+    private boolean drawNext;
+    private void drawNext(boolean on) { drawNext = on; input.setHint(on ? "어떤 그림을 그릴까요? 예: 핵심만 인포그래픽으로" : "질문하기…"); }
+    /** +: ways to draw the video, as a short list. */
+    private void plus() {
+        if (video == null) return;
+        Ui.Sheet sheet = ui.selectionSheet("그림으로 그리기", "GPT 이미지가 이 영상의 내용으로 그려요 · 갤러리와 들퍼레/이미지에 저장돼요");
+        sheet.primary.setVisibility(View.GONE);
+        LinearLayout group = ui.group();
+        String[][] ways = {{"그래픽 레코딩", "대본을 요약해서 그래픽 레코딩 스타일로 그려줘"}, {"인포그래픽", "핵심 내용과 숫자를 한 장의 인포그래픽으로 그려줘"}, {"4컷 만화", "영상 내용을 4컷 만화로 그려줘"}};
+        for (String[] way : ways) ui.addRow(group, ui.listRow(R.drawable.ic_gallery, ACCENT, way[0], way[1], null, () -> { sheet.dismiss(); if (!busy) ask(VideoChat.Turn.user(way[1], DRAW + way[1], false)); }), true);
+        ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, ACCENT, "직접 적어서 그리기", "아래 입력창에 원하는 그림을 적어요", null, () -> { sheet.dismiss(); drawNext(true); input.requestFocus(); }), true);
+        sheet.body.addView(group, new LinearLayout.LayoutParams(-1, -2));
+        sheet.show();
+    }
+    private MainChatPictures pictures;
+    private MainChatPictures pictures() { if (pictures == null) pictures = new MainChatPictures(activity, store); return pictures; }
+    /** The picture an answer holds, from its private copy (small), as wide as the panel; a tap shows it whole. */
+    private View picture(String id) {
+        java.io.File file = store.attachmentFile(id);
+        android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
+        android.graphics.BitmapFactory.decodeFile(file.getPath(), bounds);
+        if (bounds.outWidth <= 0) { TextView gone = ui.text("그림을 찾지 못했어요 (갤러리에서 지웠을 수 있어요).", FOOTNOTE, 450, MUTED); return gone; }
+        int sample = 1; while (bounds.outWidth / (sample * 2) >= 1200) sample *= 2;
+        android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options(); opts.inSampleSize = sample;
+        android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeFile(file.getPath(), opts);
+        ImageView image = new ImageView(activity); image.setImageBitmap(b); image.setAdjustViewBounds(true); image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        image.setBackground(ui.shape(FILL, 14)); image.setClipToOutline(true); image.setContentDescription("그린 그림, 누르면 크게 보기");
+        image.setOnClickListener(v -> {
+            android.app.Dialog dialog = new android.app.Dialog(activity, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+            ImageView whole = new ImageView(activity); whole.setImageBitmap(b); whole.setScaleType(ImageView.ScaleType.FIT_CENTER); whole.setBackgroundColor(0xff0b0b0c);
+            whole.setOnClickListener(x -> dialog.dismiss()); dialog.setContentView(whole); dialog.show();
+        });
+        Ui.pressable(image, true);
+        return image;
     }
 
     /** The suggestions, the turns and what is being made, then to the newest; the model and the button as they are now. */
@@ -241,11 +283,13 @@ final class VideoAskPanel {
     /** An answer: the text (its times jump the video), and its icons; the AI that gave it, quietly. */
     private View answered(VideoChat.Turn turn, boolean last) {
         LinearLayout wrap = ui.column(); wrap.setPadding(0, ui.dp(18), 0, 0);
+        java.util.regex.Matcher drawn = VideoChat.PICTURE_MARK.matcher(turn.shown());
+        if (drawn.lookingAt()) { LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(-1, -2); pa.bottomMargin = ui.dp(8); wrap.addView(picture(drawn.group(1)), pa); }
+        String text = VideoChat.words(turn.shown());
         TextView answer = ui.text("", BODY, 450, TEXT); answer.setLineSpacing(ui.dp(4), 1);
-        answer.setText(timed(RichText.render(turn.shown()))); answer.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        answer.setText(timed(RichText.render(text))); answer.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         wrap.addView(answer, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout foot = ui.row(); foot.setGravity(Gravity.CENTER_VERTICAL);
-        String text = turn.shown();
         // Small icons: a 16dp mark in a 36dp target, quiet under the text.
         ImageView copy = ui.footIcon(R.drawable.ic_copy, "복사", () -> {
             activity.getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("영상 답", MyTube.withoutTimes(dev.jun.gyeot.core.Markdown.plain(text))));
@@ -273,7 +317,8 @@ final class VideoAskPanel {
         List<VideoChat.Turn> sent;
         synchronized (CHATS) { turns.add(question); while (turns.size() > VideoChat.MOST_TURNS) turns.remove(0); while (!turns.isEmpty() && !turns.get(0).user()) turns.remove(0); sent = new ArrayList<>(turns); }
         busy = true; halted = false; error = "";
-        waiting.setText(question.summary() ? "Gemini가 영상을 보는 중" : "생각하는 중"); draw();
+        boolean picture = !question.summary() && (question.sent().startsWith(DRAW) || VideoChat.asksPicture(question.shown()));
+        waiting.setText(question.summary() ? "Gemini가 영상을 보는 중" : picture ? "그릴 내용을 정리하는 중" : "생각하는 중"); draw();
         work.execute(() -> {
             String said = null, failure = null;
             String[] by = {""};
@@ -291,7 +336,20 @@ final class VideoAskPanel {
                     transcript = kept.length() <= TRANSCRIPT_CHARS ? kept : kept.substring(0, TRANSCRIPT_CHARS) + "\n…(대본이 길어 앞부분만)";
                 }
                 guard.run();
-                if (question.summary()) {
+                if (picture) {
+                    // The AI chosen here writes the picture's prompt from the video, then GPT image draws it.
+                    status(mine, "그릴 내용을 정리하는 중");
+                    String planned = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.PICTURE, VideoChat.chatInput(v, transcript, sent), stop, name -> by[0] = name);
+                    guard.run();
+                    org.json.JSONObject plan = null;
+                    int from = planned == null ? -1 : planned.indexOf('{'), to = planned == null ? -1 : planned.lastIndexOf('}');
+                    if (from >= 0 && to > from) try { plan = new org.json.JSONObject(planned.substring(from, to + 1)); } catch (org.json.JSONException notJson) { plan = null; }
+                    if (plan == null || plan.optString("prompt").isBlank()) plan = new org.json.JSONObject().put("prompt", planned == null ? question.shown() : planned.strip()).put("aspect", "portrait");
+                    status(mine, "GPT 이미지가 그리는 중");
+                    org.json.JSONObject made = pictures().drawFor("마이튜브", "마이튜브", plan, question.shown(), "mytube-picture-" + java.util.UUID.randomUUID(), 0, 1, guard, stop);
+                    said = "[[picture:" + made.optString("id") + "]]\n" + (made.optString("note").isBlank() ? "그림을 그렸어요 · 갤러리와 들퍼레/이미지에 저장했어요." : made.optString("note"));
+                    by[0] = "GPT 이미지" + (by[0].isBlank() ? "" : " · 내용 정리 " + by[0]);
+                } else if (question.summary()) {
                     boolean timeline = VideoChat.TIMELINE.equals(question.shown());
                     String textFail = "", watchFail = "";
                     // 1. Gemini Flash-Lite sums up the transcript.

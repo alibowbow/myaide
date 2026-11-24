@@ -75,11 +75,15 @@ final class MainChatPictures {
      * the export so a drawing asked for again is a new file, never the old one's. A route that is off or gone is refused.
      */
     JSONObject draw(JSONObject ask, String request, String key, int index, int count, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
-        String route = route(app);
-        if (route.isEmpty() || "off".equals(route)) throw new IllegalStateException(unavailable(app, route));
-        return draw(ask, request, key, index, count, "codex".equals(route), guard, cancel);
+        return drawFor("메인 대화", "메인", ask, request, key, index, count, guard, cancel);
     }
-    private JSONObject draw(JSONObject ask, String request, String key, int index, int count, boolean codex, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+    /** The same for another screen (마이튜브's 요약 대화): place goes in the gallery, tag in the file name. Drawing is not tied to the main chat's switch there. */
+    JSONObject drawFor(String place, String tag, JSONObject ask, String request, String key, int index, int count, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        String route = "메인 대화".equals(place) ? route(app) : AssistantProfileUi.route(app);
+        if (route.isEmpty() || "off".equals(route)) throw new IllegalStateException(unavailable(app, route));
+        return draw(place, tag, ask, request, key, index, count, "codex".equals(route), guard, cancel);
+    }
+    private JSONObject draw(String place, String tag, JSONObject ask, String request, String key, int index, int count, boolean codex, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
         String edit = ask.optString("edit"); JSONArray sources = new JSONArray();
         if (!edit.isEmpty()) {
             // Only a picture in the gallery can be edited; its small private copy is what goes to the image model.
@@ -96,14 +100,14 @@ final class MainChatPictures {
         String format = picture.optString("format", "png"), extension = format.equals("jpeg") || format.equals("jpg") ? "jpg" : format.equals("webp") ? "webp" : "png";
         String mime = extension.equals("jpg") ? "image/jpeg" : "image/" + extension;
         String stamp = java.time.format.DateTimeFormatter.ofPattern("MMdd-HHmmss").format(java.time.LocalDateTime.now());
-        String name = "그림-" + stamp + "-메인" + (count > 1 ? "-" + (index + 1) : "") + "." + extension;
+        String name = "그림-" + stamp + "-" + tag + (count > 1 ? "-" + (index + 1) : "") + "." + extension;
         String model = picture.optString("model", Drawing.OPENAI_MODEL);
         JSONObject record = obj("id", kept.optString("id"), "name", name, "prompt", args.optString("prompt"), "aspect", args.optString("aspect"),
             "w", kept.optInt("w"), "h", kept.optInt("h"), "model", model);
         if (!edit.isEmpty()) record.put("from", edit);
         try {
             String uri = saver.save(key, name, mime, bytes, guard).toString();
-            JSONObject entry = Gallery.entry(kept.optString("id"), uri, name, request, picture.optString("revised"), "", "메인 대화", model,
+            JSONObject entry = Gallery.entry(kept.optString("id"), uri, name, request, picture.optString("revised"), "", place, model,
                 System.currentTimeMillis(), bytes.length, kept.optInt("w"), kept.optInt("h"), edit, false);
             entry.put("generationPrompt", args.optString("prompt"));
             // The export checks the guard all along; a conversation that changed meanwhile gets no gallery entry either.
