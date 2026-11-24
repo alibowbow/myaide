@@ -5811,7 +5811,7 @@ public final class MainActivity extends Activity {
         else if (view instanceof ViewGroup group) for (int i = 0; i < group.getChildCount(); i++) destroyWebViews(group.getChildAt(i));
     }
     private void copy(String text) {
-        getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText(Brand.NAME, text));
+        getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText(Brand.NAME, dev.jun.gyeot.core.Markdown.plain(text)));
         Ui.done(body);
         store.status("복사했어요");
     }

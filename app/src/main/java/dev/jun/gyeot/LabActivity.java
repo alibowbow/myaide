@@ -1291,7 +1291,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
 
     private void copy(String text) {
         android.content.ClipboardManager clip = getSystemService(android.content.ClipboardManager.class);
-        if (clip != null) clip.setPrimaryClip(android.content.ClipData.newPlainText("연구실", text));
+        if (clip != null) clip.setPrimaryClip(android.content.ClipData.newPlainText("연구실", dev.jun.gyeot.core.Markdown.plain(text)));
         Toast.makeText(this, "복사했어요.", Toast.LENGTH_SHORT).show();
     }
     private void openUrl(String url) {

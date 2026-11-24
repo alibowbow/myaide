@@ -364,7 +364,7 @@ public final class SchoolActivity extends Activity {
     }
     private void copy(String text) {
         android.content.ClipboardManager clip = getSystemService(android.content.ClipboardManager.class);
-        if (clip != null) clip.setPrimaryClip(android.content.ClipData.newPlainText("나의학교", text));
+        if (clip != null) clip.setPrimaryClip(android.content.ClipData.newPlainText("나의학교", dev.jun.gyeot.core.Markdown.plain(text)));
         Toast.makeText(this, "복사했어요.", Toast.LENGTH_SHORT).show();
     }
 

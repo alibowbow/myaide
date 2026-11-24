@@ -892,7 +892,7 @@ final class MainChatPage implements AutoCloseable {
             });
         } catch (java.util.concurrent.RejectedExecutionException closed) {}
     }
-    private void copy(String text) { ((android.content.ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("메시지", text)); Ui.done(activity.getWindow().getDecorView()); }
+    private void copy(String text) { ((android.content.ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("메시지", dev.jun.gyeot.core.Markdown.plain(text))); Ui.done(activity.getWindow().getDecorView()); }
     /** Shares as plain text: Markdown's marks go, words and line breaks stay. */
     private void share(String text) {
         try { activity.startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, Markdown.plain(text)), "답변 공유")); } catch (Exception e) { error(e); }

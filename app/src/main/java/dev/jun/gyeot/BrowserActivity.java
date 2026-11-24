@@ -231,7 +231,7 @@ public final class BrowserActivity extends Activity {
         // Under an answer: copy, share and run again, with how many steps and how long it took.
         resultActions = ui.row(); resultActions.setPadding(0, ui.dp(4), 0, 0); resultActions.setVisibility(View.GONE);
         // Small quiet icons, as under an answer in the main chat and 작업창: copy, share, run again.
-        resultActions.addView(ui.quietIcon(R.drawable.ic_copy, "복사", () -> copyText("브라우저 작업 결과", engine.status)), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
+        resultActions.addView(ui.quietIcon(R.drawable.ic_copy, "복사", () -> copyText("브라우저 작업 결과", dev.jun.gyeot.core.Markdown.plain(engine.status))), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
         resultActions.addView(ui.quietIcon(R.drawable.ic_share, "공유", () -> shareText(engine.status, "브라우저 작업 결과")), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
         resultActions.addView(ui.quietIcon(R.drawable.ic_refresh, "다시", this::again), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
         statsText = ui.text("", 12, 450, MUTED); statsText.setGravity(Gravity.END | Gravity.CENTER_VERTICAL); statsText.setMaxLines(1);
@@ -1575,7 +1575,7 @@ public final class BrowserActivity extends Activity {
         waiting.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         sheet.body.addView(elapsed); sheet.body.addView(waiting);
         TextView actions = ui.label("", 13, MUTED); actions.setTextIsSelectable(true); sheet.body.addView(actions);
-        ViewGroup resultCommands = ui.actions(ui.chip("결과 복사", () -> copyText("브라우저 작업 결과", engine.status)), ui.chip("결과 공유", () -> shareText(engine.status, "브라우저 작업 결과"))); sheet.body.addView(resultCommands);
+        ViewGroup resultCommands = ui.actions(ui.chip("결과 복사", () -> copyText("브라우저 작업 결과", dev.jun.gyeot.core.Markdown.plain(engine.status))), ui.chip("결과 공유", () -> shareText(engine.status, "브라우저 작업 결과"))); sheet.body.addView(resultCommands);
         Button direct = ui.button("페이지에서 직접 확인", false, sheet::dismiss); sheet.body.addView(direct);
         Button resume = ui.button("직접 확인 완료 · AI 다시 사용", false, () -> {
             sheet.dismiss();
