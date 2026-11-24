@@ -306,13 +306,24 @@ final class BrowserAgent {
                 engine.main.post(() -> {
                     if (!takeModel(attempt)) return;
                     // The selected AI looked at the page: Decision may pick again from here.
-                    quickRun = 0; quickBefore = "";
+                    quickRun = 0; quickBefore = ""; serverRetries = 0;
                     runPlanned(attempt, action, brain);
                 });
             } catch (Exception e) { engine.main.post(() -> {
                 if (!takeModel(attempt)) return;
                 // A usage limit is not the task's failure: the same step is decided again by the next AI the user connected.
                 if (limitReached(e) && switchBrain()) { step(); return; }
+                // Nor is a busy or failing server (503 overloaded, 500, a dropped connection): the same AI is asked again after a
+                // pause, twice, then the next AI the user connected takes the step. Nothing was executed meanwhile.
+                if (serverTrouble(e)) {
+                    if (++serverRetries <= 2) {
+                        long wait = serverRetries * 4000L;
+                        engine.setTaskStatus(lease, brain + " 서버가 바빠요 · " + (wait / 1000) + "초 뒤 다시 물어봐요");
+                        engine.main.postDelayed(() -> { if (!finished && engine.valid(lease)) step(); }, wait); return;
+                    }
+                    String from = brain;
+                    if (switchBrain()) { serverRetries = 0; engine.setTaskStatus(lease, from + " 서버 오류 → " + brain + "로 이어서"); step(); return; }
+                }
                 complete(BrowserEngine.error("두뇌 응답을 처리하지 못했어요. " + dev.jun.gyeot.core.Jsons.message(e, "")));
             }); }
         }, "browser-brain").start();
@@ -856,6 +867,17 @@ final class BrowserAgent {
             return key.append(']').toString();
         }
         return value instanceof String text ? JSONObject.quote(text) : String.valueOf(value);
+    }
+    /** Server trouble for the step's AI in a row (reset when a step is decided). */
+    private int serverRetries;
+    /** Whether a model call failed on its server's side for a while: overloaded, unavailable, an internal error, a timeout. */
+    static boolean serverTrouble(Throwable error) {
+        for (Throwable e = error; e != null; e = e.getCause()) {
+            if (e instanceof java.net.SocketTimeoutException || e instanceof java.net.ConnectException) return true;
+            String m = e.getMessage() == null ? "" : e.getMessage().toLowerCase(java.util.Locale.ROOT);
+            if (m.matches("(?s).*(http\\s*5\\d\\d|\\b50[0234]\\b|overloaded|unavailable|high demand|try again later|internal (server )?error|internal_error|api_error|server error|bad gateway|gateway timeout|timed out|timeout|connection reset|혼잡|접속자가 많|일시적|서버 오류|내부 오류|잠시 후).*")) return true;
+        }
+        return false;
     }
     /** Whether a model call failed on its provider's usage or rate limit. */
     static boolean limitReached(Throwable error) {
