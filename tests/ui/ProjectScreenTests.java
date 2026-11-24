@@ -30,6 +30,13 @@ public class ProjectScreenTests {
         File dir = new File(System.getProperty("ui.output", "build/ui-verification")); dir.mkdirs();
         try (FileOutputStream out = new FileOutputStream(new File(dir, name + ".png"))) { b.compress(Bitmap.CompressFormat.PNG, 100, out); }
     }
+    /** The app menu (☰) a screen shows, shown on screen or not; null when it has none. */
+    private static View appMenu(Activity a) {
+        java.util.ArrayList<View> found = new java.util.ArrayList<>();
+        a.getWindow().getDecorView().findViewsWithText(found, "앱 메뉴 열기", View.FIND_VIEWS_WITH_CONTENT_DESCRIPTION);
+        return found.isEmpty() ? null : found.get(0);
+    }
+    private static boolean onScreen(View v) { for (View x = v; x != null; x = x.getParent() instanceof View p ? p : null) if (x.getVisibility() != View.VISIBLE) return false; return v.getWidth() > 0; }
     private static void fresh() throws Exception { java.lang.reflect.Field f = ProjectMaker.class.getDeclaredField("instance"); f.setAccessible(true); f.set(null, null); }
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void phoneProjects() throws Exception {
         fresh(); Application app = RuntimeEnvironment.getApplication();
@@ -40,6 +47,9 @@ public class ProjectScreenTests {
         assertEquals(2, maker.book().projects().size());
         Activity a = Robolectric.buildActivity(PagesActivity.class, new Intent(app, PagesActivity.class)).setup().get();
         shot(a, "pages-projects");
+        // 준: "페이지에 햄버거 버튼이 없어": a phone-wide secondary screen has the ☰ at the very top.
+        View menu = appMenu(a); assertNotNull(menu); assertTrue("☰ shown on a phone", onScreen(menu));
+        int[] at = new int[2]; menu.getLocationOnScreen(at); assertTrue("☰ at the top: " + at[1], at[1] < a.getResources().getDisplayMetrics().density * 120);
     }
     @Test @Config(qualifiers="w900dp-h700dp-land-night-hdpi") public void wideProjects() throws Exception {
         fresh(); Application app = RuntimeEnvironment.getApplication();
@@ -49,6 +59,8 @@ public class ProjectScreenTests {
         maker.book().create("운동 기록장", "세트와 무게를 적고 주간 그래프로 봐요", "app", "<html></html>", 3);
         Activity a = Robolectric.buildActivity(PagesActivity.class, new Intent(app, PagesActivity.class)).setup().get();
         shot(a, "pages-projects-wide");
+        // Wide: the rail is the menu, no ☰ bar on top.
+        View menu = appMenu(a); assertTrue("no ☰ bar when the rail shows", menu == null || !onScreen(menu));
         String id = maker.book().projects().get(0).id();
         Activity p = Robolectric.buildActivity(ProjectActivity.class, new Intent(app, ProjectActivity.class).putExtra(ProjectActivity.ID, id)).setup().get();
         shot(p, "project-view");

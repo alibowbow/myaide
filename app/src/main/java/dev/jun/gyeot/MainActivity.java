@@ -535,7 +535,8 @@ public final class MainActivity extends Activity {
         workStageView = null; workTimelineView = null; workLog = null; workTeamView = null; workLeadView = null; teamDrawn = ""; leadDrawn = "";
         if (tab != 3 && composerInput != null && composerInput.hasFocus()) composerInput.clearFocus();
         boolean inThread = tab == 3 && !workId.isEmpty() && WorkBook.find(store.works(), workId) != null;
-        titleView.setVisibility(inThread ? View.GONE : View.VISIBLE);
+        // 갤러리: its name sits beside ☰ in the bar, not as a large title (준: "갤러리에는 햄버거 옆에 갤러리라고 적어줘").
+        titleView.setVisibility(inThread || tab == 4 ? View.GONE : View.VISIBLE);
         // A conversation's bar sits in the navigation bar, in the screen name's place; every other screen gets the name back.
         if (navigation != null) navigation.bar(null);
         if (tab == 0) home(); else if (tab == 1) records(); else if (tab == 3) works(); else if (tab == 4) gallery(); else settings();

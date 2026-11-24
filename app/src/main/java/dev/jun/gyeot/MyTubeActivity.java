@@ -64,7 +64,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     /** The screen's two parts: the video with its play buttons, pinned on top across the full width, and the list scrolling under it. */
     private LinearLayout body, videoPane, searchBar, listPane, controlsRow; private ScrollView scroll;
     /** 유튜브 검색 folded into a magnifier (on the 추천 row) until it is wanted. */
-    private View lensButton, foldButton, appMenu;
+    private View lensButton, foldButton;
     /** 나란히 보기: the room under the video (what plays, the search box, the 추천 · 저장 rows), scrolling when short; the two rows as one block. */
     private LinearLayout underVideo, feedRows; private ScrollView underScroll;
     /**
@@ -181,10 +181,6 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         chips = ui.row(); chips.setGravity(Gravity.CENTER_VERTICAL); HorizontalScrollView chipScroll = new HorizontalScrollView(this); chipScroll.setHorizontalScrollBarEnabled(false); chipScroll.addView(chips);
         // The 추천 row, with the magnifier at its end: a tap opens the search box on its own line (openSearch).
         LinearLayout recommendLine = ui.row(); recommendLine.setGravity(Gravity.CENTER_VERTICAL);
-        // On a phone-wide screen there is no menu rail beside 마이튜브: the app menu (☰) opens from the start of this row.
-        appMenu = ui.bareIcon(R.drawable.ic_menu, TEXT, "앱 메뉴 열기", () -> { if (navigation != null) navigation.open(); });
-        appMenu.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8));
-        LinearLayout.LayoutParams menuAt = new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)); menuAt.rightMargin = ui.dp(2); recommendLine.addView(appMenu, menuAt);
         recommendLine.addView(chipScroll, new LinearLayout.LayoutParams(0, -2, 1));
         // The same round accent button as the search box's own (검색), so it is as easy to find and tap.
         ImageView opener = ui.quietIcon(R.drawable.ic_search, "유튜브 검색 열기", this::openSearch);
@@ -212,8 +208,6 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         list = ui.column(); LinearLayout.LayoutParams listGap = new LinearLayout.LayoutParams(-1, -2); listGap.topMargin = ui.dp(10); content.addView(list, listGap);
         buildSettings(content);
         navigation = new MainNavigation(this, root, "mytube", target -> MainNavigation.open(this, target), false);
-        // With the rail shown (a wide screen) the ☰ is not needed.
-        navigation.onResize(() -> appMenu.setVisibility(navigation.wide() ? View.GONE : View.VISIBLE));
         setContentView(navigation); root.requestApplyInsets();
         render();
         takeRequest();
