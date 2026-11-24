@@ -358,7 +358,7 @@ def build(android, tools, jars):
             if found != [expected]:
                 output.unlink()
                 raise SystemExit(f'APK signed with {found or "no certificate"}, expected {expected}: refusing release.')
-        if not suffix and output.stat().st_size > 100 * 1024 * 1024: raise SystemExit('Signed APK exceeds the legacy updater size limit')
+        if not suffix and output.stat().st_size > 512 * 1024 * 1024: raise SystemExit('Signed APK exceeds the updater size limit (512MiB)')
         run([tools / 'aapt2', 'dump', 'badging', output])
         print('APK:', output, flush=True)
 
