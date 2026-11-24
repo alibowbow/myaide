@@ -39,29 +39,31 @@ final class MyTubeChat {
     final LinearLayout card, composer;
     /** The conversation over the composer: at most about a third of the screen, scrolled to its newest line. */
     final android.widget.ScrollView panel;
-    private boolean folded, away; private final LinearLayout lines; private final EditText input; private final ImageView send; private final TextView model, more;
+    private boolean folded, away;
+    /** Folded until the next line: the number of lines when it was folded (kept, so the app opening again keeps it folded). */
+    private void fold(boolean on) { folded = on; store.settings.edit().putInt("mytubeChatFoldedAt", on ? book.chat().size() : -1).apply(); render(); }
+    private final LinearLayout lines; private final EditText input; private final ImageView send; private final TextView model, more;
     final VoiceBar voice;
     private boolean expanded, thinking;
     private final AtomicReference<Runnable> cancel = new AtomicReference<>();
 
     MyTubeChat(Activity activity, Ui ui, AppStore store, MyTubeBook book, ExecutorService work, android.os.Handler main, Actions actions) {
         this.activity = activity; this.ui = ui; this.store = store; this.book = book; this.work = work; this.main = main; this.actions = actions;
+        int foldedAt = store.settings.getInt("mytubeChatFoldedAt", -1); folded = foldedAt >= 0 && foldedAt == book.chat().size();
         // The conversation, only once there is one (no title, no hint): bubbles, as the other chats show them.
         card = ui.card();
-        // A small ✕ folds the conversation away until the next thing said (it stays kept; 지난 대화 보기 shows it again).
+        // At the card's top right, two quiet icons: the eraser clears the whole conversation (a reply on its way stops first),
+        // the chevron folds it away until the next thing said (kept folded when the app opens again).
         LinearLayout head = ui.row(); head.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        // 모두 지우기: the whole conversation at once (a reply on its way stops first), small and quiet at the head's start.
-        TextView wipe = ui.text("모두 지우기", 12.5f, 600, MUTED); wipe.setGravity(Gravity.CENTER_VERTICAL); wipe.setMinHeight(ui.dp(32));
-        wipe.setPadding(ui.dp(8), 0, ui.dp(8), 0); wipe.setContentDescription("마이튜브 대화 모두 지우기");
-        wipe.setOnClickListener(v -> ui.confirm("마이튜브와 나눈 대화를 모두 지울까요?", "모두 지우기", () -> {
+        ImageView wipe = ui.quietIcon(R.drawable.ic_eraser, "대화 모두 지우기", () -> ui.confirm("마이튜브와 나눈 대화를 모두 지울까요?", "모두 지우기", () -> {
             Runnable stop = cancel.getAndSet(null); if (stop != null) try { stop.run(); } catch (RuntimeException ignored) {}
             thinking = false; expanded = false; clear();
         }).show());
-        Ui.pressable(wipe, true);
-        head.addView(wipe, new LinearLayout.LayoutParams(-2, -2));
-        head.addView(new View(activity), new LinearLayout.LayoutParams(0, 1, 1));
-        ImageView fold = ui.quietIcon(R.drawable.ic_close, "대화 접기", () -> { folded = true; render(); });
-        fold.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)); head.addView(fold, new LinearLayout.LayoutParams(ui.dp(32), ui.dp(32)));
+        wipe.setTooltipText("모두 지우기");
+        wipe.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)); head.addView(wipe, new LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)));
+        ImageView fold = ui.quietIcon(R.drawable.ic_chevron_down, "대화 접기", () -> fold(true));
+        fold.setTooltipText("접기");
+        fold.setPadding(ui.dp(8), ui.dp(8), ui.dp(8), ui.dp(8)); head.addView(fold, new LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)));
         card.addView(head, new LinearLayout.LayoutParams(-1, -2));
         lines = ui.column(); card.addView(lines);
         more = ui.ghost("지난 대화 보기", () -> { expanded = !expanded; render(); });
@@ -222,7 +224,7 @@ final class MyTubeChat {
     /** While the video is full screen, the search box is in use or a video is asked about, the conversation steps aside too. */
     void away(boolean value) { if (away == value) return; away = value; render(); }
     void ask(String text) {
-        folded = false;
+        if (folded) fold(false);
         try { book.say("user", text, false); } catch (Exception unsaved) { /* still asked */ }
         thinking = true; render();
         List<String> said = conversation(); if (!said.isEmpty()) said.remove(said.size() - 1);
@@ -272,7 +274,7 @@ final class MyTubeChat {
         for (MyTubeBook.Line l : book.chat()) out.add(("user".equals(l.role()) ? "사용자: " : "assistant".equals(l.role()) ? "AI: " : "(한 일) ") + l.text());
         return out;
     }
-    void clear() { try { book.clearChat(); } catch (Exception ignored) {} render(); }
+    void clear() { try { book.clearChat(); } catch (Exception ignored) {} folded = false; store.settings.edit().remove("mytubeChatFoldedAt").apply(); render(); }
     void attach() { voice.attach(); render(); }
     void detach() { voice.detach(); if (dictation != null) dictation.pause(); }
     boolean permissionResult(int code, int[] results) { return voice.permissionResult(code, results); }
