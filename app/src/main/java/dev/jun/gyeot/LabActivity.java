@@ -82,14 +82,16 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         });
         navigation = new MainNavigation(this, root, "lab", target -> MainNavigation.open(this, target));
         setContentView(navigation);
-        draw(); root.requestApplyInsets();
+        draw(); drawnOnCreate = true; root.requestApplyInsets();
     }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent); setIntent(intent);
         String asked = intent.getStringExtra(OPEN); if (asked != null) { openId = asked; tab = 0; draw(); }
     }
     @Override protected void onSaveInstanceState(Bundle out) { super.onSaveInstanceState(out); out.putString("open", openId); out.putInt("tab", tab); }
-    @Override protected void onResume() { super.onResume(); resumed = true; AppNavigator.inFront("lab"); runner.watch(this); LabRunner.onScreen = openId; draw(); }
+    /** onCreate drew the screen: the first onResume does not draw it again (coming back later does, things may have moved). */
+    private boolean drawnOnCreate;
+    @Override protected void onResume() { super.onResume(); resumed = true; AppNavigator.inFront("lab"); runner.watch(this); LabRunner.onScreen = openId; if (drawnOnCreate) drawnOnCreate = false; else draw(); }
     @Override protected void onPause() { resumed = false; LabRunner.onScreen = null; runner.unwatch(this); if (dictation != null) dictation.pause(); super.onPause(); }
     @Override protected void onDestroy() { destroyed = true; runner.unwatch(this); super.onDestroy(); }
     @Override public void onBackPressed() {
@@ -102,7 +104,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
     /** A change of the project open: only its activity line when nothing else moved, the whole view when it did. */
     @Override public void changed(String project) {
         if (destroyed || !resumed) return;
-        String sign = project + "|" + book.notes(project).size() + "|" + book.state(project) + "|" + runner.busy(project) + "|" + runner.speaking(project);
+        String sign = project + "|" + book.noteCount(project) + "|" + book.state(project) + "|" + runner.busy(project) + "|" + runner.speaking(project);
         boolean moved = !sign.equals(shown.put(project, sign));
         if (moved && wide && listColumn != null) fillList(book.projects());
         if (!project.equals(openId)) return;
@@ -161,7 +163,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         } else root.addView(projectPane(open, false), new FrameLayout.LayoutParams(-1, -1));
         if (input != null && !draft.isEmpty()) { input.setText(draft); input.setSelection(draft.length()); }
     }
-    private void open(String id) { if (id.equals(openId) && wide) return; openId = id; tab = 0; expanded.clear(); draw(); }
+    private void open(String id) { if (id.equals(openId) && wide) return; openId = id; tab = 0; roomMore = 0; expanded.clear(); draw(); }
     private void fold(boolean value) {
         folded = value; store.settings.edit().putBoolean("labListFolded", value).apply();
         if (android.animation.ValueAnimator.areAnimatorsEnabled()) android.transition.TransitionManager.beginDelayedTransition(root);
@@ -263,7 +265,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         if ("waiting".equals(auto)) { JSONObject w = book.pending(p.id()); return new String[]{w != null && "ask".equals(w.optString("action")) ? "답을 기다려요" : "승인을 기다려요", "wait"}; }
         if ("paused".equals(auto)) return new String[]{"자율 연구 멈춤 · " + LabBook.field(p.field()).name(), "idle"};
         if ("done".equals(auto)) return new String[]{"자율 연구 완료 · " + LabBook.field(p.field()).name(), "idle"};
-        int notes = book.notes(p.id()).size();
+        int notes = book.noteCount(p.id());
         return new String[]{LabBook.field(p.field()).name() + (notes == 0 ? " · 아직 시작 전" : " · 노트 " + notes), "idle"};
     }
     private View emptyPane() {
@@ -342,7 +344,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         LabBook.Project p = book.project(openId); if (p == null) { draw(); return; }
         boolean nearEnd = scroll != null && content.getHeight() - (scroll.getScrollY() + scroll.getHeight()) < ui.dp(160);
         int keep = scroll == null ? 0 : scroll.getScrollY();
-        content.removeAllViews();
+        content.removeAllViews(); readNotes = null;
         boolean busy = runner.busy(p.id());
         if (activityStrip != null) { activityStrip.setVisibility(busy ? View.VISIBLE : View.GONE); if (busy) activityText.setText(runner.activity(p.id())); }
         if (composerBox != null) composerBox.setVisibility(tab == 0 ? View.VISIBLE : View.GONE);
@@ -354,18 +356,32 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
             default -> roomView(p);
         }
         composerLooks(p);
-        boolean end = tab == 0 && (toEnd || nearEnd) && !book.notes(p.id()).isEmpty();
+        boolean end = tab == 0 && (toEnd || nearEnd) && !notes(p).isEmpty();
         scroll.post(() -> { if (scroll == null || content == null) return; if (end) scroll.scrollTo(0, Math.max(0, content.getHeight() - scroll.getHeight())); else scroll.scrollTo(0, toEnd ? 0 : keep); });
     }
+
+    /** The notes for one drawing of the view: read once, however many parts of it ask. */
+    private List<LabBook.Note> readNotes; private String readFor = "";
+    private List<LabBook.Note> notes(LabBook.Project p) {
+        if (readNotes == null || !readFor.equals(p.id())) { readNotes = book.notes(p.id()); readFor = p.id(); }
+        return readNotes;
+    }
+    /** 토론방 draws the newest ROOM entries; 이전 기록 더 보기 draws the rest (they are all in 노트 too). */
+    private static final int ROOM = 40; private int roomMore;
 
     // ── 토론방 ────────────────────────────────────────────────────────
 
     private void roomView(LabBook.Project p) {
-        List<LabBook.Note> notes = book.notes(p.id());
+        List<LabBook.Note> notes = notes(p);
         if (notes.isEmpty() && !runner.busy(p.id())) { content.addView(intro(p)); return; }
         long lastDay = -1;
-        for (LabBook.Note n : notes) {
-            long d = n.at() / 86_400_000L;
+        int from = Math.max(0, notes.size() - ROOM - roomMore);
+        if (from > 0) {
+            TextView earlier = ui.text("이전 기록 " + from + "개 더 보기", 13, 650, ACCENT); earlier.setGravity(Gravity.CENTER); earlier.setPadding(0, ui.dp(10), 0, ui.dp(10));
+            earlier.setOnClickListener(v -> { roomMore += ROOM; render(false); }); Ui.pressable(earlier, true); content.addView(earlier);
+        }
+        for (int i = from; i < notes.size(); i++) {
+            LabBook.Note n = notes.get(i); long d = n.at() / 86_400_000L;
             if (d != lastDay) { lastDay = d; content.addView(dayMark(n.at())); }
             View v = noteView(p, n, false); if (v != null) content.addView(v);
         }
@@ -640,7 +656,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         return wrap;
     }
     private boolean isLastAsk(LabBook.Project p, LabBook.Note n) {
-        List<LabBook.Note> all = book.notes(p.id());
+        List<LabBook.Note> all = notes(p);
         for (int i = all.size() - 1; i >= 0; i--) if ("ask".equals(all.get(i).kind())) return all.get(i).id().equals(n.id());
         return false;
     }
@@ -799,7 +815,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
     }
     private void notesView(LabBook.Project p) {
         content.addView(ui.smallPills(FILTERS, noteFilter, i -> { noteFilter = i; expanded.clear(); render(true); }));
-        List<LabBook.Note> notes = book.notes(p.id()); List<LabBook.Note> shown = new ArrayList<>();
+        List<LabBook.Note> notes = notes(p); List<LabBook.Note> shown = new ArrayList<>();
         for (LabBook.Note n : notes) if (shows(n)) shown.add(n);
         if (shown.isEmpty()) { content.addView(emptyNote(notes.isEmpty() ? "아직 기록이 없어요. 토론방에서 연구를 시작해 보세요." : "이 종류의 기록은 아직 없어요.")); return; }
         long lastDay = -1;
@@ -885,7 +901,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
             content.addView(group);
         }
         // 실험
-        List<LabBook.Note> runs = new ArrayList<>(); for (LabBook.Note n : book.notes(p.id())) if ("run".equals(n.kind())) runs.add(n);
+        List<LabBook.Note> runs = new ArrayList<>(); for (LabBook.Note n : notes(p)) if ("run".equals(n.kind())) runs.add(n);
         content.addView(heading("실험", null, null));
         if (runs.isEmpty()) content.addView(quiet("실험가가 앱 안 리눅스에서 Python으로 계산한 결과와 그래프가 여기에 모여요."));
         for (int i = runs.size() - 1; i >= 0; i--) content.addView(runCard(p, runs.get(i)));

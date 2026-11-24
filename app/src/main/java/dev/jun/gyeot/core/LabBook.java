@@ -200,6 +200,14 @@ public final class LabBook {
         } catch (IOException ignored) {}
         return out.size() > NOTES ? new ArrayList<>(out.subList(out.size() - NOTES, out.size())) : out;
     }
+    /** How many entries the notes hold, counted without reading them (the list's line under each project). */
+    public synchronized int noteCount(String id) {
+        File file = new File(dir(id), "notes.jsonl"); if (!file.isFile()) return 0;
+        int lines = 0; byte[] buffer = new byte[64 * 1024];
+        try (java.io.InputStream in = new java.io.FileInputStream(file)) { for (int n; (n = in.read(buffer)) > 0;) for (int i = 0; i < n; i++) if (buffer[i] == '\n') lines++; }
+        catch (IOException e) { return 0; }
+        return lines;
+    }
     /** Writes an entry at the end of the notes and returns it. */
     public synchronized Note note(String id, String kind, String role, String text, String by, JSONObject data) throws IOException {
         Note n = new Note(UUID.randomUUID().toString().substring(0, 10), System.currentTimeMillis(), kind, role, text, by, data == null ? new JSONObject() : data);
