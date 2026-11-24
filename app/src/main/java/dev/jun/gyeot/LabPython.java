@@ -42,13 +42,29 @@ final class LabPython {
     static String installCommand() {
         return pacman(PACKAGES) + "python3 -c \"import numpy, scipy, sympy, matplotlib, pandas; print('계산 환경 준비 완료 · numpy', numpy.__version__)\"";
     }
-    /** The pacman part every tool set shares (계산 환경, 유튜브 오디오 도구): keyring, mirrors, a stale lock, then the packages up to three times. */
+    /**
+     * The pacman part every tool set shares (계산 환경, 유튜브 오디오 도구): keyring, mirrors, a stale lock, fresh signing keys,
+     * then the whole system with the packages (-Syu) up to three times, each failure named from pacman's error lines.
+     */
     static String pacman(String packages) {
         return "set -e; if [ ! -s /etc/pacman.d/gnupg/pubring.gpg ] && [ ! -s /etc/pacman.d/gnupg/pubring.kbx ]; then pacman-key --init && pacman-key --populate archlinuxarm; fi; "
             + "if [ -f /etc/pacman.d/mirrorlist ] && ! grep -q '^# gyeot-mirrors' /etc/pacman.d/mirrorlist; then sed -i 's/^#[[:space:]]*Server[[:space:]]*=/Server =/' /etc/pacman.d/mirrorlist && echo '# gyeot-mirrors' >> /etc/pacman.d/mirrorlist; fi; "
             + "rm -f /var/lib/pacman/db.lck; "
-            + "ok=; for try in 1 2 3; do if pacman -Sy --noconfirm --needed " + packages + "; then ok=1; break; fi; "
-            + "echo; echo \"서버가 느리거나 끊겨서 다시 시도해요 ($try/3)\"; sleep 5; done; [ -n \"$ok\" ]; ";
+            // The signing keys first: the system is as old as its download, and newer packages are signed by keys it does not know.
+            + "echo '서명 키를 새로 받는 중…'; { pacman -Sy --noconfirm --needed archlinuxarm-keyring archlinux-keyring >/dev/null 2>&1 && pacman-key --populate archlinuxarm archlinux >/dev/null 2>&1; } || true; "
+            // The whole system with the packages (-Syu): new packages over old libraries (a partial upgrade) is what fails or breaks.
+            // A failure says why, from pacman's own error lines, and the next try answers that reason.
+            + "ok=; extra=(); for try in 1 2 3; do "
+            + "set +e; pacman -Syu --noconfirm --needed \"${extra[@]}\" " + packages + " 2>&1 | tee /tmp/gyeot-pacman.log; rc=${PIPESTATUS[0]}; set -e; "
+            + "if [ \"$rc\" = 0 ]; then ok=1; break; fi; echo; "
+            + "if grep -qiE 'conflicting files|exists in filesystem' /tmp/gyeot-pacman.log; then echo \"이미 있는 파일과 겹쳐요 · 덮어쓰고 다시 해요 ($try/3)\"; extra=(--overwrite '*'); "
+            + "elif grep -qiE 'signature|keyring|PGP|unknown trust' /tmp/gyeot-pacman.log; then echo \"패키지 서명을 확인하지 못했어요 · 서명 키를 새로 받고 다시 해요 ($try/3)\"; { pacman-key --init && pacman-key --populate archlinuxarm archlinux; } >/dev/null 2>&1 || true; "
+            + "elif grep -qiE 'free disk space|No space left' /tmp/gyeot-pacman.log; then echo '휴대폰 저장 공간이 부족해요. 공간을 비운 뒤 다시 해 주세요.'; break; "
+            + "elif grep -qiE 'failed retrieving|too slow|Could not resolve|timed out|Connection' /tmp/gyeot-pacman.log; then echo \"서버에서 받지 못했어요 · 다른 서버로 다시 해요 ($try/3)\"; "
+            + "else echo \"설치하지 못했어요 · 다시 해요 ($try/3)\"; fi; "
+            + "why=$(grep -iE '^(error|warning: .*(conflict|signature))' /tmp/gyeot-pacman.log | tail -3); [ -n \"$why\" ] && echo \"pacman이 말한 이유: $why\"; sleep 3; done; [ -n \"$ok\" ]; "
+            // The downloaded package files are not needed once installed: they go, so the space they took comes back.
+            + "rm -f /var/cache/pacman/pkg/*.pkg.tar.* 2>/dev/null || true; echo \"리눅스가 쓰는 공간: $(du -sh / --exclude=/proc --exclude=/sys --exclude=/dev 2>/dev/null | cut -f1)\"; ";
     }
 
     record Run(int exit, String output, long millis, java.util.List<File> figures) {}
