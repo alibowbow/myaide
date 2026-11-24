@@ -121,6 +121,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             @Override public MyTubePlayer player() { return player; }
             @Override public void closed() { arranged = ""; showPlayer(); }
             @Override public boolean gone() { return destroyed; }
+            @Override public void prepareAudio(Runnable then) { MyTubeActivity.this.prepareAudio("Groq Whisper로 받아 적기", then); }
         });
         body.addView(askPanel.view, new LinearLayout.LayoutParams(-1, 0, 1));
         // The room changed (the composer, the keyboard, turning the phone): a dragged size is kept within it again.
@@ -640,16 +641,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         if (v == null) { toast("재생 중인 영상이 없어요"); return; }
         if (v.live()) { toast("실시간 방송은 MP3로 받을 수 없어요"); return; }
         if (mp3Busy) { toast("MP3를 만드는 중이에요"); return; }
-        if (!LinuxRuntime.supported(this)) { toast("이 휴대폰에서는 앱 안 리눅스를 쓸 수 없어서 MP3를 만들 수 없어요"); return; }
-        if (!LinuxRuntime.installed(this)) { installLinuxForMp3(); return; }
-        if (!YouTubeAudio.mp3Ready(this)) {
-            ui.confirm("MP3는 앱 안 리눅스에서 만들어요. 처음 한 번 Python·ffmpeg·yt-dlp를 받아요(몇십 MB, 몇 분). 받은 도구는 대본이 없는 영상을 Groq Whisper로 받아 적을 때도 써요.", "도구 받기", () -> {
-                LabPython.prepare(this);
-                LinuxTerminal.show(this, ui, "유튜브 오디오 도구 준비", "pacman으로 Python과 ffmpeg를, GitHub에서 yt-dlp를 받아요. 끝나면 닫아 주세요.", YouTubeAudio.installCommand(), null,
-                    () -> { if (!isDestroyed() && YouTubeAudio.mp3Ready(this)) saveMp3(); });
-            }).show();
-            return;
-        }
+        if (!YouTubeAudio.mp3Ready(this)) { prepareAudio("MP3", this::saveMp3); return; }
         mp3Busy = true; mp3Running = true; mp3Chip.setEnabled(false); mp3Chip.setText("MP3 만드는 중…");
         android.content.Context app = getApplicationContext();
         work.execute(() -> {
@@ -667,18 +659,33 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             main.post(() -> { mp3Busy = false; if (isDestroyed()) return; mp3Chip.setEnabled(true); mp3Chip.setText("MP3"); toast(done); });
         });
     }
-    /** The app's Linux, put in for the MP3 after the user says so (as 연구실's 진행판 does). */
-    private void installLinuxForMp3() {
+    /**
+     * The audio tools (Python, ffmpeg, yt-dlp) in the app's Linux, each step after the user says so, then then (for the MP3,
+     * or 대본 보기 with Groq Whisper). why: what they are for, in the question.
+     */
+    void prepareAudio(String why, Runnable then) {
+        if (!LinuxRuntime.supported(this)) { toast("이 휴대폰에서는 앱 안 리눅스를 쓸 수 없어서 오디오 도구를 쓸 수 없어요"); return; }
+        if (!LinuxRuntime.installed(this)) { installLinuxThen(why, () -> prepareAudio(why, then)); return; }
+        if (YouTubeAudio.mp3Ready(this)) { then.run(); return; }
+        ui.confirm(why + "에는 앱 안 리눅스의 오디오 도구가 필요해요. 처음 한 번 Python·ffmpeg·yt-dlp를 받아요(몇십 MB, 몇 분). MP3 받기와, 자막 없는 영상을 Groq Whisper가 받아 적을 때 같이 써요.", "도구 받기", () -> {
+            LabPython.prepare(this);
+            LinuxTerminal.show(this, ui, "유튜브 오디오 도구 준비", "pacman으로 Python과 ffmpeg를, GitHub에서 yt-dlp를 받아요. 끝나면 닫아 주세요.", YouTubeAudio.installCommand(), null,
+                () -> { if (!isDestroyed() && YouTubeAudio.mp3Ready(this)) then.run(); });
+        }).show();
+    }
+    private void installLinuxForMp3() { installLinuxThen("MP3", this::saveMp3); }
+    /** The app's Linux, put in after the user says so (as 연구실's 진행판 does), then then. */
+    private void installLinuxThen(String why, Runnable then) {
         if (LinuxRuntime.busy) { toast("앱 안 리눅스를 설치하는 중이에요"); return; }
         if (LinuxRuntime.free(this) < LinuxRuntime.needed()) { toast("저장 공간이 부족해요. " + LinuxRuntime.mb(LinuxRuntime.needed()) + "가 필요해요."); return; }
-        ui.confirm("MP3는 앱 안 리눅스(" + LinuxRuntime.DISTRIBUTION + ")에서 만들어요. 리눅스를 먼저 설치할까요? 다운로드 " + LinuxRuntime.mb(LinuxRuntime.ARCHIVE_BYTES) + ".", "리눅스 설치", () -> {
+        ui.confirm(why + "는 앱 안 리눅스(" + LinuxRuntime.DISTRIBUTION + ")에서 해요. 리눅스를 먼저 설치할까요? 다운로드 " + LinuxRuntime.mb(LinuxRuntime.ARCHIVE_BYTES) + ".", "리눅스 설치", () -> {
             mp3Busy = true; mp3Chip.setEnabled(false); mp3Chip.setText("리눅스 설치 중…");
             android.content.Context app = getApplicationContext();
             new Thread(() -> {
                 String failed = null;
                 try { LinuxRuntime.install(app, () -> {}); } catch (Exception e) { failed = e.getMessage() == null ? "설치하지 못했어요." : e.getMessage(); }
-                String why = failed;
-                main.post(() -> { mp3Busy = false; if (isDestroyed()) return; mp3Chip.setEnabled(true); mp3Chip.setText("MP3"); if (why != null) toast(why); else saveMp3(); });
+                String trouble = failed;
+                main.post(() -> { mp3Busy = false; if (isDestroyed()) return; mp3Chip.setEnabled(true); mp3Chip.setText("MP3"); if (trouble != null) toast(trouble); else then.run(); });
             }, "gyeot-linux-install").start();
         }).show();
     }
@@ -1442,6 +1449,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         LinearLayout login = ui.listRow(R.drawable.ic_person, ACCENT, "유튜브 로그인", state, ui.chevron(), () -> { player.signIn(); player.attach(screen); showPlayer(); });
         accountLine = findText(login, state);
         ui.addRow(group, login, true);
+        // 오디오 도구: yt-dlp (and Python, ffmpeg) in the app's Linux, for MP3 and for Groq Whisper's transcripts of songs.
+        boolean tools = YouTubeAudio.mp3Ready(this);
+        ui.addRow(group, ui.listRow(R.drawable.ic_download, ACCENT, "오디오 도구 (yt-dlp)", tools ? "준비됨 · MP3 받기와 자막 없는 영상의 Whisper 대본에 써요" : "없음 · 누르면 받아요 (MP3, 노래 대본에 필요)",
+            ui.chevron(), () -> { if (YouTubeAudio.mp3Ready(this)) toast("이미 준비돼 있어요"); else prepareAudio("MP3·노래 대본 받기", () -> toast("오디오 도구가 준비됐어요")); }), true);
         // 화질 is chosen only on the video's own button row (the small menu there); not repeated here.
         ui.addRow(group, ui.switchRow("화면 꺼져도 계속 재생", "유튜브 프리미엄 회원용 · 음악 앱처럼 화면을 끄거나 다른 앱으로 가도 이어서 나와요", player.background(),
             value -> { store.settings.edit().putBoolean(MyTubePlayer.BACKGROUND, value).apply(); if (value && player.playing()) MyTubeService.start(this); if (!value) MyTubeService.stop(this); }), false);

@@ -143,13 +143,38 @@ final class YouTubeTranscriptClient {
      * is kept like a transcript (saying where it came from). Blocking.
      */
     static String writeDown(android.content.Context context, String id, String title, String channel, String key, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        return writeDown(context, id, title, channel, key, "", guard, cancel);
+    }
+    /** As writeDown, saying under its title why Groq Whisper did not write it (note; "" for nothing). */
+    static String writeDown(android.content.Context context, String id, String title, String channel, String key, String note, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
         String words = GeminiAudioClient.watchYouTube(key, id, YouTubeTranscript.WRITE_DOWN, guard, cancel);
         if (words == null || words.isBlank()) throw new IOException("Gemini가 대본을 적어 주지 않았어요.");
         save(context, id, YouTubeTranscript.readable(new YouTubeTranscript.Video(id, title == null ? "" : title, channel == null ? "" : channel, 0, true, ""),
-            "Gemini가 영상을 보고 받아 적은 대본 (빠지거나 틀린 부분이 있을 수 있어요)", words));
+            GEMINI_WROTE + " (빠지거나 틀린 부분이 있을 수 있어요" + (note == null || note.isBlank() ? "" : " · Whisper를 못 쓴 이유: " + note) + ")", words));
         return saved(context, id);
     }
     static final String KIND = "youtube";
+    static final String GEMINI_WROTE = "Gemini가 영상을 보고 받아 적은 대본";
+    /** Why Groq Whisper cannot write this down now ("" when it can): no Groq key, or no audio tools in the app's Linux. */
+    static String whisperBlocker(android.content.Context context) {
+        if (!GroqWork.on()) return "Groq가 연결돼 있지 않아요 (설정 → Groq, 무료 키)";
+        if (!YouTubeAudio.ready(context)) return "유튜브 오디오 도구(yt-dlp)가 아직 없어요";
+        return "";
+    }
+    /** The sentence block() wrote about Groq Whisper's try, or "" when it did not try. */
+    static String whisperFailure(String block) {
+        String text = block == null ? "" : block; int at = text.indexOf("Groq Whisper");
+        if (at < 0) return "";
+        int end = text.indexOf('.', at); String said = text.substring(at, end < 0 ? Math.min(text.length(), at + 200) : end + 1).strip();
+        return said.length() > 200 ? said.substring(0, 200) + "…" : said;
+    }
+    /** The kept transcript was written by Gemini (its site or the API), not read from YouTube's captions or by Whisper. */
+    static boolean byGemini(android.content.Context context, String id) {
+        String kept = saved(context, id); int head = Math.min(kept.length(), 400);
+        return kept.substring(0, head).contains(GEMINI_WROTE) || kept.substring(0, head).contains("Gemini 홈페이지에서 받아 온 대본");
+    }
+    /** The kept transcript goes (to be read again another way). */
+    static void forget(android.content.Context context, String id) { KeptText.remove(context, KIND, id); synchronized (READ) { READ.remove(id); } }
     /** Whether a transcript is kept for this video. */
     static boolean kept(android.content.Context context, String id) { return KeptText.kept(context, KIND, id); }
     /** The transcript kept for reading (YouTubeTranscript.readable), or "" when this video has none. */

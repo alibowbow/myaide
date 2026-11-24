@@ -33,7 +33,9 @@ import static dev.jun.gyeot.Ui.*;
  */
 final class VideoAskPanel {
     /** What the panel needs from 마이튜브. */
-    interface Host { MyTubePlayer player(); void closed(); boolean gone(); }
+    interface Host { MyTubePlayer player(); void closed(); boolean gone();
+        /** The audio tools for Groq Whisper (the app's Linux, Python, ffmpeg, yt-dlp), each after the user says so, then then. */
+        default void prepareAudio(Runnable then) {} }
     /**
      * Each video's conversation, oldest first: read from the phone once (mytube-chats.json) and written back after every
      * answer, so it stays when the app is closed; the newest VideoChat.KEPT videos with an answer are kept, older ones go.
@@ -464,19 +466,78 @@ final class VideoAskPanel {
     }
     private void transcriptSheet(Button chip) {
         MyTube.Video v = video; if (v == null) return;
-        if (YouTubeTranscriptClient.kept(activity, v.id())) { YouTubeTranscriptUi.show(activity, MyTube.watch(v.id())); return; }
+        if (YouTubeTranscriptClient.kept(activity, v.id())) {
+            // Written by Gemini, while Groq Whisper could listen to the sound itself (a song, as a rule): offered once more.
+            if (YouTubeTranscriptClient.byGemini(activity, v.id()) && GroqWork.on()) {
+                Ui.Sheet sheet = ui.new Sheet("Gemini가 받아 적은 대본이에요", "노래처럼 자막이 없는 영상은 Groq Whisper가 소리를 직접 듣고 받아 적는 게 더 정확해요.");
+                sheet.primary.setText("Whisper로 다시 받아 적기");
+                sheet.primary.setOnClickListener(x -> { sheet.dismiss(); host.prepareAudio(() -> { YouTubeTranscriptClient.forget(activity, v.id()); transcript = null; fetchScript(v, true); }); });
+                LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-1, -2); at.topMargin = ui.dp(8);
+                sheet.footer.addView(ui.button("이 대본 보기", false, () -> { sheet.dismiss(); YouTubeTranscriptUi.show(activity, MyTube.watch(v.id())); }), at);
+                sheet.show();
+                return;
+            }
+            YouTubeTranscriptUi.show(activity, MyTube.watch(v.id())); return;
+        }
+        fetchScript(v, false);
+    }
+    /**
+     * Reads the transcript off the main thread: YouTube's captions, then Groq Whisper (block). When neither gives one, Whisper
+     * could not be tried and its tools could be put in, the user chooses first (도구 받기 or Gemini); else Gemini writes it
+     * down, saying why Whisper did not. whisperOnly: asked for Whisper again, so no Gemini after it.
+     */
+    private void fetchScript(MyTube.Video v, boolean whisperOnly) {
+        if (!FETCHING.add(v.id())) return;
+        scriptLooks();
+        android.content.Context app = activity.getApplicationContext();
+        RUN.execute(() -> {
+            String why = null, blocker = "";
+            try {
+                String block = YouTubeTranscriptClient.block(app, v.id(), () -> false, step -> main.post(() -> { for (VideoAskPanel panel : live()) if (panel.video != null && panel.video.id().equals(v.id()) && panel.scriptChip != null) panel.scriptChip.setText("받아 적는 중…"); }), null);
+                if (!YouTubeTranscriptClient.kept(app, v.id())) {
+                    blocker = YouTubeTranscriptClient.whisperBlocker(app);
+                    String tried = YouTubeTranscriptClient.whisperFailure(block);
+                    String key = store.secrets.workKey();
+                    if (whisperOnly) why = tried.isEmpty() ? (blocker.isEmpty() ? firstLine(block) : blocker) : tried;
+                    else if (!blocker.isEmpty() && GroqWork.on() && LinuxRuntime.supported(app)) { /* asked below, on the main thread */ }
+                    else if (key.isBlank()) why = firstLine(block);
+                    else YouTubeTranscriptClient.writeDown(app, v.id(), v.title(), v.channel(), key, tried.isEmpty() ? blocker : tried, () -> {}, null);
+                }
+            } catch (Exception e) { why = e.getMessage() == null || e.getMessage().isBlank() ? "대본을 가져오지 못했어요." : e.getMessage(); }
+            String reason = why, missing = blocker;
+            main.post(() -> {
+                FETCHING.remove(v.id());
+                boolean ask = !whisperOnly && reason == null && !YouTubeTranscriptClient.kept(app, v.id()) && !missing.isEmpty() && GroqWork.on();
+                if (ask) { boolean asked = false; for (VideoAskPanel panel : live()) asked |= panel.askTools(v, missing); if (asked) return; }
+                boolean shown = false;
+                for (VideoAskPanel panel : live()) shown |= panel.scriptDone(v, reason);
+                if (!shown) Toast.makeText(app, YouTubeTranscriptClient.kept(app, v.id()) ? "대본을 받았어요 · ‘대본 보기’를 누르면 보여요" : "대본을 가져오지 못했어요" + (reason == null || reason.isBlank() ? "" : ": " + reason), Toast.LENGTH_LONG).show();
+            });
+        });
+    }
+    /** No captions and Whisper cannot run yet (missing: why): 도구 받기 (then Whisper), or Gemini writes it down. True when asked here. */
+    private boolean askTools(MyTube.Video v, String missing) {
+        scriptLooks();
+        if (host.gone() || !open || video == null || !video.id().equals(v.id())) return false;
+        Ui.Sheet sheet = ui.new Sheet("이 영상은 자막이 없어요", "Groq Whisper가 소리를 듣고 받아 적으면 더 정확해요. 지금은 쓸 수 없어요: " + missing + ".");
+        sheet.primary.setText("도구 받고 Whisper로");
+        sheet.primary.setOnClickListener(x -> { sheet.dismiss(); host.prepareAudio(() -> fetchScript(v, true)); });
+        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-1, -2); at.topMargin = ui.dp(8);
+        sheet.footer.addView(ui.button("Gemini로 받아 적기", false, () -> { sheet.dismiss(); geminiScript(v, missing); }), at);
+        sheet.show();
+        return true;
+    }
+    /** Gemini writes the transcript down from the video (the user chose it over Whisper). */
+    private void geminiScript(MyTube.Video v, String note) {
         if (!FETCHING.add(v.id())) return;
         scriptLooks();
         android.content.Context app = activity.getApplicationContext();
         RUN.execute(() -> {
             String why = null;
             try {
-                String block = YouTubeTranscriptClient.block(app, v.id(), () -> false, step -> main.post(() -> { for (VideoAskPanel panel : live()) if (panel.video != null && panel.video.id().equals(v.id()) && panel.scriptChip != null) panel.scriptChip.setText("받아 적는 중…"); }), null);
-                if (!YouTubeTranscriptClient.kept(app, v.id())) {
-                    String key = store.secrets.workKey();
-                    if (key.isBlank()) why = firstLine(block);
-                    else YouTubeTranscriptClient.writeDown(app, v.id(), v.title(), v.channel(), key, () -> {}, null);
-                }
+                String key = store.secrets.workKey();
+                if (key.isBlank()) why = "Gemini API 키가 없어요.";
+                else YouTubeTranscriptClient.writeDown(app, v.id(), v.title(), v.channel(), key, note, () -> {}, null);
             } catch (Exception e) { why = e.getMessage() == null || e.getMessage().isBlank() ? "대본을 가져오지 못했어요." : e.getMessage(); }
             String reason = why;
             main.post(() -> {
