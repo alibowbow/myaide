@@ -22,7 +22,7 @@ CACHE = Path(os.environ.get('GYEOT_BUILD_CACHE', ROOT / '.cache')).resolve()
 DEPS = ROOT / '.deps'
 BUILD = ROOT / 'build'
 # Maven Central answers on both hosts; the second is tried when the first refuses or rate-limits.
-MAVEN_MIRRORS = ('https://repo1.maven.org/maven2', 'https://repo.maven.apache.org/maven2')
+MAVEN_MIRRORS = ('https://repo1.maven.org/maven2', 'https://repo.maven.apache.org/maven2', 'https://maven-central.storage-download.googleapis.com/maven2')
 
 
 def gradle_config():
