@@ -325,7 +325,8 @@ final class Ui {
         selectSegment(track, labels, selected);
         return track;
     }
-    private void selectSegment(LinearLayout track, String[] labels, int selected) {
+    /** Shows selected as the chosen segment of a switcher made here, without running its action (the screen changed it itself). */
+    void selectSegment(LinearLayout track, String[] labels, int selected) {
         for (int i = 0; i < track.getChildCount(); i++) {
             TextView segment = (TextView) track.getChildAt(i); boolean on = i == selected;
             segment.setSelected(on); segment.setTextColor(on ? TEXT : MUTED); segment.setTypeface(weight(on ? 650 : 500));

@@ -126,7 +126,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         if (moved && wide && listColumn != null) fillList(book.projects());
         if (!project.equals(openId)) return;
         if (moved) { header(); render(false); }
-        else if (activityStrip != null && runner.busy(project)) { activityText.setText(runner.activity(project)); if (headerStatus != null) headerStatus.setText(runner.activity(project)); }
+        else if (activityStrip != null && runner.busy(project)) { activityText.setText(runner.activity(project)); if (headerStatus != null) headerStatus.setText(runner.activity(project)); if (reportNow != null && reportNow.isAttachedToWindow()) reportNow.setText(runner.activity(project)); }
     }
 
     // ── colors and faces ─────────────────────────────────────────────
@@ -297,6 +297,12 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
     // ── one project ──────────────────────────────────────────────────
 
     private LinearLayout headerBox;
+    /** The five views' switch: render keeps it on the view shown, also when the screen moves to another view itself. */
+    private LinearLayout tabSwitch;
+    /** 산출물's line saying what the 기록원 is doing while a report is written. */
+    private TextView reportNow;
+    /** A scroll to 토론방's newest words not drawn yet: a render right after it (a job reporting it started) must not undo it. */
+    private boolean endPending;
     private View projectPane(LabBook.Project p, boolean inPane) {
         LinearLayout pane = ui.column();
         headerBox = ui.row(); headerBox.setGravity(Gravity.CENTER_VERTICAL);
@@ -306,7 +312,8 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         // The five views as one small switch, as wide as its words (scrolls sideways on a narrow phone).
         HorizontalScrollView tabStrip = new HorizontalScrollView(this); tabStrip.setHorizontalScrollBarEnabled(false); tabStrip.setClipToPadding(false);
         tabStrip.setPadding(ui.dp(12), 0, ui.dp(12), 0);
-        tabStrip.addView(ui.switcher(TABS, tab, i -> { tab = i; expanded.clear(); render(true); }));
+        tabSwitch = ui.switcher(TABS, tab, i -> { tab = i; expanded.clear(); render(true); });
+        tabStrip.addView(tabSwitch);
         LinearLayout.LayoutParams tabsAt = new LinearLayout.LayoutParams(-1, -2); tabsAt.topMargin = ui.dp(inPane ? 2 : 4); tabsAt.bottomMargin = ui.dp(4);
         pane.addView(tabStrip, tabsAt);
         activityStrip = ui.row(); activityStrip.setPadding(ui.dp(16), ui.dp(2), ui.dp(8), ui.dp(2)); activityStrip.setVisibility(View.GONE);
@@ -363,6 +370,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         boolean nearEnd = scroll != null && content.getHeight() - (scroll.getScrollY() + scroll.getHeight()) < ui.dp(160);
         int keep = scroll == null ? 0 : scroll.getScrollY();
         content.removeAllViews(); readNotes = null;
+        if (tabSwitch != null) ui.selectSegment(tabSwitch, TABS, tab);
         boolean busy = runner.busy(p.id());
         if (activityStrip != null) { activityStrip.setVisibility(busy ? View.VISIBLE : View.GONE); if (busy) activityText.setText(runner.activity(p.id())); }
         if (composerBox != null) composerBox.setVisibility(tab == 0 ? View.VISIBLE : View.GONE);
@@ -374,13 +382,16 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
             default -> roomView(p);
         }
         composerLooks(p);
-        boolean end = tab == 0 && (toEnd || nearEnd) && !notes(p).isEmpty();
+        boolean end = tab == 0 && (toEnd || nearEnd || endPending) && !notes(p).isEmpty();
+        // Which scroll the next frame takes: the newest words when asked, else where it was (or the top of a newly opened view).
+        boolean top = toEnd && !end; int stay = endPending ? -1 : keep; endPending = end;
         // Placed before the next frame is drawn: the view opens where it should (the newest words), with no scroll to watch.
         ScrollView at = scroll;
         at.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
             @Override public boolean onPreDraw() {
                 at.getViewTreeObserver().removeOnPreDrawListener(this);
-                if (content != null) { if (end) at.scrollTo(0, Math.max(0, content.getHeight() - at.getHeight())); else at.scrollTo(0, toEnd ? 0 : keep); }
+                if (content != null) { if (end) at.scrollTo(0, Math.max(0, content.getHeight() - at.getHeight())); else if (top) at.scrollTo(0, 0); else if (stay >= 0) at.scrollTo(0, stay); }
+                endPending = false;
                 return true;
             }
         });
@@ -838,6 +849,8 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); return; }
         if (!started) { Toast.makeText(this, "시작하지 못했어요. 잠시 뒤 다시 해 주세요.", Toast.LENGTH_SHORT).show(); return; }
         if (input != null && !typed.isEmpty() && !"critique".equals(what) && !"report".equals(what) && !"plan".equals(what)) input.setText("");
+        // A report appears in 산출물: asked from there, the screen stays there and shows it being written.
+        if ("report".equals(what) && tab == 2) { render(false); return; }
         tab = 0; render(true);
     }
     private void mention(View anchor) {
@@ -964,9 +977,24 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
     private void outputsView(LabBook.Project p) {
         String report = book.report(p.id());
         content.addView(heading("보고서", report.isBlank() ? null : "복사", report.isBlank() ? null : () -> copy(report)));
-        if (report.isBlank()) {
+        boolean writing = runner.busy(p.id()) && runner.activity(p.id()).contains("보고서");
+        if (writing) {
+            // Being written now: what the 기록원 is doing, live, instead of a button that seems to do nothing.
+            LinearLayout card = ui.column(); card.setBackground(ui.glass(R_CARD, false)); card.setPadding(ui.dp(18), ui.dp(18), ui.dp(18), ui.dp(18));
+            ShimmerText now = new ShimmerText(this, MUTED, TEXT); now.setTextSize(15); now.setTypeface(Ui.weight(620)); now.setText(runner.activity(p.id()));
+            card.addView(now); reportNow = now;
+            TextView about = ui.text("다 쓰면 여기에 바로 나와요. 다른 탭을 보거나 앱을 나가도 계속 써요.", 13.5f, 450, MUTED); about.setPadding(0, ui.dp(6), 0, 0); card.addView(about);
+            content.addView(card, new LinearLayout.LayoutParams(-1, -2));
+        } else if (report.isBlank()) {
             LinearLayout card = ui.column(); card.setBackground(ui.glass(R_CARD, false)); card.setPadding(ui.dp(18), ui.dp(18), ui.dp(18), ui.dp(18));
             card.addView(ui.text("아직 보고서가 없어요", 15.5f, 680, TEXT));
+            // The last try failed: why, here where the report was asked for (it is in 토론방 too).
+            List<LabBook.Note> all = notes(p); LabBook.Note last = all.isEmpty() ? null : all.get(all.size() - 1);
+            if (last != null && "error".equals(last.kind())) {
+                TextView why = ui.text("지난번엔 쓰지 못했어요 · " + last.text(), 13.5f, 520, ERROR); why.setPadding(0, ui.dp(6), 0, 0); card.addView(why);
+                // A model to choose: the 연구원 tab, one tap away.
+                if (last.text().contains("연구원 탭")) { LinearLayout fix = ui.row(); fix.setPadding(0, ui.dp(8), 0, 0); fix.addView(ui.pill("연구원 탭 열기", R.drawable.ic_settings, false, () -> { tab = 3; render(true); }), new LinearLayout.LayoutParams(-2, -2)); card.addView(fix); }
+            }
             TextView about = ui.text("기록원이 지금까지의 토론, 문헌, 실험을 묶어 검증된 것 위주로 써요. 자율 연구는 마지막에 저절로 써요.", 13.5f, 450, MUTED); about.setPadding(0, ui.dp(6), 0, ui.dp(12)); card.addView(about);
             LinearLayout buttons = ui.row(); buttons.addView(ui.pill("보고서 쓰기", R.drawable.ic_pen, true, () -> act(p, "report")), new LinearLayout.LayoutParams(-2, -2)); card.addView(buttons);
             content.addView(card, new LinearLayout.LayoutParams(-1, -2));

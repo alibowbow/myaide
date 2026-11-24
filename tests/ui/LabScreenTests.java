@@ -108,6 +108,29 @@ public class LabScreenTests {
         tap(a, "연구원"); shot(a, "phone-team");
         tap(a, "진행판"); shot(a, "phone-board");
     }
+    /** 준: "보고서 쓰기가 안돼": the screen jumped to 토론방's oldest words while the switch still said 산출물. */
+    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void reportStaysInOutputs() throws Exception {
+        Application app = RuntimeEnvironment.getApplication();
+        seed(app);
+        LabBook book = new LabBook(new File(app.getFilesDir(), "lab"));
+        String id = book.create("복시, 축농증", "", "medicine").id();
+        book.note(id, "say", "scout", "문헌 조사 결과예요.", "", null);
+        Activity a = Robolectric.buildActivity(LabActivity.class, new Intent(app, LabActivity.class).putExtra(LabActivity.OPEN, id)).setup().get();
+        shadowOf(Looper.getMainLooper()).idle();
+        tap(a, "산출물"); tap(a, "보고서 쓰기");
+        // No AI is connected here, so the 기록원 fails at once: the reason must show where the report was asked for.
+        View decor = a.getWindow().getDecorView(); boolean shown = false;
+        for (int i = 0; i < 60 && !shown; i++) {
+            Thread.sleep(50); shadowOf(Looper.getMainLooper()).idle();
+            java.util.ArrayList<View> found = new java.util.ArrayList<>();
+            decor.findViewsWithText(found, "지난번엔 쓰지 못했어요", View.FIND_VIEWS_WITH_TEXT); shown = !found.isEmpty();
+        }
+        shot(a, "phone-report-failed");
+        assertTrue("the failure shows in 산출물", shown);
+        java.util.ArrayList<View> chosen = new java.util.ArrayList<>();
+        decor.findViewsWithText(chosen, "산출물, 선택됨", View.FIND_VIEWS_WITH_CONTENT_DESCRIPTION);
+        assertFalse("the switch still says 산출물", chosen.isEmpty());
+    }
     @Test @Config(qualifiers="w900dp-h700dp-land-night-hdpi") public void wideScreens() throws Exception {
         Application app = RuntimeEnvironment.getApplication();
         String id = seed(app);
