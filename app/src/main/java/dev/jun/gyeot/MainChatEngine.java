@@ -414,8 +414,10 @@ final class MainChatEngine implements AutoCloseable {
         // messages, or 퍼레's own last two answers, speak of it. Whose words the browser works under stays the user's own.
         String userRecent=userWords(turn,question,8);
         boolean browserWork=MainBrowser.wanted(question)||MainBrowser.wanted(userRecent)||MainBrowser.wanted(answerWords(turn,2));
-        String browsingWords=MainBrowser.wanted(question)?question:userRecent;
-        MainBrowsing browsing=browserWork?new MainBrowsing(context,app,turn.run(),browsingWords,userRecent,()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},deltas::status):null;
+        // What the browser may do is read from the user's own recent words together, not from this message alone: a question
+        // now ("계정 전환으로 바꿀 수 없나?") does not turn the upload asked for a few messages ago into a read-only task.
+        String browsingWords=userWords(turn,question,12);
+        MainBrowsing browsing=browserWork?new MainBrowsing(context,app,turn.run(),browsingWords,browsingWords,()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},deltas::status):null;
         WorkTools tools=counted(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(connected,pages),projects),python),browsing==null?null:browsing.tools()),ran);
         String instructions=instructions(memory)+(web.any()?WEB:"")+(connected!=null?TOOLS:pages!=null?PAGE_TOOLS:projects!=null?PROJECT_TOOLS:python!=null?PYTHON_TOOLS:"")+(subject!=null&&pages!=null?aboutPage(subject):"")+(browsing!=null?MainBrowser.INSTRUCTIONS:"");
         boolean summary=memory&&app.settings.getBoolean("mainSummaryOn",true);int budget=budget(app,selection);
