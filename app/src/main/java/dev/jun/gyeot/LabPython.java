@@ -34,10 +34,18 @@ final class LabPython {
             if (text.contains("\nDownloadUser")) Files.write(conf.toPath(), text.replace("\nDownloadUser", "\n#DownloadUser").getBytes(StandardCharsets.UTF_8));
         } catch (Exception ignored) {}
     }
-    /** What 계산 환경 준비 runs in the terminal: the keyring when it has none yet, then the packages. */
+    /**
+     * What 계산 환경 준비 runs in the terminal: the keyring when it has none yet; every mirror of the list turned on (pacman
+     * goes on to the next one when one stalls; the nearest-by-location one stays first); a lock left by a stopped run
+     * removed (only this terminal runs pacman); then the packages, tried up to three times.
+     */
     static String installCommand() {
         return "set -e; if [ ! -s /etc/pacman.d/gnupg/pubring.gpg ] && [ ! -s /etc/pacman.d/gnupg/pubring.kbx ]; then pacman-key --init && pacman-key --populate archlinuxarm; fi; "
-            + "pacman -Sy --noconfirm --needed " + PACKAGES + " && python3 -c \"import numpy, scipy, sympy, matplotlib, pandas; print('계산 환경 준비 완료 · numpy', numpy.__version__)\"";
+            + "if [ -f /etc/pacman.d/mirrorlist ] && ! grep -q '^# gyeot-mirrors' /etc/pacman.d/mirrorlist; then sed -i 's/^#[[:space:]]*Server[[:space:]]*=/Server =/' /etc/pacman.d/mirrorlist && echo '# gyeot-mirrors' >> /etc/pacman.d/mirrorlist; fi; "
+            + "rm -f /var/lib/pacman/db.lck; "
+            + "ok=; for try in 1 2 3; do if pacman -Sy --noconfirm --needed " + PACKAGES + "; then ok=1; break; fi; "
+            + "echo; echo \"서버가 느리거나 끊겨서 다시 시도해요 ($try/3)\"; sleep 5; done; [ -n \"$ok\" ]; "
+            + "python3 -c \"import numpy, scipy, sympy, matplotlib, pandas; print('계산 환경 준비 완료 · numpy', numpy.__version__)\"";
     }
 
     record Run(int exit, String output, long millis, java.util.List<File> figures) {}
