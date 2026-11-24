@@ -24,6 +24,8 @@ import java.util.concurrent.atomic.AtomicReference;
 final class ProjectMaker {
     interface Listener { void changed(String project); }
     private static ProjectMaker instance;
+    /** Some project is being made or changed now (RunningWork). */
+    static boolean anyRunning() { ProjectMaker m = instance; return m != null && !m.running.isEmpty(); }
     static synchronized ProjectMaker get(Context c) { if (instance == null) instance = new ProjectMaker(c.getApplicationContext()); return instance; }
 
     private final Context app; private final ProjectBook book;

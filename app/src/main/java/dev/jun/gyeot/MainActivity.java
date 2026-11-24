@@ -330,7 +330,7 @@ public final class MainActivity extends Activity {
         }
     }
     @Override protected void onPause() { hostResumed=false;if(mainChat!=null)mainChat.pause(); if (composerDictation != null) composerDictation.pause(); if (videoDialog != null) videoDialog.background(); super.onPause(); }
-    @Override protected void onResume() { super.onResume();hostResumed=true;AppNavigator.inFront("main");store.refreshModelListsIfDue();SemanticIndex.catchUpIfDue(this, store);Briefing.catchUp(this, store);WorkScheduleAlarm.refresh(this, store);if(showingMainChat&&mainChat!=null)mainChat.resume(); if (videoDialog != null) videoDialog.foreground(); BrowserRuntime.prepareWhenIdle(this);
+    @Override protected void onResume() { super.onResume();hostResumed=true;if(installWhenBack!=null&&RunningWork.names(store).isEmpty()){java.io.File apk=installWhenBack;installWhenBack=null;main.post(()->openInstaller(apk));}AppNavigator.inFront("main");store.refreshModelListsIfDue();SemanticIndex.catchUpIfDue(this, store);Briefing.catchUp(this, store);WorkScheduleAlarm.refresh(this, store);if(showingMainChat&&mainChat!=null)mainChat.resume(); if (videoDialog != null) videoDialog.foreground(); BrowserRuntime.prepareWhenIdle(this);
         if(isLauncher(getIntent())&&StorageSetupActivity.maybeOffer(this))return;
         if(pendingLaunchVoice){pendingLaunchVoice=false;if(store.voiceOnOpen()&&!store.voiceActive){mode=ASSISTANT;recordingPage=false;showTab(0);startVoice();}}
     }
@@ -5330,7 +5330,7 @@ public final class MainActivity extends Activity {
         java.io.File ready = store.updater.ready;
         Button action = store.updater.busy ? null : ready != null && ready.isFile() ? ui.button("설치 화면 열기", true, () -> {
             if (!getPackageManager().canRequestPackageInstalls()) { installUpdate(); return; }
-            openInstaller(ready);
+            if (RunningWork.names(store).isEmpty()) openInstaller(ready); else askAboutWork(() -> installAfterWork(ready), () -> openInstaller(ready));
         }) : update != null ? ui.button("내려받고 설치하기", true, this::installUpdate) : ui.button("업데이트 확인", false, () -> store.updater.check(false));
         if (action != null) { LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, -2); gap.topMargin = ui.dp(14); updateBox.addView(action, gap); }
         // The token is saved and cleared on the updater's thread: the 고급 rows follow once it has landed.
@@ -5366,12 +5366,33 @@ public final class MainActivity extends Activity {
                 () -> startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))));
             return;
         }
-        // Installing replaces the app: a running call, phone job or work stops with it.
-        boolean busy = store.voiceActive || store.recording || !store.workLive.isEmpty() || store.tasks.pendingCount() > 0;
+        // Installing replaces the app: whatever runs stops with it, so the user chooses: after it ends, now, or not.
+        java.util.List<String> running = RunningWork.names(store);
         Runnable go = () -> store.updater.install(apk -> runOnUiThread(() -> openInstaller(apk)));
-        if (!busy) { go.run(); return; }
-        confirm("업데이트 설치 중에는 대화·녹음·작업이 멈춰요. 복구 기록이 있는 작업은 앱을 다시 열면 읽기 전용으로 이어서 확인해요. 변경·코드·이미지 작업은 자동 반복하지 않아요. 지금 설치할까요?", "설치", go);
+        if (running.isEmpty()) { go.run(); return; }
+        askAboutWork(() -> store.updater.install(apk -> runOnUiThread(() -> installAfterWork(apk))), go);
     }
+    /** What runs now and that an update stops it: 끝나면 설치 (later) or 지금 설치 (now). */
+    private void askAboutWork(Runnable later, Runnable now) {
+        java.util.List<String> running = RunningWork.names(store);
+        Ui.Sheet sheet = ui.new Sheet("작업이 돌고 있어요", "지금 " + dev.jun.gyeot.core.LabBook.ida(String.join(", ", running)) + " 하고 있어요. 업데이트를 설치하면 앱이 다시 시작돼서 멈춰요.");
+        sheet.primary.setText("끝나면 설치");
+        sheet.primary.setOnClickListener(v -> { sheet.dismiss(); later.run(); });
+        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-1, -2); at.topMargin = ui.dp(8);
+        sheet.footer.addView(ui.button("지금 설치", false, () -> { sheet.dismiss(); now.run(); }), at);
+        sheet.show();
+    }
+    /** 끝나면 설치: the verified file waits here while work runs (looked at every few seconds), then Android's installer opens. */
+    private java.io.File installAfter, installWhenBack;
+    private final Runnable installTick = new Runnable() { @Override public void run() {
+        java.io.File apk = installAfter; if (apk == null || isDestroyed()) return;
+        java.util.List<String> running = RunningWork.names(store);
+        if (!running.isEmpty()) { store.updater.notice("내려받았어요 · " + dev.jun.gyeot.core.LabBook.ida(String.join(", ", running)) + " 끝나면 설치 화면을 열어요."); main.postDelayed(this, 5000); return; }
+        installAfter = null;
+        if (store.appVisible) openInstaller(apk);
+        else { installWhenBack = apk; store.updater.notice("작업이 끝났어요 · 돌아오면 설치 화면을 열어요."); }
+    } };
+    private void installAfterWork(java.io.File apk) { installAfter = apk; main.removeCallbacks(installTick); installTick.run(); }
     /**
      * Android's own package installer takes the verified file, the way browsers and file managers hand APKs over (as Mobile
      * Codex does). Samsung's 보안 위험 자동 차단 refused the app's own installer session; this path is the one it lets through.

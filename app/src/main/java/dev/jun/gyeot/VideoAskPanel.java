@@ -122,6 +122,8 @@ final class VideoAskPanel {
     /** The panels alive now, so a job that ends finds the one showing its video. Main thread. */
     private static final java.util.Set<VideoAskPanel> LIVE = java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
     private static List<VideoAskPanel> live() { return new ArrayList<>(LIVE); }
+    /** A summary, an answer, a picture or a transcript is being made now (RunningWork). */
+    static boolean anyRunning() { return !JOBS.isEmpty() || !FETCHING.isEmpty(); }
     private boolean busy() { return video != null && JOBS.containsKey(video.id()); }
     private ComposerDictation dictation;
 

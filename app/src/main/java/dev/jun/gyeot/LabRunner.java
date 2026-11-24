@@ -38,6 +38,8 @@ import org.json.JSONObject;
 final class LabRunner {
     interface Listener { void changed(String project); }
     private static LabRunner instance;
+    /** Some project's job runs now (an update would stop it: RunningWork). */
+    static boolean runningNow() { LabRunner r = instance; return r != null && r.anyRunning(); }
     static synchronized LabRunner get(Context c) { if (instance == null) instance = new LabRunner(c.getApplicationContext()); return instance; }
 
     private final Context app; private final LabBook book;

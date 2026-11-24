@@ -629,6 +629,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     // ── MP3 ────────────────────────────────────────────────────────────
 
     private boolean mp3Busy;
+    /** An MP3 is being made now (RunningWork: an update would stop it). */
+    static volatile boolean mp3Running;
     /**
      * The playing video's sound as an MP3 in 들퍼레/마이튜브 오디오. The first time, the app's Linux and its tools (Python,
      * ffmpeg, yt-dlp) are put in, each after the user says so; then the MP3 is made off the main thread.
@@ -648,7 +650,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             }).show();
             return;
         }
-        mp3Busy = true; mp3Chip.setEnabled(false); mp3Chip.setText("MP3 만드는 중…");
+        mp3Busy = true; mp3Running = true; mp3Chip.setEnabled(false); mp3Chip.setText("MP3 만드는 중…");
         android.content.Context app = getApplicationContext();
         work.execute(() -> {
             String said; java.io.File file = null;
@@ -661,7 +663,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
                 said = "들퍼레/" + SharedMediaOutput.AUDIO + "에 저장했어요 · " + name;
             } catch (Exception e) { said = "MP3를 만들지 못했어요" + (e.getMessage() == null || e.getMessage().isBlank() ? "" : ": " + e.getMessage()); }
             finally { YouTubeAudio.forget(file); }
-            String done = said;
+            String done = said; mp3Running = false;
             main.post(() -> { mp3Busy = false; if (isDestroyed()) return; mp3Chip.setEnabled(true); mp3Chip.setText("MP3"); toast(done); });
         });
     }

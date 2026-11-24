@@ -38,6 +38,8 @@ final class BrowserEngine {
         }
     }
     static boolean busy() { BrowserEngine e = instance; return e != null && e.anyRunning(); }
+    /** A browser task runs now in the app's browser (RunningWork); never makes the browser. */
+    static boolean anyTaskRunning() { BrowserEngine e = instance; return e != null && e.anyRunning(); }
     static BrowserEngine get(Context context) {
         if (Looper.myLooper() != Looper.getMainLooper()) throw new IllegalStateException("Browser must run on the main thread");
         if (instance == null) instance = new BrowserEngine(context.getApplicationContext());
