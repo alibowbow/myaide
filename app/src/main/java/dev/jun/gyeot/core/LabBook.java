@@ -152,14 +152,20 @@ public final class LabBook {
 
     /** Every project, the most recently touched first. */
     public synchronized List<Project> projects() {
+        String text;
+        try { text = read(new File(root, "projects.json"), "[]"); } catch (IOException e) { text = "[]"; }
+        // The list as last parsed while the file holds the same words (read hands back the same string then).
+        if (text == projectsText && projectsList != null) return new ArrayList<>(projectsList);
         List<Project> out = new ArrayList<>();
         try {
-            JSONArray list = new JSONArray(read(new File(root, "projects.json"), "[]"));
+            JSONArray list = new JSONArray(text);
             for (int i = 0; i < list.length(); i++) { JSONObject o = list.optJSONObject(i); if (o != null && !o.optString("id").isBlank()) out.add(Project.of(o)); }
         } catch (Exception ignored) {}
         out.sort((a, b) -> Long.compare(b.touched(), a.touched()));
+        projectsText = text; projectsList = new ArrayList<>(out);
         return out;
     }
+    private String projectsText; private List<Project> projectsList;
     public synchronized Project project(String id) { for (Project p : projects()) if (p.id().equals(id)) return p; return null; }
     /** A new project with the usual team: 이론가, 비평가 and 실험가 debate two rounds, 책임연구원 sums up. */
     public synchronized Project create(String title, String question, String field) throws IOException {
@@ -238,23 +244,33 @@ public final class LabBook {
     public synchronized JSONObject state(String id) {
         try { return new JSONObject(read(new File(dir(id), "state.json"), "{}")); } catch (Exception e) { return new JSONObject(); }
     }
+    /** The state to look at, not to change: parsed once while the file holds the same words (the screens ask often). */
+    private final Map<String, Object[]> states = new java.util.HashMap<>();
+    private JSONObject seen(String id) {
+        String text;
+        try { text = read(new File(dir(id), "state.json"), "{}"); } catch (IOException e) { text = "{}"; }
+        Object[] kept = states.get(id); if (kept != null && kept[0] == text) return (JSONObject) kept[1];
+        JSONObject parsed; try { parsed = new JSONObject(text); } catch (Exception e) { parsed = new JSONObject(); }
+        states.put(id, new Object[]{text, parsed});
+        return parsed;
+    }
     public synchronized void state(String id, JSONObject value) throws IOException { write(new File(dir(id), "state.json"), value.toString()); }
     /** A stage's state: "" (아직), doing, done. */
-    public synchronized String stage(String id, String stage) { JSONObject s = state(id).optJSONObject("stages"); return s == null ? "" : s.optString(stage); }
+    public synchronized String stage(String id, String stage) { JSONObject s = seen(id).optJSONObject("stages"); return s == null ? "" : s.optString(stage); }
     public synchronized void stage(String id, String stage, String value) throws IOException {
         JSONObject state = state(id); JSONObject stages = state.optJSONObject("stages"); if (stages == null) stages = new JSONObject();
         try { stages.put(stage, value); state.put("stages", stages); } catch (Exception e) { throw new IOException(e.getMessage(), e); }
         state(id, state);
     }
     /** What waits for the user ({action, focus, why}), or null. */
-    public synchronized JSONObject pending(String id) { JSONObject p = state(id).optJSONObject("pending"); return p == null || p.length() == 0 ? null : p; }
+    public synchronized JSONObject pending(String id) { JSONObject p = seen(id).optJSONObject("pending"); if (p == null || p.length() == 0) return null; try { return new JSONObject(p.toString()); } catch (Exception e) { return null; } }
     public synchronized void pending(String id, JSONObject value) throws IOException {
         JSONObject state = state(id); try { if (value == null) state.remove("pending"); else state.put("pending", value); } catch (Exception e) { throw new IOException(e.getMessage(), e); }
         state(id, state);
     }
     /** The AI answers spent by the current 자율 연구 run, and all of them. */
-    public synchronized int spent(String id) { return state(id).optInt("spent"); }
-    public synchronized int total(String id) { return state(id).optInt("total"); }
+    public synchronized int spent(String id) { return seen(id).optInt("spent"); }
+    public synchronized int total(String id) { return seen(id).optInt("total"); }
     public synchronized void spend(String id, int calls) throws IOException {
         JSONObject state = state(id);
         try { state.put("spent", state.optInt("spent") + calls); state.put("total", state.optInt("total") + calls); } catch (Exception e) { throw new IOException(e.getMessage(), e); }
@@ -262,7 +278,7 @@ public final class LabBook {
     }
     public synchronized void resetRun(String id) throws IOException { JSONObject state = state(id); try { state.put("spent", 0); state.put("steps", 0); state.put("midReport", false); } catch (Exception e) { throw new IOException(e.getMessage(), e); } state(id, state); }
     /** 자율 연구: "" (off), running, waiting (for the user), paused (budget), done. */
-    public synchronized String autopilot(String id) { return state(id).optString("autopilot"); }
+    public synchronized String autopilot(String id) { return seen(id).optString("autopilot"); }
     public synchronized void autopilot(String id, String value) throws IOException { JSONObject state = state(id); try { state.put("autopilot", value); } catch (Exception e) { throw new IOException(e.getMessage(), e); } state(id, state); }
 
     // ── 검증 장부 ─────────────────────────────────────────────────────
@@ -606,12 +622,26 @@ public final class LabBook {
     public static String clip(String s, int max) { String t = s == null ? "" : s.strip(); return t.length() > max ? t.substring(0, max) + " …" : t; }
     static String normal(String s) { return s == null ? "" : s.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", ""); }
     private static String safe(String id) { return id == null ? "_" : id.replaceAll("[^A-Za-z0-9_-]", "_"); }
-    private static String read(File file, String empty) throws IOException { return file.isFile() ? new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8) : empty; }
+    /**
+     * The small files (projects, state, sources, ledger, report) as last read or written: the same string back while the
+     * file keeps its size and time, so a screen asking ten times reads the disk once. What this book writes goes in as it
+     * is written; a file changed from outside (a backup put back) has another size or time and is read again.
+     */
+    private static final Map<String, Object[]> texts = new java.util.HashMap<>();
+    private static String read(File file, String empty) throws IOException {
+        if (!file.isFile()) { synchronized (texts) { texts.remove(file.getPath()); } return empty; }
+        long size = file.length(), time = file.lastModified();
+        synchronized (texts) { Object[] kept = texts.get(file.getPath()); if (kept != null && (long) kept[0] == size && (long) kept[1] == time) return (String) kept[2]; }
+        String text = new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8);
+        synchronized (texts) { texts.put(file.getPath(), new Object[]{size, time, text}); }
+        return text;
+    }
     private static void write(File file, String text) throws IOException {
         file.getParentFile().mkdirs();
         File temp = new File(file.getParentFile(), file.getName() + ".tmp");
         Files.write(temp.toPath(), text.getBytes(StandardCharsets.UTF_8));
         Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        synchronized (texts) { texts.put(file.getPath(), new Object[]{file.length(), file.lastModified(), text}); }
     }
     static void delete(File f) {
         if (f == null || !f.exists()) return;

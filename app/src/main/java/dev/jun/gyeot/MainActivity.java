@@ -223,6 +223,8 @@ public final class MainActivity extends Activity {
     private int probeRun, mediaRun;
     private final Runnable observer = this::refresh;
 
+    /** 연구실 and 나의학교's newest words are got ready once, a little after the app starts (LabActivity.warm). */
+    private static boolean warmed;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); store = ((GyeotApp) getApplication()).store(); ui = new Ui(this);
         sessionMode = Math.max(0, Math.min(Sessions.MODES.length - 1, store.settings.getInt("sessionMode", 0)));
@@ -300,6 +302,7 @@ public final class MainActivity extends Activity {
         if (state == null || !AppNavigator.tapped(getIntent())) openRequestedScreen(getIntent());
         if (state == null) { startFromShortcut(getIntent()); startOnOpen(getIntent()); talkFromNotification(getIntent()); }
         else pendingLaunchVoice=state.getBoolean("pendingLaunchVoice",false);
+        if (!warmed) { warmed = true; main.postDelayed(() -> { if (isFinishing()) return; LabActivity.warmRecent(this); SchoolActivity.warmRecent(this); }, 2500); }
         if (state != null && state.getBundle("videoPlayer") != null && videoDialog == null) { Bundle saved = state.getBundle("videoPlayer"); JSONObject video = VideoJobs.find(store.videos(), saved.getString("id", "")); if (video != null) root.post(() -> playVideo(video, saved)); }
     }
     /** Android 15 is always edge to edge; match it on 13–14 so system bar and keyboard insets are handled in one place. */

@@ -38,8 +38,24 @@ final class RichText {
     /** Heading sizes by level, against body text. */
     private static float size(int level) { return level <= 1 ? 1.42f : level == 2 ? 1.25f : level == 3 ? 1.1f : 1f; }
 
+    /**
+     * What render made, kept: the same words drawn again (a screen opened again, a list redrawn as a job moves) take no
+     * second pass. Keyed by the theme and the font size too, since the spans carry those; at most about two million chars.
+     */
+    private static final android.util.LruCache<String, CharSequence> made = new android.util.LruCache<>(2_000_000) {
+        @Override protected int sizeOf(String key, CharSequence value) { return key.length(); }
+    };
     static CharSequence render(String markdown) {
+        if (markdown == null || markdown.isEmpty()) return "";
         float em = em();
+        String key = (Ui.DARK ? "d" : "l") + Math.round(em * 10) + "\u0000" + markdown;
+        CharSequence kept = made.get(key); if (kept != null) return kept;
+        // Immutable, so every view showing it can share it (a TextView copies it before changing anything).
+        CharSequence out = new android.text.SpannedString(draw(markdown, em));
+        made.put(key, out);
+        return out;
+    }
+    private static CharSequence draw(String markdown, float em) {
         List<Markdown.Block> blocks = Markdown.blocks(markdown);
         SpannableStringBuilder out = new SpannableStringBuilder();
         // Spans are set once all the text is in: a paragraph span that ends at the end of the text grows over anything

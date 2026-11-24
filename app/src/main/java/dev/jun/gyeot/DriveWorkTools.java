@@ -120,11 +120,25 @@ final class DriveWorkTools extends WorkTools {
         try {
             drive.download(plan.optString("url"), target, limit);
             stop();
+            // The bytes' own SHA-256, taken before they are handed on: a document's "check the size and hash first" is answered.
+            String sha = sha256(target); long size = target.length();
+            stop();
             JSONObject kept = phone.keep(plan.optString("name"), plan.optString("mime"), target);
             // The browser's AI may hand this very file to a page's file chooser (attach), and no other.
             dev.jun.gyeot.core.BrowserUploads.allow(kept.optString("uri"), kept.optString("name", plan.optString("name")), plan.optString("mime"), System.currentTimeMillis());
-            return obj("ok", true, "name", kept.optString("name", plan.optString("name")), "uri", kept.optString("uri"), "size", target.length(), "from", file.optString("link"));
+            JSONObject out = obj("ok", true, "name", kept.optString("name", plan.optString("name")), "uri", kept.optString("uri"), "size", size, "sha256", sha, "from", file.optString("link"));
+            String stored = file.optString("sha256");
+            if (!stored.isEmpty()) { dev.jun.gyeot.core.Jsons.put(out, "drive_sha256", stored); dev.jun.gyeot.core.Jsons.put(out, "matches_drive", stored.equals(sha)); }
+            return out;
         } finally { if (target.exists() && !target.delete()) target.deleteOnExit(); }
+    }
+    /** SHA-256 of a file, lowercase hex (read in 1 MB pieces; a 120 MB video takes about a second). */
+    private String sha256(File f) throws Exception {
+        java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+        byte[] buffer = new byte[1 << 20];
+        try (java.io.InputStream in = new java.io.FileInputStream(f)) { for (int n; (n = in.read(buffer)) > 0;) { digest.update(buffer, 0, n); stop(); } }
+        StringBuilder hex = new StringBuilder(64); for (byte b : digest.digest()) hex.append(String.format(java.util.Locale.ROOT, "%02x", b));
+        return hex.toString();
     }
     private JSONObject folder(JSONObject args) throws Exception {
         String parent = args.optString("folder_id").strip();

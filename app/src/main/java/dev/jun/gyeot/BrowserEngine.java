@@ -1276,12 +1276,39 @@ final class BrowserEngine {
             if (done != null) main.post(() -> done.accept(value));
         });
     }
-    private JSONObject mutationBlocked() {
-        return obj("ok", false, "requires_user", true, "error_code", "mutation_unresolved", "action_executed", false,
-            "action_may_have_run", false, "previous_action_may_have_run", true, "retryable", false,
+    private JSONObject mutationBlocked() { return mutationBlocked(null); }
+    /**
+     * A change refused because an earlier one's result is unknown. With the earlier Work step's record (earlier), the answer
+     * says which step it was (when, on which site, what it did, for what request), that reading still works, and how the
+     * user lifts the block: the AI can then look for the earlier result itself and tell the user exactly what to check.
+     */
+    private JSONObject mutationBlocked(JSONObject earlier) {
+        JSONObject out = obj("ok", false, "requires_user", true, "error_code", "mutation_unresolved", "action_executed", false,
+            "action_may_have_run", false, "previous_action_may_have_run", true, "retryable", false, "reads_allowed", true,
             "error", workEngine
                 ? "이전 Work 작업의 변경 결과가 불확실해 현재 변경은 실행하지 않았어요. 읽기로 상태를 확인한 뒤 브라우저 메뉴의 Work 실행 확인에서 해당 기록을 직접 확인해 주세요."
                 : "이 탭의 이전 변경 결과가 불확실해 현재 변경은 실행하지 않았어요. 읽기로 상태를 확인한 뒤 브라우저 메뉴에서 해당 실행 기록을 직접 확인해 주세요.");
+        if (!workEngine || earlier == null) return out;
+        String site = siteOf(earlier.optString("url")), action = stepName(earlier.optString("action")), asked = earlier.optString("request");
+        if (asked.length() > 300) asked = asked.substring(0, 300) + "…";
+        long at = earlier.optLong("at");
+        String when = at > 0 ? new java.text.SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(new Date(at)) + "에" : "앞서";
+        put(out, "previous_step", obj("site", site, "action", earlier.optString("action"), "at", at > 0 ? at : JSONObject.NULL, "request", asked,
+            "reason", earlier.optString("stop_reason", earlier.optString("reason"))));
+        put(out, "error", "이전 Work 작업이 " + when + " " + site + "에서 '" + action + "'을 한 뒤 결과를 확인하지 못했어요. 같은 일이 두 번 일어나지 않도록 클릭·입력 같은 변경은 막았고, 이번 변경은 실행하지 않았어요."
+            + " 주소 열기와 페이지 읽기는 돼요: " + site + "에서 그 작업이 실제로 됐는지(이미 올라간 글·영상·초안 등) 먼저 읽어서 확인하고, 사용자에게 알림의 '이전 작업 확인'(또는 브라우저 메뉴 → Work 실행 확인)을 눌러 차단을 풀어 달라고 한 뒤 다시 하세요."
+            + (asked.isBlank() ? "" : " 이전 요청: " + asked));
+        BrowserTaskService.askWorkReview(context, earlier.optString("receipt_id"), site, action);
+        return out;
+    }
+    private static String siteOf(String url) {
+        try { String host = URI.create(url == null ? "" : url).getHost(); return host == null || host.isBlank() ? "같은 사이트" : host; }
+        catch (RuntimeException malformed) { return "같은 사이트"; }
+    }
+    private static String stepName(String action) {
+        return switch (action == null ? "" : action) {
+            case "click" -> "누르기"; case "type" -> "입력"; case "select" -> "선택"; case "press" -> "키 누르기"; case "vault_fill" -> "로그인 정보 입력"; default -> "변경";
+        };
     }
     private void prepareDispatch(Pending p, Runnable dispatch) {
         if (!isPending(p) || !valid(p.generation)) return;
@@ -1319,13 +1346,13 @@ final class BrowserEngine {
         String snapshot = p.tab.task.snapshot();
         JSONObject record = obj("version", 1, "receipt_id", p.dispatchId, "job_id", workScope,
             "request", request, "url", safeWorkUrl(p.tab.url), "reason", "awaiting_acknowledgement",
-            "action", p.action, "state", "awaiting_acknowledgement", "tier", "consequential");
+            "action", p.action, "state", "awaiting_acknowledgement", "tier", "consequential", "at", System.currentTimeMillis());
         reserveWorkDispatch(p, snapshot, record, ready);
     }
     private void reserveWorkDispatch(Pending p, String snapshot, JSONObject record, Consumer<Boolean> ready) {
         if (!isPending(p) || !valid(p.generation)) return;
         storageIo.execute(() -> {
-            boolean saved = false, blocked = false, waiting = false;
+            boolean saved = false, blocked = false, waiting = false; JSONObject earlier = null;
             try {
                 JSONObject existing = readWorkPending(store);
                 // Records from before steps were tiered fenced every click, links and file buttons included: one that no
@@ -1334,14 +1361,14 @@ final class BrowserEngine {
                     store.secrets.put(WORK_PENDING_KEY, ""); existing = null;
                 }
                 if (existing != null) {
-                    waiting = activeWorkReceipts.contains(existing.optString("receipt_id")); blocked = !waiting;
+                    waiting = activeWorkReceipts.contains(existing.optString("receipt_id")); blocked = !waiting; earlier = existing;
                 }
                 else {
                     store.secrets.put(workTaskKey(), snapshot);
                     store.secrets.put(WORK_PENDING_KEY, record.toString()); saved = true;
                 }
             } catch (Exception failure) { /* No durable reservation, no dispatch. */ }
-            final boolean durable = saved, conflict = blocked, awaitActive = waiting;
+            final boolean durable = saved, conflict = blocked, awaitActive = waiting; final JSONObject previous = earlier;
             main.post(() -> {
                 if (!isPending(p) || !valid(p.generation)) return;
                 if (awaitActive) {
@@ -1349,7 +1376,7 @@ final class BrowserEngine {
                     main.postDelayed(() -> reserveWorkDispatch(p, snapshot, record, ready), 150);
                 } else if (conflict) {
                     p.preparingMutation = false; settleUnsent(p);
-                    if (isPending(p) && valid(p.generation)) finish(p, mutationBlocked());
+                    if (isPending(p) && valid(p.generation)) finish(p, mutationBlocked(previous));
                 } else ready.accept(durable);
             });
         });

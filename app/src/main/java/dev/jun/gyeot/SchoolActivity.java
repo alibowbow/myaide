@@ -23,9 +23,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 import dev.jun.gyeot.core.SchoolBook;
 import java.io.File;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
@@ -55,14 +53,40 @@ public final class SchoolActivity extends Activity {
     /** On a wide screen the list can fold into a slim column of pictures (kept across visits). */
     private boolean folded;
     private ComposerDictation dictation;
-    private final Map<String, Drawable> faces = new HashMap<>();
+    /** One book for the app: what it read (each lesson's lines) stays read when this screen is opened again. */
+    private static SchoolBook shared;
+    static synchronized SchoolBook book(android.content.Context c) { if (shared == null) shared = new SchoolBook(new File(c.getApplicationContext().getFilesDir(), "school")); return shared; }
+    /** Teachers' pictures as decoded, for the app (by file and its time): a picture is decoded once, not on each visit. */
+    private static final android.util.LruCache<String, android.graphics.Bitmap> faces = new android.util.LruCache<>(8 * 1024 * 1024) {
+        @Override protected int sizeOf(String key, android.graphics.Bitmap value) { return value.getByteCount(); }
+    };
+    private static void forgetFace(String id) { for (String key : faces.snapshot().keySet()) if (key.startsWith(id + ":")) faces.remove(key); }
+    /** The lesson's lines as drawn, kept while they and their teacher stay the same: sending a line adds one bubble, not all. */
+    private final java.util.LinkedHashMap<String, View> bubbles = new java.util.LinkedHashMap<>(32, .75f, true) {
+        @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, View> e) { return size() > 80; }
+    };
+    /** A teacher's newest lines formatted off the main thread (into RichText's keep), so the lesson opens drawn at once. */
+    static void warm(SchoolBook book, String id) {
+        if (id == null || id.isEmpty() || Ui.TEXT == 0) return;
+        Thread t = new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+            try { List<SchoolBook.Line> all = book.lines(id); for (int i = Math.max(0, all.size() - SHOWN); i < all.size(); i++) if (!all.get(i).mine()) RichText.render(all.get(i).text()); }
+            catch (RuntimeException ignored) {}
+        }, "gyeot-school-warm");
+        t.setDaemon(true); t.start();
+    }
+    /** The first teachers' lessons got ready (the app has just started). */
+    static void warmRecent(android.content.Context c) {
+        SchoolBook book = book(c);
+        new Thread(() -> { List<SchoolBook.Teacher> all = book.teachers(); for (int i = 0; i < Math.min(4, all.size()); i++) warm(book, all.get(i).id()); }, "gyeot-school-warm").start();
+    }
 
     /** The menu and rail look the same on every screen: opening and leaving this one swaps only the content, with no slide or dim. */
     private void noTransition() { if (android.os.Build.VERSION.SDK_INT >= 34) { overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, 0, 0); overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0); } else overridePendingTransition(0, 0); }
     @Override public void finish() { super.finish(); noTransition(); }
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); noTransition();
-        ui = new Ui(this); store = ((GyeotApp) getApplication()).store(); book = new SchoolBook(new File(getFilesDir(), "school"));
+        ui = new Ui(this); store = ((GyeotApp) getApplication()).store(); book = book(this);
         openId = state != null ? state.getString("open") : getIntent().getStringExtra(OPEN);
         if (openId == null && state == null) { String last = store.settings.getString("schoolOpen", ""); if (!last.isEmpty() && wideScreen()) openId = last; }
         folded = store.settings.getBoolean("schoolListFolded", false);
@@ -120,6 +144,8 @@ public final class SchoolActivity extends Activity {
         } else if (open == null) {
             root.addView(listPane(teachers), new FrameLayout.LayoutParams(-1, -1));
             navigation.bar(null);
+            List<SchoolBook.Teacher> first = teachers;
+            root.post(() -> { for (int i = 0; i < Math.min(4, first.size()); i++) warm(book, first.get(i).id()); });
         } else {
             View lesson = lessonPane(open, false);
             root.addView(lesson, new FrameLayout.LayoutParams(-1, -1));
@@ -265,7 +291,13 @@ public final class SchoolActivity extends Activity {
             TextView earlier = ui.text("이전 대화 " + from + "개 더 보기", 13, 650, ACCENT); earlier.setGravity(Gravity.CENTER); earlier.setPadding(0, ui.dp(6), 0, ui.dp(10));
             earlier.setOnClickListener(v -> { shownMore += 30; renderLesson(t, false); }); Ui.pressable(earlier, true); lines.addView(earlier);
         }
-        for (int i = from; i < all.size(); i++) lines.addView(bubble(t, all.get(i)));
+        File picture = book.avatar(t.id()); String who = t.hashCode() + ":" + picture.lastModified();
+        for (int i = from; i < all.size(); i++) {
+            SchoolBook.Line l = all.get(i); String key = who + "|" + l.at() + "|" + l.role() + "|" + l.text().length() + "|" + l.text().hashCode();
+            View v = bubbles.get(key);
+            if (v == null) bubbles.put(key, v = bubble(t, l)); else if (v.getParent() instanceof android.view.ViewGroup parent) parent.removeView(v);
+            lines.addView(v);
+        }
         if (busy) {
             ShimmerText wait = new ShimmerText(this, MUTED, TEXT); wait.setText(t.name() + " 선생님이 생각하는 중"); wait.setTextSize(13); wait.setTypeface(Ui.weight(500));
             wait.setPadding(ui.dp(4), ui.dp(8), 0, ui.dp(4)); lines.addView(wait);
@@ -494,7 +526,7 @@ public final class SchoolActivity extends Activity {
             else ui.confirm(t.name() + " 선생님을 내보낼까요? 대화와 사진도 함께 지워져요.", "내보내기 · 삭제", () -> {
                 if (t.id().equals(thinkingFor)) stop();
                 try { book.remove(t.id()); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); return; }
-                store.settings.edit().remove("tutorModels:" + t.id()).apply(); faces.remove(t.id());
+                store.settings.edit().remove("tutorModels:" + t.id()).apply(); forgetFace(t.id());
                 if (t.id().equals(openId)) openId = null;
                 draw();
             }).show();
@@ -582,7 +614,7 @@ public final class SchoolActivity extends Activity {
                     if (store.groq.connected()) try { ScopedModels.tutor(store, saved.id()).chooseEngine(dev.jun.gyeot.core.WorkBook.GROQ); } catch (Exception ignored) {}
                 } else { SchoolBook.Teacher now = book.teacher(t.id()); saved = (now == null ? t : now).with(n, subject.getText().toString(), style.getText().toString(), level.getText().toString(), SchoolBook.METHODS.get(method[0]).id()); book.save(saved); }
                 if (picture[0] != null) book.avatar(saved.id(), picture[0]); else if (cleared[0]) book.avatar(saved.id(), null);
-                this.faces.remove(saved.id());
+                forgetFace(saved.id());
                 sheet.dismiss();
                 openId = saved.id(); failure = null; draw();
             } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); }
@@ -675,9 +707,9 @@ public final class SchoolActivity extends Activity {
     private Drawable faceDrawable(SchoolBook.Teacher t) {
         File file = book.avatar(t.id());
         if (!file.isFile()) return null;
-        String key = t.id() + ":" + file.lastModified();
-        Drawable kept = faces.get(key); if (kept != null) return kept.getConstantState() == null ? kept : kept.getConstantState().newDrawable();
-        try { Drawable made = decodeFace(java.nio.file.Files.readAllBytes(file.toPath())); if (made != null) { faces.put(key, made); return made.getConstantState() == null ? made : made.getConstantState().newDrawable(); } }
+        String key = t.id() + ":" + file.lastModified() + ":" + file.length();
+        android.graphics.Bitmap kept = faces.get(key); if (kept != null) return new android.graphics.drawable.BitmapDrawable(getResources(), kept);
+        try { Drawable made = decodeFace(java.nio.file.Files.readAllBytes(file.toPath())); if (made instanceof android.graphics.drawable.BitmapDrawable b && b.getBitmap() != null) faces.put(key, b.getBitmap()); return made; }
         catch (Exception | OutOfMemoryError ignored) {}
         return null;
     }

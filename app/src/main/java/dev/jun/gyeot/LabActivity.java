@@ -89,11 +89,28 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         String asked = intent.getStringExtra(OPEN); if (asked != null) { openId = asked; tab = 0; draw(); }
     }
     @Override protected void onSaveInstanceState(Bundle out) { super.onSaveInstanceState(out); out.putString("open", openId); out.putInt("tab", tab); }
-    /** onCreate drew the screen: the first onResume does not draw it again (coming back later does, things may have moved). */
+    /** onCreate drew the screen: the first onResume does not draw it again. */
     private boolean drawnOnCreate;
-    @Override protected void onResume() { super.onResume(); resumed = true; AppNavigator.inFront("lab"); runner.watch(this); LabRunner.onScreen = openId; if (drawnOnCreate) drawnOnCreate = false; else draw(); }
+    /**
+     * Coming back (the menu brings this same screen to the front) draws again only when something it shows moved while it
+     * was away: else the screen as it was is shown at once, with nothing rebuilt. 진행판 (Linux and Python can change
+     * outside) is always drawn again.
+     */
+    @Override protected void onResume() {
+        super.onResume(); resumed = true; AppNavigator.inFront("lab"); runner.watch(this); LabRunner.onScreen = openId;
+        if (drawnOnCreate) { drawnOnCreate = false; drawnLooks = looks(); return; }
+        String now = looks(); if (tab == 4 || !now.equals(drawnLooks)) draw(); drawnLooks = now;
+    }
+    private String drawnLooks = "";
+    /** What the screen shows, in short: its width, the projects (with what each is doing), the open one's notes and state. */
+    private String looks() {
+        StringBuilder s = new StringBuilder().append(wideScreen()).append(folded).append('|').append(openId).append('|').append(tab);
+        for (LabBook.Project p : book.projects()) s.append('|').append(p.id()).append(':').append(p.touched()).append(':').append(p.title().hashCode()).append(':').append(runner.busy(p.id())).append(':').append(book.autopilot(p.id()));
+        if (openId != null) s.append('#').append(book.noteCount(openId)).append(':').append(book.state(openId)).append(':').append(new java.util.TreeSet<>(runner.speaking(openId))).append(':').append(book.report(openId).length());
+        return s.toString();
+    }
     @Override protected void onPause() { resumed = false; LabRunner.onScreen = null; runner.unwatch(this); if (dictation != null) dictation.pause(); super.onPause(); }
-    @Override protected void onDestroy() { destroyed = true; runner.unwatch(this); super.onDestroy(); }
+    @Override protected void onDestroy() { destroyed = true; runner.unwatch(this); decoder.shutdownNow(); super.onDestroy(); }
     @Override public void onBackPressed() {
         if (navigation != null && navigation.close()) return;
         if (!wide && openId != null) { openId = null; draw(); return; }
@@ -160,10 +177,11 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         } else if (open == null) {
             root.addView(listPane(projects), new FrameLayout.LayoutParams(-1, -1));
             navigation.bar(null);
+            root.post(() -> { for (int i = 0; i < Math.min(3, projects.size()); i++) warm(book, projects.get(i).id()); });
         } else root.addView(projectPane(open, false), new FrameLayout.LayoutParams(-1, -1));
         if (input != null && !draft.isEmpty()) { input.setText(draft); input.setSelection(draft.length()); }
     }
-    private void open(String id) { if (id.equals(openId) && wide) return; openId = id; tab = 0; roomMore = 0; expanded.clear(); draw(); }
+    private void open(String id) { if (id.equals(openId) && wide) return; openId = id; tab = 0; roomMore = 0; notesMore = 0; expanded.clear(); draw(); }
     private void fold(boolean value) {
         folded = value; store.settings.edit().putBoolean("labListFolded", value).apply();
         if (android.animation.ValueAnimator.areAnimatorsEnabled()) android.transition.TransitionManager.beginDelayedTransition(root);
@@ -375,7 +393,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         return readNotes;
     }
     /** 토론방 draws the newest ROOM entries; 이전 기록 더 보기 draws the rest (they are all in 노트 too). */
-    private static final int ROOM = 12, MORE = 30; private int roomMore;
+    private static final int ROOM = 12, MORE = 30, NOTE_ROWS = 40; private int roomMore, notesMore;
 
     // ── 토론방 ────────────────────────────────────────────────────────
 
@@ -435,8 +453,29 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         return row;
     }
 
+    /**
+     * The entries as drawn, kept while they look the same (what is opened in them, an ask still waiting): a redraw (a job
+     * moved, 더 보기, back from another tab) puts the same views back instead of building and laying out their words again.
+     */
+    private final java.util.LinkedHashMap<String, View> drawn = new java.util.LinkedHashMap<>(64, .75f, true) {
+        @Override protected boolean removeEldestEntry(java.util.Map.Entry<String, View> e) { return size() > 90; }
+    };
+    private String looks(LabBook.Project p, LabBook.Note n, boolean compact) {
+        StringBuilder k = new StringBuilder(n.id()).append(compact ? "|c" : "|r");
+        for (String part : new String[]{"", ":src", ":out", ":code"}) if (expanded.contains(n.id() + part)) k.append('|').append(part.isEmpty() ? "open" : part);
+        if ("ask".equals(n.kind())) k.append(live(p, n) ? "|live" : "|done");
+        return k.toString();
+    }
     /** One entry as 토론방 shows it (compact: as 노트 shows it opened). */
     private View noteView(LabBook.Project p, LabBook.Note n, boolean compact) {
+        String key = looks(p, n, compact);
+        View kept = drawn.get(key);
+        if (kept != null) { if (kept.getParent() instanceof ViewGroup parent) parent.removeView(kept); return kept; }
+        View made = buildNote(p, n, compact);
+        if (made != null) drawn.put(key, made);
+        return made;
+    }
+    private View buildNote(LabBook.Project p, LabBook.Note n, boolean compact) {
         return switch (n.kind()) {
             case "user" -> mine(n);
             case "system" -> systemLine(n.text(), MUTED);
@@ -512,8 +551,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         TextView text = ui.text("", 15, 420, TEXT); text.setLineSpacing(ui.dp(3), 1); text.setTextIsSelectable(true);
         boolean open = expanded.contains(n.id());
         // Folded, only the start that can show is formatted and laid out (a long answer is the slow part of a redraw).
-        String shown = n.text(); boolean cut = !open && shown.length() > lines * 90;
-        if (cut) { int at = shown.lastIndexOf('\n', lines * 90); shown = shown.substring(0, at > lines * 40 ? at : lines * 90); }
+        String shown = open ? n.text() : folded(n.text(), lines); boolean cut = shown.length() < n.text().length();
         text.setText(RichText.render(shown));
         box.addView(text);
         if (!open) { text.setMaxLines(lines); text.setEllipsize(TextUtils.TruncateAt.END); }
@@ -523,6 +561,42 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         if (open || cut) more.setVisibility(View.VISIBLE);
         else text.post(() -> { android.text.Layout l = text.getLayout(); boolean longer = l != null && l.getLineCount() > 0 && (l.getEllipsisCount(l.getLineCount() - 1) > 0 || text.getLineCount() > lines); if (longer) more.setVisibility(View.VISIBLE); });
         return box;
+    }
+    /** The start of words folded at lines that can show (cut at a line break when one is near): all that is formatted. */
+    static String folded(String text, int lines) {
+        if (text.length() <= lines * 90) return text;
+        int at = text.lastIndexOf('\n', lines * 90); return text.substring(0, at > lines * 40 ? at : lines * 90);
+    }
+    /** How many lines 토론방 shows of an entry before 더 보기 (0: drawn whole, -1: no formatted words). */
+    static int foldAt(LabBook.Note n) {
+        return switch (n.kind()) {
+            case "user", "system", "error", "step" -> -1;
+            case "judge", "learned" -> 24; case "report" -> 18; case "run" -> 4; case "ask" -> 0;
+            default -> 14;
+        };
+    }
+    /**
+     * Gets a project's newest entries ready off the main thread (read, and their words formatted into RichText's keep),
+     * so opening it draws at once. Quiet, at the lowest priority; a failure only means the screen does that work itself.
+     */
+    static void warm(LabBook book, String id) {
+        if (id == null || id.isEmpty() || Ui.TEXT == 0) return;
+        Thread t = new Thread(() -> {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+            try {
+                List<LabBook.Note> notes = book.notes(id);
+                for (int i = Math.max(0, notes.size() - ROOM); i < notes.size(); i++) {
+                    LabBook.Note n = notes.get(i); int at = foldAt(n);
+                    if (at >= 0 && !n.text().isBlank()) RichText.render(at == 0 ? n.text() : folded(n.text(), at));
+                }
+            } catch (RuntimeException ignored) {}
+        }, "gyeot-lab-warm");
+        t.setDaemon(true); t.start();
+    }
+    /** The two projects touched last, got ready (the app has just started; one of them is likely opened next). */
+    static void warmRecent(android.content.Context c) {
+        LabBook book = LabRunner.get(c).book();
+        new Thread(() -> { List<LabBook.Project> all = book.projects(); for (int i = 0; i < Math.min(2, all.size()); i++) warm(book, all.get(i).id()); }, "gyeot-lab-warm").start();
     }
     private View foot(LabBook.Note n) {
         LinearLayout foot = ui.row(); foot.setPadding(ui.dp(2), 0, 0, 0);
@@ -615,8 +689,9 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         if (!n.text().isBlank()) { LinearLayout.LayoutParams ba = new LinearLayout.LayoutParams(-1, -2); ba.topMargin = ui.dp(6); card.addView(body(n, 4), ba); }
         JSONArray figs = d.optJSONArray("figures");
         if (figs != null) for (int i = 0; i < figs.length(); i++) {
-            File f = new File(book.files(p.id()), figs.optString(i)); Bitmap b = figure(f); if (b == null) continue;
-            ImageView image = new ImageView(this); image.setImageBitmap(b); image.setAdjustViewBounds(true); image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            File f = new File(book.files(p.id()), figs.optString(i));
+            ImageView image = new ImageView(this); image.setAdjustViewBounds(true); image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            if (!showFigure(image, f)) continue;
             image.setBackground(ui.shape(DARK ? 0xfff4f2ee : 0xffffffff, 14)); image.setClipToOutline(true); image.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4));
             image.setContentDescription("실험 E" + number + " 그림 " + (i + 1));
             image.setOnClickListener(v -> showFigure(f)); Ui.pressable(image, true);
@@ -643,9 +718,13 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         }
         return box;
     }
-    private View askCard(LabBook.Project p, LabBook.Note n) {
+    /** The ask still waits for its answer (the newest ask, and the one 자율 연구 holds for). */
+    private boolean live(LabBook.Project p, LabBook.Note n) {
         JSONObject pending = book.pending(p.id());
-        boolean live = pending != null && pending.optString("focus").equals(n.data().optString("focus")) && "waiting".equals(book.autopilot(p.id())) && isLastAsk(p, n);
+        return pending != null && pending.optString("focus").equals(n.data().optString("focus")) && "waiting".equals(book.autopilot(p.id())) && isLastAsk(p, n);
+    }
+    private View askCard(LabBook.Project p, LabBook.Note n) {
+        boolean live = live(p, n);
         boolean experiment = "experiment".equals(n.data().optString("action"));
         LinearLayout card = ui.column(); card.setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(14));
         GradientDrawable bg = ui.shape(ui.tone(ORANGE), R_CARD); card.setBackground(bg);
@@ -826,18 +905,23 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         };
     }
     private void notesView(LabBook.Project p) {
-        content.addView(ui.smallPills(FILTERS, noteFilter, i -> { noteFilter = i; expanded.clear(); render(true); }));
+        content.addView(ui.smallPills(FILTERS, noteFilter, i -> { noteFilter = i; notesMore = 0; expanded.clear(); render(true); }));
         List<LabBook.Note> notes = notes(p); List<LabBook.Note> shown = new ArrayList<>();
         for (LabBook.Note n : notes) if (shows(n)) shown.add(n);
         if (shown.isEmpty()) { content.addView(emptyNote(notes.isEmpty() ? "아직 기록이 없어요. 토론방에서 연구를 시작해 보세요." : "이 종류의 기록은 아직 없어요.")); return; }
         long lastDay = -1;
         LinearLayout line = ui.column(); line.setPadding(0, ui.dp(8), 0, 0);
-        for (int i = shown.size() - 1; i >= 0; i--) {
+        int until = Math.max(0, shown.size() - NOTE_ROWS - notesMore);
+        for (int i = shown.size() - 1; i >= until; i--) {
             LabBook.Note n = shown.get(i); long d = n.at() / 86_400_000L;
             if (d != lastDay) { lastDay = d; TextView dm = ui.text(day.format(new Date(n.at())), 12.5f, 650, MUTED); dm.setPadding(ui.dp(4), ui.dp(14), 0, ui.dp(6)); line.addView(dm); }
             line.addView(timelineRow(p, n, i == 0));
         }
         content.addView(line);
+        if (until > 0) {
+            TextView older = ui.text("이전 기록 " + until + "개 더 보기", 13, 650, ACCENT); older.setGravity(Gravity.CENTER); older.setPadding(0, ui.dp(10), 0, ui.dp(10));
+            older.setOnClickListener(v -> { notesMore += MORE; render(false); }); Ui.pressable(older, true); content.addView(older);
+        }
     }
     private View emptyNote(String text) { TextView t = ui.label(text, 14, MUTED); t.setGravity(Gravity.CENTER); t.setPadding(ui.dp(24), ui.dp(40), ui.dp(24), ui.dp(24)); return t; }
     private int kindHue(LabBook.Note n) {
@@ -864,6 +948,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         } else {
             String preview = "run".equals(n.kind()) ? "실험 E" + n.data().optInt("n") + (n.data().optInt("exit") == 0 ? " 성공 · " : " 실패 · ") + n.data().optString("goal")
                 : "step".equals(n.kind()) ? LabBook.actionName(n.data().optString("action")) + " · " + n.data().optString("focus") : n.text();
+            if (preview.length() > 400) preview = preview.substring(0, 400);
             TextView pv = ui.text(preview.replaceAll("[#*`>_]+", "").replaceAll("\\s+", " ").strip(), 13, 450, MUTED); pv.setMaxLines(2); pv.setEllipsize(TextUtils.TruncateAt.END); pv.setPadding(0, ui.dp(2), 0, 0);
             col.addView(pv);
         }
@@ -1217,11 +1302,34 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         Bitmap kept = figures.get(f.getPath()); if (kept != null) return kept;
         try {
             BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true; BitmapFactory.decodeFile(f.getPath(), bounds);
-            int sample = 1; while (bounds.outWidth / (sample * 2) >= 1200) sample *= 2;
-            BitmapFactory.Options opts = new BitmapFactory.Options(); opts.inSampleSize = sample;
-            Bitmap b = BitmapFactory.decodeFile(f.getPath(), opts); if (b != null) figures.put(f.getPath(), b);
+            Bitmap b = decode(f, sample(bounds.outWidth)); if (b != null) figures.put(f.getPath(), b);
             return b;
         } catch (RuntimeException | OutOfMemoryError e) { return null; }
+    }
+    private static int sample(int width) { int sample = 1; while (width / (sample * 2) >= 1200) sample *= 2; return sample; }
+    private static Bitmap decode(File f, int sample) {
+        try { BitmapFactory.Options opts = new BitmapFactory.Options(); opts.inSampleSize = sample; return BitmapFactory.decodeFile(f.getPath(), opts); }
+        catch (RuntimeException | OutOfMemoryError e) { return null; }
+    }
+    /** Figures are decoded on their own thread: decoding a large PNG on the main one is a pause. */
+    private final java.util.concurrent.ExecutorService decoder = java.util.concurrent.Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-lab-figures"); t.setDaemon(true); return t; });
+    /**
+     * Puts a figure in its view: at once when decoded before, else an empty box of its size (read from the file's head, so
+     * nothing moves when it comes) while it is decoded off the main thread. False when the file is no picture.
+     */
+    private boolean showFigure(ImageView image, File f) {
+        Bitmap kept = figures.get(f.getPath()); if (kept != null) { image.setImageBitmap(kept); return true; }
+        if (!f.isFile()) return false;
+        BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true; BitmapFactory.decodeFile(f.getPath(), bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return false;
+        int sample = sample(bounds.outWidth);
+        GradientDrawable hold = new GradientDrawable(); hold.setColor(0); hold.setSize(Math.max(1, bounds.outWidth / sample), Math.max(1, bounds.outHeight / sample));
+        image.setImageDrawable(hold);
+        decoder.execute(() -> {
+            Bitmap b = decode(f, sample);
+            main.post(() -> { if (destroyed || b == null) return; figures.put(f.getPath(), b); image.setImageBitmap(b); });
+        });
+        return true;
     }
     private void showFigure(File f) {
         Bitmap b = figure(f); if (b == null) return;

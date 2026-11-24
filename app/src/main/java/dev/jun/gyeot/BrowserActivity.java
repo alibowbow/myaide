@@ -65,6 +65,8 @@ public final class BrowserActivity extends Activity {
      * even when the screen is made again (rotation, or the process restarting) with the same intent or an older one.
      */
     static final String OPEN = "dev.jun.gyeot.browser.OPEN", OPEN_ID = "dev.jun.gyeot.browser.OPEN_ID";
+    /** Opened from the "이전 브라우저 작업 확인" notification: the earlier Work step's review comes up at once. */
+    static final String REVIEW_WORK = "dev.jun.gyeot.browser.REVIEW_WORK";
     private static final String OPENED = "browserOpened";
     /** The ids of the requests already opened, oldest first, the newest OPENED_KEPT of them; kept in the saved state. */
     static final int OPENED_KEPT = 32;
@@ -475,7 +477,7 @@ public final class BrowserActivity extends Activity {
         try { view.capturePixels().accept(bitmap -> done.accept(bitmap, at), failure -> done.accept(null, null)); }
         catch (RuntimeException failed) { done.accept(null, null); }
     }
-    @Override protected void onResume() { super.onResume(); if (voice != null) voice.attach(); navigationResumed = true; AppNavigator.browserInFront(true); AppNavigator.inFront("browser"); updateAiToolbarState(); engine.attach(this::refresh, prompts); engine.externalAppLink = this::offerYouTube; engine.store.observe(storeObserver); consumeTaskNotification(); consumeOpen(); acknowledgeNavigation(); }
+    @Override protected void onResume() { super.onResume(); if (voice != null) voice.attach(); navigationResumed = true; AppNavigator.browserInFront(true); AppNavigator.inFront("browser"); updateAiToolbarState(); engine.attach(this::refresh, prompts); engine.externalAppLink = this::offerYouTube; engine.store.observe(storeObserver); consumeTaskNotification(); consumeOpen(); consumeReview(); acknowledgeNavigation(); }
     @Override protected void onPause() {
         if (voice != null) voice.detach();
         recoveryViewSequence++;
@@ -541,7 +543,7 @@ public final class BrowserActivity extends Activity {
     }
     @Override protected void onNewIntent(android.content.Intent intent) {
         super.onNewIntent(intent); setIntent(intent);
-        web.post(() -> { consumeTaskNotification(); consumeOpen(); acknowledgeNavigation(); });
+        web.post(() -> { consumeTaskNotification(); consumeOpen(); consumeReview(); acknowledgeNavigation(); });
     }
     /**
      * Opens url in a new tab of the app's browser, the screen brought to the front: a source the main chat cited, or a
@@ -573,6 +575,12 @@ public final class BrowserActivity extends Activity {
         }
     }
     /** Notification identity is a process plus an immutable run lease, never the visible tab. */
+    private void consumeReview() {
+        android.content.Intent intent = getIntent();
+        if (!navigationResumed || engine == null || intent == null || !intent.getBooleanExtra(REVIEW_WORK, false)) return;
+        intent.removeExtra(REVIEW_WORK);
+        reviewWorkMutation();
+    }
     private void consumeTaskNotification() {
         android.content.Intent intent = getIntent();
         if (!navigationResumed || engine == null || engine.historyRestorePending() || intent == null || !intent.hasExtra(BrowserTaskService.TASK_LEASE_EXTRA)) return;
