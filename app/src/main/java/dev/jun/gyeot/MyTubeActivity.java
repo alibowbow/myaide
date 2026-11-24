@@ -559,6 +559,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         rowLabel(savedChips, "저장");
         for (MyTube.Feed f : lists) savedChips.addView(feedChip(f), chipAfter());
         if (lists.isEmpty()) savedChips.addView(ui.label("영상에서 ‘저장’을 누르면 주제별 목록이 생겨요", 12, MUTED));
+        savedChips.addView(summarizedChip(), chipAfter());
         list.removeAllViews();
         searchActions.setVisibility(searched != null && !searching ? View.VISIBLE : View.GONE);
         searchPlayAll.setVisibility(found.isEmpty() ? View.GONE : View.VISIBLE);
@@ -614,6 +615,47 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         chip.setBackground(ui.centeredCapsule(on ? ACCENT : FILL, ui.dp(28))); chip.setPadding(ui.dp(12), 0, ui.dp(12), 0);
         chip.setTextColor(on ? ON_ACCENT : TEXT); chip.setSelected(on);
         return chip;
+    }
+    // ── 요약한 영상 ────────────────────────────────────────────────────
+
+    /** 요약한 영상: at the end of the 저장 row, the videos summed up or asked about here (VideoAskPanel keeps the last VideoChat.KEPT). */
+    private Button summarizedChip() {
+        Button chip = withAiMark(ui.smallChip("요약한 영상", this::showSummarized));
+        chip.setBackground(ui.centeredCapsule(FILL, ui.dp(28))); chip.setPadding(ui.dp(12), 0, ui.dp(12), 0); chip.setTextColor(TEXT);
+        chip.setContentDescription("요약한 영상 목록 보기");
+        return chip;
+    }
+    /** The kept conversations are read off the main thread (the file once), then listed. */
+    private void showSummarized() {
+        android.content.Context app = getApplicationContext();
+        work.execute(() -> { List<VideoChat.Kept> kept = VideoAskPanel.saved(app); main.post(() -> { if (!isFinishing() && !isDestroyed()) summarizedSheet(kept); }); });
+    }
+    /** All of them, newest first, one slim row each (a small frame, the title, channel · when); a tap plays it with its summary open. */
+    private void summarizedSheet(List<VideoChat.Kept> kept) {
+        List<VideoChat.Kept> newest = new ArrayList<>(kept); newest.sort((a, b) -> Long.compare(b.at(), a.at()));
+        Ui.Sheet sheet = ui.selectionSheet("요약한 영상", newest.isEmpty() ? "영상에서 ‘요약’을 누르면 여기에 모여요" : "최근 " + newest.size() + "개 · 누르면 영상과 요약이 함께 열려요");
+        sheet.primary.setVisibility(View.GONE);
+        dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet));
+        List<MyTube.Video> videos = new ArrayList<>();
+        for (VideoChat.Kept k : newest) videos.add(new MyTube.Video(k.id(), k.title(), k.channel(), "", "", "", ""));
+        MyTube.Feed from = new MyTube.Feed("summarized", "요약한 영상", MyTube.Kind.VIDEOS, "", "", 0);
+        for (int i = 0; i < newest.size(); i++) {
+            VideoChat.Kept k = newest.get(i); int index = i;
+            LinearLayout row = ui.row(); row.setPadding(ui.dp(4), ui.dp(5), ui.dp(4), ui.dp(5));
+            ImageView frame = new ImageView(this); frame.setScaleType(ImageView.ScaleType.CENTER_CROP); frame.setBackground(ui.shape(FILL, 8)); frame.setClipToOutline(true);
+            frame.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            row.addView(frame, new LinearLayout.LayoutParams(ui.dp(64), ui.dp(36))); loadFrame(frame, k.id(), false);
+            LinearLayout words = ui.column(); words.setPadding(ui.dp(10), 0, 0, 0);
+            TextView title = ui.text(k.title().isBlank() ? "제목 없는 영상" : k.title(), 14, 560, TEXT); title.setSingleLine(true); title.setEllipsize(TextUtils.TruncateAt.END);
+            TextView meta = ui.label(join(k.channel(), ago(k.at())), 12, MUTED); meta.setSingleLine(true); meta.setEllipsize(TextUtils.TruncateAt.END);
+            words.addView(title); words.addView(meta);
+            row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+            row.setContentDescription(title.getText() + ", " + meta.getText() + ". 누르면 영상과 요약이 함께 열려요");
+            row.setOnClickListener(v -> { sheet.dismiss(); player.play(from, videos, index); player.attach(screen); summarize(videos.get(index)); });
+            Ui.pressable(row, true);
+            sheet.body.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
+        sheet.show();
     }
     private LinearLayout.LayoutParams chipAfter() { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(8); return p; }
     /** 추천 · 저장 at the start of their rows, the same width so both rows' chips line up. */
