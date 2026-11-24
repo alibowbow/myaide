@@ -39,6 +39,10 @@ def phone_apk(source, destination):
             name = entry.filename
             if name.startswith('lib/') and not name.startswith('lib/arm64-v8a/'): continue
             if name.startswith('META-INF/') and (name.endswith(('.RSA', '.DSA', '.EC', '.SF')) or name == 'META-INF/MANIFEST.MF'): continue
+            # Build-tool files nothing reads on a phone: Kotlin's reflection tables (no kotlin-reflect here), the coroutines
+            # debug agent's probes, and AndroidX's version stamps for Android Studio. About 13 KB the 100MiB limit needs.
+            if name == 'DebugProbesKt.bin' or name.startswith('kotlin/') and name.endswith('.kotlin_builtins') \
+                    or name.startswith('META-INF/') and name.count('/') == 1 and name.endswith('.version'): continue
             # ART extracts ordinary DEX files during installation; compress them on the wire too.
             # resources.arsc remains stored so Android can memory-map it after zipalign.
             dex = '/' not in name and name.startswith('classes') and name.endswith('.dex')
