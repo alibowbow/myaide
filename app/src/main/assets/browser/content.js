@@ -75,7 +75,12 @@
   const protectedComment = (e, regions) => regions.some(region=>composedContains(region,e) ||
     (e.form && (e.form===region || composedContains(region,e.form))) || composedContains(e,region));
   // Report only categories, never credentials, callback parameters or frame URLs.
-  const guardReason = () => location.hostname === 'accounts.google.com' ? 'auth_host'
+  // Google's account chooser: YouTube sends a switch to another signed-in Google account through it. There only the rows of
+  // accounts already signed in are shown and can be clicked (see snapshot); a password, code or captcha there stays protected.
+  const accountChooser = () => location.hostname === 'accounts.google.com' && /accountchooser|signinchooser/i.test(location.pathname)
+    && !all('input[type="password"],input[autocomplete="one-time-code"]').some(visible)
+    && !all('iframe[src]').some(e => visible(e) && /recaptcha|hcaptcha|challenges.cloudflare/.test(e.src));
+  const guardReason = () => accountChooser() ? '' : location.hostname === 'accounts.google.com' ? 'auth_host'
     : /(?:^|[?&])(?:code|access_token|id_token|oauth_token)=/i.test(location.search) ? 'oauth_callback'
     : all('iframe[src]').some(e => visible(e) && /recaptcha|hcaptcha|challenges.cloudflare/.test(e.src)) ? 'captcha'
     : all('input[autocomplete="one-time-code"]').some(visible) ? 'otp'
@@ -178,11 +183,31 @@
     const destination=publicReadUrl(url.href);
     return destination ? {method:'GET',url:destination,document:documentId} : null;
   }
+  // The account chooser as the AI sees it: one row per signed-in account (its name and address), nothing else — no "use another
+  // account", no removal, no signed-out account (that one asks for a password, which stays the user's).
+  function chooserSnapshot() {
+    refs = new Map(); revision++;
+    const elements = [];
+    for (const e of all('[data-identifier],[data-email]')) {
+      if (elements.length >= 12 || !visible(e)) continue;
+      const words = tidy(e.innerText || e.getAttribute('aria-label') || '', 200);
+      const address = e.getAttribute('data-identifier') || e.getAttribute('data-email') || '';
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address) || /다른 계정|another account|계정 삭제|삭제|remove|로그아웃됨|signed out/i.test(words)) continue;
+      const ref = revision + ':' + elements.length;
+      refs.set(ref, {element:e, fingerprint:fingerprint(e)});
+      elements.push({ref, tag:e.tagName.toLowerCase(), type:'', label:words || address, disabled:false, role:e.getAttribute('role') || 'link', editable:false, readonly:true,
+        selected:false, current:false, selection_hint:false, checked:false, placeholder:'', account_choice:true});
+    }
+    return {ok:true, document:documentId, title:'Google 계정 선택', url:location.origin + location.pathname, account_chooser:true,
+      text:'Google 계정 선택 화면이에요. 이미 로그인된 계정 중 하나를 누르기만 할 수 있어요. 비밀번호·인증 화면이 나오면 사용자가 직접 해야 해요.',
+      elements, frames:0, activity:pageActivity()};
+  }
   function snapshot() {
     const guard = guardReason();
     if (guard) { refs = new Map(); revision++; return {ok:true, requires_user:true, error_code:'authentication_required', guard_reason:guard,
       error:guard==='password' ? '비밀번호 입력 영역이 있어 페이지 조작을 멈췄어요. 인증은 직접 진행하거나, 뒤로 가기 또는 공개 HTTPS 홈페이지로 이동을 새로 지시해 주세요.' : '인증·보안 확인은 직접 진행해 주세요. 이 화면에서 나가려면 뒤로 가기 또는 공개 HTTPS 홈페이지로 이동을 새로 지시해 주세요.',
       title:'보호된 입력 · 사용자 확인 필요', url:location.origin, document:documentId, elements:[], text:'보호된 화면의 내용은 AI에게 전달하지 않습니다.'}; }
+    if (accountChooser()) return chooserSnapshot();
     refs = new Map(); revision++;
     const elements = [], regions=commentRegions();
     for (const e of all('a[href],button,input,textarea,select,[role="button"],[role="link"],[role="combobox"],[role="searchbox"],[role="tab"],[role="switch"],[role="radio"],[role="textbox"],[contenteditable]:not([contenteditable="false"])')) {
@@ -274,6 +299,7 @@
     }
     if (loginPage()) return snapshot();
     if (a.action === 'read') return snapshot();
+    if (accountChooser() && !['click','scroll'].includes(a.action)) throw Error('계정 선택 화면에서는 로그인된 계정을 고르는 것만 할 수 있어요.');
     // Do not regenerate refs before validating the caller's existing reference.
     target=refs.get(a.ref)?.element;
     let tap=null;
