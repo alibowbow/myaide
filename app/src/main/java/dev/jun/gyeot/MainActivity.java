@@ -825,8 +825,12 @@ public final class MainActivity extends Activity {
             java.util.List<dev.jun.gyeot.core.Notices.Notice> today = dev.jun.gyeot.core.Notices.recent(NoticeListener.list(this), now, 24, 100);
             if (!today.isEmpty()) {
                 LinearLayout card = feedCard();
-                card.addView(ui.text("오늘 알림이 " + today.size() + "개 왔어요", 11.5f, 650, Ui.GREEN));
-                java.util.List<String> lines = dev.jun.gyeot.core.Notices.lines(today, now);
+                // Ads and the phone's own news (a screenshot saved) are counted, never brought first.
+                java.util.List<dev.jun.gyeot.core.Notices.Notice> worth = dev.jun.gyeot.core.Notices.worth(today);
+                int skipped = today.size() - worth.size();
+                card.addView(ui.text("오늘 알림이 " + today.size() + "개 왔어요" + (skipped > 0 ? " · 광고 등 " + skipped + "개는 뺐어요" : ""), 11.5f, 650, Ui.GREEN));
+                java.util.List<String> lines = dev.jun.gyeot.core.Notices.lines(worth, now);
+                if (lines.isEmpty()) { TextView none = ui.text("볼 만한 알림은 없었어요", 13, 450, MUTED); none.setPadding(0, ui.dp(3), 0, 0); card.addView(none); }
                 for (String line : lines.subList(0, Math.min(2, lines.size()))) { TextView one = ui.text(line, 13, 450, TEXT); one.setMaxLines(1); one.setEllipsize(TextUtils.TruncateAt.END); one.setPadding(0, ui.dp(3), 0, 0); card.addView(one); }
                 TextView more = ui.text("눌러서 모아 보기 · 요약도 해 드려요", 12, 500, MUTED); more.setPadding(0, ui.dp(4), 0, 0); card.addView(more);
                 card.setOnClickListener(v -> startActivity(new android.content.Intent(this, NoticeActivity.class))); Ui.pressable(card, true);
