@@ -48,19 +48,19 @@ public final class AutomationGate {
     // Benign uses of those stems: battery charging, resetting a filter or a search.
     private static final String KO_BENIGN = "(?:배터리|고속|급속|무선|유선)충전|충전(?:중|기|량|상태|속도|케이블|단자|제한|모드)|(?:필터|검색어?|조건|선택|정렬|옵션|입력|줌|확대|화면)초기화";
     private static final Pattern FORBIDDEN_EN = Regex.unicode(
-        "(?i)\\b(?:pay(?:ments?)?|purchases?|buy(?:ing)?|checkout|check\\s?out|(?:place|complete|submit|confirm)\\s+(?:your\\s+|the\\s+|my\\s+)?order|order\\s+now|"
+        "(?i)(?<![A-Za-z0-9])(?:pay(?:ments?)?|purchases?|buy(?:ing)?|checkout|check\\s?out|(?:place|complete|submit|confirm)\\s+(?:your\\s+|the\\s+|my\\s+)?order|order\\s+now|"
         + "order\\s+(?:complete[d]?|completion|done|confirm(?:ed|ation)?|pending|placed|processing|in\\s+progress|success(?:ful)?|succeeded|failed|submitted|received)|"
         + "transfers?|withdraw\\w*|deposits?|top\\s?up|recharge|donate|cash\\s+advance|send\\s+money|"
         + "delete|remove|erase|uninstall|wipe|discard|factory\\s?reset|reset\\s+(?:phone|device|data|all|everything)|"
         + "clear\\s+(?:data|storage|cache|history|chat|conversation|all\\s+data)|(?:close|delete|deactivate|cancel)\\s+(?:my\\s+|your\\s+|the\\s+)?account|"
         + "format\\s+(?:sd|card|storage|device|disk|drive|usb)|empty\\s+(?:the\\s+)?(?:trash|bin)|move\\s+to\\s+(?:the\\s+)?(?:trash|bin)|"
-        + "upgrade[sd]?|go\\s+(?:pro|premium|plus)|get\\s+(?:pro|premium|plus)|(?:buy|get|add|purchase)\\s+(?:more\\s+)?credits?|subscribe\\s+to\\s+(?:pro|premium|plus))\\b");
+        + "upgrade[sd]?|go\\s+(?:pro|premium|plus)|get\\s+(?:pro|premium|plus)|(?:buy|get|add|purchase)\\s+(?:more\\s+)?credits?|subscribe\\s+to\\s+(?:pro|premium|plus))(?![A-Za-z0-9])");
     private static final String EN_BENIGN = "(?:remove|clear|reset)\\s+(?:all\\s+)?filters?|remove\\s+from\\s+(?:search|results)|(?:file|data|usb|photo|media)\\s+transfers?|"
         + "transfer\\s+(?:files?|photos?|media|data)|clear\\s+(?:search|text|query|input)";
     // A price or a coin spend: "₩12,000", "3,900원", "$4.99", "쿠키 3개로 보기", "Unlock for 3 coins".
-    private static final Pattern PRICE = Regex.unicode("(?i)[₩$€£¥]\\s*\\d|\\d[\\d,.]*\\s*(?:원|달러|유로|엔)(?:(?![가-힣a-z])|(?=에|짜리|씩|부터|이에요|입니다))|\\b(?:usd|krw|eur)\\s*\\d");
+    private static final Pattern PRICE = Regex.unicode("(?i)[₩$€£¥]\\s*\\d|\\d[\\d,.]*\\s*(?:원|달러|유로|엔)(?:(?![가-힣a-z])|(?=에|짜리|씩|부터|이에요|입니다))|(?<![A-Za-z0-9])(?:usd|krw|eur)\\s*\\d");
     private static final Pattern SPEND = Regex.unicode("(?i)\\d+\\s*(?:개|코인|쿠키|캐시|포인트|젬|다이아|루비|골드|하트|별|원)\\s*(?:으로|로)\\s*(?:보기|열기|구매|구입|대여|소장|이용|받기|사용|잠금\\s*해제)"
-        + "|\\b(?:unlock|use|spend|redeem)\\b[^\\n]{0,20}?\\b\\d+\\s*(?:coins?|gems?|credits?|points?|cookies?|tokens?|diamonds?)\\b|\\b\\d+\\s*(?:coins?|gems?|credits?|cookies?|diamonds?)\\s+to\\s+(?:unlock|read|watch|view|buy)\\b");
+        + "|(?<![A-Za-z0-9])(?:unlock|use|spend|redeem)(?![A-Za-z0-9])[^\\n]{0,20}?\\b\\d+\\s*(?:coins?|gems?|credits?|points?|cookies?|tokens?|diamonds?)(?![A-Za-z0-9])|\\b\\d+\\s*(?:coins?|gems?|credits?|cookies?|diamonds?)\\s+to\\s+(?:unlock|read|watch|view|buy)(?![A-Za-z0-9])");
     // A read or navigation label ("결제 내역", "주문 조회", "Purchase history"): exempt unless a money or confirm verb is present.
     private static final Pattern READ_ENDING = Regex.unicode("(?i)(?:(?:내역|이력|기록|목록|리스트|현황|상세|정보|영수증|명세서?)(?:확인|조회|보기)?|조회|보기|열기|"
         + "history|list|lists|details?|records?|receipts?|status|summary|statements?|activity)$");
@@ -70,10 +70,10 @@ public final class AutomationGate {
         + "complete|completed|done|pending|processing|in\\s*progress|confirmed|successful|succeeded|failed|cancell?ed)$");
     private static final Pattern MONEY_VERB = Regex.unicode("(?i)(?:결제|결재|구매|구입|주문|송금|이체|출금|입금|납부|지불|충전|환전|매수|매도|대여|소장|후원|기부|삭제|제거|초기화|탈퇴|해지|포맷|선물)"
         + "(?:하기|하고|하|해|할|합|진행|요청|신청|확인|승인|동의)|바로구매|즉시구매|(?:확인|동의)(?:및|하고|후)(?:결제|구매|주문|송금|이체)|지우|비우|비워|지워"
-        + "|\\b(?:pay|buy|checkout|delete|remove|erase|clear|wipe|discard|empty|uninstall|reset|format|confirm|agree)\\b|\\border\\s+now\\b|\\bplace\\s+(?:your\\s+)?order\\b");
+        + "|(?<![A-Za-z0-9])(?:pay|buy|checkout|delete|remove|erase|clear|wipe|discard|empty|uninstall|reset|format|confirm|agree)(?![A-Za-z0-9])|\\border\\s+now\\b|\\bplace\\s+(?:your\\s+)?order\\b");
     // A forbidden operation in a verb form, as on a control ("결제하기", "삭제하고", "Pay now").
     private static final Pattern FORBIDDEN_VERB = Regex.unicode("(?:결제|결재|구매|구입|주문|송금|이체|출금|입금|납부|지불|충전|환전|매수|매도|대출|대여|소장|후원|기부|삭제|제거|초기화|탈퇴|해지|포맷|업그레이드)"
-        + "(?:하기|하고|하|해|할|합)|바로구매|즉시구매|지우|비우|지워|비워|(?i)^\\W*(?:pay|buy|purchase|checkout|order|delete|remove|erase|uninstall|wipe|discard|transfer|withdraw|deposit|donate|top\\s?up|upgrade)\\b");
+        + "(?:하기|하고|하|해|할|합)|바로구매|즉시구매|지우|비우|지워|비워|(?i)^\\W*(?:pay|buy|purchase|checkout|order|delete|remove|erase|uninstall|wipe|discard|transfer|withdraw|deposit|donate|top\\s?up|upgrade)(?![A-Za-z0-9])");
 
     /** A read label, or with status also a record's status, with no money, spend or confirm verb in it. */
     private static boolean readLabel(String text, boolean status) {
@@ -161,7 +161,7 @@ public final class AutomationGate {
         return words.length <= 4;
     }
     private static final Pattern TIME_OR_DATE = Regex.unicode("(?i)(?:오전|오후|am|pm)\\s*\\d|\\d{1,2}:\\d{2}|\\d+\\s*(?:초|분|시간|일|주|개월|년)\\s*전|어제|그제|방금|"
-        + "\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일|\\d{2,4}[./-]\\s*\\d{1,2}[./-]\\s*\\d{1,2}|\\b(?:yesterday|today|just\\s+now|\\d+\\s*(?:s|m|h|d|w|mins?|minutes?|hrs?|hours?|days?)\\s+ago)\\b");
+        + "\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일|\\d{2,4}[./-]\\s*\\d{1,2}[./-]\\s*\\d{1,2}|(?<![A-Za-z0-9])(?:yesterday|today|just\\s+now|\\d+\\s*(?:s|m|h|d|w|mins?|minutes?|hrs?|hours?|days?)\\s+ago)(?![A-Za-z0-9])");
     /** One short reply sentence ("네, 그렇게 할게요", "이따 전화할게", "Sounds good!"): at most 40 characters, a sentence ending,
      * no time or date in it. As the only text of a row in a messaging app, it is a reply that one tap sends. */
     public static boolean replySentence(String text) {
@@ -225,11 +225,11 @@ public final class AutomationGate {
 
     // ── Kinds of consequential controls, from their labels ─────────────────────────────────────
 
-    private static final Pattern SEND_LABEL = Regex.unicode("(?i)보내|전송|발송|답장|\\b(?:send|reply|forward)\\b");
-    private static final Pattern POST_LABEL = Regex.unicode("(?i)게시|올리기|업로드|댓글|공유|포스팅|\\b(?:post|publish|upload|comment|share|tweet)\\b");
-    private static final Pattern SUBMIT_LABEL = Regex.unicode("(?i)제출|신청|예약|예매|접수|등록|가입|응모|\\b(?:submit|apply|book|reserve|register|sign ?up|enroll)\\b");
-    private static final Pattern CALL_LABEL = Regex.unicode("(?i)전화|통화|발신|\\b(?:call|dial)\\b");
-    private static final Pattern CONFIRM_LABEL = Regex.unicode("(?i)^(?:예|네|확인|동의|수락|허용|계속|ok|okay|yes)$|수락|동의|허용|\\b(?:accept|agree|allow|confirm|continue)\\b");
+    private static final Pattern SEND_LABEL = Regex.unicode("(?i)보내|전송|발송|답장|(?<![A-Za-z0-9])(?:send|reply|forward)(?![A-Za-z0-9])");
+    private static final Pattern POST_LABEL = Regex.unicode("(?i)게시|올리기|업로드|댓글|공유|포스팅|(?<![A-Za-z0-9])(?:post|publish|upload|comment|share|tweet)(?![A-Za-z0-9])");
+    private static final Pattern SUBMIT_LABEL = Regex.unicode("(?i)제출|신청|예약|예매|접수|등록|가입|응모|(?<![A-Za-z0-9])(?:submit|apply|book|reserve|register|sign ?up|enroll)(?![A-Za-z0-9])");
+    private static final Pattern CALL_LABEL = Regex.unicode("(?i)전화|통화|발신|(?<![A-Za-z0-9])(?:call|dial)(?![A-Za-z0-9])");
+    private static final Pattern CONFIRM_LABEL = Regex.unicode("(?i)^(?:예|네|확인|동의|수락|허용|계속|ok|okay|yes)$|수락|동의|허용|(?<![A-Za-z0-9])(?:accept|agree|allow|confirm|continue)(?![A-Za-z0-9])");
     public static Kind kind(String label) {
         String text = label == null ? "" : label.strip();
         if (text.isEmpty()) return Kind.OTHER;
@@ -252,7 +252,7 @@ public final class AutomationGate {
     private static final Pattern QUOTED = Pattern.compile("(?<![A-Za-z0-9])'[^'\\n]{1,200}'(?![A-Za-z0-9])|\"[^\"\\n]{1,200}\"|“[^”\\n]{0,200}”|‘[^’\\n]{0,200}’|「[^」\\n]{0,200}」|『[^』\\n]{0,200}』");
     private static final Pattern CLAUSE_BREAK = Regex.unicode("(?i)[,，.!?。！？;\\n]+|\\s(?:그리고|그런데|근데|하지만|그다음에?|다음에|and|but|then)\\s");
     // A clause that says not to do something ("보내지 마", "답장은 하지 말고", "don't send"): its action words ask for nothing.
-    private static final Pattern NEGATION = Regex.unicode("(?i)지\\s*(?:는|도|를)?\\s*(?:마|말|않)|말고|(?:^|\\s)(?:안|못)\\s+\\S|필요\\s*(?:없|는\\s*없)|하지\\s*않|\\b(?:don'?t|do\\s+not|never|no\\s+need|without)\\b");
+    private static final Pattern NEGATION = Regex.unicode("(?i)지\\s*(?:는|도|를)?\\s*(?:마|말|않)|말고|(?:^|\\s)(?:안|못)\\s+\\S|필요\\s*(?:없|는\\s*없)|하지\\s*않|(?<![A-Za-z0-9])(?:don'?t|do\\s+not|never|no\\s+need|without)(?![A-Za-z0-9])");
     private static final String PARTICLE = "\\s*(?:을|를|은|는|도|만|좀)?\\s*";
     // Passing words on to someone: a quoted ending ("늦는다고", "언제 오냐고", "확인했다고") right before a telling or asking verb.
     // What comes before the ending is the message, not the request (reported).
@@ -281,24 +281,24 @@ public final class AutomationGate {
         + "|삭제" + PARTICLE + "(?:해|하)|지워|지우|사\\s*(?:줘|주세요|줄래)"
         + "|" + RECIPIENT_TELL + "|(?:다|냐|라|자)고(?:만|는|도|요)?\\s*(?:좀\\s*)?(?:" + TELL + ")"
         // English post and reply are nouns as often as verbs ("read this post", "read the reply"): only an imperative asks.
-        + "|^\\s*(?:(?:please|pls|can\\s+you|could\\s+you|would\\s+you|will\\s+you|just|now|go\\s+ahead\\s+and)\\s+)*(?:post|reply)\\b|\\byou\\s+to\\s+(?:post|reply)\\b"
+        + "|^\\s*(?:(?:please|pls|can\\s+you|could\\s+you|would\\s+you|will\\s+you|just|now|go\\s+ahead\\s+and)\\s+)*(?:post|reply)(?![A-Za-z0-9])|\\byou\\s+to\\s+(?:post|reply)(?![A-Za-z0-9])"
         + "|\\border\\b(?!\\s+(?:status|history|details?|number|list|of|tracking))"
-        + "|\\b(?:tell|ask)\\s+(?!(?:me|us|about|what|which|who|whom|when|where|why|how|if|whether)\\b)[a-z]"
-        + "|\\b(?:send|respond|forward|publish|share|upload|comment|tweet|submit|apply|book|reserve|register|sign\\s*up|enroll|call|dial|tap|click|press|hit|touch"
+        + "|(?<![A-Za-z0-9])(?:tell|ask)\\s+(?!(?:me|us|about|what|which|who|whom|when|where|why|how|if|whether)(?![A-Za-z0-9]))[a-z]"
+        + "|(?<![A-Za-z0-9])(?:send|respond|forward|publish|share|upload|comment|tweet|submit|apply|book|reserve|register|sign\\s*up|enroll|call|dial|tap|click|press|hit|touch"
         + "|select|choose|pick|toggle|turn\\s+(?:on|off)|switch|enable|disable|type|enter|fill|write|save|add|copy|paste|download|install|subscribe|follow|make|create|generate"
-        + "|compose|draw|build|play|start|accept|agree|allow|approve|confirm|pay|buy|purchase|checkout|transfer|delete|remove|erase|uninstall)\\b");
+        + "|compose|draw|build|play|start|accept|agree|allow|approve|confirm|pay|buy|purchase|checkout|transfer|delete|remove|erase|uninstall)(?![A-Za-z0-9])");
     // Words of a read or a question.
     private static final Pattern READ = Regex.unicode("(?i)읽|요약|정리|알려|말해|보여|확인|찾아|검색|설명|번역|비교|알아|봐\\s*(?:줘|주|줄)|뭐|무슨|무엇|어때|어떤|어떻|어디|언제|누가|누구|왜|몇"
         + "|있어|있나|있니|있는지|있을까|왔어|왔나|왔니|왔는지|됐어|됐나|맞아|맞나|인가|일까|[?？]"
-        + "|\\b(?:read|summari[sz]e|summary|tell\\s+me|show\\s+me|what|which|who|when|where|why|how|is\\s+there|are\\s+there|any|check|explain|translate|compare|look\\s+up|find|search|list)\\b");
+        + "|(?<![A-Za-z0-9])(?:read|summari[sz]e|summary|tell\\s+me|show\\s+me|what|which|who|when|where|why|how|is\\s+there|are\\s+there|any|check|explain|translate|compare|look\\s+up|find|search|list)(?![A-Za-z0-9])");
     // A forbidden step asked for ("결제해 줘", "이 메일 삭제해 줘"); a mention ("결제 내역 보여 줘") is not one.
     private static final Pattern FORBIDDEN_ASK = Regex.unicode("(?i)(?:결제|결재|구매|구입|주문|송금|이체|출금|입금|납부|지불|충전|환전|매수|매도|대출|삭제|제거|초기화|탈퇴|해지|포맷|언인스톨|선물|대여|소장|후원|기부)"
         + PARTICLE + "(?:해|하|합|할)|(?<![가-힣])사\\s*(?:줘|주세요|줄래|주실래요)|지워|지우|비워|비우|없애|돈" + PARTICLE + "(?:보내|부쳐|부치)"
-        + "|\\b(?:pay|buy|purchase|checkout|check\\s+out|transfer|withdraw|deposit|delete|remove|erase|uninstall|wipe|reset|donate|send\\s+money)\\b|\\border\\s+(?:it|this|that|a|an|the|me|some|now|online)\\b");
+        + "|(?<![A-Za-z0-9])(?:pay|buy|purchase|checkout|check\\s+out|transfer|withdraw|deposit|delete|remove|erase|uninstall|wipe|reset|donate|send\\s+money)(?![A-Za-z0-9])|\\border\\s+(?:it|this|that|a|an|the|me|some|now|online)(?![A-Za-z0-9])");
     // A generation request: make, create, draw, compose, write a text or code, or ask an AI. "그리고" is "and", never "draw".
     private static final Pattern GENERATE = Regex.unicode("(?i)만들(?!어진|어져|어졌)|(?:생성|제작|작곡|작사|편곡|작성|구현|개발|질문)" + PARTICLE + "(?:해|하)|그려|그리(?!고)|물어봐|물어보"
         + "|(?:글|코드|시|소설|가사|이야기|대본|스크립트|에세이|보고서|요약문|이메일|메일|답변|프롬프트|함수|프로그램)[^,\\n]{0,15}?(?:써|쓰)"
-        + "|\\b(?:make|making|create|creating|generate|generating|compose|composing|draw|drawing|build|building|write|ask)\\b");
+        + "|(?<![A-Za-z0-9])(?:make|making|create|creating|generate|generating|compose|composing|draw|drawing|build|building|write|ask)(?![A-Za-z0-9])");
     /** The user's words in clauses, quotes taken out, each with whether it says not to do something. A "not" or a question word
      * inside a message passed on ("오늘 못 간다고 알려 줘", "언제 오냐고 카톡해 줘") is the message's own (reported). */
     private record Clause(String text, String request, boolean negated) {}
@@ -343,10 +343,10 @@ public final class AutomationGate {
 
     // ── Deleting what the user asked to delete ───────────────────────────────────────────────────
 
-    private static final Pattern DELETE_WORDS = Regex.unicode("(?i)삭제(?:하기)?|지우기|지워|지울|지우|제거(?:하기)?|휴지통(?:으로|에)\\s*(?:이동|보내기?|버리기?)|\\b(?:delete|remove|erase|discard)\\b|\\bmove\\s+to\\s+(?:the\\s+)?(?:trash|bin)\\b");
+    private static final Pattern DELETE_WORDS = Regex.unicode("(?i)삭제(?:하기)?|지우기|지워|지울|지우|제거(?:하기)?|휴지통(?:으로|에)\\s*(?:이동|보내기?|버리기?)|(?<![A-Za-z0-9])(?:delete|remove|erase|discard)(?![A-Za-z0-9])|\\bmove\\s+to\\s+(?:the\\s+)?(?:trash|bin)(?![A-Za-z0-9])");
     // What an item's deletion never covers: an account or a membership, the phone or its data, an app, a store emptied at once.
-    private static final Pattern WIPE_WORDS = Regex.unicode("(?i)탈퇴|해지|계정|회원|초기화|포맷|언인스톨|비우|비워|모두|전체|일괄|\\b(?:account|reset|format|uninstall|empty|all|everything)\\b");
-    private static final Pattern DELETE_ASK = Regex.unicode("(?i)(?:삭제|제거)\\s*(?:해|하|시켜|좀)|(?:삭제|제거)[\\s.!~]*$|지워|지우|\\b(?:delete|remove|erase)\\b");
+    private static final Pattern WIPE_WORDS = Regex.unicode("(?i)탈퇴|해지|계정|회원|초기화|포맷|언인스톨|비우|비워|모두|전체|일괄|(?<![A-Za-z0-9])(?:account|reset|format|uninstall|empty|all|everything)(?![A-Za-z0-9])");
+    private static final Pattern DELETE_ASK = Regex.unicode("(?i)(?:삭제|제거)\\s*(?:해|하|시켜|좀)|(?:삭제|제거)[\\s.!~]*$|지워|지우|(?<![A-Za-z0-9])(?:delete|remove|erase)(?![A-Za-z0-9])");
     /**
      * A control whose only forbidden part is deleting an item ("삭제", "대화 삭제", "Delete", "Remove"): no price or coin, no
      * money step, no account, no wipe, no "delete all". Such a control may run when the user asked to delete (browser only).
@@ -359,7 +359,7 @@ public final class AutomationGate {
     /** Whether the user's own words ask to delete something ("최근 대화 10개 삭제해 줘", "지워"), outside a "don't", and not an account, the phone or everything. */
     public static boolean requestsDeletion(String userWords) {
         if (userWords == null || !asks(DELETE_ASK, userWords)) return false;
-        return !Regex.unicode("(?i)탈퇴|해지|계정|회원|초기화|포맷|언인스톨|\\b(?:account|reset|format|uninstall)\\b").matcher(userWords).find();
+        return !Regex.unicode("(?i)탈퇴|해지|계정|회원|초기화|포맷|언인스톨|(?<![A-Za-z0-9])(?:account|reset|format|uninstall)(?![A-Za-z0-9])").matcher(userWords).find();
     }
 
     // ── A generation site's own create control ───────────────────────────────────────────────────

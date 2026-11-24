@@ -30,6 +30,8 @@ public final class MainBrowser {
         + "a file you cannot tell apart is still saved, under its downloaded name, and you say so. "
         + "Check with folder_list first and do not download what is already there. "
         + "To upload a file to a site (a video to YouTube Studio, a picture to a post), get it onto the phone first: a Drive file with drive_download (it returns size and sha256; compare them with what the user's document says before going on), then run browser_tasks naming that file to attach. "
+        + "Files already checked earlier in this conversation, or that the user says are fine, are not downloaded or checked again: they are in the 들퍼레 folder, and the browser job attaches them by path (영상/x.mp4) — name that path in the task. "
+        + "When the user names the browser's AI in their recent messages (\"grok으로\"), set it with browser_ai before the task, even if this message only says go. "
         + "A YouTube upload to another channel or Google account: tell the browser job to switch on https://www.youtube.com first (its account menu → 계정 전환, then the channel), check the channel name shown, and only then upload at https://www.youtube.com/upload (Studio opens on the account chosen there); never attach a file while another channel is open. "
         + "A browser job that comes back with mutation_unresolved met an earlier step whose result is unknown: read the site to see whether it happened (the content list, drafts), tell the user what you found, and ask them to tap the notification '이전 브라우저 작업 확인'; run it again after they confirm. "
         + "When you answer, say plainly what was saved where and what could not be done and why; never claim a download or a save a result did not confirm.";
