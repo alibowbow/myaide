@@ -229,7 +229,7 @@ final class MyTubeChat {
         String asked = actions.input(text, said);
         work.execute(() -> {
             MyTube.Plan plan; String failure = null;
-            try { plan = MyTube.plan(MyTubeClient.askMyTube(store, MyTube.AGENT, asked, cancel)); }
+            try { plan = MyTube.plan(MyTubeClient.askMyTube(store, MyTube.AGENT, asked, cancel)); plan = feedWish(text, plan); }
             catch (Exception e) { plan = null; failure = MyTubeActivity.friendly(e, "답하지 못했어요."); }
             MyTube.Plan done = plan; String why = failure;
             main.post(() -> {
@@ -241,6 +241,24 @@ final class MyTubeChat {
                 run(done.actions(), 0);
             });
         });
+    }
+    /**
+     * A wish about a named feed (빼 줘, 포함 안 되게, …만 나오게) that the answer did not act on (no feed action, or it told the
+     * user to edit it themselves): the AI is asked once more for that one feed's new description, and the app changes it.
+     * Blocking (the answer's thread).
+     */
+    private MyTube.Plan feedWish(String text, MyTube.Plan plan) {
+        for (JSONObject a : plan.actions()) if (a.optString("do").startsWith("feed_")) return plan;
+        if (!MyTube.wantsFeedChange(text)) return plan;
+        MyTube.Feed feed = MyTube.feedMentioned(book.feeds(), text); if (feed == null) return plan;
+        try {
+            JSONObject fix = MyTube.feedFix(feed, MyTubeClient.askMyTube(store, MyTube.FEED_FIX, MyTube.feedFixInput(feed, text), cancel));
+            if (fix == null) return plan;
+            String line = fix.optString("_reply"); fix.remove("_reply");
+            java.util.List<JSONObject> actions = new java.util.ArrayList<>(plan.actions()); actions.add(0, fix);
+            String reply = plan.reply().isEmpty() || MyTube.toldToDoIt(plan.reply()) ? (line.isEmpty() ? "‘" + feed.name() + "’ 피드를 바꿨어요." : line) : plan.reply();
+            return new MyTube.Plan(reply, actions);
+        } catch (Exception keep) { return plan; }
     }
     /** Does the actions one after another, each one's outcome written as a note. */
     void run(List<JSONObject> list, int at) {
