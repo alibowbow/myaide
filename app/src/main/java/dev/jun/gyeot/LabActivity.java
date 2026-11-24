@@ -419,7 +419,8 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
             case "error" -> systemLine((n.role().isBlank() ? "" : LabBook.role(n.role()).name() + " · ") + n.text(), ERROR);
             case "step" -> stepLine(n);
             case "judge" -> highlight(n, "토론 정리", R.drawable.ic_sparkle, ACCENT);
-            case "report" -> highlight(n, "연구 보고서", R.drawable.ic_pages, roleHue("scribe"));
+            case "report" -> highlight(n, n.data().optBoolean("mid") ? "중간 보고서" : "연구 보고서", R.drawable.ic_pages, roleHue("scribe"));
+            case "learned" -> highlight(n, "지금까지 알게 된 것", R.drawable.ic_bulb, roleHue("pi"));
             case "search" -> searchCard(p, n);
             case "run" -> runCard(p, n);
             case "ask" -> askCard(p, n);
@@ -791,7 +792,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
             case 1 -> List.of("say", "judge", "user").contains(n.kind());
             case 2 -> "search".equals(n.kind());
             case 3 -> List.of("run", "analysis").contains(n.kind());
-            case 4 -> List.of("critique", "step", "plan", "ask").contains(n.kind());
+            case 4 -> List.of("critique", "step", "plan", "ask", "learned").contains(n.kind());
             case 5 -> "report".equals(n.kind());
             default -> true;
         };

@@ -244,7 +244,7 @@ public final class LabBook {
         try { state.put("spent", state.optInt("spent") + calls); state.put("total", state.optInt("total") + calls); } catch (Exception e) { throw new IOException(e.getMessage(), e); }
         state(id, state);
     }
-    public synchronized void resetRun(String id) throws IOException { JSONObject state = state(id); try { state.put("spent", 0); state.put("steps", 0); } catch (Exception e) { throw new IOException(e.getMessage(), e); } state(id, state); }
+    public synchronized void resetRun(String id) throws IOException { JSONObject state = state(id); try { state.put("spent", 0); state.put("steps", 0); state.put("midReport", false); } catch (Exception e) { throw new IOException(e.getMessage(), e); } state(id, state); }
     /** 자율 연구: "" (off), running, waiting (for the user), paused (budget), done. */
     public synchronized String autopilot(String id) { return state(id).optString("autopilot"); }
     public synchronized void autopilot(String id, String value) throws IOException { JSONObject state = state(id); try { state.put("autopilot", value); } catch (Exception e) { throw new IOException(e.getMessage(), e); } state(id, state); }
@@ -445,7 +445,8 @@ public final class LabBook {
             + (askedBefore ? "" : "- ask: 사용자에게 질문 (focus: 질문, 정말 사용자만 정할 수 있을 때만)\n")
             + "- report: 보고서를 쓰고 마치기 (질문에 답할 만큼 모였거나, 남은 답이 6번 아래일 때)\n"
             + "같은 일을 같은 초점으로 되풀이하지 마. 문헌 조사 없이 결론 내지 마. 비평 없이 보고서로 가지 마.\n"
-            + "JSON만 답해: {\"action\":\"search|debate|experiment|critique|ask|report\",\"focus\":\"...\",\"why\":\"한 문장\"}";
+            + "learned에는 지금까지 알게 된 것(연구 질문에 대한 잠정 결론)을 두세 줄로, 근거 번호([S1], [E2])와 함께 써. 아직 모르는 건 모른다고.\n"
+            + "JSON만 답해: {\"learned\":\"지금까지 알게 된 것 두세 줄\",\"action\":\"search|debate|experiment|critique|ask|report\",\"focus\":\"...\",\"why\":\"한 문장\"}";
     }
     /** A researcher answering the user directly (@이름). */
     public static String direct(String message, String digest) {
@@ -511,12 +512,14 @@ public final class LabBook {
         return out;
     }
     /** 책임연구원's next step: {action, focus, why}; report when it cannot be read. */
-    public record Step(String action, String focus, String why) {}
+    public record Step(String action, String focus, String why, String learned) {
+        public Step(String action, String focus, String why) { this(action, focus, why, ""); }
+    }
     public static Step step(String answer) {
         JSONObject o = json(answer);
         String a = o == null ? "" : o.optString("action").strip().toLowerCase(Locale.ROOT);
         if (!List.of("search", "debate", "experiment", "critique", "ask", "report").contains(a)) a = "report";
-        return new Step(a, o == null ? "" : clean(o.optString("focus"), 300), o == null ? "다음 단계를 읽지 못해 보고서로 마무리해요." : clean(o.optString("why"), 300));
+        return new Step(a, o == null ? "" : clean(o.optString("focus"), 300), o == null ? "다음 단계를 읽지 못해 보고서로 마무리해요." : clean(o.optString("why"), 300), o == null ? "" : clean(o.optString("learned"), 900));
     }
     public static String actionName(String action) {
         return switch (action == null ? "" : action) {
@@ -548,7 +551,7 @@ public final class LabBook {
     }
     public static String kindName(String kind) {
         return switch (kind == null ? "" : kind) {
-            case "user" -> "사용자"; case "say" -> "발언"; case "judge" -> "토론 정리"; case "plan" -> "계획"; case "step" -> "결정"; case "search" -> "문헌 조사";
+            case "user" -> "사용자"; case "say" -> "발언"; case "learned" -> "중간 정리"; case "judge" -> "토론 정리"; case "plan" -> "계획"; case "step" -> "결정"; case "search" -> "문헌 조사";
             case "run" -> "실험"; case "analysis" -> "분석"; case "critique" -> "비평"; case "report" -> "보고서"; case "ask" -> "승인·질문"; case "error" -> "오류";
             default -> "기록";
         };

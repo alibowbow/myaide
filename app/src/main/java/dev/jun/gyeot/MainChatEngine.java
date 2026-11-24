@@ -401,7 +401,10 @@ final class MainChatEngine implements AutoCloseable {
         // 프로젝트: the same way, when the words (or the last ones) are about a project, an app or a dashboard.
         WorkTools projects=provider.projects(selection,connected!=null||dev.jun.gyeot.core.ProjectTools.wanted(pageWords(turn,question)),()->question);
         // Python on this phone (once 연구실's 계산 환경 is ready): offered beside other tools, or when the words ask for numbers or a chart.
-        WorkTools python=provider.python(selection,connected!=null||pages!=null||projects!=null||dev.jun.gyeot.core.PythonTools.wanted(pageWords(turn,question)),()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}});
+        // Numbers: the provider's own code execution where its client has one (Claude, Gemini, Grok: faster, more packages);
+        // Python on this phone (once 연구실's 계산 환경 is ready) for the other engines, and for a chart the user should see.
+        String numberWords=pageWords(turn,question);boolean numbers=dev.jun.gyeot.core.PythonTools.wanted(numberWords),hosted=numbers&&MainRequest.hostsCode(engine);
+        WorkTools python=(!MainRequest.hostsCode(engine)||dev.jun.gyeot.core.PythonTools.chart(numberWords))?provider.python(selection,connected!=null||pages!=null||projects!=null||numbers,()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}}):null;
         // A reply whose functions ran is never sent a second time (below): a save would be made twice.
         java.util.concurrent.atomic.AtomicBoolean ran=new java.util.concurrent.atomic.AtomicBoolean();
         // The browser and the 들퍼레 folder, run by this reply itself: offered only when this question's words are about them.
@@ -432,7 +435,7 @@ final class MainChatEngine implements AutoCloseable {
             long sent=System.currentTimeMillis();long[] first={0};Usage[] used={null};
             Consumer<String> pieces=delta->{if(first[0]==0&&delta!=null&&!delta.isEmpty())first[0]=Math.max(1,System.currentTimeMillis()-sent);deltas.text(delta);};
             // The instructions and tools stay the same from reply to reply, so the provider may keep them cached under the conversation's key.
-            MainRequest request=MainRequest.of(instructions,input).onText(pieces).onUsage(u->used[0]=u).cache(cacheKey).tools(web.search(),web.fetch()).searchAlways(web.always()).files(attached);
+            MainRequest request=MainRequest.of(instructions,input).onText(pieces).onUsage(u->used[0]=u).cache(cacheKey).tools(web.search(),web.fetch()).searchAlways(web.always()).files(attached).code(hosted);
             if(provider.carries(engine).contains(MainRequest.Option.THINKING_SUMMARY))request=request.thinkingSummary(deltas::thinking);
             try{MainAdapters.Reply got=tools==null?provider.reply(selection,request,guard,abort):provider.reply(selection,request,tools,guard,abort);counted(surface,selection,identity,used[0]);spent[0]=(used[0]==null?Usage.UNKNOWN:used[0]).json(first[0]);
                 return mode!=MainSearch.Mode.OFF&&(web.unsearched()||got.unsearched())?got.withoutSearch():new MainAdapters.Reply(got.text(),got.sources(),got.note(),got.suggestions(),false,got.unread(),got.usage(),got.limits());}

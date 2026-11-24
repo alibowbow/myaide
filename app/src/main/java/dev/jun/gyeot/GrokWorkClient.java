@@ -71,9 +71,14 @@ final class GrokWorkClient {
      */
     static WorkClient.Result complete(Session account, String model, java.util.function.Function<Boolean, String> instructions, String input,
             boolean search, String effort, WorkTools tools, Runnable guard, AtomicReference<Runnable> cancel, Consumer<String> onText, boolean inline, JSONArray files) throws Exception {
+        return complete(account, model, instructions, input, search, false, effort, tools, guard, cancel, onText, inline, files);
+    }
+    /** The same with Grok's code interpreter when code is asked (the main chat, for exact numbers). */
+    static WorkClient.Result complete(Session account, String model, java.util.function.Function<Boolean, String> instructions, String input,
+            boolean search, boolean code, String effort, WorkTools tools, Runnable guard, AtomicReference<Runnable> cancel, Consumer<String> onText, boolean inline, JSONArray files) throws Exception {
         JSONArray asked = files != null && files.length() > 0 ? OpenAiProtocol.conversation(dev.jun.gyeot.core.MainAttachments.turn(input, files)) : arr(obj("role", "user", "content", input));
-        return run(account, account.accountId(), model, (web, code) -> instructions.apply(web), asked,
-            search, false, tools, effort, "", onText, stage -> {}, guard, cancel, false, arr(), WorkSteering.NONE, inline);
+        return run(account, account.accountId(), model, (web, coding) -> instructions.apply(web), asked,
+            search, code, tools, effort, "", onText, stage -> {}, guard, cancel, false, arr(), WorkSteering.NONE, inline);
     }
     private static WorkClient.Result run(Session account, String expectedAccount, String model,
             java.util.function.BiFunction<Boolean, Boolean, String> instructions, JSONArray input, boolean search, boolean code,

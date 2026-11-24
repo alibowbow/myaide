@@ -90,9 +90,14 @@ final class ClaudeClient {
      */
     static OpenAiClient.Result completeStrict(ClaudeAccount account, String model, String instructions, String input, boolean search, boolean fetch, Consumer<String> onThinking, boolean cacheSystem, String effort,
             WorkTools tools, Runnable onActivity, AtomicReference<Runnable> cancel, Consumer<String> onText, JSONArray files) throws Exception {
+        return completeStrict(account, model, instructions, input, search, fetch, false, onThinking, cacheSystem, effort, tools, onActivity, cancel, onText, files);
+    }
+    /** The same with Claude's code execution when code is asked (its files stay with Claude: the answer is its text). */
+    static OpenAiClient.Result completeStrict(ClaudeAccount account, String model, String instructions, String input, boolean search, boolean fetch, boolean code, Consumer<String> onThinking, boolean cacheSystem, String effort,
+            WorkTools tools, Runnable onActivity, AtomicReference<Runnable> cancel, Consumer<String> onText, JSONArray files) throws Exception {
         JSONArray asked = files != null && files.length() > 0 ? ClaudeProtocol.conversation(dev.jun.gyeot.core.MainAttachments.turn(input, files)) : ClaudeProtocol.ask(input);
         // With the connected services an answer may carry a long function argument (a file, a piece's new text): more room.
-        Turn turn = run(account, model, (web, code) -> instructions, asked, null, search, fetch, false, "", tools, effort, tools == null ? MAIN_TOKENS : ANSWER_TOKENS, false,
+        Turn turn = run(account, model, (web, coding) -> instructions, asked, null, search, fetch, code, "", tools, effort, tools == null && !code ? MAIN_TOKENS : ANSWER_TOKENS, false,
             onText, stage -> {}, onActivity, cancel, false, new JSONArray(), WorkSteering.NONE, false, onThinking, cacheSystem, true);
         String text = tools == null ? turn.text : WorkBook.split(turn.text, turn.cuts)[0];
         return new OpenAiClient.Result(text, turn.sources, turn.searchDropped ? turn.note : null, "", turn.fetchDropped, turn.usage(), turn.limits);

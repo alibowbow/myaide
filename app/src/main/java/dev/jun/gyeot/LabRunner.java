@@ -349,14 +349,16 @@ final class LabRunner {
         book.note(id, "critique", LabBook.CRITIC.id(), LabBook.prose(a[0]), a[1], null);
         book.stage(id, "review", "done");
     }
-    private void report(Job j) throws Exception {
-        String id = j.project; book.stage(id, "report", "doing");
-        what(j, "기록원이 보고서를 쓰는 중");
+    private void report(Job j) throws Exception { report(j, false); }
+    /** mid: a 중간 보고서 while 자율 연구 goes on (the stage stays open; the final one replaces it). */
+    private void report(Job j, boolean mid) throws Exception {
+        String id = j.project; if (!mid) book.stage(id, "report", "doing");
+        what(j, mid ? "기록원이 중간 보고서를 쓰는 중" : "기록원이 보고서를 쓰는 중");
         String[] a = ask(j, LabBook.SCRIBE.id(), LabBook.report(digest(id, 9000), LabBook.ledger(book.claims(id)), LabBook.sourceList(book.sources(id), false)));
         String text = LabBook.prose(a[0]);
         book.report(id, text);
-        book.note(id, "report", LabBook.SCRIBE.id(), text, a[1], null);
-        book.stage(id, "report", "done");
+        book.note(id, "report", LabBook.SCRIBE.id(), text, a[1], mid ? obj("mid", true) : null);
+        if (!mid) book.stage(id, "report", "done");
     }
     private void plan(Job j) throws Exception {
         String id = j.project; book.stage(id, "plan", "doing");
@@ -384,12 +386,19 @@ final class LabRunner {
             int left = p.budget() - book.spent(id);
             if (left <= 2) { finish(id, "paused", "이번 한도(AI 답 " + p.budget() + "번)를 다 써서 멈췄어요. 진행판에서 ‘이어서 연구’를 누르면 한도를 새로 채워 계속해요."); return; }
             if (steps >= 16) { finish(id, "paused", "한 번에 16단계까지 진행해요. 결과를 보고 ‘이어서 연구’를 눌러 주세요."); return; }
+            // Half the budget used: a 중간 보고서 first, so a result comes before the end (once a run).
+            if (p.budget() >= 12 && book.spent(id) >= p.budget() / 2 && !book.state(id).optBoolean("midReport")) {
+                JSONObject s = book.state(id); s.put("midReport", true); book.state(id, s);
+                report(j, true); changed(id);
+            }
             what(j, "책임연구원이 다음 단계를 정하는 중");
             boolean python = LabPython.ready(app), asked = book.state(id).optBoolean("asked");
             String[] a = ask(j, LabBook.PI.id(), LabBook.next(digest(id, 6000), LabBook.stages(book.state(id)), left - 1, python, asked));
             LabBook.Step step = LabBook.step(a[0]);
             if ("experiment".equals(step.action()) && !python) step = new LabBook.Step("critique", step.focus(), "계산 환경이 없어 실험 대신 검토해요.");
             if ("ask".equals(step.action()) && asked) step = new LabBook.Step("critique", step.focus(), step.why());
+            // What is known so far, in a few lines, before the next step (책임연구원 says it with its choice: no extra answer).
+            if (!step.learned().isBlank()) book.note(id, "learned", LabBook.PI.id(), step.learned(), a[1], null);
             book.note(id, "step", LabBook.PI.id(), step.why(), a[1], obj("action", step.action(), "focus", step.focus()));
             changed(id);
             switch (step.action()) {

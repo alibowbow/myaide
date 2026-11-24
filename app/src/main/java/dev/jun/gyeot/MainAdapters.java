@@ -159,12 +159,12 @@ final class MainAdapters {
      * when cached. The client reports a refused search or page reading.
      */
     private static Reply claude(ClaudeAccount account, String model, String effort, MainRequest request, WorkTools tools, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
-        OpenAiClient.Result result = ClaudeClient.completeStrict(account, model, request.instructions(), request.input(), request.search(), request.fetch(), request.onThinking(), request.cacheKey() != null, effort, tools, guard, cancel, request.onText(), request.parts());
+        OpenAiClient.Result result = ClaudeClient.completeStrict(account, model, request.instructions(), request.input(), request.search(), request.fetch(), request.code(), request.onThinking(), request.cacheKey() != null, effort, tools, guard, cancel, request.onText(), request.parts());
         return new Reply(result.text, result.sources, result.searchRefusal == null ? "" : result.searchRefusal, "", request.search() && result.searchRefusal != null, request.fetch() && result.fetchRefused, result.usage, result.limits);
     }
     /** Grok 4.7, xAI Responses API on the signed-in account: web_search when asked, without inline citations in the answer (the strip shows them). */
     private static Reply grok(GrokAccount account, String model, String effort, MainRequest request, WorkTools tools, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
-        WorkClient.Result result = GrokWorkClient.complete(account, model, web -> request.instructions(), request.input(), request.search(), effort, tools, guard, cancel, request.onText(), false, request.parts());
+        WorkClient.Result result = GrokWorkClient.complete(account, model, web -> request.instructions(), request.input(), request.search(), request.code(), effort, tools, guard, cancel, request.onText(), false, request.parts());
         return new Reply(result.text, result.sources, result.note, "", request.search() && result.note.contains(GrokWorkClient.SEARCH_REFUSED), false, result.usage, result.limits);
     }
     /** NVIDIA NIM, Chat Completions: text only; stream_options.include_usage when usage is counted. */
@@ -195,7 +195,7 @@ final class MainAdapters {
         String instructions = r.instructions() + (tools == null ? "" : tools.instructions());
         JSONArray found = new JSONArray(); String suggestions = ""; Usage used = null; int rounds = 0;
         while (true) {
-            JSONObject request = GeminiWork.request(model, instructions, contents, r.search(), r.fetch(), false, tools == null ? null : tools.gemini(), effort, r.thinkingSummary(), true);
+            JSONObject request = GeminiWork.request(model, instructions, contents, r.search(), r.fetch(), r.code(), tools == null ? null : tools.gemini(), effort, r.thinkingSummary(), true);
             if (tools != null && rounds >= (tools.rounds() > 0 ? tools.rounds() : OpenAiClient.MAIN_ROUNDS)) request.put("toolConfig", obj("functionCallingConfig", obj("mode", "NONE")));
             guard.run();
             GeminiWork.Stream stream = new GeminiWork.Stream();
