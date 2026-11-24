@@ -658,13 +658,15 @@ final class BrowserAgent {
         JSONArray elements = observation.optJSONArray("elements");
         String page = elements == null ? "" : Integer.toHexString(completionKey(observation).hashCode());
         boolean counts = MOVES.contains(name) && !observation.optBoolean("automation_refused");
-        dev.jun.gyeot.core.BrowserJournal.Verdict verdict = journal.step(what, result, failed[0], signature, page, counts, now);
+        boolean observe = java.util.Set.of("read", "tabs").contains(name) || observation.optBoolean("previous_action_rejected");
+        dev.jun.gyeot.core.BrowserJournal.Verdict verdict = journal.step(what, result, failed[0], signature, page, counts, observe, now);
         engine.recordStep(lease, BrowserTools.actionLabel(name), journal.count() + " · " + what + " → " + result);
         JSONObject effect = observation.optJSONObject("action_effect");
         if (failed[0] || effect != null && "no_observable_change".equals(effect.optString("kind"))) hardNext = true;
         if (verdict == dev.jun.gyeot.core.BrowserJournal.Verdict.WARN) {
             hardNext = true;
-            history.put(obj("no_progress", journal.why(), "rule", "The last steps did not move this job forward. Do not repeat them. "
+            history.put(obj("no_progress", journal.why(), "rule", "The last steps did not move this job forward. Do not repeat them; a read changes nothing, so act on what this page shows. "
+                + "Close a suggestion list or popup in the way (press Escape, or click an empty part of the form) before the next field. "
                 + "Controls listed with offscreen:true are on the page out of sight (in_dialog: inside the open dialog): click or type them directly, without scrolling. "
                 + "Try another control or another way (the site's own menu or search, the content list), or finish with outcome blocked naming exactly what is in the way."));
             engine.record(lease, "제자리 감지 · " + journal.why() + " · 다른 방법을 찾게 했어요");
@@ -678,7 +680,7 @@ final class BrowserAgent {
         dev.jun.gyeot.core.BrowserJournal.Step last = journal.last();
         String where = journal.site().isEmpty() ? "페이지" : journal.site();
         String message = where + "에서 멈췄어요. " + journal.why() + (last == null ? "" : " (" + last.number() + "단계: " + last.what() + " → " + last.result() + ")")
-            + ". 지금까지 한 일은 steps_done에 있어요.";
+            + ". 지금까지 한 일은 작업 상세에서 볼 수 있어요. '이어서 해'라고 보내면 된 데부터 이어 가요.";
         return obj("ok", false, "outcome", "blocked", "error_code", "no_progress", "retryable", false, "action_executed", dispatchedSteps > 0,
             "site", where, "error", message, "answer", message, "steps_done", new JSONArray(journal.lines(14)),
             "next", "다시 맡기면 steps_done 다음부터 이어서 해요. 이미 올린 영상은 스튜디오 콘텐츠 목록의 초안에서 이어서 고치고, 다시 올리지 않아요.");

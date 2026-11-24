@@ -18,12 +18,19 @@ public final class BrowserJournal {
 
     /** A job stops after this many steps whatever happens: a long upload with every field takes about 60. */
     public static final int MAX_STEPS = 150;
-    /** The same step on a page that did not change, this many times in a row. */
-    static final int REPEATS = 2;
+    /** The same step on a page that did not change, this many times again in a row (four tries in all). */
+    static final int REPEATS = 3;
     /** Clicks, keys and scrolls in a row after which the page is still the same. */
-    static final int UNCHANGED = 8;
+    static final int UNCHANGED = 10;
     /** Failed steps in a row. */
     static final int FAILURES = 5;
+    /**
+     * Reads in a row on an unchanged page: the planner is nudged, never stopped. A read changes nothing, and the planner
+     * often reads while a site works (an upload's checks): 준's Osprey upload stopped at step 19 on three reads.
+     */
+    static final int READS = 4;
+    /** A second circle stops the job only this many steps after the first; later the first is forgotten. */
+    static final int WARNING_SPAN = 12;
     private static final int KEEP_JOBS = 6, KEEP_STEPS = 80;
     private static final long SHOWN_AFTER_END = 30 * 60_000L;
     private static final LinkedHashMap<String, BrowserJournal> JOBS = new LinkedHashMap<>();
@@ -33,7 +40,7 @@ public final class BrowserJournal {
     private String brain;
     private final String request;
     private final ArrayDeque<Step> steps = new ArrayDeque<>();
-    private int count, repeats, unchanged, failures, warnings;
+    private int count, repeats, unchanged, failures, warnings, reads, warnedAt;
     private String site = "", title = "", lastSignature = "", lastPage = "", outcome = "", why = "";
     private long ended;
 
@@ -63,24 +70,39 @@ public final class BrowserJournal {
      * One step that ran. signature: what was done to what (the same signature twice is the same step); page: a key of the
      * page after it; counts: whether the page should change after it (a click, a key, a scroll; not typing into a field,
      * which leaves the page's list of controls as it was). Returns WARN the first time the job goes in circles and STOP
-     * the next time, or after MAX_STEPS.
+     * the next time within WARNING_SPAN steps, or after MAX_STEPS.
      */
     public synchronized Verdict step(String what, String result, boolean failed, String signature, String page, boolean counts, long now) {
+        return step(what, result, failed, signature, page, counts, false, now);
+    }
+    /** observe: the step only looked (a read, the tab list): it can earn a nudge, never a stop. */
+    public synchronized Verdict step(String what, String result, boolean failed, String signature, String page, boolean counts, boolean observe, long now) {
         count++;
         steps.addLast(new Step(count, now, site, clip(what, 90), clip(result, 120), failed));
         while (steps.size() > KEEP_STEPS) steps.removeFirst();
         String key = page == null ? "" : page;
         boolean same = !key.isEmpty() && key.equals(lastPage);
+        if (count >= MAX_STEPS) { why = count + "단계를 넘겨 멈췄어요"; return Verdict.STOP; }
+        if (observe) {
+            reads = same || key.isEmpty() ? reads + 1 : 0;
+            if (!key.isEmpty()) lastPage = key;
+            if (failed) failures++;
+            if (reads < READS) return Verdict.GO;
+            reads = 0; why = "페이지를 " + READS + "번 읽기만 하고 아무것도 하지 않았어요";
+            return Verdict.WARN;
+        }
+        reads = 0;
         repeats = same && signature != null && signature.equals(lastSignature) ? repeats + 1 : 0;
         unchanged = counts ? (same ? unchanged + 1 : 0) : unchanged;
         failures = failed ? failures + 1 : 0;
         lastSignature = signature == null ? "" : signature; if (!key.isEmpty()) lastPage = key;
-        if (count >= MAX_STEPS) { why = count + "단계를 넘겨 멈췄어요"; return Verdict.STOP; }
         String circle = repeats >= REPEATS ? "같은 동작(" + clip(what, 40) + ")을 " + (repeats + 1) + "번 해도 화면이 그대로예요"
             : unchanged >= UNCHANGED ? "동작을 " + unchanged + "번 했는데 화면이 바뀌지 않았어요"
             : failures >= FAILURES ? failures + "번 연달아 실패했어요" : "";
         if (circle.isEmpty()) return Verdict.GO;
         repeats = 0; unchanged = 0; failures = 0; why = circle;
+        if (warnings > 0 && count - warnedAt > WARNING_SPAN) warnings = 0;
+        warnedAt = count;
         return ++warnings >= 2 ? Verdict.STOP : Verdict.WARN;
     }
     /** Why step last said WARN or STOP. */
