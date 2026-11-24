@@ -61,6 +61,37 @@ public final class AgyUsage {
         if (name == null || name.isBlank() || !seen.add(name)) return;
         out.add(new Row(name, Math.max(-1, Math.min(100, left)), refresh == null ? "" : refresh.strip()));
     }
+    /** The model families agy's limits go by, in the order shown (준: "클로드/gpt/제미나이 모델별"). */
+    static final String[] FAMILIES = {"Claude", "GPT", "Gemini"};
+    static String family(String name) {
+        String n = name.strip().toLowerCase(java.util.Locale.ROOT);
+        if (n.startsWith("claude")) return "Claude";
+        if (n.startsWith("gpt") || n.matches("^o\\d.*")) return "GPT";
+        if (n.startsWith("gemini") || n.startsWith("gemma")) return "Gemini";
+        return "기타";
+    }
+    /**
+     * The rows as the settings and usage pages show them: one line per family and state, the models in it after it, as
+     * "Gemini · 40% 남음 · 126시간 49분 뒤 초기화 (3.5 Flash, 3.1 Pro)". A family whose models differ gets a line per state.
+     */
+    public static List<String> lines(List<Row> rows) {
+        java.util.LinkedHashMap<String, java.util.LinkedHashMap<String, java.util.LinkedHashSet<String>>> byFamily = new java.util.LinkedHashMap<>();
+        for (String f : FAMILIES) byFamily.put(f, new java.util.LinkedHashMap<>());
+        byFamily.put("기타", new java.util.LinkedHashMap<>());
+        for (Row row : rows) {
+            String f = family(row.name());
+            String state = (row.left() < 0 ? "한도 여유 있음" : row.left() + "% 남음") + (row.refresh().isEmpty() ? "" : " · " + korean(row.refresh()) + " 뒤 초기화");
+            // The model without its family word and its reasoning level: "Gemini 3.1 Pro (High)" → "3.1 Pro".
+            String model = row.name().replaceAll("\\s*\\([^)]*\\)\\s*$", "").strip();
+            if (!"기타".equals(f) && model.toLowerCase(java.util.Locale.ROOT).startsWith(f.toLowerCase(java.util.Locale.ROOT) + " ")) model = model.substring(f.length()).strip();
+            byFamily.get(f).computeIfAbsent(state, k -> new java.util.LinkedHashSet<>()).add(model);
+        }
+        List<String> out = new ArrayList<>();
+        for (java.util.Map.Entry<String, java.util.LinkedHashMap<String, java.util.LinkedHashSet<String>>> f : byFamily.entrySet())
+            for (java.util.Map.Entry<String, java.util.LinkedHashSet<String>> state : f.getValue().entrySet())
+                out.add(f.getKey() + " · " + state.getKey() + " (" + String.join(", ", state.getValue()) + ")");
+        return out;
+    }
     /** The "quota reached" banner's wait, "" when there is none. */
     public static String reached(String text) { Matcher m = REACHED.matcher(plain(text).replace('\n', ' ')); return m.find() ? m.group(1).strip() : ""; }
     /** "126h 49m" → "126시간 49분"; "2d 3h" → "2일 3시간". */

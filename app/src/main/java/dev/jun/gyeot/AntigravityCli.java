@@ -80,7 +80,8 @@ final class AntigravityCli {
                 catch (Exception unread) { /* What -p said is shown instead. */ }
             }
             List<String> rows = new ArrayList<>();
-            for (dev.jun.gyeot.core.AgyUsage.Row row : found) if (rows.size() < 16) rows.add(row.line());
+            // By family (Claude, GPT, Gemini): the models of one share its limits.
+            for (String line : dev.jun.gyeot.core.AgyUsage.lines(found)) if (rows.size() < 12) rows.add(line);
             String reached = dev.jun.gyeot.core.AgyUsage.reached(seen);
             if (!reached.isEmpty()) rows.add(0, "한도에 닿은 모델이 있어요 · " + dev.jun.gyeot.core.AgyUsage.korean(reached) + " 뒤 초기화");
             return new Status(true, version, true, rows, rows.isEmpty() ? (seen.contains("NO_SCRIPT") ? "모델별 한도 화면을 열 터미널(script)이 없어요. 설정 → Linux에서 패키지를 다시 설치해 주세요." : "모델별 한도를 읽지 못했어요 · agy가 보여 준 것: " + clip(seen)) : "");
