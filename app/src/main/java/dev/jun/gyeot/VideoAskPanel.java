@@ -248,7 +248,7 @@ final class VideoAskPanel {
         String text = turn.shown();
         // Small icons: a 16dp mark in a 36dp target, quiet under the text.
         ImageView copy = ui.footIcon(R.drawable.ic_copy, "복사", () -> {
-            activity.getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("영상 답", dev.jun.gyeot.core.Markdown.plain(text)));
+            activity.getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("영상 답", MyTube.withoutTimes(dev.jun.gyeot.core.Markdown.plain(text))));
             Toast.makeText(activity, "복사했어요", Toast.LENGTH_SHORT).show();
         });
         copy.setPadding(ui.dp(10), ui.dp(10), ui.dp(10), ui.dp(10)); foot.addView(copy, new LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)));
