@@ -75,7 +75,7 @@ public final class SearchActivity extends Activity {
         });
         navigation = new MainNavigation(this, root, "search", target -> MainNavigation.open(this, target), false);
         setContentView(navigation); root.requestApplyInsets();
-        LinearLayout heading = ui.row(); heading.addView(back(), new LinearLayout.LayoutParams(-2, ui.dp(48))); root.addView(heading);
+        // No 돌아가기 row: the app menu (☰ or the rail) leads away, and Android's back still does.
         TextView title = ui.title("전체 검색", 26); title.setAccessibilityHeading(true); ui.add(root, title, 4);
         ui.add(root, ui.label("메인 대화·작업창·페이지·기억·메모·음성 기록·녹음·영상 요약·가져온 글에서 한 번에 찾아요.", 13, MUTED), 12);
         field = ui.searchField(ui.input("찾을 말 · 두 글자부터", 1, 100)); field.setText(query); field.setSelection(field.getText().length()); field.setContentDescription("전체 검색");
@@ -105,13 +105,6 @@ public final class SearchActivity extends Activity {
         if (navigation != null && navigation.close()) return;
         if (!GlobalSearch.ALL.equals(kind)) { kind = GlobalSearch.ALL; draw(); return; }
         super.onBackPressed();
-    }
-    private View back() {
-        Button back = ui.chip("돌아가기", this::finish); back.setContentDescription("돌아가기");
-        android.graphics.drawable.Drawable chevron = getDrawable(R.drawable.ic_back).mutate(); chevron.setTint(ACCENT); chevron.setBounds(0, 0, ui.dp(24), ui.dp(24));
-        back.setCompoundDrawablesRelative(chevron, null, null, null); back.setBackground(ui.shape(android.graphics.Color.TRANSPARENT, PILL));
-        back.setTextColor(ACCENT); back.setPadding(ui.dp(12), 0, ui.dp(14), 0); back.setCompoundDrawablePadding(ui.dp(2));
-        return back;
     }
 
     /** Reads the stores for the words in the box; an answer to words that were typed over since is dropped. */

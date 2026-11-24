@@ -57,7 +57,9 @@ public final class FileExplorerActivity extends Activity {
         back.setBackground(ui.shape(android.graphics.Color.TRANSPARENT,Ui.PILL));back.setTextColor(Ui.ACCENT);back.setPadding(ui.dp(12),0,explorerPage?ui.dp(12):ui.dp(14),0);back.setCompoundDrawablePadding(ui.dp(2));
         heading.addView(back,new LinearLayout.LayoutParams(explorerPage?ui.dp(48):-2,ui.dp(48)));
         if(explorerPage){TextView title=ui.title("파일 탐색기",22);LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(0,-2,1);tp.leftMargin=ui.dp(4);heading.addView(title,tp);
-            Button find=ui.chip("검색",this::toggleSearch);android.graphics.drawable.Drawable lens=getDrawable(R.drawable.ic_search).mutate();lens.setTint(Ui.TEXT);lens.setBounds(0,0,ui.dp(20),ui.dp(20));find.setCompoundDrawablesRelative(lens,null,null,null);find.setCompoundDrawablePadding(ui.dp(6));heading.addView(find);}content.addView(heading);
+            Button find=ui.chip("검색",this::toggleSearch);android.graphics.drawable.Drawable lens=getDrawable(R.drawable.ic_search).mutate();lens.setTint(Ui.TEXT);lens.setBounds(0,0,ui.dp(20),ui.dp(20));find.setCompoundDrawablesRelative(lens,null,null,null);find.setCompoundDrawablePadding(ui.dp(6));heading.addView(find);}
+        // 내 휴대폰's home has no 돌아가기: the app menu (☰ or the rail) leads away. In 파일 탐색기 the chevron goes up a folder.
+        if(explorerPage)content.addView(heading);
         if(inlineChat!=null&&inlineChat.view().getParent() instanceof ViewGroup old)old.removeView(inlineChat.view());
         browsePane=explorerPage?ui.column():content;LinearLayout page=browsePane;workspace=null;
         if(explorerPage){workspace=new ExplorerLayout();workspace.addView(browsePane);content.addView(workspace,new LinearLayout.LayoutParams(-1,0,1));}else if(inlineChat!=null)inlineChat.pause();

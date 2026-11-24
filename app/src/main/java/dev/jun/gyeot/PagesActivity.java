@@ -144,15 +144,11 @@ public final class PagesActivity extends Activity {
 
     private void showList() {
         openId = null; drawn = null; AppNavigator.pageLeft = null; RichAnswer.destroy(root); root.removeAllViews();
-        LinearLayout heading = ui.row();
-        heading.addView(back("돌아가기", this::finish), new LinearLayout.LayoutParams(-2, ui.dp(48)));
-        heading.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
-        if (section == 0) heading.addView(ui.quietIcon(R.drawable.ic_add, "새 카테고리 만들기", this::addCategory), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
-        else heading.addView(new View(this), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
-        root.addView(heading);
+        // No 돌아가기 row: the app menu (☰ on a phone, the rail on a wide screen) leads away, and Android's back still does.
         // The title with the small 문서 · 프로젝트 switch at the end of its line: compact, not a full-width bar of its own.
-        LinearLayout titleRow = ui.row();
+        LinearLayout titleRow = ui.row(); titleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
         TextView title = ui.title("페이지", 26); title.setAccessibilityHeading(true); titleRow.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        if (section == 0) titleRow.addView(ui.quietIcon(R.drawable.ic_add, "새 카테고리 만들기", this::addCategory), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         titleRow.addView(ui.switcher(new String[]{"문서", "프로젝트"}, section, i -> { section = i; store.settings.edit().putInt("pagesSection", i).apply(); showList(); }), new LinearLayout.LayoutParams(-2, -2));
         ui.add(root, titleRow, 8);
         if (section == 1) { projectsList(); return; }

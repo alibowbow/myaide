@@ -50,6 +50,9 @@ public class ProjectScreenTests {
         // 준: "페이지에 햄버거 버튼이 없어": a phone-wide secondary screen has the ☰ at the very top.
         View menu = appMenu(a); assertNotNull(menu); assertTrue("☰ shown on a phone", onScreen(menu));
         int[] at = new int[2]; menu.getLocationOnScreen(at); assertTrue("☰ at the top: " + at[1], at[1] < a.getResources().getDisplayMetrics().density * 120);
+        // ...and no 돌아가기 left beside it (준: "햄버거 버튼을 만들었는데 돌아가기가 남아있어").
+        java.util.ArrayList<View> back = new java.util.ArrayList<>(); a.getWindow().getDecorView().findViewsWithText(back, "돌아가기", View.FIND_VIEWS_WITH_CONTENT_DESCRIPTION);
+        assertTrue("no 돌아가기 on the list", back.isEmpty());
     }
     @Test @Config(qualifiers="w900dp-h700dp-land-night-hdpi") public void wideProjects() throws Exception {
         fresh(); Application app = RuntimeEnvironment.getApplication();
