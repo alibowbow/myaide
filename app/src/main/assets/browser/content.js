@@ -210,7 +210,9 @@
     if (accountChooser()) return chooserSnapshot();
     refs = new Map(); revision++;
     const elements = [], regions=commentRegions();
-    for (const e of all('a[href],button,input,textarea,select,[role="button"],[role="link"],[role="combobox"],[role="searchbox"],[role="tab"],[role="switch"],[role="radio"],[role="textbox"],[contenteditable]:not([contenteditable="false"])')) {
+    // Menu items, list options and checkboxes too: YouTube Studio's account and channel menu, its category and language
+    // lists and its checkboxes are made of these, not of buttons or links.
+    for (const e of all('a[href],button,input,textarea,select,[role="button"],[role="link"],[role="combobox"],[role="searchbox"],[role="tab"],[role="switch"],[role="radio"],[role="textbox"],[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"],[role="option"],[role="checkbox"],[role="treeitem"],[contenteditable]:not([contenteditable="false"])')) {
       if (elements.length >= 100) break;
       if (!inViewport(e) || secret(e) || protectedComment(e,regions)) continue;
       const ref = revision + ':' + elements.length;
