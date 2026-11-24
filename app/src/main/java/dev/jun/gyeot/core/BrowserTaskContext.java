@@ -47,6 +47,16 @@ public final class BrowserTaskContext {
      * harmless, so it is settled once dispatched and the next read shows its outcome. It makes no success claim.
      */
     public boolean settleRepeatSafe(String id) { return settleMutation(id, "repeat_safe_step"); }
+    /**
+     * A step of the task still running whose confirmation never came, after that same task read the page again: the task
+     * sees what happened and is told never to repeat it. It makes no success claim.
+     */
+    public boolean settleObservedByTask(String id) { return settleMutation(id, "task_observed"); }
+    /**
+     * An earlier task's unconfirmed step in a tab the user is looking at, when they give that tab a new instruction: the new
+     * task reads the page first and is told about the earlier step. It makes no success claim.
+     */
+    public boolean settleForNewRequest(String id) { return settleMutation(id, "new_request_in_view"); }
     private boolean settleMutation(String id, String resolution) {
         if (pendingMutation == null || !pendingMutation.optString("id").equals(id)) return false;
         lastMutation = obj("id", id, "action", pendingMutation.optString("action"),
@@ -112,7 +122,7 @@ public final class BrowserTaskContext {
         if (!(row.opt("id") instanceof String) || !row.getString("id").matches("[A-Za-z0-9_-]{1,80}")
                 || !java.util.Set.of("click", "type", "select", "press", "vault_fill").contains(row.optString("action"))
                 || !(pending ? row.optString("state").equals("awaiting_acknowledgement")
-                    : java.util.Set.of("acknowledged_once", "definitely_not_dispatched", "user_inspected", "observed_read_navigation", "routine_step", "repeat_safe_step").contains(row.optString("state"))))
+                    : java.util.Set.of("acknowledged_once", "definitely_not_dispatched", "user_inspected", "observed_read_navigation", "routine_step", "repeat_safe_step", "task_observed", "new_request_in_view").contains(row.optString("state"))))
             throw new IllegalArgumentException("Invalid mutation receipt");
         JSONObject copy = obj("id", row.getString("id"), "action", row.getString("action"), "state", row.getString("state"));
         if (row.has("request") || row.has("url")) {

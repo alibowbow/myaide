@@ -347,11 +347,11 @@
     if (input) {
       input.files=put().files;
       for (const type of ['input','change']) input.dispatchEvent(new Event(type,{bubbles:true,composed:true}));
-      return {ok:true, document:documentId, attached:file.name, size:file.size, via:'file_field', action_executed:true};
+      return {ok:true, document:documentId, attached:file.name, size:file.size, via:'file_field', action_executed:true, action_accepted:true};
     }
     if (clicked) {
       const dt=put(); for (const type of ['dragenter','dragover','drop']) clicked.dispatchEvent(new DragEvent(type,{bubbles:true,cancelable:true,composed:true,dataTransfer:dt}));
-      return {ok:true, document:documentId, attached:file.name, size:file.size, via:'drop', action_executed:true};
+      return {ok:true, document:documentId, attached:file.name, size:file.size, via:'drop', action_executed:true, action_accepted:true};
     }
     throw Error('이 페이지에서 파일을 넣을 곳을 찾지 못했어요. 업로드 버튼이 보이는 화면에서 다시 해 주세요.');
   }
@@ -626,7 +626,8 @@
       if (!upload) { upload={parts:[],total:-1}; uploads.set(piece.token,upload); while (uploads.size>2) uploads.delete(uploads.keys().next().value); }
       const text=atob(String(piece.data||'')), bytes=new Uint8Array(text.length);
       for (let i=0;i<text.length;i++) bytes[i]=text.charCodeAt(i);
-      upload.parts[piece.index]=bytes; return;
+      // Kept as a Blob piece: the File made of them later reuses these pieces instead of copying a 120 MB video once more.
+      upload.parts[piece.index]=new Blob([bytes]); return;
     }
     if (Object.hasOwn(message, 'upload_done')) { const upload=uploads.get(message.upload_done.token); if (upload) upload.total=message.upload_done.total; return; }
     if (working) { connection.postMessage({id:message.id,result:{ok:false,error:'이전 동작을 처리 중이에요.'}}); return; }

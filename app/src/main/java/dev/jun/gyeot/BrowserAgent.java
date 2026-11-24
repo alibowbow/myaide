@@ -189,6 +189,11 @@ final class BrowserAgent {
         if (visibleRequest != null) engine.acceptRequest(lease, visibleRequest, request);
         else engine.acceptBackgroundRequest(lease, request);
         if (!engine.workEngine) engine.installSteering(lease, this::steer);
+        // A new instruction typed in a tab the user is looking at lifts an earlier task's unconfirmed step there; this task
+        // reads the page first and is told about it, instead of every click being refused.
+        if (visibleRequest != null && engine.releaseForNewRequest(lease))
+            history.put(obj("note", "An earlier task's step in this tab was sent but never confirmed (it may or may not have happened). "
+                + "Look at the page first; if it already happened (a file attached, a draft saved, a post made), go on from there and never do it again."));
         taskContext = visibleRequest == null ? "" : engine.taskContext(lease);
         try { engine.holdJob(lease); } catch (Exception e) { complete(BrowserEngine.error("백그라운드 작업을 시작하지 못했어요. 앱을 열고 다시 지시해 주세요.")); return; }
         engine.setTaskStatus(lease, brain + " · 페이지 연결 확인 중");

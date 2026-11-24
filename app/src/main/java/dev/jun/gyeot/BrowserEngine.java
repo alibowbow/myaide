@@ -255,6 +255,9 @@ final class BrowserEngine {
         String taskWords = "";
         long requestStarted, progressStartedElapsed, progressUpdatedElapsed;
         final List<String> activity = new ArrayList<>();
+        /** Changes this lane's own task dispatched; observedUncertain: the unconfirmed one of them the task has read the page after. */
+        final Set<String> ownMutations = new HashSet<>();
+        String observedUncertain = "";
         java.util.function.BiFunction<String, String, Boolean> steering;
         Lane(long id, Tab owner) { this.id = id; this.owner = owner; conversation = owner.conversationId; }
     }
@@ -427,6 +430,7 @@ final class BrowserEngine {
     private static final class Pending {
         long generation; String id; Tab tab; WebExtension.Port port, dispatchPort; Consumer<JSONObject> callback;
         boolean sent, mutation, dispatched, observingNavigation, rereadRejected, preparingMutation, mutationSaved, settlingMutation;
+        boolean reloadedForRead; // a read found no page to read (a black screen) and loaded the page again once
         String dispatchId = "", readReceiptId = "", dispatchDocument = "";
         boolean actionAcknowledged;
         boolean navigationProposalAccepted, recoveryChecked;
@@ -933,12 +937,34 @@ final class BrowserEngine {
             }
             @Override public void onTitleChange(GeckoSession session, String title) { if (!live(tab)) return; tab.title = title; changed(); }
             @Override public void onCloseRequest(GeckoSession session) { close(tab); }
-            @Override public void onCrash(GeckoSession session) { if (!live(tab)) return; stopAffected(tab,"페이지가 중단됐어요. 탭을 닫고 다시 열어 주세요."); tab.port = null; tab.document = ""; }
+            @Override public void onCrash(GeckoSession session) { if (!live(tab)) return; recoverPage(tab, "페이지가 멈춰서 다시 불러왔어요. 하던 일은 이어서 맡겨 주세요."); }
+            // Android closed the page's process (often while the app was in the background, for memory): the screen went black
+            // and stayed so. It is loaded again by itself; the work on it stops and says why.
+            @Override public void onKill(GeckoSession session) { if (!live(tab)) return; recoverPage(tab, "휴대폰이 메모리를 비우느라 페이지를 닫아서 다시 불러왔어요. 하던 일은 이어서 맡겨 주세요."); }
         });
         bind(tab);
         if (open) { tab.needsLoad = true; activate(tab); }
         if (!running()) showTaskState();
         changed(); return tab;
+    }
+    /** The page's process ended: the work on the tab stops with message, and the page is loaded again. */
+    private void recoverPage(Tab tab, String message) {
+        stopAffected(tab, message); tab.port = null; tab.document = ""; tab.loading = false; tab.loadFailed = false; tab.needsLoad = true;
+        main.post(() -> { if (live(tab) && (tab == current || rendering(tab))) { activate(tab); changed(); } });
+    }
+    /**
+     * The user gave this tab, which they are looking at, a new instruction while an earlier task's step on it is unconfirmed:
+     * that step is settled (the user sees the page; the new task reads it first and is told about it) instead of refusing
+     * every click and keystroke of the new task. Not for Work's background tabs, which no one sees.
+     */
+    boolean releaseForNewRequest(long lease) {
+        Lane l = lane(lease);
+        if (workEngine || !valid(lease) || l.pending != null) return false;
+        Tab tab = l.owner;
+        if (!tab.task.mutationUnresolved() || !tab.recoveringMutationId.isEmpty()) return false;
+        String id = tab.task.pendingMutation().optString("id");
+        if (l.ownMutations.contains(id) || !tab.task.settleForNewRequest(id)) return false;
+        tab.taskChanged = true; persistTask(tab, null); changed(); return true;
     }
     private void stopAffected(Tab tab, String message) {
         Lane l = tabLanes.get(tab); if (l != null) stopTask(l.id, message);
@@ -1097,7 +1123,9 @@ final class BrowserEngine {
         if (!p.mutation || !p.dispatched || p.dispatchId.isEmpty()) return;
         // Only this matching bundled-extension reply is an acknowledgement. A later read is not.
         boolean acknowledged = Boolean.TRUE.equals(result.opt("action_accepted"))
-            || p.action.equals("vault_fill") && Boolean.TRUE.equals(result.opt("filled")) && Boolean.TRUE.equals(result.opt("ok"));
+            || p.action.equals("vault_fill") && Boolean.TRUE.equals(result.opt("filled")) && Boolean.TRUE.equals(result.opt("ok"))
+            // put_file: the page's own script put the file into the field and said so.
+            || !p.uploadToken.isEmpty() && Boolean.TRUE.equals(result.opt("ok")) && !result.optString("attached").isEmpty();
         boolean rejectedBeforeEffect = Boolean.TRUE.equals(result.opt("stale_observation"));
         if ((acknowledged || rejectedBeforeEffect) && p.tab.task.settleMutation(p.dispatchId, acknowledged)) {
             p.settlingMutation = workEngine;
@@ -1327,6 +1355,7 @@ final class BrowserEngine {
         p.dispatchId = UUID.randomUUID().toString();
         if (!p.tab.task.prepareMutation(p.dispatchId, p.action)) { finish(p, mutationBlocked()); return; }
         Lane owner = lane(p.generation);
+        if (owner != null) owner.ownMutations.add(p.dispatchId);
         String request = p.action.equals("vault_fill") ? "사용자가 저장된 로그인 정보 입력을 승인함" : owner == null ? "" : owner.lastRequest;
         try { p.tab.task.mutationContext(p.dispatchId, request, safeWorkUrl(p.tab.url)); }
         catch (IllegalArgumentException invalidContext) { settleUnsent(p); finish(p, obj("ok", false, "action_executed", false, "error", "변경 요청의 복구 문맥을 저장할 수 없어 실행하지 않았어요.")); return; }
@@ -1549,7 +1578,23 @@ final class BrowserEngine {
         boolean explicitBack = action.equals("back") && args.optBoolean("navigation_only") && tab.back
             && userNavigation != null && "back".equals(userNavigation.optString("action"));
         if (tab.task.mutationUnresolved() && !Set.of("read", "scroll", "switch").contains(action) && !observedReadNavigation && !explicitBack) {
-            callback.accept(mutationBlocked()); return;
+            // The running task's own step whose confirmation never came (a page busy uploading, a receipt lost) does not end
+            // the task: the page is read first and the task decides again from what it shows; once it has, the step is
+            // settled and work goes on. Another task's unconfirmed step stays fenced (the user confirms it).
+            String unresolved = tab.task.pendingMutation().optString("id");
+            if (!l.ownMutations.contains(unresolved)) { callback.accept(mutationBlocked()); return; }
+            if (!unresolved.equals(l.observedUncertain)) {
+                execute(obj("action", "read"), lease, false, value -> {
+                    put(value, "action_executed", false); put(value, "previous_action_rejected", true); put(value, "earlier_step_unconfirmed", true);
+                    put(value, "replan_hint", "Nothing was executed now. The step before this one was sent but the page never confirmed it; this fresh page shows what happened. "
+                        + "If it already took effect (a file attached, a form saved, a post made), go on from here and never repeat it. Choose again with these refs.");
+                    callback.accept(value);
+                });
+                return;
+            }
+            if (!tab.task.settleObservedByTask(unresolved)) { callback.accept(mutationBlocked()); return; }
+            l.observedUncertain = ""; tab.taskChanged = true;
+            persistTask(tab, saved -> { if (workEngine) activeWorkReceipts.remove(unresolved); });
         }
         // Every task, including an isolated Work browser, retains its original tab.
         // Only explicit native UI selection changes the visible conversation.
@@ -1631,7 +1676,17 @@ final class BrowserEngine {
             }, 6000);
         } else if (p.tab.port == null && p.tab.pdfEpoch == p.tab.navigationEpoch && p.tab.pdfSaving == 0) finish(p, pdfResult(p.tab, false));
         // A PDF still being kept turns back to its page when kept: wait for that a while longer than for a page.
-        else if (android.os.SystemClock.uptimeMillis() >= (p.tab.pdfSaving > 0 && p.tab.pdfEpoch == p.tab.navigationEpoch ? deadline + 90_000 : deadline)) finish(p,readinessFailure(p, extension == null ? "bridge_not_ready" : "page_not_ready", "아직 페이지를 읽을 수 없어요. 로딩이 끝난 뒤 다시 요청해 주세요."));
+        // A read that finds no page to read (a black screen: the page's process ended, its script never came back) loads the
+        // page again once and waits for it, instead of telling the user to come back later.
+        else if (android.os.SystemClock.uptimeMillis() >= deadline && extension != null && !p.reloadedForRead && !p.dispatched
+                && "read".equals(args.optString("action")) && p.tab.pdfSaving == 0) {
+            p.reloadedForRead = true; record(p.generation, "페이지가 응답하지 않아 다시 불러오는 중");
+            p.tab.port = null; p.tab.document = ""; p.tab.loading = false; p.tab.loadFailed = false;
+            if (p.tab.session.isOpen()) p.tab.session.reload(); else { p.tab.needsLoad = true; activate(p.tab); }
+            long more = android.os.SystemClock.uptimeMillis() + 25_000; p.deadline = Math.max(p.deadline, more);
+            main.postDelayed(() -> sendWhenReady(p, args, more), 300);
+        }
+        else if (android.os.SystemClock.uptimeMillis() >= (p.tab.pdfSaving > 0 && p.tab.pdfEpoch == p.tab.navigationEpoch ? deadline + 90_000 : deadline)) finish(p,readinessFailure(p, extension == null ? "bridge_not_ready" : "page_not_ready", "페이지를 다시 불러와도 읽지 못했어요. 주소창 옆 새로고침을 한 번 눌러 준 뒤 다시 맡겨 주세요."));
         else { if (p.tab.port == null) askPdf(p.tab); main.postDelayed(() -> sendWhenReady(p, args, deadline), 150); }
     }
     /**
@@ -1922,6 +1977,11 @@ final class BrowserEngine {
         if (result.optBoolean("ok") && !result.optBoolean("requires_user") && !result.optString("document").isBlank()
                 && result.optString("document").equals(p.tab.document) && result.optJSONArray("elements") != null)
             p.tab.lastReadObservation = copy(result);
+        Lane owning = lane(p.generation);
+        if (owning != null && !p.mutation && p.tab.task.mutationUnresolved() && result.optBoolean("ok") && result.optJSONArray("elements") != null
+                && !result.optString("document").isBlank() && result.optString("document").equals(p.tab.document)
+                && owning.ownMutations.contains(p.tab.task.pendingMutation().optString("id")))
+            owning.observedUncertain = p.tab.task.pendingMutation().optString("id");
         if (p.tab.task.mutationUnresolved() && !p.mutation) {
             put(result, "previous_mutation_unresolved", true);
             put(result, "recovery_rule", "Earlier mutation remains unresolved. Safe reading and observed public GET links may continue; never repeat a submission or infer its success.");

@@ -57,6 +57,7 @@ public final class BrowserTools {
         + "YouTube upload: set_mode desktop, open https://studio.youtube.com, click 만들기/CREATE then 동영상 업로드/Upload videos, attach the video and click 파일 선택/SELECT FILES; "
         + "fill 제목 and 설명 exactly as the user's instructions say; for 미리보기 이미지/Thumbnail attach the image and click 업로드/Upload file; set 재생목록, 시청자층 "
         + "(아동용 여부: as instructed, else 아니요), 자세히 보기 for tags, language, category; 다음 to 공개 상태 (as instructed, else 비공개). "
+        + "A video already uploaded (Studio's 콘텐츠 list or the open details dialog shows that file name or title, as a draft or 비공개) is not uploaded again: open its details there (제목 or the pencil) and go on from what is not done yet. "
         + "Publish (게시/공개/PUBLISH/SAVE) with the visibility asked when the user's own request, or the document they asked to follow, says to publish or "
         + "upload it publicly, and say in the final answer what was set and the link; when neither says so, stop before 게시/저장 and ask the user, telling what will be set.";
     public static JSONObject declaration() {
