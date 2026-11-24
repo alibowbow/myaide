@@ -160,8 +160,10 @@ final class Briefing {
         if (NoticeListener.on(context)) for (String line : dev.jun.gyeot.core.Notices.lines(dev.jun.gyeot.core.Notices.recent(NoticeListener.list(context), now, 12, 15), now)) records.add("알림: " + line);
         String input = Proactive.briefInput(now, zone, note(store), schedule, chat(store, 60), works(store, 10, true), records, feedback(store));
         // Made by the job (tell) nobody waits; from 지금 제안 받아 보기 the user does (Chores' order).
-        List<Card> cards = Proactive.cards(Chores.run(store, Proactive.BRIEF, input, !tell));
-        if (cards.isEmpty()) throw new IllegalStateException("오늘은 드릴 제안을 만들지 못했어요.");
+        List<Card> made = Proactive.cards(Chores.run(store, Proactive.BRIEF, input, !tell));
+        if (made.isEmpty()) throw new IllegalStateException("오늘은 드릴 제안을 만들지 못했어요.");
+        // What the user put away in the last 30 days, or like it, never comes back however the model words it.
+        List<Card> cards = new ArrayList<>(); JSONArray reacted = feedback(store); for (Card card : made) if (!Proactive.putAway(reacted, card, now)) cards.add(card);
         JSONArray saved = new JSONArray(); for (Card card : cards) saved.put(card.json());
         store.settings.edit().putString("briefCards", saved.toString()).putString("briefDay", Proactive.day(now, zone)).apply(); store.changed();
         if (tell) tell(context, cards);
@@ -173,7 +175,9 @@ final class Briefing {
         if (!on(store) || !Proactive.day(System.currentTimeMillis(), ZoneId.systemDefault()).equals(store.settings.getString("briefDay", ""))) return out;
         try {
             JSONArray saved = new JSONArray(store.settings.getString("briefCards", "[]"));
-            for (int i = 0; i < saved.length(); i++) { Card card = Card.of(saved.optJSONObject(i)); if (card != null && !card.title().isEmpty()) out.add(card); }
+            JSONArray reacted = feedback(store); long now = System.currentTimeMillis();
+            // A card put away (✕) stays away, also when a later list (or one being made while it was put away) brings it back.
+            for (int i = 0; i < saved.length(); i++) { Card card = Card.of(saved.optJSONObject(i)); if (card != null && !card.title().isEmpty() && !Proactive.putAway(reacted, card, now)) out.add(card); }
         } catch (Exception broken) { /* None. */ }
         return out;
     }
