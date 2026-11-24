@@ -326,6 +326,12 @@ final class BrowserEngine {
         l.progressUpdatedElapsed = android.os.SystemClock.elapsedRealtime(); l.activity.add(text);
         if (l.activity.size() > 30) l.activity.remove(0); changed();
     }
+    /** A step's outcome line (BrowserAgent's journal) in place of the "…하는 중" line its start added. */
+    void recordStep(long lease, String started, String text) {
+        Lane l = lane(lease); if (!valid(lease) || l.completed) return;
+        if (!l.activity.isEmpty() && l.activity.get(l.activity.size() - 1).equals(started)) l.activity.remove(l.activity.size() - 1);
+        record(lease, text);
+    }
     // Existing UI/voice callers still assign these fields. Capture such changes only
     // against the lane that was projected, never against a newly selected tab.
     private Lane projected;
@@ -1566,7 +1572,7 @@ final class BrowserEngine {
         p.mutation = Set.of("click", "type", "select", "press").contains(action);
         p.deadline = android.os.SystemClock.uptimeMillis() + 20000;
         tab.automationInput = true;
-        l.pending = p; record(lease,BrowserTools.actionLabel(action));
+        l.pending = p; if (!action.equals("read")) record(lease,BrowserTools.actionLabel(action));
         if (Set.of("open", "back", "forward", "reload", "set_mode").contains(action)) p.dispatched = true;
         if (action.equals("open")) { tab.url = args.optString("url"); tab.needsLoad = true; }
         if (action.equals("set_mode")) changeDesktop(tab, args.optString("mode").equals("desktop"));

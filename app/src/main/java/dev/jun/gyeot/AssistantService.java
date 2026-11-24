@@ -1962,6 +1962,8 @@ public final class AssistantService extends Service {
                 made.add(kept);
                 return obj("name", kept.optString("name"), "uri", kept.optString("uri"));
             }
+            @Override public JSONObject already(String fileId, String version) { return DriveFiles.already(AssistantService.this, fileId, version); }
+            @Override public void remember(String fileId, String version, JSONObject kept) { DriveFiles.remember(AssistantService.this, fileId, version, kept); }
         };
     }
     private DriveWorkTools.Payload driveMedia(String workId, String reference) throws Exception {

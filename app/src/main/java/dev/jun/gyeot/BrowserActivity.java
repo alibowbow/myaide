@@ -224,6 +224,11 @@ public final class BrowserActivity extends Activity {
         thinkingText = new ShimmerText(this, MUTED, TEXT); thinkingText.setTextSize(14); thinkingText.setTypeface(Ui.weight(500)); thinkingText.setIncludeFontPadding(false);
         thinkingText.setSingleLine(true); thinkingText.setEllipsize(android.text.TextUtils.TruncateAt.END); thinkingText.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         thinkingRow.addView(thinkingText, new LinearLayout.LayoutParams(0, -2, 1));
+        // 중지, as small as the line: the work stops at once, without opening 작업 상세.
+        TextView stopWork = ui.text("중지", 13, 600, ERROR); stopWork.setPadding(ui.dp(12), ui.dp(8), ui.dp(4), ui.dp(8));
+        stopWork.setContentDescription("AI 작업 중지"); Ui.pressable(stopWork, true);
+        stopWork.setOnClickListener(v -> { BrowserProgressUi.StopTarget target = stopTarget(progressSnapshot()); if (target.canStop()) target.stop(); else detail(); });
+        thinkingRow.addView(stopWork);
         thinkingRow.setContentDescription("AI가 작업하는 중 · 작업 상세 열기"); thinkingRow.setOnClickListener(v -> detail()); Ui.pressable(thinkingRow, true);
         resultBox.addView(thinkingRow);
         resultText = ui.text("", 15, 450, TEXT); resultText.setTextIsSelectable(true); resultText.setVisibility(View.GONE);
@@ -1084,6 +1089,9 @@ public final class BrowserActivity extends Activity {
         BrowserEngine.Tab tab = engine.current; if (tab == null) return;
         String id = tab.conversationId, title = host(tab.url) + " · 이 탭의 대화";
         Ui.Sheet sheet = ui.selectionSheet("대화 메뉴", host(tab.url)); LinearLayout rows = ui.group();
+        // The AI working in this tab can be stopped from here too, not only from 작업 상세.
+        BrowserProgressUi.StopTarget stopping = stopTarget(progressSnapshot());
+        if (stopping.canStop()) ui.addRow(rows, menuRow(R.drawable.ic_close, ERROR, "작업 중지", true, stopping::stop, sheet), true);
         ui.addRow(rows, menuRow(R.drawable.ic_chat, ACCENT, "새 대화", engine.canManageConversations(), this::freshConversation, sheet), true);
         ui.addRow(rows, menuRow(R.drawable.ic_history, MUTED, "보관된 대화 기록", true, this::conversationHistory, sheet), true);
         ui.addRow(rows, menuRow(R.drawable.ic_close, ERROR, "이 탭의 대화 지우기", engine.canManageConversations() && engine.hasConversation(), () -> confirmDeleteConversation(id, title, null), sheet), true);

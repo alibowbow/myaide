@@ -149,6 +149,16 @@ final class BrowserAgent {
     // tabs/status/errors are not page observations. Keep each document's newest refs
     // so a valid old-tab ref cannot bypass site guards after a non-page response.
     private final java.util.Map<String, JSONObject> pageObservations = new java.util.LinkedHashMap<>();
+    /** Every step of this job, for its status line, 퍼레대화 and its result; it also notices the job going in circles. */
+    private final dev.jun.gyeot.core.BrowserJournal journal;
+    /**
+     * What the app actions of this job brought (a document read, a file downloaded, a folder listed), kept apart from the
+     * browser history whose older observations are dropped after three steps: without it the planner lost the user's
+     * instruction document and the downloaded file's address a few steps later and read and downloaded them again.
+     */
+    private final JSONObject materials = new JSONObject();
+    /** The next step is decided with the chosen effort, not the quick one: the last step failed, changed nothing or went in circles. */
+    private boolean hardNext = true;
     private final StringBuilder answer = new StringBuilder();
     private final JSONArray history = arr();
     private final String request, visibleRequest;
@@ -166,6 +176,8 @@ final class BrowserAgent {
         BrowserModels selection = new BrowserModels(store); model = selection.model(brain); effort = selection.effort(brain, model); speed = "gpt".equals(brain) ? selection.speed(model) : "standard";
         quick = store.browserDecisions() && !"none".equals(brain);
         lease = engine.begin(() -> complete(obj("ok", false, "cancelled", true, "answer", "브라우저 작업을 중지했어요."), true));
+        journal = dev.jun.gyeot.core.BrowserJournal.open(System.identityHashCode(engine) + ":" + lease, brain + (model == null || model.isBlank() ? "" : " " + model),
+            visibleRequest != null ? visibleRequest : AutomationGate.userWords(request), System.currentTimeMillis());
         liveness = new BrowserLongTaskPolicy("lane:" + lease, clock);
         preexistingMutationFence = engine.mutationUnresolved(lease);
     }
@@ -243,6 +255,7 @@ final class BrowserAgent {
         if (last != null && !BrowserTools.observationError(last).isEmpty()) { complete(BrowserTools.observationFailure(last)); return; }
         JSONObject task = obj("user_request", latestRequest, "user_messages", userMessages, "browser_history", history, "task_context", taskContext,
             "steering_rule","Apply all additional user messages now; newest corrections supersede unexecuted plans. Keep observed actions; never replay an uncertain/completed mutation. Prior history is not permission.");
+        if (materials.length() > 0) { put(task, "kept_for_this_task", materials); put(task, "kept_rule", "What app actions already brought in this job (documents read, files downloaded and their uri/size/sha256): use them as they are. Never read or download them again."); }
         String input = task.toString();
         // Gemini Decision may pick this step first; its request is made here, on the main thread, from this page.
         final JSONObject quickPage = quickPage(last);
@@ -254,7 +267,11 @@ final class BrowserAgent {
         attempt.tab = engine.taskTab(lease);
         if (!liveness.beginModel(attempt.operationId)) { complete(BrowserEngine.error("이전 작업의 상태를 확인하지 못했어요.")); return; }
         activeModel = attempt; modelCalls++;
-        engine.setTaskStatus(lease, (quickRequest != null ? "디시전" : brain) + " · 다음 동작 판단 중 (" + modelCalls + ")");
+        // Routine steps are decided with a quick effort (much faster per step); the chosen one decides after trouble.
+        final String stepEffort = hardNext || repairs > 0 || completionRejections > 0 || completionReadOnly || consecutiveRefusals > 0 ? effort : quickEffort();
+        hardNext = false;
+        final String deciding = " · 다음 동작 판단 중 · " + journal.line(System.currentTimeMillis());
+        engine.setTaskStatus(lease, (quickRequest != null ? "디시전" : brain) + deciding);
         new Thread(() -> {
             try {
                 checkAttempt(attempt);
@@ -268,23 +285,23 @@ final class BrowserAgent {
                         });
                         return;
                     }
-                    engine.main.post(() -> { if (activeModel == attempt) engine.setTaskStatus(lease, brain + " · 다음 동작 판단 중 (" + modelCalls + ")"); });
+                    engine.main.post(() -> { if (activeModel == attempt) engine.setTaskStatus(lease, brain + deciding); });
                 }
                 attempt.modelStarted = System.nanoTime();
                 String text = switch (brain) {
                     case "gpt" -> {
                         checkSpeedAccount();
-                        var response = OpenAiClient.complete(store.openai, model, web -> plannerPrompt(), input, false, effort, speed, () -> checkAttempt(attempt), attempt.network);
+                        var response = OpenAiClient.complete(store.openai, model, web -> plannerPrompt(), input, false, stepEffort, speed, () -> checkAttempt(attempt), attempt.network);
                         checkAttempt(attempt);
                         attempt.speedNotice = response.speedNotice;
                         yield response.text;
                     }
-                    case "claude" -> ClaudeClient.complete(store.claude, model, web -> plannerPrompt(), input, false, effort, () -> checkAttempt(attempt), attempt.network).text;
-                    case "grok" -> GrokWorkClient.complete(store.grok, model, web -> plannerPrompt(), input, false, effort, () -> checkAttempt(attempt), attempt.network).text;
+                    case "claude" -> ClaudeClient.complete(store.claude, model, web -> plannerPrompt(), input, false, stepEffort, () -> checkAttempt(attempt), attempt.network).text;
+                    case "grok" -> GrokWorkClient.complete(store.grok, model, web -> plannerPrompt(), input, false, stepEffort, () -> checkAttempt(attempt), attempt.network).text;
                     case "nim" -> NimClient.complete(store.nim, nimGeneration, model, plannerPrompt(), input, () -> {
                         checkAttempt(attempt);
                     }, attempt.network).text;
-                    case "gemini" -> GeminiWorkClient.complete(store.gemini.connected() ? store.gemini.key() : store.secrets.get(), model, web -> plannerPrompt(), input, false, effort, () -> checkAttempt(attempt), attempt.network).text;
+                    case "gemini" -> GeminiWorkClient.complete(store.gemini.connected() ? store.gemini.key() : store.secrets.get(), model, web -> plannerPrompt(), input, false, stepEffort, () -> checkAttempt(attempt), attempt.network).text;
                     default -> throw new IllegalStateException("선택한 두뇌를 사용할 수 없어요.");
                 };
                 checkAttempt(attempt);
@@ -338,12 +355,15 @@ final class BrowserAgent {
         }
         if (action.optBoolean("done")) { completionPlan = action; complete(BrowserTools.taskResult(action, steps - 1)); return; }
         repairs = 0;
-        engine.setTaskStatus(lease, who + " · " + BrowserTools.actionLabel(action.optString("action")));
+        // Named before it runs: afterwards the page and its refs are the new ones.
+        final String what = describe(action), signature = signature(action);
+        engine.setTaskStatus(lease, who + " · " + BrowserTools.actionLabel(action.optString("action")) + quoted(what) + " · " + journal.line(System.currentTimeMillis()));
         execute(action, observation -> {
             if (finished) return;
             history.put(obj("action", observation.optBoolean("automation_refused") ? obj("action", "read") : action, "observation", observation));
             // Keep a bounded transcript; older steps retain actions but not full page contents.
             if (history.length() > 3) history.optJSONObject(history.length() - 4).remove("observation");
+            if (noteStep(action, observation, what, signature)) return;
             step();
         });
     }
@@ -518,6 +538,14 @@ final class BrowserAgent {
         String name = action.optString("action");
         JSONObject args = new JSONObject();
         for (String key : new String[]{"query", "file_id", "format", "folder_id", "limit", "folder"}) if (action.has(key)) put(args, key, action.opt(key));
+        // A document already read or a file already downloaded in this job is answered from what was kept, without the network.
+        String kept = materialKey(name, action);
+        if (kept != null && materials.has(kept) && !"folder_list".equals(name)) {
+            JSONObject again = obj("ok", true, "app_action", name, "already_have", true, "kept", materials.opt(kept),
+                "note", "drive_download".equals(name) ? "이 작업에서 이미 받은 파일이에요. 다시 받지 않았어요: 이 uri로 attach하세요." : "이 작업에서 이미 읽은 문서예요. 다시 읽지 않았어요.");
+            engine.main.post(() -> { if (!finished && engine.valid(lease)) reply.accept(again); });
+            return;
+        }
         android.content.Context context = engine.context;
         new Thread(() -> {
             JSONObject out;
@@ -536,6 +564,141 @@ final class BrowserAgent {
             if (!result.optBoolean("ok")) { put(result, "ok", true); put(result, "app_action_failed", true); }
             engine.main.post(() -> { if (!finished && engine.valid(lease)) reply.accept(result); });
         }, "gyeot-browser-app-action").start();
+    }
+    // ── The job's journal: what each step did, and whether the job goes in circles ─────────────────────────────
+
+    /** The effort routine steps are decided with: "low" when the model offers it below the chosen effort, else the chosen one. */
+    private String quickEffort() {
+        java.util.List<String> efforts = new BrowserModels(store).profile(brain, model).efforts;
+        int chosen = efforts.indexOf(effort), low = efforts.indexOf("low");
+        return low >= 0 && chosen > low ? "low" : effort;
+    }
+    /** The label of the control a step names, on the page it was planned on. */
+    private String targetLabel(JSONObject action) {
+        String document = action.optString("document"), ref = action.optString("ref");
+        if (ref.isEmpty()) return "";
+        JSONObject page = document.isEmpty() ? latestObservation : pageObservations.getOrDefault(document, latestObservation);
+        JSONArray elements = page == null ? null : page.optJSONArray("elements");
+        for (int i = 0; elements != null && i < elements.length(); i++) {
+            JSONObject element = elements.optJSONObject(i);
+            if (element != null && ref.equals(element.optString("ref"))) {
+                String label = element.optString("label").replaceAll("\\s+", " ").strip();
+                return label.isEmpty() ? element.optString("placeholder", element.optString("tag")) : label;
+            }
+        }
+        return "";
+    }
+    private static String clip(String text, int max) { String s = text == null ? "" : text.replaceAll("\\s+", " ").strip(); return s.length() <= max ? s : s.substring(0, max - 1) + "…"; }
+    /** One step in a few words: 「다음」 누름, 「제목」에 "How the V-22…" 입력, studio.youtube.com 열기. */
+    String describe(JSONObject action) {
+        String name = action.optString("action"), label = clip(targetLabel(action), 30), target = label.isEmpty() ? "" : "「" + label + "」";
+        return switch (name) {
+            case "click" -> (target.isEmpty() ? "요소" : target) + " 누름";
+            case "type" -> (target.isEmpty() ? "입력칸" : target) + "에 \"" + clip(action.optString("text"), 28) + "\" 입력";
+            case "select" -> (target.isEmpty() ? "목록" : target) + "에서 " + clip(action.optString("text"), 20) + " 고름";
+            case "press" -> (target.isEmpty() ? "" : target + "에서 ") + action.optString("text") + " 키";
+            case "scroll" -> target.isEmpty() ? ("up".equals(action.optString("direction")) ? "위로" : "아래로") + " 스크롤" : target + "까지 스크롤";
+            case "open" -> { String host = dev.jun.gyeot.core.BrowserJournal.host(action.optString("url")); yield (host.isEmpty() ? "페이지" : host) + " 열기"; }
+            case "back" -> "뒤로"; case "forward" -> "앞으로"; case "reload" -> "새로고침";
+            case "set_mode" -> ("desktop".equals(action.optString("mode")) ? "데스크톱" : "모바일") + " 화면으로";
+            case "attach" -> "올릴 파일 준비 · " + clip(action.optString("file").replaceAll(".*/", ""), 40);
+            case "drive_read" -> "드라이브 문서 읽기"; case "drive_download" -> "드라이브 파일 받기"; case "drive_search" -> "드라이브 찾기 · " + clip(action.optString("query"), 30);
+            case "folder_list" -> "들퍼레 폴더 보기" + (action.optString("folder").isBlank() ? "" : " · " + action.optString("folder"));
+            case "tabs" -> "탭 목록"; case "switch" -> "탭 바꾸기"; case "close" -> "탭 닫기"; case "read" -> "페이지 읽기";
+            default -> name;
+        };
+    }
+    private static String quoted(String what) {
+        int start = what.indexOf('「'), end = what.indexOf('」');
+        return start >= 0 && end > start ? " " + what.substring(start, end + 1) : "";
+    }
+    /** What a step does to what: the same signature on an unchanged page is the same step again. */
+    private String signature(JSONObject action) {
+        return String.join("|", action.optString("action"), targetLabel(action), action.optString("text"), action.optString("direction"),
+            action.optString("url"), action.optString("file"), action.optString("file_id"), action.optString("mode"));
+    }
+    /** How a step came out, in a few words; failed is set for a failure. */
+    private static String outcome(JSONObject value, boolean[] failed) {
+        if (value.optBoolean("automation_refused")) return "실행 안 함 · " + clip(value.optString("refusal", value.optString("error")), 60);
+        String error = BrowserTools.observationError(value);
+        if (value.optBoolean("app_action_failed") || !value.optBoolean("ok", true) || !error.isEmpty()) {
+            failed[0] = true; return "실패 · " + clip(error.isEmpty() ? value.optString("error", "이유 미상") : error, 70);
+        }
+        if (value.optBoolean("already_have")) return "이미 있음 · 다시 하지 않음";
+        if (value.optBoolean("already_on_phone")) return "이미 받은 파일 · 다시 받지 않음";
+        JSONObject scroll = value.optJSONObject("scroll");
+        if (scroll != null && !scroll.optBoolean("moved", true)) return "더 움직이지 않음";
+        if (value.optBoolean("input_verified")) return "입력됨";
+        if (value.has("sha256") && value.has("uri")) return value.optLong("size") + "바이트" + (value.has("matches_drive") ? value.optBoolean("matches_drive") ? " · SHA-256 일치" : " · SHA-256 다름" : "");
+        JSONObject effect = value.optJSONObject("action_effect");
+        String kind = effect == null ? "" : effect.optString("kind");
+        return switch (kind) {
+            case "navigation" -> "새 페이지"; case "no_observable_change" -> "화면 변화 없음"; case "pending" -> "반응 기다림";
+            case "control_changed", "content_changed" -> "바뀜"; default -> "✓";
+        };
+    }
+    private static final java.util.Set<String> MOVES = java.util.Set.of("click", "press", "scroll", "back", "forward", "reload");
+    /**
+     * After a step ran: what it brought is kept (materials), it goes in the journal and the 작업 상세 list, and the journal
+     * says whether the job goes in circles. The first time the planner is told to change course; the second time the job
+     * stops here and says where. Returns true when the job ended.
+     */
+    private boolean noteStep(JSONObject action, JSONObject observation, String what, String signature) {
+        String name = action.optString("action");
+        if (BrowserTools.APP_ACTIONS.contains(name)) keepMaterial(name, action, observation);
+        long now = System.currentTimeMillis();
+        journal.page(observation.optString("url"), observation.optString("title"));
+        boolean[] failed = {false};
+        String result = outcome(observation, failed);
+        JSONArray elements = observation.optJSONArray("elements");
+        String page = elements == null ? "" : Integer.toHexString(completionKey(observation).hashCode());
+        boolean counts = MOVES.contains(name) && !observation.optBoolean("automation_refused");
+        dev.jun.gyeot.core.BrowserJournal.Verdict verdict = journal.step(what, result, failed[0], signature, page, counts, now);
+        engine.recordStep(lease, BrowserTools.actionLabel(name), journal.count() + " · " + what + " → " + result);
+        JSONObject effect = observation.optJSONObject("action_effect");
+        if (failed[0] || effect != null && "no_observable_change".equals(effect.optString("kind"))) hardNext = true;
+        if (verdict == dev.jun.gyeot.core.BrowserJournal.Verdict.WARN) {
+            hardNext = true;
+            history.put(obj("no_progress", journal.why(), "rule", "The last steps did not move this job forward. Do not repeat them. "
+                + "Controls listed with offscreen:true are on the page out of sight (in_dialog: inside the open dialog): click or type them directly, without scrolling. "
+                + "Try another control or another way (the site's own menu or search, the content list), or finish with outcome blocked naming exactly what is in the way."));
+            engine.record(lease, "제자리 감지 · " + journal.why() + " · 다른 방법을 찾게 했어요");
+            return false;
+        }
+        if (verdict == dev.jun.gyeot.core.BrowserJournal.Verdict.STOP) { complete(stuck()); return true; }
+        return false;
+    }
+    /** The job stopped going in circles: where, when, what it did last and why, and what it already did. */
+    private JSONObject stuck() {
+        dev.jun.gyeot.core.BrowserJournal.Step last = journal.last();
+        String where = journal.site().isEmpty() ? "페이지" : journal.site();
+        String message = where + "에서 멈췄어요. " + journal.why() + (last == null ? "" : " (" + last.number() + "단계: " + last.what() + " → " + last.result() + ")")
+            + ". 지금까지 한 일은 steps_done에 있어요.";
+        return obj("ok", false, "outcome", "blocked", "error_code", "no_progress", "retryable", false, "action_executed", dispatchedSteps > 0,
+            "site", where, "error", message, "answer", message, "steps_done", new JSONArray(journal.lines(14)),
+            "next", "다시 맡기면 steps_done 다음부터 이어서 해요. 이미 올린 영상은 스튜디오 콘텐츠 목록의 초안에서 이어서 고치고, 다시 올리지 않아요.");
+    }
+    /** Which kept material an app action asks for again: its document or file, by id. */
+    private static String materialKey(String name, JSONObject action) {
+        String id = action.optString("file_id");
+        return switch (name) {
+            case "drive_read" -> id.isEmpty() ? null : "document:" + id + ":" + action.optString("format");
+            case "drive_download" -> id.isEmpty() ? null : "file:" + id + ":" + action.optString("format");
+            case "folder_list" -> "folder:" + action.optString("folder");
+            default -> null;
+        };
+    }
+    private void keepMaterial(String name, JSONObject action, JSONObject value) {
+        if (value.optBoolean("app_action_failed") || value.optBoolean("already_have")) return;
+        String key = "drive_search".equals(name) ? "search:" + action.optString("query") : materialKey(name, action);
+        if (key == null) return;
+        JSONObject kept = copy(value);
+        kept.remove("ok"); kept.remove("app_action");
+        if (kept.has("text")) put(kept, "text", kept.optString("text").length() > 16000 ? kept.optString("text").substring(0, 16000) + "…" : kept.optString("text"));
+        String compact = kept.toString();
+        put(materials, key, compact.length() > 20000 ? obj("note", "too long to keep whole", "start", compact.substring(0, 3000)) : kept);
+        // A long job reads few documents; keep the newest when there are many.
+        while (materials.length() > 12) materials.remove(materials.keys().next());
     }
     private boolean safeReadNavigation(JSONObject action) {
         BrowserEngine.Tab target=engine.taskTab(lease);
@@ -901,6 +1064,7 @@ final class BrowserAgent {
             if (limited.contains(next) || !engine.connected(next)) continue;
             String from = brain; BrowserModels selection = new BrowserModels(store);
             brain = next; model = selection.model(next); effort = selection.effort(next, model); speed = "gpt".equals(next) ? selection.speed(model) : "standard";
+            journal.brain(brain + " " + model); hardNext = true;
             nimGeneration = store.nim.generation(); credentialStamp = accountStamp();
             engine.setTaskStatus(lease, from + " 사용 한도 도달 → " + next + "로 이어서");
             history.put(obj("note", "The previous AI reached its usage limit; this step is decided again."));
@@ -973,6 +1137,8 @@ final class BrowserAgent {
             put(value,"previous_unresolved",true);
             put(value,"answer",value.optString("answer") + "\n이전 변경의 불확실성은 그대로 남아 있어요. 이번 읽기 결과만 확인했어요.");
         }
+        if (!value.optBoolean("ok") && !value.has("steps_done") && journal.count() > 0) put(value, "steps_done", new JSONArray(journal.lines(10)));
+        journal.end(value.optBoolean("ok") ? "완료" : engineCancelled || value.optBoolean("cancelled") ? "중지됨" : "막힘 · " + clip(value.optString("error", value.optString("answer")), 80), System.currentTimeMillis());
         BrowserLongTaskPolicy.Assessment beforeStop = liveness.assess();
         if (engineCancelled || value.optBoolean("cancelled")) liveness.userStop();
         else if (!value.optBoolean("ok")) liveness.terminalError("agent_failed");

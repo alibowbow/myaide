@@ -22,8 +22,10 @@
     const actual=inputText(e), expected=text.replace(/\r\n?/g,'\n').replace(/\u00a0/g,' ');
     const children=[...e.childNodes].filter(n=>n.nodeType!==Node.TEXT_NODE || n.textContent!=='');
     // Gecko adds a terminal <br> to keep the caret on an empty final line.
-    return actual===expected || editable(e) && children.at(-1)?.nodeName==='BR' &&
-      (actual===expected+'\n' || expected==='' && children.length===1);
+    // A rich editor (YouTube Studio's title and description) may lay the same words out with other line breaks or spaces.
+    const squash = s => s.replace(/\s+/g,' ').trim();
+    return actual===expected || editable(e) && (children.at(-1)?.nodeName==='BR' &&
+      (actual===expected+'\n' || expected==='' && children.length===1) || expected!=='' && squash(actual)===squash(expected));
   };
   // Anonymous-comment credentials protect a form, not the surrounding public article.
   // Fail closed unless both a clearly marked comment editor and independent public
@@ -202,6 +204,25 @@
       text:'Google 계정 선택 화면이에요. 이미 로그인된 계정 중 하나를 누르기만 할 수 있어요. 비밀번호·인증 화면이 나오면 사용자가 직접 해야 해요.',
       elements, frames:0, activity:pageActivity()};
   }
+  // The dialog on top, when one is open (a modal form, a menu sheet): its controls are the ones that can be used.
+  function topDialog() {
+    const open=all('dialog[open],[role="dialog"],[role="alertdialog"],[aria-modal="true"],tp-yt-paper-dialog').filter(e=>visible(e) && inViewport(e));
+    return open.length ? open[open.length-1] : null;
+  }
+  const scrollable = e => { if(!e || e===document.body || e===document.documentElement) return false; const s=getComputedStyle(e); return /(auto|scroll|overlay)/.test(s.overflowY) && e.scrollHeight>e.clientHeight+4; };
+  const area = e => e.clientHeight*e.clientWidth;
+  /** What a scroll moves: the scrollable part of an open dialog, else the page when it can move that way, else the largest scrollable part on screen. null is the page. */
+  function scroller(down) {
+    const can = e => down ? e.scrollTop+e.clientHeight < e.scrollHeight-2 : e.scrollTop>0;
+    const dialog=topDialog();
+    if (dialog) {
+      const inner=[dialog,...dialog.querySelectorAll('*')].filter(e=>scrollable(e) && visible(e) && can(e)).sort((x,y)=>area(y)-area(x))[0];
+      if (inner) return inner;
+    }
+    const page=document.scrollingElement || document.documentElement;
+    if (down ? scrollY+innerHeight < page.scrollHeight-2 : scrollY>0) return null;
+    return all('div,section,main,article,aside,ul,ol,nav,form').filter(e=>scrollable(e) && inViewport(e) && can(e)).sort((x,y)=>area(y)-area(x))[0] || null;
+  }
   function snapshot() {
     const guard = guardReason();
     if (guard) { refs = new Map(); revision++; return {ok:true, requires_user:true, error_code:'authentication_required', guard_reason:guard,
@@ -212,9 +233,19 @@
     const elements = [], regions=commentRegions();
     // Menu items, list options and checkboxes too: YouTube Studio's account and channel menu, its category and language
     // lists and its checkboxes are made of these, not of buttons or links.
+    // Controls scrolled out of sight are listed too (offscreen:true): a form inside a dialog (YouTube Studio's upload
+    // details) scrolls inside the dialog, so a page scroll never brings them up; click and type bring them into view
+    // themselves. An open dialog's controls come first, then the rest of what is on screen, then a few more off it.
+    const dialog=topDialog(), rank=[[],[],[],[]];
+    let seen=0;
     for (const e of all('a[href],button,input,textarea,select,[role="button"],[role="link"],[role="combobox"],[role="searchbox"],[role="tab"],[role="switch"],[role="radio"],[role="textbox"],[role="menuitem"],[role="menuitemradio"],[role="menuitemcheckbox"],[role="option"],[role="checkbox"],[role="treeitem"],[contenteditable]:not([contenteditable="false"])')) {
-      if (elements.length >= 100) break;
-      if (!inViewport(e) || secret(e) || protectedComment(e,regions)) continue;
+      if (++seen > 2000) break;
+      if (secret(e) || !visible(e) || protectedComment(e,regions)) continue;
+      const near=inViewport(e), inside=dialog && composedContains(dialog,e);
+      rank[inside ? (near ? 0 : 1) : (near ? 2 : 3)].push(e);
+    }
+    const chosen=[...rank[0],...rank[1],...rank[2].slice(0,100),...rank[3].slice(0,40)].slice(0,150);
+    for (const e of chosen) {
       const ref = revision + ':' + elements.length;
       refs.set(ref, {element:e, fingerprint:fingerprint(e)});
       const safeLabel = node => node && !protectedComment(node,regions) && !secret(node) ? node.textContent : '';
@@ -224,7 +255,8 @@
         [...e.querySelectorAll('img[alt]')].map(i=>i.getAttribute('alt')).join(' ')].map(v=>tidy(v)).find(Boolean) || '';
       const publicHref = e.tagName === 'A' && !e.hasAttribute('download') && sameTab(e) ? anchorReadUrl(e) : '';
       const navigationKind=e.tagName!=='A' ? '' : publicHref ? 'public_get' : /^javascript:/i.test(e.getAttribute('href') || '') ? 'scripted' : (e.getAttribute('href') || '').startsWith('#') ? 'fragment' : 'other';
-      elements.push({...(publicHref ? {href:publicHref} : {}), ...(navigationKind ? {navigation_kind:navigationKind} : {}), ref, tag:e.tagName.toLowerCase(), type:e.type || '', label, disabled:!!e.disabled, role:e.getAttribute('role') || '',
+      elements.push({...(publicHref ? {href:publicHref} : {}), ...(navigationKind ? {navigation_kind:navigationKind} : {}), ...(inViewport(e) ? {} : {offscreen:true}), ...(dialog && composedContains(dialog,e) ? {in_dialog:true} : {}),
+        ref, tag:e.tagName.toLowerCase(), type:e.type || '', label, disabled:!!e.disabled, role:e.getAttribute('role') || '',
         editable:e.matches('textarea,input:not([type]),input[type="text"],input[type="search"],input[type="email"],input[type="url"]') || editable(e), readonly:!!e.readOnly,
         selected:e.getAttribute('aria-selected')==='true' || e.tagName==='OPTION' && !!e.selected,
         current:['page','step','location','date','time','true'].includes(e.getAttribute('aria-current')),
@@ -324,7 +356,7 @@
     throw Error('이 페이지에서 파일을 넣을 곳을 찾지 못했어요. 업로드 버튼이 보이는 화면에서 다시 해 주세요.');
   }
   async function perform(a, acknowledge=()=>{}) {
-    let input, target;
+    let input, target, scrolled=null;
     if (a.action === 'vault_fill') {
       if (location.origin !== a.origin || !location.href.startsWith('https:')) throw Error('저장된 로그인 주소와 현재 사이트가 달라요.');
       const fields = [...document.querySelectorAll('input')].filter(visible), password = fields.find(e=>e.type==='password');
@@ -341,7 +373,16 @@
     target=refs.get(a.ref)?.element;
     let tap=null;
     const before=renderState(target);
-    if (a.action === 'scroll') { scrollBy({top:(a.direction==='up'?-1:1)*innerHeight*.8,behavior:'instant'}); }
+    if (a.action === 'scroll') {
+      // A named element is brought to the middle of the screen; otherwise the part that can move moves (see scroller).
+      const named=a.ref ? refs.get(a.ref)?.element : null;
+      if (named && named.isConnected && a.document===documentId) { named.scrollIntoView({block:'center'}); scrolled={moved:true, what:'element'}; }
+      else {
+        const down=a.direction!=='up', box=scroller(down);
+        if (box) { const was=box.scrollTop; box.scrollBy({top:(down?1:-1)*box.clientHeight*.8,behavior:'instant'}); scrolled={moved:box.scrollTop!==was, what:topDialog() && composedContains(topDialog(),box) ? 'dialog' : 'panel'}; }
+        else { const was=scrollY; scrollBy({top:(down?1:-1)*innerHeight*.8,behavior:'instant'}); scrolled={moved:scrollY!==was, what:'page'}; }
+      }
+    }
     else {
       if (a.document !== documentId) throw stale('페이지가 바뀌었어요. 다시 읽어 주세요.');
       const entry=refs.get(a.ref), e=entry?.element;
@@ -389,7 +430,8 @@
         error:'입력한 내용이 편집기에 유지되지 않았어요. 반복 입력이나 제출을 멈췄습니다. 화면에서 입력칸을 확인해 주세요.'};
     }
     return {...snapshot(), action_accepted:true,settle:settled.info,
-      action_effect:actionEffect(a.action,before,settled.state,settled.info,input),...(input?{input_verified:true,characters:input.text.length}:{})};
+      action_effect:actionEffect(a.action,before,settled.state,settled.info,input),...(input?{input_verified:true,characters:input.text.length}:{}),
+      ...(scrolled?{scroll:scrolled.moved?scrolled:{...scrolled,note:'Nothing moved: there is no more to scroll this way. Controls off screen are already listed with offscreen:true; click or type them directly.'}}:{})};
   }
   function fingerprint(e) { return [e.tagName,e.type,e.getAttribute('href'),e.getAttribute('aria-label'),e.innerText,e.getAttribute('placeholder'),e.getAttribute('role'),e.getAttribute('aria-selected'),e.getAttribute('aria-current'),e.getAttribute('aria-checked'),e.checked,e.readOnly].join('\u001f'); }
   function fill(e, value) {

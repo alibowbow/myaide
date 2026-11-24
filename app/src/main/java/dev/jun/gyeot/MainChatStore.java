@@ -240,7 +240,9 @@ final class MainChatStore implements AutoCloseable {
     }
     private String taskState(){JSONArray tasks=arr();JSONArray jobs=jobs(true);for(int i=0;i<jobs.length();i++){JSONObject j=jobs.optJSONObject(i);if(j.optInt("hidden")==0)tasks.put(obj("id",j.optString("id"),"state",j.optString("state"),"request",MainChatContext.clip(j.optString("request"),400)));}return tasks.length()==0?"":tasks.toString();}
     /** Earlier replies still being prepared: answered separately, so this turn does not wait for or repeat them. */
-    private String pendingReplies(Turn turn){JSONArray rows=query("SELECT id,reply_to FROM messages WHERE role='assistant' AND state IN ('queued','running') AND id<? ORDER BY id DESC LIMIT 8",new String[]{""+turn.reply()});StringBuilder b=new StringBuilder();for(int i=rows.length()-1;i>=0;i--){JSONObject r=rows.optJSONObject(i);b.append("#").append(r.optLong("id")).append(" answer to #").append(r.optLong("reply_to")).append(" is still being prepared in parallel\n");}return b.toString();}
+    private String pendingReplies(Turn turn){JSONArray rows=query("SELECT id,reply_to FROM messages WHERE role='assistant' AND state IN ('queued','running') AND id<? ORDER BY id DESC LIMIT 8",new String[]{""+turn.reply()});StringBuilder b=new StringBuilder();for(int i=rows.length()-1;i>=0;i--){JSONObject r=rows.optJSONObject(i);b.append("#").append(r.optLong("id")).append(" answer to #").append(r.optLong("reply_to")).append(" is still being prepared in parallel\n");}
+        // Browser work running (or just ended) anywhere in the app, step by step: "how is it going" is answered from this.
+        String browsing=dev.jun.gyeot.core.BrowserJournal.live(System.currentTimeMillis());if(!browsing.isEmpty())b.append(browsing).append('\n');return b.toString();}
     /**
      * The next oldest originals to fold into the summary, once the verbatim part after it passes 60% of the budget;
      * folds toward 40%, at most half the budget (60,000 characters) of excerpts per call, never the newest rows.

@@ -34,5 +34,8 @@ public final class MainBrowser {
         + "When the user names the browser's AI in their recent messages (\"grok으로\"), set it with browser_ai before the task, even if this message only says go. "
         + "A YouTube upload to another channel or Google account: tell the browser job to switch on https://www.youtube.com first (its account menu → 계정 전환, then the channel), check the channel name shown, and only then upload at https://www.youtube.com/upload (Studio opens on the account chosen there); never attach a file while another channel is open. "
         + "A browser job that comes back with mutation_unresolved met an earlier step whose result is unknown: read the site to see whether it happened (the content list, drafts), tell the user what you found, and ask them to tap the notification '이전 브라우저 작업 확인'; run it again after they confirm. "
+        + "When the user asks how browser work is going, answer from the browser work record in parallel_replies (its step count, site and latest steps), never that there is nothing to tell. "
+        + "A browser job that comes back with error_code no_progress stopped going in circles: tell the user where (site) and why in one or two sentences, and what it already did (steps_done). "
+        + "When they ask to go on, run it again from the first step not done, naming what is done (\"영상은 이미 올라가 초안으로 있음: 스튜디오 콘텐츠 목록에서 그 초안을 열어 이어서\"); never upload the same file again. "
         + "When you answer, say plainly what was saved where and what could not be done and why; never claim a download or a save a result did not confirm.";
 }
