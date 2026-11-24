@@ -370,7 +370,7 @@ final class VideoAskPanel {
         work.execute(() -> {
             String why = null;
             try {
-                String block = YouTubeTranscriptClient.block(activity, v.id(), host::gone, step -> {}, null);
+                String block = YouTubeTranscriptClient.block(activity, v.id(), host::gone, step -> main.post(() -> chip.setText("받아 적는 중…")), null);
                 if (!YouTubeTranscriptClient.kept(activity, v.id())) {
                     String key = store.secrets.workKey();
                     if (key.isBlank()) why = firstLine(block);

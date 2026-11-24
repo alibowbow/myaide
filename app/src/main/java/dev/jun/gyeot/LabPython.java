@@ -40,12 +40,15 @@ final class LabPython {
      * removed (only this terminal runs pacman); then the packages, tried up to three times.
      */
     static String installCommand() {
+        return pacman(PACKAGES) + "python3 -c \"import numpy, scipy, sympy, matplotlib, pandas; print('계산 환경 준비 완료 · numpy', numpy.__version__)\"";
+    }
+    /** The pacman part every tool set shares (계산 환경, 유튜브 오디오 도구): keyring, mirrors, a stale lock, then the packages up to three times. */
+    static String pacman(String packages) {
         return "set -e; if [ ! -s /etc/pacman.d/gnupg/pubring.gpg ] && [ ! -s /etc/pacman.d/gnupg/pubring.kbx ]; then pacman-key --init && pacman-key --populate archlinuxarm; fi; "
             + "if [ -f /etc/pacman.d/mirrorlist ] && ! grep -q '^# gyeot-mirrors' /etc/pacman.d/mirrorlist; then sed -i 's/^#[[:space:]]*Server[[:space:]]*=/Server =/' /etc/pacman.d/mirrorlist && echo '# gyeot-mirrors' >> /etc/pacman.d/mirrorlist; fi; "
             + "rm -f /var/lib/pacman/db.lck; "
-            + "ok=; for try in 1 2 3; do if pacman -Sy --noconfirm --needed " + PACKAGES + "; then ok=1; break; fi; "
-            + "echo; echo \"서버가 느리거나 끊겨서 다시 시도해요 ($try/3)\"; sleep 5; done; [ -n \"$ok\" ]; "
-            + "python3 -c \"import numpy, scipy, sympy, matplotlib, pandas; print('계산 환경 준비 완료 · numpy', numpy.__version__)\"";
+            + "ok=; for try in 1 2 3; do if pacman -Sy --noconfirm --needed " + packages + "; then ok=1; break; fi; "
+            + "echo; echo \"서버가 느리거나 끊겨서 다시 시도해요 ($try/3)\"; sleep 5; done; [ -n \"$ok\" ]; ";
     }
 
     record Run(int exit, String output, long millis, java.util.List<File> figures) {}

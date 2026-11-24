@@ -77,7 +77,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private boolean keyboardUp; private int keyboardHeight; private boolean typing;
     /** Under the video, one capsule: 이전 · 10초 뒤로 · 5초 뒤로 · 재생 · 5초 앞으로 · 10초 앞으로 · 다음; 끝내기 beside it (on a YouTube page, ← 목록으로). */
     private ImageView previous, toggle, next; private View transport, backChip; private Ui.Dial endDial;
-    private Button heart, skipChip, speedChip, qualityChip, captureChip, summaryChip, saveChip; private int videoHeight;
+    private Button heart, skipChip, speedChip, qualityChip, captureChip, mp3Chip, summaryChip, saveChip; private int videoHeight;
     /** What a search or a channel lists (videos · shorts · live), and whether by views; the channel shown, when one is. */
     private String listKind = "videos"; private boolean byViews; private MyTube.Channel shownChannel; private LinearLayout listTools;
     /** 크기 조절: the video's height as a share of the screen's, chosen by dragging the bar under the controls (0: fitted). */
@@ -410,6 +410,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         summaryChip = withAiMark(ui.smallChip("요약", () -> { MyTube.Video v = player.current(); if (v != null) summarize(v); }));
         LinearLayout.LayoutParams chipGapLeft = new LinearLayout.LayoutParams(-2, -2); chipGapLeft.leftMargin = ui.dp(6);
         qualityRow.addView(captureChip, chipGapLeft);
+        // MP3: the video's sound, made in the app's Linux, into 들퍼레/마이튜브 오디오 (YouTubeAudio).
+        mp3Chip = withIcon(ui.smallChip("MP3", this::saveMp3), R.drawable.ic_download); mp3Chip.setContentDescription("MP3로 받기 · 들퍼레/" + SharedMediaOutput.AUDIO);
+        LinearLayout.LayoutParams mp3At = new LinearLayout.LayoutParams(-2, -2); mp3At.leftMargin = ui.dp(6); qualityRow.addView(mp3Chip, mp3At);
         LinearLayout.LayoutParams chipGapLeft2 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft2.leftMargin = ui.dp(6);
         qualityRow.addView(summaryChip, chipGapLeft2);
         // 저장: into the 저장 feed, the first feed chip, to watch again whenever (the AI never replaces what is there).
@@ -616,6 +619,68 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         chip.setTextColor(on ? ON_ACCENT : TEXT); chip.setSelected(on);
         return chip;
     }
+    // ── MP3 ────────────────────────────────────────────────────────────
+
+    private boolean mp3Busy;
+    /**
+     * The playing video's sound as an MP3 in 들퍼레/마이튜브 오디오. The first time, the app's Linux and its tools (Python,
+     * ffmpeg, yt-dlp) are put in, each after the user says so; then the MP3 is made off the main thread.
+     */
+    private void saveMp3() {
+        MyTube.Video v = player.current();
+        if (v == null) { toast("재생 중인 영상이 없어요"); return; }
+        if (v.live()) { toast("실시간 방송은 MP3로 받을 수 없어요"); return; }
+        if (mp3Busy) { toast("MP3를 만드는 중이에요"); return; }
+        if (!LinuxRuntime.supported(this)) { toast("이 휴대폰에서는 앱 안 리눅스를 쓸 수 없어서 MP3를 만들 수 없어요"); return; }
+        if (!LinuxRuntime.installed(this)) { installLinuxForMp3(); return; }
+        if (!YouTubeAudio.mp3Ready(this)) {
+            ui.confirm("MP3는 앱 안 리눅스에서 만들어요. 처음 한 번 Python·ffmpeg·yt-dlp를 받아요(몇십 MB, 몇 분). 받은 도구는 대본이 없는 영상을 Groq Whisper로 받아 적을 때도 써요.", "도구 받기", () -> {
+                LabPython.prepare(this);
+                LinuxTerminal.show(this, ui, "유튜브 오디오 도구 준비", "pacman으로 Python과 ffmpeg를, GitHub에서 yt-dlp를 받아요. 끝나면 닫아 주세요.", YouTubeAudio.installCommand(), null,
+                    () -> { if (!isDestroyed() && YouTubeAudio.mp3Ready(this)) saveMp3(); });
+            }).show();
+            return;
+        }
+        mp3Busy = true; mp3Chip.setEnabled(false); mp3Chip.setText("MP3 만드는 중…");
+        android.content.Context app = getApplicationContext();
+        work.execute(() -> {
+            String said; java.io.File file = null;
+            try {
+                file = YouTubeAudio.mp3(app, v.id(), null);
+                String name = mp3Name(v);
+                try (java.io.InputStream in = new java.io.FileInputStream(file)) {
+                    SharedMediaOutput.save(app, "mytube-mp3-" + v.id() + "-" + file.length(), SharedMediaOutput.AUDIO, name, "audio/mpeg", in, () -> {});
+                }
+                said = "들퍼레/" + SharedMediaOutput.AUDIO + "에 저장했어요 · " + name;
+            } catch (Exception e) { said = "MP3를 만들지 못했어요" + (e.getMessage() == null || e.getMessage().isBlank() ? "" : ": " + e.getMessage()); }
+            finally { YouTubeAudio.forget(file); }
+            String done = said;
+            main.post(() -> { mp3Busy = false; if (isDestroyed()) return; mp3Chip.setEnabled(true); mp3Chip.setText("MP3"); toast(done); });
+        });
+    }
+    /** The app's Linux, put in for the MP3 after the user says so (as 연구실's 진행판 does). */
+    private void installLinuxForMp3() {
+        if (LinuxRuntime.busy) { toast("앱 안 리눅스를 설치하는 중이에요"); return; }
+        if (LinuxRuntime.free(this) < LinuxRuntime.needed()) { toast("저장 공간이 부족해요. " + LinuxRuntime.mb(LinuxRuntime.needed()) + "가 필요해요."); return; }
+        ui.confirm("MP3는 앱 안 리눅스(" + LinuxRuntime.DISTRIBUTION + ")에서 만들어요. 리눅스를 먼저 설치할까요? 다운로드 " + LinuxRuntime.mb(LinuxRuntime.ARCHIVE_BYTES) + ".", "리눅스 설치", () -> {
+            mp3Busy = true; mp3Chip.setEnabled(false); mp3Chip.setText("리눅스 설치 중…");
+            android.content.Context app = getApplicationContext();
+            new Thread(() -> {
+                String failed = null;
+                try { LinuxRuntime.install(app, () -> {}); } catch (Exception e) { failed = e.getMessage() == null ? "설치하지 못했어요." : e.getMessage(); }
+                String why = failed;
+                main.post(() -> { mp3Busy = false; if (isDestroyed()) return; mp3Chip.setEnabled(true); mp3Chip.setText("MP3"); if (why != null) toast(why); else saveMp3(); });
+            }, "gyeot-linux-install").start();
+        }).show();
+    }
+    /** The video's title as a file name (no slashes, quotes or control characters), at most 80 characters. */
+    private static String mp3Name(MyTube.Video v) {
+        String base = v.title() == null ? "" : v.title().replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]+", " ").replaceAll("\\s+", " ").strip();
+        if (base.length() > 80) base = base.substring(0, 80).strip();
+        if (base.isEmpty() || base.equals(".") || base.equals("..")) base = v.id();
+        return base + ".mp3";
+    }
+
     // ── 요약한 영상 ────────────────────────────────────────────────────
 
     /** 요약한 영상: at the end of the 저장 row, the videos summed up or asked about here (VideoAskPanel keeps the last VideoChat.KEPT). */

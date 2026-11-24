@@ -105,6 +105,27 @@ final class YouTubeTranscriptClient {
             if (failed instanceof java.util.concurrent.CancellationException) throw (RuntimeException) failed;
             why = failed.getMessage() == null || failed.getMessage().isBlank() ? "유튜브에 연결하지 못했어요." : failed.getMessage();
         }
+        // No captions to read (a song, as a rule): the sound itself, taken by yt-dlp in the app's Linux and written down by Groq's Whisper.
+        if (GroqWork.on()) {
+            if (!YouTubeAudio.ready(context)) why += " 마이튜브의 'MP3'에서 유튜브 오디오 도구를 준비하면 Groq Whisper가 소리를 듣고 받아 적을 수 있어요.";
+            else {
+                java.io.File audio = null;
+                try {
+                    if (progress != null) progress.accept("소리를 받아 Groq Whisper가 받아 적는 중");
+                    audio = YouTubeAudio.forTranscript(context, id, cancel);
+                    if (stopped != null && stopped.getAsBoolean()) throw new java.util.concurrent.CancellationException();
+                    String words = GroqWork.transcribe(audio, YouTubeAudio.mime(audio), cancel);
+                    if (words == null) why += " Groq Whisper가 지금은 받을 수 없었어요 (무료 한도이거나 소리 파일이 25MB를 넘어요).";
+                    else if (words.isBlank()) why += " Groq Whisper가 들은 말이 없었어요.";
+                    else {
+                        save(context, id, YouTubeTranscript.readable(video, "Groq Whisper가 소리를 듣고 받아 적은 대본 (가사·말이 틀릴 수 있어요)", words));
+                        return keep(id, YouTubeTranscript.fromSite(video, words, YouTubeTranscript.LIMIT));
+                    }
+                } catch (java.util.concurrent.CancellationException halted) { throw halted; }
+                catch (Exception failed) { why += " Groq Whisper로 받아 적는 것도 안 됐어요: " + (failed.getMessage() == null || failed.getMessage().isBlank() ? "이유를 알 수 없어요." : failed.getMessage()); }
+                finally { YouTubeAudio.forget(audio); }
+            }
+        }
         // The app could not read it itself: its own browser asks Gemini's site, in the background, when that is on.
         if (((GyeotApp) context.getApplicationContext()).store().youtubeGeminiWeb()) {
             try {
