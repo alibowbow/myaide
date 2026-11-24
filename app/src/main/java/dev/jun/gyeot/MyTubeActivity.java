@@ -211,6 +211,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         render();
         takeRequest();
         confirmShown();
+        // Made again (the phone took the screen back while the user was away): the summary panel opens where it was.
+        String[] asked = state == null ? null : state.getStringArray("askVideo");
+        if (asked != null && asked.length == 3 && askPanel != null) summarize(new MyTube.Video(asked[0], asked[1], asked[2], "", "", "", ""));
     }
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); takeRequest(); confirmShown(); }
     /** A voice request to open 마이튜브 (app_open_screen mytube) is answered once this screen is really in front. */
@@ -218,7 +221,11 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     @Override public void onWindowFocusChanged(boolean focus) { super.onWindowFocusChanged(focus); if (focus) AppNavigator.shown(getIntent(), dev.jun.gyeot.core.AppNavigation.MYTUBE); }
     /** Folding or unfolding keeps this screen (and the video playing); the video's box follows the new width. */
     @Override public void onConfigurationChanged(android.content.res.Configuration config) { super.onConfigurationChanged(config); videoPane.requestLayout(); showPlayer(); }
-    @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putString("feed", feedId); }
+    @Override protected void onSaveInstanceState(Bundle state) {
+        super.onSaveInstanceState(state); state.putString("feed", feedId);
+        MyTube.Video asking = askPanel == null ? null : askPanel.shown();
+        if (asking != null) state.putStringArray("askVideo", new String[]{asking.id(), asking.title(), asking.channel()});
+    }
     @Override protected void onResume() {
         super.onResume(); AppNavigator.inFront("mytube"); front = new java.lang.ref.WeakReference<>(this); if (chat != null) chat.attach();
         player.listen(playerChanged); if (player.active()) player.attach(screen); player.checkAccount(); showPlayer();
