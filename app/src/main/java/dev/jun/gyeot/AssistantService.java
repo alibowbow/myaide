@@ -1622,9 +1622,11 @@ public final class AssistantService extends Service {
                 PageWorkTools pages = mediaAllowed ? new PageWorkTools(PageStore.book(this), dev.jun.gyeot.core.PageBook.WORK, title, () -> WorkBook.authority(WorkBook.find(store.works(), id)), "work:" + id) : null;
                 // 프로젝트: the user's small web apps (들퍼레/프로젝트), made or changed only when the run's own words ask; as 페이지.
                 ProjectWorkTools projects = mediaAllowed ? new ProjectWorkTools(this, () -> WorkBook.authority(WorkBook.find(store.works(), id)), "work:" + id) : null;
+                // Python on this phone (연구실's 계산 환경), for exact numbers and charts; not for recovery.
+                PythonWorkTools python = recovering ? null : PythonWorkTools.offered(this, "work-" + id, () -> control.stopped || destroying || workRuns.get(id) != control);
                 // The 들퍼레 folder: what is in it, and keeping files this job downloaded there when the user's words ask; not for recovery.
                 FolderWorkTools folders = recovering ? null : new FolderWorkTools(this, () -> WorkBook.authority(WorkBook.find(store.works(), id)), FolderWorkTools.room(store, id), () -> control.stopped || destroying || workRuns.get(id) != control);
-                WorkLedger ledger = new WorkLedger(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(repos, team[0]), browser[0]), media.offers() ? media : null), drive), calendar), pages), projects), folders), (tool, target, outcome) ->
+                WorkLedger ledger = new WorkLedger(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(repos, team[0]), browser[0]), media.offers() ? media : null), drive), calendar), pages), projects), python), folders), (tool, target, outcome) ->
                     saveWorkCheckpoint(id, run, draft.toString(), tool, target, outcome, control));
                 JSONObject submittedModels = checkpoint == null ? null : checkpoint.optJSONObject(ScopedModels.KEY);
                 String submittedSpeed = WorkBook.CHATGPT.equals(engine) && submittedModels != null ? ScopedModels.frozen(store, submittedModels).speed(model) : "standard";

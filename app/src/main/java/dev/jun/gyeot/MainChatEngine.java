@@ -49,6 +49,8 @@ final class MainChatEngine implements AutoCloseable {
         default WorkTools pages(JSONObject selection,boolean wanted,java.util.function.Supplier<String> words){return null;}
         /** 프로젝트 (the user's small web apps) for one reply when wanted, as pages(); null for a provider that takes only text. */
         default WorkTools projects(JSONObject selection,boolean wanted,java.util.function.Supplier<String> words){return null;}
+        /** python_run when wanted and Python is ready on this phone; null for a provider that takes only text. */
+        default WorkTools python(JSONObject selection,boolean wanted,java.util.function.BooleanSupplier stopped){return null;}
         /** The reply with those tools; a provider without tools answers as reply() does. */
         default MainAdapters.Reply reply(JSONObject selection,MainRequest request,WorkTools tools,Runnable guard,AtomicReference<Runnable> cancel) throws Exception{return reply(selection,request,guard,cancel);}
     }
@@ -111,6 +113,8 @@ final class MainChatEngine implements AutoCloseable {
      */
     static final String TOOLS=" Exception: this conversation also offers functions that act on services the user connected in settings (GitHub, Google Drive, 마이아카이브, connectors); the app runs them on the phone. Use them when the user's request needs that service and answer from their results. Never claim an action a function did not confirm.";
     /** The same exception when only 페이지's functions are offered. */
+    /** The same exception when only python_run is offered. */
+    static final String PYTHON_TOOLS=" Exception: this conversation also offers python_run, Python on the user's phone; the app runs it there. Use it on your own when the answer needs exact numbers or a chart, and answer from what it printed. Never claim a result it did not print.";
     /** The same exception when only 프로젝트's functions are offered. */
     static final String PROJECT_TOOLS=" Exception: this conversation also offers functions for this app's own 프로젝트 (the user's small web apps); the app runs them on the phone. Use them when the user's request is about a project, an app or a dashboard and answer from their results. Never claim an action a function did not confirm.";
     static final String PAGE_TOOLS=" Exception: this conversation also offers functions for this app's own 페이지 (the user's saved documents); the app runs them on the phone. Use them when the user's request is about 페이지 and answer from their results. Never claim an action a function did not confirm.";
@@ -140,6 +144,7 @@ final class MainChatEngine implements AutoCloseable {
         @Override public WorkTools tools(JSONObject selection,AtomicReference<Runnable> cancel,java.util.function.BooleanSupplier stopped){return MainTools.build(context,app,cancel,stopped,AppStore.modelLabel(model(selection)));}
         @Override public WorkTools pages(JSONObject selection,boolean wanted,java.util.function.Supplier<String> words){return wanted?new PageWorkTools(PageStore.book(context),dev.jun.gyeot.core.PageBook.CHAT,AppStore.modelLabel(model(selection)),words,"main"):null;}
         @Override public WorkTools projects(JSONObject selection,boolean wanted,java.util.function.Supplier<String> words){return wanted?new ProjectWorkTools(context,words,"main"):null;}
+        @Override public WorkTools python(JSONObject selection,boolean wanted,java.util.function.BooleanSupplier stopped){return wanted?PythonWorkTools.offered(context,"main",stopped):null;}
         @Override public MainAdapters.Reply reply(JSONObject selection,MainRequest request,WorkTools tools,Runnable guard,AtomicReference<Runnable> cancel)throws Exception{return MainAdapters.send(app,selection,request,tools,guard,cancel);}
         @Override public Set<MainRequest.Option> carries(String engine){return MainRequest.supported(engine);}
     }
@@ -395,14 +400,16 @@ final class MainChatEngine implements AutoCloseable {
         WorkTools pages=provider.pages(selection,connected!=null||subject!=null||dev.jun.gyeot.core.PageTools.wanted(pageWords(turn,question)),()->question);
         // 프로젝트: the same way, when the words (or the last ones) are about a project, an app or a dashboard.
         WorkTools projects=provider.projects(selection,connected!=null||dev.jun.gyeot.core.ProjectTools.wanted(pageWords(turn,question)),()->question);
+        // Python on this phone (once 연구실's 계산 환경 is ready): offered beside other tools, or when the words ask for numbers or a chart.
+        WorkTools python=provider.python(selection,connected!=null||pages!=null||projects!=null||dev.jun.gyeot.core.PythonTools.wanted(pageWords(turn,question)),()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}});
         // A reply whose functions ran is never sent a second time (below): a save would be made twice.
         java.util.concurrent.atomic.AtomicBoolean ran=new java.util.concurrent.atomic.AtomicBoolean();
         // The browser and the 들퍼레 folder, run by this reply itself: offered only when this question's words are about them.
         // Offered also for two follow-ups after a question about them ("이 주소에도 있어", "맡겨 줘"), and those words are the user's too.
         String browsingWords=MainBrowser.wanted(question)?question:pageWords(turn,question);
         MainBrowsing browsing=MainBrowser.wanted(browsingWords)?new MainBrowsing(context,app,turn.run(),browsingWords,userWords(turn,question,6),()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},deltas::status):null;
-        WorkTools tools=counted(WorkTools.combine(WorkTools.combine(WorkTools.combine(connected,pages),projects),browsing==null?null:browsing.tools()),ran);
-        String instructions=instructions(memory)+(web.any()?WEB:"")+(connected!=null?TOOLS:pages!=null?PAGE_TOOLS:projects!=null?PROJECT_TOOLS:"")+(subject!=null&&pages!=null?aboutPage(subject):"")+(browsing!=null?MainBrowser.INSTRUCTIONS:"");
+        WorkTools tools=counted(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(connected,pages),projects),python),browsing==null?null:browsing.tools()),ran);
+        String instructions=instructions(memory)+(web.any()?WEB:"")+(connected!=null?TOOLS:pages!=null?PAGE_TOOLS:projects!=null?PROJECT_TOOLS:python!=null?PYTHON_TOOLS:"")+(subject!=null&&pages!=null?aboutPage(subject):"")+(browsing!=null?MainBrowser.INSTRUCTIONS:"");
         boolean summary=memory&&app.settings.getBoolean("mainSummaryOn",true);int budget=budget(app,selection);
         // The notes related to this question first, within 2% of the window; the chosen ones are marked used.
         String longTerm=memory?app.recallMemory(query,Memory.budget(budget)):"";
