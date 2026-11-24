@@ -428,6 +428,7 @@ final class BrowserEngine {
         boolean routine; // the gate classified this step routine (BrowserAgent): it leaves no fence
         boolean repeatSafe; // a step of a repeat-safe Work job on its own site (repeatSafeHost): no global fence, settled as dispatched
         boolean nativeTap; // a click on the page's upload button while a file is ready: tapped for real (BrowserTouch)
+        String uploadToken = ""; // a file being put straight into the page's file field (put_file), by this token
         JSONObject fileStarted; // the file a click on a file control started fetching instead of navigating (scriptedFile)
         String action = "", navigationAction = "", previousDocument = "", previousUrl = "", navigationTarget = "", committedUrl = "";
         int sends;
@@ -1450,6 +1451,8 @@ final class BrowserEngine {
                                 acceptReadNavigation(p, value); return;
                             }
                             acknowledgeMutation(p, value);
+                            // The file went into the page's field: nothing is left ready for a chooser.
+                            if (!p.uploadToken.isEmpty() && value.optBoolean("ok") && !value.optString("attached").isEmpty()) { p.tab.upload = null; p.nativeTap = false; }
                             if (p.nativeTap && value.optJSONObject("tap") != null) { JSONObject at = value.optJSONObject("tap"); p.nativeTap = false; BrowserTouch.tap(p.tab.session, at.optDouble("x", -1), at.optDouble("y", -1)); }
                             if (value.optBoolean("stale_observation") && !p.rereadRejected) {
                                 p.rereadRejected = true; p.sends++;
@@ -1576,8 +1579,20 @@ final class BrowserEngine {
             case "reload" -> { tab.loadFailed = false; tab.port = null; tab.session.reload(); args = obj("action", "read"); }
             case "switch", "set_mode" -> args = obj("action", "read");
         }
-        // A file is ready for this tab's chooser: the click is a real tap (a file chooser opens only for a user's own touch).
-        if (action.equals("click") && tab.upload != null && android.os.SystemClock.uptimeMillis() <= tab.uploadUntil) { p.nativeTap = true; args = copy(args); put(args, "native_tap", true); }
+        // A file is ready for this tab: it goes straight into the page's file field (put_file), the way automation puts a file
+        // in, so no chooser has to open — an offscreen tab has no one to touch it. The bytes go to the page first, in pieces;
+        // a page with no file field gets the old real tap (its chooser takes the file, stagedUpload).
+        if (action.equals("click") && tab.upload != null && android.os.SystemClock.uptimeMillis() <= tab.uploadUntil) {
+            dev.jun.gyeot.core.BrowserUploads.Entry file = tab.upload; Tab target = tab;
+            String token = UUID.randomUUID().toString(); p.uploadToken = token; p.nativeTap = true;
+            JSONObject put = obj("action", "put_file", "ref", args.optString("ref"), "document", args.optString("document"), "token", token,
+                "name", file.name(), "type", file.mime(), "native_tap", true);
+            p.deadline = android.os.SystemClock.uptimeMillis() + 240_000;
+            record(lease, "파일을 페이지로 보내는 중 · " + file.name());
+            streamUpload(target, file, token, () -> { if (isPending(p) && valid(p.generation)) { changed(); sendWhenReady(p, put, p.deadline); } },
+                why -> { if (isPending(p) && valid(p.generation)) finish(p, obj("ok", false, "action_executed", false, "retryable", true, "error", why)); });
+            changed(); return;
+        }
         changed(); sendWhenReady(p, args, p.deadline);
     }
     private boolean isPending(Pending p){Lane l=lane(p.generation);return l!=null&&l.pending==p;}
@@ -1814,6 +1829,50 @@ final class BrowserEngine {
         record(lease, "파일 첨부 준비 · " + e.name());
         return obj("ok", true, "attached", e.name(), "action_executed", true,
             "next", "Now click the page's own upload or select-file button; its file chooser receives " + e.name() + " by itself.");
+    }
+    /** Reads the files put into pages, off the main thread. */
+    private static final java.util.concurrent.ExecutorService UPLOAD_IO = java.util.concurrent.Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-browser-upload"); t.setDaemon(true); return t; });
+    private static final int UPLOAD_PIECE = 512 * 1024;
+    /**
+     * Sends a file the AI got ready (a content URI the app wrote) to the tab's page, in base64 pieces of 512 KB, one after
+     * another on the main thread, then says how many there were; done runs once all went to this same page, failed if
+     * the page changed or the file could not be read. The page keeps them only under token (content.js put_file).
+     */
+    private void streamUpload(Tab tab, dev.jun.gyeot.core.BrowserUploads.Entry file, String token, Runnable done, Consumer<String> failed) {
+        WebExtension.Port port = tab.port;
+        if (port == null) { failed.accept("페이지와 아직 연결되지 않았어요. 페이지를 읽은 뒤 다시 해 주세요."); return; }
+        UPLOAD_IO.execute(() -> {
+            int pieces = 0; String why = null;
+            try (java.io.InputStream in = context.getContentResolver().openInputStream(android.net.Uri.parse(file.uri()))) {
+                if (in == null) throw new java.io.IOException("파일을 열지 못했어요.");
+                byte[] buffer = new byte[UPLOAD_PIECE];
+                while (true) {
+                    int filled = 0, n;
+                    while (filled < buffer.length && (n = in.read(buffer, filled, buffer.length - filled)) > 0) filled += n;
+                    if (filled == 0) break;
+                    String data = android.util.Base64.encodeToString(buffer, 0, filled, android.util.Base64.NO_WRAP);
+                    int index = pieces++;
+                    java.util.concurrent.CountDownLatch sent = new java.util.concurrent.CountDownLatch(1); boolean[] alive = {true};
+                    main.post(() -> {
+                        try { if (tab.port != port || !live(tab)) alive[0] = false; else port.postMessage(obj("upload_chunk", obj("token", token, "index", index, "data", data))); }
+                        catch (RuntimeException gone) { alive[0] = false; }
+                        finally { sent.countDown(); }
+                    });
+                    sent.await();
+                    if (!alive[0]) { why = "파일을 보내는 사이 페이지가 바뀌었어요. 다시 해 주세요."; break; }
+                    Thread.sleep(10);
+                }
+            } catch (InterruptedException stopped) { Thread.currentThread().interrupt(); why = "파일 보내기를 멈췄어요."; }
+            catch (Exception unreadable) { why = "첨부할 파일을 읽지 못했어요."; }
+            String trouble = why; int total = pieces;
+            main.post(() -> {
+                if (trouble != null) { failed.accept(trouble); return; }
+                if (total == 0) { failed.accept("첨부할 파일이 비어 있어요."); return; }
+                try { if (tab.port != port) throw new IllegalStateException(); port.postMessage(obj("upload_done", obj("token", token, "total", total))); }
+                catch (RuntimeException gone) { failed.accept("파일을 보내는 사이 페이지가 바뀌었어요. 다시 해 주세요."); return; }
+                done.run();
+            });
+        });
     }
     /** The file chooser a page opened, answered with the file the AI got ready for that tab (while its task runs), or null to ask the user. */
     private GeckoResult<GeckoSession.PromptDelegate.PromptResponse> stagedUpload(GeckoSession s, GeckoSession.PromptDelegate.FilePrompt p) {

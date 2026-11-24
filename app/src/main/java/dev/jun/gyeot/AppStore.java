@@ -178,6 +178,8 @@ final class AppStore {
         drive = new GoogleDriveAccount(context, settings, this::changed);
         nim = new NimAccount(secrets, settings, this::changed);
         groq = new GroqAccount(secrets, settings, this::changed);
+        // The files the browser's AI may attach (fetched by the app for the user): kept across restarts and updates.
+        dev.jun.gyeot.core.BrowserUploads.persistWith(settings.getString("browserUploads", ""), json -> settings.edit().putString("browserUploads", json).apply(), System.currentTimeMillis());
         geminiKeys = new GeminiKeyRing(secrets);
         antigravity = new AntigravityAccount(context.getApplicationContext(), settings, this::changed);
         groqModels = new GroqModels(groq, settings, this::changed);

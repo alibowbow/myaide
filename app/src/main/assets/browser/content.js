@@ -289,6 +289,40 @@
       dispatched:true,location_changed,text_changed,control_changed,task_complete:false,
       ...(input?{input_verified:true}:{}),retry_policy:'Observe or replan; lack of visible change is not permission to repeat an accepted action.'};
   }
+  /** Files sent by the app for put_file, by token. */
+  const uploads = new Map();
+  /** A file field's accept list takes this file (an empty list takes anything). */
+  const accepts = (input, file) => { const list=(input.accept||'').toLowerCase().split(',').map(s=>s.trim()).filter(Boolean);
+    return !list.length || list.some(t => t===file.type || t.endsWith('/*') && file.type.startsWith(t.slice(0,-1)) || t.startsWith('.') && file.name.toLowerCase().endsWith(t)); };
+  /**
+   * put_file: the file the app sent goes straight into the page's file field (the one the clicked control opens, else the
+   * one in its dialog, else the first that takes the file), as if chosen — no chooser has to open. A page with no file field
+   * gets it dropped on the clicked control; failing both, the real tap is asked for (tap).
+   */
+  function putFile(a) {
+    const upload=uploads.get(a.token);
+    if (!upload || upload.total<0 || upload.parts.length!==upload.total || [...upload.parts].some(p=>!p)) throw Error('첨부할 파일을 아직 다 받지 못했어요. 다시 해 주세요.');
+    const file=new File(upload.parts, String(a.name||'upload'), {type:String(a.type||'application/octet-stream')}); uploads.delete(a.token);
+    if (a.document && a.document!==documentId) throw stale('페이지가 바뀌었어요. 다시 읽어 주세요.');
+    const clicked=refs.get(a.ref)?.element;
+    const fields=all('input[type="file"]').filter(i=>!i.disabled);
+    const box=clicked && (clicked.closest('[role="dialog"],dialog,form') || clicked.parentElement);
+    const input=(clicked && clicked.matches('input[type="file"]') ? clicked : null)
+      || (clicked && fields.find(i=>composedContains(clicked,i)))
+      || (box && fields.find(i=>composedContains(box,i) && accepts(i,file)))
+      || fields.find(i=>accepts(i,file)) || fields[0];
+    const put=()=>{ const dt=new DataTransfer(); dt.items.add(file); return dt; };
+    if (input) {
+      input.files=put().files;
+      for (const type of ['input','change']) input.dispatchEvent(new Event(type,{bubbles:true,composed:true}));
+      return {ok:true, document:documentId, attached:file.name, size:file.size, via:'file_field', action_executed:true};
+    }
+    if (clicked) {
+      const dt=put(); for (const type of ['dragenter','dragover','drop']) clicked.dispatchEvent(new DragEvent(type,{bubbles:true,cancelable:true,composed:true,dataTransfer:dt}));
+      return {ok:true, document:documentId, attached:file.name, size:file.size, via:'drop', action_executed:true};
+    }
+    throw Error('이 페이지에서 파일을 넣을 곳을 찾지 못했어요. 업로드 버튼이 보이는 화면에서 다시 해 주세요.');
+  }
   async function perform(a, acknowledge=()=>{}) {
     let input, target;
     if (a.action === 'vault_fill') {
@@ -301,6 +335,7 @@
     }
     if (loginPage()) return snapshot();
     if (a.action === 'read') return snapshot();
+    if (a.action === 'put_file') return putFile(a);
     if (accountChooser() && !['click','scroll'].includes(a.action)) throw Error('계정 선택 화면에서는 로그인된 계정을 고르는 것만 할 수 있어요.');
     // Do not regenerate refs before validating the caller's existing reference.
     target=refs.get(a.ref)?.element;
@@ -543,6 +578,15 @@
       catch(e) { connection.postMessage({page_zoom:true,ok:false,error:tidy(e.message,250)}); }
       return;
     }
+    // A file the app sends for put_file, piece by piece: kept under its token (only the newest two), never an action itself.
+    if (Object.hasOwn(message, 'upload_chunk')) {
+      const piece=message.upload_chunk; let upload=uploads.get(piece.token);
+      if (!upload) { upload={parts:[],total:-1}; uploads.set(piece.token,upload); while (uploads.size>2) uploads.delete(uploads.keys().next().value); }
+      const text=atob(String(piece.data||'')), bytes=new Uint8Array(text.length);
+      for (let i=0;i<text.length;i++) bytes[i]=text.charCodeAt(i);
+      upload.parts[piece.index]=bytes; return;
+    }
+    if (Object.hasOwn(message, 'upload_done')) { const upload=uploads.get(message.upload_done.token); if (upload) upload.total=message.upload_done.total; return; }
     if (working) { connection.postMessage({id:message.id,result:{ok:false,error:'이전 동작을 처리 중이에요.'}}); return; }
     working=true;
     try { connection.postMessage({id:message.id,result:await perform(message.args,receipt=>{
