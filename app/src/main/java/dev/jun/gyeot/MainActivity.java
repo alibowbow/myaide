@@ -1744,6 +1744,7 @@ public final class MainActivity extends Activity {
             case "wake" -> add(wakeWord().page(), 16);
             case "github" -> pageGithub();
             case "drive" -> add(drive().page(), 16);
+            case "gmail" -> add(gmail().page(), 16);
             case "memories" -> pageMemories();
             default -> pageAbout();
         }
@@ -1756,12 +1757,12 @@ public final class MainActivity extends Activity {
     }
     /** Every settings page id; anything else opens the list. */
     private static final java.util.Set<String> SETTINGS_PAGES = java.util.Set.of("", "key", "chatgpt", "grok", "nim", "groq", "antigravity", "claude", "ai", "connectors", "voice",
-        "quick", "phone", "look", "persona", "routines", "memory", "background", "update", "usage", "calendar", "wake", "about", "github", "drive", "memories", "backup");
+        "quick", "phone", "look", "persona", "routines", "memory", "background", "update", "usage", "calendar", "wake", "about", "github", "drive", "gmail", "memories", "backup");
     /** The page a sub-page belongs to, "" for the pages listed on the settings home. */
     static String settingsParent(String page) {
         return switch (page) {
             case "wake" -> "quick";
-            case "github", "drive" -> "connectors";
+            case "github", "drive", "gmail" -> "connectors";
             case "memories" -> "memory";
             default -> "";
         };
@@ -1769,7 +1770,7 @@ public final class MainActivity extends Activity {
     private static String pageTitle(String page) {
         return switch (page) {
             case "grok" -> "Grok";
-            case "github" -> "GitHub"; case "drive" -> "Google Drive"; case "memories" -> "기억한 것";
+            case "github" -> "GitHub"; case "drive" -> "Google Drive"; case "gmail" -> "Gmail"; case "memories" -> "기억한 것";
             case "nim" -> "NVIDIA NIM"; case "groq" -> "Groq"; case "antigravity" -> "Antigravity (Gemini)";
             case "key" -> "Gemini"; case "chatgpt" -> "ChatGPT"; case "claude" -> "Claude"; case "ai" -> "AI 역할"; case "connectors" -> "커넥터"; case "voice" -> "목소리와 대화";
             case "quick" -> "바로 부르기"; case "phone" -> "폰 조작"; case "look" -> "화면 보기"; case "persona" -> "나에 대해"; case "routines" -> "한마디 루틴"; case "memory" -> "기억";
@@ -4065,6 +4066,7 @@ public final class MainActivity extends Activity {
             case "connectors" -> new int[]{R.drawable.ic_plug, Ui.TEAL};
             case "github" -> new int[]{R.drawable.ic_repo, Ui.INDIGO};
             case "drive" -> new int[]{R.drawable.ic_folder, Ui.BLUE};
+            case "gmail" -> new int[]{R.drawable.ic_send, Ui.RED};
             case "calendar" -> new int[]{R.drawable.ic_calendar, Ui.BLUE};
             case "usage" -> new int[]{R.drawable.ic_history, Ui.TEAL};
             case "voice" -> new int[]{R.drawable.ic_wave, Ui.PURPLE};
@@ -4533,6 +4535,8 @@ public final class MainActivity extends Activity {
         String driveState = !store.drive.connected() ? "연결 안 됨" : !store.settings.getBoolean(GoogleDriveAccount.WORK, true) ? "꺼 둠" + (email.isBlank() ? "" : " · " + email)
             : (email.isBlank() ? "" : email + " · ") + (store.drive.writable() ? "수정·정리 허용" : "읽기·올리기");
         ui.addRow(work, twoLines.apply(ui.listRow(R.drawable.ic_folder, Ui.BLUE, "Google Drive", driveState, ui.chevron(), () -> openSettings("drive"))), true);
+        String gmailState = !store.gmail.connected() ? "연결 안 됨" : !store.settings.getBoolean(GmailAccount.WORK, true) ? "꺼 둠 · " + store.gmail.email() : store.gmail.email() + (store.gmail.sends() ? " · 읽기·초안·보내기" : " · 읽기·초안");
+        ui.addRow(work, twoLines.apply(ui.listRow(R.drawable.ic_send, Ui.RED, "Gmail", gmailState, ui.chevron(), () -> openSettings("gmail"))), true);
         add(work, 0);
         add(ui.footer("음성 비서는 저장소와 Drive를 쓰지 않아요."), 0);
         add(ui.sectionHeader("음성 비서·메인 대화에서 써요"), 0);
@@ -4558,6 +4562,8 @@ public final class MainActivity extends Activity {
     private NaverNavigationUi naverUi;
     private NaverNavigationUi naverNavigation() { if (naverUi == null) naverUi = new NaverNavigationUi(this, ui, store, () -> { if (!isDestroyed() && tab == 2) showTab(2); }); return naverUi; }
     private GoogleDriveUi driveUi;
+    private GmailUi gmailUi;
+    private GmailUi gmail() { if (gmailUi == null) gmailUi = new GmailUi(this, ui, store, () -> { if (!isDestroyed() && tab == 2) showTab(2); }); return gmailUi; }
     private GoogleDriveUi drive() { if (driveUi == null) driveUi = new GoogleDriveUi(this, ui, store, () -> { if (!isDestroyed() && tab == 2) showTab(2); }); return driveUi; }
     private WakeWordUi wakeUi;
     private WakeWordUi wakeWord() { if (wakeUi == null) wakeUi = new WakeWordUi(this, ui, store, () -> { if (!isDestroyed() && tab == 2) showTab(2); }); return wakeUi; }
@@ -5416,6 +5422,7 @@ public final class MainActivity extends Activity {
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (drive().onResult(request, result, data)) return;
+        if (gmail().onResult(request, result, data)) return;
         if (request == PICK_FILES) { if (result == RESULT_OK && data != null) addPicked(data); return; }
         if (request == PICK_MAIN_FILES) { if (result == RESULT_OK && data != null) addMainPicked(data); return; }
         if (request == PICK_VIDEO_SOURCE) {

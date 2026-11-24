@@ -111,7 +111,7 @@ final class MainChatEngine implements AutoCloseable {
      * After the fixed instructions when a reply offers the user's connected services (MainTools):
      * the same on every such turn, so the cached prefix holds. Each service's own instructions follow it.
      */
-    static final String TOOLS=" Exception: this conversation also offers functions that act on services the user connected in settings (GitHub, Google Drive, 마이아카이브, connectors); the app runs them on the phone. Use them when the user's request needs that service and answer from their results. Never claim an action a function did not confirm.";
+    static final String TOOLS=" Exception: this conversation also offers functions that act on services the user connected in settings (GitHub, Google Drive, Gmail, 마이아카이브, connectors); the app runs them on the phone. Use them when the user's request needs that service and answer from their results. Never claim an action a function did not confirm.";
     /** The same exception when only 페이지's functions are offered. */
     /** The same exception when only python_run is offered. */
     static final String PYTHON_TOOLS=" Exception: this conversation also offers python_run, Python on the user's phone; the app runs it there. Use it on your own when the answer needs exact numbers or a chart, and answer from what it printed. Never claim a result it did not print.";
@@ -394,6 +394,9 @@ final class MainChatEngine implements AutoCloseable {
         // Offered also for two follow-ups after a question about 페이지; what may be saved or changed is decided by this
         // question's own words (and by which pages the last replies made), never by older messages.
         String question=query==null?"":query;
+        // Gmail (설정 → 커넥터 → Gmail) beside the other connected services; whether a mail may go out is read from the user's own
+        // last words (GmailWorkTools: sent only when they ask to send).
+        if(app.gmail.forWork())connected=WorkTools.combine(connected,new GmailWorkTools(app.gmail,()->userWords(turn,question,4),()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}}));
         // The page this conversation was opened about (질문하기 on the page's screen): its tools are offered without the word
         // 페이지, and the request says which page the questions mean.
         dev.jun.gyeot.core.PageBook.Page subject=PageStore.subject(context,"main");

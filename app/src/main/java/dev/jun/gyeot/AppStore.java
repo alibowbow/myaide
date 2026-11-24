@@ -43,6 +43,8 @@ final class AppStore {
     final GrokAccount grok;
     /** The user's own Google Drive for Work tools, through Google's sign-in on the phone. */
     final GoogleDriveAccount drive;
+    /** The user's Gmail for the main chat (설정 → 커넥터 → Gmail). */
+    final GmailAccount gmail;
     final NimAccount nim;
     /** Groq's API key and the models it can use (GroqAccount). */
     final GroqAccount groq;
@@ -176,6 +178,7 @@ final class AppStore {
         codexImages = new CodexImageAccount(context, secrets, this::changed);
         grok = new GrokAccount(context, secrets, this::changed);
         drive = new GoogleDriveAccount(context, settings, this::changed);
+        gmail = new GmailAccount(context, settings, this::changed);
         nim = new NimAccount(secrets, settings, this::changed);
         groq = new GroqAccount(secrets, settings, this::changed);
         // The files the browser's AI may attach (fetched by the app for the user): kept across restarts and updates.
