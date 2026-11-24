@@ -827,6 +827,7 @@ final class AppStore {
     synchronized JSONArray conversation() {
         try { return new JSONArray(conversation.toString()); } catch (Exception e) { return new JSONArray(); }
     }
+    synchronized boolean conversationEmpty() { return conversation.length() == 0; }
     synchronized void clearConversation() { while (conversation.length() > 0) conversation.remove(0); conversationVersion++; changed(); }
     synchronized String conversationText() {
         StringBuilder text = new StringBuilder();

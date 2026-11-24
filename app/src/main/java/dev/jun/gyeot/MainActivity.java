@@ -176,7 +176,7 @@ public final class MainActivity extends Activity {
     private int orbIdleSize;
     /** The call's compact hero: the orb's size beside its words, and how many turns of the conversation show under it. */
     private static final int CALL_ORB = 52, CALL_TURNS = 12, SAID_HEIGHT = 220;
-    private LinearLayout heroStage, heroHead, heroWords; private boolean heroCall;
+    private LinearLayout heroStage, heroHead, heroWords; private boolean heroCall, heroStale; private String shownWords = "";
     /** What is on the home beside the call (the mode pills, the doors, recent work): out of the way while a call is on. */
     private final List<View> callAside = new ArrayList<>();
     private View liveActions; private String shownSaid = "";
@@ -309,7 +309,9 @@ public final class MainActivity extends Activity {
     @SuppressWarnings("deprecation")
     private void edgeToEdge() { if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) getWindow().setDecorFitsSystemWindows(false); }
     /** A clip began or ended: the call's bubbles show which one plays. */
-    private final Runnable clipsChanged = () -> { if (!isDestroyed()) { shownSaid = ""; refresh(); } };
+    // A redraw of the words that keeps the user's place (an empty shownSaid would also scroll back to the newest).
+    private static final String REDRAW = "\u0000";
+    private final Runnable clipsChanged = () -> { if (!isDestroyed()) { shownSaid = REDRAW; refresh(); } };
     @Override protected void onStart() { super.onStart(); hostStarted=true; store.appVisible = true; VoiceClips.listen(clipsChanged); if (workVoice != null) workVoice.attach(); if(showingMainChat&&mainChat!=null)mainChat.show(); store.observe(observer); refresh(); store.updater.checkIfDue();
         // A call may start from here: the greeting is read into memory and the path to the Live host warmed (Greeter).
         store.greeter().warm();
@@ -608,7 +610,14 @@ public final class MainActivity extends Activity {
         if (typing) { sayInput.requestFocus(); keyboard.showSoftInput(sayInput, 0); } else { keyboard.hideSoftInputFromWindow(sayInput.getWindowToken(), 0); sayInput.clearFocus(); }
     }
     /** Keeps the newest words in view: the conversation scrolled to its foot. */
-    private void pinSaid() { if (said != null && saidList != null) said.scrollTo(0, Math.max(0, saidList.getHeight() + said.getPaddingTop() + said.getPaddingBottom() - said.getHeight())); }
+    private void pinSaid() {
+        if (said == null || saidList == null) return;
+        int foot = Math.max(0, saidList.getHeight() + said.getPaddingTop() + said.getPaddingBottom() - said.getHeight()), y = foot;
+        // Out of a call, a newest answer taller than the box opens at its first line, to be read from the top, not at its end.
+        View last = saidList.getChildCount() == 0 ? null : saidList.getChildAt(saidList.getChildCount() - 1);
+        if (!store.voiceActive && last != null && last.getHeight() > said.getHeight()) y = Math.min(foot, Math.max(0, last.getTop() - ui.dp(4)));
+        said.scrollTo(0, y);
+    }
     /**
      * One turn of the call's conversation as a chat bubble: the user's (나…, and 들린 말, the user's spoken words) on the
      * right, filled with the accent under white words, everyone else's on the left on the card color, with the speaker's
@@ -664,11 +673,11 @@ public final class MainActivity extends Activity {
     }
     /** A foreign caption's translation: shown (translated once, then kept) or hidden again. */
     private void toggleTranslation(String plain) {
-        if (translatedTurns.remove(plain)) { shownSaid = ""; refresh(); return; }
-        translatedTurns.add(plain); untranslated.remove(plain); shownSaid = ""; refresh();
+        if (translatedTurns.remove(plain)) { shownSaid = REDRAW; refresh(); return; }
+        translatedTurns.add(plain); untranslated.remove(plain); shownSaid = REDRAW; refresh();
         if (CaptionTranslator.known(plain) != null) return;
-        CaptionTranslator.translate(store, plain, korean -> { if (!isDestroyed()) { shownSaid = ""; refresh(); } },
-            why -> { untranslated.put(plain, why); if (!isDestroyed()) { shownSaid = ""; refresh(); } });
+        CaptionTranslator.translate(store, plain, korean -> { if (!isDestroyed()) { shownSaid = REDRAW; refresh(); } },
+            why -> { untranslated.put(plain, why); if (!isDestroyed()) { shownSaid = REDRAW; refresh(); } });
     }
 
     // ── 비서 ─────────────────────────────────────────────────────────────────
@@ -1101,7 +1110,7 @@ public final class MainActivity extends Activity {
             heroHome = null;
         }
         // The card's layout again for where it is now (refresh sizes it by the call and by full screen).
-        heroCall = !store.voiceActive; if (redraw) refresh();
+        heroStale = true; if (redraw) refresh();
     }
     /** Takes the full-screen host off the window (the card stays with it until put back). */
     private void closeFullHost() {
@@ -1249,9 +1258,14 @@ public final class MainActivity extends Activity {
         // And the orb gives room to what is being said.
         // The page's big title steps aside too (the bar above keeps the screen's name), so the call fits one screen.
         if (orb != null && tab == 0) titleView.setVisibility(store.voiceActive ? View.GONE : View.VISIBLE);
-        if (orb != null && heroHead != null && heroCall != store.voiceActive) {
+        // Full screen after a call (or with an answer that came in later): the words are what the user opened it for, so the
+        // head is the call's slim row and the conversation takes the rest of the screen, not a 220dp box under a big orb (준:
+        // "전체보기 했는데 메세지가 전체보기가 안돼").
+        boolean compact = store.voiceActive || voiceFull && (!store.conversationEmpty() || !store.interim.isBlank() || !store.outputDraft.isBlank());
+        if (orb != null && heroHead != null && (heroStale || heroCall != compact)) {
             // A call's head is one slim row (a small orb, its state and one quiet line beside it); idle it is the big centered orb.
-            boolean call = heroCall = store.voiceActive; int size = ui.dp(call ? CALL_ORB : orbIdleSize);
+            heroStale = false;
+            boolean call = heroCall = compact; int size = ui.dp(call ? CALL_ORB : orbIdleSize);
             heroHead.setOrientation(call ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL); heroHead.setGravity(call ? android.view.Gravity.CENTER_VERTICAL : android.view.Gravity.CENTER_HORIZONTAL);
             LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) orb.getLayoutParams(); lp.width = size; lp.height = size; orb.setLayoutParams(lp);
             heroWords.setGravity(call ? android.view.Gravity.START : android.view.Gravity.CENTER_HORIZONTAL); heroWords.setPadding(ui.dp(call ? 12 : 8), ui.dp(call ? 0 : 4), ui.dp(8), ui.dp(call ? 0 : 4));
@@ -1266,7 +1280,7 @@ public final class MainActivity extends Activity {
             // Full screen and idle: the big orb in the middle of it; in a call the head stays at the top over the words.
             heroStage.setGravity(voiceFull && !call ? android.view.Gravity.CENTER : android.view.Gravity.CENTER_HORIZONTAL);
             if (said != null) { LinearLayout.LayoutParams saidAt = (LinearLayout.LayoutParams) said.getLayoutParams(); saidAt.height = call ? 0 : -2; saidAt.weight = call ? 1 : 0; said.setLayoutParams(saidAt); }
-            for (View aside : callAside) aside.setVisibility(call ? View.GONE : View.VISIBLE);
+            for (View aside : callAside) aside.setVisibility(store.voiceActive ? View.GONE : View.VISIBLE);
         }
         boolean seeing = store.voiceActive && ASSISTANT.equals(store.voiceMode);
         if (cameraFeed != null && !seeing) stopCamera();
@@ -1287,13 +1301,14 @@ public final class MainActivity extends Activity {
             // Rebuilt only when the words changed: a redraw for something else leaves the list where the user scrolled it.
             StringBuilder key = new StringBuilder();
             for (int i = first; i < lines.length(); i++) { JSONObject line = lines.optJSONObject(i); key.append(line.optString("who")).append('\u0001').append(line.optString("text")).append('\u0002'); }
-            key.append(VoiceClips.playingKey()).append('\u0004');
             key.append(store.interim).append('\u0003').append(store.outputDraft).append('\u0003').append(thinkingNow ? store.thinkingText() : "");
+            String words = key.toString(); key.append('\u0004').append(VoiceClips.playingKey());
             boolean spoken = lines.length() > first || !store.interim.isBlank() || !store.outputDraft.isBlank() || thinkingNow;
             if (!key.toString().equals(shownSaid)) {
                 // Follows the newest words unless the user scrolled up to read.
-                boolean atFoot = shownSaid.isEmpty() || saidList.getHeight() - said.getScrollY() - said.getHeight() < ui.dp(48);
-                shownSaid = key.toString(); saidList.removeAllViews();
+                // Out of a call new words (an answer that came in later) are shown too; a ▶ tapped higher up keeps the place.
+                boolean atFoot = shownSaid.isEmpty() || saidList.getHeight() - said.getScrollY() - said.getHeight() < ui.dp(48) || !store.voiceActive && !words.equals(shownWords);
+                shownSaid = key.toString(); shownWords = words; saidList.removeAllViews();
                 if (!spoken) {
                     TextView waiting = ui.text("말씀하시면 여기에 보여요.\n다른 앱으로 이동해도 연결은 유지돼요.", Ui.SUBHEAD, 400, MUTED); waiting.setGravity(android.view.Gravity.CENTER); waiting.setPadding(ui.dp(12), ui.dp(18), ui.dp(12), ui.dp(18)); saidList.addView(waiting);
                 }
