@@ -498,12 +498,41 @@ final class BrowserAgent {
         }
         return requested;
     }
+    /**
+     * drive_search · drive_read · drive_download · folder_list: the same tools 퍼레대화 and 작업창 use (DriveWorkTools reading
+     * only, FolderWorkTools), off the main thread. A failure comes back as a note the planner can act on (ok stays true:
+     * it is not a broken page that ends the task).
+     */
+    private void appAction(JSONObject action, Consumer<JSONObject> reply) {
+        String name = action.optString("action");
+        JSONObject args = new JSONObject();
+        for (String key : new String[]{"query", "file_id", "format", "folder_id", "limit", "folder"}) if (action.has(key)) put(args, key, action.opt(key));
+        android.content.Context context = engine.context;
+        new Thread(() -> {
+            JSONObject out;
+            try {
+                if (name.startsWith("drive_")) {
+                    if (!store.drive.forWork()) out = obj("ok", false, "error", "Google Drive가 연결돼 있지 않아요. 설정 → 커넥터에서 연결해 주세요.");
+                    else out = new DriveWorkTools(store.drive, false, DriveFiles.main(context, store, () -> { if (finished) throw new CancellationException("작업을 멈췄어요."); }), () -> finished).run(name, args);
+                } else {
+                    FolderWorkTools.Downloads none = new FolderWorkTools.Downloads() { @Override public JSONObject find(String id) { return null; } @Override public java.io.File bytes(String id) { return null; } };
+                    out = new FolderWorkTools(context, () -> latestRequest, none, () -> finished).run(dev.jun.gyeot.core.FolderTools.LIST, args);
+                }
+            } catch (CancellationException stopped) { return; }
+            catch (Exception failed) { out = obj("ok", false, "error", failed.getMessage() == null ? "하지 못했어요." : failed.getMessage()); }
+            if (out == null) out = obj("ok", false, "error", "답이 없어요.");
+            JSONObject result = copy(out); put(result, "app_action", name);
+            if (!result.optBoolean("ok")) { put(result, "ok", true); put(result, "app_action_failed", true); }
+            engine.main.post(() -> { if (!finished && engine.valid(lease)) reply.accept(result); });
+        }, "gyeot-browser-app-action").start();
+    }
     private boolean safeReadNavigation(JSONObject action) {
         BrowserEngine.Tab target=engine.taskTab(lease);
         return "open".equals(action.optString("action")) && target!=null
             && BrowserReadNavigation.allowed(latestObservation,target.document,action.optString("url"));
     }
     private void execute(JSONObject requested, Consumer<JSONObject> reply) {
+        if (BrowserTools.APP_ACTIONS.contains(requested.optString("action"))) { appAction(requested, reply); return; }
         final JSONObject proposed = safeRecoveryNavigation(requested);
         if (finished || !engine.valid(lease)) return;
         if(completionReadOnly && !java.util.Set.of("read","tabs","scroll").contains(proposed.optString("action"))) {

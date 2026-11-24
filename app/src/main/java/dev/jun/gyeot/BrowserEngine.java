@@ -1823,12 +1823,31 @@ final class BrowserEngine {
     /** attach: gets a file the app fetched for the user ready for this tab's next file chooser (two minutes); nothing else can be attached. */
     private JSONObject stageUpload(Tab tab, long lease, String reference) {
         dev.jun.gyeot.core.BrowserUploads.Entry e = dev.jun.gyeot.core.BrowserUploads.find(reference, System.currentTimeMillis());
+        if (e == null) e = folderUpload(lease, reference);
         if (e == null) return obj("ok", false, "error_code", "attach_not_allowed", "action_executed", false, "retryable", false,
-            "error", "그 파일은 첨부할 수 없어요. 이 작업에서 drive_download로 받은 파일(돌려준 uri나 이름)만 첨부할 수 있어요.");
+            "error", "그 파일은 첨부할 수 없어요. drive_download로 받은 파일(돌려준 uri나 이름), 또는 사용자가 올려 달라고 한 들퍼레 폴더 파일(영상/x.mp4처럼)만 첨부할 수 있어요.");
         tab.upload = e; tab.uploadUntil = android.os.SystemClock.uptimeMillis() + 120_000;
         record(lease, "파일 첨부 준비 · " + e.name());
         return obj("ok", true, "attached", e.name(), "action_executed", true,
             "next", "Now click the page's own upload or select-file button; its file chooser receives " + e.name() + " by itself.");
+    }
+    /**
+     * A file in the user's 들퍼레 folder (영상/x.mp4, or 들퍼레/영상/x.mp4) for attach, when the user's own words for this task ask
+     * to upload and name the file or the folder; null otherwise or when it is not there. The folder is reached through the
+     * app's own documents provider, as everything else that writes there.
+     */
+    private dev.jun.gyeot.core.BrowserUploads.Entry folderUpload(long lease, String reference) {
+        String ref = reference == null ? "" : reference.strip().replace('\\', '/');
+        if (ref.startsWith(ManagedSharedStorage.ROOT_NAME + "/")) ref = ref.substring(ManagedSharedStorage.ROOT_NAME.length() + 1);
+        if (ref.isEmpty() || ref.contains("..") || ref.startsWith("/") || ref.startsWith(".") || ref.contains("//")) return null;
+        Lane l = lane(lease); String words = l == null ? "" : l.lastRequest + "\n" + l.lastAsk;
+        String name = ref.substring(ref.lastIndexOf('/') + 1), stem = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
+        boolean pointed = !stem.isBlank() && words.contains(stem) || words.contains(ManagedSharedStorage.ROOT_NAME) || words.contains("폴더");
+        if (!pointed || !dev.jun.gyeot.core.AutomationGate.asksForAction(words)) return null;
+        try (ManagedSharedStorage.Access access = ManagedSharedStorage.access(context); ManagedSharedStorage.Node node = access.node(ManagedSharedStorage.ROOT_NAME + "/" + ref, false)) { node.check(); }
+        catch (Exception missing) { return null; }
+        String mime = java.net.URLConnection.guessContentTypeFromName(name);
+        return new dev.jun.gyeot.core.BrowserUploads.Entry(ManagedSharedStorage.document(ref).toString(), name, mime == null ? "application/octet-stream" : mime, System.currentTimeMillis());
     }
     /** Reads the files put into pages, off the main thread. */
     private static final java.util.concurrent.ExecutorService UPLOAD_IO = java.util.concurrent.Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-browser-upload"); t.setDaemon(true); return t; });
