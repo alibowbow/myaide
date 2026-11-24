@@ -189,20 +189,28 @@ public final class LabBook {
 
     // ── notes ────────────────────────────────────────────────────────
 
+    /** Each project's notes as last read, kept while the file stays the same (size and time): every redraw asks for them. */
+    private final Map<String, Object[]> read = new java.util.HashMap<>();
     public synchronized List<Note> notes(String id) {
+        File file = new File(dir(id), "notes.jsonl"); if (!file.isFile()) return new ArrayList<>();
+        long size = file.length(), time = file.lastModified();
+        Object[] kept = read.get(id);
+        if (kept != null && (long) kept[0] == size && (long) kept[1] == time) { @SuppressWarnings("unchecked") List<Note> notes = (List<Note>) kept[2]; return new ArrayList<>(notes); }
         List<Note> out = new ArrayList<>();
-        File file = new File(dir(id), "notes.jsonl"); if (!file.isFile()) return out;
         try {
             for (String line : Files.readAllLines(file.toPath(), StandardCharsets.UTF_8)) {
                 if (line.isBlank()) continue;
                 try { out.add(Note.of(new JSONObject(line))); } catch (Exception ignored) {}
             }
         } catch (IOException ignored) {}
-        return out.size() > NOTES ? new ArrayList<>(out.subList(out.size() - NOTES, out.size())) : out;
+        if (out.size() > NOTES) out = new ArrayList<>(out.subList(out.size() - NOTES, out.size()));
+        read.put(id, new Object[]{size, time, new ArrayList<>(out)});
+        return out;
     }
     /** How many entries the notes hold, counted without reading them (the list's line under each project). */
     public synchronized int noteCount(String id) {
         File file = new File(dir(id), "notes.jsonl"); if (!file.isFile()) return 0;
+        Object[] kept = read.get(id); if (kept != null && (long) kept[0] == file.length() && (long) kept[1] == file.lastModified()) return ((List<?>) kept[2]).size();
         int lines = 0; byte[] buffer = new byte[64 * 1024];
         try (java.io.InputStream in = new java.io.FileInputStream(file)) { for (int n; (n = in.read(buffer)) > 0;) for (int i = 0; i < n; i++) if (buffer[i] == '\n') lines++; }
         catch (IOException e) { return 0; }
@@ -218,7 +226,7 @@ public final class LabBook {
         return n;
     }
     public synchronized void clearNotes(String id) throws IOException {
-        Files.deleteIfExists(new File(dir(id), "notes.jsonl").toPath());
+        Files.deleteIfExists(new File(dir(id), "notes.jsonl").toPath()); read.remove(id);
         Files.deleteIfExists(new File(dir(id), "ledger.json").toPath());
         Files.deleteIfExists(new File(dir(id), "sources.json").toPath());
         Files.deleteIfExists(new File(dir(id), "state.json").toPath());

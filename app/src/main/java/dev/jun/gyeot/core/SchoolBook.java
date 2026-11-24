@@ -122,12 +122,19 @@ public final class SchoolBook {
         writeBytes(target, png);
     }
 
+    /** Each lesson as last read, kept while its file stays the same (size and time): the list and the lesson read it often. */
+    private final java.util.Map<String, Object[]> read = new java.util.HashMap<>();
     public synchronized List<Line> lines(String id) {
+        File file = new File(root, "chats/" + id + ".json");
+        long size = file.length(), time = file.lastModified();
+        Object[] kept = read.get(id);
+        if (kept != null && (long) kept[0] == size && (long) kept[1] == time) { @SuppressWarnings("unchecked") List<Line> lines = (List<Line>) kept[2]; return new ArrayList<>(lines); }
         List<Line> out = new ArrayList<>();
         try {
-            JSONArray list = new JSONArray(read(new File(root, "chats/" + id + ".json"), "[]"));
+            JSONArray list = new JSONArray(read(file, "[]"));
             for (int i = 0; i < list.length(); i++) { JSONObject o = list.optJSONObject(i); if (o != null) out.add(Line.of(o)); }
         } catch (Exception unreadable) { /* a new lesson */ }
+        read.put(id, new Object[]{size, time, new ArrayList<>(out)});
         return out;
     }
     public synchronized void say(String id, String role, String text, String by) throws IOException {
@@ -137,7 +144,7 @@ public final class SchoolBook {
         try { for (Line l : all) list.put(l.json()); } catch (Exception e) { throw new IOException("대화를 저장하지 못했어요.", e); }
         write(new File(root, "chats/" + id + ".json"), list.toString());
     }
-    public synchronized void clear(String id) { new File(root, "chats/" + id + ".json").delete(); }
+    public synchronized void clear(String id) { new File(root, "chats/" + id + ".json").delete(); read.remove(id); }
 
     /** What the teacher is told: who they are, whom they teach and how a 1:1 lesson goes. */
     public static String tutor(Teacher t) {

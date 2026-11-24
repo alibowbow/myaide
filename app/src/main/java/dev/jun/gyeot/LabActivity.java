@@ -375,7 +375,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         return readNotes;
     }
     /** 토론방 draws the newest ROOM entries; 이전 기록 더 보기 draws the rest (they are all in 노트 too). */
-    private static final int ROOM = 40; private int roomMore;
+    private static final int ROOM = 12, MORE = 30; private int roomMore;
 
     // ── 토론방 ────────────────────────────────────────────────────────
 
@@ -386,7 +386,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         int from = Math.max(0, notes.size() - ROOM - roomMore);
         if (from > 0) {
             TextView earlier = ui.text("이전 기록 " + from + "개 더 보기", 13, 650, ACCENT); earlier.setGravity(Gravity.CENTER); earlier.setPadding(0, ui.dp(10), 0, ui.dp(10));
-            earlier.setOnClickListener(v -> { roomMore += ROOM; render(false); }); Ui.pressable(earlier, true); content.addView(earlier);
+            earlier.setOnClickListener(v -> { roomMore += MORE; render(false); }); Ui.pressable(earlier, true); content.addView(earlier);
         }
         for (int i = from; i < notes.size(); i++) {
             LabBook.Note n = notes.get(i); long d = n.at() / 86_400_000L;
@@ -510,14 +510,18 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
     private View body(LabBook.Note n, int lines) {
         LinearLayout box = ui.column();
         TextView text = ui.text("", 15, 420, TEXT); text.setLineSpacing(ui.dp(3), 1); text.setTextIsSelectable(true);
-        text.setText(RichText.render(n.text()));
         boolean open = expanded.contains(n.id());
+        // Folded, only the start that can show is formatted and laid out (a long answer is the slow part of a redraw).
+        String shown = n.text(); boolean cut = !open && shown.length() > lines * 90;
+        if (cut) { int at = shown.lastIndexOf('\n', lines * 90); shown = shown.substring(0, at > lines * 40 ? at : lines * 90); }
+        text.setText(RichText.render(shown));
         box.addView(text);
         if (!open) { text.setMaxLines(lines); text.setEllipsize(TextUtils.TruncateAt.END); }
         TextView more = ui.text(open ? "접기" : "더 보기", 13, 650, ACCENT); more.setPadding(0, ui.dp(6), ui.dp(12), ui.dp(2)); more.setVisibility(View.GONE);
         more.setOnClickListener(v -> { if (!expanded.remove(n.id())) expanded.add(n.id()); render(false); }); Ui.pressable(more, true);
         box.addView(more);
-        text.post(() -> { android.text.Layout l = text.getLayout(); boolean cut = l != null && l.getLineCount() > 0 && (l.getEllipsisCount(l.getLineCount() - 1) > 0 || text.getLineCount() > lines); if (open || cut) more.setVisibility(View.VISIBLE); });
+        if (open || cut) more.setVisibility(View.VISIBLE);
+        else text.post(() -> { android.text.Layout l = text.getLayout(); boolean longer = l != null && l.getLineCount() > 0 && (l.getEllipsisCount(l.getLineCount() - 1) > 0 || text.getLineCount() > lines); if (longer) more.setVisibility(View.VISIBLE); });
         return box;
     }
     private View foot(LabBook.Note n) {

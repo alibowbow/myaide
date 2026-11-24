@@ -125,8 +125,10 @@ public final class SchoolActivity extends Activity {
             root.addView(lesson, new FrameLayout.LayoutParams(-1, -1));
         }
     }
+    private static final int SHOWN = 12; private int shownMore;
     private void open(String id) {
         if (id.equals(openId) && wide) return;
+        shownMore = 0;
         if (dictation != null) dictation.pause();
         openId = id; failure = null; draw();
     }
@@ -257,7 +259,13 @@ public final class SchoolActivity extends Activity {
         List<SchoolBook.Line> all = book.lines(t.id());
         boolean busy = t.id().equals(thinkingFor);
         if (all.isEmpty() && !busy) lines.addView(intro(t));
-        for (SchoolBook.Line l : all) lines.addView(bubble(t, l));
+        // The newest lines first (a long lesson drawn whole is what made it slow to open); 이전 대화 더 보기 adds the rest.
+        int from = Math.max(0, all.size() - SHOWN - shownMore);
+        if (from > 0) {
+            TextView earlier = ui.text("이전 대화 " + from + "개 더 보기", 13, 650, ACCENT); earlier.setGravity(Gravity.CENTER); earlier.setPadding(0, ui.dp(6), 0, ui.dp(10));
+            earlier.setOnClickListener(v -> { shownMore += 30; renderLesson(t, false); }); Ui.pressable(earlier, true); lines.addView(earlier);
+        }
+        for (int i = from; i < all.size(); i++) lines.addView(bubble(t, all.get(i)));
         if (busy) {
             ShimmerText wait = new ShimmerText(this, MUTED, TEXT); wait.setText(t.name() + " 선생님이 생각하는 중"); wait.setTextSize(13); wait.setTypeface(Ui.weight(500));
             wait.setPadding(ui.dp(4), ui.dp(8), 0, ui.dp(4)); lines.addView(wait);
