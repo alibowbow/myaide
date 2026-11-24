@@ -54,6 +54,21 @@ public final class GrokWork {
         if (search && !inline) put(request, "include", arr("no_inline_citations"));
         return request;
     }
+    /** As above; x also gives Grok xAI's X search (x_search: posts on X), beside web search (트레이딩's news briefing). */
+    public static JSONObject request(String model, String instructions, JSONArray input, boolean search, boolean code,
+            JSONArray functions, String effort, String cacheKey, boolean inline, boolean x) {
+        JSONObject request = request(model, instructions, input, search, code, functions, effort, cacheKey, inline);
+        if (x) {
+            JSONArray tools = request.optJSONArray("tools"); if (tools == null) { tools = arr(); put(request, "tools", tools); put(request, "parallel_tool_calls", false); }
+            tools.put(obj("type", "x_search"));
+        }
+        return request;
+    }
+    /** A 400 or 422 whose text names X search: refused before any work, so the request goes once more without it. */
+    public static boolean xSearchRefused(String message) {
+        String lower = message == null ? "" : message.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("x_search") || lower.contains("x search");
+    }
     /** A 400 or 422 whose text names web search: refused before any work, so the request goes once more without it. */
     public static boolean searchRefused(String message) {
         String lower = message == null ? "" : message.toLowerCase(java.util.Locale.ROOT);

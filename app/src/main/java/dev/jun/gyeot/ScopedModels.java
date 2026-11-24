@@ -64,6 +64,16 @@ final class ScopedModels {
         }
         return new ScopedModels(store, "", "projectModels");
     }
+    /** 트레이딩's AI chart analysis (프로젝트 → 트레이딩): its own choice, copied from the main chat's the first time. */
+    static ScopedModels trading(AppStore store) {
+        synchronized (store) {
+            if (!store.settings.contains("tradingModels")) {
+                JSONObject value = main(store).snapshot(); value.remove("team");
+                if (!store.settings.edit().putString("tradingModels", value.toString()).commit()) throw new IllegalStateException("트레이딩 모델 설정을 저장하지 못했어요.");
+            }
+        }
+        return new ScopedModels(store, "", "tradingModels");
+    }
     static ScopedModels mytube(AppStore store) {
         synchronized (store) {
             if (!store.settings.contains("mytubeModels")) {

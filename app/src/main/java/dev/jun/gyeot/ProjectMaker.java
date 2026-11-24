@@ -62,6 +62,30 @@ final class ProjectMaker {
         try (InputStream in = app.getAssets().open(t.asset())) { html = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
         return book.create(t.title(), t.about(), t.kind(), html, t.hue());
     }
+    /** The template's pages shipped before, by SHA-256: a project still exactly one of them was never changed by the user. */
+    private static final java.util.Set<String> OLD_TRADING = java.util.Set.of("f960956429b84eda68d057d8255e0203dcaf0dde0b64bd53aca821f902c49ef8");
+    /**
+     * A 트레이딩 made from an older template gets the new one (AI 차트 분석 · 최신 뉴스): at once when the user never changed it
+     * (the old page stays in its versions), else only when asked (offerUpgrade). Returns whether the page changed.
+     */
+    boolean upgrade(String id, boolean changedByUser) {
+        ProjectBook.Project p = book.project(id); if (p == null || !TRADING.kind().equals(p.kind()) || busy(id)) return false;
+        String html = book.html(id); if (html.contains("gyeot-app")) return false;
+        try {
+            if (!changedByUser && !OLD_TRADING.contains(sha256(html))) return false;
+            String fresh; try (InputStream in = app.getAssets().open(TRADING.asset())) { fresh = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
+            book.html(id, fresh); changed(id); return true;
+        } catch (Exception failed) { return false; }
+    }
+    /** A 트레이딩 the user changed, still without the new template's AI 차트 분석 · 최신 뉴스. */
+    boolean offerUpgrade(String id) {
+        ProjectBook.Project p = book.project(id);
+        return p != null && TRADING.kind().equals(p.kind()) && !book.html(id).isBlank() && !book.html(id).contains("gyeot-app");
+    }
+    private static String sha256(String text) throws Exception {
+        byte[] d = java.security.MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
+        StringBuilder hex = new StringBuilder(); for (byte b : d) hex.append(String.format(java.util.Locale.ROOT, "%02x", b)); return hex.toString();
+    }
     /** The projects the user asked for once, put in the first time 프로젝트 opens (not again if removed). */
     void seed(AppStore store) {
         if (store.settings.getBoolean("projectsSeeded", false)) return;

@@ -80,10 +80,21 @@ final class GrokWorkClient {
         return run(account, account.accountId(), model, (web, coding) -> instructions.apply(web), asked,
             search, code, tools, effort, "", onText, stage -> {}, guard, cancel, false, arr(), WorkSteering.NONE, inline);
     }
+    /** One answer with both web search and X search (트레이딩's news briefing); without X search when the connection refuses it. */
+    static WorkClient.Result searchWebAndX(Session account, String model, String instructions, String input, String effort, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        return run(account, account.accountId(), model, (web, coding) -> instructions, arr(obj("role", "user", "content", input)),
+            true, false, null, effort, "", text -> {}, stage -> {}, guard, cancel, false, arr(), WorkSteering.NONE, true, true);
+    }
     private static WorkClient.Result run(Session account, String expectedAccount, String model,
             java.util.function.BiFunction<Boolean, Boolean, String> instructions, JSONArray input, boolean search, boolean code,
             WorkTools github, String effort, String cacheKey, Consumer<String> onText, Consumer<String> onStage,
             Runnable guard, AtomicReference<Runnable> cancel, boolean inspectMerge, JSONArray turns, WorkSteering steering, boolean inline) throws Exception {
+        return run(account, expectedAccount, model, instructions, input, search, code, github, effort, cacheKey, onText, onStage, guard, cancel, inspectMerge, turns, steering, inline, false);
+    }
+    private static WorkClient.Result run(Session account, String expectedAccount, String model,
+            java.util.function.BiFunction<Boolean, Boolean, String> instructions, JSONArray input, boolean search, boolean code,
+            WorkTools github, String effort, String cacheKey, Consumer<String> onText, Consumer<String> onStage,
+            Runnable guard, AtomicReference<Runnable> cancel, boolean inspectMerge, JSONArray turns, WorkSteering steering, boolean inline, boolean x) throws Exception {
         StringBuilder written = new StringBuilder(); List<Integer> cuts = new ArrayList<>();
         JSONArray sources = arr(); List<String> notes = new ArrayList<>(); Set<String> answered = new HashSet<>();
         JSONArray functions = github == null ? arr() : github.openAi();
@@ -111,7 +122,7 @@ final class GrokWorkClient {
                 JSONObject plan = WorkPlans.request(model, guidance, input, functions, "", required);
                 request = GrokWork.request(model, plan.optString("instructions"), plan.optJSONArray("input"), false, false, arr(), effort, cacheKey);
             } else {
-                request = GrokWork.request(model, guidance, input, search, code, functions, effort, cacheKey, inline);
+                request = GrokWork.request(model, guidance, input, search, code, functions, effort, cacheKey, inline, x);
                 if (required != null) put(request, "tool_choice", obj("type", "function", "name", required));
             }
             budget.beforeRequest(request.toString().length(), guard);
@@ -127,6 +138,7 @@ final class GrokWorkClient {
                         // Refused before any work for leaving inline citations out: once more with them, search still on.
                         if (request.has("include") && GrokWork.citationsRefused(OpenAiProtocol.message(error, ""))) { inline = true; continue; }
                         // xAI names the tool in param, or only in its error text.
+                        if (x && ("x_search".equals(refused) || GrokWork.xSearchRefused(OpenAiProtocol.message(error, "")))) { x = false; notes.add("Grok 연결이 X 검색을 거절해 웹 검색으로만 찾았어요."); continue; }
                         if (search && ("web_search".equals(refused) || GrokWork.searchRefused(OpenAiProtocol.message(error, "")))) { search = false; notes.add(SEARCH_REFUSED); continue; }
                         if (code && "code_interpreter".equals(refused)) { code = false; notes.add("Grok 연결이 코드 실행을 거절해 실행 없이 답했어요."); continue; }
                     }
