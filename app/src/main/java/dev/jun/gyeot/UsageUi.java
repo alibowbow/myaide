@@ -40,7 +40,9 @@ final class UsageUi {
     private static final java.util.Map<String, String> PROBLEMS = new java.util.concurrent.ConcurrentHashMap<>();
     private static final java.util.concurrent.atomic.AtomicInteger CHECK_STATE = new java.util.concurrent.atomic.AtomicInteger();
     private static volatile boolean checking;
-    static final String CODEX = "codex", GROK_PAGE = "grok";
+    static final String CODEX = "codex", GROK_PAGE = "grok", AGY_PAGE = "antigravity";
+    /** agy's /usage takes half a minute and more in the app's Linux: read at most every 15 minutes, unless asked. */
+    private static final long AGY_EVERY = 15 * 60_000L;
     private final Ui ui; private final AppStore store;
     UsageUi(Ui ui, AppStore store) { this.ui = ui; this.store = store; }
 
@@ -87,6 +89,13 @@ final class UsageUi {
             Limits limits = store.usage.limits(engine, route, store.usageIdentity(engine));
             List<String> lines = lines(limits, now, zone);
             if (WorkBook.GROK.equals(engine)) problem(lines, GROK_PAGE);
+            // Antigravity sends no limits with its answers: agy's own /usage panel, read by AntigravityCli and kept.
+            if (WorkBook.ANTIGRAVITY.equals(engine) && lines.isEmpty()) {
+                List<String> rows = store.antigravity.usage();
+                if (rows.isEmpty()) lines.add("모델별 한도는 설정 → Antigravity에서 ‘상태 확인’을 누르면 여기에도 보여요");
+                else { lines.addAll(rows); long at = store.antigravity.usageAt(); long minutes = Math.max(0, (now - at) / 60_000); lines.add(minutes < 1 ? "방금 기준" : minutes < 120 ? minutes + "분 전 기준" : (minutes / 60) + "시간 전 기준"); }
+                problem(lines, AGY_PAGE);
+            }
             // The ChatGPT sign-in's own tokens cannot read Codex's usage page; the Codex sign-in can (the row below).
             if (WorkBook.CHATGPT.equals(engine) && UsageLedger.PLAN.equals(route) && lines.isEmpty() && !store.codexImages.connected())
                 lines.add("5시간·주간 한도는 설정 → ChatGPT의 ‘이미지용 Codex로 로그인’을 하면 여기에 보여요");
@@ -135,9 +144,12 @@ final class UsageUi {
     static void check(AppStore store, boolean force, Runnable changed) {
         long now = System.currentTimeMillis();
         boolean codex = store.codexImages.connected() && due(CODEX, force, now), grok = store.grok.connected() && due(GROK_PAGE, force, now);
-        if (!codex && !grok) return;
+        Long agyLast = CHECKED.get(AGY_PAGE);
+        boolean agy = store.antigravity.connected() && (force || agyLast == null || now - agyLast >= AGY_EVERY);
+        if (!codex && !grok && !agy) return;
         if (codex) CHECKED.put(CODEX, now);
         if (grok) CHECKED.put(GROK_PAGE, now);
+        if (agy) CHECKED.put(AGY_PAGE, now);
         checking = true; CHECK_STATE.incrementAndGet(); changed.run();
         try {
             CHECKS.execute(() -> {
@@ -145,6 +157,15 @@ final class UsageUi {
                 if (codex) keep(store, CODEX, WorkBook.CHATGPT, PlanUsage.CODEX_ROUTE, () -> store.codexImages.usageIdentity(), () -> store.codexImages.usage(null), kept);
                 if (grok) keep(store, GROK_PAGE, WorkBook.GROK, store.usageRoute(WorkBook.GROK), () -> store.usageIdentity(WorkBook.GROK), () -> store.grok.usage(null), kept);
                 try { kept.await(10, TimeUnit.SECONDS); } catch (InterruptedException stopped) { Thread.currentThread().interrupt(); }
+                if (agy) {
+                    // Codex and Grok drawn first; agy's panel takes longer.
+                    CHECK_STATE.incrementAndGet(); changed.run();
+                    try {
+                        AntigravityCli.Status st = store.antigravity.refresh();
+                        if (st.usage().isEmpty()) PROBLEMS.put(AGY_PAGE, st.detail().isEmpty() ? "모델별 한도를 읽지 못했어요" : st.detail().length() > 160 ? st.detail().substring(0, 160) + "…" : st.detail());
+                        else PROBLEMS.remove(AGY_PAGE);
+                    } catch (Exception failed) { PROBLEMS.put(AGY_PAGE, failed.getMessage() == null ? "모델별 한도를 읽지 못했어요" : failed.getMessage()); }
+                }
                 checking = false; CHECK_STATE.incrementAndGet(); changed.run();
             });
         } catch (RejectedExecutionException busy) { checking = false; }
@@ -179,7 +200,7 @@ final class UsageUi {
      */
     void fill(LinearLayout box, Page page, Consumer<String> open, Runnable recheck) {
         box.addView(ui.sectionHeader("남은 한도"));
-        if (recheck != null && (store.codexImages.connected() || store.grok.connected())) {
+        if (recheck != null && (store.codexImages.connected() || store.grok.connected() || store.antigravity.connected())) {
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.bottomMargin = ui.dp(6);
             box.addView(ui.actions(ui.chip("지금 다시 확인", recheck)), p);
         }

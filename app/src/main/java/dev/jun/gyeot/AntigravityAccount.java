@@ -61,6 +61,13 @@ final class AntigravityAccount {
         } catch (Exception ignored) {}
         return new java.util.ArrayList<>(byName.values());
     }
+    /** The model groups' limits as last read (AntigravityCli.status), and when; none before the first read. */
+    List<String> usage() {
+        List<String> out = new java.util.ArrayList<>();
+        try { JSONArray saved = new JSONArray(settings.getString("agyUsage", "[]")); for (int i = 0; i < saved.length(); i++) out.add(saved.optString(i)); } catch (Exception ignored) {}
+        return out;
+    }
+    long usageAt() { return settings.getLong("agyUsageAt", 0); }
     /** The model a slug belongs to (a variant's slug finds its model too), or null. */
     Group group(String id) { for (Group g : groups()) if (id.equals(g.plain()) || g.levels().containsValue(id)) return g; return null; }
     String model() { String m = settings.getString("agyModel", ""); Group g = group(m); return g != null ? g.base() : models().optJSONObject(0).optString("id", DEFAULT); }
@@ -100,6 +107,8 @@ final class AntigravityAccount {
     AntigravityCli.Status refresh() {
         AntigravityCli.Status st = AntigravityCli.status(context);
         SharedPreferences.Editor edit = settings.edit();
+        // The model groups' limits, kept for 설정 → 사용량 · 남은 한도 (UsageUi), with when they were read.
+        if (!st.usage().isEmpty()) edit.putString("agyUsage", new JSONArray(st.usage()).toString()).putLong("agyUsageAt", System.currentTimeMillis());
         if (st.signedIn() != null) edit.putBoolean("agySignedIn", st.installed() && st.signedIn());
         if (st.installed() && Boolean.TRUE.equals(st.signedIn())) {
             try {

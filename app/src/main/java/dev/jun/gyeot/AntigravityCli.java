@@ -22,7 +22,6 @@ final class AntigravityCli {
     static final String HOME = "/root/antigravity", BINARY = HOME + "/.local/bin/agy", INSTALLER = "https://antigravity.google/cli/install.sh";
     private static final Pattern SIGNED_OUT = Pattern.compile("(?i)authentication required|unauthenticated|not (?:logged|signed)[- ]?in|please (?:sign|log)[- ]?in|(?:sign|log)[- ]?in (?:first|required)|login required");
     private static final Pattern NETWORK = Pattern.compile("(?i)could not resolve|network is unreachable|connection (?:refused|reset|timed out)|temporary failure in name resolution|no route to host");
-    private static final Pattern USAGE = Pattern.compile("^\\s*(\\S.*?)(?:\\t+|\\s{2,})(\\S.*?)(?:\\t+|\\s{2,})(\\d{1,3}(?:\\.\\d+)?)%(?:(?:\\t+|\\s{2,})(\\S+))?\\s*$");
 
     /** The environment agy runs in: its own home, the manual sign-in (a link to open, a code to paste), no colours. */
     static Map<String, String> env() {
@@ -73,12 +72,18 @@ final class AntigravityCli {
             if (r.code() < 0 || NETWORK.matcher(text).find()) return new Status(true, version, null, List.of(), clip(text));
             if (SIGNED_OUT.matcher(text).find()) return new Status(true, version, false, List.of(), "");
             if (r.code() != 0 || text.isBlank()) return new Status(true, version, null, List.of(), clip(text));
-            List<String> rows = new ArrayList<>();
-            for (String line : text.split("\n")) {
-                Matcher m = USAGE.matcher(line);
-                if (m.matches() && rows.size() < 8) rows.add(m.group(1).strip() + " · " + m.group(2).strip() + " · " + m.group(3) + "% 남음" + (m.group(4) == null ? "" : " · " + m.group(4) + " 초기화"));
+            // /usage is a panel of agy's own screen; agy -p may take it as a question and answer in words. Then the panel itself
+            // is read through a terminal (panelCommand), the way it shows to a person (core/AgyUsage).
+            String seen = text; List<dev.jun.gyeot.core.AgyUsage.Row> found = dev.jun.gyeot.core.AgyUsage.rows(text);
+            if (found.isEmpty()) {
+                try { LinuxRuntime.Result p = LinuxRuntime.run(c, panelCommand(), 75_000, env()); seen = p.output(); found = dev.jun.gyeot.core.AgyUsage.rows(seen); }
+                catch (Exception unread) { /* What -p said is shown instead. */ }
             }
-            return new Status(true, version, true, rows, rows.isEmpty() ? clip(text) : "");
+            List<String> rows = new ArrayList<>();
+            for (dev.jun.gyeot.core.AgyUsage.Row row : found) if (rows.size() < 16) rows.add(row.line());
+            String reached = dev.jun.gyeot.core.AgyUsage.reached(seen);
+            if (!reached.isEmpty()) rows.add(0, "한도에 닿은 모델이 있어요 · " + dev.jun.gyeot.core.AgyUsage.korean(reached) + " 뒤 초기화");
+            return new Status(true, version, true, rows, rows.isEmpty() ? (seen.contains("NO_SCRIPT") ? "모델별 한도 화면을 열 터미널(script)이 없어요. 설정 → Linux에서 패키지를 다시 설치해 주세요." : "모델별 한도를 읽지 못했어요 · agy가 보여 준 것: " + clip(seen)) : "");
         } catch (Exception e) { return new Status(true, version, null, List.of(), e.getMessage() == null ? "" : e.getMessage()); }
     }
     /**
@@ -102,6 +107,15 @@ final class AntigravityCli {
             if (r.code() != 0 || out.isEmpty()) throw new IllegalStateException("Antigravity가 답하지 못했어요" + (out.isEmpty() ? "." : ": " + clip(out)));
             return out;
         } finally { prompt.delete(); }
+    }
+    /**
+     * agy opened as a person would, in a terminal (script gives it one), /usage typed, the panel let draw, then Esc and two
+     * Ctrl-D to leave. Wide and tall, so every model group is on screen. NO_SCRIPT when the terminal tool is not there.
+     */
+    static String panelCommand() {
+        String keys = "( sleep 8; printf '/usage\\r'; sleep 15; printf '\\033'; sleep 1; printf '\\004'; sleep 1; printf '\\004'; sleep 2 )";
+        return "cd " + HOME + " 2>/dev/null; if command -v script >/dev/null 2>&1; then " + keys
+            + " | TERM=xterm-256color COLUMNS=150 LINES=160 script -q -c 'stty cols 150 rows 160 2>/dev/null; " + BINARY + "' /dev/null; else echo NO_SCRIPT; fi";
     }
     private static String firstLine(String s) { String t = LinuxTerminal.plain(s == null ? "" : s).strip(); int n = t.indexOf('\n'); return (n < 0 ? t : t.substring(0, n)).strip(); }
     private static String clip(String s) { String t = LinuxTerminal.plain(s == null ? "" : s).strip(); return t.length() > 300 ? t.substring(t.length() - 300) : t; }
