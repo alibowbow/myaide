@@ -888,8 +888,12 @@ final class BrowserAgent {
         }
         return false;
     }
-    /** The AIs a browser task may go on with, in order, when the one deciding reached its limit. */
-    static final String[] FALLBACK = {"gemini", "claude", "gpt", "grok", "nim"};
+    /**
+     * The AIs a browser task may go on with, in order, when the one deciding reached its limit or its server keeps failing:
+     * GPT (the ChatGPT plan), Grok, NIM, then Claude. Gemini is not among them (the user's choice: its free key is busy and
+     * kept for other work); it decides only when the user chose it.
+     */
+    static final String[] FALLBACK = {"gpt", "grok", "nim", "claude"};
     /** Goes on with the next connected AI that has not reached its limit in this task; false when there is none. */
     private boolean switchBrain() {
         limited.add(brain);
