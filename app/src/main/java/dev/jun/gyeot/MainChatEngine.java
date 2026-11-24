@@ -410,8 +410,12 @@ final class MainChatEngine implements AutoCloseable {
         // The browser and the 들퍼레 folder, run by this reply itself: offered only when this question's words are about them.
         // Offered also for two follow-ups after a question about them ("이 주소에도 있어", "맡겨 줘"), and those words are the user's too.
         // A browser task often goes back and forth ("다시 해 봐", "확인했어, 계속해"): the user's last four messages count.
-        String browsingWords=MainBrowser.wanted(question)?question:userWords(turn,question,4);
-        MainBrowsing browsing=MainBrowser.wanted(browsingWords)?new MainBrowsing(context,app,turn.run(),browsingWords,userWords(turn,question,6),()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},deltas::status):null;
+        // Also when the conversation is in the middle of browser work ("업데이트했어, 다시 해 봐" after an upload): the user's last eight
+        // messages, or 퍼레's own last two answers, speak of it. Whose words the browser works under stays the user's own.
+        String userRecent=userWords(turn,question,8);
+        boolean browserWork=MainBrowser.wanted(question)||MainBrowser.wanted(userRecent)||MainBrowser.wanted(answerWords(turn,2));
+        String browsingWords=MainBrowser.wanted(question)?question:userRecent;
+        MainBrowsing browsing=browserWork?new MainBrowsing(context,app,turn.run(),browsingWords,userRecent,()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},deltas::status):null;
         WorkTools tools=counted(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(connected,pages),projects),python),browsing==null?null:browsing.tools()),ran);
         String instructions=instructions(memory)+(web.any()?WEB:"")+(connected!=null?TOOLS:pages!=null?PAGE_TOOLS:projects!=null?PROJECT_TOOLS:python!=null?PYTHON_TOOLS:"")+(subject!=null&&pages!=null?aboutPage(subject):"")+(browsing!=null?MainBrowser.INSTRUCTIONS:"");
         boolean summary=memory&&app.settings.getBoolean("mainSummaryOn",true);int budget=budget(app,selection);
@@ -492,6 +496,14 @@ final class MainChatEngine implements AutoCloseable {
      * follow-ups ("거기에 한 줄 더 넣어 줘", "제목도 바꿔 줘") right after a save still have them. They allow nothing by themselves.
      */
     private String pageWords(MainChatStore.Turn turn,String query){return userWords(turn,query,2);}
+    /** 퍼레's own last answers before the question (up to count), for deciding which tools the conversation is in the middle of. */
+    private String answerWords(MainChatStore.Turn turn,int count){
+        StringBuilder words=new StringBuilder();int taken=0;
+        try{JSONArray before=history.page(turn.user(),Math.max(8,count*3));
+            for(int i=before.length()-1;i>=0&&taken<count;i--){JSONObject m=before.optJSONObject(i);if(m!=null&&"assistant".equals(m.optString("role"))){words.append('\n').append(m.optString("text"));taken++;}}}
+        catch(RuntimeException unreadable){/* none */}
+        return words.toString();
+    }
     /** The question with the user's own last messages before it (up to count of them), newest first. */
     private String userWords(MainChatStore.Turn turn,String query,int count){
         StringBuilder words=new StringBuilder(query==null?"":query);int taken=0;
