@@ -244,12 +244,14 @@ public final class SchoolActivity extends Activity {
         scroll.addView(lines);
         pane.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         pane.addView(composer(t), new LinearLayout.LayoutParams(-1, -2));
-        renderLesson(t, true);
+        renderLesson(t, true, true);
         return pane;
     }
 
     /** The conversation: an introduction with ways to begin while it is empty, bubbles after. */
-    private void renderLesson(SchoolBook.Teacher t, boolean toEnd) {
+    private void renderLesson(SchoolBook.Teacher t, boolean toEnd) { renderLesson(t, toEnd, false); }
+    /** jump: the lesson just opened, shown at its newest words from the first frame (no scroll the user sees), as the main chat. */
+    private void renderLesson(SchoolBook.Teacher t, boolean toEnd, boolean jump) {
         if (lines == null) return;
         lines.removeAllViews();
         List<SchoolBook.Line> all = book.lines(t.id());
@@ -265,7 +267,16 @@ public final class SchoolActivity extends Activity {
         }
         modelLabel(t);
         if (send != null) ui.sendLooks(send, busy);
-        if (toEnd) scroll.post(() -> { if (lines != null) scroll.smoothScrollTo(0, Math.max(0, lines.getHeight() - scroll.getHeight())); });
+        if (jump) {
+            ScrollView at = scroll;
+            at.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+                @Override public boolean onPreDraw() {
+                    at.getViewTreeObserver().removeOnPreDrawListener(this);
+                    if (lines != null) at.scrollTo(0, Math.max(0, lines.getHeight() - at.getHeight()));
+                    return true;
+                }
+            });
+        } else if (toEnd) scroll.post(() -> { if (lines != null) scroll.smoothScrollTo(0, Math.max(0, lines.getHeight() - scroll.getHeight())); });
     }
     private View intro(SchoolBook.Teacher t) {
         LinearLayout box = ui.column(); box.setGravity(Gravity.CENTER_HORIZONTAL); box.setPadding(ui.dp(12), ui.dp(28), ui.dp(12), ui.dp(12));

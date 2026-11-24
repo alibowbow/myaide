@@ -357,7 +357,15 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         }
         composerLooks(p);
         boolean end = tab == 0 && (toEnd || nearEnd) && !notes(p).isEmpty();
-        scroll.post(() -> { if (scroll == null || content == null) return; if (end) scroll.scrollTo(0, Math.max(0, content.getHeight() - scroll.getHeight())); else scroll.scrollTo(0, toEnd ? 0 : keep); });
+        // Placed before the next frame is drawn: the view opens where it should (the newest words), with no scroll to watch.
+        ScrollView at = scroll;
+        at.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                at.getViewTreeObserver().removeOnPreDrawListener(this);
+                if (content != null) { if (end) at.scrollTo(0, Math.max(0, content.getHeight() - at.getHeight())); else at.scrollTo(0, toEnd ? 0 : keep); }
+                return true;
+            }
+        });
     }
 
     /** The notes for one drawing of the view: read once, however many parts of it ask. */
