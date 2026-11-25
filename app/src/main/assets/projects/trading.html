@@ -92,6 +92,12 @@
   .answer p { margin: 6px 0; } .answer a { color: var(--accent); word-break: break-all; }
   .answer .err { color: var(--down); font-weight: 600; }
   .meta { font-size: 12px; color: var(--muted); margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .thread .q { margin: 16px 0 6px auto; max-width: 85%; width: fit-content; background: var(--raised); border: 1px solid var(--line); border-radius: 14px 14px 4px 14px; padding: 8px 12px; font-size: 14px; font-weight: 600; white-space: pre-wrap; }
+  .thread .by { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .thread .err { color: var(--down); font-weight: 600; font-size: 13px; margin: 8px 0; }
+  .follow { display: flex; gap: 8px; margin-top: 12px; position: sticky; bottom: 0; background: var(--card, var(--bg)); padding: 8px 0 2px; }
+  .follow textarea { flex: 1; min-width: 0; min-height: 40px; max-height: 120px; border-radius: 12px; border: 1px solid var(--line); background: var(--raised); color: var(--text); padding: 9px 12px; font: inherit; font-size: 14px; resize: none; }
+  .follow .primary { height: 40px; padding: 0 14px; font-size: 13.5px; }
 </style>
 </head>
 <body>
@@ -120,6 +126,7 @@
       <input id="sym" class="wide" placeholder="심볼 · 예: NASDAQ:TSLA, BINANCE:ETHUSDT" autocapitalize="characters" autocomplete="off">
       <input id="label" placeholder="이름 · 예: 테슬라" autocomplete="off">
       <button class="primary" id="addBtn">추가</button>
+      <button class="ghost wide" id="undoSym" hidden>방금 바꾼 것 되돌리기</button>
       <button class="ghost wide" id="reset">처음 종목으로 되돌리기</button>
     </div>
     <div class="hint">심볼은 ‘거래소:종목’으로 써요. 미국 주식은 NASDAQ·NYSE·AMEX, 코인은 BINANCE·UPBIT 같은 거래소 이름을 앞에 붙여요.</div>
@@ -138,6 +145,8 @@
     <div class="status" id="aiStatus" hidden></div>
     <div class="answer" id="aiBody"></div>
     <div class="meta" id="aiMeta" hidden></div>
+    <div class="answer thread" id="aiThread"></div>
+    <div class="follow" id="aiFollow" hidden><textarea id="aiQ" rows="1" maxlength="1000" placeholder="이 분석에 이어서 물어보기"></textarea><button class="primary" id="aiAsk">묻기</button></div>
   </div>
 </div>
 
@@ -249,11 +258,14 @@
       r.querySelector('b').textContent = sym.n; r.querySelector('.name span').textContent = sym.s + (sym.d ? ' · ' + sym.d : '');
       r.querySelector('[data-up]').onclick = () => move(i, -1);
       r.querySelector('[data-down]').onclick = () => move(i, 1);
-      r.querySelector('[data-del]').onclick = () => { state.symbols.splice(i, 1); changed(); };
+      r.querySelector('[data-del]').onclick = () => { remember(); state.symbols.splice(i, 1); changed(); };
       box.appendChild(r);
     });
   }
-  function move(i, by) { const j = i + by; if (j < 0 || j >= state.symbols.length) return; const s = state.symbols; [s[i], s[j]] = [s[j], s[i]]; changed(); }
+  function move(i, by) { const j = i + by; if (j < 0 || j >= state.symbols.length) return; remember(); const s = state.symbols; [s[i], s[j]] = [s[j], s[i]]; changed(); }
+  // 방금 바꾼 것 되돌리기: the symbols as they were before the last add, removal, move or reset (준: "종목추가 한것만 되돌리려한건데").
+  let before = null;
+  function remember() { before = state.symbols.map(x => ({ ...x })); $('undoSym').hidden = false; }
   function changed() { save(); rows(); tape(); grid(); }
   function sheet(open) { $('sheet').classList.toggle('open', open); $('sheet').setAttribute('aria-hidden', open ? 'false' : 'true'); if (open) rows(); }
   $('edit').onclick = () => sheet(true);
@@ -262,10 +274,11 @@
     let s = $('sym').value.trim().toUpperCase().replace(/\s+/g, ''); if (!s) { $('sym').focus(); return; }
     if (!s.includes(':')) s = (/USDT$|USD$|BTC$/.test(s) ? 'BINANCE:' : 'NASDAQ:') + s;
     if (state.symbols.some(x => x.s === s)) { $('sym').value = ''; return; }
-    const n = s.split(':')[1]; state.symbols.push({ s, n, d: $('label').value.trim() });
+    const n = s.split(':')[1]; remember(); state.symbols.push({ s, n, d: $('label').value.trim() });
     $('sym').value = ''; $('label').value = ''; changed();
   };
-  $('reset').onclick = () => { state.symbols = DEFAULTS.slice(); changed(); };
+  $('reset').onclick = () => { remember(); state.symbols = DEFAULTS.slice(); changed(); };
+  $('undoSym').onclick = () => { if (!before) return; state.symbols = before; before = null; $('undoSym').hidden = true; changed(); };
   $('layout').onclick = () => { state.layout = LAYOUTS[(LAYOUTS.indexOf(state.layout) + 1) % LAYOUTS.length]; save(); grid(); };
   function tick() {
     const now = new Date();
@@ -279,7 +292,7 @@
     return false;
   };
   // ── AI 차트 분석 · 최신 뉴스: asked of the 들퍼레 app through the port it gives this page (nothing else reaches the app) ──
-  let app = null, modelName = '', open = null; const pendingKind = {};
+  let app = null, modelName = '', open = null; const pendingKind = {}, pendingQ = {};
   const ANSWERS = 'gyeot.trading.answers.v1';
   let answers = {}; try { answers = JSON.parse(localStorage.getItem(ANSWERS) || '{}') || {}; } catch (e) { answers = {}; }
   const keep = () => { try { localStorage.setItem(ANSWERS, JSON.stringify(answers)); } catch (e) {} };
@@ -326,7 +339,28 @@
       : 'Grok이 웹과 X에서 이 종목의 최신 소식을 찾아 정리해요.') + '</p>';
     const meta = saved ? [saved.model, saved.source, ago(saved.at)].filter(Boolean).join(' · ') : '';
     $('aiMeta').hidden = !meta; $('aiMeta').textContent = meta;
+    // 이어서 묻기 (준: "Ai분석한것에 이어서 질문할 수 있게"): the questions asked on this answer and their answers, then the box.
+    const thread = saved && !open.error && Array.isArray(saved.thread) ? saved.thread : [];
+    $('aiThread').innerHTML = thread.map(t => '<div class="q">' + esc(t.q) + '</div>' + md(t.a) + '<div class="by">' + esc([t.model, ago(t.at)].filter(Boolean).join(' · ')) + '</div>').join('')
+      + (open.asking ? '<div class="q">' + esc(open.asking) + '</div>' : '') + (open.qError ? '<p class="err">' + esc(open.qError) + '</p>' : '');
+    $('aiFollow').hidden = !saved || !!open.error || !!open.status;
+    $('aiAsk').textContent = kind === 'news' ? '묻기 (Grok)' : '묻기';
   }
+  // 이어서 묻기: the answer shown, the questions before and the new one go to the same AI (news: Grok, searching again).
+  function followUp() {
+    if (!open || open.status) return;
+    const q = $('aiQ').value.trim(); if (!q) { $('aiQ').focus(); return; }
+    const key = open.kind + '|' + open.sym.s, saved = answers[key]; if (!saved) return;
+    const id = 'q' + Date.now().toString(36); open.id = id; open.asking = q; open.qError = ''; pendingQ[id] = { key, q };
+    const thread = (saved.thread || []).slice(-6).map(t => ({ q: t.q, a: String(t.a).slice(0, 3000) }));
+    if (!send({ type: 'followup', id, kind: open.kind, symbol: open.sym.s, name: open.sym.n, desc: open.sym.d || '', interval: state.interval, base: String(saved.text).slice(0, 12000), thread, question: q })) {
+      open.asking = ''; open.qError = '이 기능은 들퍼레 앱의 페이지에서만 돼요.'; paint(); return;
+    }
+    $('aiQ').value = ''; open.status = open.kind === 'news' ? 'Grok이 찾아보고 답하는 중' : '답을 쓰는 중'; paint();
+    const panel = $('ai').querySelector('.panel'); setTimeout(() => { panel.scrollTop = panel.scrollHeight; }, 50);
+  }
+  $('aiAsk').onclick = followUp;
+  $('aiQ').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); followUp(); } });
   // One ask: the answer kept for this symbol shows at once; again asks anew.
   function ask(sym, kind, card, again) {
     open = { sym, kind, card, id: '', status: '', error: '' };
@@ -355,12 +389,17 @@
     if (m.type === 'progress') { open.status = m.text; if (!$('ai').classList.contains('open')) showAi(true); paint(); return; }
     if (m.type === 'result') {
       open.status = '';
+      if (m.id[0] === 'q') { open.asking = ''; if (m.ok) { remember(m); open.qError = ''; } else open.qError = m.error || '답하지 못했어요.'; paint(); const panel = $('ai').querySelector('.panel'); setTimeout(() => { panel.scrollTop = panel.scrollHeight; }, 50); return; }
       if (m.ok) { remember(m); open.error = ''; } else open.error = m.error || '하지 못했어요.';
       if (!$('ai').classList.contains('open')) showAi(true);
       paint();
     }
   }
   function remember(m) {
+    if (m.id[0] === 'q') {
+      const p = pendingQ[m.id], saved = p && answers[p.key]; delete pendingQ[m.id]; if (!saved) return;
+      saved.thread = (saved.thread || []).concat([{ q: p.q, a: m.text, model: m.model || '', at: m.at || Date.now() }]).slice(-20); keep(); return;
+    }
     const kind = m.id[0] === 'n' ? 'news' : 'analyze', sym = open && open.id === m.id ? open.sym : pendingKind[m.id];
     if (!sym) return;
     answers[kind + '|' + sym.s] = { text: m.text, model: m.model || '', source: m.source || '', at: m.at || Date.now() }; keep();
@@ -372,7 +411,7 @@
   });
   $('aiAgain').onclick = () => {
     if (!open) return;
-    if (open.status) { send({ type: 'stop', id: open.id }); open.status = ''; open.id = ''; paint(); return; }
+    if (open.status) { send({ type: 'stop', id: open.id }); open.status = ''; open.id = ''; open.asking = ''; paint(); return; }
     start(open.card);
   };
   $('aiModel').onclick = () => send({ type: 'choose_model' });

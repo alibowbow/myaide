@@ -122,13 +122,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         busyBar.addView(busyText, new LinearLayout.LayoutParams(0, -2, 1));
         busyBar.addView(ui.pill("멈추기", R.drawable.ic_stop, false, () -> maker.stop(id)), new LinearLayout.LayoutParams(-2, -2));
         root.addView(busyBar, new LinearLayout.LayoutParams(-1, -2));
-        // A 트레이딩 the user changed: the new template is offered, one tap, the current page kept in its versions.
-        if (maker.offerUpgrade(id)) {
-            LinearLayout offer = ui.row(); offer.setGravity(Gravity.CENTER_VERTICAL); offer.setPadding(ui.dp(14), ui.dp(6), ui.dp(8), ui.dp(6)); offer.setBackground(ui.shape(ui.tone(ACCENT), 0));
-            offer.addView(ui.text("AI 차트 분석·최신 뉴스가 들어간 새 트레이딩이 있어요. 지금 페이지는 이전 버전에 남아요.", 12.5f, 520, TEXT), new LinearLayout.LayoutParams(0, -2, 1));
-            offer.addView(ui.pill("바꾸기", R.drawable.ic_refresh, true, () -> { if (maker.upgrade(id, true)) { root.removeView(offer); loaded = ""; refresh(); } }), new LinearLayout.LayoutParams(-2, -2));
-            root.addView(offer, new LinearLayout.LayoutParams(-1, -2));
-        }
+        offerBar();
         stage = new FrameLayout(this); stage.setBackgroundColor(BG);
         root.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1));
         try { web = web(); stage.addView(web, new FrameLayout.LayoutParams(-1, -1)); }
@@ -307,6 +301,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
             case "choose_model" -> chooseModel(this, ui, store, title, () -> toPage(dev.jun.gyeot.core.Jsons.obj("type", "model", "label", tradingModelLabel())), () -> ScopedModels.trading(store), "트레이딩 AI", "차트 분석에 적용");
             case "analyze" -> { if (!ask.isEmpty()) capture(m, ask); }
             case "news" -> { if (!ask.isEmpty()) start(ask, (cancel, guard) -> news(m, ask, cancel, guard)); }
+            case "followup" -> { if (!ask.isEmpty()) start(ask, (cancel, guard) -> followUp(m, ask, cancel, guard)); }
             case "stop" -> { java.util.concurrent.atomic.AtomicReference<Runnable> cancel = asks.remove(ask); if (cancel != null) dev.jun.gyeot.core.RequestAbort.cancel(cancel); }
             default -> {}
         }
@@ -413,6 +408,41 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         if (answer.text == null || answer.text.isBlank()) throw new IllegalStateException("Grok이 빈 답을 보냈어요. 다시 해 주세요.");
         toPage(dev.jun.gyeot.core.Jsons.obj("type", "result", "id", ask, "ok", true, "text", answer.text, "model", "Grok · 웹·X 검색", "sources", answer.sources, "note", answer.note, "at", System.currentTimeMillis()));
     }
+    /**
+     * 이어서 묻기 (준: "Ai분석한것에 이어서 질문할 수 있게"): a question on an answer the page shows, with the questions before it.
+     * An analysis goes on with the 트레이딩 AI (text only: the charts it saw are in its own answer); a news briefing with Grok,
+     * searching the web and X again.
+     */
+    private void followUp(org.json.JSONObject m, String ask, java.util.concurrent.atomic.AtomicReference<Runnable> cancel, Runnable guard) throws Exception {
+        String symbol = field(m, "symbol", 60), name = field(m, "name", 60), about = field(m, "desc", 80), question = field(m, "question", 1000), base = field(m, "base", 12000);
+        if (symbol.isEmpty() || question.isEmpty() || base.isEmpty()) throw new IllegalArgumentException("이어서 물을 내용이 없어요.");
+        StringBuilder before = new StringBuilder();
+        JSONArray thread = m.optJSONArray("thread");
+        for (int i = 0; thread != null && i < thread.length() && i < 6; i++) {
+            org.json.JSONObject t = thread.optJSONObject(i); if (t == null) continue;
+            before.append("\n\n[사용자] ").append(field(t, "q", 1000)).append("\n[답] ").append(field(t, "a", 3000));
+        }
+        boolean news = "news".equals(m.optString("kind"));
+        String input = "종목: " + name + " (" + symbol + (about.isEmpty() ? "" : ", " + about) + ")\n\n" + (news ? "앞서 쓴 최신 뉴스 브리핑:\n" : "앞서 쓴 차트 분석:\n") + base
+            + (before.length() == 0 ? "" : "\n\n이어서 나눈 질문과 답:" + before) + "\n\n사용자의 새 질문: " + question;
+        if (news) {
+            if (!store.grok.connected()) throw new IllegalStateException("뉴스에 이어서 묻기는 Grok이 웹과 X를 다시 찾아 답해요. 설정 → 연결에서 Grok을 연결해 주세요.");
+            ScopedModels scope = ScopedModels.trading(store); String model = store.grok.model(), effort = "";
+            if (WorkBook.GROK.equals(scope.engine())) { model = scope.model(WorkBook.GROK); effort = scope.effectiveEffort(WorkBook.GROK, model); }
+            progress(ask, "Grok이 찾아보고 답하는 중");
+            WorkClient.Result answer = GrokWorkClient.searchWebAndX(store.grok, model, dev.jun.gyeot.core.TradingData.FOLLOW_UP + " Search the web and X when the question needs newer or other facts.", input, effort, guard, cancel);
+            if (answer.text == null || answer.text.isBlank()) throw new IllegalStateException("Grok이 빈 답을 보냈어요. 다시 해 주세요.");
+            toPage(dev.jun.gyeot.core.Jsons.obj("type", "result", "id", ask, "ok", true, "text", answer.text, "model", "Grok · 웹·X 검색", "at", System.currentTimeMillis()));
+            return;
+        }
+        ScopedModels scope = ScopedModels.trading(store); String engine = scope.engine();
+        if (engine == null || engine.isBlank() || !store.ready(engine)) throw new IllegalStateException("답할 AI가 연결되지 않았어요. 위의 모델 이름을 눌러 골라 주세요.");
+        String label = tradingModelLabel();
+        progress(ask, label + "가 답을 쓰는 중");
+        String text = MainAdapters.send(store, scope.snapshot(), dev.jun.gyeot.core.MainRequest.of(dev.jun.gyeot.core.TradingData.FOLLOW_UP, input), guard, cancel).text();
+        if (text == null || text.isBlank()) throw new IllegalStateException("AI가 빈 답을 보냈어요. 다시 해 주세요.");
+        toPage(dev.jun.gyeot.core.Jsons.obj("type", "result", "id", ask, "ok", true, "text", text, "model", label, "at", System.currentTimeMillis()));
+    }
     /** The off-screen pictures (ChartShots, on the main thread), waited for here; none when they could not be taken in time. */
     private java.util.List<ChartShots.Shot> shots(String symbol, java.util.List<String> intervals, Runnable guard) throws Exception {
         java.util.concurrent.CountDownLatch ready = new java.util.concurrent.CountDownLatch(1);
@@ -441,23 +471,34 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
 
     // ── the menu ─────────────────────────────────────────────────────
 
+    /** The line offering the new 트레이딩 (AI 차트 분석 · 최신 뉴스), above the page while it lacks them; again after a 되돌리기. */
+    private LinearLayout offer;
+    private void offerBar() {
+        if (offer != null) { root.removeView(offer); offer = null; }
+        if (!maker.offerUpgrade(id)) return;
+        LinearLayout bar = ui.row(); bar.setGravity(Gravity.CENTER_VERTICAL); bar.setPadding(ui.dp(14), ui.dp(6), ui.dp(8), ui.dp(6)); bar.setBackground(ui.shape(ui.tone(ACCENT), 0));
+        bar.addView(ui.text("AI 차트 분석·최신 뉴스가 들어간 새 트레이딩이 있어요. 종목은 그대로, 지금 페이지는 이전 버전에 남아요.", 12.5f, 520, TEXT), new LinearLayout.LayoutParams(0, -2, 1));
+        bar.addView(ui.pill("바꾸기", R.drawable.ic_refresh, true, () -> { if (maker.upgrade(id, true)) { offerBar(); loaded = ""; refresh(); } }), new LinearLayout.LayoutParams(-2, -2));
+        // Above the page, under the busy line (the busy line is the one before the page's stage).
+        int at = stage == null ? root.getChildCount() : Math.max(0, root.indexOfChild(stage));
+        offer = bar; root.addView(bar, at, new LinearLayout.LayoutParams(-1, -2));
+    }
     private void menu(View anchor) {
         ProjectBook.Project p = book.project(id); if (p == null) return;
-        int versions = book.versions(id).length;
-        String[] labels = {showingSource ? "미리보기로" : "소스 보기", versions == 0 ? "되돌릴 버전 없음" : "이전 버전으로 되돌리기 (" + versions + ")", "이름 바꾸기", p.pinned() ? "고정 해제" : "맨 위에 고정", "HTML 파일로 공유", "파일 위치", "프로젝트 지우기"};
+        // No 되돌리기 here (준: "그냥 되돌리기 버튼을 없애줘"): it brought back the page's code, not what was done on the page, and
+        // took 트레이딩's AI 차트 분석 with it. 트레이딩's symbols have their own 방금 바꾼 것 되돌리기 in its 종목 편집.
+        String[] labels = {showingSource ? "미리보기로" : "소스 보기", "이름 바꾸기", p.pinned() ? "고정 해제" : "맨 위에 고정", "HTML 파일로 공유", "파일 위치", "프로젝트 지우기"};
         ui.miniMenu(anchor, labels, -1, i -> {
             switch (i) {
-                case 5 -> {
+                case 4 -> {
                     String where = book.where();
                     Toast.makeText(this, where.isEmpty() || p.folder().isEmpty() ? "아직 앱 안에만 있어요. 내 휴대폰 → 저장 위치에서 들퍼레 폴더를 연결하면 거기에 저장해요."
                         : "내장 저장공간/" + where + "/" + p.folder() + "/index.html", Toast.LENGTH_LONG).show();
                 }
                 case 0 -> showSource(!showingSource);
-                case 1 -> { if (versions == 0) return; ui.confirm("바로 전 버전으로 되돌릴까요? 지금 버전은 사라져요.", "되돌리기", () -> {
-                    try { book.undo(id); loaded = ""; refresh(); Toast.makeText(this, "이전 버전으로 되돌렸어요.", Toast.LENGTH_SHORT).show(); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); } }).show(); }
-                case 2 -> rename();
-                case 3 -> { try { book.save(p.pin(!p.pinned())); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); } }
-                case 4 -> share(p);
+                case 1 -> rename();
+                case 2 -> { try { book.save(p.pin(!p.pinned())); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); } }
+                case 3 -> share(p);
                 default -> ui.confirm("‘" + p.title() + "’ 프로젝트를 지울까요? 들퍼레/프로젝트의 폴더와 이전 버전도 함께 지워져요.", "지우기", () -> {
                     maker.stop(id); try { book.remove(id); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); return; } finish(); }).show();
             }

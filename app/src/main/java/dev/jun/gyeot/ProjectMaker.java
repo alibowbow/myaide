@@ -62,18 +62,26 @@ final class ProjectMaker {
         try (InputStream in = app.getAssets().open(t.asset())) { html = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
         return book.create(t.title(), t.about(), t.kind(), html, t.hue());
     }
-    /** The template's pages shipped before, by SHA-256: a project still exactly one of them was never changed by the user. */
-    private static final java.util.Set<String> OLD_TRADING = java.util.Set.of("f960956429b84eda68d057d8255e0203dcaf0dde0b64bd53aca821f902c49ef8");
+    /**
+     * The template's pages shipped before, by SHA-256: a project still exactly one of them was never changed by the user, so it
+     * takes the newest at once. The first had no AI 차트 분석; the second (0.4.513) had no 방금 바꾼 것 되돌리기 for the symbols.
+     */
+    private static final java.util.Set<String> OLD_TRADING = java.util.Set.of("f960956429b84eda68d057d8255e0203dcaf0dde0b64bd53aca821f902c49ef8",
+        "419eb6e647b423181d7bcd35d4c92680d6f6c7b09e6912264c673ce7739cf008");
     /**
      * A 트레이딩 made from an older template gets the new one (AI 차트 분석 · 최신 뉴스): at once when the user never changed it
      * (the old page stays in its versions), else only when asked (offerUpgrade). Returns whether the page changed.
      */
     boolean upgrade(String id, boolean changedByUser) {
         ProjectBook.Project p = book.project(id); if (p == null || !TRADING.kind().equals(p.kind()) || busy(id)) return false;
-        String html = book.html(id); if (html.contains("gyeot-app")) return false;
+        String html = book.html(id);
         try {
-            if (!changedByUser && !OLD_TRADING.contains(sha256(html))) return false;
+            boolean shipped = OLD_TRADING.contains(sha256(html));
+            // A page the user changed that already has the app's AI is theirs; one never changed takes the newest template.
+            if (html.contains("gyeot-app") && !shipped) return false;
+            if (!changedByUser && !shipped) return false;
             String fresh; try (InputStream in = app.getAssets().open(TRADING.asset())) { fresh = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
+            if (fresh.equals(html)) return false;
             book.html(id, fresh); changed(id); return true;
         } catch (Exception failed) { return false; }
     }
