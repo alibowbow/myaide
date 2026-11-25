@@ -439,14 +439,23 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
             before.append("\n\n[사용자] ").append(field(t, "q", 1000)).append("\n[답] ").append(field(t, "a", 3000));
         }
         boolean news = "news".equals(m.optString("kind"));
+        // A question on an analysis about news, issues or schedules (준: "오늘 주목할만한 이슈나 발표는?" got "no news in the data"):
+        // Grok searches the web and X for it, with the analysis and the price now beside it.
+        boolean asksNews = !news && dev.jun.gyeot.core.TradingData.asksNews(question) && store.grok.connected();
         String input = "종목: " + name + " (" + symbol + (about.isEmpty() ? "" : ", " + about) + ")\n\n" + (news ? "앞서 쓴 최신 뉴스 브리핑:\n" : "앞서 쓴 차트 분석:\n") + base
             + (before.length() == 0 ? "" : "\n\n이어서 나눈 질문과 답:" + before) + "\n\n사용자의 새 질문: " + question;
-        if (news) {
+        if (asksNews) {
+            progress(ask, "바이낸스에서 지금 시세를 다시 받는 중");
+            String[] now = numbers(symbol, name, field(m, "interval", 4), guard);
+            if (!now[0].isEmpty()) input += "\n\n지금 시세 (한국 시간 " + java.time.ZonedDateTime.now(java.time.ZoneId.of("Asia/Seoul")).format(java.time.format.DateTimeFormatter.ofPattern("M월 d일 HH:mm")) + "에 새로 받음):" + now[0];
+        }
+        if (news || asksNews) {
             if (!store.grok.connected()) throw new IllegalStateException("뉴스에 이어서 묻기는 Grok이 웹과 X를 다시 찾아 답해요. 설정 → 연결에서 Grok을 연결해 주세요.");
             ScopedModels scope = ScopedModels.trading(store); String model = store.grok.model(), effort = "";
             if (WorkBook.GROK.equals(scope.engine())) { model = scope.model(WorkBook.GROK); effort = scope.effectiveEffort(WorkBook.GROK, model); }
-            progress(ask, "Grok이 찾아보고 답하는 중");
-            WorkClient.Result answer = GrokWorkClient.searchWebAndX(store.grok, model, dev.jun.gyeot.core.TradingData.FOLLOW_UP + " Search the web and X when the question needs newer or other facts.", input, effort, guard, cancel);
+            progress(ask, "Grok이 웹과 X에서 찾아보고 답하는 중");
+            WorkClient.Result answer = GrokWorkClient.searchWebAndX(store.grok, model, dev.jun.gyeot.core.TradingData.FOLLOW_UP + " Search the web and X when the question needs newer or other facts"
+                + " (news, issues, announcements, earnings or economic calendars: search them, with today's date in Korea, and cite the sources).", input, effort, guard, cancel);
             if (answer.text == null || answer.text.isBlank()) throw new IllegalStateException("Grok이 빈 답을 보냈어요. 다시 해 주세요.");
             toPage(dev.jun.gyeot.core.Jsons.obj("type", "result", "id", ask, "ok", true, "text", answer.text, "model", "Grok · 웹·X 검색", "at", System.currentTimeMillis()));
             return;

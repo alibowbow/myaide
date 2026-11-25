@@ -366,7 +366,8 @@
     $('aiName').textContent = sym.n; $('aiSub').textContent = (sym.d ? sym.d + ' · ' : '') + sym.s;
     for (const b of $('aiKind').children) b.className = b.dataset.kind === kind ? 'on' : '';
     $('aiModel').hidden = kind !== 'analyze'; $('aiModel').textContent = (modelName || 'AI 고르기') + ' ▾';
-    $('aiStatus').hidden = !open.status; $('aiStatus').textContent = open.status || '';
+    // A follow-up's progress shows under its question at the foot, not at the top above the analysis (준: "생각중이란 표시가 제일 상단에 있어").
+    $('aiStatus').hidden = !open.status || !!open.asking; $('aiStatus').textContent = open.status || '';
     $('aiAgain').textContent = open.status ? '멈추기' : saved ? '다시' : (kind === 'analyze' ? '분석하기' : '찾아보기');
     // 분석: the styles and 분석하기 first; the analysis starts only from here (준: "AI버튼 누르자마자 분석이 시작돼").
     const analyze = kind === 'analyze', changedStyle = saved && (saved.styleId || 'overall') !== style;
@@ -384,13 +385,17 @@
     // 이어서 묻기 (준: "Ai분석한것에 이어서 질문할 수 있게"): the questions asked on this answer and their answers, then the box.
     const thread = saved && !open.error && Array.isArray(saved.thread) ? saved.thread : [];
     $('aiThread').innerHTML = thread.map(t => '<div class="q">' + esc(t.q) + '</div>' + md(t.a) + '<div class="by">' + esc([t.model, ago(t.at)].filter(Boolean).join(' · ')) + '</div>').join('')
-      + (open.asking ? '<div class="q">' + esc(open.asking) + '</div>' : '') + (open.qError ? '<p class="err">' + esc(open.qError) + '</p>' : '');
-    $('aiFollow').hidden = !saved || !!open.error || !!open.status;
-    $('aiAsk').textContent = kind === 'news' ? '묻기 (Grok)' : '묻기';
+      + (open.asking ? '<div class="q">' + esc(open.asking) + '</div>' + (open.status ? '<div class="status">' + esc(open.status) + '</div>' : '') : '') + (open.qError ? '<p class="err">' + esc(open.qError) + '</p>' : '');
+    // The box stays while an answer is being written (준: "질문 입력칸도 없어져"): its button stops it then.
+    const answering = !!(open.asking && open.status);
+    $('aiFollow').hidden = !saved || !!open.error || (!!open.status && !open.asking);
+    $('aiAsk').textContent = answering ? '멈추기' : kind === 'news' ? '묻기 (Grok)' : '묻기';
   }
   // 이어서 묻기: the answer shown, the questions before and the new one go to the same AI (news: Grok, searching again).
   function followUp() {
-    if (!open || open.status) return;
+    if (!open) return;
+    if (open.asking && open.status) { send({ type: 'stop', id: open.id }); open.status = ''; open.id = ''; open.asking = ''; paint(); return; }
+    if (open.status) return;
     const q = $('aiQ').value.trim(); if (!q) { $('aiQ').focus(); return; }
     const key = open.kind + '|' + open.sym.s, saved = answers[key]; if (!saved) return;
     const id = 'q' + Date.now().toString(36); open.id = id; open.asking = q; open.qError = ''; pendingQ[id] = { key, q };
@@ -434,7 +439,11 @@
   function fromApp(m) {
     if (m.type === 'model') { modelName = m.label || ''; paint(); return; }
     if (!open || m.id !== open.id) { if (m.type === 'result' && m.ok) remember(m); return; }
-    if (m.type === 'progress') { open.status = m.text; if (!$('ai').classList.contains('open')) showAi(true); paint(); return; }
+    if (m.type === 'progress') {
+      open.status = m.text; if (!$('ai').classList.contains('open')) showAi(true); paint();
+      if (open.asking) { const panel = $('ai').querySelector('.panel'); panel.scrollTop = panel.scrollHeight; }
+      return;
+    }
     if (m.type === 'result') {
       open.status = '';
       if (m.id[0] === 'q') { open.asking = ''; if (m.ok) { remember(m); open.qError = ''; } else open.qError = m.error || '답하지 못했어요.'; paint(); const panel = $('ai').querySelector('.panel'); setTimeout(() => { panel.scrollTop = panel.scrollHeight; }, 50); return; }

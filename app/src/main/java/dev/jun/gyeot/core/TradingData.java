@@ -204,6 +204,9 @@ public final class TradingData {
         new Style("custom", "직접 적기", "Style: the user's own focus, given in the request; follow it while keeping the headings.", null));
     public static Style style(String id) { for (Style s : STYLES) if (s.id().equals(id)) return s; return STYLES.get(0); }
     /** The analyst's instructions with a style's own focus. */
+    private static final java.util.regex.Pattern NEWS_ASK = java.util.regex.Pattern.compile("뉴스|이슈|발표|일정|소식|공시|실적|호재|악재|재료|연준|FOMC|CPI|PCE|고용|금리|관세|캘린더|(?i:news|earnings|calendar|announce)");
+    /** A follow-up question that needs news or a schedule rather than the chart (the web and X are searched for it). */
+    public static boolean asksNews(String question) { return question != null && NEWS_ASK.matcher(question).find(); }
     /** The charts taken again for a follow-up question (the market now): the style's two shortest, else 1시간·15분봉. */
     public static List<String> followPictures(Style style, String current) {
         List<String> base = style == null || style.pictures() == null ? List.of("60", "15") : style.pictures();
