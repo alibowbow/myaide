@@ -13,7 +13,19 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 final class LabPython {
     private LabPython() {}
-    static final String PACKAGES = "python python-numpy python-scipy python-sympy python-mpmath python-matplotlib python-pandas";
+    static final String PACKAGES = "python python-numpy python-scipy python-sympy python-mpmath python-matplotlib python-pandas python-scikit-learn python-statsmodels python-networkx";
+    /** Import names of the packages an experiment may use, as the site-packages folder names them. */
+    private static final String[][] MODULES = {{"numpy", "numpy"}, {"scipy", "scipy"}, {"sympy", "sympy"}, {"mpmath", "mpmath"}, {"matplotlib", "matplotlib"}, {"pandas", "pandas"},
+        {"sklearn", "scikit-learn"}, {"statsmodels", "statsmodels"}, {"networkx", "networkx"}};
+    /** The packages there now (an experiment is told only these): "numpy, scipy, …". */
+    static String available(Context c) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        File[] pythons = new File(LinuxRuntime.rootfs(c), "usr/lib").listFiles((dir, name) -> name.startsWith("python3."));
+        for (String[] m : MODULES) { boolean there = false; if (pythons != null) for (File p : pythons) there |= new File(p, "site-packages/" + m[0]).isDirectory(); if (there) out.add(m[0]); }
+        return String.join(", ", out);
+    }
+    /** The analysis tools added later (scikit-learn, statsmodels, networkx) are not all there: 계산 환경 준비 again puts them in. */
+    static boolean extrasMissing(Context c) { String a = available(c); return ready(c) && !(a.contains("sklearn") && a.contains("statsmodels") && a.contains("networkx")); }
 
     /** Linux is there and Python has numpy and matplotlib. */
     static boolean ready(Context c) {
@@ -40,7 +52,7 @@ final class LabPython {
      * removed (only this terminal runs pacman); then the packages, tried up to three times.
      */
     static String installCommand() {
-        return pacman(PACKAGES) + "python3 -c \"import numpy, scipy, sympy, matplotlib, pandas; print('계산 환경 준비 완료 · numpy', numpy.__version__)\"";
+        return pacman(PACKAGES) + "python3 -c \"import numpy, scipy, sympy, matplotlib, pandas, sklearn, statsmodels, networkx; print('계산 환경 준비 완료 · numpy', numpy.__version__, '· scikit-learn', sklearn.__version__)\"";
     }
     /**
      * The pacman part every tool set shares (계산 환경, 유튜브 오디오 도구): keyring, mirrors, a stale lock, fresh signing keys,
@@ -67,7 +79,9 @@ final class LabPython {
             + "rm -f /var/cache/pacman/pkg/*.pkg.tar.* 2>/dev/null || true; echo \"리눅스가 쓰는 공간: $(du -sh / --exclude=/proc --exclude=/sys --exclude=/dev 2>/dev/null | cut -f1)\"; ";
     }
 
-    record Run(int exit, String output, long millis, java.util.List<File> figures) {}
+    record Run(int exit, String output, long millis, java.util.List<File> figures, java.util.List<File> tables) {
+        Run(int exit, String output, long millis, java.util.List<File> figures) { this(exit, output, millis, figures, java.util.List.of()); }
+    }
     /**
      * Runs one experiment's code in its own folder and returns its exit code, its output (the last 12,000 characters) and
      * the figures it saved in out/, copied to keep (into copies, named e<n>-<name>). At most 150 seconds. Blocking.
@@ -77,6 +91,11 @@ final class LabPython {
         File dir = new File(LinuxRuntime.rootfs(c), folder), out = new File(dir, "out");
         LinuxRuntime.delete(out); out.mkdirs();
         Files.write(new File(dir, "main.py").toPath(), code.getBytes(StandardCharsets.UTF_8));
+        // The project's data (a Google Sheet brought in, 데이터 가져오기) in data/, where the code may read it.
+        File data = new File(copies, "data"), into = new File(dir, "data");
+        LinuxRuntime.delete(into);
+        File[] sets = data.listFiles((d, name) -> name.endsWith(".csv"));
+        if (sets != null && sets.length > 0) { into.mkdirs(); for (File f : sets) Files.copy(f.toPath(), new File(into, f.getName()).toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING); }
         long started = System.currentTimeMillis();
         LinuxRuntime.Result r = LinuxRuntime.run(c, "cd /" + folder + " && timeout 150 python3 -u main.py 2>&1", 200_000,
             Map.of("MPLBACKEND", "Agg", "PYTHONUNBUFFERED", "1", "HOME", "/root", "MPLCONFIGDIR", "/tmp/mpl"), cancel);
@@ -93,9 +112,21 @@ final class LabPython {
                 figures.add(kept);
             }
         }
+        // Result tables it wrote (out/*.csv): kept beside the figures, for 구글 시트로 and the paper's tables.
+        java.util.List<File> tables = new java.util.ArrayList<>();
+        File[] csv = out.listFiles((d, name) -> name.toLowerCase(java.util.Locale.ROOT).endsWith(".csv"));
+        if (csv != null) {
+            java.util.Arrays.sort(csv);
+            for (File f : csv) {
+                if (tables.size() >= 4 || f.length() > 2_000_000 || f.length() == 0) continue;
+                File kept = new File(copies, "e" + n + "-" + f.getName().replaceAll("[^A-Za-z0-9._-]", "_"));
+                Files.copy(f.toPath(), kept.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                tables.add(kept);
+            }
+        }
         String output = LinuxTerminal.plain(r.output()); int exit = r.code();
         if (output.length() > 12_000) output = "…\n" + output.substring(output.length() - 12_000);
         if (exit == 124) output = (output + "\n(150초가 넘어 멈췄어요)").strip();
-        return new Run(exit, output, took, figures);
+        return new Run(exit, output, took, figures, tables);
     }
 }

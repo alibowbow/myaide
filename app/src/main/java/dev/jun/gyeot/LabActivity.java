@@ -495,6 +495,11 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
             case "judge" -> highlight(n, "토론 정리", R.drawable.ic_sparkle, ACCENT);
             case "report" -> highlight(n, n.data().optBoolean("mid") ? "중간 보고서" : "연구 보고서", R.drawable.ic_pages, roleHue("scribe"));
             case "learned" -> highlight(n, "지금까지 알게 된 것", R.drawable.ic_bulb, roleHue("pi"));
+            case "ideas" -> highlight(n, "새 아이디어 · 새로움 확인", R.drawable.ic_bulb, roleHue("pi"));
+            case "prereg" -> highlight(n, "사전 등록 · 예측과 반증 기준", R.drawable.ic_check, roleHue("pi"));
+            case "verdict" -> highlight(n, "판정 · " + LabBook.verdictName(n.data().optString("verdict")), R.drawable.ic_sparkle, "supported".equals(n.data().optString("verdict")) ? GREEN : "refuted".equals(n.data().optString("verdict")) ? RED : ORANGE);
+            case "paper" -> highlight(n, "논문 v" + n.data().optInt("version", 1) + (n.data().optBoolean("revised") ? " · 심사 반영" : ""), R.drawable.ic_pages, roleHue("scribe"));
+            case "data", "sheets" -> systemLine(n.text(), roleHue("experimenter") | 0xff000000);
             case "search" -> searchCard(p, n);
             case "run" -> runCard(p, n);
             case "ask" -> askCard(p, n);
@@ -542,7 +547,9 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         top.addView(ui.text(r.name(), 14, 700, TEXT));
         String tag = switch (n.kind()) {
             case "say" -> n.data().optBoolean("direct") ? "답변" : n.data().has("round") ? n.data().optInt("round") + "라운드" : "";
-            case "plan" -> "연구 계획"; case "analysis" -> "실험 E" + n.data().optInt("n") + " 분석"; case "critique" -> "비평"; default -> LabBook.kindName(n.kind());
+            case "plan" -> "연구 계획"; case "analysis" -> "실험 E" + n.data().optInt("n") + " 분석"; case "critique" -> "비평";
+            case "peer" -> "동료 심사 · " + LabBook.decisionName(n.data().optString("decision"));
+            default -> LabBook.kindName(n.kind());
         };
         if (!tag.isEmpty()) { TextView t = ui.text(tag, 11.5f, 600, roleHue(r.id()) | 0xff000000); t.setBackground(ui.shape(ui.tone(roleHue(r.id())), 99)); t.setPadding(ui.dp(8), ui.dp(2), ui.dp(8), ui.dp(2));
             LinearLayout.LayoutParams ta = new LinearLayout.LayoutParams(-2, -2); ta.leftMargin = ui.dp(8); top.addView(t, ta); }
@@ -561,8 +568,10 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         LinearLayout box = ui.column();
         TextView text = ui.text("", 15, 420, TEXT); text.setLineSpacing(ui.dp(3), 1); text.setTextIsSelectable(true);
         boolean open = expanded.contains(n.id());
+        // A paper's figures are named where they stand (the page made from it shows them).
+        String all = "paper".equals(n.kind()) ? figureNames(n.text()) : n.text();
         // Folded, only the start that can show is formatted and laid out (a long answer is the slow part of a redraw).
-        String shown = open ? n.text() : folded(n.text(), lines); boolean cut = shown.length() < n.text().length();
+        String shown = open ? all : folded(all, lines); boolean cut = shown.length() < all.length();
         text.setText(RichText.render(shown));
         box.addView(text);
         if (!open) { text.setMaxLines(lines); text.setEllipsize(TextUtils.TruncateAt.END); }
@@ -582,7 +591,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
     static int foldAt(LabBook.Note n) {
         return switch (n.kind()) {
             case "user", "system", "error", "step" -> -1;
-            case "judge", "learned" -> 24; case "report" -> 18; case "run" -> 4; case "ask" -> 0;
+            case "judge", "learned", "ideas", "prereg", "verdict" -> 24; case "report", "paper" -> 18; case "run" -> 4; case "ask" -> 0; case "data", "sheets" -> -1;
             default -> 14;
         };
     }
@@ -825,20 +834,26 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
     }
     /** +: the research steps, each on what is typed (or the project's question when nothing is). */
     private void actions(View anchor, LabBook.Project p) {
-        String[] labels = {"토론 시작", "문헌 조사", "실험 (리눅스 Python)", "비평 받기", "계획 세우기", "보고서 쓰기"};
-        ui.miniMenu(anchor, labels, -1, i -> act(p, new String[]{"debate", "search", "experiment", "critique", "plan", "report"}[i]));
+        String[] labels = {"가설→결론 (전 과정)", "새 아이디어 찾기", "토론 시작", "문헌 조사", "실험 (리눅스 Python)", "비평 받기", "계획 세우기", "보고서 쓰기", "논문 쓰기", "동료 심사·고치기", "구글 시트 데이터 가져오기", "결과 표를 구글 시트로"};
+        ui.miniMenu(anchor, labels, -1, i -> act(p, new String[]{"pipeline", "ideate", "debate", "search", "experiment", "critique", "plan", "report", "paper", "review", "sheetIn", "sheetOut"}[i]));
     }
     private void act(LabBook.Project p, String what) {
         if (runner.busy(p.id())) { Toast.makeText(this, "지금은 다른 작업이 진행 중이에요.", Toast.LENGTH_SHORT).show(); return; }
         String typed = input == null ? "" : input.getText().toString().strip();
         String focus = typed.isEmpty() ? (p.question().isBlank() ? p.title() : p.question()) : typed;
+        if ("sheetIn".equals(what)) { sheetIn(p, typed); return; }
+        if ("sheetOut".equals(what)) { sheetOut(p); return; }
         if ("experiment".equals(what) && !LabPython.ready(this)) {
             ui.confirm("실험은 앱 안 리눅스의 Python으로 돌려요. 계산 환경을 먼저 준비할까요?", "진행판에서 준비하기", () -> { tab = 4; render(true); }).show(); return;
         }
         boolean started;
         try {
-            if (!typed.isEmpty() && !"critique".equals(what) && !"report".equals(what) && !"plan".equals(what)) book.note(p.id(), "user", "", typed, "", null);
+            if (!typed.isEmpty() && !"critique".equals(what) && !"report".equals(what) && !"plan".equals(what) && !"review".equals(what)) book.note(p.id(), "user", "", typed, "", null);
             started = switch (what) {
+                case "pipeline" -> runner.pipeline(p.id(), typed);
+                case "ideate" -> runner.ideate(p.id(), typed);
+                case "paper" -> runner.paper(p.id(), typed);
+                case "review" -> runner.review(p.id());
                 case "search" -> runner.search(p.id(), typed);
                 case "experiment" -> runner.experiment(p.id(), focus);
                 case "critique" -> runner.critique(p.id());
@@ -848,9 +863,9 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
             };
         } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); return; }
         if (!started) { Toast.makeText(this, "시작하지 못했어요. 잠시 뒤 다시 해 주세요.", Toast.LENGTH_SHORT).show(); return; }
-        if (input != null && !typed.isEmpty() && !"critique".equals(what) && !"report".equals(what) && !"plan".equals(what)) input.setText("");
-        // A report appears in 산출물: asked from there, the screen stays there and shows it being written.
-        if ("report".equals(what) && tab == 2) { render(false); return; }
+        if (input != null && !typed.isEmpty() && !"critique".equals(what) && !"report".equals(what) && !"plan".equals(what) && !"review".equals(what)) input.setText("");
+        // A report or a paper appears in 산출물: asked from there, the screen stays there and shows it being written.
+        if (("report".equals(what) || "paper".equals(what) || "review".equals(what)) && tab == 2) { render(false); return; }
         tab = 0; render(true);
     }
     private void mention(View anchor) {
@@ -975,6 +990,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
     // ── 산출물 ────────────────────────────────────────────────────────
 
     private void outputsView(LabBook.Project p) {
+        paperView(p);
         String report = book.report(p.id());
         content.addView(heading("보고서", report.isBlank() ? null : "복사", report.isBlank() ? null : () -> copy(report)));
         boolean writing = runner.busy(p.id()) && runner.activity(p.id()).contains("보고서");
@@ -1056,6 +1072,108 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         return row;
     }
     private View quiet(String text) { TextView t = ui.text(text, 13.5f, 450, MUTED); t.setPadding(ui.dp(4), 0, ui.dp(4), ui.dp(4)); t.setLineSpacing(ui.dp(2), 1); return t; }
+    /**
+     * 논문 in 산출물: being written (live), none yet (what it is, with 가설→결론 and 논문 쓰기), or the newest version with its
+     * verdict and reviews, to keep as a page with its figures, review again, or send its tables to Google Sheets.
+     */
+    private void paperView(LabBook.Project p) {
+        String paper = book.paper(p.id());
+        content.addView(heading("논문", paper.isBlank() ? null : "복사", paper.isBlank() ? null : () -> copy(paper)));
+        String doing = runner.busy(p.id()) ? runner.activity(p.id()) : "";
+        boolean writing = doing.contains("논문") || doing.contains("심사");
+        LinearLayout card = ui.column(); card.setBackground(ui.glass(R_CARD, false)); card.setPadding(ui.dp(20), ui.dp(18), ui.dp(20), ui.dp(14));
+        if (writing) {
+            ShimmerText now = new ShimmerText(this, MUTED, TEXT); now.setTextSize(15); now.setTypeface(Ui.weight(620)); now.setText(doing);
+            card.addView(now); reportNow = now;
+            TextView about = ui.text("쓰고 → 비평가·이론가가 심사하고 → 심사를 반영해 고쳐요. 앱을 나가도 계속해요.", 13.5f, 450, MUTED); about.setPadding(0, ui.dp(6), 0, 0); card.addView(about);
+            content.addView(card, new LinearLayout.LayoutParams(-1, -2)); return;
+        }
+        if (paper.isBlank()) {
+            card.addView(ui.text("아직 논문이 없어요", 15.5f, 680, TEXT));
+            TextView about = ui.text("‘가설→결론’은 새 아이디어 → 문헌 → 사전 등록 → 실험 → 비평 → 판정 → 논문·동료 심사까지 한 번에 해요. 이미 실험이 있으면 ‘논문 쓰기’만 해도 돼요.", 13.5f, 450, MUTED);
+            about.setPadding(0, ui.dp(6), 0, ui.dp(12)); about.setLineSpacing(ui.dp(2), 1); card.addView(about);
+            LinearLayout buttons = ui.row();
+            buttons.addView(ui.pill("가설→결론", R.drawable.ic_sparkle, true, () -> act(p, "pipeline")), new LinearLayout.LayoutParams(-2, -2));
+            LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2); gap.leftMargin = ui.dp(8);
+            buttons.addView(ui.pill("논문 쓰기", R.drawable.ic_pen, false, () -> act(p, "paper")), gap);
+            card.addView(buttons);
+            content.addView(card, new LinearLayout.LayoutParams(-1, -2)); return;
+        }
+        // The verdict and the reviews' scores, one line each, above the paper.
+        String verdict = book.state(p.id()).optString("verdict");
+        List<String> marks = new ArrayList<>(); if (!verdict.isBlank()) marks.add(LabBook.verdictName(verdict));
+        for (LabBook.Note n : notes(p)) if ("peer".equals(n.kind())) { marks.removeIf(x -> x.startsWith(LabBook.role(n.role()).name())); marks.add(LabBook.role(n.role()).name() + " " + LabBook.decisionName(n.data().optString("decision"))); }
+        if (!marks.isEmpty()) { TextView m = ui.text(String.join(" · ", marks), 12.5f, 600, ACCENT); m.setPadding(0, 0, 0, ui.dp(8)); card.addView(m); }
+        TextView text = ui.text("", 15, 420, TEXT); text.setLineSpacing(ui.dp(4), 1); text.setTextIsSelectable(true);
+        // Figures show in the page (페이지로 저장); here each is named where it stands.
+        text.setText(RichText.render(figureNames(paper)));
+        card.addView(text);
+        LinearLayout buttons = ui.row(); buttons.setPadding(0, ui.dp(14), 0, 0);
+        buttons.addView(ui.pill("페이지로 저장 (그림 포함)", R.drawable.ic_pages, true, () -> savePaper(p)), new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2); gap.leftMargin = ui.dp(8);
+        buttons.addView(ui.pill("심사 다시", R.drawable.ic_refresh, false, () -> act(p, "review")), gap);
+        android.widget.HorizontalScrollView strip = new android.widget.HorizontalScrollView(this); strip.setHorizontalScrollBarEnabled(false); strip.addView(buttons);
+        card.addView(strip);
+        LinearLayout more = ui.row(); more.setPadding(0, ui.dp(8), 0, 0);
+        more.addView(ui.pill("결과 표를 구글 시트로", R.drawable.ic_download, false, () -> sheetOut(p)), new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout.LayoutParams g2 = new LinearLayout.LayoutParams(-2, -2); g2.leftMargin = ui.dp(8);
+        more.addView(ui.pill("다시 쓰기", R.drawable.ic_pen, false, () -> act(p, "paper")), g2);
+        card.addView(more);
+        content.addView(card, new LinearLayout.LayoutParams(-1, -2));
+    }
+    /** ![그림 1. …](e1-fig1.png) as words: the figure is in the page made from the paper. */
+    static String figureNames(String paper) { return paper.replaceAll("!\\[([^\\]]*)\\]\\(([^)\\s]+)\\)", "_[그림: $1 · $2]_"); }
+    /** The paper as one page in 페이지 (연구실), its figures inside it (LabPaper); off the main thread. */
+    private void savePaper(LabBook.Project p) {
+        String paper = book.paper(p.id()); if (paper.isBlank()) return;
+        Toast.makeText(this, "그림을 넣어 페이지로 만드는 중…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String said;
+            try {
+                String html = LabPaper.html(paper, book.files(p.id()));
+                dev.jun.gyeot.core.PageBook.Page page = PageStore.book(this).save(LabPaper.title(paper), "연구실", dev.jun.gyeot.core.PageBook.HTML, html, "", "");
+                said = "페이지 → 연구실에 저장했어요 · " + page.title();
+            } catch (Exception e) { said = e.getMessage() == null ? "저장하지 못했어요." : e.getMessage(); }
+            String done = said; main.post(() -> { if (!destroyed) Toast.makeText(this, done, Toast.LENGTH_LONG).show(); });
+        }, "lab-paper-page").start();
+    }
+    /** 구글 시트 데이터 가져오기: the sheet's address (typed, or asked for), read through Drive into the project's data. */
+    private void sheetIn(LabBook.Project p, String typed) {
+        if (!store.drive.connected()) { driveNeeded(); return; }
+        if (typed.contains("/spreadsheets/d/")) { importSheet(p, typed); return; }
+        Ui.Sheet sheet = ui.selectionSheet("구글 시트 데이터 가져오기", "시트 주소를 붙여 주세요. 첫 번째 탭을 CSV로 받아 실험가가 data/ 폴더에서 읽어요.");
+        android.widget.EditText address = ui.input("https://docs.google.com/spreadsheets/d/…", 1, 400);
+        sheet.body.addView(address, new LinearLayout.LayoutParams(-1, -2));
+        sheet.primary.setText("가져오기");
+        sheet.primary.setOnClickListener(v -> { String a = address.getText().toString().strip(); if (!a.contains("/spreadsheets/d/")) { address.setError("구글 시트 주소가 아니에요."); return; } sheet.dismiss(); importSheet(p, a); });
+        sheet.show();
+    }
+    private void importSheet(LabBook.Project p, String address) {
+        Toast.makeText(this, "구글 시트를 받는 중…", Toast.LENGTH_SHORT).show();
+        if (input != null && input.getText().toString().contains("/spreadsheets/d/")) input.setText("");
+        new Thread(() -> {
+            String said;
+            try { runner.importSheet(p.id(), address); said = "데이터로 가져왔어요 · 실험에서 쓸 수 있어요"; }
+            catch (Exception e) { said = e.getMessage() == null ? "가져오지 못했어요." : e.getMessage(); }
+            String done = said; main.post(() -> { if (destroyed) return; Toast.makeText(this, done, Toast.LENGTH_LONG).show(); render(false); });
+        }, "lab-sheet-in").start();
+    }
+    /** 결과 표를 구글 시트로: each table the experiments wrote becomes a Google Sheet; the links land in 토론방. */
+    private void sheetOut(LabBook.Project p) {
+        if (!store.drive.connected()) { driveNeeded(); return; }
+        Toast.makeText(this, "결과 표를 구글 시트로 보내는 중…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String said;
+            try { int n = runner.exportSheets(p.id()); said = "구글 시트 " + n + "개를 만들었어요 · 토론방에 링크가 있어요"; }
+            catch (Exception e) { said = e.getMessage() == null ? "보내지 못했어요." : e.getMessage(); }
+            String done = said; main.post(() -> { if (destroyed) return; Toast.makeText(this, done, Toast.LENGTH_LONG).show(); render(false); });
+        }, "lab-sheet-out").start();
+    }
+    /** Sheets go through the Google Drive connection: one tap to where it is connected. */
+    private void driveNeeded() {
+        ui.confirm("구글 시트는 Google Drive 연결로 읽고 만들어요. 지금 연결할까요?", "연결하러 가기",
+            () -> startActivity(new android.content.Intent(this, MainActivity.class).putExtra("tab", 2).putExtra(MainActivity.SETTINGS_PAGE, "drive").addFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP))).show();
+    }
     private void saveReport(LabBook.Project p) {
         String report = book.report(p.id()); if (report.isBlank()) return;
         try {
@@ -1171,7 +1289,12 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
             buttons.addView(ui.pill("승인하고 실행", R.drawable.ic_play, true, () -> approve(p, true)), new LinearLayout.LayoutParams(-2, -2));
             LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2); gap.leftMargin = ui.dp(8);
             buttons.addView(ui.pill("건너뛰기", 0, false, () -> approve(p, false)), gap);
-        } else buttons.addView(ui.pill("paused".equals(auto) || "waiting".equals(auto) || "done".equals(auto) ? "이어서 연구" : "자율 연구 시작", R.drawable.ic_sparkle, true, () -> autopilot(p)), new LinearLayout.LayoutParams(-2, -2));
+        } else {
+            boolean piping = book.state(p.id()).optBoolean("pipeline");
+            buttons.addView(ui.pill("paused".equals(auto) || "waiting".equals(auto) || ("done".equals(auto) && !piping) ? "이어서 연구" : "자율 연구 시작", R.drawable.ic_sparkle, true, () -> autopilot(p)), new LinearLayout.LayoutParams(-2, -2));
+            // 가설→결론: the whole way in a fixed order (a paused one goes on with 이어서 연구).
+            if (!piping) { LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2); gap.leftMargin = ui.dp(8); buttons.addView(ui.pill("가설→결론", R.drawable.ic_next, false, () -> act(p, "pipeline")), gap); }
+        }
         hero.addView(buttons);
         content.addView(hero, new LinearLayout.LayoutParams(-1, -2));
         // The budget.
@@ -1238,7 +1361,8 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         top.addView(ui.text(state, 15.5f, 680, TEXT));
         card.addView(top);
         String about = !supported ? "ARM64 휴대폰에서만 앱 안 리눅스를 쓸 수 있어요. 토론과 문헌 조사는 그대로 돼요."
-            : python ? "앱 안 리눅스(" + LinuxRuntime.DISTRIBUTION + ")의 Python과 numpy, scipy, sympy, matplotlib, pandas로 실험해요. 인터넷 없이 150초 안에 끝나는 계산만 돌려요."
+            : python ? "앱 안 리눅스(" + LinuxRuntime.DISTRIBUTION + ")의 Python과 " + LabPython.available(this) + "로 실험해요. 인터넷 없이 150초 안에 끝나는 계산만 돌려요."
+                + (LabPython.extrasMissing(this) ? " 통계·기계학습 도구(scikit-learn, statsmodels, networkx)는 ‘분석 도구 추가’로 받아요." : "")
             : linux ? "실험가가 쓰는 Python 과학 패키지를 pacman으로 받아요. 약 150MB, 몇 분 걸려요."
             : LinuxRuntime.busy ? LinuxRuntime.state
             : "실험은 앱 안 리눅스에서 돌아가요. 다운로드 " + LinuxRuntime.mb(LinuxRuntime.ARCHIVE_BYTES) + ", 필요 공간 " + LinuxRuntime.mb(LinuxRuntime.needed()) + ".";
@@ -1247,6 +1371,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         if (supported && !linux && LinuxRuntime.busy) buttons.addView(ui.pill("설치 취소", 0, false, LinuxRuntime::cancel), new LinearLayout.LayoutParams(-2, -2));
         else if (supported && !linux) buttons.addView(ui.pill("리눅스 설치", R.drawable.ic_download, true, this::installLinux), new LinearLayout.LayoutParams(-2, -2));
         else if (supported && !python) buttons.addView(ui.pill("계산 환경 준비", R.drawable.ic_download, true, this::installPython), new LinearLayout.LayoutParams(-2, -2));
+        else if (python && LabPython.extrasMissing(this)) buttons.addView(ui.pill("분석 도구 추가", R.drawable.ic_download, true, this::installPython), new LinearLayout.LayoutParams(-2, -2));
         else if (python) buttons.addView(ui.pill("다시 설치", R.drawable.ic_refresh, false, this::installPython), new LinearLayout.LayoutParams(-2, -2));
         if (buttons.getChildCount() > 0) card.addView(buttons);
         return card;
@@ -1263,7 +1388,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
     }
     private void installPython() {
         LabPython.prepare(this);
-        LinuxTerminal.show(this, ui, "계산 환경 준비", "pacman으로 Python과 numpy, scipy, sympy, matplotlib, pandas를 받아요. 몇 분 걸려요. 끝나면 닫아 주세요.", LabPython.installCommand(), null, () -> { if (!destroyed) render(false); });
+        LinuxTerminal.show(this, ui, "계산 환경 준비", "pacman으로 Python과 numpy, scipy, sympy, matplotlib, pandas, scikit-learn, statsmodels, networkx를 받아요. 몇 분 걸려요. 끝나면 닫아 주세요.", LabPython.installCommand(), null, () -> { if (!destroyed) render(false); });
     }
 
     // ── projects: making, changing, removing ─────────────────────────

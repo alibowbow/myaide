@@ -64,12 +64,16 @@ public final class LabBook {
     public record Stage(String id, String name, String about) {}
     public static final List<Stage> STAGES = List.of(
         new Stage("plan", "계획", "질문을 나누고 가설과 방법을 정해요"),
+        new Stage("idea", "새 아이디어", "아직 없는 가설을 내고, 정말 새로운지 문헌으로 확인해요"),
         new Stage("literature", "문헌 조사", "이미 알려진 것을 찾아요"),
         new Stage("debate", "토론·가설", "연구원들이 주장하고 반박해요"),
+        new Stage("prereg", "사전 등록", "실험 전에 예측과 반증 기준을 정해 둬요"),
         new Stage("experiment", "실험", "리눅스에서 계산으로 확인해요"),
         new Stage("analysis", "분석", "결과를 해석해요"),
         new Stage("review", "비평·검증", "근거와 반례를 따져요"),
-        new Stage("report", "보고서", "검증된 것만 묶어요"));
+        new Stage("verdict", "판정·결론", "사전 등록한 예측과 결과를 맞춰 가설을 판정해요"),
+        new Stage("report", "보고서", "검증된 것만 묶어요"),
+        new Stage("paper", "논문", "논문으로 쓰고, 동료 심사를 받아 고쳐요"));
 
     // ── records ──────────────────────────────────────────────────────
 
@@ -324,6 +328,9 @@ public final class LabBook {
 
     public synchronized String report(String id) { try { return read(new File(dir(id), "report.md"), ""); } catch (IOException e) { return ""; } }
     public synchronized void report(String id, String markdown) throws IOException { write(new File(dir(id), "report.md"), markdown == null ? "" : markdown); }
+    /** The paper (논문), its newest version: written by 기록원, then revised after 동료 심사. */
+    public synchronized String paper(String id) { try { return read(new File(dir(id), "paper.md"), ""); } catch (IOException e) { return ""; } }
+    public synchronized void paper(String id, String markdown) throws IOException { write(new File(dir(id), "paper.md"), markdown == null ? "" : markdown); }
     /** How many experiments have run. */
     public int experiments(String id) { int n = 0; for (Note note : notes(id)) if ("run".equals(note.kind())) n = Math.max(n, note.data().optInt("n")); return n; }
 
@@ -400,23 +407,28 @@ public final class LabBook {
               {"claims":[{"text":"주장 한 문장","status":"verified","evidence":"S2"}]}
               """;
     }
-    public static String experiment(String goal, String digest) {
+    public static String experiment(String goal, String digest) { return experiment(goal, digest, "numpy, scipy, sympy, mpmath, matplotlib, pandas", ""); }
+    /** packages: what is installed ("numpy, scipy, …"); data: the data files in data/ with their columns ("" for none). */
+    public static String experiment(String goal, String digest, String packages, String data) {
         return (digest.isBlank() ? "" : "지금까지의 연구 기록(요약):\n" + digest + "\n\n")
             + "실험 목표: " + goal + "\n\n"
+            + (data == null || data.isBlank() ? "" : "쓸 수 있는 데이터(data/ 폴더, CSV):\n" + data + "\n\n")
+            + "이 목표를 확인할 Python 3 프로그램을 하나 써. 규칙:\n- 쓸 수 있는 것: 표준 라이브러리, " + packages + ". 다른 패키지는 없어.\n"
+            + (data == null || data.isBlank() ? "" : "- 데이터는 data/ 폴더의 CSV를 pandas로 읽어(예: pd.read_csv('data/이름.csv')).\n")
             + """
-              이 목표를 확인할 Python 3 프로그램을 하나 써. 규칙:
-              - 쓸 수 있는 것: 표준 라이브러리, numpy, scipy, sympy, mpmath, matplotlib, pandas. 다른 패키지는 없어.
               - 인터넷에 접속하지 마. 지금 폴더 밖의 파일을 읽거나 쓰지 마.
               - 휴대폰에서 돌아가니 90초 안에 끝나게 크기를 정해.
               - 핵심 숫자와 결론을 print로 또렷하게 출력해. 결과가 가설을 지지하는지 판단할 수 있게.
               - 그래프가 도움이 되면 matplotlib으로 그려 out/ 폴더에 PNG로 저장해(plt.savefig('out/fig1.png', dpi=130, bbox_inches='tight')). 그래프 글자는 영어로(한글 글꼴이 없어). plt.show()는 쓰지 마.
               - 무작위를 쓰면 시드를 고정해.
+              - 결과 숫자 표는 out/results.csv(필요하면 out/ 아래 다른 이름.csv)로도 저장해. 첫 줄은 영어 열 이름. 이 표는 논문과 구글 시트로 가.
+              - 통계 검정을 했으면 검정 이름, 통계량, p값, 효과 크기를 함께 출력해.
               답 형식: 무엇을 어떻게 확인하는지 두세 문장, 그다음 ```python 코드 블록 하나.
               """;
     }
     public static String fix(String code, String error) {
         return "이 Python 코드가 실패했어.\n```python\n" + code + "\n```\n오류(끝부분):\n```\n" + error + "\n```\n"
-            + "원인을 한 문장으로 말하고, 고친 전체 코드를 ```python 블록 하나로 다시 줘. 같은 규칙(표준 라이브러리, numpy, scipy, sympy, mpmath, matplotlib, pandas만, 90초 안, 그림은 out/에 PNG)을 지켜.";
+            + "원인을 한 문장으로 말하고, 고친 전체 코드를 ```python 블록 하나로 다시 줘. 같은 규칙(앞에서 말한 패키지만, 90초 안, 그림은 out/에 PNG, 표는 out/에 CSV)을 지켜. 없는 패키지 때문이면 numpy·scipy로 직접 구현해.";
     }
     public static String analysis(String goal, int n, String code, String output, int figures) {
         return "실험 E" + n + "의 목표: " + goal + "\n\n코드:\n```python\n" + clip(code, 3000) + "\n```\n\n출력:\n```\n" + clip(output, 5000) + "\n```\n"
@@ -473,16 +485,227 @@ public final class LabBook {
             + "- search: 문헌 조사 (focus: 무엇을 찾을지)\n"
             + "- debate: 연구원 토론 (focus: 토론 주제, 쟁점이 있을 때)\n"
             + (python ? "- experiment: 계산 실험 (focus: 확인할 것 한 가지, 계산으로 확인할 수 있을 때만)\n" : "- experiment: 지금은 못 써(앱 안 Python이 준비되지 않았어)\n")
+            + "- ideate: 새 아이디어 찾기 (focus: 어느 방향으로) — 질문이 열려 있거나 새로운 연구를 하려는데 아직 '새 아이디어'를 고르지 않았을 때, 맨 처음에\n"
             + "- critique: 비평가의 검토 (결과가 쌓였을 때)\n"
             + (askedBefore ? "" : "- ask: 사용자에게 질문 (focus: 질문, 정말 사용자만 정할 수 있을 때만)\n")
-            + "- report: 보고서를 쓰고 마치기 (질문에 답할 만큼 모였거나, 남은 답이 6번 아래일 때)\n"
+            + "- paper: 논문을 쓰고 동료 심사를 받아 고친 뒤 마치기 (AI 답 4번 필요) — 문헌 조사와 실험 결과(E)가 하나 이상 있고 비평을 거쳤을 때\n"
+            + "- report: 보고서를 쓰고 마치기 (실험 없이 정리만 할 때, 또는 남은 답이 5번 아래일 때)\n"
             + "같은 일을 같은 초점으로 되풀이하지 마. 문헌 조사 없이 결론 내지 마. 비평 없이 보고서로 가지 마.\n"
             + "learned에는 지금까지 알게 된 것(연구 질문에 대한 잠정 결론)을 두세 줄로, 근거 번호([S1], [E2])와 함께 써. 아직 모르는 건 모른다고.\n"
-            + "JSON만 답해: {\"learned\":\"지금까지 알게 된 것 두세 줄\",\"action\":\"search|debate|experiment|critique|ask|report\",\"focus\":\"...\",\"why\":\"한 문장\"}";
+            + "JSON만 답해: {\"learned\":\"지금까지 알게 된 것 두세 줄\",\"action\":\"ideate|search|debate|experiment|critique|ask|paper|report\",\"focus\":\"...\",\"why\":\"한 문장\"}";
     }
     /** A researcher answering the user directly (@이름). */
     public static String direct(String message, String digest) {
         return (digest.isBlank() ? "" : "지금까지의 연구 기록(요약):\n" + digest + "\n\n") + "사용자가 너에게 물었어:\n" + message + "\n\n네 역할로 답해. 600자 안팎으로.";
+    }
+
+    // ── new research: ideas, their novelty, the paper and its review ──
+
+    /**
+     * 새 아이디어 (준: "새로운 연구, 실험을 하고 새로운 논문도 쓸 수 있게"): research ideas that are not known yet and can be
+     * tested here (Python in the app's Linux, open papers), each with search words for checking whether it is new.
+     */
+    public static String ideas(String focus, String digest) {
+        return (digest.isBlank() ? "" : "연구 기록(요약):\n" + digest + "\n\n") + "방향: " + (focus == null || focus.isBlank() ? "(연구 질문 그대로)" : focus) + "\n\n"
+            + """
+              이 방향에서 아직 연구되지 않았을 법한 새로운 연구 아이디어 5개를 내. 조건:
+              - 기존에 잘 알려진 결과를 다시 확인하는 것이 아니라, 새로운 질문·조합·방법·측정이어야 해.
+              - 이 앱에서 확인할 수 있어야 해: 공개 논문·데이터 + 휴대폰 안 Python(numpy, scipy, sympy, pandas, matplotlib, 150초 안)으로 계산·시뮬레이션·통계 분석.
+              - 반증 가능해야 해: 무엇이 관찰되면 틀린 것인지.
+              - 위험한 생물·화학 실험, 사람 대상 실험은 제외.
+              JSON만 답해:
+              {"ideas":[{"title":"짧은 제목","hypothesis":"가설 한 문장","novelty":"왜 새로운지 한 문장","test":"이 앱에서 확인하는 방법 한두 문장","outcome":"맞다면/틀리다면 보일 것","queries":["새로운지 확인할 영어 검색어 1","검색어 2"]}]}
+              """;
+    }
+    /** One idea 새 아이디어 gave. */
+    public record Idea(String title, String hypothesis, String novelty, String test, String outcome, List<String> queries) {
+        public JSONObject json() {
+            JSONObject o = new JSONObject();
+            try { o.put("title", title).put("hypothesis", hypothesis).put("novelty", novelty).put("test", test).put("outcome", outcome).put("queries", new JSONArray(queries)); } catch (Exception ignored) {}
+            return o;
+        }
+        public static Idea of(JSONObject o) {
+            List<String> q = new ArrayList<>(); JSONArray a = o == null ? null : o.optJSONArray("queries");
+            for (int i = 0; a != null && i < a.length() && q.size() < 2; i++) { String s = clean(a.optString(i), 120); if (!s.isBlank()) q.add(s); }
+            return o == null ? null : new Idea(clean(o.optString("title"), 120), clean(o.optString("hypothesis"), 400), clean(o.optString("novelty"), 300), clean(o.optString("test"), 400), clean(o.optString("outcome"), 300), q);
+        }
+    }
+    public static List<Idea> ideaList(String answer) {
+        List<Idea> out = new ArrayList<>(); JSONObject o = json(answer); JSONArray a = o == null ? null : o.optJSONArray("ideas");
+        for (int i = 0; a != null && i < a.length() && out.size() < 5; i++) { Idea idea = Idea.of(a.optJSONObject(i)); if (idea != null && !idea.title().isBlank() && !idea.hypothesis().isBlank()) out.add(idea); }
+        return out;
+    }
+    /** 문헌조사원 judging each idea against the closest papers found for it: how new, how testable here, how much it matters. */
+    public static String novelty(String ideasWithPapers) {
+        return ideasWithPapers + "\n\n"
+            + """
+              위 아이디어마다, 함께 찾은 가장 가까운 논문들과 비교해 점수를 매겨(1~5).
+              - novelty(새로움): 5 = 찾은 논문 어디에도 없음, 3 = 비슷한 연구가 있지만 질문·방법·대상이 다름, 1 = 이미 같은 연구가 있음
+              - feasible(여기서 확인 가능): 이 앱의 Python(150초)과 공개 자료로 의미 있는 답을 낼 수 있는지
+              - impact(의미): 맞다면 얼마나 중요한지
+              closest에는 가장 가까운 논문의 번호([S3])를, note에는 무엇이 다른지 한 문장.
+              JSON만 답해: {"scores":[{"i":1,"novelty":4,"feasible":3,"impact":3,"closest":"[S3]","note":"..."}]}
+              """;
+    }
+    public record IdeaScore(int novelty, int feasible, int impact, String closest, String note) {
+        public int total() { return novelty * 2 + feasible + impact; }
+    }
+    public static java.util.Map<Integer, IdeaScore> scores(String answer) {
+        java.util.Map<Integer, IdeaScore> out = new java.util.HashMap<>(); JSONObject o = json(answer); JSONArray a = o == null ? null : o.optJSONArray("scores");
+        for (int i = 0; a != null && i < a.length(); i++) {
+            JSONObject s = a.optJSONObject(i); if (s == null) continue;
+            out.put(s.optInt("i", i + 1), new IdeaScore(score(s.optInt("novelty", 3)), score(s.optInt("feasible", 3)), score(s.optInt("impact", 3)), clean(s.optString("closest"), 40), clean(s.optString("note"), 300)));
+        }
+        return out;
+    }
+    private static int score(int v) { return Math.max(1, Math.min(5, v)); }
+    /** The experiments as a paper reads them: goal, outcome, figures by file name, the end of the output, the analysis. */
+    public static String experiments(List<Note> notes) {
+        StringBuilder out = new StringBuilder(); java.util.Map<Integer, String> analyses = new java.util.HashMap<>();
+        for (Note n : notes) if ("analysis".equals(n.kind())) analyses.put(n.data().optInt("n"), prose(n.text()));
+        for (Note n : notes) {
+            if (!"run".equals(n.kind())) continue;
+            JSONObject d = n.data(); int k = d.optInt("n");
+            JSONArray f = d.optJSONArray("figures"); List<String> figures = new ArrayList<>(); for (int i = 0; f != null && i < f.length(); i++) figures.add(f.optString(i));
+            String output = d.optString("output");
+            out.append("[E").append(k).append("] 목표: ").append(d.optString("goal")).append(" · ").append(d.optInt("exit") == 0 ? "성공" : "실패")
+                .append(" · ").append(d.optLong("millis") / 1000).append("초").append(figures.isEmpty() ? "" : " · 그림 파일: " + String.join(", ", figures)).append('\n')
+                .append("출력(끝부분):\n").append(clip(output.length() > 1800 ? output.substring(output.length() - 1800) : output, 1800)).append('\n');
+            if (analyses.containsKey(k)) out.append("분석: ").append(clip(analyses.get(k), 900)).append('\n');
+            out.append('\n');
+        }
+        return out.toString().strip();
+    }
+    /** 논문: the research written as a paper, only from what is in the record (real sources, the experiments' own numbers and figures). */
+    public static String paper(String digest, String ledger, String sources, String experiments, String idea, String extra) {
+        return "연구 기록(요약):\n" + digest + "\n\n" + (idea.isBlank() ? "" : "고른 연구 아이디어:\n" + idea + "\n\n")
+            + "검증 장부:\n" + (ledger.isBlank() ? "(비어 있음)" : ledger) + "\n\n실험:\n" + (experiments.isBlank() ? "(없음)" : experiments)
+            + "\n\n참고문헌:\n" + (sources.isBlank() ? "(없음)" : sources) + (extra == null || extra.isBlank() ? "" : "\n\n사용자의 요청: " + extra) + "\n\n"
+            + """
+              이 연구를 학술 논문으로 써. 형식(마크다운):
+              # (논문 제목)
+              **초록** (150~250자: 질문, 방법, 핵심 결과의 숫자, 의미)
+              ## 1. 서론 (왜 중요한지, 무엇이 아직 모르는지, 이 논문의 기여 2~3가지를 목록으로)
+              ## 2. 관련 연구 (참고문헌을 [S1]처럼 인용하며, 이 연구가 무엇이 다른지)
+              ## 3. 방법 (가설, 모형·수식, 계산·시뮬레이션 방법, 재현에 필요한 매개변수)
+              ## 4. 결과 (실험 E마다: 무엇을 했고 숫자가 무엇이었는지. 숫자는 실험 출력에 있는 것만, 표로 정리. 그림은 ![그림 n. 설명](파일이름) 한 줄로, 위 '그림 파일'에 있는 이름만)
+              ## 5. 논의 (가설이 지지되는지 반박되는지, 다른 설명, 검증 장부의 반박·논쟁 주장)
+              ## 6. 한계와 다음 연구
+              ## 7. 결론
+              ## 참고문헌 (본문에 인용한 것만, 위 목록 그대로)
+              규칙:
+              - 실험 출력에 없는 숫자, 위 목록에 없는 논문은 절대 쓰지 마. 결과가 가설과 어긋나면 그대로 써.
+              - 계산 실험은 증거이지 증명이 아니야. 확인된 범위를 정확히 밝혀.
+              - 미검증 주장에는 '(미검증)'.
+              - 마지막 줄: "_들퍼레 연구실의 AI 연구원들이 쓴 논문이에요. 동료 심사를 거쳤지만 사람의 검증이 필요해요._"
+              """;
+    }
+    /** 동료 심사: a reviewer's report on the paper, with scores and what must change. */
+    public static String peer(String paper, String ledger, String experiments) {
+        return "심사할 논문:\n" + clip(paper, 14000) + "\n\n연구 기록의 검증 장부:\n" + (ledger.isBlank() ? "(비어 있음)" : ledger) + "\n\n실험 기록:\n" + (experiments.isBlank() ? "(없음)" : clip(experiments, 5000)) + "\n\n"
+            + """
+              학회 심사위원처럼 이 논문을 엄격하게 심사해. 실험 기록과 다른 숫자, 출처 없는 주장, 과장된 결론, 빠진 대조군·기준선, 재현 정보 부족을 찾아.
+              형식:
+              ## 요약
+              ## 강점
+              ## 약점
+              (번호를 붙여 구체적으로)
+              ## 고쳐야 할 것
+              (필수 수정만, 번호를 붙여)
+              ## 판정
+              마지막에 ```json 블록:
+              {"scores":{"novelty":1-10,"soundness":1-10,"clarity":1-10,"significance":1-10},"decision":"accept 또는 minor 또는 major 또는 reject"}
+              """;
+    }
+    public record Review(int novelty, int soundness, int clarity, int significance, String decision) {
+        public String line() { return "새로움 " + novelty + " · 타당성 " + soundness + " · 명확성 " + clarity + " · 중요성 " + significance + " · " + decisionName(decision); }
+    }
+    public static Review review(String answer) {
+        JSONObject o = json(answer); JSONObject s = o == null ? null : o.optJSONObject("scores");
+        String d = o == null ? "" : o.optString("decision").strip().toLowerCase(Locale.ROOT);
+        if (!List.of("accept", "minor", "major", "reject").contains(d)) d = "major";
+        return new Review(ten(s, "novelty"), ten(s, "soundness"), ten(s, "clarity"), ten(s, "significance"), d);
+    }
+    private static int ten(JSONObject s, String k) { return s == null ? 5 : Math.max(1, Math.min(10, s.optInt(k, 5))); }
+    public static String decisionName(String d) {
+        return switch (d == null ? "" : d) { case "accept" -> "게재"; case "minor" -> "소폭 수정 후 게재"; case "reject" -> "게재 불가"; default -> "대폭 수정"; };
+    }
+    /** 수정: the paper again, answering each review's required changes, with what changed at the end. */
+    public static String revise(String paper, String reviews, String ledger, String sources, String experiments) {
+        return "지금 논문:\n" + clip(paper, 14000) + "\n\n동료 심사:\n" + clip(reviews, 8000) + "\n\n검증 장부:\n" + (ledger.isBlank() ? "(비어 있음)" : ledger)
+            + "\n\n실험:\n" + (experiments.isBlank() ? "(없음)" : clip(experiments, 5000)) + "\n\n참고문헌:\n" + (sources.isBlank() ? "(없음)" : sources) + "\n\n"
+            + """
+              심사의 '고쳐야 할 것'을 하나씩 반영해 논문 전체를 다시 써(같은 형식). 반영할 수 없는 것(새 실험이 필요한 것)은 '한계와 다음 연구'에 정직하게 적어.
+              새 숫자나 새 논문을 지어내지 마. 맨 끝, 마지막 줄 바로 앞에 '## 심사 반영' 소제목을 두고 무엇을 어떻게 고쳤는지 번호로 짧게 적어.
+              """;
+    }
+
+    /**
+     * 사전 등록 (가설→결론 파이프라인): before any experiment, the hypothesis, what each prediction would show, what would
+     * refute it, and the experiments and analysis that will decide, so the verdict is held to what was said first.
+     */
+    public static String prereg(String digest, String idea, String data) {
+        return "연구 기록(요약):\n" + digest + "\n\n" + (idea.isBlank() ? "" : "연구할 아이디어:\n" + idea + "\n\n") + (data == null || data.isBlank() ? "" : "쓸 수 있는 데이터:\n" + data + "\n\n")
+            + """
+              실험 전에 연구를 사전 등록해. 형식:
+              ## 가설
+              ## 예측
+              (P1, P2 …: 무엇을 측정하면 어떤 숫자·방향이 나와야 하는지, 기준값까지)
+              ## 반증 기준
+              (어떤 결과가 나오면 가설이 틀렸다고 인정할지)
+              ## 실험 계획
+              (E1, E2: 휴대폰 Python으로 150초 안에 돌릴 수 있는 계산·시뮬레이션·데이터 분석, 대조군·기준선 포함)
+              ## 분석 계획
+              (어떤 통계·지표로 판단할지, 유의수준)
+              마지막에 ```json 블록:
+              {"experiments":["E1에서 할 일 한 문장(측정할 것과 대조군 포함)","E2에서 할 일"],"predictions":[{"id":"P1","text":"예측","refute":"반증 조건"}]}
+              """;
+    }
+    /** The experiments a 사전 등록 lists (at most two). */
+    public static List<String> registered(String answer) {
+        List<String> out = new ArrayList<>(); JSONObject o = json(answer); JSONArray a = o == null ? null : o.optJSONArray("experiments");
+        for (int i = 0; a != null && i < a.length() && out.size() < 2; i++) { String s = clean(a.optString(i), 400); if (!s.isBlank()) out.add(s); }
+        return out;
+    }
+    /** 판정·결론: each registered prediction against what the experiments printed, and the hypothesis judged by the refutation rule set first. */
+    public static String verdict(String digest, String prereg, String experiments, String ledger) {
+        return "사전 등록:\n" + clip(prereg, 5000) + "\n\n실험:\n" + (experiments.isBlank() ? "(없음)" : clip(experiments, 7000)) + "\n\n검증 장부:\n" + (ledger.isBlank() ? "(비어 있음)" : ledger)
+            + "\n\n연구 기록(요약):\n" + digest + "\n\n"
+            + """
+              사전 등록한 예측과 실제 실험 출력을 하나씩 맞춰 가설을 판정해. 사전 등록 뒤에 기준을 바꾸지 마.
+              형식:
+              ## 판정
+              (지지 / 반박 / 판단 불가 중 하나와 한 문장 이유)
+              ## 예측별 결과
+              (P1: 맞음·틀림·판단 불가 — 실제 숫자와 근거 [E1])
+              ## 결론
+              (이 연구로 말할 수 있는 것과 없는 것)
+              ## 남은 의문과 다음 실험
+              마지막에 ```json 블록:
+              {"verdict":"supported 또는 refuted 또는 inconclusive","claims":[{"text":"결론 주장 한 문장","status":"verified 또는 refuted 또는 disputed 또는 check","evidence":"E1"}]}
+              """;
+    }
+    public static String verdictOf(String answer) {
+        JSONObject o = json(answer); String v = o == null ? "" : o.optString("verdict").strip().toLowerCase(Locale.ROOT);
+        return List.of("supported", "refuted", "inconclusive").contains(v) ? v : "inconclusive";
+    }
+    public static String verdictName(String v) { return switch (v == null ? "" : v) { case "supported" -> "가설 지지"; case "refuted" -> "가설 반박"; default -> "판단 불가"; }; }
+    /**
+     * The data files in a folder (data/*.csv) as an experiment is told of them: name, rows, columns and the first rows.
+     * "" when there are none.
+     */
+    public static String dataList(File folder) {
+        File[] files = folder == null ? null : folder.listFiles((d, name) -> name.endsWith(".csv"));
+        if (files == null || files.length == 0) return "";
+        java.util.Arrays.sort(files); StringBuilder out = new StringBuilder();
+        for (File f : files) {
+            try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(f), java.nio.charset.StandardCharsets.UTF_8))) {
+                List<String> head = new ArrayList<>(); String line; int rows = 0;
+                while ((line = r.readLine()) != null) { if (head.size() < 4) head.add(clip(line, 300)); rows++; }
+                out.append("- data/").append(f.getName()).append(" · ").append(Math.max(0, rows - 1)).append("행\n  ").append(String.join("\n  ", head)).append('\n');
+            } catch (IOException unreadable) { out.append("- data/").append(f.getName()).append(" (읽지 못함)\n"); }
+        }
+        return out.toString().strip();
     }
 
     // ── reading the answers ─────────────────────────────────────────
@@ -550,12 +773,13 @@ public final class LabBook {
     public static Step step(String answer) {
         JSONObject o = json(answer);
         String a = o == null ? "" : o.optString("action").strip().toLowerCase(Locale.ROOT);
-        if (!List.of("search", "debate", "experiment", "critique", "ask", "report").contains(a)) a = "report";
+        if (!List.of("ideate", "search", "debate", "experiment", "critique", "ask", "paper", "report").contains(a)) a = "report";
         return new Step(a, o == null ? "" : clean(o.optString("focus"), 300), o == null ? "다음 단계를 읽지 못해 보고서로 마무리해요." : clean(o.optString("why"), 300), o == null ? "" : clean(o.optString("learned"), 900));
     }
     public static String actionName(String action) {
         return switch (action == null ? "" : action) {
             case "search" -> "문헌 조사"; case "debate" -> "토론"; case "experiment" -> "실험"; case "critique" -> "비평"; case "ask" -> "질문"; case "report" -> "보고서"; case "plan" -> "계획";
+            case "ideate" -> "새 아이디어"; case "paper" -> "논문"; case "prereg" -> "사전 등록"; case "verdict" -> "판정·결론";
             default -> "다음 단계";
         };
     }
@@ -572,6 +796,7 @@ public final class LabBook {
             String what = switch (n.kind()) {
                 case "run" -> "실험 E" + n.data().optInt("n") + (n.data().optInt("exit") == 0 ? " 성공" : " 실패") + ": " + n.data().optString("goal") + "\n출력: " + clip(n.data().optString("output"), 900);
                 case "step" -> "다음 단계: " + actionName(n.data().optString("action")) + " — " + n.data().optString("focus");
+                case "paper" -> "논문 v" + n.data().optInt("version", 1) + " 작성: " + clip(prose(n.text()), 500);
                 default -> prose(n.text());
             };
             int room = Math.max(300, Math.min(1400, budget - used));
@@ -585,6 +810,7 @@ public final class LabBook {
         return switch (kind == null ? "" : kind) {
             case "user" -> "사용자"; case "say" -> "발언"; case "learned" -> "중간 정리"; case "judge" -> "토론 정리"; case "plan" -> "계획"; case "step" -> "결정"; case "search" -> "문헌 조사";
             case "run" -> "실험"; case "analysis" -> "분석"; case "critique" -> "비평"; case "report" -> "보고서"; case "ask" -> "승인·질문"; case "error" -> "오류";
+            case "ideas" -> "새 아이디어"; case "paper" -> "논문"; case "peer" -> "동료 심사"; case "prereg" -> "사전 등록"; case "verdict" -> "판정·결론"; case "data" -> "데이터"; case "sheets" -> "구글 시트";
             default -> "기록";
         };
     }

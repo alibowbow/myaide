@@ -143,6 +143,40 @@ public class LabScreenTests {
         shadowOf(Looper.getMainLooper()).idle();
         shot(b, "wide-intro");
     }
+    /** 준: "새로운 연구, 실험을 하고 새로운 논문도", "가설 제시 부터 결론도출까지": ideas, 사전 등록, 판정, 동료 심사 and the paper as a page with its figure. */
+    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void paperPipeline() throws Exception {
+        Application app = RuntimeEnvironment.getApplication();
+        String id = seed(app);
+        LabBook book = new LabBook(new File(app.getFilesDir(), "lab"));
+        JSONArray ideas = new JSONArray()
+            .put(new JSONObject().put("title", "높이별 GUE 수렴 속도").put("hypothesis", "정규화 간격의 KS 거리는 log T에 반비례해 줄어든다").put("novelty_score", 4).put("feasible", 4).put("impact", 3).put("closest", "[S1]").put("note", "높이별 수렴 속도는 다루지 않았어요"))
+            .put(new JSONObject().put("title", "포아송 혼합 모형").put("hypothesis", "낮은 높이 간격은 GUE와 포아송의 혼합이다").put("novelty_score", 3).put("feasible", 3).put("impact", 2));
+        JSONObject state = book.state(id); state.put("ideas", ideas).put("idea", ideas.getJSONObject(0)).put("verdict", "supported"); book.state(id, state);
+        book.note(id, "ideas", "pi", "**★ 1. 높이별 GUE 수렴 속도**\n정규화 간격의 KS 거리는 log T에 반비례해 줄어든다\n새로움 4/5 · 확인 가능 4/5 · 의미 3/5 · 가장 가까운 연구 [S1]\n\n**2. 포아송 혼합 모형**\n새로움 3/5\n\n고른 아이디어: 1번", "Claude · Opus 5.5", new JSONObject().put("chosen", 0));
+        book.note(id, "prereg", "pi", "## 가설\nKS 거리는 log T에 반비례해 줄어든다.\n## 예측\n- P1: 높이 구간 5개에서 KS 거리가 단조 감소\n## 반증 기준\n- 감소하지 않으면 반박", "Claude · Opus 5.5", new JSONObject());
+        book.note(id, "verdict", "pi", "## 판정\n지지 · KS 거리가 0.052 → 0.021로 줄었어요 [E1].", "Claude · Opus 5.5", new JSONObject().put("verdict", "supported"));
+        book.note(id, "peer", "critic", "## 요약\n수치 실험으로 수렴을 보였어요.\n## 고쳐야 할 것\n1. 오차 막대를 넣어요.", "Grok · Grok 4.3", new JSONObject().put("decision", "minor").put("novelty", 7).put("soundness", 6).put("clarity", 8).put("significance", 6));
+        // The experiment's figure, as LabPython keeps it.
+        android.graphics.Bitmap fig = android.graphics.Bitmap.createBitmap(640, 400, android.graphics.Bitmap.Config.ARGB_8888); new Canvas(fig).drawColor(0xff3366cc);
+        try (FileOutputStream out = new FileOutputStream(new File(book.files(id), "e1-fig1.png"))) { fig.compress(Bitmap.CompressFormat.PNG, 100, out); }
+        String paper = "# 리만 제타 영점 간격의 높이별 GUE 수렴\n**초록** 영점 2천 개로 KS 거리가 높이에 따라 줄어드는 것을 보였어요.\n## 1. 서론\n- 기여 1\n## 4. 결과\n| 구간 | KS |\n|---|---|\n| 1 | 0.052 |\n| 5 | 0.021 |\n\n![그림 1. 높이별 KS 거리](e1-fig1.png)\n## 참고문헌\n[S1] Odlyzko (1987)";
+        book.paper(id, paper);
+        book.note(id, "paper", "scribe", paper, "Claude · Opus 5.5", new JSONObject().put("version", 2).put("revised", true));
+        String html = LabPaper.html(paper, book.files(id));
+        assertTrue("figure inside the page", html.contains("data:image/jpeg;base64,") && html.contains("<figcaption>그림 1. 높이별 KS 거리</figcaption>"));
+        assertTrue("table kept", html.contains("<table") && html.contains("0.021"));
+        assertEquals("리만 제타 영점 간격의 높이별 GUE 수렴", LabPaper.title(paper));
+        Activity a = Robolectric.buildActivity(LabActivity.class, new Intent(app, LabActivity.class).putExtra(LabActivity.OPEN, id)).setup().get();
+        shadowOf(Looper.getMainLooper()).idle();
+        shot(a, "phone-paper-room");
+        tap(a, "산출물"); shot(a, "phone-paper-outputs");
+        View decor = a.getWindow().getDecorView(); java.util.ArrayList<View> found = new java.util.ArrayList<>();
+        decor.findViewsWithText(found, "페이지로 저장 (그림 포함)", View.FIND_VIEWS_WITH_TEXT);
+        assertFalse("the paper can be kept as a page", found.isEmpty());
+        found.clear(); decor.findViewsWithText(found, "가설 지지", View.FIND_VIEWS_WITH_TEXT);
+        assertFalse("the verdict shows above the paper", found.isEmpty());
+        tap(a, "진행판"); shot(a, "phone-paper-board");
+    }
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void emptyList() throws Exception {
         Application app = RuntimeEnvironment.getApplication(); fresh();
         Activity a = Robolectric.buildActivity(LabActivity.class, new Intent(app, LabActivity.class)).setup().get();

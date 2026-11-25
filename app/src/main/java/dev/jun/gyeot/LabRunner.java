@@ -110,6 +110,25 @@ final class LabRunner {
     boolean critique(String project) { return start(project, "비평", this::critique); }
     boolean report(String project) { return start(project, "보고서", this::report); }
     boolean plan(String project) { return start(project, "계획", this::plan); }
+    boolean ideate(String project, String focus) { return start(project, "새 아이디어", j -> ideate(j, focus)); }
+    /**
+     * 가설→결론 (준: "가설 제시 부터 결론도출까지의 파이프라인"): new idea (the hypothesis) → literature → 사전 등록 → experiments
+     * → 비평 → 판정 → 논문 → 동료 심사·수정, in that order, as a 자율 연구 run (its budget, its 승인 for experiments, 이어서 연구).
+     */
+    boolean pipeline(String project, String focus) {
+        return start(project, "가설→결론", j -> {
+            book.resetRun(project);
+            JSONObject s = book.state(project); s.put("pipeline", true); s.put("pipe", 0); s.put("pipeFocus", focus == null ? "" : focus); book.state(project, s);
+            LabBook.Project p = project(project);
+            book.note(project, "system", "", "가설부터 결론까지 연구를 시작했어요 · 새 아이디어 → 문헌 → 사전 등록 → 실험 → 비평 → 판정 → 논문·심사 · 이번 한도 AI 답 " + p.budget() + "번", "", null);
+            book.autopilot(project, "running"); changed(project);
+            pipeline(j);
+        });
+    }
+    /** 논문: written, reviewed by two researchers, then revised. */
+    boolean paper(String project, String extra) { return start(project, "논문", j -> paper(j, extra)); }
+    /** 동료 심사 again on the paper there is, then its revision. */
+    boolean review(String project) { return start(project, "동료 심사", j -> { if (book.paper(j.project).isBlank()) throw new IllegalStateException("아직 논문이 없어요. 먼저 ‘논문 쓰기’를 해 주세요."); peerAndRevise(j); }); }
     /** 자율 연구. resume: go on with the run's budget as it is (after the user answered); else a new run with the budget full. */
     boolean autopilot(String project, boolean resume) {
         return start(project, "자율 연구", j -> {
@@ -311,7 +330,8 @@ final class LabRunner {
         book.stage(id, "experiment", "doing");
         int n = book.experiments(id) + 1;
         what(j, "실험가가 실험 E" + n + " 코드를 쓰는 중");
-        String[] a = ask(j, LabBook.EXPERIMENTER.id(), LabBook.experiment(aim, digest(id, 3000)));
+        String data = LabBook.dataList(new File(book.files(id), "data"));
+        String[] a = ask(j, LabBook.EXPERIMENTER.id(), LabBook.experiment(aim, digest(id, 3000) + (idea(id).isBlank() ? "" : "\n\n연구하는 아이디어:\n" + idea(id)) + prereg(id), LabPython.available(app), data));
         String code = LabBook.code(a[0]), about = LabBook.beforeCode(a[0]);
         if (code.isBlank()) throw new IOException("실험가가 코드를 보내지 않았어요. 다시 시도해 주세요.");
         LabPython.Run run = null; int attempts = 0;
@@ -328,7 +348,8 @@ final class LabRunner {
             code = fixed;
         }
         JSONArray figures = new JSONArray(); for (File f : run.figures()) figures.put(f.getName());
-        book.note(id, "run", LabBook.EXPERIMENTER.id(), about, a[1], obj("n", n, "goal", aim, "code", code, "exit", run.exit(), "millis", run.millis(), "output", run.output(), "figures", figures, "attempts", attempts));
+        JSONArray tables = new JSONArray(); for (File f : run.tables()) tables.put(f.getName());
+        book.note(id, "run", LabBook.EXPERIMENTER.id(), about, a[1], obj("n", n, "goal", aim, "code", code, "exit", run.exit(), "millis", run.millis(), "output", run.output(), "figures", figures, "tables", tables, "attempts", attempts));
         book.stage(id, "experiment", "done");
         changed(id);
         if (run.exit() != 0 && run.output().isBlank()) return;
@@ -376,10 +397,238 @@ final class LabRunner {
         book.note(j.project, "say", to.id(), LabBook.prose(a[0]), a[1], obj("direct", true));
     }
 
+    // ── 새 연구: 아이디어 · 새로움 확인 · 논문 · 동료 심사 ──────────────
+
+    /**
+     * 새 아이디어: 책임연구원 proposes up to five testable ideas; each is searched for in the field's papers (the closest kept as
+     * sources), 문헌조사원 scores how new, how testable here and how much it matters against them, and the best becomes the
+     * run's idea (state "idea"), which the next steps and the paper follow.
+     */
+    private void ideate(Job j, String focus) throws Exception {
+        LabBook.Project p = project(j.project); String id = p.id();
+        book.stage(id, "idea", "doing");
+        what(j, "책임연구원이 새 아이디어를 내는 중");
+        String[] a = ask(j, LabBook.PI.id(), LabBook.ideas(focus == null || focus.isBlank() ? (p.question().isBlank() ? p.title() : p.question()) : focus, digest(id, 3000)));
+        List<LabBook.Idea> ideas = LabBook.ideaList(a[0]);
+        if (ideas.isEmpty()) throw new IOException("책임연구원이 아이디어를 내지 못했어요. 다시 해 주세요.");
+        String source = LabBook.field(p.field()).sources().get(0);
+        StringBuilder compared = new StringBuilder(); List<List<LabBook.Source>> nearest = new ArrayList<>();
+        for (int i = 0; i < ideas.size(); i++) {
+            LabBook.Idea idea = ideas.get(i); check(j);
+            what(j, "새로운지 확인하는 중 · " + (i + 1) + "/" + ideas.size() + " " + idea.title());
+            List<LabBook.Source> found = new ArrayList<>();
+            for (String q : idea.queries().isEmpty() ? List.of(idea.title()) : idea.queries()) {
+                try { found.addAll(fetch(j, source, q)); } catch (Stopped s) { throw s; } catch (Exception unreachable) { /* the other words, or none */ }
+                if ("arxiv".equals(source)) Thread.sleep(1200);
+                if (found.isEmpty() && !"openalex".equals(source)) { try { found.addAll(fetch(j, "openalex", q)); } catch (Stopped s) { throw s; } catch (Exception ignored) {} }
+            }
+            List<LabBook.Source> keyed = book.sources(id, LabSources.merge(found, 3));
+            nearest.add(keyed);
+            compared.append("아이디어 ").append(i + 1).append(". ").append(idea.title()).append("\n가설: ").append(idea.hypothesis()).append("\n새로운 점(제안자 주장): ").append(idea.novelty())
+                .append("\n확인 방법: ").append(idea.test()).append("\n가장 가까운 논문:\n").append(keyed.isEmpty() ? "(찾지 못함)" : LabBook.sourceList(keyed, true)).append("\n\n");
+        }
+        what(j, "문헌조사원이 새로움을 따지는 중");
+        String[] s = ask(j, LabBook.SCOUT.id(), LabBook.novelty(compared.toString().strip()));
+        java.util.Map<Integer, LabBook.IdeaScore> scores = LabBook.scores(s[0]);
+        int best = 0, bestTotal = -1; JSONArray list = new JSONArray(); StringBuilder text = new StringBuilder();
+        for (int i = 0; i < ideas.size(); i++) {
+            LabBook.IdeaScore sc = scores.getOrDefault(i + 1, new LabBook.IdeaScore(3, 3, 3, "", ""));
+            if (sc.total() > bestTotal) { bestTotal = sc.total(); best = i; }
+            JSONObject o = ideas.get(i).json();
+            o.put("novelty_score", sc.novelty()).put("feasible", sc.feasible()).put("impact", sc.impact()).put("closest", sc.closest()).put("note", sc.note());
+            list.put(o);
+        }
+        for (int i = 0; i < ideas.size(); i++) {
+            JSONObject o = list.getJSONObject(i);
+            text.append(i == best ? "**★ " : "**").append(i + 1).append(". ").append(o.optString("title")).append("**\n")
+                .append(o.optString("hypothesis")).append("\n새로움 ").append(o.optInt("novelty_score")).append("/5 · 확인 가능 ").append(o.optInt("feasible")).append("/5 · 의미 ").append(o.optInt("impact")).append("/5")
+                .append(o.optString("closest").isBlank() ? "" : " · 가장 가까운 연구 " + o.optString("closest")).append(o.optString("note").isBlank() ? "" : "\n" + o.optString("note")).append("\n\n");
+        }
+        text.append("고른 아이디어: ").append(best + 1).append("번 · ").append(list.getJSONObject(best).optString("title"));
+        JSONObject state = book.state(id); state.put("ideas", list); state.put("idea", list.getJSONObject(best)); book.state(id, state);
+        book.note(id, "ideas", LabBook.PI.id(), text.toString(), a[1] + " · 새로움 판단 " + s[1], obj("ideas", list, "chosen", best, "focus", focus == null ? "" : focus));
+        book.claims(id, List.of(new LabBook.Claim("가설: " + ideas.get(best).hypothesis(), "check", "새 아이디어 " + (best + 1) + "번", LabBook.PI.name(), System.currentTimeMillis())));
+        book.stage(id, "idea", "done");
+    }
+    /** The run's chosen idea as the paper and the next steps read it ("" when none was chosen). */
+    private String idea(String id) {
+        JSONObject i = book.state(id).optJSONObject("idea"); if (i == null) return "";
+        return i.optString("title") + "\n가설: " + i.optString("hypothesis") + "\n확인 방법: " + i.optString("test") + "\n예상: " + i.optString("outcome");
+    }
+    /** 논문: 기록원 writes it from the record only; then 동료 심사 and the revision. */
+    private void paper(Job j, String extra) throws Exception {
+        String id = j.project; book.stage(id, "paper", "doing");
+        what(j, "기록원이 논문을 쓰는 중");
+        String experiments = LabBook.experiments(book.notes(id));
+        String[] a = ask(j, LabBook.SCRIBE.id(), LabBook.paper(digest(id, 7000), LabBook.ledger(book.claims(id)), LabBook.sourceList(book.sources(id), false), experiments, idea(id), extra));
+        String text = LabBook.prose(a[0]);
+        book.paper(id, text);
+        book.note(id, "paper", LabBook.SCRIBE.id(), text, a[1], obj("version", 1));
+        changed(id);
+        peerAndRevise(j);
+    }
+    /** 동료 심사 by 비평가 and 이론가 (on their own models, at once), then 기록원's revision answering them. */
+    private void peerAndRevise(Job j) throws Exception {
+        String id = j.project; book.stage(id, "paper", "doing");
+        String paper = book.paper(id), ledger = LabBook.ledger(book.claims(id)), experiments = LabBook.experiments(book.notes(id));
+        int version = 1; for (LabBook.Note n : book.notes(id)) if ("paper".equals(n.kind())) version = Math.max(version, n.data().optInt("version", 1));
+        what(j, "동료 심사 중 · 비평가와 이론가");
+        Map<String, Future<String[]>> asked = new LinkedHashMap<>();
+        for (String reviewer : List.of(LabBook.CRITIC.id(), LabBook.THEORIST.id())) asked.put(reviewer, voices.submit(() -> ask(j, reviewer, LabBook.peer(paper, ledger, experiments))));
+        StringBuilder reviews = new StringBuilder(); int answered = 0;
+        for (Map.Entry<String, Future<String[]>> e : asked.entrySet()) {
+            try {
+                String[] r = e.getValue().get(); LabBook.Review score = LabBook.review(r[0]);
+                book.note(id, "peer", e.getKey(), LabBook.prose(r[0]), r[1], obj("version", version, "novelty", score.novelty(), "soundness", score.soundness(), "clarity", score.clarity(), "significance", score.significance(), "decision", score.decision()));
+                reviews.append("[심사위원 · ").append(LabBook.role(e.getKey()).name()).append(" · ").append(score.line()).append("]\n").append(LabBook.prose(r[0])).append("\n\n");
+                answered++; changed(id);
+            } catch (java.util.concurrent.ExecutionException failed) {
+                Throwable cause = failed.getCause(); if (cause instanceof Stopped || j.stopped) throw new Stopped();
+                book.note(id, "error", e.getKey(), cause == null ? "심사하지 못했어요." : cause.getMessage(), "", null);
+            }
+        }
+        if (answered == 0) throw new IOException("동료 심사를 받지 못했어요.");
+        check(j);
+        what(j, "기록원이 심사를 반영해 논문을 고치는 중");
+        String[] a = ask(j, LabBook.SCRIBE.id(), LabBook.revise(paper, reviews.toString(), ledger, LabBook.sourceList(book.sources(id), false), experiments));
+        String text = LabBook.prose(a[0]);
+        book.paper(id, text);
+        book.note(id, "paper", LabBook.SCRIBE.id(), text, a[1], obj("version", version + 1, "revised", true));
+        book.stage(id, "paper", "done");
+    }
+
+    // ── 가설→결론 파이프라인 ──────────────────────────────────────────
+
+    private static final String[] PIPE = {"ideate", "search", "prereg", "experiment:0", "experiment:1", "critique", "verdict", "paper"};
+    private void pipeline(Job j) throws Exception {
+        String id = j.project;
+        for (;;) {
+            check(j);
+            JSONObject s = book.state(id); int at = s.optInt("pipe", 0);
+            if (at >= PIPE.length) {
+                s.put("pipeline", false); book.state(id, s);
+                finish(id, "done", "가설부터 결론까지 마쳤어요 · 판정은 토론방에, 심사를 거쳐 고친 논문은 산출물 탭에 있어요."); return;
+            }
+            LabBook.Project p = project(id); if (p == null) return;
+            int left = p.budget() - book.spent(id);
+            if (left <= 2) { finish(id, "paused", "이번 한도(AI 답 " + p.budget() + "번)를 다 써서 멈췄어요. 진행판에서 ‘이어서 연구’를 누르면 남은 단계(" + (at + 1) + "/" + PIPE.length + ")부터 계속해요."); return; }
+            String step = PIPE[at];
+            // Moved on first: an experiment waiting for 승인 goes on from the step after it.
+            s.put("pipe", at + 1); book.state(id, s);
+            String idea = idea(id);
+            switch (step) {
+                case "ideate" -> {
+                    String focus = s.optString("pipeFocus");
+                    if (!idea.isBlank() && focus.isBlank()) { book.note(id, "system", "", "고른 아이디어로 이어가요 · " + s.optJSONObject("idea").optString("title"), "", null); continue; }
+                    note(id, at, "ideate", focus, "가설이 될 새 아이디어를 내고 새로운지 확인해요");
+                    ideate(j, focus);
+                }
+                case "search" -> { note(id, at, "search", ideaTitle(id), "이 가설과 가까운 연구를 찾아요"); search(j, ideaTitle(id)); }
+                case "prereg" -> { note(id, at, "prereg", "", "실험 전에 예측과 반증 기준을 정해 둬요"); prereg(j); }
+                case "experiment:0", "experiment:1" -> {
+                    List<String> planned = registered(id); int k = step.endsWith("1") ? 1 : 0;
+                    if (k >= planned.size()) continue;
+                    if (!LabPython.ready(app)) { book.note(id, "system", "", "계산 환경이 없어 실험 E" + (k + 1) + "은 건너뛰어요 · 진행판에서 ‘계산 환경 준비’를 하면 다음엔 돌려요.", "", null); continue; }
+                    note(id, at, "experiment", planned.get(k), "사전 등록한 실험 E" + (k + 1) + "을 돌려요");
+                    if (p.approve()) { hold(id, "experiment", new LabBook.Step("experiment", planned.get(k), "사전 등록한 실험이에요."), "사전 등록한 실험을 리눅스에서 돌려도 될까요?\n\n" + planned.get(k)); return; }
+                    experiment(j, planned.get(k));
+                }
+                case "critique" -> { note(id, at, "critique", "", "결과와 주장의 근거를 따져요"); critique(j); }
+                case "verdict" -> { note(id, at, "verdict", "", "사전 등록한 예측과 결과를 맞춰 판정해요"); verdict(j); }
+                default -> { note(id, at, "paper", "", "논문으로 쓰고 동료 심사를 받아 고쳐요"); paper(j, ""); exportQuietly(j); }
+            }
+        }
+    }
+    private void note(String id, int at, String action, String focus, String why) throws IOException {
+        book.note(id, "step", LabBook.PI.id(), why, "", obj("action", action, "focus", focus, "pipeline", (at + 1) + "/" + PIPE.length));
+        changed(id);
+    }
+    private String ideaTitle(String id) { JSONObject i = book.state(id).optJSONObject("idea"); if (i == null) { LabBook.Project p = project(id); return p.question().isBlank() ? p.title() : p.question(); } return i.optString("title") + " — " + i.optString("hypothesis"); }
+    /** The 사전 등록 as the experiments and the verdict read it ("" when there is none). */
+    private String prereg(String id) { String t = book.state(id).optString("prereg"); return t.isBlank() ? "" : "\n\n사전 등록:\n" + LabBook.clip(t, 2500); }
+    private List<String> registered(String id) {
+        JSONArray a = book.state(id).optJSONArray("registered"); List<String> out = new ArrayList<>();
+        for (int i = 0; a != null && i < a.length(); i++) out.add(a.optString(i));
+        return out;
+    }
+    private void prereg(Job j) throws Exception {
+        String id = j.project; book.stage(id, "prereg", "doing");
+        what(j, "책임연구원이 사전 등록을 쓰는 중");
+        String[] a = ask(j, LabBook.PI.id(), LabBook.prereg(digest(id, 3500), idea(id), LabBook.dataList(new File(book.files(id), "data"))));
+        String text = LabBook.prose(a[0]);
+        JSONObject s = book.state(id); s.put("prereg", text); s.put("registered", new JSONArray(LabBook.registered(a[0]))); book.state(id, s);
+        book.note(id, "prereg", LabBook.PI.id(), text, a[1], obj("experiments", new JSONArray(LabBook.registered(a[0]))));
+        book.stage(id, "prereg", "done");
+    }
+    private void verdict(Job j) throws Exception {
+        String id = j.project; book.stage(id, "verdict", "doing");
+        what(j, "책임연구원이 예측과 결과를 맞춰 판정하는 중");
+        String[] a = ask(j, LabBook.PI.id(), LabBook.verdict(digest(id, 3000), book.state(id).optString("prereg"), LabBook.experiments(book.notes(id)), LabBook.ledger(book.claims(id))));
+        String v = LabBook.verdictOf(a[0]);
+        book.claims(id, LabBook.claims(a[0], LabBook.PI.name()));
+        JSONObject s = book.state(id); s.put("verdict", v); book.state(id, s);
+        book.note(id, "verdict", LabBook.PI.id(), LabBook.prose(a[0]), a[1], obj("verdict", v));
+        book.stage(id, "verdict", "done");
+    }
+
+    // ── 구글 시트 ─────────────────────────────────────────────────────
+
+    private static final java.util.regex.Pattern SHEET = java.util.regex.Pattern.compile("/spreadsheets/d/([A-Za-z0-9_-]{20,})");
+    /**
+     * 구글 시트 가져오기: a Google Sheet (its address) read as CSV through the Drive connection and kept as the project's data
+     * (data/<name>.csv), where experiments read it. Returns what was kept. Blocking.
+     */
+    String importSheet(String project, String address) throws Exception {
+        GoogleDriveAccount drive = store().drive;
+        if (!drive.connected()) throw new IllegalStateException("Google Drive가 연결되지 않았어요. 설정 → 커넥터 → Google Drive에서 연결해 주세요.");
+        java.util.regex.Matcher m = SHEET.matcher(address == null ? "" : address);
+        if (!m.find()) throw new IllegalArgumentException("구글 시트 주소를 붙여 주세요 (docs.google.com/spreadsheets/d/…).");
+        String sheet = m.group(1), name = "sheet";
+        try { name = new JSONObject(drive.get(dev.jun.gyeot.core.GoogleDrive.metadataUrl(sheet), 64 * 1024)).optString("name", "sheet"); } catch (Exception unnamed) { /* the address is enough */ }
+        String csv = drive.get(dev.jun.gyeot.core.GoogleDrive.readUrl(sheet, "application/vnd.google-apps.spreadsheet"), 8 * 1024 * 1024);
+        if (csv == null || csv.isBlank()) throw new IOException("시트가 비어 있어요 (첫 번째 탭을 읽어요).");
+        String file = name.replaceAll("[^A-Za-z0-9가-힣._-]+", "_").replaceAll("_+", "_"); if (file.isBlank() || file.equals("_")) file = "sheet";
+        file = (file.length() > 40 ? file.substring(0, 40) : file).replaceAll("[가-힣]", "") ; if (file.replace("_", "").isBlank()) file = "sheet" + System.currentTimeMillis() % 10000;
+        File dir = new File(book.files(project), "data"); dir.mkdirs();
+        java.nio.file.Files.write(new File(dir, file + ".csv").toPath(), csv.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String described = LabBook.dataList(dir);
+        int rows = Math.max(0, csv.split("\n", -1).length - 1);
+        book.note(project, "data", "", "구글 시트 ‘" + name + "’를 데이터로 가져왔어요 · data/" + file + ".csv · " + rows + "행\n실험가가 이 데이터를 읽어 분석할 수 있어요.", "", obj("file", file + ".csv", "sheet", sheet, "name", name));
+        changed(project);
+        return described;
+    }
+    /**
+     * 구글 시트로: every result table the experiments wrote (e<n>-*.csv) as its own Google Sheet in the user's Drive (CSV
+     * converted by Drive), the links kept in a note. Returns how many. Blocking.
+     */
+    int exportSheets(String project) throws Exception {
+        GoogleDriveAccount drive = store().drive;
+        if (!drive.connected()) throw new IllegalStateException("Google Drive가 연결되지 않았어요. 설정 → 커넥터 → Google Drive에서 연결해 주세요.");
+        File[] tables = book.files(project).listFiles((d, name) -> name.matches("e\\d+-.*\\.csv"));
+        if (tables == null || tables.length == 0) throw new IllegalStateException("아직 결과 표가 없어요. 실험이 out/에 CSV를 저장하면 여기서 시트로 보낼 수 있어요.");
+        java.util.Arrays.sort(tables);
+        LabBook.Project p = project(project); StringBuilder links = new StringBuilder(); JSONArray made = new JSONArray();
+        for (File f : tables) {
+            JSONObject meta = dev.jun.gyeot.core.GoogleDrive.upload("들퍼레 연구실 · " + p.title() + " · " + f.getName().replace(".csv", ""), "application/vnd.google-apps.spreadsheet", "");
+            JSONObject got = drive.upload(meta, "text/csv", java.nio.file.Files.readAllBytes(f.toPath()), null);
+            String link = got.optString("webViewLink", "https://docs.google.com/spreadsheets/d/" + got.optString("id"));
+            links.append("- [").append(f.getName()).append("](").append(link).append(")\n"); made.put(new JSONObject().put("file", f.getName()).put("link", link));
+        }
+        book.note(project, "sheets", "", "결과 표 " + tables.length + "개를 구글 시트로 보냈어요:\n" + links.toString().strip(), "", obj("sheets", made));
+        changed(project);
+        return tables.length;
+    }
+    /** At the end of 가설→결론, the result tables go to Google Sheets when Drive is connected (quietly, a failure only noted). */
+    private void exportQuietly(Job j) {
+        try { if (store().drive.connected()) { what(j, "결과 표를 구글 시트로 보내는 중"); exportSheets(j.project); } }
+        catch (Exception e) { try { book.note(j.project, "system", "", "결과 표를 구글 시트로 보내지 못했어요 · " + (e.getMessage() == null ? "" : e.getMessage()), "", null); } catch (IOException ignored) {} }
+    }
+
     // ── 자율 연구 ─────────────────────────────────────────────────────
 
     private void loop(Job j) throws Exception {
         String id = j.project;
+        if (book.state(id).optBoolean("pipeline")) { pipeline(j); return; }
         boolean planned = false; for (LabBook.Note n : book.notes(id)) if ("plan".equals(n.kind())) planned = true;
         if (!planned) plan(j);
         for (int steps = 0; ; steps++) {
@@ -395,7 +644,8 @@ final class LabRunner {
             }
             what(j, "책임연구원이 다음 단계를 정하는 중");
             boolean python = LabPython.ready(app), asked = book.state(id).optBoolean("asked");
-            String[] a = ask(j, LabBook.PI.id(), LabBook.next(digest(id, 6000), LabBook.stages(book.state(id)), left - 1, python, asked));
+            String chosen = idea(id);
+            String[] a = ask(j, LabBook.PI.id(), LabBook.next(digest(id, 6000) + (chosen.isBlank() ? "" : "\n\n지금 연구하는 새 아이디어:\n" + chosen), LabBook.stages(book.state(id)), left - 1, python, asked));
             LabBook.Step step = LabBook.step(a[0]);
             if ("experiment".equals(step.action()) && !python) step = new LabBook.Step("critique", step.focus(), "계산 환경이 없어 실험 대신 검토해요.");
             if ("ask".equals(step.action()) && asked) step = new LabBook.Step("critique", step.focus(), step.why());
@@ -411,6 +661,8 @@ final class LabRunner {
                     experiment(j, step.focus());
                 }
                 case "critique" -> critique(j);
+                case "ideate" -> ideate(j, step.focus());
+                case "paper" -> { paper(j, ""); finish(id, "done", "자율 연구를 마쳤어요. 산출물 탭에서 동료 심사를 거쳐 고친 논문을 볼 수 있어요."); return; }
                 case "ask" -> { hold(id, "ask", step, step.focus().isBlank() ? step.why() : step.focus()); return; }
                 default -> { report(j); finish(id, "done", "자율 연구를 마쳤어요. 산출물 탭에서 보고서를 볼 수 있어요."); return; }
             }
