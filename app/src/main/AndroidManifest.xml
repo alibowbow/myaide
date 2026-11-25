@@ -6,6 +6,7 @@
     <!-- 화면 방향 (음성 “가로로 바꿔 줘”): only after the user allows ‘시스템 설정 변경’ for this app in Settings. -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-feature android:name="android.software.live_wallpaper" android:required="false" />
     <!-- A voice call notices at once when the default network drops or returns (install-time, no prompt). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -70,6 +71,15 @@
         <activity android:name=".PhoneSecurityActivity" android:enableOnBackInvokedCallback="true" android:windowSoftInputMode="adjustResize" android:exported="false" />
         <activity android:name=".NavigationActivity" android:windowSoftInputMode="adjustResize" android:exported="false" />
         <activity android:name=".NoticeActivity" android:exported="false" />
+        <!-- 내 휴대폰 → 화면 꾸미기: 움직이는 배경화면 (HtmlWallpaper) and what goes on the home screen. -->
+        <activity android:name=".DecorActivity" android:exported="false" />
+        <service android:name=".HtmlWallpaper" android:label="@string/wallpaper_label" android:exported="true"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data android:name="android.service.wallpaper" android:resource="@xml/html_wallpaper" />
+        </service>
         <service android:name=".NoticeListener" android:exported="true" android:label="들퍼레 알림 비서" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
         </service>

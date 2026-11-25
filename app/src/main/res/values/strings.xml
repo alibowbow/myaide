@@ -2,6 +2,8 @@
 <resources>
     <!-- The app's name; code uses dev.jun.gyeot.core.Brand.NAME. Keep both the same. -->
     <string name="app_name">들퍼레</string>
+    <string name="wallpaper_label">들퍼레 움직이는 배경화면</string>
+    <string name="wallpaper_about">들퍼레 → 내 휴대폰 → 화면 꾸미기에서 고른 인터랙티브 화면을 배경화면으로 보여 줘요.</string>
     <string name="phone_service_label">들퍼레 폰 조작</string>
     <string name="phone_service_summary">들퍼레 앱에서 직접 켤 때만 음성 비서가 화면을 읽고 누를 수 있어요. 원하면 화면 가장자리에 들퍼레를 부르는 작은 버튼도 보여 줘요.</string>
     <string name="phone_service_description">들퍼레의 음성 비서가 사용자의 요청에 따라 앱을 열고, 화면의 글자와 버튼을 읽고, 누르거나 글을 입력하고, 스크롤할 수 있게 합니다. 들퍼레 앱의 설정에서 ‘폰 조작’을 켠 동안에만 동작하며, 화면 위 빨간 ‘폰 조작 중지’ 버튼이나 들퍼레에서 언제든 끌 수 있습니다. 화면 내용은 요청할 때만 읽어 이번 대화의 음성 모델(Google Gemini)에 보내며 저장하지 않습니다. 잠금 해제, 비밀번호 입력, 보안·권한 설정 변경, 앱 설치 화면 조작은 하지 않습니다. 들퍼레 설정에서 ‘가장자리 들퍼레 버튼’을 켜면 화면 가장자리에 들퍼레를 부르는 작은 버튼을 띄웁니다. 이 버튼은 화면 내용을 읽지 않습니다. 들퍼레 설정에서 ‘화면 보기’를 켜면, 음성 대화 중 사용자가 요청할 때만 그 순간의 화면 한 장과 화면 글자를 Google Gemini에 보내 함께 이야기합니다. 화면 이미지는 저장하지 않으며, 잠금 화면에서는 보지 않습니다.</string>
