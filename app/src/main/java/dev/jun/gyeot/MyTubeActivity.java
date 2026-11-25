@@ -97,7 +97,15 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     /** 내용 정리 made in this run, by video. */
     /** 이 영상에 대해 물어보세요: the panel that takes the list's place while it is open. */
     private VideoAskPanel askPanel;
-    private String feedId; private boolean refreshing, destroyed;
+    private String feedId; private boolean destroyed;
+    /**
+     * Feeds being chosen or checked now, each with its own stop and its own status line: one feed's AI choosing no longer blocks
+     * another's 라이브 확인, and a 저장 목록 no longer shows another feed's "AI가 검색어를 고르는 중" (준: "이건 저장리스트인데 ai검색이 돌아가",
+     * "오션의 증시 라이브가 목록에 안 떠": its check never ran while 최신 AI 뉴스 was being chosen). Main thread.
+     */
+    private final java.util.Map<String, AtomicReference<Runnable>> feedJobs = new java.util.HashMap<>();
+    private final java.util.Map<String, String> feedStatus = new java.util.HashMap<>();
+    private boolean refreshing(MyTube.Feed f) { return f != null && feedJobs.containsKey(f.id()); }
     private final AtomicReference<Runnable> cancel = new AtomicReference<>();
     private final Runnable playerChanged = () -> main.post(this::showPlayer);
 
@@ -239,6 +247,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     }
     @Override protected void onDestroy() {
         destroyed = true; Runnable abort = cancel.getAndSet(null); if (abort != null) abort.run();
+        for (AtomicReference<Runnable> job : feedJobs.values()) { Runnable stop = job.getAndSet(null); if (stop != null) stop.run(); }
         for (Dialog d : new ArrayList<>(dialogs)) d.dismiss(); work.shutdownNow(); super.onDestroy();
     }
     @Override public void onBackPressed() { if (navigation != null && navigation.close()) return; if (askPanel != null && askPanel.isOpen()) { askPanel.close(); return; } if ("full".equals(viewMode)) { setView(lastView); return; } super.onBackPressed(); }
@@ -603,7 +612,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             long checked = book.refreshedAt(shown.id());
             when.setText(liveList && checked > 0 ? "확인한 때 · " + ago(checked) : "");
             List<MyTube.Video> saved = book.videos(shown.id());
-            if (saved.isEmpty() && !refreshing) { TextView empty = ui.label(liveList ? "지금 방송 중인 라이브가 없어요" : "영상을 보다가 ‘저장’을 누르면 여기에 모여요", 14, MUTED); empty.setPadding(0, ui.dp(12), 0, 0); list.addView(empty); }
+            if (saved.isEmpty() && !refreshing(shown)) { TextView empty = ui.label(liveList ? "지금 방송 중인 라이브가 없어요" : "영상을 보다가 ‘저장’을 누르면 여기에 모여요", 14, MUTED); empty.setPadding(0, ui.dp(12), 0, 0); list.addView(empty); }
             for (int i = 0; i < saved.size(); i++) { int index = i; list.addView(videoRow(saved.get(i), () -> playFrom(index))); }
             markPlaying(); tidyHeadings();
             return;
@@ -615,13 +624,13 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         long at = book.refreshedAt(shown.id());
         when.setText(at == 0 ? "아직 고르지 않았어요" : "고른 때 · " + ago(at));
         List<MyTube.Video> videos = book.videos(shown.id());
-        if (videos.isEmpty() && !refreshing) { TextView empty = ui.label("‘새로 고르기’를 누르면 AI가 유튜브에서 골라 와요.", 14, MUTED); empty.setPadding(0, ui.dp(12), 0, 0); list.addView(empty); }
+        if (videos.isEmpty() && !refreshing(shown)) { TextView empty = ui.label("‘새로 고르기’를 누르면 AI가 유튜브에서 골라 와요.", 14, MUTED); empty.setPadding(0, ui.dp(12), 0, 0); list.addView(empty); }
         for (int i = 0; i < videos.size(); i++) { int index = i; list.addView(videoRow(videos.get(i), () -> playFrom(index))); }
         markPlaying(); tidyHeadings();
     }
     /** A feed's or a list's chip: the slim capsule of ＋ 피드 beside it, the accent when shown; ● before a list that shows live broadcasts. */
     private Button feedChip(MyTube.Feed f) {
-        Button chip = ui.smallChip((f.saved() && book.liveWatch(f.id()) ? "● " : "") + f.name(), () -> { searched = null; feedId = f.id(); render(); refreshIfStale(); });
+        Button chip = ui.smallChip((f.saved() && book.liveWatch(f.id()) ? "● " : "") + f.name(), () -> { searched = null; feedId = f.id(); render(); status(feedStatus.getOrDefault(f.id(), "")); refreshIfStale(); });
         boolean on = searched == null && f.id().equals(feedId);
         chip.setBackground(ui.centeredCapsule(on ? ACCENT : FILL, ui.dp(28))); chip.setPadding(ui.dp(12), 0, ui.dp(12), 0);
         chip.setTextColor(on ? ON_ACCENT : TEXT); chip.setSelected(on);
@@ -1208,17 +1217,19 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private void refresh() { refreshFeed(feed()); }
     /** Chooses this feed afresh in the background (a 라이브만 보기 list: checks its channels); the screen shows it when done. */
     private void refreshFeed(MyTube.Feed f) {
-        if (f == null || refreshing || destroyed) return;
-        refreshing = true; status("고르기 시작");
+        if (f == null || refreshing(f) || destroyed) return;
+        AtomicReference<Runnable> stop = new AtomicReference<>(); feedJobs.put(f.id(), stop);
+        feedStatus(f, f.saved() ? "라이브 확인 시작" : "고르기 시작");
+        String[] note = {""};
         work.execute(() -> {
             String failure = null;
-            try { MyTubeClient.refresh(this, store, f, step -> main.post(() -> status(step)), cancel); }
+            try { MyTubeClient.refresh(this, store, f, step -> main.post(() -> { if (step.startsWith(MyTubeClient.NOTE)) note[0] = step.substring(MyTubeClient.NOTE.length()); else feedStatus(f, step); }), stop); }
             catch (java.util.concurrent.CancellationException stopped) { failure = ""; }
             catch (Exception e) { failure = friendly(e, "고르지 못했어요."); }
             String why = failure;
             main.post(() -> {
                 if (destroyed) return;
-                refreshing = false; status(why == null ? "" : why);
+                feedJobs.remove(f.id()); feedStatus(f, why != null ? why : note[0]);
                 render();
                 // Asked by voice to play this feed: it plays once its choice is ready.
                 MyTube.Feed shownNow = feed();
@@ -1227,9 +1238,15 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         });
     }
     private boolean playWhenReady;
+    /** A feed's own status: kept for it, and shown when it is the feed on screen. */
+    private void feedStatus(MyTube.Feed f, String text) {
+        if (text == null || text.isEmpty()) feedStatus.remove(f.id()); else feedStatus.put(f.id(), text);
+        MyTube.Feed shown = feed();
+        if (searched == null && shown != null && shown.id().equals(f.id())) status(text == null ? "" : text);
+    }
     private void status(String text) {
         statusLine.setText(text == null ? "" : text); statusLine.setVisibility(text == null || text.isEmpty() ? View.GONE : View.VISIBLE);
-        statusLine.shimmer(text != null && !text.isEmpty() && (text.endsWith("중") || refreshing)); // still working: the line's light sweeps
+        statusLine.shimmer(text != null && !text.isEmpty() && (text.endsWith("중") || refreshing(feed()))); // still working: the line's light sweeps
     }
 
     /** A voice request named a feed (or news / music): it shows, and plays (choosing first when it has nothing yet). */

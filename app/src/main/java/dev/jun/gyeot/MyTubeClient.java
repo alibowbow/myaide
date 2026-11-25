@@ -31,17 +31,24 @@ final class MyTubeClient {
         return book;
     }
 
-    /** The broadcasts on air now of these channels (a channel not on air adds nothing). Blocking. */
+    /** A progress line that is the outcome to keep showing (a channel that could not be read), not a step. */
+    static final String NOTE = "note:";
+    /**
+     * The broadcasts on air now of these channels (a channel not on air adds nothing). A channel whose page could not be read
+     * is said (progress, as a NOTE), not taken for one that is not on air. Blocking.
+     */
     static List<MyTube.Video> onAir(List<MyTube.Channel> channels, Consumer<String> progress, AtomicReference<Runnable> cancel) throws Exception {
-        List<MyTube.Video> out = new ArrayList<>();
+        List<MyTube.Video> out = new ArrayList<>(); List<String> unread = new ArrayList<>();
         for (MyTube.Channel c : channels) {
             progress.accept("‘" + c.title() + "’ 라이브를 확인하는 중");
             try { for (MyTube.Video v : channelLive(c.path(), cancel)) if (v.live() && out.stream().noneMatch(o -> o.id().equals(v.id()))) out.add(v.because(c.title() + " · 지금 방송 중")); }
             catch (java.util.concurrent.CancellationException stop) { throw stop; }
-            catch (Exception notOnAir) { /* that channel has no broadcast now */ }
+            catch (Exception failed) { if (!NO_LIVE.equals(failed.getMessage())) unread.add(c.title()); }
         }
+        if (!unread.isEmpty()) progress.accept(NOTE + "‘" + String.join("’, ‘", unread) + "’ 채널을 읽지 못했어요 · ‘라이브 확인’을 다시 눌러 주세요");
         return out;
     }
+    private static final String NO_LIVE = "이 채널은 라이브 방송이 없어요.";
     /** Chooses the feed's videos afresh and keeps them; progress says what it is doing. Blocking. */
     static List<MyTube.Video> refresh(Context context, AppStore store, MyTube.Feed feed, Consumer<String> progress, AtomicReference<Runnable> cancel) throws Exception {
         MyTubeBook book = book(context);
@@ -169,7 +176,7 @@ final class MyTubeClient {
     /** A channel's 라이브 tab: on air now first, then its past broadcasts. Blocking. */
     static List<MyTube.Video> channelLive(String path, AtomicReference<Runnable> cancel) throws IOException {
         JSONObject data = MyTube.initialData(get(MyTube.channelStreamsUrl(path), cancel));
-        if (data == null) throw new IOException("이 채널은 라이브 방송이 없어요.");
+        if (data == null) throw new IOException(NO_LIVE);
         List<MyTube.Video> all = new ArrayList<>(MyTube.videos(data));
         all.sort((a, b) -> Boolean.compare(b.live(), a.live()));
         return all.size() > 40 ? new ArrayList<>(all.subList(0, 40)) : all;
