@@ -61,7 +61,9 @@ final class AntigravityCli {
     static String loginCommand() { return BINARY; }
 
     /** What the settings page shows: installed, its version, signed in (null: could not tell), and the plan's limits. */
-    record Status(boolean installed, String version, Boolean signedIn, List<String> usage, String detail) {}
+    record Status(boolean installed, String version, Boolean signedIn, List<String> usage, String detail, dev.jun.gyeot.core.Limits limits) {
+        Status(boolean installed, String version, Boolean signedIn, List<String> usage, String detail) { this(installed, version, signedIn, usage, detail, dev.jun.gyeot.core.Limits.NONE); }
+    }
     static Status status(Context c) {
         if (!installed(c)) return new Status(false, "", false, List.of(), "");
         String version = "";
@@ -79,12 +81,15 @@ final class AntigravityCli {
                 try { LinuxRuntime.Result p = LinuxRuntime.run(c, panelCommand(), 75_000, env()); seen = p.output(); found = dev.jun.gyeot.core.AgyUsage.rows(seen); }
                 catch (Exception unread) { /* What -p said is shown instead. */ }
             }
+            // As bars by family and window (Claude·GPT 5시간, Gemini 주간), the way the other plans' limits show; lines only for
+            // what could not be read as one.
+            long now = System.currentTimeMillis();
+            List<dev.jun.gyeot.core.Limits.Window> windows = dev.jun.gyeot.core.AgyUsage.windows(found, now);
             List<String> rows = new ArrayList<>();
-            // By family (Claude, GPT, Gemini): the models of one share its limits.
-            for (String line : dev.jun.gyeot.core.AgyUsage.lines(found)) if (rows.size() < 12) rows.add(line);
+            if (windows.isEmpty()) for (String line : dev.jun.gyeot.core.AgyUsage.lines(found)) if (rows.size() < 12) rows.add(line);
             String reached = dev.jun.gyeot.core.AgyUsage.reached(seen);
             if (!reached.isEmpty()) rows.add(0, "한도에 닿은 모델이 있어요 · " + dev.jun.gyeot.core.AgyUsage.korean(reached) + " 뒤 초기화");
-            return new Status(true, version, true, rows, rows.isEmpty() ? (seen.contains("NO_SCRIPT") ? "모델별 한도 화면을 열 터미널(script)이 없어요. 설정 → Linux에서 패키지를 다시 설치해 주세요." : "모델별 한도를 읽지 못했어요 · agy가 보여 준 것: " + clip(seen)) : "");
+            return new Status(true, version, true, rows, rows.isEmpty() && windows.isEmpty() ? (seen.contains("NO_SCRIPT") ? "모델별 한도 화면을 열 터미널(script)이 없어요. 설정 → Linux에서 패키지를 다시 설치해 주세요." : "모델별 한도를 읽지 못했어요 · agy가 보여 준 것: " + clip(seen)) : "", windows.isEmpty() ? dev.jun.gyeot.core.Limits.NONE : new dev.jun.gyeot.core.Limits(windows, now));
         } catch (Exception e) { return new Status(true, version, null, List.of(), e.getMessage() == null ? "" : e.getMessage()); }
     }
     /**

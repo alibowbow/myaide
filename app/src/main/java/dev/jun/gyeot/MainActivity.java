@@ -3829,6 +3829,8 @@ public final class MainActivity extends Activity {
         String state = st == null ? "확인하는 중…" : !st.installed() ? "설치되지 않음" : st.signedIn() == null ? "확인하지 못했어요" : st.signedIn() ? "로그인됨 · 구독 한도로 답해요" : "로그인 필요";
         cli.addView(ui.text(state, 15, 600, TEXT));
         if (st != null && !st.version().isEmpty()) cli.addView(ui.text(st.version(), 12.5f, 450, MUTED));
+        // The limits as the usage page draws them: a bar per family and window, "4시간 29분 후 초기화됩니다" across from "100% 남음".
+        if (st != null) { long now = System.currentTimeMillis(); for (dev.jun.gyeot.core.Limits.Window w : st.limits().current(now)) cli.addView(UsageUi.window(ui, w, now)); }
         if (st != null) for (String row : st.usage()) { TextView u = ui.text(row, 13, 450, TEXT); u.setPadding(0, ui.dp(3), 0, 0); cli.addView(u); }
         if (st != null && !st.detail().isEmpty()) { TextView d = ui.text(st.detail(), 12, 450, MUTED); d.setPadding(0, ui.dp(4), 0, 0); d.setTextIsSelectable(true); cli.addView(d); }
         // The model list agy gave (the pickers' list), or why it could not be read: an old list is never kept without a word.

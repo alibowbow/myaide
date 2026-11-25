@@ -68,6 +68,10 @@ final class AntigravityAccount {
         return out;
     }
     long usageAt() { return settings.getLong("agyUsageAt", 0); }
+    /** The limits as bars (Claude·GPT 5시간, Gemini 주간 …) as last read; NONE before the first read or when agy showed none. */
+    dev.jun.gyeot.core.Limits limits() {
+        try { return dev.jun.gyeot.core.Limits.of(new JSONObject(settings.getString("agyLimits", "{}"))); } catch (Exception e) { return dev.jun.gyeot.core.Limits.NONE; }
+    }
     /** The model a slug belongs to (a variant's slug finds its model too), or null. */
     Group group(String id) { for (Group g : groups()) if (id.equals(g.plain()) || g.levels().containsValue(id)) return g; return null; }
     String model() { String m = settings.getString("agyModel", ""); Group g = group(m); return g != null ? g.base() : models().optJSONObject(0).optString("id", DEFAULT); }
@@ -108,7 +112,10 @@ final class AntigravityAccount {
         AntigravityCli.Status st = AntigravityCli.status(context);
         SharedPreferences.Editor edit = settings.edit();
         // The model groups' limits, kept for 설정 → 사용량 · 남은 한도 (UsageUi), with when they were read.
-        if (!st.usage().isEmpty()) edit.putString("agyUsage", new JSONArray(st.usage()).toString()).putLong("agyUsageAt", System.currentTimeMillis());
+        if (!st.usage().isEmpty() || !st.limits().empty()) {
+            edit.putString("agyUsage", new JSONArray(st.usage()).toString()).putLong("agyUsageAt", System.currentTimeMillis());
+            if (st.limits().empty()) edit.remove("agyLimits"); else edit.putString("agyLimits", st.limits().json().toString());
+        }
         if (st.signedIn() != null) edit.putBoolean("agySignedIn", st.installed() && st.signedIn());
         if (st.installed() && Boolean.TRUE.equals(st.signedIn())) readModels(edit);
         if (st.installed()) {

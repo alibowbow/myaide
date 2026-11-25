@@ -88,18 +88,21 @@ final class UsageUi {
             String route = store.usageRoute(engine);
             Limits limits = store.usage.limits(engine, route, store.usageIdentity(engine));
             List<String> lines = lines(limits, now, zone);
+            List<Limits.Window> windows = limits.empty() ? List.of() : limits.current(now);
             if (WorkBook.GROK.equals(engine)) problem(lines, GROK_PAGE);
             // Antigravity sends no limits with its answers: agy's own /usage panel, read by AntigravityCli and kept.
             if (WorkBook.ANTIGRAVITY.equals(engine) && lines.isEmpty()) {
-                List<String> rows = store.antigravity.usage();
-                if (rows.isEmpty()) lines.add("모델별 한도는 설정 → Antigravity에서 ‘상태 확인’을 누르면 여기에도 보여요");
-                else { lines.addAll(rows); long at = store.antigravity.usageAt(); long minutes = Math.max(0, (now - at) / 60_000); lines.add(minutes < 1 ? "방금 기준" : minutes < 120 ? minutes + "분 전 기준" : (minutes / 60) + "시간 전 기준"); }
+                // As bars by family and window (Claude·GPT 5시간, Gemini 주간), each until its own reset; lines for the rest.
+                Limits agy = store.antigravity.limits(); List<String> rows = store.antigravity.usage();
+                windows = agy.current(now); lines.addAll(agy.lines(now, zone)); lines.addAll(rows);
+                if (lines.isEmpty()) lines.add(agy.empty() ? "모델별 한도는 설정 → Antigravity에서 ‘상태 확인’을 누르면 여기에도 보여요" : "지난번에 읽은 한도가 지났어요 · 설정 → Antigravity에서 ‘상태 확인’을 누르면 새로 읽어요");
+                else { long at = store.antigravity.usageAt(); long minutes = Math.max(0, (now - at) / 60_000); lines.add(minutes < 1 ? "방금 기준" : minutes < 120 ? minutes + "분 전 기준" : (minutes / 60) + "시간 전 기준"); }
                 problem(lines, AGY_PAGE);
             }
             // The ChatGPT sign-in's own tokens cannot read Codex's usage page; the Codex sign-in can (the row below).
             if (WorkBook.CHATGPT.equals(engine) && UsageLedger.PLAN.equals(route) && lines.isEmpty() && !store.codexImages.connected())
                 lines.add("5시간·주간 한도는 설정 → ChatGPT의 ‘이미지용 Codex로 로그인’을 하면 여기에 보여요");
-            accounts.add(new Account(WorkBook.author(engine) + " · " + (UsageLedger.PLAN.equals(route) ? "구독" : "API 키"), lines, page(engine), limits.empty() ? List.of() : limits.current(now), now));
+            accounts.add(new Account(WorkBook.author(engine) + " · " + (UsageLedger.PLAN.equals(route) ? "구독" : "API 키"), lines, page(engine), windows, now));
             if (WorkBook.CHATGPT.equals(engine) && store.codexImages.connected()) accounts.add(codex(store, now, zone));
         }
         if (!store.ready(WorkBook.CHATGPT) && store.codexImages.connected()) accounts.add(0, codex(store, now, zone));
@@ -162,7 +165,7 @@ final class UsageUi {
                     CHECK_STATE.incrementAndGet(); changed.run();
                     try {
                         AntigravityCli.Status st = store.antigravity.refresh();
-                        if (st.usage().isEmpty()) PROBLEMS.put(AGY_PAGE, st.detail().isEmpty() ? "모델별 한도를 읽지 못했어요" : st.detail().length() > 160 ? st.detail().substring(0, 160) + "…" : st.detail());
+                        if (st.usage().isEmpty() && st.limits().empty()) PROBLEMS.put(AGY_PAGE, st.detail().isEmpty() ? "모델별 한도를 읽지 못했어요" : st.detail().length() > 160 ? st.detail().substring(0, 160) + "…" : st.detail());
                         else PROBLEMS.remove(AGY_PAGE);
                     } catch (Exception failed) { PROBLEMS.put(AGY_PAGE, failed.getMessage() == null ? "모델별 한도를 읽지 못했어요" : failed.getMessage()); }
                 }
@@ -250,7 +253,9 @@ final class UsageUi {
         return cards;
     }
     /** One limit: its heading, when it resets and how much is left, and a rounded bar filled by what is left. */
-    private LinearLayout window(Limits.Window window, long now) {
+    private LinearLayout window(Limits.Window window, long now) { return window(ui, window, now); }
+    /** The same, for another page that shows a plan's limits (설정 → Antigravity). */
+    static LinearLayout window(Ui ui, Limits.Window window, long now) {
         LinearLayout box = ui.column(); box.setPadding(0, ui.dp(12), 0, 0);
         box.addView(ui.text(Limits.heading(window), 15, 650, Ui.TEXT));
         LinearLayout line = ui.row(); line.setPadding(0, ui.dp(4), 0, ui.dp(8));

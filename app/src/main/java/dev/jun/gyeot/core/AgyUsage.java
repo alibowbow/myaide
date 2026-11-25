@@ -61,6 +61,73 @@ public final class AgyUsage {
         if (name == null || name.isBlank() || !seen.add(name)) return;
         out.add(new Row(name, Math.max(-1, Math.min(100, left)), refresh == null ? "" : refresh.strip()));
     }
+    /**
+     * The limits as the usage bars show them, one per family and window ("Claude·GPT 5시간", "Gemini 주간"), each with its
+     * reset as a time (준: "요렇게 표시되니 못알아보겠어" — the rows had shown as "Claude · 100% 남음 · 2026-12-02T00:13:50Z 뒤
+     * 초기화 (and GPT models · Weekly Limit Remaining)"). From agy's table ("Claude and GPT models  Weekly Limit Remaining
+     * 100%  2026-12-02T00:13:50Z") or its panel ("Gemini 3.1 Pro (High)", "40% remaining · Refreshes in 126h 49m"). Models of
+     * one family with the same share and reset are one bar; one that differs keeps its own name.
+     */
+    public static List<Limits.Window> windows(List<Row> rows, long now) {
+        record Found(int family, int rank, Limits.Window window) {}
+        List<Found> found = new ArrayList<>(); java.util.Map<String, Limits.Window> byKey = new java.util.HashMap<>();
+        for (Row row : rows) {
+            String name = row.name(); int cut = name.indexOf(" · ");
+            String group = cut < 0 ? name : name.substring(0, cut), label = cut < 0 ? "" : name.substring(cut + 3);
+            String span = span(label + " " + group), who = families(group).isEmpty() ? families(label) : families(group);
+            double left = row.left() < 0 ? 1 : row.left() / 100.0;
+            if (USED.matcher(label + " " + group).find() && !LEFT_WORD.matcher(label + " " + group).find()) left = 1 - left;
+            long reset = reset(row.refresh(), now);
+            String plainGroup = group.replaceAll("(?i)\\s+models?$", "").strip();
+            String title = (who.isEmpty() ? plainGroup : who) + (span.isEmpty() ? "" : " " + span);
+            Limits.Window same = byKey.get(title);
+            if (same != null) {
+                if (Math.abs(same.left() - left) < 0.005 && Math.abs(same.reset() - reset) < 120_000) continue;
+                title = plainGroup + (span.isEmpty() ? "" : " " + span);
+                if (byKey.containsKey(title)) continue;
+            }
+            Limits.Window window = new Limits.Window(title, Math.max(0, Math.min(1, left)), reset, false);
+            byKey.put(title, window);
+            String first = who.isEmpty() ? "" : who.split("·")[0];
+            int family = java.util.Arrays.asList(FAMILIES).indexOf(first);
+            found.add(new Found(family < 0 ? FAMILIES.length : family, rank(span), window));
+        }
+        found.sort(java.util.Comparator.comparingInt(Found::family).thenComparingInt(Found::rank));
+        List<Limits.Window> out = new ArrayList<>(); for (Found f : found) out.add(f.window()); return out;
+    }
+    private static final Pattern USED = Pattern.compile("(?i)\\bused\\b|사용");
+    private static final Pattern LEFT_WORD = Pattern.compile("(?i)remaining|left|남음|남은");
+    /** The window a row names: "5시간", "주간", "하루", "월간", "N시간"; "" when it names none. */
+    static String span(String text) {
+        String t = text.toLowerCase(java.util.Locale.ROOT);
+        if (t.matches("(?s).*\\b(?:weekly|week|7[- ]?days?)\\b.*") || t.contains("주간")) return "주간";
+        if (t.matches("(?s).*\\bmonth(?:ly)?\\b.*") || t.contains("월간")) return "월간";
+        if (t.matches("(?s).*\\b(?:daily|day|24[- ]?h(?:our)?s?)\\b.*") || t.contains("하루")) return "하루";
+        if (t.matches("(?s).*\\bfive[- ]?hours?\\b.*")) return "5시간";
+        Matcher hours = Pattern.compile("\\b(\\d{1,2})[- ]?h(?:our)?s?\\b").matcher(t);
+        if (hours.find()) return hours.group(1) + "시간";
+        Matcher korean = Pattern.compile("(\\d{1,2})\\s*시간").matcher(t);
+        return korean.find() ? korean.group(1) + "시간" : "";
+    }
+    private static int rank(String span) {
+        if (span.endsWith("시간")) { try { return Integer.parseInt(span.substring(0, span.length() - 2)); } catch (NumberFormatException e) { return 5; } }
+        return switch (span) { case "하루" -> 24; case "주간" -> 168; case "월간" -> 720; default -> 1000; };
+    }
+    /** The families a group names, in its order: "Claude and GPT models" → "Claude·GPT"; "" when it names none. */
+    static String families(String group) {
+        java.util.TreeMap<Integer, String> at = new java.util.TreeMap<>();
+        Matcher m = Pattern.compile("(?i)\\b(claude|gpt|gemini|gemma|o\\d)").matcher(group);
+        while (m.find()) { String f = family(m.group(1)); if (!at.containsValue(f) && !"기타".equals(f)) at.put(m.start(), f); }
+        return String.join("·", at.values());
+    }
+    /** A reset as epoch milliseconds: a time ("2026-12-02T00:13:50Z") or a wait from now ("126h 49m"); 0 unknown. */
+    static long reset(String refresh, long now) {
+        if (refresh == null || refresh.isBlank()) return 0;
+        long at = Limits.instant(refresh.strip()); if (at > 0) return at;
+        Matcher part = Pattern.compile("(\\d+)\\s*([dhms])").matcher(refresh); long ms = 0; boolean any = false;
+        while (part.find()) { any = true; long n = Long.parseLong(part.group(1)); ms += switch (part.group(2)) { case "d" -> n * 86_400_000L; case "h" -> n * 3_600_000L; case "m" -> n * 60_000L; default -> n * 1_000L; }; }
+        return any ? now + ms : 0;
+    }
     /** The model families agy's limits go by, in the order shown (준: "클로드/gpt/제미나이 모델별"). */
     static final String[] FAMILIES = {"Claude", "GPT", "Gemini"};
     static String family(String name) {
