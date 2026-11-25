@@ -1245,7 +1245,7 @@ public final class MainActivity extends Activity {
             boolean connecting = store.voiceActive && !offline && store.voiceLink.connecting();
             boolean thinking = store.voiceActive && store.thinking() && !connecting && !offline && store.outputDraft.isBlank();
             orb.state(VoiceOrb.of(store));
-            orbTitle.setText(!store.voiceActive ? "눌러서 말하기" : offline ? "오프라인" : store.muted ? "음소거됨" : connecting ? "연결하는 중…" : !store.outputDraft.isBlank() ? "말하는 중" : thinking ? store.thinkingName() + "가 생각하는 중…" : "듣고 있어요");
+            orbTitle.setText(!store.voiceActive ? "눌러서 말하기" : offline ? "오프라인" : store.muted ? "음소거됨" : connecting ? "연결하는 중…" : !store.outputDraft.isBlank() ? "말하는 중" : thinking ? store.thinkingName() + " · 생각하는 중…" : "듣고 있어요");
             RealtimeVoice.Kind realtime = store.assistantRealtime();
             String model = AppStore.modelLabel(INTERPRETER.equals(mode) ? GeminiProtocol.TRANSLATE : DICTATION.equals(mode) ? GeminiProtocol.TRANSCRIBE
                 : store.voiceActive && !store.connectedVoiceModel.isEmpty() ? store.connectedVoiceModel : realtime != null ? realtime.model : store.activeModel() == null ? store.liveModel() : store.activeModel());
@@ -3116,7 +3116,7 @@ public final class MainActivity extends Activity {
             store.error(gemini ? "Gemini API 키를 먼저 넣어 주세요." : name + "를 먼저 연결해 주세요.");
             openSettings(WorkBook.CLAUDE.equals(engine) ? "claude" : gemini ? "key" : WorkBook.GROK.equals(engine) ? "grok" : WorkBook.GROQ.equals(engine) ? "groq" : WorkBook.ANTIGRAVITY.equals(engine) ? "antigravity" : WorkBook.NIM.equals(engine) ? "nim" : "chatgpt"); return;
         }
-        store.status("다음 메시지부터 " + name + "가 답해요 · 앞의 대화도 이어서 봐요"); store.changed(); updateComposer();
+        store.status("다음 메시지부터 답하는 모델: " + name + " · 앞의 대화도 이어서 봐요"); store.changed(); updateComposer();
     }
     // Catalogs are account-wide; selections belong only to this room or recording.
     private JSONArray engineModels(String engine) {

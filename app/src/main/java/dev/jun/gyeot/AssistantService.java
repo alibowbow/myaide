@@ -1024,7 +1024,7 @@ public final class AssistantService extends Service {
         }
         String clock = GeminiProtocol.clock(ZonedDateTime.now());
         String input = Think.input(question, purpose, recap(), store.memoryOn() ? Memory.recipes(store.memories()) : "");
-        store.status(Think.PLAN.equals(purpose) ? name + "가 작업 계획을 세우는 중…" : name + "에게 물어보는 중…");
+        store.status(Think.PLAN.equals(purpose) ? name + " · 작업 계획을 세우는 중…" : name + " · 물어보는 중…");
         store.phoneLog("→ " + name + " " + (Think.PLAN.equals(purpose) ? "작업 계획" : Think.TEXT.equals(purpose) ? "입력할 글" : "생각") + " 요청");
         thinkingStarted(name);
         // One answer per request: the reply, or the time limit, whichever comes first. A request past the limit is cut off.
@@ -3308,7 +3308,7 @@ public final class AssistantService extends Service {
                     transcript = GeminiAudioClient.transcribe(key(), store.recordingFile(recording));
                     store.updateRecording(recording, "transcript", transcript);
                 }
-                main.post(() -> { if (epoch == taskEpoch && !store.voiceActive) store.status(gpt ? name + "가 녹음을 요약하는 중…" : "녹음을 요약하는 중…"); });
+                main.post(() -> { if (epoch == taskEpoch && !store.voiceActive) store.status(gpt ? name + " · 녹음을 요약하는 중…" : "녹음을 요약하는 중…"); });
                 String input = transcript.length() > 200_000 ? transcript.substring(0, 200_000) : transcript, instructions = OpenAiProtocol.recordingInstructions(clock);
                 String summary;
                 if (gpt) {
@@ -3354,7 +3354,7 @@ public final class AssistantService extends Service {
         String id = task.optString("id"); long epoch = ++taskEpoch;
         String engine = store.analyst(), name = store.analystName(), model = analystModel(engine), effort = analystEffort(engine, model);
         boolean webSearch = store.webSearch(engine);
-        if (!store.voiceActive) store.status(webSearch ? name + "가 검색하며 분석하고 있어요" : name + "가 분석하고 있어요");
+        if (!store.voiceActive) store.status(webSearch ? name + " · 검색하며 분석하는 중" : name + " · 분석하는 중");
         long startedAt = SystemClock.elapsedRealtime(); workerActivity = startedAt;
         String clock = GeminiProtocol.clock(ZonedDateTime.now());
         holdWake(); foreground();
@@ -5029,7 +5029,7 @@ public final class AssistantService extends Service {
     private Notification ongoing() {
         int pending = store.tasks.pendingCount() + workQueued;
         String detail = store.recording ? "마이크로 녹음하고 있어요" + (pending > 0 ? " · 작업 " + pending + "개" : "")
-            : store.voiceActive ? (store.voiceNetwork.offline() ? "오프라인 · " : store.thinking() ? store.thinkingName() + "가 생각하는 중 · " : "") + (store.muted ? "마이크 음소거 중" : "마이크 사용 중") + (pending > 0 ? " · 작업 " + pending + "개" : "")
+            : store.voiceActive ? (store.voiceNetwork.offline() ? "오프라인 · " : store.thinking() ? store.thinkingName() + " · 생각하는 중 · " : "") + (store.muted ? "마이크 음소거 중" : "마이크 사용 중") + (pending > 0 ? " · 작업 " + pending + "개" : "")
             : reportsPlaying > 0 ? "작업 결과를 읽고 있어요" : "백그라운드 작업 " + pending + "개";
         Notification.Builder builder = new Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(store.recording ? Brand.NAME + " · 녹음 중" : store.voiceActive ? Brand.NAME + " · " + modeName() : Brand.NAME).setContentText(detail).setContentIntent(openApp(1, 0))

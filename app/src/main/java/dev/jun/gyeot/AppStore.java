@@ -104,7 +104,7 @@ final class AppStore {
     String thinkingName() { return thinking > 0 ? thinkingBy : "Gemini"; }
     long thinkingStartedAt() { return thinking > 0 ? thinkingSince : liveReasoningSince; }
     /** "Claude가 생각하는 중 · 12초". */
-    String thinkingText() { return thinkingName() + "가 생각하는 중 · " + Math.max(0, (System.currentTimeMillis() - thinkingStartedAt()) / 1000) + "초"; }
+    String thinkingText() { return thinkingName() + " · 생각하는 중 · " + Math.max(0, (System.currentTimeMillis() - thinkingStartedAt()) / 1000) + "초"; }
     /** The thread the 작업창 should show (just sent, or opened from a notification); MainActivity is on screen. */
     volatile String workOpen = "";
     volatile String visibleGalleryImage = "";

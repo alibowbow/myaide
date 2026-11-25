@@ -118,7 +118,7 @@ final class ProjectMaker {
                 String engine = scope.engine();
                 if (engine == null || engine.isBlank() || !store.ready(engine)) throw new IllegalStateException("프로젝트를 만들 AI가 연결되지 않았어요. 아래 모델 이름을 눌러 골라 주세요.");
                 String model = scope.model(engine), effort = scope.effectiveEffort(engine, model);
-                what.put(id, WorkBook.author(engine) + " · " + new TeamRoster(store, scope).label(engine, model) + "가 " + label); changed(id);
+                what.put(id, WorkBook.author(engine) + " · " + new TeamRoster(store, scope).label(engine, model) + " · " + label); changed(id);
                 String answer = FileAiOperationsUi.complete(store, FileAiOperationsUi.Connection.capture(store, engine), model, effort, ProjectBook.RULES, input.get(), () -> {}, cancel);
                 if (stopping.contains(id)) throw new IOException("멈췄어요.");
                 String html = ProjectBook.document(answer);

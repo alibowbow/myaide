@@ -388,7 +388,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         boolean picture = !pictures.isEmpty();
         if (picture) request = request.files(pictures);
         String label = tradingModelLabel();
-        progress(ask, label + "가 차트를 보는 중");
+        progress(ask, label + " · 차트를 보는 중");
         guard.run();
         String text = MainAdapters.send(store, scope.snapshot(), request, guard, cancel).text();
         if (text == null || text.isBlank()) throw new IllegalStateException("AI가 빈 답을 보냈어요. 다시 해 주세요.");
@@ -438,7 +438,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         ScopedModels scope = ScopedModels.trading(store); String engine = scope.engine();
         if (engine == null || engine.isBlank() || !store.ready(engine)) throw new IllegalStateException("답할 AI가 연결되지 않았어요. 위의 모델 이름을 눌러 골라 주세요.");
         String label = tradingModelLabel();
-        progress(ask, label + "가 답을 쓰는 중");
+        progress(ask, label + " · 답을 쓰는 중");
         String text = MainAdapters.send(store, scope.snapshot(), dev.jun.gyeot.core.MainRequest.of(dev.jun.gyeot.core.TradingData.FOLLOW_UP, input), guard, cancel).text();
         if (text == null || text.isBlank()) throw new IllegalStateException("AI가 빈 답을 보냈어요. 다시 해 주세요.");
         toPage(dev.jun.gyeot.core.Jsons.obj("type", "result", "id", ask, "ok", true, "text", text, "model", label, "at", System.currentTimeMillis()));

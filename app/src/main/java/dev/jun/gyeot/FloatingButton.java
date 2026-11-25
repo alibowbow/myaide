@@ -180,7 +180,7 @@ final class FloatingButton implements AutoCloseable, PhoneService.Anchor {
     void update(boolean muted) {
         this.muted = muted;
         orb.muted(muted);
-        orb.setContentDescription((muted ? Brand.NAME + " 마이크 음소거됨" : Brand.NAME + " 음성") + (thinkingBy.isEmpty() ? "" : ", " + thinkingBy + "가 생각하는 중") + (phoneOn ? ", 폰 조작 중. 위에 떠 있는 작은 멈춤 버튼으로 바로 멈출 수 있어요" : satelliteShown ? ", 폰 조작 멈춤. 위의 작은 버튼을 누르면 다시 켜져요" : "")
+        orb.setContentDescription((muted ? Brand.NAME + " 마이크 음소거됨" : Brand.NAME + " 음성") + (thinkingBy.isEmpty() ? "" : ", " + thinkingBy + " 생각하는 중") + (phoneOn ? ", 폰 조작 중. 위에 떠 있는 작은 멈춤 버튼으로 바로 멈출 수 있어요" : satelliteShown ? ", 폰 조작 멈춤. 위의 작은 버튼을 누르면 다시 켜져요" : "")
             + ". 누르면 메뉴(음소거·" + (look != null ? "화면 보기·" : "") + (rearm != null && !phoneOn ? "폰 조작 다시 켜기·" : "") + "목소리 설정·음성 종료·" + Brand.NAME + " 열기), 길게 누르면 음성 종료");
         if (menu != null) { hideMenu(); showMenu(); }
     }

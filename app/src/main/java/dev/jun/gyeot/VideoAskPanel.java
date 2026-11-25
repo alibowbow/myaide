@@ -384,7 +384,7 @@ final class VideoAskPanel {
                     // The AI chosen here writes one HTML page of the video; it is kept in 페이지 (마이튜브 category), opened from the answer.
                     status(v, job, "HTML 페이지를 만드는 중");
                     String written = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.PAGE, VideoChat.chatInput(v, script, sent), job.stop,
-                        name -> { by[0] = name; status(v, job, name + "가 페이지를 만드는 중"); });
+                        name -> { by[0] = name; status(v, job, name + " · 페이지를 만드는 중"); });
                     guard.run();
                     String html = VideoChat.html(written);
                     if (html.isBlank()) throw new java.io.IOException("AI가 HTML 페이지를 쓰지 않았어요. 다시 해 주세요.");
