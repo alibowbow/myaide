@@ -101,6 +101,8 @@
   .meta { font-size: 12px; color: var(--muted); margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
   .thread .q { margin: 16px 0 6px auto; max-width: 85%; width: fit-content; background: var(--raised); border: 1px solid var(--line); border-radius: 14px 14px 4px 14px; padding: 8px 12px; font-size: 14px; font-weight: 600; white-space: pre-wrap; }
   .thread .by { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .thread .by button { font-size: 11.5px; color: var(--muted); text-decoration: underline; padding: 0 2px; margin-left: 4px; }
+  #aiDel.armed { background: var(--down); border-color: var(--down); color: #fff; }
   .thread .err { color: var(--down); font-weight: 600; font-size: 13px; margin: 8px 0; }
   .follow { display: flex; gap: 8px; margin-top: 12px; position: sticky; bottom: 0; background: var(--card, var(--bg)); padding: 8px 0 2px; }
   .follow textarea { flex: 1; min-width: 0; min-height: 40px; max-height: 120px; border-radius: 12px; border: 1px solid var(--line); background: var(--raised); color: var(--text); padding: 9px 12px; font: inherit; font-size: 14px; resize: none; }
@@ -148,7 +150,8 @@
       <button class="small" data-close aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
     <div class="ai-tools"><div class="seg" id="aiKind"><button data-kind="analyze">AI 차트 분석</button><button data-kind="news">최신 뉴스</button></div>
       <button class="chip" id="aiModel" aria-label="분석할 AI 바꾸기"></button>
-      <button class="chip" id="aiAgain">다시</button></div>
+      <button class="chip" id="aiAgain">다시</button>
+      <button class="chip" id="aiDel" hidden>지우기</button></div>
     <div id="aiStyleBox"><div class="styles" id="aiStyles" role="tablist" aria-label="분석 스타일"></div><div class="style-about" id="aiStyleAbout"></div>
       <input class="custom" id="aiCustom" maxlength="300" placeholder="원하는 관점 · 예: 실적 발표 앞두고 단기 변동성 위주로" hidden>
       <button class="primary go" id="aiGo">분석하기</button></div>
@@ -302,7 +305,7 @@
     return false;
   };
   // ── AI 차트 분석 · 최신 뉴스: asked of the 들퍼레 app through the port it gives this page (nothing else reaches the app) ──
-  let app = null, modelName = '', open = null; const pendingKind = {}, pendingQ = {}, pendingStyle = {};
+  let app = null, modelName = '', open = null, delArmed = null; const pendingKind = {}, pendingQ = {}, pendingStyle = {};
   // 분석 스타일 (준: "여러 프리셋 분석스타일 선택 제공해줘"): what the AI weighs; the app holds each one's instructions (TradingData.STYLES).
   const STYLES = [
     ['overall', '종합', '주봉부터 15분봉까지 함께 보고 큰 방향과 상승·하락 시나리오'],
@@ -384,10 +387,12 @@
     $('aiMeta').hidden = !meta; $('aiMeta').textContent = meta;
     // 이어서 묻기 (준: "Ai분석한것에 이어서 질문할 수 있게"): the questions asked on this answer and their answers, then the box.
     const thread = saved && !open.error && Array.isArray(saved.thread) ? saved.thread : [];
-    $('aiThread').innerHTML = thread.map(t => '<div class="q">' + esc(t.q) + '</div>' + md(t.a) + '<div class="by">' + esc([t.model, ago(t.at)].filter(Boolean).join(' · ')) + '</div>').join('')
+    $('aiThread').innerHTML = thread.map((t, i) => '<div class="q">' + esc(t.q) + '</div>' + md(t.a) + '<div class="by">' + esc([t.model, ago(t.at)].filter(Boolean).join(' · ')) + '<button data-q="' + i + '" aria-label="이 질문과 답 지우기">지우기</button></div>').join('')
       + (open.asking ? '<div class="q">' + esc(open.asking) + '</div>' + (open.status ? '<div class="status">' + esc(open.status) + '</div>' : '') : '') + (open.qError ? '<p class="err">' + esc(open.qError) + '</p>' : '');
     // The box stays while an answer is being written (준: "질문 입력칸도 없어져"): its button stops it then.
     const answering = !!(open.asking && open.status);
+    // 지우기 (준: "분석 지우는게 없어"): the answer and its questions; a second tap within 3 seconds does it.
+    $('aiDel').hidden = !saved || !!open.status; if (!delArmed) { $('aiDel').textContent = '지우기'; $('aiDel').classList.remove('armed'); }
     $('aiFollow').hidden = !saved || !!open.error || (!!open.status && !open.asking);
     $('aiAsk').textContent = answering ? '멈추기' : kind === 'news' ? '묻기 (Grok)' : '묻기';
   }
@@ -407,6 +412,21 @@
     const panel = $('ai').querySelector('.panel'); setTimeout(() => { panel.scrollTop = panel.scrollHeight; }, 50);
   }
   $('aiAsk').onclick = followUp;
+  $('aiDel').onclick = () => {
+    if (!open || open.status) return;
+    const key = open.kind + '|' + open.sym.s;
+    if (!delArmed) {
+      $('aiDel').textContent = '한 번 더 누르면 지워요'; $('aiDel').classList.add('armed');
+      delArmed = setTimeout(() => { delArmed = null; paint(); }, 3000); return;
+    }
+    clearTimeout(delArmed); delArmed = null; delete answers[key]; keep(); open.error = ''; open.qError = ''; paint();
+  };
+  // One question and its answer under an analysis.
+  $('aiThread').addEventListener('click', e => {
+    const b = e.target.closest('[data-q]'); if (!b || !open) return;
+    const saved = answers[open.kind + '|' + open.sym.s]; if (!saved || !Array.isArray(saved.thread)) return;
+    saved.thread.splice(Number(b.dataset.q), 1); keep(); paint();
+  });
   $('aiQ').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); followUp(); } });
   // One ask: the answer kept for this symbol shows at once; again asks anew.
   function ask(sym, kind, card, again) {
