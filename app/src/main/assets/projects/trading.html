@@ -66,9 +66,12 @@
   .panel p { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
   .row { display: flex; align-items: center; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
   .row:last-child { border-bottom: 0; }
+  .row { transition: transform .12s ease; background: var(--card); }
+  .row.dragging { transition: none; position: relative; z-index: 2; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
+  .grip { width: 30px; height: 38px; display: grid; place-items: center; color: var(--muted); touch-action: none; cursor: grab; flex: none; margin-left: -4px; }
   .row .name b { font-size: 15px; }
   .small { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; color: var(--muted); }
-  .small svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  .small svg, .grip svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
   .add { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
   .add input { grid-column: span 1; height: 46px; border-radius: 12px; border: 1px solid var(--line); background: var(--raised); color: var(--text); padding: 0 12px; font: inherit; min-width: 0; }
   .add .wide { grid-column: span 2; }
@@ -264,21 +267,41 @@
     const box = $('rows'); box.innerHTML = '';
     state.symbols.forEach((sym, i) => {
       const r = document.createElement('div'); r.className = 'row';
-      r.innerHTML = `<div class="badge" style="background:${hue(sym.s)}">${sym.n.replace(/USDT$/, '').slice(0, 4)}</div><div class="name"><b></b><span></span></div>
+      r.innerHTML = `<button class="grip" aria-label="끌어서 순서 바꾸기"><svg viewBox="0 0 24 24"><path d="M5 8h14M5 12h14M5 16h14"/></svg></button><div class="badge" style="background:${hue(sym.s)}">${sym.n.replace(/USDT$/, '').slice(0, 4)}</div><div class="name"><b></b><span></span></div>
         <button class="small" data-up aria-label="위로"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
         <button class="small" data-down aria-label="아래로"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
         <button class="small" data-del aria-label="빼기"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
       r.querySelector('b').textContent = sym.n; r.querySelector('.name span').textContent = sym.s + (sym.d ? ' · ' + sym.d : '');
+      r.querySelector('.grip').addEventListener('pointerdown', e => drag(e, r, i));
       r.querySelector('[data-up]').onclick = () => move(i, -1);
       r.querySelector('[data-down]').onclick = () => move(i, 1);
-      r.querySelector('[data-del]').onclick = () => { remember(); state.symbols.splice(i, 1); changed(); };
+      r.querySelector('[data-del]').onclick = () => { rememberSymbols(); state.symbols.splice(i, 1); changed(); };
       box.appendChild(r);
     });
   }
-  function move(i, by) { const j = i + by; if (j < 0 || j >= state.symbols.length) return; remember(); const s = state.symbols; [s[i], s[j]] = [s[j], s[i]]; changed(); }
+  // 끌어서 순서 바꾸기 (준: "드래그로도 바꿀 수 있게"): the row follows the finger on its ≡, the others make room, and it lands where let go.
+  function drag(e, row, from) {
+    e.preventDefault();
+    const grip = e.currentTarget, list = [...$('rows').children], h = row.getBoundingClientRect().height, y0 = e.clientY;
+    let to = from; try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+    row.classList.add('dragging');
+    const moveTo = ev => {
+      const dy = ev.clientY - y0; row.style.transform = 'translateY(' + dy + 'px)';
+      to = Math.max(0, Math.min(list.length - 1, from + Math.round(dy / h)));
+      list.forEach((o, k) => { if (o === row) return; const shift = from < to && k > from && k <= to ? -h : from > to && k < from && k >= to ? h : 0; o.style.transform = shift ? 'translateY(' + shift + 'px)' : ''; });
+    };
+    const end = () => {
+      grip.removeEventListener('pointermove', moveTo); grip.removeEventListener('pointerup', end); grip.removeEventListener('pointercancel', end);
+      list.forEach(o => { o.style.transform = ''; }); row.classList.remove('dragging');
+      if (to !== from) { rememberSymbols(); const [s] = state.symbols.splice(from, 1); state.symbols.splice(to, 0, s); changed(); }
+    };
+    grip.addEventListener('pointermove', moveTo); grip.addEventListener('pointerup', end); grip.addEventListener('pointercancel', end);
+  }
+  function move(i, by) { const j = i + by; if (j < 0 || j >= state.symbols.length) return; rememberSymbols(); const s = state.symbols; [s[i], s[j]] = [s[j], s[i]]; changed(); }
   // 방금 바꾼 것 되돌리기: the symbols as they were before the last add, removal, move or reset (준: "종목추가 한것만 되돌리려한건데").
   let before = null;
-  function remember() { before = state.symbols.map(x => ({ ...x })); $('undoSym').hidden = false; }
+  // Not remember(): that name is the AI answers' (below), and a second function of one name replaces the first.
+  function rememberSymbols() { before = state.symbols.map(x => ({ ...x })); $('undoSym').hidden = false; }
   function changed() { save(); rows(); tape(); grid(); }
   function sheet(open) { $('sheet').classList.toggle('open', open); $('sheet').setAttribute('aria-hidden', open ? 'false' : 'true'); if (open) rows(); }
   $('edit').onclick = () => sheet(true);
@@ -287,10 +310,10 @@
     let s = $('sym').value.trim().toUpperCase().replace(/\s+/g, ''); if (!s) { $('sym').focus(); return; }
     if (!s.includes(':')) s = (/USDT$|USD$|BTC$/.test(s) ? 'BINANCE:' : 'NASDAQ:') + s;
     if (state.symbols.some(x => x.s === s)) { $('sym').value = ''; return; }
-    const n = s.split(':')[1]; remember(); state.symbols.push({ s, n, d: $('label').value.trim() });
+    const n = s.split(':')[1]; rememberSymbols(); state.symbols.push({ s, n, d: $('label').value.trim() });
     $('sym').value = ''; $('label').value = ''; changed();
   };
-  $('reset').onclick = () => { remember(); state.symbols = DEFAULTS.slice(); changed(); };
+  $('reset').onclick = () => { rememberSymbols(); state.symbols = DEFAULTS.slice(); changed(); };
   $('undoSym').onclick = () => { if (!before) return; state.symbols = before; before = null; $('undoSym').hidden = true; changed(); };
   $('layout').onclick = () => { state.layout = LAYOUTS[(LAYOUTS.indexOf(state.layout) + 1) % LAYOUTS.length]; save(); grid(); };
   function tick() {
