@@ -353,32 +353,14 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         ScopedModels scope = ScopedModels.trading(store); String engine = scope.engine();
         if (engine == null || engine.isBlank() || !store.ready(engine)) throw new IllegalStateException("분석할 AI가 연결되지 않았어요. 위의 모델 이름을 눌러 골라 주세요.");
         progress(ask, "바이낸스에서 주봉부터 15분봉까지 시세를 받는 중");
-        // Every timeframe, longest first: the one the user was on with its last 30 candles, the others in short.
-        StringBuilder all = new StringBuilder(); String from = ""; int source = -1;
-        for (String tf : dev.jun.gyeot.core.TradingData.TIMEFRAMES) {
-            java.util.List<dev.jun.gyeot.core.TradingData.Source> sources = dev.jun.gyeot.core.TradingData.sources(symbol, tf);
-            for (int i = source < 0 ? 0 : source; i < sources.size() && (source < 0 || i == source); i++) {
-                guard.run();
-                try {
-                    java.util.List<dev.jun.gyeot.core.TradingData.Bar> bars = dev.jun.gyeot.core.TradingData.klines(new JSONArray(fetch(sources.get(i).url())));
-                    if (bars.size() < 30) continue;
-                    all.append("\n[").append(dev.jun.gyeot.core.TradingData.intervalName(tf)).append(tf.equals(interval) ? " · 사용자가 보던 시간대" : "").append("]\n")
-                        .append(dev.jun.gyeot.core.TradingData.summary(name, symbol, tf, bars, sources.get(i).name(), tf.equals(interval)));
-                    source = i; from = sources.get(i).name(); break;
-                } catch (java.util.concurrent.CancellationException stopped) { throw stopped; } catch (Exception notListed) { /* the next source, or the chart alone */ }
-            }
-        }
-        String numbers = all.toString();
+        String[] got = numbers(symbol, name, interval, guard); String numbers = got[0], from = got[1];
         boolean sees = dev.jun.gyeot.core.MainRequest.supported(engine).contains(dev.jun.gyeot.core.MainRequest.Option.FILES);
         java.util.List<dev.jun.gyeot.core.MainRequest.Attachment> pictures = new java.util.ArrayList<>(); StringBuilder named = new StringBuilder();
         if (sees) {
             java.util.List<String> intervals = style.pictures() != null ? style.pictures() : dev.jun.gyeot.core.TradingData.pictured(interval, !numbers.isEmpty());
             java.util.List<String> names = new java.util.ArrayList<>(); for (String tf : intervals) names.add(dev.jun.gyeot.core.TradingData.intervalName(tf));
             progress(ask, String.join("·", names) + " 차트를 크게 찍는 중 (보이지 않는 곳에서)");
-            for (ChartShots.Shot shot : shots(symbol, intervals, guard)) {
-                pictures.add(new dev.jun.gyeot.core.MainRequest.Attachment(name + "-" + shot.interval() + ".jpg", "image/jpeg", jpeg(shot.picture())));
-                named.append(named.length() == 0 ? "" : ", ").append(pictures.size()).append(") ").append(dev.jun.gyeot.core.TradingData.intervalName(shot.interval()));
-            }
+            pictures.addAll(pictures(symbol, name, intervals, named, guard));
             if (pictures.isEmpty() && shown != null) { pictures.add(new dev.jun.gyeot.core.MainRequest.Attachment(name + ".jpg", "image/jpeg", jpeg(shown))); named.append("1) 사용자가 지금 보고 있는 차트"); }
         }
         if (pictures.isEmpty() && numbers.isEmpty()) throw new IllegalStateException(sees ? "차트 화면을 찍지 못했고, 바이낸스에도 이 종목이 없어요. 잠시 뒤 다시 눌러 주세요."
@@ -412,8 +394,39 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         toPage(dev.jun.gyeot.core.Jsons.obj("type", "result", "id", ask, "ok", true, "text", answer.text, "model", "Grok · 웹·X 검색", "sources", answer.sources, "note", answer.note, "at", System.currentTimeMillis()));
     }
     /**
+     * Every timeframe's numbers from Binance, longest first (the one the user was on with its last 30 candles, the others in
+     * short): {the text, the source's name}; "" when Binance does not list the symbol. Blocking.
+     */
+    private String[] numbers(String symbol, String name, String interval, Runnable guard) {
+        StringBuilder all = new StringBuilder(); String from = ""; int source = -1;
+        for (String tf : dev.jun.gyeot.core.TradingData.TIMEFRAMES) {
+            java.util.List<dev.jun.gyeot.core.TradingData.Source> sources = dev.jun.gyeot.core.TradingData.sources(symbol, tf);
+            for (int i = source < 0 ? 0 : source; i < sources.size() && (source < 0 || i == source); i++) {
+                guard.run();
+                try {
+                    java.util.List<dev.jun.gyeot.core.TradingData.Bar> bars = dev.jun.gyeot.core.TradingData.klines(new JSONArray(fetch(sources.get(i).url())));
+                    if (bars.size() < 30) continue;
+                    all.append("\n[").append(dev.jun.gyeot.core.TradingData.intervalName(tf)).append(tf.equals(interval) ? " · 사용자가 보던 시간대" : "").append("]\n")
+                        .append(dev.jun.gyeot.core.TradingData.summary(name, symbol, tf, bars, sources.get(i).name(), tf.equals(interval)));
+                    source = i; from = sources.get(i).name(); break;
+                } catch (java.util.concurrent.CancellationException stopped) { throw stopped; } catch (Exception notListed) { /* the next source, or the chart alone */ }
+            }
+        }
+        return new String[]{all.toString(), from};
+    }
+    /** The charts of these timeframes, taken large off screen just now, as attachments; named lists them ("1) 1시간봉, 2) 15분봉"). */
+    private java.util.List<dev.jun.gyeot.core.MainRequest.Attachment> pictures(String symbol, String name, java.util.List<String> intervals, StringBuilder named, Runnable guard) throws Exception {
+        java.util.List<dev.jun.gyeot.core.MainRequest.Attachment> out = new java.util.ArrayList<>();
+        for (ChartShots.Shot shot : shots(symbol, intervals, guard)) {
+            out.add(new dev.jun.gyeot.core.MainRequest.Attachment(name + "-" + shot.interval() + ".jpg", "image/jpeg", jpeg(shot.picture())));
+            named.append(named.length() == 0 ? "" : ", ").append(out.size()).append(") ").append(dev.jun.gyeot.core.TradingData.intervalName(shot.interval()));
+        }
+        return out;
+    }
+    /**
      * 이어서 묻기 (준: "Ai분석한것에 이어서 질문할 수 있게"): a question on an answer the page shows, with the questions before it.
-     * An analysis goes on with the 트레이딩 AI (text only: the charts it saw are in its own answer); a news briefing with Grok,
+     * An analysis goes on with the 트레이딩 AI, with Binance's numbers and the short charts taken again just now (준: "후속 질문시
+     * 차트를 못 읽어": it had only its earlier words, so "지금 돌파 실패?" could not be answered); a news briefing with Grok,
      * searching the web and X again.
      */
     private void followUp(org.json.JSONObject m, String ask, java.util.concurrent.atomic.AtomicReference<Runnable> cancel, Runnable guard) throws Exception {
@@ -440,9 +453,26 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         }
         ScopedModels scope = ScopedModels.trading(store); String engine = scope.engine();
         if (engine == null || engine.isBlank() || !store.ready(engine)) throw new IllegalStateException("답할 AI가 연결되지 않았어요. 위의 모델 이름을 눌러 골라 주세요.");
+        // The market now: Binance's numbers again, and the short charts (the style's shortest, else 1시간·15분봉) taken again.
+        String interval = field(m, "interval", 4);
+        progress(ask, "바이낸스에서 지금 시세를 다시 받는 중");
+        String[] got = numbers(symbol, name, interval, guard);
+        boolean sees = dev.jun.gyeot.core.MainRequest.supported(engine).contains(dev.jun.gyeot.core.MainRequest.Option.FILES);
+        java.util.List<dev.jun.gyeot.core.MainRequest.Attachment> pictures = new java.util.ArrayList<>(); StringBuilder named = new StringBuilder();
+        if (sees) {
+            java.util.List<String> intervals = dev.jun.gyeot.core.TradingData.followPictures(dev.jun.gyeot.core.TradingData.style(field(m, "style", 20)), interval);
+            java.util.List<String> names = new java.util.ArrayList<>(); for (String tf : intervals) names.add(dev.jun.gyeot.core.TradingData.intervalName(tf));
+            progress(ask, String.join("·", names) + " 차트를 다시 찍는 중 (보이지 않는 곳에서)");
+            pictures.addAll(pictures(symbol, name, intervals, named, guard));
+        }
+        String now = java.time.ZonedDateTime.now(java.time.ZoneId.of("Asia/Seoul")).format(java.time.format.DateTimeFormatter.ofPattern("M월 d일 HH:mm"));
+        input += "\n\n지금 시세 (한국 시간 " + now + "에 새로 받음):" + (got[0].isEmpty() ? " 바이낸스에 이 종목이 없어 숫자는 없어요." : got[0])
+            + (pictures.isEmpty() ? (sees ? "\n차트 그림은 찍지 못했어요." : "") : "\n방금 찍은 차트 그림: " + named + " (트레이딩뷰, 아래에 RSI와 MACD).");
+        dev.jun.gyeot.core.MainRequest request = dev.jun.gyeot.core.MainRequest.of(dev.jun.gyeot.core.TradingData.FOLLOW_UP, input);
+        if (!pictures.isEmpty()) request = request.files(pictures);
         String label = tradingModelLabel();
         progress(ask, label + " · 답을 쓰는 중");
-        String text = MainAdapters.send(store, scope.snapshot(), dev.jun.gyeot.core.MainRequest.of(dev.jun.gyeot.core.TradingData.FOLLOW_UP, input), guard, cancel).text();
+        String text = MainAdapters.send(store, scope.snapshot(), request, guard, cancel).text();
         if (text == null || text.isBlank()) throw new IllegalStateException("AI가 빈 답을 보냈어요. 다시 해 주세요.");
         toPage(dev.jun.gyeot.core.Jsons.obj("type", "result", "id", ask, "ok", true, "text", text, "model", label, "at", System.currentTimeMillis()));
     }

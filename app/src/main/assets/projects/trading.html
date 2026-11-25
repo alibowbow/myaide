@@ -395,10 +395,10 @@
     const key = open.kind + '|' + open.sym.s, saved = answers[key]; if (!saved) return;
     const id = 'q' + Date.now().toString(36); open.id = id; open.asking = q; open.qError = ''; pendingQ[id] = { key, q };
     const thread = (saved.thread || []).slice(-6).map(t => ({ q: t.q, a: String(t.a).slice(0, 3000) }));
-    if (!send({ type: 'followup', id, kind: open.kind, symbol: open.sym.s, name: open.sym.n, desc: open.sym.d || '', interval: state.interval, base: String(saved.text).slice(0, 12000), thread, question: q })) {
+    if (!send({ type: 'followup', id, kind: open.kind, symbol: open.sym.s, name: open.sym.n, desc: open.sym.d || '', interval: state.interval, style: saved.styleId || 'overall', base: String(saved.text).slice(0, 12000), thread, question: q })) {
       open.asking = ''; open.qError = '이 기능은 들퍼레 앱의 페이지에서만 돼요.'; paint(); return;
     }
-    $('aiQ').value = ''; open.status = open.kind === 'news' ? 'Grok이 찾아보고 답하는 중' : '답을 쓰는 중'; paint();
+    $('aiQ').value = ''; open.status = open.kind === 'news' ? 'Grok이 찾아보고 답하는 중' : '지금 시세와 차트를 다시 보는 중'; paint();
     const panel = $('ai').querySelector('.panel'); setTimeout(() => { panel.scrollTop = panel.scrollHeight; }, 50);
   }
   $('aiAsk').onclick = followUp;

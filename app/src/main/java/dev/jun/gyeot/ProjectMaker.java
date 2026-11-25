@@ -67,7 +67,8 @@ final class ProjectMaker {
      * takes the newest at once. The first had no AI 차트 분석; 0.4.513 no 방금 바꾼 것 되돌리기; 0.4.526 no 분석 스타일.
      */
     private static final java.util.Set<String> OLD_TRADING = java.util.Set.of("f960956429b84eda68d057d8255e0203dcaf0dde0b64bd53aca821f902c49ef8",
-        "419eb6e647b423181d7bcd35d4c92680d6f6c7b09e6912264c673ce7739cf008", "603e83b7ac93ed513be7c56bb180eca9b4dbbac2799f2ff256bd018acd937048");
+        "419eb6e647b423181d7bcd35d4c92680d6f6c7b09e6912264c673ce7739cf008", "603e83b7ac93ed513be7c56bb180eca9b4dbbac2799f2ff256bd018acd937048",
+        "70bdfcabe4df4f7cdfbe0d80fab533302d8119e6f308d1fad4750d2981763155");
     /**
      * A 트레이딩 made from an older template gets the new one (AI 차트 분석 · 최신 뉴스): at once when the user never changed it
      * (the old page stays in its versions), else only when asked (offerUpgrade). Returns whether the page changed.
