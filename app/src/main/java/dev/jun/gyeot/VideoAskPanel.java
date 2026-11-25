@@ -173,7 +173,8 @@ final class VideoAskPanel {
         box.addView(input, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout bar = ui.row(); bar.setGravity(Gravity.CENTER_VERTICAL);
         // +: pictures of the video with GPT image (그래픽 레코딩, 인포그래픽, 4컷 만화, or the user's own words).
-        bar.addView(ui.bareIcon(R.drawable.ic_add, TEXT, "더하기 · 그림 그리기", this::plus), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
+        plusButton = ui.bareIcon(R.drawable.ic_add, TEXT, "더하기 · 그림 그리기, HTML 페이지", this::plus);
+        bar.addView(plusButton, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         model = ui.text("", 13.5f, 500, TEXT); model.setSingleLine(true); model.setEllipsize(TextUtils.TruncateAt.END);
         model.setGravity(Gravity.CENTER_VERTICAL | Gravity.END); model.setPadding(ui.dp(10), 0, ui.dp(6), 0); model.setMinHeight(ui.dp(44));
         model.setOnClickListener(v -> chooseModel()); Ui.pressable(model, true);
@@ -219,20 +220,32 @@ final class VideoAskPanel {
     }
     /** A request sent with this before it is drawn (+ → 직접 적어서 그리기), whatever its words. */
     private static final String DRAW = "[그림] ";
+    /** + → HTML 페이지로 만들기: the request is made into an HTML page kept in 페이지. */
+    private static final String PAGE = "[페이지] ";
+    private View plusButton;
+    /** How many pictures one request draws (+ → 그림 장수), 1 to 4. */
+    private int pictureCount() { return Math.max(1, Math.min(4, store.settings.getInt("mytubePictures", 1))); }
     /** + → 직접 적어서 그리기: the next words sent are drawn; the box says so until then. */
     private boolean drawNext;
     private void drawNext(boolean on) { drawNext = on; input.setHint(on ? "어떤 그림을 그릴까요? 예: 핵심만 인포그래픽으로" : "질문하기…"); }
-    /** +: ways to draw the video, as a short list. */
+    /**
+     * +: a small menu right at the button (준: "더 심플하고 컴팩트하게"): the pictures GPT image draws, writing one's own, an HTML
+     * page kept in 페이지 (준: "Html로 시각화해서 페이지로 저장하기도"), and how many pictures one request draws.
+     */
     private void plus() {
         if (video == null) return;
-        Ui.Sheet sheet = ui.selectionSheet("그림으로 그리기", "GPT 이미지가 이 영상의 내용으로 그려요 · 갤러리와 들퍼레/이미지에 저장돼요");
-        sheet.primary.setVisibility(View.GONE);
-        LinearLayout group = ui.group();
-        String[][] ways = {{"그래픽 레코딩", "대본을 요약해서 그래픽 레코딩 스타일로 그려줘"}, {"인포그래픽", "핵심 내용과 숫자를 한 장의 인포그래픽으로 그려줘"}, {"4컷 만화", "영상 내용을 4컷 만화로 그려줘"}};
-        for (String[] way : ways) ui.addRow(group, ui.listRow(R.drawable.ic_gallery, ACCENT, way[0], way[1], null, () -> { sheet.dismiss(); if (!busy()) ask(VideoChat.Turn.user(way[1], DRAW + way[1], false)); }), true);
-        ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, ACCENT, "직접 적어서 그리기", "아래 입력창에 원하는 그림을 적어요", null, () -> { sheet.dismiss(); drawNext(true); input.requestFocus(); }), true);
-        sheet.body.addView(group, new LinearLayout.LayoutParams(-1, -2));
-        sheet.show();
+        String[][] ways = {{"그래픽 레코딩", "대본을 요약해서 그래픽 레코딩 스타일로 그려줘"}, {"인포그래픽", "핵심 내용과 숫자를 인포그래픽으로 그려줘"}, {"4컷 만화", "영상 내용을 4컷 만화로 그려줘"}};
+        int n = pictureCount();
+        String[] labels = {"그래픽 레코딩", "인포그래픽", "4컷 만화", "직접 적어서 그리기", "HTML 페이지로 만들기", "그림 장수 · " + n + "장"};
+        ui.miniMenu(plusButton, labels, -1, i -> {
+            if (i < 3) { if (!busy()) ask(VideoChat.Turn.user(ways[i][0] + (n > 1 ? " " + n + "장" : ""), DRAW + ways[i][1], false)); }
+            else if (i == 3) { drawNext(true); input.requestFocus(); }
+            else if (i == 4) { if (!busy()) ask(VideoChat.Turn.user("HTML 페이지로 시각화", PAGE + "이 영상을 한눈에 보이게 HTML 페이지로 시각화해 줘", false)); }
+            else {
+                String[] counts = {"1장", "2장", "3장", "4장"};
+                ui.miniMenu(plusButton, counts, n - 1, c -> { store.settings.edit().putInt("mytubePictures", c + 1).apply(); Toast.makeText(activity, "한 번에 " + (c + 1) + "장씩 그려요", Toast.LENGTH_SHORT).show(); });
+            }
+        });
     }
     private MainChatPictures pictures;
     private MainChatPictures pictures() { if (pictures == null) pictures = new MainChatPictures(activity, store); return pictures; }
@@ -301,8 +314,16 @@ final class VideoAskPanel {
     /** An answer: the text (its times jump the video), and its icons; the AI that gave it, quietly. */
     private View answered(VideoChat.Turn turn, boolean last) {
         LinearLayout wrap = ui.column(); wrap.setPadding(0, ui.dp(18), 0, 0);
-        java.util.regex.Matcher drawn = VideoChat.PICTURE_MARK.matcher(turn.shown());
-        if (drawn.lookingAt()) { LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(-1, -2); pa.bottomMargin = ui.dp(8); wrap.addView(picture(drawn.group(1)), pa); }
+        for (String id : VideoChat.pictureIds(turn.shown())) { LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(-1, -2); pa.bottomMargin = ui.dp(8); wrap.addView(picture(id), pa); }
+        String pageId = VideoChat.pageId(turn.shown());
+        if (!pageId.isEmpty()) {
+            // The page it saved, one tap away (the 페이지 screen opens on it).
+            android.widget.Button open = ui.smallChip("페이지 열기", () -> {
+                if (PageStore.book(activity).page(pageId) == null) { Toast.makeText(activity, "페이지를 찾지 못했어요 (지웠을 수 있어요).", Toast.LENGTH_SHORT).show(); return; }
+                activity.startActivity(new android.content.Intent(activity, PagesActivity.class).putExtra(PagesActivity.OPEN, pageId).addFlags(android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP));
+            });
+            LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(-2, -2); pa.bottomMargin = ui.dp(6); wrap.addView(open, pa);
+        }
         String text = VideoChat.words(turn.shown());
         TextView answer = ui.text("", BODY, 450, TEXT); answer.setLineSpacing(ui.dp(4), 1);
         answer.setText(timed(RichText.render(text))); answer.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
@@ -336,8 +357,10 @@ final class VideoAskPanel {
         synchronized (CHATS) { list.add(question); while (list.size() > VideoChat.MOST_TURNS) list.remove(0); while (!list.isEmpty() && !list.get(0).user()) list.remove(0); sent = new ArrayList<>(list); }
         JOBS.put(v.id(), job); error = "";
         android.content.Context app = activity.getApplicationContext(); String known = transcript;
-        boolean picture = !question.summary() && (question.sent().startsWith(DRAW) || VideoChat.asksPicture(question.shown()));
-        job.status = question.summary() ? "Gemini가 영상을 보는 중" : picture ? "그릴 내용을 정리하는 중" : "생각하는 중"; waiting.setText(job.status); draw();
+        boolean page = !question.summary() && question.sent().startsWith(PAGE);
+        boolean picture = !page && !question.summary() && (question.sent().startsWith(DRAW) || VideoChat.asksPicture(question.shown()));
+        int count = picture ? pictureCount() : 1;
+        job.status = question.summary() ? "Gemini가 영상을 보는 중" : page ? "페이지를 만드는 중" : picture ? "그릴 내용을 정리하는 중" : "생각하는 중"; waiting.setText(job.status); draw();
         // On the app's own threads: closing the panel or leaving 마이튜브 does not end it; only 멈추기 does.
         RUN.execute(() -> {
             String said = null, failure = null;
@@ -357,18 +380,42 @@ final class VideoAskPanel {
                     script = kept.length() <= TRANSCRIPT_CHARS ? kept : kept.substring(0, TRANSCRIPT_CHARS) + "\n…(대본이 길어 앞부분만)";
                 }
                 guard.run();
-                if (picture) {
-                    // The AI chosen here writes the picture's prompt from the video, then GPT image draws it.
-                    status(v, job, "그릴 내용을 정리하는 중");
-                    String planned = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.PICTURE, VideoChat.chatInput(v, script, sent), job.stop, name -> by[0] = name);
+                if (page) {
+                    // The AI chosen here writes one HTML page of the video; it is kept in 페이지 (마이튜브 category), opened from the answer.
+                    status(v, job, "HTML 페이지를 만드는 중");
+                    String written = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.PAGE, VideoChat.chatInput(v, script, sent), job.stop,
+                        name -> { by[0] = name; status(v, job, name + "가 페이지를 만드는 중"); });
                     guard.run();
-                    org.json.JSONObject plan = null;
+                    String html = VideoChat.html(written);
+                    if (html.isBlank()) throw new java.io.IOException("AI가 HTML 페이지를 쓰지 않았어요. 다시 해 주세요.");
+                    dev.jun.gyeot.core.PageBook.Page kept = PageStore.book(app).save("", "마이튜브", dev.jun.gyeot.core.PageBook.HTML, html, "https://www.youtube.com/watch?v=" + v.id(), "");
+                    said = "[[page:" + kept.id() + "]]\n‘" + kept.title() + "’ 페이지로 저장했어요 · 페이지 → 마이튜브에서도 볼 수 있어요.";
+                } else if (picture) {
+                    // The AI chosen here writes the pictures' prompts from the video, then GPT image draws them one by one.
+                    status(v, job, "그릴 내용을 정리하는 중");
+                    String planned = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.pictures(count), VideoChat.chatInput(v, script, sent) + (count > 1 ? "\n\n그림 " + count + "장으로 그려 주세요." : ""), job.stop, name -> by[0] = name);
+                    guard.run();
+                    List<org.json.JSONObject> plans = new ArrayList<>();
                     int from = planned == null ? -1 : planned.indexOf('{'), to = planned == null ? -1 : planned.lastIndexOf('}');
-                    if (from >= 0 && to > from) try { plan = new org.json.JSONObject(planned.substring(from, to + 1)); } catch (org.json.JSONException notJson) { plan = null; }
-                    if (plan == null || plan.optString("prompt").isBlank()) plan = new org.json.JSONObject().put("prompt", planned == null ? question.shown() : planned.strip()).put("aspect", "portrait");
-                    status(v, job, "GPT 이미지가 그리는 중");
-                    org.json.JSONObject made = pictures().drawFor("마이튜브", "마이튜브", plan, question.shown(), "mytube-picture-" + java.util.UUID.randomUUID(), 0, 1, guard, job.stop);
-                    said = "[[picture:" + made.optString("id") + "]]\n" + (made.optString("note").isBlank() ? "그림을 그렸어요 · 갤러리와 들퍼레/이미지에 저장했어요." : made.optString("note"));
+                    if (from >= 0 && to > from) try {
+                        org.json.JSONObject plan = new org.json.JSONObject(planned.substring(from, to + 1));
+                        org.json.JSONArray many = plan.optJSONArray("pictures");
+                        if (many != null) { for (int k = 0; k < many.length() && plans.size() < count; k++) { org.json.JSONObject one = many.optJSONObject(k); if (one != null && !one.optString("prompt").isBlank()) plans.add(one); } }
+                        else if (!plan.optString("prompt").isBlank()) plans.add(plan);
+                    } catch (org.json.JSONException notJson) { /* the words themselves below */ }
+                    if (plans.isEmpty()) plans.add(new org.json.JSONObject().put("prompt", planned == null ? question.shown() : planned.strip()).put("aspect", "portrait"));
+                    StringBuilder marks = new StringBuilder(); String failed = ""; int drawn = 0;
+                    for (int k = 0; k < plans.size(); k++) {
+                        status(v, job, "GPT 이미지가 그리는 중" + (plans.size() > 1 ? " (" + (k + 1) + "/" + plans.size() + ")" : ""));
+                        try {
+                            org.json.JSONObject made = pictures().drawFor("마이튜브", "마이튜브", plans.get(k), question.shown(), "mytube-picture-" + java.util.UUID.randomUUID(), k, plans.size(), guard, job.stop);
+                            marks.append("[[picture:").append(made.optString("id")).append("]]"); drawn++;
+                        } catch (java.util.concurrent.CancellationException stopped) { if (drawn == 0) throw stopped; failed = "멈췄어요"; break; }
+                        catch (Exception e) { if (drawn == 0 && k == plans.size() - 1) throw e; failed = reason(e); }
+                    }
+                    if (drawn == 0) throw new java.io.IOException(failed.isEmpty() ? "그림을 그리지 못했어요." : failed);
+                    said = marks + "\n" + (drawn > 1 ? drawn + "장을 그렸어요" : "그림을 그렸어요") + " · 갤러리와 들퍼레/이미지에 저장했어요."
+                        + (drawn < plans.size() ? " " + (plans.size() - drawn) + "장은 못 그렸어요" + (failed.isEmpty() ? "." : ": " + failed) : "");
                     by[0] = "GPT 이미지" + (by[0].isBlank() ? "" : " · 내용 정리 " + by[0]);
                 } else if (question.summary()) {
                     boolean timeline = VideoChat.TIMELINE.equals(question.shown());
