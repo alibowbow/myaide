@@ -348,6 +348,8 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
     private void analyze(org.json.JSONObject m, String ask, Bitmap shown, java.util.concurrent.atomic.AtomicReference<Runnable> cancel, Runnable guard) throws Exception {
         String symbol = field(m, "symbol", 60), name = field(m, "name", 60), about = field(m, "desc", 80), interval = field(m, "interval", 4);
         if (symbol.isEmpty()) throw new IllegalArgumentException("종목을 알 수 없어요.");
+        dev.jun.gyeot.core.TradingData.Style style = dev.jun.gyeot.core.TradingData.style(field(m, "style", 20));
+        String custom = "custom".equals(style.id()) ? field(m, "custom", 300) : "";
         ScopedModels scope = ScopedModels.trading(store); String engine = scope.engine();
         if (engine == null || engine.isBlank() || !store.ready(engine)) throw new IllegalStateException("분석할 AI가 연결되지 않았어요. 위의 모델 이름을 눌러 골라 주세요.");
         progress(ask, "바이낸스에서 주봉부터 15분봉까지 시세를 받는 중");
@@ -370,7 +372,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         boolean sees = dev.jun.gyeot.core.MainRequest.supported(engine).contains(dev.jun.gyeot.core.MainRequest.Option.FILES);
         java.util.List<dev.jun.gyeot.core.MainRequest.Attachment> pictures = new java.util.ArrayList<>(); StringBuilder named = new StringBuilder();
         if (sees) {
-            java.util.List<String> intervals = dev.jun.gyeot.core.TradingData.pictured(interval, !numbers.isEmpty());
+            java.util.List<String> intervals = style.pictures() != null ? style.pictures() : dev.jun.gyeot.core.TradingData.pictured(interval, !numbers.isEmpty());
             java.util.List<String> names = new java.util.ArrayList<>(); for (String tf : intervals) names.add(dev.jun.gyeot.core.TradingData.intervalName(tf));
             progress(ask, String.join("·", names) + " 차트를 크게 찍는 중 (보이지 않는 곳에서)");
             for (ChartShots.Shot shot : shots(symbol, intervals, guard)) {
@@ -382,9 +384,10 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         if (pictures.isEmpty() && numbers.isEmpty()) throw new IllegalStateException(sees ? "차트 화면을 찍지 못했고, 바이낸스에도 이 종목이 없어요. 잠시 뒤 다시 눌러 주세요."
             : WorkBook.author(engine) + "는 그림을 볼 수 없고, 바이낸스에도 이 종목이 없어요. 그림을 보는 AI(ChatGPT·Claude·Gemini·Grok)로 바꿔 주세요.");
         String input = "종목: " + name + " (" + symbol + (about.isEmpty() ? "" : ", " + about) + ") · 사용자가 보던 시간대: " + dev.jun.gyeot.core.TradingData.intervalName(interval) + "\n"
+            + "분석 스타일: " + style.label() + (custom.isEmpty() ? "" : " · 사용자가 원한 관점: " + custom) + "\n"
             + (numbers.isEmpty() ? "바이낸스 API에 이 종목이 없어 숫자 없이 차트 그림만 보내요. 가격은 그림의 축에서 읽고, 읽기 어려우면 그렇다고 말해 주세요.\n" : "앱이 바이낸스 봉으로 계산한 실제 숫자 (시간대별):" + numbers)
             + (!pictures.isEmpty() ? "첨부한 그림: " + named + " (트레이딩뷰 차트, 아래에 RSI와 MACD)." : "차트 그림은 보내지 못했어요: 숫자로만 분석해 주세요.");
-        dev.jun.gyeot.core.MainRequest request = dev.jun.gyeot.core.MainRequest.of(dev.jun.gyeot.core.TradingData.ANALYST, input);
+        dev.jun.gyeot.core.MainRequest request = dev.jun.gyeot.core.MainRequest.of(dev.jun.gyeot.core.TradingData.analyst(style), input);
         boolean picture = !pictures.isEmpty();
         if (picture) request = request.files(pictures);
         String label = tradingModelLabel();

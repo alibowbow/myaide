@@ -182,6 +182,29 @@ public final class TradingData {
         + "Answer in Korean, short, in Markdown with exactly these headings: ## 한 줄 요약, ## 시간대별 흐름 (one line per timeframe, longest first), "
         + "## 모멘텀, ## 지지·저항 (prices), ## 시나리오 (상승일 때와 하락일 때, 각각 조건과 가격대), ## 주의할 점. "
         + "End with one line: 참고용 분석이에요. 투자 판단과 책임은 본인에게 있어요.";
+    /**
+     * 분석 스타일 (준: "여러 프리셋 분석스타일 선택 제공해줘"): what the analyst weighs, added to ANALYST, and the charts pictured for it
+     * (null: those around the timeframe the user was on). The page shows the labels and sends the id; the words stay here.
+     */
+    public record Style(String id, String label, String instruction, List<String> pictures) {}
+    public static final List<Style> STYLES = List.of(
+        new Style("overall", "종합", "", null),
+        new Style("day", "단타", "Style: day trading. Weigh the 15-minute and 1-hour charts most and use the longer ones only as context. In ## 시나리오 give, for each "
+            + "side, an entry zone, a stop-loss and one or two take-profit prices taken from the levels given, and the risk-reward ratio.", List.of("240", "60", "15")),
+        new Style("swing", "스윙", "Style: swing trading over days to a few weeks. Weigh the 4-hour and daily charts most. In ## 시나리오 give, for each side, an "
+            + "entry zone, a stop-loss and targets from the daily and 4-hour levels, and the risk-reward ratio.", List.of("D", "240", "60")),
+        new Style("long", "장기 추세", "Style: long-term trend. Weigh the weekly and daily charts most and leave out short-term noise. Say what the long trend is, "
+            + "how strong it is, and at which prices it would change.", List.of("W", "D", "240")),
+        new Style("levels", "지지·저항", "Style: a map of price levels. Put most of the answer in ## 지지·저항: every meaningful level from the numbers and charts "
+            + "(recent highs and lows, moving averages, Bollinger bands, round numbers), sorted by price, each with why it matters and how far the price is from it in percent.", null),
+        new Style("risk", "리스크 점검", "Style: a risk check. Spend ## 모멘텀 and ## 주의할 점 on the downside: volatility (ATR), divergences, overbought or oversold, "
+            + "what would break the current setup, where a stop would sit and how far that is in percent.", null),
+        new Style("easy", "쉽게 설명", "Style: for a beginner. The first time a term appears (RSI, MACD, 이동평균, 지지·저항, 볼린저 밴드), explain it in a few plain "
+            + "words; short sentences; no jargon left unexplained.", null),
+        new Style("custom", "직접 적기", "Style: the user's own focus, given in the request; follow it while keeping the headings.", null));
+    public static Style style(String id) { for (Style s : STYLES) if (s.id().equals(id)) return s; return STYLES.get(0); }
+    /** The analyst's instructions with a style's own focus. */
+    public static String analyst(Style style) { return style == null || style.instruction().isEmpty() ? ANALYST : ANALYST + " " + style.instruction(); }
     /** A question on an analysis or a news briefing the page shows (이어서 묻기): the same analyst, answering that question only. */
     public static final String FOLLOW_UP = "You are the analyst who wrote the analysis or news briefing below, for a retail trader, and the user asks a follow-up "
         + "question about it. Answer that question only, in Korean, short and direct (a few sentences or a short list in Markdown), building on what you "

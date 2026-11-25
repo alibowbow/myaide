@@ -81,6 +81,13 @@
   .ask svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
   .ai-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
   .ai-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .styles { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -2px 4px; padding: 0 2px 2px; }
+  .styles::-webkit-scrollbar { display: none; }
+  .styles button { flex: none; height: 32px; padding: 0 11px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); font-size: 12.5px; font-weight: 650; color: var(--muted); }
+  .styles button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .style-about { font-size: 12.5px; color: var(--muted); margin: 2px 0 8px; }
+  .custom { width: 100%; height: 40px; border-radius: 12px; border: 1px solid var(--line); background: var(--raised); color: var(--text); padding: 0 12px; font: inherit; font-size: 14px; margin-bottom: 8px; }
+  .go { height: 36px; padding: 0 16px; border-radius: 10px; margin: 2px 0 12px; font-size: 13.5px; }
   .chip { height: 32px; padding: 0 12px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); font-size: 12.5px; font-weight: 650; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .status { font-size: 13px; font-weight: 600; color: var(--accent); margin: 6px 0 10px; display: flex; align-items: center; gap: 8px; }
   .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.1s ease-in-out infinite; flex: none; }
@@ -142,6 +149,9 @@
     <div class="ai-tools"><div class="seg" id="aiKind"><button data-kind="analyze">AI 차트 분석</button><button data-kind="news">최신 뉴스</button></div>
       <button class="chip" id="aiModel" aria-label="분석할 AI 바꾸기"></button>
       <button class="chip" id="aiAgain">다시</button></div>
+    <div id="aiStyleBox"><div class="styles" id="aiStyles" role="tablist" aria-label="분석 스타일"></div><div class="style-about" id="aiStyleAbout"></div>
+      <input class="custom" id="aiCustom" maxlength="300" placeholder="원하는 관점 · 예: 실적 발표 앞두고 단기 변동성 위주로" hidden>
+      <button class="primary go" id="aiGo">분석하기</button></div>
     <div class="status" id="aiStatus" hidden></div>
     <div class="answer" id="aiBody"></div>
     <div class="meta" id="aiMeta" hidden></div>
@@ -292,7 +302,32 @@
     return false;
   };
   // ── AI 차트 분석 · 최신 뉴스: asked of the 들퍼레 app through the port it gives this page (nothing else reaches the app) ──
-  let app = null, modelName = '', open = null; const pendingKind = {}, pendingQ = {};
+  let app = null, modelName = '', open = null; const pendingKind = {}, pendingQ = {}, pendingStyle = {};
+  // 분석 스타일 (준: "여러 프리셋 분석스타일 선택 제공해줘"): what the AI weighs; the app holds each one's instructions (TradingData.STYLES).
+  const STYLES = [
+    ['overall', '종합', '주봉부터 15분봉까지 함께 보고 큰 방향과 상승·하락 시나리오'],
+    ['day', '단타', '15분·1시간봉 중심 · 진입 구간, 손절, 익절 가격과 손익비'],
+    ['swing', '스윙', '4시간·일봉 중심 · 며칠에서 몇 주 보는 진입·손절·목표가'],
+    ['long', '장기 추세', '주봉·일봉 중심 · 큰 흐름과 그 흐름이 바뀌는 가격'],
+    ['levels', '지지·저항', '의미 있는 가격대를 지도처럼 · 각 가격의 까닭과 지금 거리'],
+    ['risk', '리스크 점검', '하락 위험, 변동성(ATR), 다이버전스, 손절 기준과 거리'],
+    ['easy', '쉽게 설명', 'RSI·MACD 같은 말을 풀어서, 처음 보는 사람도 알게'],
+    ['custom', '직접 적기', '원하는 관점을 한 줄로 적어요']];
+  const STYLE_KEY = 'gyeot.trading.style.v1';
+  let style = 'overall', custom = '';
+  try { const s = JSON.parse(localStorage.getItem(STYLE_KEY) || 'null'); if (s && STYLES.some(x => x[0] === s.style)) { style = s.style; custom = String(s.custom || '').slice(0, 300); } } catch (e) {}
+  const keepStyle = () => { try { localStorage.setItem(STYLE_KEY, JSON.stringify({ style, custom })); } catch (e) {} };
+  const styleLabel = id => (STYLES.find(x => x[0] === id) || STYLES[0])[1];
+  function styles() {
+    const box = $('aiStyles'); box.innerHTML = '';
+    for (const [id, label] of STYLES) {
+      const b = document.createElement('button'); b.textContent = label; b.className = id === style ? 'on' : ''; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', id === style ? 'true' : 'false');
+      b.onclick = () => { style = id; keepStyle(); paint(); if (id === 'custom') $('aiCustom').focus(); };
+      box.appendChild(b);
+    }
+  }
+  $('aiCustom').value = custom;
+  $('aiCustom').addEventListener('input', () => { custom = $('aiCustom').value.slice(0, 300); keepStyle(); });
   const ANSWERS = 'gyeot.trading.answers.v1';
   let answers = {}; try { answers = JSON.parse(localStorage.getItem(ANSWERS) || '{}') || {}; } catch (e) { answers = {}; }
   const keep = () => { try { localStorage.setItem(ANSWERS, JSON.stringify(answers)); } catch (e) {} };
@@ -333,11 +368,18 @@
     $('aiModel').hidden = kind !== 'analyze'; $('aiModel').textContent = (modelName || 'AI 고르기') + ' ▾';
     $('aiStatus').hidden = !open.status; $('aiStatus').textContent = open.status || '';
     $('aiAgain').textContent = open.status ? '멈추기' : saved ? '다시' : (kind === 'analyze' ? '분석하기' : '찾아보기');
+    // 분석: the styles and 분석하기 first; the analysis starts only from here (준: "AI버튼 누르자마자 분석이 시작돼").
+    const analyze = kind === 'analyze', changedStyle = saved && (saved.styleId || 'overall') !== style;
+    $('aiStyleBox').hidden = !analyze || !!open.status;
+    if (analyze) { styles(); $('aiStyleAbout').textContent = (STYLES.find(x => x[0] === style) || STYLES[0])[2]; $('aiCustom').hidden = style !== 'custom'; }
+    $('aiGo').hidden = !analyze || !!open.status || (saved && !changedStyle);
+    $('aiGo').textContent = saved ? '‘' + styleLabel(style) + '’(으)로 다시 분석' : '‘' + styleLabel(style) + '’ 분석하기';
+    $('aiAgain').hidden = analyze && !open.status && !saved;
     if (open.error) $('aiBody').innerHTML = '<p class="err">' + esc(open.error) + '</p>';
     else $('aiBody').innerHTML = saved ? md(saved.text) : open.status ? '' : '<p>' + (kind === 'analyze'
       ? '지금 차트를 보이지 않는 곳에서 크게 찍고, 바이낸스 시세가 있으면 숫자와 함께 고른 AI에게 보내요.'
       : 'Grok이 웹과 X에서 이 종목의 최신 소식을 찾아 정리해요.') + '</p>';
-    const meta = saved ? [saved.model, saved.source, ago(saved.at)].filter(Boolean).join(' · ') : '';
+    const meta = saved ? [saved.style, saved.model, saved.source, ago(saved.at)].filter(Boolean).join(' · ') : '';
     $('aiMeta').hidden = !meta; $('aiMeta').textContent = meta;
     // 이어서 묻기 (준: "Ai분석한것에 이어서 질문할 수 있게"): the questions asked on this answer and their answers, then the box.
     const thread = saved && !open.error && Array.isArray(saved.thread) ? saved.thread : [];
@@ -366,11 +408,17 @@
     open = { sym, kind, card, id: '', status: '', error: '' };
     if (!app) { open.error = '이 기능은 들퍼레 앱의 페이지에서만 돼요.'; showAi(true); paint(); return; }
     if (answers[kind + '|' + sym.s] && !again) { showAi(true); paint(); return; }
+    // An analysis waits for the style and the model to be chosen (분석하기); the news starts at once.
+    if (kind === 'analyze' && !again) { showAi(true); paint(); return; }
     start(card);
   }
   function start(card) {
     const id = open.kind[0] + Date.now().toString(36); open.id = id; open.error = ''; pendingKind[id] = open.sym;
     const m = { type: open.kind, id, symbol: open.sym.s, name: open.sym.n, desc: open.sym.d || '', interval: state.interval };
+    if (open.kind === 'analyze') {
+      if (style === 'custom' && !custom.trim()) { open.error = ''; $('aiCustom').hidden = false; $('aiCustom').focus(); return; }
+      m.style = style; if (style === 'custom') m.custom = custom.trim(); pendingStyle[id] = { id: style, label: style === 'custom' ? '직접: ' + custom.trim().slice(0, 24) : styleLabel(style) };
+    }
     if (open.kind === 'analyze') {
       // The chart as it is now, for the app to use only if its own large off-screen pictures fail.
       const host = (card || document).querySelector('.chart'); const r = host ? host.getBoundingClientRect() : null;
@@ -402,7 +450,8 @@
     }
     const kind = m.id[0] === 'n' ? 'news' : 'analyze', sym = open && open.id === m.id ? open.sym : pendingKind[m.id];
     if (!sym) return;
-    answers[kind + '|' + sym.s] = { text: m.text, model: m.model || '', source: m.source || '', at: m.at || Date.now() }; keep();
+    const st = pendingStyle[m.id]; delete pendingStyle[m.id];
+    answers[kind + '|' + sym.s] = { text: m.text, model: m.model || '', source: m.source || '', at: m.at || Date.now(), style: kind === 'analyze' && st ? st.label : '', styleId: st ? st.id : '' }; keep();
   }
   $('aiKind').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b || !open || b.dataset.kind === open.kind) return;
@@ -415,6 +464,7 @@
     start(open.card);
   };
   $('aiModel').onclick = () => send({ type: 'choose_model' });
+  $('aiGo').onclick = () => { if (!open || open.status) return; if (!app) { open.error = '이 기능은 들퍼레 앱의 페이지에서만 돼요.'; paint(); return; } start(open.card); };
 
   intervals(); tape(); grid(); tick(); setInterval(tick, 15000);
 })();
