@@ -43,7 +43,11 @@ public final class GyeotApp extends Application {
             // Alarms do not survive a phone restart and nothing listens for boot: the 예약 작업 alarm comes back here.
             WorkScheduleAlarm.refresh(this, store);
             // Pictures and videos saved by an older version were never registered with Android's media index; do it once, off the main thread.
-            AppStore saved = store; Thread index = new Thread(() -> MediaIndex.registerExisting(this, saved), "media-index"); index.setDaemon(true); index.start();
+            AppStore saved = store; Thread index = new Thread(() -> {
+                MediaIndex.registerExisting(this, saved);
+                // Sound files a YouTube fetch left half-made (stopped, failed, the app closed mid-way) go once they are an hour old.
+                try { YouTubeAudio.sweep(this, System.currentTimeMillis()); } catch (RuntimeException ignored) {}
+            }, "media-index"); index.setDaemon(true); index.start();
         }
     }
     /** Any of this app's activities is started, not only MainActivity: the app has a visible window. */

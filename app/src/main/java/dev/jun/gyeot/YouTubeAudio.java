@@ -41,7 +41,7 @@ final class YouTubeAudio {
         if (id == null || !id.matches("[A-Za-z0-9_-]{11}")) throw new IllegalArgumentException("유튜브 영상 주소를 확인해 주세요.");
         if (!ready(c)) throw new IllegalStateException("유튜브 오디오 도구가 아직 없어요.");
         File dir = new File(LinuxRuntime.rootfs(c), "root/yt/info"); dir.mkdirs();
-        File out = new File(dir, id + ".json"); out.delete();
+        sweep(c, System.currentTimeMillis()); File out = new File(dir, id + ".json"); out.delete();
         String once = "timeout 50 yt-dlp -J --skip-download --no-warnings --no-playlist 'https://www.youtube.com/watch?v=" + id + "' > /root/yt/info/" + id + ".json";
         LinuxRuntime.Result r;
         try { r = LinuxRuntime.run(c, "{ " + once + " || { yt-dlp -U >/dev/null 2>&1; " + once + "; }; }", 120_000, ENV, cancel); }
@@ -75,13 +75,18 @@ final class YouTubeAudio {
         if (id == null || !id.matches("[A-Za-z0-9_-]{11}")) throw new IllegalArgumentException("유튜브 영상 주소를 확인해 주세요.");
         if (!ready(c)) throw new IllegalStateException("유튜브 오디오 도구가 아직 없어요.");
         File dir = new File(LinuxRuntime.rootfs(c), folder); dir.mkdirs();
-        File[] old = dir.listFiles((d, name) -> name.startsWith(id + ".")); if (old != null) for (File f : old) f.delete();
+        sweep(c, System.currentTimeMillis()); clear(dir, id);
         long seconds = timeoutMs / 1000 / 2 - 5;
         String once = "timeout " + seconds + " yt-dlp -q --no-warnings --no-playlist --no-progress --no-mtime " + format + " -o '/" + folder + "/%(id)s.%(ext)s' 'https://www.youtube.com/watch?v=" + id + "'";
-        LinuxRuntime.Result r = LinuxRuntime.run(c, "cd /" + folder + " && { " + once + " || { yt-dlp -U >/dev/null 2>&1; " + once + "; }; }", timeoutMs, ENV, cancel);
+        LinuxRuntime.Result r;
+        try { r = LinuxRuntime.run(c, "cd /" + folder + " && { " + once + " || { yt-dlp -U >/dev/null 2>&1; " + once + "; }; }", timeoutMs, ENV, cancel); }
+        catch (Exception stopped) { clear(dir, id); throw stopped; }
         File[] made = dir.listFiles((d, name) -> name.startsWith(id + ".") && !name.endsWith(".part") && !name.endsWith(".ytdl") && !name.contains(".temp"));
         File best = null;
         if (made != null) for (File f : made) if (f.length() > 0 && (best == null || f.getName().endsWith(".mp3"))) best = f;
+        // The pieces beside the file kept (an MP3's source before conversion, a .part) go now; on a failure, all of them.
+        File[] rest = dir.listFiles((d, name) -> name.startsWith(id + ".")); File keep = best;
+        if (rest != null) for (File f : rest) if (!f.equals(keep)) f.delete();
         if (best == null) {
             String said = LinuxTerminal.plain(r.output()).strip();
             if (said.length() > 300) said = said.substring(said.length() - 300);
@@ -89,6 +94,26 @@ final class YouTubeAudio {
         }
         return best;
     }
+    /** The folders yt-dlp works in (the app's own Linux): Whisper's sound, MP3s before they are copied out, video information. */
+    private static final String[] WORK = {"root/yt/whisper", "root/yt/mp3", "root/yt/info"};
+    /** Longer than any download runs (Whisper's 5½ minutes, an MP3's 15): what is older was left by a fetch that failed or stopped. */
+    static final long STALE_MS = 60 * 60_000L;
+    /**
+     * Clears what fetches left behind (준: "조각파일도 시간지나면 자동으로 지우는 알고리즘"): every file in the work folders older
+     * than STALE_MS, half-downloaded pieces (.part, .ytdl, .temp) and finished files alike, since a finished one is copied out or
+     * read at once and then removed. Run when the app starts and before each fetch; never on the main thread. Returns how many went.
+     */
+    static int sweep(Context c, long now) {
+        if (!LinuxRuntime.installed(c)) return 0;
+        int gone = 0;
+        for (String folder : WORK) {
+            File[] files = new File(LinuxRuntime.rootfs(c), folder).listFiles(File::isFile);
+            if (files != null) for (File f : files) if (now - f.lastModified() > STALE_MS && f.delete()) gone++;
+        }
+        return gone;
+    }
+    /** This video's files in one folder, finished or not (after a fetch that failed or was stopped). */
+    private static void clear(File dir, String id) { File[] mine = dir.listFiles((d, name) -> name.startsWith(id + ".")); if (mine != null) for (File f : mine) f.delete(); }
     /** The type Groq and Android know the file by. */
     static String mime(File f) {
         String n = f.getName();
