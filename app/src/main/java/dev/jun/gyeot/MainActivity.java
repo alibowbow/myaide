@@ -380,7 +380,11 @@ public final class MainActivity extends Activity {
         if(left.equals("browser"))openBrowser();
         else if(left.equals("pages")){Intent pages=new Intent(this,PagesActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_NO_ANIMATION);
             // The page that was open comes back too (the search text and the category filter do not).
-            if(AppNavigator.pageLeft!=null)pages.putExtra(PagesActivity.OPEN,AppNavigator.pageLeft);startActivity(pages);}
+            if(AppNavigator.pageLeft!=null)pages.putExtra(PagesActivity.OPEN,AppNavigator.pageLeft);
+            // A project left open over the list (트레이딩 …) comes back on top of it.
+            String project=AppNavigator.projectLeft;
+            if(project!=null&&!project.isEmpty())startActivities(new Intent[]{pages,new Intent(this,ProjectActivity.class).putExtra(ProjectActivity.ID,project).addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)});
+            else startActivity(pages);}
         else if(left.equals("board"))startActivity(new Intent(this,BoardActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_NO_ANIMATION));
         else if(left.equals("school"))startActivity(new Intent(this,SchoolActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_NO_ANIMATION));
         else if(left.equals("lab"))startActivity(new Intent(this,LabActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_NO_ANIMATION));

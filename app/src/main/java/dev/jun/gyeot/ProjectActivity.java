@@ -72,11 +72,11 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         build();
     }
     @Override protected void onResume() {
-        super.onResume(); AppNavigator.inFront("pages"); maker.watch(this); refresh();
+        super.onResume(); AppNavigator.inFront("pages"); AppNavigator.projectLeft = id; maker.watch(this); refresh();
         // Changed in 들퍼레/프로젝트 meanwhile (a file manager, another editor): that page comes in.
         new Thread(() -> { if (book.pull(id)) main.post(() -> { if (!destroyed) refresh(); }); }, "project-pull").start();
     }
-    @Override protected void onPause() { maker.unwatch(this); snapshot(); super.onPause(); }
+    @Override protected void onPause() { maker.unwatch(this); snapshot(); if (isFinishing() && id != null && id.equals(AppNavigator.projectLeft)) AppNavigator.projectLeft = null; super.onPause(); }
     @Override protected void onDestroy() {
         destroyed = true;
         for (java.util.concurrent.atomic.AtomicReference<Runnable> cancel : asks.values()) dev.jun.gyeot.core.RequestAbort.cancel(cancel);

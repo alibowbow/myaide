@@ -97,6 +97,8 @@ final class AppNavigator {
     static void inFront(String screen) { front = screen; }
     /** The page open on the 페이지 screen (null for its list), so opening the app again from its icon returns to it. */
     static String pageLeft;
+    /** The project open over 페이지 (트레이딩 …), null when the user left it; it opens again with the page list under it. */
+    static String projectLeft;
     /**
      * Opened again from the app icon: singleTask brought MainActivity back alone, finishing the browser, 내 휴대폰 or 페이지 the
      * user left above it, which is then opened again. "" when the user left MainActivity, which keeps its own page.
