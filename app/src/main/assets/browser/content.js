@@ -477,7 +477,12 @@
   // the chosen picture quality is applied, and the page tells when it plays, pauses and ends (an ad's end is not the
   // video's), or that it did not start, and why.
   let mytubeBrowse=false, mytubeOn=false, mytubeVideo=null, mytubeWant='play', mytubeQuality='auto', mytubeFor=null, mytubeStarted=false,
-    mytubeSince=0, mytubeStuck=false, mytubeShown='', mytubeQualityFor='', mytubeWhy='';
+    mytubeSince=0, mytubeStuck=false, mytubeShown='', mytubeQualityFor='', mytubeWhy='', mytubeTouch=0, mytubeWaitSince=0, mytubeWaitSaid=false;
+  // A touch on the page (YouTube's own controls): a pause right after one is the user's, any other the page's own.
+  function mytubeTouched() { mytubeTouch=Date.now(); }
+  // Seconds of video loaded ahead of where it plays (0 when nothing is): how a stall is told from a stop.
+  function mytubeAhead(v) { try { for (let i=0; i<v.buffered.length; i++) if (v.buffered.start(i)<=v.currentTime+0.5 && v.buffered.end(i)>=v.currentTime) return Math.max(0, v.buffered.end(i)-v.currentTime); } catch(_) {} return 0; }
+  function mytubeState(v) { return {ready:v?v.readyState:-1, net:v?v.networkState:-1, ahead:v?Math.round(mytubeAhead(v)*10)/10:0, why:mytubeWhy}; }
   const MYTUBE_ORDER=['highres','hd2880','hd2160','hd1440','hd1080','hd720','large','medium','small','tiny'];
   function mytubeSay(connection, event, more) {
     const v=mytubeVideo;
@@ -534,7 +539,10 @@
         if (!mytubeAd() && mytubeQualityFor!==mytubeFor) mytubeApplyQuality(connection);
         mytubeSay(connection,'playing',{ad:mytubeAd()});
       });
-      v.addEventListener('pause',()=>{ if(!v.ended) mytubeSay(connection,'paused',{ad:mytubeAd()}); });
+      // self: the page stopped by itself while the app wanted it playing (not the app's pause, not a touch on the page),
+      // as when the video's data stops coming; the app plays it again (MyTubePlayer).
+      v.addEventListener('pause',()=>{ if(!v.ended) mytubeSay(connection,'paused',{ad:mytubeAd(), self:mytubeWant==='play' && Date.now()-mytubeTouch>1500, ...mytubeState(v)}); });
+      v.addEventListener('playing',()=>{ mytubeWaitSince=0; mytubeWaitSaid=false; });
       v.addEventListener('error',()=>mytubeSay(connection,'error'));
     }
     // Already playing when the listener came (YouTube started it by itself first): told now, so the app does not wait for a
@@ -547,6 +555,11 @@
         mytubeSay(connection,'playing',{ad:mytubeAd()});
       }
     }
+    // Playing but waiting for data (the round spinner) for 12 seconds: told once, with how much is loaded.
+    if (v && mytubeWant==='play' && mytubeStarted && !v.paused && !v.ended && v.readyState<3) {
+      if (!mytubeWaitSince) mytubeWaitSince=Date.now();
+      else if (!mytubeWaitSaid && Date.now()-mytubeWaitSince>12000) { mytubeWaitSaid=true; mytubeSay(connection,'stalling',mytubeState(v)); }
+    } else if (v && v.readyState>=3) { mytubeWaitSince=0; mytubeWaitSaid=false; }
     if (mytubeWant!=='play' || mytubeStarted) { if (mytubeStarted && !mytubeAd()) mytubeReport(connection); return; }
     mytubeStart(v);
     if (!mytubeStuck && Date.now()-mytubeSince>15000) {
@@ -565,7 +578,7 @@
     }
     if (command==='watch') {
       mytubeWant='play'; mytubeSince=Date.now(); mytubeStuck=false;
-      if(!mytubeOn){mytubeOn=true;setInterval(()=>mytubeAttach(connection),700);} mytubeAttach(connection); return;
+      if(!mytubeOn){mytubeOn=true;setInterval(()=>mytubeAttach(connection),700);document.addEventListener('pointerdown',mytubeTouched,true);document.addEventListener('touchstart',mytubeTouched,true);} mytubeAttach(connection); return;
     }
     const v=document.querySelector('video');
     if (command==='play') { mytubeWant='play'; mytubeStarted=false; mytubeSince=Date.now(); mytubeStuck=false; mytubeStart(v); }
