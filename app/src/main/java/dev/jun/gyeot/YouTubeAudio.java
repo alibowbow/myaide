@@ -33,6 +33,30 @@ final class YouTubeAudio {
             + "chmod +x /usr/local/bin/yt-dlp; echo \"yt-dlp $(yt-dlp --version)\"; echo '유튜브 오디오 도구 준비 완료'";
     }
 
+    /**
+     * What yt-dlp knows of the video (yt-dlp -J, nothing downloaded), for its caption addresses: it asks as YouTube's TV and
+     * other apps do, whose caption files need no token, where the page's own come back empty. Kept in a file, not the output.
+     */
+    static org.json.JSONObject info(Context c, String id, AtomicReference<Runnable> cancel) throws Exception {
+        if (id == null || !id.matches("[A-Za-z0-9_-]{11}")) throw new IllegalArgumentException("유튜브 영상 주소를 확인해 주세요.");
+        if (!ready(c)) throw new IllegalStateException("유튜브 오디오 도구가 아직 없어요.");
+        File dir = new File(LinuxRuntime.rootfs(c), "root/yt/info"); dir.mkdirs();
+        File out = new File(dir, id + ".json"); out.delete();
+        String once = "timeout 50 yt-dlp -J --skip-download --no-warnings --no-playlist 'https://www.youtube.com/watch?v=" + id + "' > /root/yt/info/" + id + ".json";
+        LinuxRuntime.Result r;
+        try { r = LinuxRuntime.run(c, "{ " + once + " || { yt-dlp -U >/dev/null 2>&1; " + once + "; }; }", 120_000, ENV, cancel); }
+        catch (Exception failed) { out.delete(); throw failed; }
+        try {
+            if (out.length() > 24L * 1024 * 1024) throw new IOException("yt-dlp가 준 영상 정보가 너무 커요.");
+            String text = out.isFile() ? new String(java.nio.file.Files.readAllBytes(out.toPath()), java.nio.charset.StandardCharsets.UTF_8).strip() : "";
+            // On a refusal yt-dlp writes "null" and says why on its error output (a sign-in check, an age limit …).
+            if (!text.startsWith("{")) {
+                String said = LinuxTerminal.plain(r.output()).strip(); if (said.length() > 300) said = said.substring(said.length() - 300);
+                throw new IOException("yt-dlp가 영상 정보를 주지 않았어요" + (said.isEmpty() ? "." : ": " + said));
+            }
+            return new org.json.JSONObject(text);
+        } finally { out.delete(); }
+    }
     /** The small sound for Whisper (m4a or opus at about 50 kbps: an hour is about 22 MB, under Groq's 25 MB). */
     static File forTranscript(Context c, String id, AtomicReference<Runnable> cancel) throws Exception {
         return fetch(c, id, "root/yt/whisper", "-f '139/249/250/140/251'", 330_000, cancel);

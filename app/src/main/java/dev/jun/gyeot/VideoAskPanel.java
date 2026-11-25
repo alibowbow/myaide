@@ -493,7 +493,7 @@ final class VideoAskPanel {
         RUN.execute(() -> {
             String why = null, blocker = "";
             try {
-                String block = YouTubeTranscriptClient.block(app, v.id(), () -> false, step -> main.post(() -> { for (VideoAskPanel panel : live()) if (panel.video != null && panel.video.id().equals(v.id()) && panel.scriptChip != null) panel.scriptChip.setText("받아 적는 중…"); }), null);
+                String block = YouTubeTranscriptClient.block(app, v.id(), () -> false, step -> main.post(() -> { for (VideoAskPanel panel : live()) if (panel.video != null && panel.video.id().equals(v.id()) && panel.scriptChip != null) panel.scriptChip.setText(step.contains("Whisper") ? "받아 적는 중…" : step.contains("Gemini") ? "Gemini가 받는 중…" : "자막 받는 중…"); }), null);
                 if (!YouTubeTranscriptClient.kept(app, v.id())) {
                     blocker = YouTubeTranscriptClient.whisperBlocker(app);
                     String tried = YouTubeTranscriptClient.whisperFailure(block);

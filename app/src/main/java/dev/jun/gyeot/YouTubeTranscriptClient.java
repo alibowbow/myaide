@@ -105,6 +105,28 @@ final class YouTubeTranscriptClient {
             if (failed instanceof java.util.concurrent.CancellationException) throw (RuntimeException) failed;
             why = failed.getMessage() == null || failed.getMessage().isBlank() ? "유튜브에 연결하지 못했어요." : failed.getMessage();
         }
+        // The page's caption files now ask for a token the app cannot make and come back empty. yt-dlp in the app's Linux
+        // asks as YouTube's TV and other apps do, whose caption files need none: the video's own captions in seconds, before
+        // its sound is downloaded for Whisper (준: "왜 대본가져오기를 한번에 못한거지" — a 23-minute talk went to Whisper).
+        if (YouTubeAudio.ready(context)) {
+            try {
+                if (progress != null) progress.accept("yt-dlp로 유튜브 자막을 받는 중");
+                JSONObject info = YouTubeAudio.info(context, id, cancel);
+                if (video.title().isEmpty() && !info.optString("title").isEmpty())
+                    video = new YouTubeTranscript.Video(id, info.optString("title"), info.optString("channel", info.optString("uploader", "")), info.optInt("duration"), true, "");
+                List<YouTubeTranscript.Track> listed = new java.util.ArrayList<>(YouTubeTranscript.ytdlpTracks(info));
+                Map<String, String> plain = new LinkedHashMap<>(); plain.put("User-Agent", DESKTOP); plain.put("Accept", "*/*");
+                int tries = 0; String empty = "";
+                while (!listed.isEmpty() && tries++ < 3) {
+                    YouTubeTranscript.Track track = YouTubeTranscript.pick(listed); listed.remove(track);
+                    List<YouTubeTranscript.Line> got = YouTubeTranscript.lines(get(track.url(), plain, CAPTION_BYTES, cancel));
+                    if (!got.isEmpty()) { save(context, id, YouTubeTranscript.readable(video, YouTubeTranscript.source(track), YouTubeTranscript.text(got))); return keep(id, YouTubeTranscript.block(video, track, got, YouTubeTranscript.LIMIT)); }
+                    empty = " (받은 자막 파일이 비어 있었어요)";
+                }
+                why += tries == 0 ? " yt-dlp로 봐도 이 영상에는 자막이 없어요." : " yt-dlp로 받은 자막도 쓸 수 없었어요" + empty + ".";
+            } catch (java.util.concurrent.CancellationException halted) { throw halted; }
+            catch (Exception failed) { why += " yt-dlp로 자막을 받는 것도 안 됐어요: " + (failed.getMessage() == null || failed.getMessage().isBlank() ? "이유를 알 수 없어요." : failed.getMessage()); }
+        }
         // No captions to read (a song, as a rule): the sound itself, taken by yt-dlp in the app's Linux and written down by Groq's Whisper.
         if (GroqWork.on()) {
             if (!YouTubeAudio.ready(context)) why += " 마이튜브의 'MP3'에서 유튜브 오디오 도구를 준비하면 Groq Whisper가 소리를 듣고 받아 적을 수 있어요.";
