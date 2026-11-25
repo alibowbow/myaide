@@ -111,10 +111,13 @@ final class ModelPopover {
         String engine = selection.engine(), current = selection.model(engine);
         card.addView(caption(WorkBook.author(engine)));
         JSONArray models = catalog.models(engine); int shown = 0; boolean currentShown = false;
-        for (int i = 0; i < models.length() && shown < SHOWN; i++) {
+        // Antigravity lists several companies' models (Gemini, Claude, GPT): all of them here, so Claude and GPT are not cut off
+        // after the first few Geminis (준: "안티그래비티에서 제공하는 클로드와 지피티를 선택할 수가 없어").
+        int most = WorkBook.ANTIGRAVITY.equals(engine) ? 12 : SHOWN;
+        for (int i = 0; i < models.length() && shown < most; i++) {
             JSONObject model = models.optJSONObject(i); if (model == null) continue;
             String id = model.optString("id");
-            if (shown == SHOWN - 1 && !currentShown && !id.equals(current) && contains(models, current)) continue;
+            if (shown == most - 1 && !currentShown && !id.equals(current) && contains(models, current)) continue;
             shown++; currentShown |= id.equals(current);
             card.addView(choice(catalog.label(engine, id), id.equals(current), () -> {
                 dismiss();
@@ -130,7 +133,7 @@ final class ModelPopover {
         if (!current.isBlank() && !profile.efforts.isEmpty())
             card.addView(row("생각 깊이", catalog.effortLabel(engine, shown(engine, profile, selection.effort(engine, current))), true, this::depth));
         card.addView(row("다른 AI", WorkBook.author(engine), true, this::engines));
-        card.addView(row(models.length() > SHOWN ? "더 많은 모델·설정" : "모델 설정", "", true, () -> { dismiss(); more.run(); }));
+        card.addView(row(models.length() > most ? "더 많은 모델·설정" : "모델 설정", "", true, () -> { dismiss(); more.run(); }));
         // A screen without agent teams (마이튜브) passes no team: no row for it.
         if (team != null) { card.addView(divider()); card.addView(row("에이전트 팀", catalog.team(), true, () -> { dismiss(); team.run(); })); }
         resize();

@@ -45,6 +45,13 @@ final class AntigravityAccount {
         String defaultLevel() { return plain != null || levels.isEmpty() ? "" : levels.containsKey("high") ? "high" : levels.keySet().iterator().next(); }
     }
     private static final Pattern VARIANT = Pattern.compile("^(.*?)\\s*\\(\\s*(none|minimal|low|medium|high|xhigh|max|ultra)\\s*\\)\\s*$", Pattern.CASE_INSENSITIVE);
+    /** Models agy still lists that are being retired, left out of every picker (준: "아르곤은 빼줘 곧 없어질 모델이라서"). */
+    private static final Pattern RETIRED = Pattern.compile("(?i)\\bargon\\b");
+    /** Gemini, Claude, GPT, then agy's own (Orchestrator …): the families together, each in agy's order. */
+    private static int family(String name) {
+        String n = name.toLowerCase(java.util.Locale.ROOT);
+        return n.startsWith("gemini") || n.startsWith("gemma") ? 0 : n.startsWith("claude") ? 1 : n.startsWith("gpt") || n.matches("^o\\d.*") ? 2 : 3;
+    }
     List<Group> groups() {
         java.util.LinkedHashMap<String, Group> byName = new java.util.LinkedHashMap<>();
         try {
@@ -52,6 +59,7 @@ final class AntigravityAccount {
             for (int i = 0; i < saved.length(); i++) {
                 JSONObject o = saved.optJSONObject(i); if (o == null) continue;
                 String id = o.optString("id"), name = o.optString("name", id); Matcher v = VARIANT.matcher(name);
+                if (RETIRED.matcher(name).find() || RETIRED.matcher(id.replace('-', ' ')).find()) continue;
                 String base = v.matches() ? v.group(1).strip() : name.strip(), level = v.matches() ? v.group(2).toLowerCase(java.util.Locale.ROOT) : null;
                 Group g = byName.get(base);
                 if (g == null) { g = new Group(base, new java.util.LinkedHashMap<>(), level == null ? id : null); byName.put(base, g); }
@@ -59,7 +67,9 @@ final class AntigravityAccount {
                 if (level != null) g.levels().putIfAbsent(level, id);
             }
         } catch (Exception ignored) {}
-        return new java.util.ArrayList<>(byName.values());
+        List<Group> out = new java.util.ArrayList<>(byName.values());
+        out.sort(java.util.Comparator.comparingInt(g -> family(g.name())));
+        return out;
     }
     /** The model groups' limits as last read (AntigravityCli.status), and when; none before the first read. */
     List<String> usage() {
