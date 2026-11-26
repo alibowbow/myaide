@@ -94,6 +94,29 @@ public final class BuddyMind {
         return out.subList(0, Math.min(most, out.size()));
     }
 
+    /** The words a line is about (2 letters or more, endings cut, everyday words left out): 전투기를 → 전투기, 배터리도 → 배터리. */
+    public static Set<String> subjects(String line) {
+        Set<String> out = new HashSet<>();
+        for (String w : (line == null ? "" : line).split("[\\s,.!?~…·]+")) {
+            String stem = w.replaceAll("(이에요|예요|이네요|네요|어요|아요|해요|했어요|에서|으로|에게|까지|부터|이랑|랑|하고|처럼|보다|은|는|이|가|을|를|의|에|도|만|요|야|지|네)$", "");
+            if (stem.length() >= 2 && !COMMON.contains(stem) && !COMMON.contains(w)) out.add(stem);
+        }
+        return out;
+    }
+    /**
+     * A line on a subject already said lately (준: "자꾸 전투기 배터리 이야기를 반복해서해"): one of its words came up in two or
+     * more of the last six lines, however differently those were worded.
+     */
+    public static boolean staleSubject(String line, List<String> said) {
+        List<String> last = said.subList(Math.max(0, said.size() - 6), said.size());
+        for (String word : subjects(line)) {
+            int seen = 0;
+            for (String s : last) if (subjects(s).contains(word)) seen++;
+            if (seen >= 2) return true;
+        }
+        return false;
+    }
+
     // ── Korean that reads ──
     private static final Pattern CUT = Pattern.compile("^(도|는|은|을|를|에|의|과|로|으로|에서|랑)(\\s|[,.!?~])");
     private static final Pattern FOREIGN = Pattern.compile("[\\u4e00-\\u9fff\\u3040-\\u30ff\\u0400-\\u04ff\\u0e00-\\u0e7f]");

@@ -238,7 +238,7 @@ final class BuddyTalk {
         StringBuilder talk = new StringBuilder();
         String who = guest ? "상대" : "사용자";
         for (String[] t : turns) talk.append("user".equals(t[0]) ? who + ": " : "퍼레: ").append(t[1]).append('\n');
-        String house = home(c);
+        String house = said.matches("(?s).*(배터리|충전|밥|음악|노래|와이파이|인터넷|데이터|절전|뜨거|방해|비행기 모드|무음).*") ? home(c) : "";
         String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + lifeWords(c) + "\n"
             + (guest ? "" : "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + todayWords(c) + memoryWords(c, said, true)
                 + "사용자에 대해 아는 것:\n" + (note.isBlank() ? "(아직 잘 몰라)" : note) + "\n") + "\n";
@@ -308,7 +308,8 @@ final class BuddyTalk {
         };
         return persona(c) + "\n지금: " + moment + " 짧게 한마디 해.\n"
             + "- 이번 화제: " + topic + ". 지금 상황(시간·날씨·휴대폰·오늘 하루·기억)에 맞게 풀어.\n"
-            + (avoid.isEmpty() ? "" : "- 최근에 너무 자주 쓴 표현이니 이번엔 쓰지 마: " + String.join(", ", avoid) + "\n")
+            + (avoid.isEmpty() ? "" : "- 최근에 이미 꺼낸 소재와 표현이니 이번엔 절대 다루지 마: " + String.join(", ", avoid) + "\n")
+            + "- 배터리·충전 이야기는 지금 그게 상황(충전기 꽂음, 배고픔)일 때만 해. '사용자에 대해 아는 것'과 기억은 가끔만, 같은 걸 여러 번 꺼내지 마.\n"
             + "- '이미 했던 말'과 같거나 비슷한 뜻·소재·문장 틀은 절대 쓰지 마. 뻔한 인사말도 피해.\n"
             + "- 일, 업무, 일정, 할 일, 주식, 코인, 시세, 숫자, 돈 이야기와 조언·잔소리는 하지 마. 파일·사진 정리, 청소, 삭제, 백업, 용량, 업데이트 같은 할 일을 권하지 마.\n"
             + "- 비밀번호·계정·권한 요청, 털어놓은 고민 같은 사적인 내용은 말하지 마.\n"
@@ -324,7 +325,9 @@ final class BuddyTalk {
         String recent = home.getString("recentLabels", "[]");
         long since = home.getLong("awaySince", 0);
         String away = "back".equals(reason) && since > 0 && now - since > 3_600_000L ? (now - since) / 3_600_000L + "시간 만에 돌아왔어요\n" : "";
-        String house = home(c);
+        // The phone's state only when it is what this moment is about (a charge, hunger, heat, music …): told every time, 퍼레
+        // talked about its battery every time.
+        String house = java.util.Set.of("charge", "hungry", "heat", "save", "music", "shake").contains(reason) ? home(c) : "";
         return "지금: " + when + "\n" + (weather.isEmpty() ? "" : "날씨: " + weather + "\n")
             + (recent.length() > 2 ? "방금 쓴 앱(최근 순): " + recent + "\n" : "") + away
             + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n")
@@ -392,6 +395,8 @@ final class BuddyTalk {
             if (l.matches(".*(정리|청소|삭제|지우|백업|용량|저장 ?공간|업데이트|파일).*")) return null;
             // Too like a line already said (half its letter pairs or more): not this one (준: "했던말 자꾸 반복하는 경향 없애줘").
             if (p != null && dev.jun.gyeot.core.BuddyMind.repeats(l, said(p), 0.45)) return null;
+            // The same subject again, worded anew (준: "자꾸 전투기 배터리 이야기를 반복해서해"): not this one either.
+            if (p != null && dev.jun.gyeot.core.BuddyMind.staleSubject(l, said(p))) return null;
             // Korean that does not read (준: "가끔 한국어를 못알아듣게 말해"): a line cut at its start, or one in another script.
             if (!dev.jun.gyeot.core.BuddyMind.readable(l)) return null;
             return l;
