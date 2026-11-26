@@ -58,9 +58,11 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +   '<g class="acc backpack"><rect x="24" y="8" width="52" height="40" rx="14" fill="#5bc0eb"/><path d="M42 9 Q50 1 58 9" stroke="#3a9fcb" stroke-width="3" fill="none"/></g>'
   +   '<g class="acc rainbow" fill="none" stroke-width="3"><path d="M8 34 A42 42 0 0 1 92 34" stroke="#ff6f6f"/><path d="M12 34 A38 38 0 0 1 88 34" stroke="#ffd36e"/><path d="M16 34 A34 34 0 0 1 84 34" stroke="#7cc576"/><path d="M20 34 A30 30 0 0 1 80 34" stroke="#5bc0eb"/></g>'
   +   '<path class="acc moon" d="M88 -6 a9 9 0 1 0 8 13 a7 7 0 1 1 -8 -13z" fill="#ffe07a"/>'
-  // Short round arms tucked into its body (준: "팔이 움직일 때 너무 덜렁덜렁 달린 느낌이야", "귀엽게"): they turn where they join it.
-  +   '<g class="b-arm l"><ellipse cx="10.5" cy="61" rx="8.5" ry="7.5" fill="#ff7a55"/><ellipse cx="8.5" cy="58.5" rx="3.2" ry="2.2" fill="#fff" opacity=".28"/><g class="acc mittens"><ellipse cx="10" cy="62" rx="8.5" ry="7" fill="#6f9fe8"/><rect x="11" y="55" width="4" height="13" rx="2" fill="#fff"/></g></g>'
-  +   '<g class="b-arm r"><ellipse cx="89.5" cy="61" rx="8.5" ry="7.5" fill="#ff7a55"/><ellipse cx="87.5" cy="58.5" rx="3.2" ry="2.2" fill="#fff" opacity=".28"/><g class="acc mittens"><ellipse cx="90" cy="62" rx="8.5" ry="7" fill="#6f9fe8"/><rect x="85" y="55" width="4" height="13" rx="2" fill="#fff"/></g></g>'
+  // Short round arms at its sides (준: "팔이 움직일 때 너무 덜렁덜렁 달린 느낌이야", "귀엽게", "팔이 약간 삼각모양인데 둥근형태"):
+  // "와들디 팔을 참고", "팔이너무 귀같아", "닌텐도 커비처럼"): small soft ovals low on its sides, tipped down like arms at rest (at
+  // mid-height they read as ears), half tucked behind the body, turning where they join it.
+  +   '<g class="b-arm l"><g transform="rotate(-32 12 70)"><ellipse cx="9.5" cy="70" rx="9" ry="7" fill="#ff7a55"/><ellipse cx="10" cy="73.4" rx="6.8" ry="3" fill="#e5532f" opacity=".32"/><ellipse cx="6.8" cy="67.4" rx="3" ry="1.9" fill="#fff" opacity=".3"/><g class="acc mittens"><ellipse cx="9.5" cy="70" rx="9.2" ry="7.2" fill="#6f9fe8"/><rect x="13.2" y="63" width="3.4" height="14" rx="1.7" fill="#fff"/></g></g></g>'
+  +   '<g class="b-arm r"><g transform="rotate(32 88 70)"><ellipse cx="90.5" cy="70" rx="9" ry="7" fill="#ff7a55"/><ellipse cx="90" cy="73.4" rx="6.8" ry="3" fill="#e5532f" opacity=".32"/><ellipse cx="93.2" cy="67.4" rx="3" ry="1.9" fill="#fff" opacity=".3"/><g class="acc mittens"><ellipse cx="90.5" cy="70" rx="9.2" ry="7.2" fill="#6f9fe8"/><rect x="83.4" y="63" width="3.4" height="14" rx="1.7" fill="#fff"/></g></g></g>'
   +   '<g class="b-antenna"><line x1="50" y1="20" x2="50" y2="8.5" stroke="#ff6640" stroke-width="4" stroke-linecap="round"/><circle class="b-bulb" cx="50" cy="7" r="5.2"/>'
   +     '<g class="acc flower"><circle cx="50" cy="1.5" r="3.4" fill="#ffb3c8"/><circle cx="55" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="53" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="47" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="45" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="50" cy="7" r="2.6" fill="#ffd36e"/></g></g>'
   +   '<g class="b-body"><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botBody)"/><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botShine)"/>'
@@ -438,8 +440,12 @@ function askThink(b, why, fallback, asked) {
 function touchBuddy(b) {
   const buddy = $(b, ".buddy");
   let down = null, quiet = 0, chatTimer = 0;
+  // Circled round twice with the finger that touched it: dizzy (the finger may leave it, the touch stays its own).
+  const spin = circler(() => { const r = buddy.getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; }, () => { if (down) { down.petted = true; quiet = Date.now(); clearTimeout(b._longT); } dizzy(b); });
   buddy.addEventListener("pointerdown", e => {
-    down = {lx: e.clientX, dir: 0, turns: 0, path: 0, petted: false};
+    try { buddy.setPointerCapture(e.pointerId); } catch (x) {}
+    spin.down(e);
+    down = {lx: e.clientX, dir: 0, turns: 0, path: 0, petted: false, minX: e.clientX, maxX: e.clientX, minY: e.clientY, maxY: e.clientY};
     clearTimeout(b._longT);
     b._longT = setTimeout(() => {
       if (!down || down.path > 16 || lockedNow) return;
@@ -449,12 +455,15 @@ function touchBuddy(b) {
   });
   buddy.addEventListener("pointermove", e => {
     if (!down) return;
+    spin.move(e); if (down.petted && Date.now() - quiet < 300) return;
     const dx = e.clientX - down.lx; down.lx = e.clientX; down.path += Math.abs(dx);
     const dir = Math.abs(dx) > 1.5 ? Math.sign(dx) : 0;
     if (dir && down.dir && dir !== down.dir) down.turns++;
     if (dir) down.dir = dir;
     if (down.path > 16) clearTimeout(b._longT);
-    if (!down.petted && (down.turns >= 2 || down.path > 120)) { down.petted = true; quiet = Date.now(); pet(b); }
+    down.minX = Math.min(down.minX, e.clientX); down.maxX = Math.max(down.maxX, e.clientX); down.minY = Math.min(down.minY, e.clientY); down.maxY = Math.max(down.maxY, e.clientY);
+    // Stroked side to side (round and round is circling it: dizzy, above).
+    if (!down.petted && (down.turns >= 2 || down.path > 120) && down.maxY - down.minY < (down.maxX - down.minX) * .5) { down.petted = true; quiet = Date.now(); pet(b); }
   });
   const up = () => { clearTimeout(b._longT); buddy.classList.remove("squish"); if (down && down.petted) quiet = Date.now(); down = null; };
   buddy.addEventListener("pointerup", up); buddy.addEventListener("pointercancel", up); buddy.addEventListener("pointerleave", up);
@@ -471,6 +480,26 @@ function touchBuddy(b) {
     if (n >= 3) { clearTimeout(chatTimer); chatTimer = 0; if (n === 3) { move(b, "wobble", 900); if (b._feel) b._feel("surprised", 900); } else if (n === 4) dizzy(b); return; }
     cheer(b);
   });
+}
+/**
+  A finger circling round 퍼레 (준: "터치로 주변을 빙글빙글 돌리면 어지러워 한다던가"): two whole turns within four seconds, said
+  to done; centre gives where 퍼레 is. Its down, move and up take the pointer's events.
+*/
+function circler(centre, done) {
+  let last = null, sum = 0, start = 0;
+  return {
+    down() { last = null; sum = 0; start = Date.now(); },
+    move(e) {
+      const c = centre(), dx = e.clientX - c.x, dy = e.clientY - c.y;
+      if (Math.hypot(dx, dy) < 14) return;
+      const a = Math.atan2(dy, dx);
+      if (last != null) { let d = a - last; if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; sum += d; }
+      last = a;
+      if (Date.now() - start > 4000) { sum = 0; start = Date.now(); }
+      if (Math.abs(sum) >= 4 * Math.PI) { sum = 0; start = Date.now(); done(); }
+    },
+    up() { last = null; }
+  };
 }
 /** Poked again and again: spiral eyes, a wobble, and a word about it. */
 function dizzy(b) {

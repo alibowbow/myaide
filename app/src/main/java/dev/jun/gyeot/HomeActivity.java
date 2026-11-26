@@ -72,7 +72,7 @@ public final class HomeActivity extends Activity {
     private final Map<String, LauncherActivityInfo> known = new ConcurrentHashMap<>();
     private static final LruCache<String, byte[]> ICONS = new LruCache<>(6 * 1024 * 1024) { @Override protected int sizeOf(String k, byte[] v) { return v.length; } };
     private WebView web; private LauncherApps launcher; private SharedPreferences prefs;
-    private boolean ready, shown; private int top, bottom;
+    private boolean ready, shown; private int top, bottom, keyboard;
     private final Runnable refresh = new Runnable() { @Override public void run() { pushBoard(); main.postDelayed(this, 60_000); } };
     private final Runnable pushBadges = this::pushBadges;
     private final Runnable badgesChanged = () -> { main.removeCallbacks(pushBadges); main.postDelayed(pushBadges, 500); };
@@ -96,7 +96,9 @@ public final class HomeActivity extends Activity {
             var bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
             float d = getResources().getDisplayMetrics().density;
             top = Math.round(bars.top / d); bottom = Math.round(bars.bottom / d);
-            if (ready && web != null) web.evaluateJavascript("launcher.insets(" + top + "," + bottom + ")", null);
+            // The keyboard's height too: 퍼레와 대화's box sits above it (준: "대화입력창은 하단으로").
+            keyboard = Math.round(insets.getInsets(WindowInsets.Type.ime()).bottom / d);
+            if (ready && web != null) web.evaluateJavascript("launcher.insets(" + top + "," + bottom + "," + keyboard + ")", null);
             return insets;
         });
         root.requestApplyInsets();
@@ -316,7 +318,7 @@ public final class HomeActivity extends Activity {
         String about = ""; try { about = Briefing.profile(store); } catch (RuntimeException ignored) {}
         String now = new java.text.SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", java.util.Locale.KOREA).format(new java.util.Date());
         return BuddyTalk.persona(this) + "\n지금은 " + now + ". 사용자가 홈 화면에서 너에게 글로 말을 걸었어.\n"
-            + "한국어로, 너답게 밝고 상냥하게 답해. 핵심부터 2~6문장. 표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써.\n"
+            + "한국어로, 너답게 친근한 반말(~야, ~해)로 밝고 상냥하게 답해. 존댓말은 쓰지 마. 핵심부터 2~6문장. 표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써. 어울리면 이모지 하나까지(반짝이·별은 빼고).\n"
             + "모르는 것은 지어내지 말고 모른다고 말해.\n" + BuddyTalk.ACTS + BuddyTalk.places(store)
             + "사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 아래 '휴대폰 상태'의 숫자로 답해. 묻지 않으면 꺼내지 말고 정리·삭제를 권하지 마.\n"
             + "휴대폰 상태: " + BuddyTalk.facts(this) + "\n" + BuddyTalk.todayWords(this) + BuddyTalk.memoryWords(this, question, true)
@@ -481,7 +483,7 @@ public final class HomeActivity extends Activity {
         public void ready() {
             main.post(() -> {
                 ready = true;
-                if (web != null) web.evaluateJavascript("launcher.insets(" + top + "," + bottom + ")", null);
+                if (web != null) web.evaluateJavascript("launcher.insets(" + top + "," + bottom + "," + keyboard + ")", null);
                 pushApps(); main.removeCallbacks(refresh); if (shown) refresh.run(); else pushBoard();
                 // The weather needs roughly where the phone is: asked once, here where the user sees why.
                 if (!Weather.allowed(HomeActivity.this) && !prefs.getBoolean("askedLocation", false)) {

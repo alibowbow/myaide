@@ -327,6 +327,54 @@ body.liquid .menu hr{background:var(--hair2)}
 .launcher.light:not(.liquid) .msg.ai{background:rgba(255,255,255,.9)}
 .msg.ai.err{color:#ffb4a8}
 .msg .go{display:block;margin-top:8px}
+/* 퍼레와 대화 (chat-mode): its bar and strip on top, the talk in KakaoTalk's way, the box at the bottom above the keyboard. */
+.chat-top{display:none}
+.pad.chat-mode .chat-top{display:block;padding:calc(var(--top) + 6px) 14px 0;flex:none}
+.pad.chat-mode .pad-top{order:3;padding:8px 12px calc(max(var(--bottom), var(--kb, 0px)) + 8px)}
+.pad.chat-mode .pad-body{order:2;padding:0 14px 6px}
+.pad.chat-mode .chips,.pad.chat-mode #padClose{display:none!important}
+.pad-top .send{display:none}
+.pad.chat-mode .pad-top .send{display:grid;place-items:center;flex:none;width:38px;height:38px;border-radius:50%;border:0;background:var(--accent);color:#fff}
+.chat-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:40px}
+.chat-bar b{font-size:16px;font-weight:800;letter-spacing:-.3px;color:var(--ink)}
+.chat-acts{display:flex;align-items:center;gap:4px}
+.chat-acts .ca{width:34px;height:34px;border-radius:50%;border:0;padding:0;display:grid;place-items:center;background:rgba(255,255,255,.5);color:var(--ink)}
+.stage{position:relative;height:92px;margin:0 -14px;touch-action:none;overflow:visible}
+.chatpal{position:absolute;left:8px;bottom:0;zoom:.72;z-index:2}
+.chatpal .buddy{touch-action:none}
+.pad .chatpal .buddy .bubble{right:auto;left:100%;bottom:auto;top:8px;margin-left:4px;max-width:240px;border-radius:18px 18px 18px 4px;transform-origin:0 50%}
+.chatpal .buddy.held .body{animation:none;transform:rotate(-6deg)}
+.kchat{display:flex;flex-direction:column;gap:3px;padding-bottom:4px}
+.kday{align-self:center;margin:12px 0 6px;padding:4px 12px;border-radius:999px;background:rgba(40,50,60,.22);color:#fff;font-size:12px;font-weight:600}
+.krow{display:flex;align-items:flex-end;gap:5px}
+.krow.gap{margin-top:7px}
+.krow.me{justify-content:flex-end}
+.krow time{flex:none;font-size:10.5px;color:var(--ink3);margin-bottom:2px;white-space:nowrap}
+.krow.ai{align-items:flex-start;gap:7px}
+.kface{flex:none;width:34px;height:34px;border-radius:13px;display:grid;place-items:center;background:linear-gradient(135deg,#ff9e7a,#ff6640)}
+.kface.ghost{visibility:hidden;height:1px}
+.kcol{display:flex;flex-direction:column;gap:3px;min-width:0;max-width:80%}
+.kname{font-size:12.5px;font-weight:600;color:var(--ink2)}
+.kline{display:flex;align-items:flex-end;gap:5px}
+.kb{max-width:74%;padding:8px 12px;font-size:15px;line-height:1.45;white-space:pre-wrap;word-break:keep-all;overflow-wrap:anywhere;border-radius:16px;-webkit-user-select:text;user-select:text}
+.kline .kb{max-width:100%}
+.kb.me{background:linear-gradient(135deg,#8b5cf6,#6366f1);color:#fff;border-top-right-radius:4px}
+.kb.ai{background:rgba(255,255,255,.92);color:#1c1c1e;border-top-left-radius:4px}
+.kb.err{color:#c2410c}
+.kb .go{display:block;margin-top:8px}
+body.liquid .pad .kb.me{background:linear-gradient(135deg,#7fb0ae,#5a8f8f)}
+.kmore{align-self:center;margin:6px 0;border:0;border-radius:999px;padding:6px 12px;font:inherit;font-size:12.5px;font-weight:650;background:rgba(255,255,255,.55);color:var(--ink2)}
+.clist{display:flex;flex-direction:column;gap:2px;padding-top:4px}
+.crow{display:flex;align-items:center;gap:10px;padding:8px 4px;border-radius:12px}
+.crow.cur{background:rgba(255,255,255,.35)}
+.crow .ct{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.crow .ct b{font-size:14.5px;font-weight:700;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crow .ct span{font-size:12.5px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.crow .cm{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.crow .cm time{font-size:11px;color:var(--ink3)}
+.cdel,.call{border:0;border-radius:999px;padding:3px 9px;font:inherit;font-size:11.5px;font-weight:650;background:rgba(255,255,255,.5);color:#b4434a}
+.cdel.sure,.call.sure{background:#e5484d;color:#fff}
+.call{align-self:center;margin:14px 0 4px;padding:6px 14px;font-size:12.5px}
 .typing{display:inline-flex;gap:4px;padding:3px 0}.typing i{width:7px;height:7px;border-radius:50%;background:var(--ink3);animation:dot 1.1s ease-in-out infinite}
 .typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
 .ask.resume{margin:4px 0 6px}
@@ -466,7 +514,8 @@ body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18p
 <div class="veil" id="veil"></div>
 <div class="fan" id="fan"></div>
 <section class="pad" id="pad">
-  <div class="pad-top"><label class="field"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg><input id="q" type="search" placeholder="앱 · 초성(ㅋㅋㅇ) · 퍼레에게 묻기" autocomplete="off" enterkeyhint="go"></label><button class="close" id="padClose">닫기</button></div>
+  <div class="pad-top"><label class="field"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg><input id="q" type="search" placeholder="앱 · 초성(ㅋㅋㅇ) · 퍼레에게 묻기" autocomplete="off" enterkeyhint="go"></label><button class="send" id="padSend" aria-label="보내기"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg></button><button class="close" id="padClose">닫기</button></div>
+  <div class="chat-top" id="chatTop"><div class="chat-bar" id="chatBar"></div><div class="stage" id="stage"></div></div>
   <div class="chips" id="chips"></div>
   <div class="pad-body" id="padBody"></div>
 </section>
@@ -1086,8 +1135,6 @@ el("veil").addEventListener("click", () => { if (Date.now() - holdEnded < 450 ||
 let pickInto = "";
 function openPad(typing, into) {
   closeFan(); closeMenu(); pickInto = into || ""; el("pad").classList.toggle("picking", !!pickInto);
-  // A talk left more than ten minutes ago starts over.
-  if (thread.length && Date.now() - talkedAt > 600000) thread = [];
   chatting = false; el("q").placeholder = SEARCH_HINT; el("pad").classList.remove("chat-mode");
   const pad = el("pad"); filter = ""; el("q").value = ""; drawChips(); drawPad();
   pad.classList.add("on"); document.body.classList.add("covered"); requestAnimationFrame(() => pad.classList.add("shown"));
@@ -1147,9 +1194,20 @@ el("q").addEventListener("keydown", e => {
   if (first) launch(first.dataset.id, first.querySelector(".ic")); else { const q = el("q").value.trim(); if (q && B) { B.web(q); closePad(); } }
 });
 el("padBody").addEventListener("click", e => {
+  if (chatting) {
+    if (e.target.closest("[data-older]")) { shownTurns += 30; const body = el("padBody"), h = body.scrollHeight; drawChat(); body.scrollTop = body.scrollHeight - h; return; }
+    const del = e.target.closest("[data-del]");
+    if (del) { if (!del.classList.contains("sure")) { del.classList.add("sure"); del.textContent = "정말 지울까?"; return; }
+      chats.list = chats.list.filter(c => c.id !== del.dataset.del); if (chats.cur === del.dataset.del) useChat(curChat()); saveChats(); drawList(); return; }
+    const all = e.target.closest("[data-delall]");
+    if (all) { if (!all.classList.contains("sure")) { all.classList.add("sure"); all.textContent = "정말 모두 지울까?"; return; }
+      chats = {list: [], cur: ""}; useChat(curChat()); saveChats(); drawList(); return; }
+    const open = e.target.closest("[data-open]");
+    if (open) { const c = chats.list.find(x => x.id === open.dataset.open); if (c) { useChat(c); drawChat(); } return; }
+  }
   if (e.target.closest("[data-ask]")) ask();
   else if (e.target.closest("[data-web]")) { const q = el("q").value.trim(); if (q && B) { B.web(q); closePad(); } }
-  else if (e.target.closest("[data-resume]")) { chatting = true; el("q").placeholder = CHAT_HINT; drawChat(); el("q").focus(); }
+  else if (e.target.closest("[data-resume]")) { openChat(); }
   else if (e.target.closest("[data-search]")) { chatting = false; el("q").placeholder = SEARCH_HINT; el("q").value = ""; drawPad(); el("q").focus(); }
   else if (e.target.closest("[data-stop]")) { if (B && B.stopChat) B.stopChat(); const last = thread[thread.length - 1]; if (last && last.pending) { last.pending = false; last.text = (last.text || "") + (last.text ? "\n" : "") + "(멈췄어요)"; } drawChat(); }
   else if (e.target.closest("[data-app]")) { const last = thread.filter(t => t.who === "me").pop(); if (B && last) { B.ask(last.text); closePad(); } }
@@ -1157,21 +1215,103 @@ el("padBody").addEventListener("click", e => {
 });
 
 /*
-  퍼레 right here (준: "퍼레대화의 경우 그 자리에서 바로 되게 해줘", "기본 엔비디아 모델"): the words go to the NVIDIA model the
-  app is connected to and the answer is written in as it comes, in a talk under the search field; Enter asks again with
-  what was said before. 앱에서 이어가기 hands the last question to 메인 대화.
+  퍼레와 대화, right here on the home screen (준: "퍼레대화의 경우 그 자리에서 바로 되게 해줘"; "퍼레와의 대화인데 퍼레가 없어",
+  "퍼레가 여기서도 홈화면처럼 돌아다니게", "다양한 터치 상호작용", "대화입력창은 하단으로", "퍼레의 말투로", "대화는 저장되고 지우거나
+  관리가능하게", "날짜표시 시간표시는 카톡과 같은 스타일"): 퍼레 walks and plays on a strip at the top (and thinks, talks and
+  reacts as the talk goes), the talk in the middle in KakaoTalk's way (a day's date as a pill, the time by the last message
+  of each minute, 퍼레's name and face on the first of its run), the box at the bottom above the keyboard. Talks are kept on
+  this phone (the last sixty): 대화 목록 opens, starts and deletes them, a long press on a message copies or deletes it.
+  The words go to the app's model as before; 앱에서 이어가기 hands the last question to 메인 대화. Only the last thirty
+  messages are drawn, with 이전 대화 더 보기 for the rest.
 */
-const SEARCH_HINT = "앱 이름 · 초성(ㅋㅋㅇ)", CHAT_HINT = "퍼레에게 묻기";
-let thread = [], chatting = false, talkedAt = 0;
+const SEARCH_HINT = "앱 이름 · 초성(ㅋㅋㅇ)", CHAT_HINT = "퍼레에게 말하기";
+let thread = [], chatting = false, talkedAt = 0, chatView = "talk", shownTurns = 30, chatHello = "";
 const FACE = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 6.5h7A4.5 4.5 0 0 1 20 11v3.5a4.5 4.5 0 0 1-4.5 4.5h-7A4.5 4.5 0 0 1 4 14.5V11a4.5 4.5 0 0 1 4.5-4.5zM12 6.5V4.6"/><path d="M9.4 11.6v2M14.6 11.6v2" stroke-width="2.4"/><circle cx="12" cy="3.4" r="1.1" fill="#fff" stroke="none"/></svg>';
-/** 퍼레's own screen (a double tap on 퍼레, or 오늘's 퍼레에게 묻기): the talk so far, the box ready for the next question. */
+const CI = d => '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>';
+const ICON_LIST = CI('<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>'), ICON_NEW = CI('<path d="M12 5v14M5 12h14"/>'),
+  ICON_APP = CI('<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>'), ICON_X = CI('<path d="M6 6l12 12M18 6L6 18"/>'), ICON_BACK = CI('<path d="M15 5l-7 7 7 7"/>');
+
+// ── the talks kept on this phone ──
+const CHATS = "gyeotChats";
+let chats = (() => { try { const c = JSON.parse(localStorage.getItem(CHATS) || "null"); if (c && Array.isArray(c.list)) { c.list.forEach(x => { x.turns = (x.turns || []).filter(t => t.text || t.error); }); return c; } } catch (e) {} return {list: [], cur: ""}; })();
+function curChat() {
+  let c = chats.list.find(x => x.id === chats.cur);
+  if (!c) { c = {id: "c" + Date.now().toString(36), title: "", at: Date.now(), turns: []}; chats.list.unshift(c); chats.cur = c.id; }
+  return c;
+}
+thread = curChat().turns;
+function saveChats() {
+  const c = curChat(); c.turns = thread; c.at = Date.now();
+  if (!c.title) c.title = ((thread.find(t => t.who === "me") || {}).text || "").slice(0, 30);
+  chats.list = chats.list.filter(x => x.turns.length || x.id === chats.cur).sort((a, b) => b.at - a.at).slice(0, 60);
+  chats.list.forEach(x => { if (x.turns.length > 400) x.turns.splice(0, x.turns.length - 400); });
+  try { localStorage.setItem(CHATS, JSON.stringify(chats, (k, v) => k === "pending" ? undefined : v)); } catch (e) {}
+}
+function useChat(c) { chats.cur = c.id; thread = c.turns; shownTurns = 30; chatHello = ""; }
+function newChat() { if (thread.length) { const c = {id: "c" + Date.now().toString(36), title: "", at: Date.now(), turns: []}; chats.list.unshift(c); useChat(c); saveChats(); } drawChat(); setTimeout(() => el("q").focus(), 60); }
+
+// ── KakaoTalk's dates and times ──
+const two = n => String(n).padStart(2, "0");
+function hm(at) { const d = new Date(at), h = d.getHours(); return (h < 12 ? "오전 " : "오후 ") + ((h % 12) || 12) + ":" + two(d.getMinutes()); }
+function dayKey(at) { const d = new Date(at); return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate(); }
+function dayLabel(at) { const d = new Date(at); return d.getFullYear() + "년 " + (d.getMonth() + 1) + "월 " + d.getDate() + "일 " + "일월화수목금토"[d.getDay()] + "요일"; }
+const minuteKey = at => Math.floor((at || 0) / 60000);
+function listTime(at) { const now = Date.now(); if (dayKey(at) === dayKey(now)) return hm(at); if (dayKey(at) === dayKey(now - 86400000)) return "어제"; const d = new Date(at); return (d.getMonth() + 1) + "월 " + d.getDate() + "일"; }
+
+/** 퍼레's own screen (a double tap on 퍼레, or 오늘's 퍼레에게 묻기): the talk so far, the box ready for the next words. */
 function openChat() {
   closeFan(); closeMenu(); if (typeof closeIdeas === "function") closeIdeas();
-  if (thread.length && Date.now() - talkedAt > 600000) thread = [];
   const pad = el("pad"); chatting = true; el("q").value = ""; el("q").placeholder = CHAT_HINT;
   pad.classList.add("on", "chat-mode"); document.body.classList.add("covered"); requestAnimationFrame(() => pad.classList.add("shown"));
   if (B) B.bars(true);
-  drawChat(); setTimeout(() => el("q").focus(), 80);
+  drawChat(); pal.show(); setTimeout(() => el("q").focus(), 80);
+}
+function greeting() { if (!chatHello) chatHello = (typeof preset === "function" && preset("chathi")) || "뭐든 물어봐! 가볍게 알려 줄게 😊"; return chatHello; }
+function drawChatTop() {
+  const busy = thread.some(t => t.pending), list = chatView === "list";
+  el("chatBar").innerHTML = '<b>' + (list ? "대화 목록" : "퍼레와 대화") + '</b><span class="chat-acts">' + (busy && !list ? '<button class="mini" data-stop="1">그만</button>' : "")
+    + (list ? '<button class="ca" data-back="1" aria-label="대화로 돌아가기">' + ICON_BACK + '</button>'
+      : '<button class="ca" data-list="1" aria-label="대화 목록">' + ICON_LIST + '</button><button class="ca" data-new="1" aria-label="새 대화">' + ICON_NEW + '</button><button class="ca" data-app="1" aria-label="앱에서 이어가기">' + ICON_APP + '</button>')
+    + '<button class="ca" data-close="1" aria-label="닫기">' + ICON_X + '</button></span>';
+}
+function aiRow(t, at, first, last, i) {
+  const text = typeof t === "string" ? t : t.text, pending = t.pending && !text;
+  return '<div class="krow ai' + (first ? " gap" : "") + '"><span class="kface' + (first ? "" : " ghost") + '">' + (first ? FACE : "") + '</span><div class="kcol">' + (first ? '<b class="kname">퍼레</b>' : "")
+    + '<div class="kline"><div class="kb ai' + (t.error ? " err" : "") + '" data-i="' + i + '">' + (pending ? '<span class="typing"><i></i><i></i><i></i></span>' : esc(text))
+    + (t.go ? '<button class="mini go" data-go="' + esc(t.go) + '">설정 열기</button>' : "") + '</div>' + (last && !t.pending ? '<time>' + hm(at) + '</time>' : "") + '</div></div></div>';
+}
+function drawChat() {
+  chatView = "talk"; drawChatTop(); el("chips").style.display = "none";
+  const body = el("padBody"), from = Math.max(0, thread.length - shownTurns);
+  let h = '<div class="kchat">' + (from > 0 ? '<button class="kmore" data-older="1">이전 대화 ' + from + '개 더 보기</button>' : "");
+  if (!thread.length) h += '<div class="kday">' + dayLabel(Date.now()) + '</div>' + aiRow(greeting(), Date.now(), true, true, -1);
+  for (let i = from; i < thread.length; i++) {
+    const t = thread[i], p = i > from ? thread[i - 1] : null, n = thread[i + 1], at = t.at || Date.now();
+    if (!p || dayKey(p.at) !== dayKey(at)) h += '<div class="kday">' + dayLabel(at) + '</div>';
+    const first = !p || p.who !== t.who || dayKey(p.at) !== dayKey(at) || minuteKey(p.at) !== minuteKey(at);
+    const last = !n || n.who !== t.who || minuteKey(n.at) !== minuteKey(at) || !!n.pending;
+    h += t.who === "me" ? '<div class="krow me' + (first ? " gap" : "") + '">' + (last ? '<time>' + hm(at) + '</time>' : "") + '<div class="kb me" data-i="' + i + '">' + esc(t.text) + '</div></div>' : aiRow(t, at, first, last, i);
+  }
+  body.innerHTML = h + '</div>';
+  body.scrollTop = body.scrollHeight;
+}
+function drawList() {
+  chatView = "list"; drawChatTop();
+  const rows = chats.list.filter(c => c.turns.length);
+  el("padBody").innerHTML = '<div class="clist">' + (rows.length ? rows.map(c => {
+      const end = c.turns[c.turns.length - 1] || {};
+      return '<div class="crow' + (c.id === chats.cur ? " cur" : "") + '" data-open="' + c.id + '"><span class="kface">' + FACE + '</span><span class="ct"><b>' + esc(c.title || "퍼레와 대화") + '</b><span>' + esc((end.text || "").replace(/\s+/g, " ").slice(0, 60)) + '</span></span>'
+        + '<span class="cm"><time>' + listTime(end.at || c.at) + '</time><button class="cdel" data-del="' + c.id + '">지우기</button></span></div>';
+    }).join("") + '<button class="call" data-delall="1">대화 모두 지우기</button>' : '<div class="empty">아직 남은 대화가 없어. 퍼레랑 얘기하면 여기 차곡차곡 남아!</div>') + '</div>';
+}
+function ask() {
+  const q = el("q").value.trim(); if (!q) return;
+  if (!B || !B.chat) { if (B) { B.ask(q); closePad(); } return; }
+  const before = thread.filter(t => !t.pending && !t.error).slice(-12).map(t => ({who: t.who, text: t.text}));
+  const now = Date.now();
+  thread.push({who: "me", text: q, at: now}, {who: "ai", text: "", pending: true, at: now});
+  chatting = true; talkedAt = now; el("q").value = ""; el("q").placeholder = CHAT_HINT; saveChats();
+  drawChat(); pal.thinking(); B.chat(q, JSON.stringify(before));
 }
 window.boardChat = openChat;
 window.boardThink = why => { if (B) B.think(why); };
@@ -1183,25 +1323,127 @@ window.boardMemory = () => { if (B) B.settings("memory"); };
 window.boardVoice = () => { if (B) B.voice(); };
 window.boardVoiceStop = () => { if (B) B.voiceStop(); };
 setInterval(() => { if (B && B.home && document.visibilityState === "visible" && !document.body.classList.contains("covered")) B.home(); }, 15000);
-function ask() {
-  const q = el("q").value.trim(); if (!q) return;
-  if (!B || !B.chat) { if (B) { B.ask(q); closePad(); } return; }
-  const before = thread.filter(t => !t.pending && !t.error).map(t => ({who: t.who, text: t.text}));
-  thread.push({who: "me", text: q}, {who: "ai", text: "", pending: true});
-  chatting = true; talkedAt = Date.now(); el("q").value = ""; el("q").placeholder = CHAT_HINT;
-  drawChat(); B.chat(q, JSON.stringify(before));
-}
-function drawChat() {
-  const body = el("padBody"), busy = thread.some(t => t.pending);
-  el("chips").style.display = "none";
-  body.innerHTML = '<div class="pad-inner"><div class="chat-head"><b>퍼레와 대화</b><span>' + (busy ? '<button class="mini" data-stop="1">그만</button>' : "")
-    + '<button class="mini" data-app="1">앱에서 이어가기</button></span></div><div class="chat">'
-    + (thread.length ? "" : '<div class="row-ai"><span class="face">' + FACE + '</span><div class="msg ai">무엇이든 물어보세요. 가볍게 답해 드릴게요.</div></div>')
-    + thread.map((t, i) => t.who === "me" ? '<div class="msg me">' + esc(t.text) + '</div>'
-      : '<div class="row-ai"><span class="face">' + FACE + '</span><div class="msg ai' + (t.error ? " err" : "") + '" data-i="' + i + '">' + (t.pending && !t.text ? '<span class="typing"><i></i><i></i><i></i></span>' : esc(t.text))
-        + (t.go ? '<button class="mini go" data-go="' + esc(t.go) + '">설정 열기</button>' : "") + '</div></div>').join("") + '</div></div>';
-  body.scrollTop = body.scrollHeight;
-}
+el("padSend").addEventListener("click", e => { e.preventDefault(); if (chatting) ask(); });
+el("chatTop").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.dataset.close) closePad();
+  else if (b.dataset.list) drawList();
+  else if (b.dataset.back) drawChat();
+  else if (b.dataset.new) newChat();
+  else if (b.dataset.app) { const last = thread.filter(t => t.who === "me").pop(); if (B && last) { B.ask(last.text); closePad(); } }
+  else if (b.dataset.stop) { if (B && B.stopChat) B.stopChat(); const last = thread[thread.length - 1]; if (last && last.pending) { last.pending = false; last.text = (last.text || "") + (last.text ? "\n" : "") + "(멈췄어)"; } saveChats(); pal.done(); drawChat(); }
+});
+// A long press on a message: copy it, or delete it from the talk.
+(function messageMenu() {
+  let t0 = 0, timer = 0, sx = 0, sy = 0;
+  el("padBody").addEventListener("pointerdown", e => {
+    const m = chatting && chatView === "talk" ? e.target.closest(".kb[data-i]") : null; if (!m || +m.dataset.i < 0) return;
+    sx = e.clientX; sy = e.clientY; clearTimeout(timer);
+    timer = setTimeout(() => {
+      const i = +m.dataset.i;
+      showMenu('<button data-m="copy">복사</button><button data-m="del" class="danger">이 말 지우기</button>', sx, sy);
+      el("menu").onclick = ev => {
+        const b = ev.target.closest("button"); if (!b) return; closeMenu();
+        if (b.dataset.m === "copy") { try { navigator.clipboard.writeText(thread[i].text); } catch (x) {} }
+        else if (b.dataset.m === "del" && thread[i] && !thread[i].pending) { thread.splice(i, 1); saveChats(); drawChat(); }
+      };
+    }, 520);
+  });
+  const cancel = e => { if (e.type !== "pointermove" || Math.hypot(e.clientX - sx, e.clientY - sy) > 10) clearTimeout(timer); };
+  ["pointermove", "pointerup", "pointercancel"].forEach(k => el("padBody").addEventListener(k, cancel, {passive: true}));
+})();
+
+/*
+  퍼레 on its strip (board.js: its body, faces and motions): it walks about and plays now and then, thinks while the answer
+  is made and talks as it comes; touched, a tap hops it, two taps spin it, a long press squeezes it, stroking it back and
+  forth pets it (hearts), carrying it lifts it and lets it drop, and a finger circling round it twice makes it dizzy.
+*/
+const pal = (() => {
+  let p = null;
+  const rnd = (a, z) => a + Math.random() * (z - a);
+  function make() {
+    if (p || typeof BUDDY === "undefined" || typeof alive !== "function") return p;
+    const b = document.createElement("div"); b.className = "chatpal";
+    b.innerHTML = '<button class="buddy" aria-label="퍼레"><div class="bubble"></div><div class="body">' + BUDDY + '</div><div class="ground"></div></button>';
+    el("stage").appendChild(b); alive(b);
+    p = {b, buddy: $(b, ".buddy"), x: 0, y: 0, busy: false, talking: false};
+    wire(); setTimeout(loop, 2500); return p;
+  }
+  const room = () => Math.max(40, el("stage").clientWidth - 84);
+  const place = (ms, lift) => { p.b.style.transition = "transform " + ms + "ms " + (lift ? "cubic-bezier(.3,1.6,.5,1)" : "cubic-bezier(.45,.1,.55,.9)"); p.b.style.transform = "translate(" + p.x.toFixed(0) + "px," + p.y.toFixed(0) + "px)"; };
+  function walk(nx, done) {
+    const dist = Math.abs(nx - p.x); if (dist < 4) { if (done) done(); return; }
+    const ms = Math.round(Math.max(500, dist / 70 * 1000));
+    p.buddy.style.setProperty("--face", nx < p.x ? "-1" : "1"); p.buddy.classList.add("walking"); p.x = nx; place(ms);
+    setTimeout(() => { p.buddy.classList.remove("walking"); if (done) done(); }, ms);
+  }
+  const sfx = (w, ms) => { if (w && !$(p.b, ".bubble").classList.contains("on")) speak(p.b, {text: w, sfx: true}, ms || 1700); };
+  function loop() {
+    if (p && chatting && !document.hidden && !p.busy && !p.talking && !p.held) {
+      const r = Math.random();
+      if (r < .5) walk(Math.round(rnd(4, room())));
+      else if (r < .85 && typeof MOTIONS !== "undefined") { const m = MOTIONS[Math.floor(Math.random() * MOTIONS.length)]; move(p.b, m[0], m[1]); if (m[2] && p.b._feel) p.b._feel(m[2], m[1]); if (Math.random() < .4) sfx(preset("solo")); }
+      else sfx(preset(Math.random() < .5 ? "roam" : "solo"));
+    }
+    setTimeout(loop, rnd(3500, 8000));
+  }
+  function dizzy() { if (!p) return; p.b._feel("dizzy", 2600); move(p.b, "wobble", 1700); sfx(["어질어질~ 🌀", "세상이 빙글빙글…", "으아, 별이 돌아~", "그만 돌려~ 어지러워!"][Math.floor(Math.random() * 4)], 2000); }
+  function wire() {
+    const buddy = p.buddy, b = p.b; let down = null, taps = [], tapTimer = 0;
+    const spin = circler(() => { const r = buddy.getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; }, dizzy);
+    const stage = el("stage");
+    stage.addEventListener("pointerdown", e => spin.down(e), {capture: true});
+    stage.addEventListener("pointermove", e => spin.move(e), {capture: true});
+    ["pointerup", "pointercancel"].forEach(k => stage.addEventListener(k, () => spin.up(), {capture: true}));
+    buddy.addEventListener("pointerdown", e => {
+      e.stopPropagation(); try { buddy.setPointerCapture(e.pointerId); } catch (x) {}
+      down = {x: e.clientX, y: e.clientY, lx: e.clientX, path: 0, dir: 0, turns: 0, moved: false, pet: false, carry: false, long: false, vx: 0, t: Date.now(), minX: e.clientX, maxX: e.clientX, minY: e.clientY, maxY: e.clientY};
+      clearTimeout(p.longT);
+      // Held still a moment: it is picked up (then carried with the finger), or squeezed if let go there.
+      p.longT = setTimeout(() => { if (down && !down.moved) { down.long = true; down.carry = true; p.held = true; buddy.classList.add("held", "squish"); b._feel("surprised", 1200); p.y = -10; place(160, true); } }, 450);
+    });
+    buddy.addEventListener("pointermove", e => {
+      if (!down) return;
+      const dx = e.clientX - down.lx; down.vx = dx; down.lx = e.clientX; down.path += Math.abs(dx);
+      down.minX = Math.min(down.minX, e.clientX); down.maxX = Math.max(down.maxX, e.clientX); down.minY = Math.min(down.minY, e.clientY); down.maxY = Math.max(down.maxY, e.clientY);
+      const dir = Math.abs(dx) > 1.5 ? Math.sign(dx) : 0; if (dir && down.dir && dir !== down.dir) down.turns++; if (dir) down.dir = dir;
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) { down.moved = true; clearTimeout(p.longT); }
+      if (down.carry) {
+        buddy.classList.remove("squish"); down.long = false;
+        const s = el("stage").getBoundingClientRect(); p.x = Math.max(0, Math.min(room(), e.clientX - s.left - 38)); p.y = Math.min(0, e.clientY - down.y - 10); place(0);
+        return;
+      }
+      // Stroked side to side (not round and round: that is circling, below): petted.
+      const side = down.maxX - down.minX, up = down.maxY - down.minY;
+      if (!down.pet && down.turns >= 2 && up < side * .5) { down.pet = true; hearts(b, 5); move(b, "nuzzle", 1900); b._feel("love", 2400); sfx(preset("pet") || "헤헤, 좋아~", 1800); }
+    });
+    const up = () => {
+      if (!down) return; const d = down; down = null; clearTimeout(p.longT); buddy.classList.remove("squish");
+      if (d.carry && d.long) { p.held = false; buddy.classList.remove("held"); p.y = 0; place(300, true); b._feel("blissful", 1600); hearts(b, 3); sfx("꾸욱~ 히히", 1500); return; }
+      if (d.carry) {
+        p.held = false; buddy.classList.remove("held"); p.y = 0; place(520, true);
+        if (Math.abs(d.vx) > 14) { move(b, "spin", 950); b._feel("dizzy", 1500); sfx("으아아~ 빙글!", 1500); } else { b._feel("ouch", 1200); sfx(["쿵!", "으앗!", "사뿐~", "내려 줘서 고마워"][Math.floor(Math.random() * 4)], 1400); }
+        return;
+      }
+      if (d.moved || d.long || d.pet) return;
+      const now = Date.now(); taps = taps.filter(t => now - t < 400).concat(now); clearTimeout(tapTimer);
+      if (taps.length >= 2) { taps = []; move(b, "spin", 950); b._feel("laugh", 1300); sfx("빙글! 히히", 1300); return; }
+      tapTimer = setTimeout(() => {
+        const [m, ms] = [["hop", 760], ["boing", 600], ["jelly", 1000], ["giggleshake", 1400]][Math.floor(Math.random() * 4)];
+        move(b, m, ms); b._feel(["happy", "wink", "giggle", "cheeky", "sparkly"][Math.floor(Math.random() * 5)], 1500);
+        if (Math.random() < .6) sfx(preset("sound"));
+      }, 260);
+    };
+    buddy.addEventListener("pointerup", up); buddy.addEventListener("pointercancel", up);
+    buddy.addEventListener("click", e => e.stopPropagation());
+  }
+  return {
+    show() { make(); if (p) { p.b._env = boards[0] && boards[0]._env; if (p.x === 0) { p.x = Math.round(room() * .6); place(0); } } },
+    thinking() { if (!p) return; p.talking = false; p.b._mood("thinking"); },
+    talking() { if (!p || p.talking) return; p.talking = true; p.b._mood(""); $(p.b, ".bot").classList.add("talking"); },
+    done(ok) { if (!p) return; p.talking = false; $(p.b, ".bot").classList.remove("talking"); p.b._mood(""); if (ok === false) p.b._feel("sorry", 1600); else { p.b._feel("happy", 1600); move(p.b, "hop", 760); } }
+  };
+})();
 
 /* ── menus ────────────────────────────────────────────────── */
 function showMenu(html, x, y) {
@@ -1268,7 +1510,11 @@ window.launcher = {
     requestAnimationFrame(() => boards.forEach(fit)); setTimeout(() => boards.forEach(fit), 900);
   },
   badges(k) { BADGES = k || {}; drawAll(); },
-  insets(top, bottom) { document.documentElement.style.setProperty("--top", top + "px"); document.documentElement.style.setProperty("--bottom", bottom + "px"); boards.forEach(fit); },
+  insets(top, bottom, kb) {
+    document.documentElement.style.setProperty("--top", top + "px"); document.documentElement.style.setProperty("--bottom", bottom + "px");
+    document.documentElement.style.setProperty("--kb", (kb || 0) + "px"); boards.forEach(fit);
+    if (chatting) { const body = el("padBody"); requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; }); }
+  },
   /** Home pressed while the home screen is in front: back to its top, everything closed (a Mac's desktop). */
   home() { closeMenu(); closeFan(); closePad(); closeIdeas(); toPage(1, true); el("home").scrollTo({top: 0, behavior: "smooth"}); },
   /** Back from another app: what was left open closes; the page stays. */
@@ -1293,12 +1539,12 @@ window.launcher = {
   /** 퍼레's answer on the home screen: a piece as it streams, the whole when done, or why not. */
   stream(piece) {
     const last = thread[thread.length - 1]; if (!last || !last.pending) return;
-    last.text += piece; talkedAt = Date.now();
-    const node = document.querySelector('.msg.ai[data-i="' + (thread.length - 1) + '"]');
-    if (node && chatting) { node.textContent = last.text; const body = el("padBody"); body.scrollTop = body.scrollHeight; } else if (chatting) drawChat();
+    last.text += piece; talkedAt = Date.now(); pal.talking();
+    const node = document.querySelector('.kb.ai[data-i="' + (thread.length - 1) + '"]');
+    if (node && chatting && chatView === "talk") { node.textContent = last.text; const body = el("padBody"); body.scrollTop = body.scrollHeight; } else if (chatting && chatView === "talk") drawChat();
   },
-  reply(text) { const last = thread[thread.length - 1]; if (!last || !last.pending) return; last.pending = false; if (text) last.text = text; if (!last.text) last.text = "(답이 비어 있어요)"; talkedAt = Date.now(); if (chatting) drawChat(); },
-  replyError(why, go) { const last = thread[thread.length - 1]; if (!last || last.who !== "ai") return; last.pending = false; last.error = true; last.text = why; last.go = go || ""; if (chatting) drawChat(); },
+  reply(text) { const last = thread[thread.length - 1]; if (!last || !last.pending) return; last.pending = false; if (text) last.text = text; if (!last.text) last.text = "(답이 비어 있어)"; last.at = talkedAt = Date.now(); saveChats(); pal.done(true); if (chatting && chatView === "talk") drawChat(); },
+  replyError(why, go) { const last = thread[thread.length - 1]; if (!last || last.who !== "ai") return; last.pending = false; last.error = true; last.text = why; last.go = go || ""; last.at = Date.now(); saveChats(); pal.done(false); if (chatting && chatView === "talk") drawChat(); },
   /** The home screen in front again, or left: 퍼레 may speak first when it comes back after a while. */
   shown() { boardSeen(true); },
   hidden() { boardSeen(false); }

@@ -198,7 +198,7 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 /* arms */
 .bot .b-arm{transform-box:fill-box;transition:transform .35s cubic-bezier(.34,1.15,.64,1)}
 /* Each arm turns where it joins the body, not from a shoulder above it: a round arm lifts and tucks, it does not swing. */
-.bot .b-arm.l{transform-origin:88% 50%}.bot .b-arm.r{transform-origin:12% 50%}
+.bot .b-arm.l{transform-origin:85% 50%}.bot .b-arm.r{transform-origin:15% 50%}
 .bot.w-umbrella .b-arm.r{transform:rotate(-24deg)}
 /* what it wears and what shows by it */
 .bot .acc{display:none}

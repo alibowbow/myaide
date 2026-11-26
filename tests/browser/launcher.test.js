@@ -180,6 +180,29 @@ async function open(browser, at) {
     let run = 0, longest = 0; for (let k = 1; k < looks.length; k++) { run = looks[k] && looks[k] === looks[k - 1] ? run + 1 : 0; longest = Math.max(longest, run); }
     assert(longest <= 3, 'the same outfit ' + (longest + 1) + ' turns in a row');
   });
+  await check('퍼레와 대화: 퍼레 lives on its strip, KakaoTalk dates and times, the box at the bottom, circling 퍼레 makes it dizzy', async () => {
+    const p = day.page;
+    await p.evaluate(() => { boardChat(); });
+    await p.clock.runFor(600);
+    const look = await p.evaluate(() => ({pal: !!document.querySelector('.chatpal .buddy'), day: (document.querySelector('.kday') || {}).textContent, hello: (document.querySelector('.kb.ai') || {}).textContent,
+      boxBelow: document.querySelector('.pad-top').getBoundingClientRect().top > document.querySelector('#padBody').getBoundingClientRect().top}));
+    assert(look.pal, '퍼레 on the chat screen');
+    assert(/^\d{4}년 \d+월 \d+일 .요일$/.test(look.day || ''), 'date pill: ' + look.day);
+    assert(look.hello && !/세요|드릴게요|습니다/.test(look.hello), '퍼레\'s own words: ' + look.hello);
+    assert(look.boxBelow, 'the box at the bottom');
+    const times = await p.evaluate(() => { const now = Date.now(); thread.splice(0, thread.length, {who: 'me', text: '어제 일', at: now - 86400000}, {who: 'ai', text: '응!', at: now - 86400000 + 1000}, {who: 'me', text: '오늘 일', at: now}, {who: 'ai', text: '좋아!', at: now + 1000}); saveChats(); drawChat();
+      return {days: document.querySelectorAll('.kday').length, times: Array.from(document.querySelectorAll('.krow time')).map(t => t.textContent), kept: JSON.parse(localStorage.getItem('gyeotChats')).list.some(c => c.turns.length === 4)}; });
+    assert.strictEqual(times.days, 2, 'a pill for each day');
+    assert(times.times.length === 4 && times.times.every(t => /^오[전후] \d{1,2}:\d\d$/.test(t)), 'times: ' + times.times.join(','));
+    assert(times.kept, 'the talk is kept');
+    const c = await p.evaluate(() => { const r = document.querySelector('.chatpal .buddy').getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; });
+    await p.mouse.move(c.x + 34, c.y); await p.mouse.down();
+    for (let i = 1; i <= 64; i++) { const a = i / 64 * Math.PI * 2 * 2.4; await p.mouse.move(c.x + 34 * Math.cos(a), c.y + 34 * Math.sin(a)); }
+    await p.mouse.up(); await p.clock.runFor(200);
+    assert(/dizzy/.test(await p.evaluate(() => document.querySelector('.chatpal .bot').getAttribute('class'))), 'dizzy after two turns round it');
+    await p.evaluate(() => closePad()); await p.clock.runFor(400);
+    assert.deepStrictEqual(day.errors, []);
+  });
   await day.ctx.close();
 
   const dawn = await open(browser, '2026-11-27T03:10:00+09:00');
