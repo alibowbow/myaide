@@ -210,7 +210,8 @@ public final class HomeActivity extends Activity {
         for (AppStacks.Stack s : AppStacks.STACKS) stacks.put(Jsons.obj("id", s.id(), "name", s.name(), "color", s.color()));
         return Jsons.obj("apps", list, "dock", dock, "recent", read(RECENT, new JSONArray()), "stacks", stacks, "badges", new JSONObject(badges));
     }
-    private static String id(LauncherActivityInfo info, UserManager users) {
+    /** An app's id here and in the side dock: its activity and its profile. */
+    static String id(LauncherActivityInfo info, UserManager users) {
         long serial = users == null ? 0 : users.getSerialNumberForUser(info.getUser());
         return info.getComponentName().flattenToShortString() + "@" + serial;
     }

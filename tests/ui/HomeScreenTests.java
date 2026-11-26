@@ -62,4 +62,20 @@ public class HomeScreenTests {
         a.onBackPressed(); shadowOf(Looper.getMainLooper()).idle();
         assertFalse(a.isFinishing());
     }
+
+    /** 사이드 독: its handle comes and goes with the setting, and a tap with no apps in the dock says what to do. */
+    @Test public void sideDockFollowsItsSetting() {
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        AppStore store = app.store();
+        SideDock dock = new SideDock(app, store);
+        store.settings.edit().putBoolean("sideDock", true).commit();
+        dock.refresh(); shadowOf(Looper.getMainLooper()).idle();
+        android.view.WindowManager wm = app.getSystemService(android.view.WindowManager.class);
+        int withHandle = ((org.robolectric.shadows.ShadowWindowManagerImpl) org.robolectric.shadow.api.Shadow.extract(wm)).getViews().size();
+        assertTrue("the handle is on the screen", withHandle >= 1);
+        store.settings.edit().putBoolean("sideDock", false).commit();
+        dock.refresh(); shadowOf(Looper.getMainLooper()).idle();
+        assertEquals("turned off, it goes", withHandle - 1, ((org.robolectric.shadows.ShadowWindowManagerImpl) org.robolectric.shadow.api.Shadow.extract(wm)).getViews().size());
+        dock.close();
+    }
 }

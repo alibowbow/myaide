@@ -84,6 +84,16 @@ public final class DecorActivity extends Activity {
             homeApp ? "원래 홈 화면으로 돌아가려면 ‘바꾸기’" : "독 · 자동 묶음 · 런치패드 · 초성 검색 · 눌러서 미리 보기",
             ui.smallChip(homeApp ? "바꾸기" : "켜기", homeApp ? this::homeSettings : this::askHome),
             () -> startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))), true);
+        // 사이드 독 (준: "사이드 슬라이드 아이콘 ui참고"): drawn by the accessibility service (the edge button's), so it needs it on.
+        AppStore store = ((GyeotApp) getApplication()).store();
+        boolean dockOn = SideDock.on(store), reachable = PhoneService.connected();
+        String edgeSide = store.settings.getBoolean("sideDockRight", !store.settings.getBoolean("edgeRight", true)) ? "오른쪽" : "왼쪽";
+        ui.addRow(launcherGroup, ui.listRow(R.drawable.ic_sparkle, Ui.BLUE, "사이드 독 · " + (dockOn ? "켜짐" : "꺼짐"),
+            !reachable ? "오른쪽 바(접근성)가 켜져 있어야 나타나요" : dockOn ? "화면 " + edgeSide + " 끝을 안쪽으로 밀면 맥 독처럼 앱이 나와요 · 훑다가 떼면 열려요" : "켜면 어느 앱에서든 화면 끝에서 앱을 꺼내요",
+            ui.smallChip(!reachable ? "켜기" : dockOn ? "끄기" : "켜기", () -> {
+                if (!reachable) { try { startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)); } catch (RuntimeException ignored) {} return; }
+                store.settings.edit().putBoolean("sideDock", !dockOn).apply(); store.changed(); draw();
+            }), null), true);
         LinearLayout.LayoutParams lg = new LinearLayout.LayoutParams(-1, -2); lg.bottomMargin = ui.dp(14);
         body.addView(launcherGroup, lg);
 
