@@ -140,6 +140,8 @@ public class BuddyBrainTests {
     /** 퍼레 over other apps while it talks (준: "퍼레 대화모드일때는 다른 앱 위에 그려지게 해줘"): a small card, its face, its words, ✕. */
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void talksOverOtherApps() throws Exception {
         org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(true);
+        // 준: "홈화면에서는 15초 다른 앱 위에서는 3분으로 하자"
+        assertEquals(15_000L, BuddyVoice.QUIET_HOME); assertEquals(180_000L, BuddyVoice.QUIET_OVER);
         android.content.Context c = org.robolectric.RuntimeEnvironment.getApplication();
         boolean[] stopped = {false};
         BuddyOverlay o = new BuddyOverlay(c, () -> stopped[0] = true);

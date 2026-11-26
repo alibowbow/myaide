@@ -22,7 +22,7 @@ import org.json.JSONObject;
 /**
  * 퍼레's voice talk on the home screen (준: "퍼레 음성대화는 퍼레를 꾹 누르고 있으면 실행되게 해줘", "우측 바를 당겨서 버블이 뜨는
  * 음성비서 모드와는 별도야"): held, 퍼레 listens (the phone's speech recognizer, in Korean), answers as itself (BuddyTalk.reply)
- * and says it in its Typecast voice (TypecastAccount), then listens again. Two silences in a row, a tap on 퍼레, its ✕ or
+ * and says it in its Typecast voice (TypecastAccount), then listens again. Nothing said for a while (QUIET_HOME, QUIET_OVER), a tap on 퍼레, its ✕ or
  * the notification's 끝내기 end it; another app in front does not (준: "퍼레가 말할때 브라우저라도 켜면 바로 꺼져버려"): the talk
  * lives on its own (one at a time, current()) with a microphone service (BuddyVoiceService), shown on the home screen while it
  * is in front (attach) and over the other apps otherwise (BuddyOverlay). Without a Typecast key, past the month's free characters or when Typecast fails, it speaks with the
@@ -84,7 +84,7 @@ final class BuddyVoice {
 
     void start() {
         if (on) return;
-        on = true; silences = 0; turns.clear(); generation++;
+        on = true; silences = 0; turns.clear(); generation++; lastTalk = android.os.SystemClock.uptimeMillis();
         store.buddyTalking = true; store.changed();
         BuddyVoiceService.start(context);
         if (screen == null) overlay.show();
@@ -105,7 +105,7 @@ final class BuddyVoice {
 
     private void listen() {
         if (!on) return;
-        closeEar();
+        closeEar(); listenAt = android.os.SystemClock.uptimeMillis();
         int mine = generation;
         show("listening", "");
         // The phone's own recognizer first, also over another app (준: "다른 앱 위에서도 휴대폰 기본 음성인식 먼저 쓰기"); 퍼레's own
@@ -167,16 +167,26 @@ final class BuddyVoice {
             });
         } catch (RuntimeException stopped) { end("error", ""); }
     }
-    /** Nothing heard: once, it listens again; twice in a row, the talk ends. */
+    /**
+     * How long 퍼레 waits for words before the talk ends (준: "들퍼레가 너무 빨리 꺼져", "홈화면에서는 15초 다른 앱 위에서는 3분으로
+     * 하자"): from the last words, the user's or its own; over another app the user is doing something there.
+     */
+    static final long QUIET_HOME = 15_000, QUIET_OVER = 180_000;
+    private long lastTalk, listenAt;
+    /** Nothing heard: it listens again until the talk has been quiet for QUIET_HOME (QUIET_OVER over another app). */
     private void quiet() {
         closeEar();
         // Over another app the recognizer may get only silence: before ending, 퍼레's own ear gets one more try.
         if (silences + 1 >= 2 && !heardSome && ownEarCanTakeOver()) { deviceOff = true; main.postDelayed(this::listen, 150); return; }
-        if (++silences >= 2) { end("done", "또 불러 줘!"); return; }
-        // Once, in its own voice: "응? 다시 말해 줄래?", then it listens (after the sound, so it does not hear itself).
+        silences++;
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastTalk >= (screen == null ? QUIET_OVER : QUIET_HOME)) { end("done", "또 불러 줘!"); return; }
         int mine = generation;
-        String again = cue("again", () -> { if (on && mine == generation) main.postDelayed(this::listen, 150); });
-        if (again != null) show("speaking", again);
+        Runnable again = () -> { if (on && mine == generation) listen(); };
+        // Once on the home screen, in its own voice: "응? 다시 말해 줄래?" (after the sound, so it does not hear itself); over
+        // another app it waits quietly. A recognizer that gave up at once is not asked again at once.
+        if (silences == 1 && screen != null) { String said = cue("again", () -> main.postDelayed(again, 150)); if (said != null) show("speaking", said); return; }
+        main.postDelayed(again, now - listenAt < 1500 ? 1200 : 250);
     }
 
     // ── 퍼레's short words, at once (VoicePresets) ──
@@ -205,6 +215,7 @@ final class BuddyVoice {
     }
     /** guest: not the user's voice; the fingerprint, when what was asked needs it, shows it was the user after all. */
     private void think(String said, boolean guest) {
+        lastTalk = android.os.SystemClock.uptimeMillis();
         // An alarm or a timer waiting for a yes: this was the answer.
         if (confirming != null) {
             org.json.JSONObject waiting = confirming; confirming = null;
@@ -378,6 +389,7 @@ final class BuddyVoice {
     private void spoken() {
         focus(false); releasePlayer();
         if (!on) return;
+        lastTalk = android.os.SystemClock.uptimeMillis();
         org.json.JSONObject now = todo; todo = null;
         if (now != null && act != null) { doNow(now, todoHeard); return; }
         main.postDelayed(this::listen, 350);
@@ -390,6 +402,7 @@ final class BuddyVoice {
     }
     /** After a thing done: its words (a question when it waits for a yes), and the talk ends when another app came up. */
     private void done(Outcome o) {
+        lastTalk = android.os.SystemClock.uptimeMillis();
         if (o == null) { main.postDelayed(this::listen, 350); return; }
         if (o.confirm() != null) confirming = o.confirm();
         // Another app came up: the talk goes on over it (BuddyOverlay), 퍼레 listening again.
@@ -405,7 +418,7 @@ final class BuddyVoice {
         android.media.AudioTrack playing = track; if (playing != null) try { playing.pause(); playing.flush(); } catch (RuntimeException ignored) {}
         closeEar(); releasePlayer(); focus(false);
         if (phone != null) { try { phone.stop(); phone.shutdown(); } catch (RuntimeException ignored) {} phone = null; phoneReady = false; }
-        // After two silences, a goodbye in its own voice (the bubble shows what it says).
+        // After the quiet, a goodbye in its own voice (the bubble shows what it says).
         String bye = "done".equals(state) && "또 불러 줘!".equals(words) ? cue("bye", null) : null;
         if (bye == null) stopCue();
         show(state, bye != null ? bye : words == null ? "" : words);
