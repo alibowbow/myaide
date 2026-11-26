@@ -386,7 +386,7 @@ public final class HtmlWallpaper extends WallpaperService {
         // The apps just opened (퍼레 dances after music, and so on); never on the lock screen.
         if (!locked) try { Jsons.put(out, "recent", new JSONArray(c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).getString("recentLabels", "[]"))); } catch (Exception ignored) {}
         // 퍼레's home and life (a Tamagotchi on the phone): the battery, music, the network; how close it feels, the days together.
-        try { Jsons.put(out, "env", BuddyTalk.env(c)); Jsons.put(out, "life", BuddyTalk.life(c)); } catch (RuntimeException ignored) {}
+        try { Jsons.put(out, "env", BuddyTalk.env(c)); Jsons.put(out, "life", BuddyTalk.life(c)); Jsons.put(out, "title", BuddyTalk.title(c)); } catch (RuntimeException ignored) {}
         return out;
     }
 

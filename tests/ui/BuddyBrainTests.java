@@ -75,4 +75,41 @@ public class BuddyBrainTests {
         assertNotNull("Qwen listed", find(l, v -> v instanceof TextView t && t.getText().toString().toLowerCase().contains("qwen")));
         shot(l, "buddy_brain_models");
     }
+
+    /** 부르는 호칭 (준: "호칭은 내가 설정할 수 있게해줘"): typed and saved, 퍼레 then uses it. */
+    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void setsTheTitle() throws Exception {
+        Activity a = Robolectric.buildActivity(DecorActivity.class).setup().get();
+        shadowOf(Looper.getMainLooper()).idle();
+        View decor = a.getWindow().getDecorView(); settle(decor);
+        View row = text(decor, "부르는 호칭"); assertNotNull("the title row", row);
+        while (!row.isClickable() && row.getParent() instanceof View p) row = p;
+        assertTrue(row.performClick()); shadowOf(Looper.getMainLooper()).idle();
+        Dialog sheet = ShadowDialog.getLatestDialog(); View d = sheet.getWindow().getDecorView();
+        android.widget.EditText field = (android.widget.EditText) find(d, v -> v instanceof android.widget.EditText);
+        assertEquals("대장님", field.getText().toString());
+        field.setText("주인공님");
+        View save = text(d, "저장"); while (!save.isClickable() && save.getParent() instanceof View p) save = p;
+        assertTrue(save.performClick()); shadowOf(Looper.getMainLooper()).idle();
+        assertEquals("주인공님", BuddyTalk.title(a));
+        assertTrue(BuddyTalk.persona(a).contains("'주인공님'"));
+    }
+
+    /** 퍼레의 기억 (opened after the fingerprint): 오늘, 발견 노트, 약속, 추억; private ones marked 🔒. */
+    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void showsTheMemoryBook() throws Exception {
+        Activity a = Robolectric.buildActivity(DecorActivity.class).setup().get();
+        shadowOf(Looper.getMainLooper()).idle();
+        long now = System.currentTimeMillis();
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> list = new java.util.ArrayList<>();
+        list.add(new dev.jun.gyeot.core.BuddyMemory.Entry(now - 86_400_000L * 3, "fact", "사용자는 고양이를 좋아한대요", 2, false));
+        list.add(new dev.jun.gyeot.core.BuddyMemory.Entry(now - 86_400_000L, "fact", "사용자는 다음 주에 병원에 간대요", 2, true));
+        list.add(new dev.jun.gyeot.core.BuddyMemory.Entry(now - 3_600_000L, "promise", "퍼레가 내일 아침 날씨를 알려 주기로 했어요", 2, false));
+        list.add(new dev.jun.gyeot.core.BuddyMemory.Entry(now - 7_200_000L, "profile", "평일 아침 8시쯤 지도 앱을 열어요", 3, false));
+        BuddyTalk.today(a, "app", "지도·이동");
+        var book = DecorActivity.class.getDeclaredMethod("memorySheet", java.util.List.class); book.setAccessible(true);
+        book.invoke(a, list); shadowOf(Looper.getMainLooper()).idle();
+        View d = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+        for (String part : new String[]{"오늘", "발견 노트 · 나에 대해", "우리 약속", "추억"}) assertNotNull(part, text(d, part));
+        assertNotNull("a private memory marked", text(d, "🔒 사용자는 다음 주에 병원에"));
+        shot(d, "buddy_memory_book");
+    }
 }

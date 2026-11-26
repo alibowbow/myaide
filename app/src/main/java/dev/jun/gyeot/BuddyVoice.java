@@ -29,6 +29,8 @@ import org.json.JSONObject;
 final class BuddyVoice {
     /** What 퍼레 shows: listening (with what is heard so far), thinking, speaking (the words), done or error (a last word). */
     interface Show { void state(String state, String text); }
+    /** The fingerprint before an answer that may need private memories; then runs either way (passed or not). */
+    interface Unlock { void ask(Runnable then); }
     private final Context context; private final AppStore store; private final ExecutorService io; private final Show show;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<String[]> turns = new ArrayList<>();
@@ -38,7 +40,8 @@ final class BuddyVoice {
     /** The speech playing as it streams in, and how to stop its download (end()). */
     private volatile android.media.AudioTrack track; private final java.util.concurrent.atomic.AtomicReference<Runnable> download = new java.util.concurrent.atomic.AtomicReference<>();
 
-    BuddyVoice(Context context, AppStore store, ExecutorService io, Show show) { this.context = context.getApplicationContext(); this.store = store; this.io = io; this.show = show; }
+    private final Unlock unlock;
+    BuddyVoice(Context context, AppStore store, ExecutorService io, Show show, Unlock unlock) { this.context = context.getApplicationContext(); this.store = store; this.io = io; this.show = show; this.unlock = unlock; }
     boolean on() { return on; }
 
     void start() {
@@ -77,6 +80,14 @@ final class BuddyVoice {
         main.postDelayed(this::listen, 250);
     }
     private void think(String said) {
+        if (unlock != null && BuddyTalk.needsUnlock(context, said)) {
+            show.state("thinking", said); int mine = generation;
+            unlock.ask(() -> { if (on && mine == generation) answer(said); });
+            return;
+        }
+        answer(said);
+    }
+    private void answer(String said) {
         show.state("thinking", said);
         int mine = generation;
         List<String[]> before = new ArrayList<>(turns);

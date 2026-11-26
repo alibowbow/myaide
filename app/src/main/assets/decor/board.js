@@ -244,19 +244,21 @@ function fit(b) {
   일상적인 말걸기, 업무적인 것 말고", "유우머도"): the everyday lines the model wrote from what it knows of the user (k.lines),
   one after another and none twice until all are said; without them, gentle lines for the hour. No prices, no work.
 */
+// 퍼레's own lines when no AI answers: the little explorer and MC (준: "1+2인데 호칭은 내가 설정할 수 있게해줘"), {t} the title.
 const OWN = {
-  dawn: ["이 시간까지 깨어 있는 건 비밀로 해 둘게요", "별들도 슬슬 졸린가 봐요, 깜빡깜빡", "새벽 공기는 생각을 정리하기 딱 좋죠"],
-  morning: ["좋은 아침이에요! 오늘 첫 웃음은 제가 맡을게요", "커피 향 나는 하루 되길 바라요", "아침 햇살 충전 완료, 저는 100%예요"],
-  lunch: ["점심은 맛있게! 행복은 위장에서 시작된대요", "배꼽시계가 정확한 시간이네요", "오늘 메뉴가 기분을 정해요, 신중하게요"],
-  afternoon: ["오후엔 살짝 기지개 한 번 어때요?", "졸릴 땐 저를 보세요, 눈 깜빡 응원 중", "오늘 하늘 한 번 올려다봤어요?"],
-  evening: ["오늘도 수고 많았어요, 진심이에요", "저녁 바람이 오늘 이야기를 들어 줄 거예요", "하루를 무사히 보낸 당신, 칭찬해요"],
-  night: ["오늘 하루도 잘 버텼어요, 푹 쉬어요", "밤하늘 보며 한숨 돌려요, 저도 옆에 있을게요", "내일의 나에게 맡기고 이제 쉬어요"]
+  dawn: ["쉿, 새벽 탐험대 출동 중이에요. {t}도 몰래 합류?", "새벽의 휴대폰 마을은 고요해요… 발소리 살금살금", "별빛 BGM 깔고 오늘의 마지막 방송 갑니다"],
+  morning: ["좋은 아침이에요 {t}! 오늘의 탐험 장비 점검 완료!", "두구두구… 오늘의 첫 하이라이트는 {t}의 기지개!", "아침 햇살로 식량 충전, 출발 준비 끝이에요"],
+  lunch: ["점심 시간 속보! 배꼽시계가 정각을 알렸어요", "{t}, 오늘 점심 마을은 어디로 탐험할까요?", "짠! 오늘의 메뉴 추천 코너… 는 {t} 마음대로!"],
+  afternoon: ["오후의 휴대폰 마을 날씨, 맑고 조금 졸림이에요", "{t}! 기지개 한 번이면 오후 탐험 체력 회복!", "뿅! 오후의 하이라이트 찾으러 순찰 중이에요"],
+  evening: ["오늘 탐험 수고 많았어요 {t}, 진심 박수 짝짝!", "저녁 방송 시작합니다~ 오늘 어땠는지 사연 받아요", "노을 지는 마을 탐험 중… 오늘도 멋진 하루였어요"],
+  night: ["텐트 칠 시간이에요. 오늘 탐험 일지 마감!", "오늘의 방송은 여기까지! 내일 신작으로 만나요", "{t}, 푹 쉬어요. 저는 불침번 설게요"]
 };
 function ownLines() {
   const h = new Date().getHours();
   const part = h < 5 ? "dawn" : h < 11 ? "morning" : h < 14 ? "lunch" : h < 18 ? "afternoon" : h < 22 ? "evening" : "night";
   // No how-to lines (준: "두 번 톡 치면 저랑 대화해요 같은 공지성 메세지 안 띄우기", "작동기능은 이미 내가 알고 있는데 굳이").
-  return OWN[part].slice();
+  const t = (info && info.title) || "대장님";
+  return OWN[part].map(l => l.replaceAll("{t}", t));
 }
 function say(b) {
   const k = info || {}, theirs = Array.isArray(k.lines) && k.lines.length ? k.lines.slice() : null;

@@ -60,7 +60,7 @@ public final class DecorActivity extends Activity {
         ui = new Ui(this);
         collection = prefs().getString("collection", "opus");
         draw(); load();
-        if (getIntent().getBooleanExtra(MEMORY, false)) main.post(this::showMemory);
+        if (getIntent().getBooleanExtra(MEMORY, false)) main.post(() -> Fingerprint.ask(this, "퍼레의 기억", "지문으로 확인하면 열려요", this::showMemory, () -> {}));
     }
     @Override protected void onDestroy() { destroyed = true; work.shutdownNow(); super.onDestroy(); }
     private SharedPreferences prefs() { return getSharedPreferences(HtmlWallpaper.PREFS, Context.MODE_PRIVATE); }
@@ -95,7 +95,9 @@ public final class DecorActivity extends Activity {
         // 퍼레's brain (준: "groq qwen으로 두뇌 바꿔줘", "퍼레두뇌 설정 메뉴에서 이 앱의 모든 ai 모델을 다 설정할 수 있게 해줘"):
         // Qwen (quick, the default), NVIDIA, both, or any of the app's AIs and models.
         ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_bolt, Ui.ORANGE, "퍼레 두뇌", brainLabel(), ui.chevron(), this::chooseBrain), true);
-        ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_sparkle, Ui.ACCENT, "퍼레의 기억", "퍼레가 휴대폰에서 겪은 일 · 보고 지울 수 있어요", ui.chevron(), this::showMemory), true);
+        // What 퍼레 calls the user (준: "호칭은 내가 설정할 수 있게해줘").
+        ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_sparkle, Ui.PURPLE, "부르는 호칭", "퍼레가 나를 ‘" + BuddyTalk.title(this) + "’(이)라고 불러요", ui.chevron(), this::chooseTitle), true);
+        ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_sparkle, Ui.ACCENT, "퍼레의 기억", "발견 노트 · 약속 · 추억 · 오늘 · 지문으로 열어요", ui.chevron(), () -> Fingerprint.ask(this, "퍼레의 기억", "지문으로 확인하면 열려요", this::showMemory, () -> {})), true);
         LinearLayout.LayoutParams bg = new LinearLayout.LayoutParams(-1, -2); bg.bottomMargin = ui.dp(14);
         body.addView(buddyGroup, bg);
 
@@ -315,17 +317,41 @@ public final class DecorActivity extends Activity {
             main.post(() -> { if (!destroyed) memorySheet(list); });
         });
     }
+    /** The title 퍼레 calls the user: a few words, kept in the app. */
+    private void chooseTitle() {
+        Ui.Sheet sheet = ui.selectionSheet("부르는 호칭", "퍼레가 나를 부르는 말 · 12자까지");
+        android.widget.EditText field = ui.input("예: 대장님, 주인공님, 준님", 1, 12); field.setText(BuddyTalk.title(this)); field.setSelection(field.getText().length());
+        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-1, -2); at.bottomMargin = ui.dp(10); sheet.body.addView(field, at);
+        LinearLayout quick = ui.row();
+        for (String t : new String[]{"대장님", "주인공님", "친구"}) { android.widget.Button chip = ui.smallChip(t, () -> { field.setText(t); field.setSelection(t.length()); }); LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-2, -2); cp.rightMargin = ui.dp(6); quick.addView(chip, cp); }
+        sheet.body.addView(quick);
+        sheet.primary.setText("저장");
+        sheet.primary.setOnClickListener(v -> { String t = field.getText().toString().strip(); if (t.isEmpty()) return; BuddyTalk.title(this, t); sheet.dismiss(); Toast.makeText(this, "이제 퍼레가 ‘" + t + "’(이)라고 불러요", Toast.LENGTH_SHORT).show(); draw(); });
+        sheet.show();
+    }
+    /**
+     * 퍼레's memory book, opened with the fingerprint: its 발견 노트 (what it knows about the user, from the night's digest), its
+     * promises, its 추억 (what it was told and lived through) and today so far; private ones marked. Each can be deleted.
+     */
     private void memorySheet(List<dev.jun.gyeot.core.BuddyMemory.Entry> list) {
-        Ui.Sheet sheet = ui.selectionSheet("퍼레의 기억", list.isEmpty() ? "아직 없어요. 퍼레와 지내다 보면 쌓여요." : list.size() + "개 · 퍼레가 말할 때 가끔 꺼내요. 들퍼레 앱에만 있어요.");
+        Ui.Sheet sheet = ui.selectionSheet("퍼레의 기억", list.isEmpty() ? "아직 없어요. 퍼레와 이야기하다 보면 쌓여요." : list.size() + "개 · 들퍼레 앱에만 있어요. 🔒는 지문을 확인해야 퍼레가 말해요.");
         sheet.primary.setVisibility(View.GONE);
-        if (!list.isEmpty()) {
-            LinearLayout group = ui.group(); long now = System.currentTimeMillis();
-            for (int i = list.size() - 1, shown = 0; i >= 0 && shown < 60; i--, shown++) {
-                dev.jun.gyeot.core.BuddyMemory.Entry e = list.get(i);
-                ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, Ui.ACCENT, e.text(), dev.jun.gyeot.core.BuddyMemory.when(e.at(), now, java.time.ZoneId.systemDefault()),
+        long now = System.currentTimeMillis(); java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+        String today = BuddyTalk.todayWords(this);
+        if (!today.isEmpty()) { sheet.body.addView(ui.sectionHeader("오늘")); LinearLayout g = ui.group(); ui.addRow(g, ui.listRow(R.drawable.ic_history, Ui.TEAL, today.replaceFirst("^오늘 하루: ", "").strip(), "하루의 흐름 · 앱은 종류만 적어요", null, null), true); sheet.body.addView(g); }
+        String[][] parts = {{"발견 노트 · 나에 대해", "profile"}, {"우리 약속", "promise"}, {"추억", "*"}};
+        for (String[] part : parts) {
+            List<dev.jun.gyeot.core.BuddyMemory.Entry> shown = new ArrayList<>();
+            for (int i = list.size() - 1; i >= 0 && shown.size() < 60; i--) { dev.jun.gyeot.core.BuddyMemory.Entry e = list.get(i); boolean mine = "*".equals(part[1]) ? !"profile".equals(e.kind()) && !"promise".equals(e.kind()) : part[1].equals(e.kind()); if (mine) shown.add(e); }
+            if (shown.isEmpty()) continue;
+            sheet.body.addView(ui.sectionHeader(part[0]));
+            LinearLayout group = ui.group();
+            for (dev.jun.gyeot.core.BuddyMemory.Entry e : shown)
+                ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, e.secret() ? Ui.ORANGE : Ui.ACCENT, (e.secret() ? "🔒 " : "") + e.text(), dev.jun.gyeot.core.BuddyMemory.when(e.at(), now, zone),
                     ui.smallChip("지우기", () -> { sheet.dismiss(); work.execute(() -> { BuddyTalk.forget(this, e.at()); main.post(() -> { if (!destroyed) showMemory(); }); }); }), null), true);
-            }
             sheet.body.addView(group);
+        }
+        if (!list.isEmpty()) {
             LinearLayout clear = ui.group();
             ui.addRow(clear, ui.listRow(R.drawable.ic_close, Ui.ERROR, "기억 모두 지우기", "퍼레가 처음부터 다시 기억해요", null, () -> {
                 sheet.dismiss(); work.execute(() -> BuddyTalk.forgetAll(this));

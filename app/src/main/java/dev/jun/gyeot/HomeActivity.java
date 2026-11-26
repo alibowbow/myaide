@@ -189,7 +189,8 @@ public final class HomeActivity extends Activity {
     private BuddyVoice buddyVoice;
     private void voice() {
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, MIC); return; }
-        if (buddyVoice == null) buddyVoice = new BuddyVoice(this, ((GyeotApp) getApplication()).store(), io, (state, text) -> js("launcher.voice(" + JSONObject.quote(state) + "," + JSONObject.quote(text) + ")"));
+        if (buddyVoice == null) buddyVoice = new BuddyVoice(this, ((GyeotApp) getApplication()).store(), io, (state, text) -> js("launcher.voice(" + JSONObject.quote(state) + "," + JSONObject.quote(text) + ")"),
+            then -> main.post(() -> Fingerprint.ask(this, "퍼레의 비밀 기억", "지문으로 확인하면 퍼레가 말해 드려요", () -> { BuddyTalk.unlock(); then.run(); }, then)));
         if (buddyVoice.on()) buddyVoice.stop(); else buddyVoice.start();
     }
     @Override protected void onResume() {
@@ -293,16 +294,16 @@ public final class HomeActivity extends Activity {
     // ── 퍼레 on the home screen ─────────────────────────────────
     private final AtomicReference<Runnable> chatCancel = new AtomicReference<>();
     private volatile long chatTicket;
-    private String chatInstructions(AppStore store) {
-        String name = "들퍼레"; try { name = AssistantProfile.readName(this); } catch (RuntimeException ignored) {}
+    /** 퍼레 대화's instructions: 퍼레 as itself (BuddyTalk.persona), the phone's state, the day, what it knows and remembers now. */
+    private String chatInstructions(AppStore store, String question) {
         String about = ""; try { about = Briefing.profile(store); } catch (RuntimeException ignored) {}
         String now = new java.text.SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", java.util.Locale.KOREA).format(new java.util.Date());
-        return "너는 사용자의 휴대폰 홈 화면에 사는 AI 비서 '" + name + "'이야. 지금은 " + now + ".\n"
-            + "한국어로, 친구처럼 상냥하고 짧게 답해. 핵심부터 2~6문장. 표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써.\n"
+        return BuddyTalk.persona(this) + "\n지금은 " + now + ". 사용자가 홈 화면에서 너에게 글로 말을 걸었어.\n"
+            + "한국어로, 너답게 밝고 상냥하게 답해. 핵심부터 2~6문장. 표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써.\n"
             + "모르는 것은 지어내지 말고 모른다고 말해. 휴대폰을 직접 조작하거나 앱을 열 수는 없으니, 그런 부탁이면 앱에서 이어가자고 말해.\n"
             + "사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 아래 '휴대폰 상태'의 숫자로 답해. 묻지 않으면 꺼내지 말고 정리·삭제를 권하지 마.\n"
-            + "휴대폰 상태: " + BuddyTalk.facts(this)
-            + (about.isBlank() ? "" : "\n사용자에 대해 알고 있는 것:\n" + about);
+            + "휴대폰 상태: " + BuddyTalk.facts(this) + "\n" + BuddyTalk.todayWords(this) + BuddyTalk.memoryWords(this, question, true)
+            + (about.isBlank() ? "" : "사용자에 대해 알고 있는 것:\n" + about);
     }
     /** The question with the turns before it (at most six, each cut short), as the model reads them. */
     private static String chatInput(String history, String question) {
@@ -475,6 +476,12 @@ public final class HomeActivity extends Activity {
                 JSONArray names = new JSONArray(); names.put(String.valueOf(info.getLabel()));
                 try { JSONArray was = new JSONArray(prefs.getString("recentLabels", "[]")); for (int i = 0; i < was.length() && names.length() < 6; i++) if (!names.optString(0).equals(was.optString(i))) names.put(was.optString(i)); } catch (Exception ignored) {}
                 prefs.edit().putString("recentLabels", names.toString()).apply();
+                // 퍼레's day log: the kind of app (its folder's name), never which app's contents.
+                try {
+                    android.content.pm.ApplicationInfo app = info.getApplicationInfo(); String moved = read(MOVED, new JSONObject()).optString(id, "");
+                    String stack = !moved.isEmpty() ? moved : AppStacks.of(app.packageName, String.valueOf(info.getLabel()), app.category, (app.flags & ApplicationInfo.FLAG_IS_GAME) != 0, (app.flags & ApplicationInfo.FLAG_SYSTEM) != 0);
+                    String kind = AppStacks.stack(stack).name(); io.execute(() -> BuddyTalk.today(HomeActivity.this, "app", kind));
+                } catch (RuntimeException ignored) {}
                 JSONArray recent = new JSONArray(); recent.put(id);
                 JSONArray old = read(RECENT, new JSONArray());
                 for (int i = 0; i < old.length() && recent.length() < 6; i++) if (!id.equals(old.optString(i))) recent.put(old.optString(i));
@@ -486,6 +493,8 @@ public final class HomeActivity extends Activity {
          * question, with the few turns before it, to the NVIDIA model the app is connected to (NimClient, the user's own key),
          * the answer streamed into the page as it comes. Not connected: the page says so and how to connect.
          */
+        /** Set while a question goes on after its fingerprint (asked once). */
+        private boolean fingerprinted;
         public void chat(String question, String history) {
             if (question == null || question.isBlank() || question.length() > 4000) return;
             AppStore store = ((GyeotApp) getApplication()).store();
@@ -493,6 +502,11 @@ public final class HomeActivity extends Activity {
             boolean custom = BuddyTalk.CUSTOM.equals(BuddyTalk.brain(HomeActivity.this)) && !BuddyTalk.customLabel(store).isEmpty();
             boolean qwen = GroqWork.on() && !BuddyTalk.NIM.equals(BuddyTalk.brain(HomeActivity.this));
             if (!custom && !qwen && !store.nim.connected()) { js("launcher.replyError(" + JSONObject.quote("퍼레의 두뇌가 아직 연결되지 않았어요. 설정 → AI 연결에서 Groq나 NVIDIA 키를 넣으면 여기서 바로 답해요.") + ",\"settings\")"); return; }
+            // Private memories asked for: the fingerprint first (준: "개인정보 중 중요한 내용은 지문인식을 요청해줘"); without it the answer leaves them out.
+            if (!fingerprinted && BuddyTalk.needsUnlock(HomeActivity.this, question)) {
+                main.post(() -> Fingerprint.ask(HomeActivity.this, "퍼레의 비밀 기억", "지문으로 확인하면 퍼레가 말해 드려요", () -> { BuddyTalk.unlock(); fingerprinted = true; chat(question, history); fingerprinted = false; }, () -> { fingerprinted = true; chat(question, history); fingerprinted = false; }));
+                return;
+            }
             Runnable old = chatCancel.getAndSet(null); if (old != null) try { old.run(); } catch (RuntimeException ignored) {}
             long ticket = ++chatTicket;
             Thread t = new Thread(() -> {
@@ -501,7 +515,7 @@ public final class HomeActivity extends Activity {
                     if (custom) {
                         // The AI the user chose for 퍼레 (화면 꾸미기 → 퍼레 두뇌); when it cannot answer, Qwen or NVIDIA below.
                         try {
-                            String text = BuddyTalk.askCustom(store, chatInstructions(store), chatInput(history, question.strip()), cancel);
+                            String text = BuddyTalk.askCustom(store, chatInstructions(store, question), chatInput(history, question.strip()), cancel);
                             String said = text.replaceAll("(?s)<think>.*?</think>", "").strip();
                             if (ticket == chatTicket) { js("launcher.reply(" + JSONObject.quote(said) + ")"); BuddyTalk.learnLater(HomeActivity.this, question, said); }
                             return;
@@ -511,13 +525,13 @@ public final class HomeActivity extends Activity {
                     if (qwen) {
                         String model = BuddyTalk.qwen(store), in = chatInput(history, question.strip()), text;
                         JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", in));
-                        try { text = GroqWork.converse(model, chatInstructions(store), messages, "none", 0.7, 30_000, cancel); }
-                        catch (Exception first) { if (ticket != chatTicket) throw new java.util.concurrent.CancellationException(); text = GroqWork.converse(model, chatInstructions(store), messages, null, 0.7, 30_000, cancel); }
+                        try { text = GroqWork.converse(model, chatInstructions(store, question), messages, "none", 0.7, 30_000, cancel); }
+                        catch (Exception first) { if (ticket != chatTicket) throw new java.util.concurrent.CancellationException(); text = GroqWork.converse(model, chatInstructions(store, question), messages, null, 0.7, 30_000, cancel); }
                         text = text.replaceAll("(?s)<think>.*?</think>", "").strip();
                         if (ticket == chatTicket) { js("launcher.reply(" + JSONObject.quote(text) + ")"); BuddyTalk.learnLater(HomeActivity.this, question, text); }
                         return;
                     }
-                    WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), store.nim.model(), chatInstructions(store), chatInput(history, question.strip()),
+                    WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), store.nim.model(), chatInstructions(store, question), chatInput(history, question.strip()),
                         () -> { if (ticket != chatTicket) throw new java.util.concurrent.CancellationException(); }, cancel,
                         delta -> { if (ticket == chatTicket && !delta.isEmpty()) js("launcher.stream(" + JSONObject.quote(delta) + ")"); });
                     if (ticket == chatTicket) { String said = answer.text == null ? "" : answer.text.strip(); js("launcher.reply(" + JSONObject.quote(said) + ")"); BuddyTalk.learnLater(HomeActivity.this, question, said); }

@@ -38,8 +38,43 @@ final class BuddyTalk {
         if (!store.nim.connected() && !GroqWork.on() && !(CUSTOM.equals(brain(c)) && !customLabel(store).isEmpty())) { failed.run(); return; }
         if (!busy.compareAndSet(false, true)) return;
         SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        String instructions = instructions(c, reason), input = input(c, store, p, reason);
-        ask(c, instructions, input, 1.0, 9_000, text -> clean(text, p), line -> { remember(p, line); busy.set(false); done.accept(line); }, () -> { busy.set(false); failed.run(); });
+        thinkOnce(c, store, p, reason, done, failed, 0);
+    }
+    /** One try: a topic not used lately, the words said too often to avoid; a line that repeats one already said is tried once more. */
+    private static void thinkOnce(Context c, AppStore store, SharedPreferences p, String reason, Consumer<String> done, Runnable failed, int attempt) {
+        java.util.List<String> said = said(p);
+        boolean hasMemory = !memories(c).isEmpty(), hasApp = c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).getString("recentLabels", "[]").length() > 2;
+        JSONObject used; try { used = new JSONObject(p.getString("topics", "{}")); } catch (Exception e) { used = new JSONObject(); }
+        String topic = dev.jun.gyeot.core.BuddyMind.topic(used, hasMemory, hasApp, new java.util.Random());
+        try { used.put(topic, System.currentTimeMillis()); } catch (Exception ignored) {}
+        p.edit().putString("topics", used.toString()).apply();
+        String instructions = instructions(c, reason, topic, dev.jun.gyeot.core.BuddyMind.overused(said, 8)), input = input(c, store, p, reason);
+        ask(c, instructions, input, attempt == 0 ? 1.0 : 1.15, 9_000, text -> clean(text, p), line -> { remember(p, line); busy.set(false); done.accept(line); },
+            () -> { if (attempt == 0) thinkOnce(c, store, p, reason, done, failed, 1); else { busy.set(false); failed.run(); } });
+    }
+    /** What 퍼레 said lately, oldest first. */
+    private static java.util.List<String> said(SharedPreferences p) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        try { JSONArray m = new JSONArray(p.getString("memory", "[]")); for (int i = 0; i < m.length(); i++) out.add(m.optString(i)); } catch (Exception ignored) {}
+        return out;
+    }
+
+    // ── what 퍼레 calls the user (준: "호칭은 내가 설정할 수 있게해줘") ──
+    static String title(Context c) { String t = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("title", "").strip(); return t.isEmpty() ? dev.jun.gyeot.core.BuddyMind.TITLE : t; }
+    static void title(Context c, String t) { String v = t == null ? "" : t.strip(); if (v.length() > 12) v = v.substring(0, 12); c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("title", v).apply(); }
+    /** 퍼레 as itself (BuddyMind.persona) with its name and the title the user chose. */
+    static String persona(Context c) { String name = "퍼레"; try { name = AssistantProfile.readName(c); } catch (RuntimeException ignored) {} return dev.jun.gyeot.core.BuddyMind.persona(name, title(c)); }
+
+    // ── private memories behind the fingerprint (준: "개인정보 중 중요한 내용은 지문인식을 요청해줘", "갤럭시 지문인식") ──
+    private static volatile long unlockedUntil;
+    /** The fingerprint passed in the last five minutes: private memories may be said. */
+    static boolean unlocked() { return System.currentTimeMillis() < unlockedUntil; }
+    static void unlock() { unlockedUntil = System.currentTimeMillis() + 5 * 60_000L; }
+    /** What the user said may need private memories, there are some, and the fingerprint has not passed lately. */
+    static boolean needsUnlock(Context c, String said) {
+        if (unlocked() || !dev.jun.gyeot.core.BuddyMind.asksPersonal(said)) return false;
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : memories(c)) if (e.secret()) return true;
+        return false;
     }
 
     // ── 퍼레's brain (준: "퍼레 메세지 약간 느린거 같은데 groq qwen 3.8로 두뇌 바꿔줘", "들퍼레앱에서 설정 가능하게 해줘", "Qwen으로 바꿔줘") ──
@@ -161,8 +196,7 @@ final class BuddyTalk {
      */
     static void reply(Context c, String said, java.util.List<String[]> turns, Consumer<String> done, Runnable failed) {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
-        String name = "들퍼레"; try { name = AssistantProfile.readName(c); } catch (RuntimeException ignored) {}
-        String instructions = "너는 사용자의 휴대폰 안에 살면서 홈 화면에 나와 있는 귀엽고 다정한 AI 친구 '" + name + "'이야. 지금 사용자와 목소리로 대화하고 있어. 휴대폰이 너의 집이야(배터리는 밥, 충전은 식사).\n"
+        String instructions = persona(c) + "\n지금 사용자와 목소리로 대화하고 있어.\n"
             + "- 사용자의 마지막 말에 바로, 친구처럼 답해. 물으면 핵심만 짧게 알려 주고, 모르면 솔직하게 말해.\n"
             + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 존댓말(~요). 이모지·기호·목록·괄호·영어 약어 없이.\n"
             + "- 귀엽고 밝게, 가끔 너의 기억을 자연스럽게 꺼내도 좋아.\n"
@@ -173,7 +207,7 @@ final class BuddyTalk {
         StringBuilder talk = new StringBuilder();
         for (String[] t : turns) talk.append("user".equals(t[0]) ? "사용자: " : "퍼레: ").append(t[1]).append('\n');
         String house = home(c);
-        String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + lifeWords(c) + "\n" + memoryWords(c)
+        String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + lifeWords(c) + "\n" + todayWords(c) + memoryWords(c, said, true)
             + "사용자에 대해 아는 것:\n" + (note.isBlank() ? "(아직 잘 몰라요)" : note) + "\n\n";
         String input = context + (talk.length() == 0 ? "" : "지금까지 대화:\n" + talk) + "사용자: " + said + "\n퍼레:";
         ask(c, instructions, input, 0.9, 12_000, BuddyTalk::spoken, line -> {
@@ -197,8 +231,7 @@ final class BuddyTalk {
         if (s.isEmpty()) return null;
         return s.length() <= 140 ? s : s.substring(0, 140).replaceAll("[^.!?요]*$", "").strip();
     }
-    private static String instructions(Context c, String reason) {
-        String name = "들퍼레"; try { name = AssistantProfile.readName(c); } catch (RuntimeException ignored) {}
+    private static String instructions(Context c, String reason, String topic, java.util.List<String> avoid) {
         String moment = switch (reason) {
             case "back" -> "사용자가 방금 홈 화면으로 돌아왔어. 반갑게 먼저 말을 걸어.";
             case "pet" -> "사용자가 너를 쓰다듬어 줬어. 기분 좋은 반응을 해.";
@@ -215,13 +248,13 @@ final class BuddyTalk {
             case "app" -> "사용자가 방금 다른 앱을 쓰고 홈 화면으로 돌아왔어(방금 쓴 앱 참고). 그 앱 이야기로 가볍게 한마디 해.";
             default -> "사용자가 너를 톡 건드렸어.";
         };
-        return "너는 사용자의 휴대폰 안에 살면서 홈 화면에 나와 있는 귀엽고 다정한 AI 친구 '" + name + "'이야. 휴대폰이 너의 집이야: 배터리는 밥, 충전은 식사, 음악은 춤출 시간. " + moment + " 생각하는 친구처럼 짧게 한마디 해.\n"
-            + "- 감성적인 말, 재치 있는 유머(말장난·귀여운 너스레), 지금 상황을 알아챈 말(날씨·시간·방금 쓴 앱), 가벼운 질문, 응원, 엉뚱한 상상 중 지금 가장 어울리는 걸로.\n"
-            + "- 사용자에 대해 아는 것을 자연스럽게 녹여. 사적인 내용을 그대로 읊지는 마.\n"
-            + "- 가끔(매번은 아니게) 너의 기억 속 일을 살아 있는 친구처럼 꺼내 말해(예: 어제 새벽 음악, 오랜만에 돌아온 일).\n"
+        return persona(c) + "\n지금: " + moment + " 짧게 한마디 해.\n"
+            + "- 이번 화제: " + topic + ". 지금 상황(시간·날씨·휴대폰·오늘 하루·기억)에 맞게 풀어.\n"
+            + (avoid.isEmpty() ? "" : "- 최근에 너무 자주 쓴 표현이니 이번엔 쓰지 마: " + String.join(", ", avoid) + "\n")
+            + "- '이미 했던 말'과 같거나 비슷한 뜻·소재·문장 틀은 절대 쓰지 마. 뻔한 인사말도 피해.\n"
             + "- 일, 업무, 일정, 할 일, 주식, 코인, 시세, 숫자, 돈 이야기와 조언·잔소리는 하지 마. 파일·사진 정리, 청소, 삭제, 백업, 용량, 업데이트 같은 할 일을 권하지 마.\n"
-            + "- '이미 했던 말'과 같거나 비슷한 뜻·소재는 절대 쓰지 마. 뻔한 인사말도 피해.\n"
-            + "- 한 문장, 40자 안쪽, 친근한 존댓말(~요). 따옴표와 이모지 없이 그 문장만 답해.";
+            + "- 사적인 내용(건강·돈·연애·주소 같은 것)은 말하지 마.\n"
+            + "- 한 문장, 45자 안쪽. 따옴표와 이모지 없이 그 문장만 답해.";
     }
     private static String input(Context c, AppStore store, SharedPreferences p, String reason) {
         long now = System.currentTimeMillis();
@@ -238,14 +271,51 @@ final class BuddyTalk {
             + (recent.length() > 2 ? "방금 쓴 앱(최근 순): " + recent + "\n" : "") + away
             + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n")
             + lifeWords(c) + "\n"
-            + memoryWords(c) 
+            + todayWords(c)
+            + memoryWords(c, when + " " + weather + " " + recent, false)
             + "사용자에 대해 아는 것:\n" + (note.isBlank() ? "(아직 잘 몰라요)" : note) + "\n"
             + "이미 했던 말(다시 쓰지 말 것): " + p.getString("memory", "[]");
     }
-    /** 퍼레's latest memories for its words, oldest first; "" when it has none yet. */
-    private static String memoryWords(Context c) {
-        String m = dev.jun.gyeot.core.BuddyMemory.recent(memories(c), System.currentTimeMillis(), 10, java.time.ZoneId.systemDefault());
-        return m.isEmpty() ? "" : "퍼레(너)의 기억(최근, 오래된 것부터):\n" + m + "\n";
+    /**
+     * What 퍼레 brings to mind now: what it knows about the user (the night's profile), its promises, and a few memories that fit
+     * the moment (BuddyMind.recall: important, recent, related, not brought up in the last day); private ones only after the
+     * fingerprint (forSpeech: an answer the user asked for, where they may be needed).
+     */
+    static String memoryWords(Context c, String context, boolean forSpeech) {
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = memories(c);
+        if (all.isEmpty()) return "";
+        boolean open = forSpeech && unlocked();
+        StringBuilder out = new StringBuilder(); long now = System.currentTimeMillis(); java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+        java.util.List<String> profile = new java.util.ArrayList<>(), promises = new java.util.ArrayList<>();
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) {
+            if (e.secret() && !open) continue;
+            if ("profile".equals(e.kind())) profile.add(e.text()); else if ("promise".equals(e.kind()) && now - e.at() < 7 * 86_400_000L) promises.add(e.text());
+        }
+        if (!profile.isEmpty()) out.append("너의 발견 노트(사용자에 대해 알게 된 것):\n- ").append(String.join("\n- ", profile)).append('\n');
+        if (!promises.isEmpty()) out.append("너와 사용자의 약속:\n- ").append(String.join("\n- ", promises)).append('\n');
+        SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        java.util.Map<Long, Long> shown = new java.util.HashMap<>();
+        try { JSONObject o = new JSONObject(p.getString("shown", "{}")); for (java.util.Iterator<String> k = o.keys(); k.hasNext();) { String key = k.next(); shown.put(Long.parseLong(key), o.optLong(key)); } } catch (Exception ignored) {}
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> picked = dev.jun.gyeot.core.BuddyMind.recall(all, context, now, forSpeech ? new java.util.HashMap<>() : shown, open, forSpeech ? 6 : 3);
+        if (!picked.isEmpty()) {
+            out.append("너의 추억(지금 떠오르는 것):\n");
+            JSONObject o = new JSONObject();
+            for (java.util.Map.Entry<Long, Long> en : shown.entrySet()) if (now - en.getValue() < 3 * 86_400_000L) try { o.put(String.valueOf(en.getKey()), en.getValue()); } catch (Exception ignored) {}
+            for (dev.jun.gyeot.core.BuddyMemory.Entry e : picked) { out.append("- ").append(dev.jun.gyeot.core.BuddyMemory.when(e.at(), now, zone)).append(": ").append(e.text()).append('\n'); try { o.put(String.valueOf(e.at()), now); } catch (Exception ignored) {} }
+            if (!forSpeech) p.edit().putString("shown", o.toString()).apply();
+        }
+        return out.toString();
+    }
+    /** Today so far, in words (BuddyMind.todayWords). */
+    static String todayWords(Context c) {
+        try { String w = dev.jun.gyeot.core.BuddyMind.todayWords(new JSONObject(c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("today", "{}")), java.time.ZoneId.systemDefault()); return w.isEmpty() ? "" : "오늘 하루: " + w + "\n"; }
+        catch (Exception e) { return ""; }
+    }
+    /** Something of today for the day's log: an app's kind opened, a charge, music. */
+    static synchronized void today(Context c, String what, String detail) {
+        SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        JSONObject log; try { log = new JSONObject(p.getString("today", "{}")); } catch (Exception e) { log = new JSONObject(); }
+        p.edit().putString("today", dev.jun.gyeot.core.BuddyMind.today(log, System.currentTimeMillis(), java.time.ZoneId.systemDefault(), what, detail).toString()).apply();
     }
     private static String lifeWords(Context c) {
         long now = System.currentTimeMillis();
@@ -262,11 +332,8 @@ final class BuddyTalk {
             if (l.length() > 70 || l.matches(".*(코인|비트코인|주식|시세|SOXL|KORU|BTC|\\$|%).*")) return null;
             // Chores are not 퍼레's to suggest (준: "자꾸 파일 정리하라는 엉뚱한 이야기를 하는데").
             if (l.matches(".*(정리|청소|삭제|지우|백업|용량|저장 ?공간|업데이트|파일).*")) return null;
-            if (p != null) {
-                JSONArray memory; try { memory = new JSONArray(p.getString("memory", "[]")); } catch (Exception e) { memory = new JSONArray(); }
-                Set<String> said = new HashSet<>(); for (int i = 0; i < memory.length(); i++) said.add(memory.optString(i).replaceAll("\\s", ""));
-                if (said.contains(l.replaceAll("\\s", ""))) return null;
-            }
+            // Too like a line already said (half its letter pairs or more): not this one (준: "했던말 자꾸 반복하는 경향 없애줘").
+            if (p != null && dev.jun.gyeot.core.BuddyMind.repeats(l, said(p), 0.45)) return null;
             return l;
         }
         return null;
@@ -274,7 +341,7 @@ final class BuddyTalk {
     private static synchronized void remember(SharedPreferences p, String line) {
         JSONArray memory; try { memory = new JSONArray(p.getString("memory", "[]")); } catch (Exception e) { memory = new JSONArray(); }
         JSONArray kept = new JSONArray();
-        for (int i = Math.max(0, memory.length() - 39); i < memory.length(); i++) kept.put(memory.optString(i));
+        for (int i = Math.max(0, memory.length() - 59); i < memory.length(); i++) kept.put(memory.optString(i));
         kept.put(line);
         p.edit().putString("memory", kept.toString()).apply();
     }
@@ -313,7 +380,7 @@ final class BuddyTalk {
 
     // ── 퍼레's own memory (core/BuddyMemory), in the app's files apart from the assistant's memory ──
     /** The kinds of memory kept: what the user told (fact), long away, up late, snow and very cold or hot days. */
-    static final java.util.Set<String> KEPT = java.util.Set.of("fact", "away", "late", "snow", "cold", "hot");
+    static final java.util.Set<String> KEPT = java.util.Set.of("fact", "promise", "profile", "episode", "away", "late", "snow", "cold", "hot");
     /**
      * What 퍼레 learned about the user in a talk (퍼레 대화, 음성 대화): the quick brain reads the exchange and writes one line a
      * friend would remember (a plan, something they like, why they feel so, someone dear), or nothing. Never secrets, numbers
@@ -323,18 +390,23 @@ final class BuddyTalk {
         if (said == null || said.strip().length() < 8) return;
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
         boolean nim = store.nim.connected(), groq = GroqWork.on(); if (!nim && !groq) return;
-        String instructions = "사용자와 AI 친구 퍼레가 나눈 대화 한 토막이야. 퍼레가 친구로서 오래 기억해 둘 만한 사용자의 이야기(계획·약속, 좋아하거나 싫어하는 것, 기분이나 그 이유, 일상의 일, 소중한 사람·동물)가 있으면 '사용자는 …'으로 시작하는 한 문장(45자 안쪽, ~대요/~래요 말투)으로만 써.\n"
-            + "인사·잡담·질문·부탁·명령·앱 사용법·날씨·지금 잠깐의 일뿐이면 '없음'이라고만 써. 비밀번호·주소·전화번호·계좌·돈 액수는 절대 쓰지 마.";
+        String instructions = "사용자와 AI 친구 퍼레가 나눈 대화 한 토막이야. 기억해 둘 것이 있으면 한 줄에 하나씩, 아래 형식으로만 써(최대 2줄):\n"
+            + "사용자: 사용자는 …(친구가 오래 기억할 사용자의 이야기: 계획, 좋아하거나 싫어하는 것, 기분과 그 이유, 일상의 일, 소중한 사람·동물. 45자 안쪽, ~대요/~래요 말투)\n"
+            + "약속: 퍼레가 …(퍼레가 사용자에게 해 주기로 한 것이 있을 때만)\n"
+            + "건강·돈·연애·가족 문제처럼 민감한 이야기면 그 줄 앞에 '민감 '을 붙여. 인사·잡담·질문·부탁·명령·앱 사용법·날씨·지금 잠깐의 일뿐이면 '없음'이라고만 써. 비밀번호·주소·전화번호·계좌·돈 액수는 절대 쓰지 마.";
         String input = "사용자: " + said.strip() + "\n퍼레: " + (answer == null ? "" : answer.strip());
         java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> before = memories(c);
-        new Thread(() -> quick(c, store, nim, groq, QWEN, instructions, input, 0.2, 12_000, text -> {
-            String t = text == null ? "" : text.replaceAll("(?s)<think>.*?</think>", "").strip().split("\n")[0].replaceAll("[\"“”*]", "").strip();
-            if (t.isEmpty() || t.startsWith("없음") || !t.startsWith("사용자") || t.length() > 70 || t.matches(".*\\d{4,}.*")) return "";
-            return t;
-        }, line -> {
-            if (line.isEmpty()) return;
-            for (dev.jun.gyeot.core.BuddyMemory.Entry e : before) if (e.text().replaceAll("\\s", "").equals(line.replaceAll("\\s", ""))) return;
-            remember(c, "fact", line, 0);
+        new Thread(() -> quick(c, store, nim, groq, QWEN, instructions, input, 0.2, 12_000, text -> text == null ? "" : text.replaceAll("(?s)<think>.*?</think>", "").strip(), all -> {
+            for (String raw : all.split("\n")) {
+                String line = raw.replaceAll("[\"“”*]", "").strip(); boolean secret = line.startsWith("민감");
+                line = line.replaceFirst("^민감\\s*", "").strip();
+                String kind = line.startsWith("약속") ? "promise" : line.startsWith("사용자") ? "fact" : "";
+                String t = line.replaceFirst("^(약속|사용자)\\s*[:：]\\s*", "").strip();
+                if (kind.isEmpty() || t.isEmpty() || t.startsWith("없음") || t.length() > 70 || t.matches(".*\\d{4,}.*")) continue;
+                boolean dup = false; for (dev.jun.gyeot.core.BuddyMemory.Entry e : before) if (dev.jun.gyeot.core.BuddyMind.similarity(e.text(), t) >= 0.6) dup = true;
+                if (dup) continue;
+                rememberStrong(c, kind, t, secret || dev.jun.gyeot.core.BuddyMind.secret(t));
+            }
         }, () -> {}), "gyeot-buddy-learn").start();
     }
     private static java.io.File memoryFile(Context c) { return new java.io.File(new java.io.File(c.getFilesDir(), "buddy"), "memory.json"); }
@@ -352,6 +424,42 @@ final class BuddyTalk {
     static synchronized void remember(Context c, String kind, String text, long quiet) {
         java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> now = memories(c), after = dev.jun.gyeot.core.BuddyMemory.add(now, System.currentTimeMillis(), kind, text, quiet);
         if (after != now) keepMemories(c, after);
+    }
+    /** A memory told in a talk: it matters more (weight 2), private when it is. */
+    static synchronized void rememberStrong(Context c, String kind, String text, boolean secret) {
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> now = memories(c), after = dev.jun.gyeot.core.BuddyMemory.add(now, System.currentTimeMillis(), kind, text, 0, 2, secret);
+        if (after != now) keepMemories(c, after);
+    }
+    /**
+     * The night's digest (꿈꾸기): once a day, in the small hours or while charging after nine at night, the quick brain reads the
+     * day and the latest memories and writes what 퍼레 knows about the user (its 발견 노트, at most twelve lines, merged and
+     * corrected) and the day as one memory. Off the main thread.
+     */
+    static void dream(Context c, boolean charging) {
+        SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        int h = java.time.LocalTime.now().getHour(); String date = java.time.LocalDate.now().toString();
+        if (date.equals(p.getString("dreamt", "")) || !(h >= 2 && h < 6 || charging && h >= 21)) return;
+        AppStore store = ((GyeotApp) c.getApplicationContext()).store();
+        boolean nim = store.nim.connected(), groq = GroqWork.on(); if (!nim && !groq) return;
+        p.edit().putString("dreamt", date).apply();
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = memories(c); long now = System.currentTimeMillis(); java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+        StringBuilder in = new StringBuilder(todayWords(c)).append("지금까지의 발견 노트:\n");
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) if ("profile".equals(e.kind()) && !e.secret()) in.append("- ").append(e.text()).append('\n');
+        in.append("최근 기억(2주):\n");
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) if (!"profile".equals(e.kind()) && !e.secret() && now - e.at() < 14 * 86_400_000L) in.append("- ").append(dev.jun.gyeot.core.BuddyMemory.when(e.at(), now, zone)).append(": ").append(e.text()).append('\n');
+        String instructions = "너는 AI 친구 퍼레의 기억을 밤에 정리하는 역할이야. 아래를 읽고 다음 형식으로만 써.\n"
+            + "프로필: (사용자에 대해 지금 알고 있는 사실 하나. 여러 줄 가능, 최대 12줄. 겹치는 건 합치고, 오래돼 틀린 건 빼고, 추측이면 끝에 '(추측)'.)\n"
+            + "추억: (오늘 하루를 친구 시점에서 한 줄로. 특별한 게 없으면 '없음')\n"
+            + "건강·돈·연애·주소·비밀번호 같은 민감한 건 쓰지 마. 숫자 계좌·번호는 절대 쓰지 마.";
+        new Thread(() -> quick(c, store, nim, groq, QWEN, instructions, in.toString(), 0.3, 20_000, text -> text == null ? "" : text, text -> {
+            dev.jun.gyeot.core.BuddyMind.Dream d = dev.jun.gyeot.core.BuddyMind.dream(text);
+            synchronized (BuddyTalk.class) {
+                java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> list = memories(c);
+                if (!d.profile().isEmpty()) { list.removeIf(e -> "profile".equals(e.kind()) && !e.secret()); long t = System.currentTimeMillis(); for (String line : d.profile()) list.add(new dev.jun.gyeot.core.BuddyMemory.Entry(t++, "profile", line, 3, false)); }
+                if (!d.episode().isEmpty()) list = dev.jun.gyeot.core.BuddyMemory.add(list, System.currentTimeMillis(), "episode", d.episode(), 12 * 3_600_000L, 2, false);
+                keepMemories(c, list);
+            }
+        }, () -> {}), "gyeot-buddy-dream").start();
     }
     static synchronized void forget(Context c, long at) { keepMemories(c, dev.jun.gyeot.core.BuddyMemory.remove(memories(c), at)); }
     static synchronized void forgetAll(Context c) { keepMemories(c, new java.util.ArrayList<>()); }
@@ -404,6 +512,14 @@ final class BuddyTalk {
         try { android.os.PowerManager pm = c.getSystemService(android.os.PowerManager.class); if (pm != null) e.put("powerSave", pm.isPowerSaveMode()); } catch (Exception ignored) {}
         try { android.app.NotificationManager nm = c.getSystemService(android.app.NotificationManager.class); if (nm != null) e.put("dnd", nm.getCurrentInterruptionFilter() > android.app.NotificationManager.INTERRUPTION_FILTER_ALL); } catch (Exception ignored) {}
         try { e.put("airplane", android.provider.Settings.Global.getInt(c.getContentResolver(), android.provider.Settings.Global.AIRPLANE_MODE_ON, 0) != 0); } catch (Exception ignored) {}
+        // The day's log (a charge, music) and, at night, the night's digest.
+        try {
+            SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            JSONObject was = new JSONObject(p.getString("env", "{}")); p.edit().putString("env", e.toString()).apply();
+            if (e.optBoolean("charging") && !was.optBoolean("charging")) today(c, "charge", "");
+            if (e.optBoolean("music") && !was.optBoolean("music")) today(c, "music", "");
+            dream(c, e.optBoolean("charging"));
+        } catch (Exception ignored) {}
         return e;
     }
     /**

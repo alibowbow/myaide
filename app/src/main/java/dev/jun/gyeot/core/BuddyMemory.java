@@ -20,7 +20,10 @@ public final class BuddyMemory {
     private BuddyMemory() {}
     public static final int MOST = 120;
 
-    public record Entry(long at, String kind, String text) {}
+    /** weight: how much it matters (1 a passing moment, 2 something told, 3 core); secret: told only after the fingerprint. */
+    public record Entry(long at, String kind, String text, int weight, boolean secret) {
+        public Entry(long at, String kind, String text) { this(at, kind, text, 1, false); }
+    }
 
     public static List<Entry> read(String saved) {
         List<Entry> out = new ArrayList<>();
@@ -29,25 +32,26 @@ public final class BuddyMemory {
             for (int i = 0; i < a.length(); i++) {
                 JSONObject o = a.optJSONObject(i); if (o == null) continue;
                 String text = o.optString("text").strip();
-                if (!text.isEmpty() && o.optLong("at") > 0) out.add(new Entry(o.optLong("at"), o.optString("kind"), text));
+                if (!text.isEmpty() && o.optLong("at") > 0) out.add(new Entry(o.optLong("at"), o.optString("kind"), text, Math.max(1, Math.min(3, o.optInt("weight", 1))), o.optBoolean("secret")));
             }
         } catch (Exception unreadable) { out.clear(); }
         return out;
     }
     public static String save(List<Entry> list) {
         JSONArray a = new JSONArray();
-        for (Entry e : list) a.put(Jsons.obj("at", e.at(), "kind", e.kind(), "text", e.text()));
+        for (Entry e : list) a.put(Jsons.obj("at", e.at(), "kind", e.kind(), "text", e.text(), "weight", e.weight(), "secret", e.secret()));
         return a.toString();
     }
     /** The list with this memory added, unless one of the same kind was kept within quiet ms (then the list as it was). */
-    public static List<Entry> add(List<Entry> list, long now, String kind, String text, long quiet) {
+    public static List<Entry> add(List<Entry> list, long now, String kind, String text, long quiet) { return add(list, now, kind, text, quiet, 1, false); }
+    public static List<Entry> add(List<Entry> list, long now, String kind, String text, long quiet, int weight, boolean secret) {
         if (text == null || text.isBlank()) return list;
         for (int i = list.size() - 1; i >= 0; i--) {
             Entry e = list.get(i);
             if (e.kind().equals(kind) && now - e.at() < quiet) return list;
         }
         List<Entry> out = new ArrayList<>(list);
-        out.add(new Entry(now, kind == null ? "" : kind, text.strip()));
+        out.add(new Entry(now, kind == null ? "" : kind, text.strip(), Math.max(1, Math.min(3, weight)), secret));
         while (out.size() > MOST) out.remove(0);
         return out;
     }
