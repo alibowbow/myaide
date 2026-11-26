@@ -46,7 +46,7 @@ const EYE = '<rect class="pill" x="-4" y="-7.5" width="8" height="15" rx="4"/><c
 const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="botBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff9e7a"/><stop offset="1" stop-color="#ff6640"/></linearGradient>'
   + '<radialGradient id="botShine" cx=".32" cy=".22" r=".55"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>'
   + '<linearGradient id="botPale" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7b8cff" stop-opacity=".45"/><stop offset=".55" stop-color="#7b8cff" stop-opacity="0"/></linearGradient>'
-  + '<clipPath id="botClip"><rect x="12" y="18" width="76" height="70" rx="30"/></clipPath></defs>'
+  + '<clipPath id="botClip"><rect x="12" y="18" width="76" height="70" rx="30"/></clipPath><linearGradient id="botLower" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b19bff"/><stop offset="1" stop-color="#8b6ff0"/></linearGradient></defs>'
   + '<g class="b-all">'
   // behind 퍼레: what it holds high or that floats over it
   +   '<g class="acc umbrella"><path d="M86 66 L60 -6" stroke="#5b6470" stroke-width="2.4" stroke-linecap="round"/><path d="M86 66 q3 5 -2 6" fill="none" stroke="#5b6470" stroke-width="2.4" stroke-linecap="round"/>'
@@ -59,6 +59,7 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +   '<g class="acc rainbow" fill="none" stroke-width="3"><path d="M8 34 A42 42 0 0 1 92 34" stroke="#ff6f6f"/><path d="M12 34 A38 38 0 0 1 88 34" stroke="#ffd36e"/><path d="M16 34 A34 34 0 0 1 84 34" stroke="#7cc576"/><path d="M20 34 A30 30 0 0 1 80 34" stroke="#5bc0eb"/></g>'
   +   '<path class="acc moon" d="M88 -6 a9 9 0 1 0 8 13 a7 7 0 1 1 -8 -13z" fill="#ffe07a"/>'
   // Short round arms at its sides (준: "팔이 움직일 때 너무 덜렁덜렁 달린 느낌이야", "귀엽게", "팔이 약간 삼각모양인데 둥근형태"):
+  // (퍼레's own body: orange above, purple below — 준: "주황로봇이 맞는데 하단 색상이 보라색으로 디자인됐어", "의상이 아니라 기본디자인")
   // "와들디 팔을 참고", "팔이너무 귀같아", "닌텐도 커비처럼", "팔참고", "퍼레 기본디자인에 충실해줘 거기서 팔을 바꾸고"): round arms,
   // a little taller than wide, pressed to the lower middle of its sides and tipped a touch down, half tucked behind the body,
   // turning where they join it. The rest of 퍼레 is as it was.
@@ -66,7 +67,7 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +   '<g class="b-arm r"><g transform="rotate(16 88 64)"><ellipse cx="89.5" cy="64" rx="9.6" ry="10.4" fill="#ff7a55"/><ellipse cx="89" cy="68.5" rx="7.4" ry="4.4" fill="#e5532f" opacity=".3"/><ellipse cx="93" cy="59.6" rx="3.2" ry="2.3" fill="#fff" opacity=".32"/><g class="acc mittens"><ellipse cx="89.5" cy="64" rx="9.8" ry="10.6" fill="#6f9fe8"/><rect x="82" y="55" width="3.4" height="18" rx="1.7" fill="#fff"/></g></g></g>'
   +   '<g class="b-antenna"><line x1="50" y1="20" x2="50" y2="8.5" stroke="#ff6640" stroke-width="4" stroke-linecap="round"/><circle class="b-bulb" cx="50" cy="7" r="5.2"/>'
   +     '<g class="acc flower"><circle cx="50" cy="1.5" r="3.4" fill="#ffb3c8"/><circle cx="55" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="53" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="47" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="45" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="50" cy="7" r="2.6" fill="#ffd36e"/></g></g>'
-  +   '<g class="b-body"><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botBody)"/><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botShine)"/>'
+  +   '<g class="b-body"><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botBody)"/><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botShine)"/><path class="b-lower" clip-path="url(#botClip)" d="M12 66 Q50 59 88 66 L89 90 Q50 98 11 90Z" fill="url(#botLower)"/>'
   +     '<g class="acc blanket" clip-path="url(#botClip)"><path d="M11 60 Q50 52 89 60 L90 90 Q50 98 10 90Z" fill="#9fc8ff"/><g fill="#fff" opacity=".6"><circle cx="24" cy="70" r="2"/><circle cx="40" cy="78" r="2"/><circle cx="58" cy="70" r="2"/><circle cx="74" cy="80" r="2"/><circle cx="32" cy="86" r="2"/><circle cx="66" cy="88" r="2"/></g></g>'
   +     '<g class="acc raincoat" clip-path="url(#botClip)"><path d="M12 62 Q50 56 88 62 L90 90 Q50 98 10 90Z" fill="#ffd23f"/><path d="M50 60 V95" stroke="#e8b923" stroke-width="1.4"/><circle cx="46" cy="74" r="1.4" fill="#e8b923"/><circle cx="46" cy="84" r="1.4" fill="#e8b923"/></g>'
   +     '<g class="acc sweater" clip-path="url(#botClip)"><path d="M12 64 Q50 58 88 64 L89 90 Q50 98 11 90Z" fill="#8fb7e8"/><path d="M14 72 Q50 66 86 72 M13 82 Q50 76 87 82" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 3"/></g>'
