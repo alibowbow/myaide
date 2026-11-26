@@ -19,7 +19,7 @@ final class BuddyMisses {
     private BuddyMisses() {}
     private static final String PREFS = "buddyTalk", KEY = "misses";
     static final int MOST = 30;
-    /** fix: "overlay", "writeSettings", "place:<words>", "store:<app>", "contacts", or "" for none. */
+    /** fix: "overlay", "writeSettings", "place:<words>", "store:<app>", "contacts", "accessibility", or "" for none. */
     record Miss(long at, String said, String what, String why, String fix) {}
 
     static synchronized void add(Context c, String said, String what, String why, String fix) {
@@ -50,6 +50,7 @@ final class BuddyMisses {
         if (fix.startsWith("place:")) return "장소 저장";
         if (fix.startsWith("store:")) return "앱 찾기";
         if (fix.equals("contacts")) return "연락처 허용";
+        if (fix.equals("accessibility")) return "폰 조작 켜기";
         return "";
     }
     /** That tap's screen, or null. */
@@ -60,6 +61,7 @@ final class BuddyMisses {
         if (fix.startsWith("place:")) return new Intent(c, NavigationActivity.class).putExtra(NavigationActivity.ADD, fix.substring(6));
         if (fix.startsWith("store:")) return new Intent(Intent.ACTION_VIEW, Uri.parse("market://search?q=" + Uri.encode(fix.substring(6))));
         if (fix.equals("contacts")) return new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + c.getPackageName()));
+        if (fix.equals("accessibility")) return new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
         return null;
     }
 }

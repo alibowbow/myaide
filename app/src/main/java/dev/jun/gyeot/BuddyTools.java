@@ -63,7 +63,7 @@ final class BuddyTools {
     /** The rule for the brain with tools (in place of BuddyTalk.ACTS). */
     static final String RULE = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 안내, 지도에서 찾기, 노래·영상 찾아 틀기, 음악 멈춤·다음 곡, 알람, 타이머, 손전등, 화면 방향, 소리 크기, 밝기, 설정 화면, 검색, 카톡으로 보내기, 문자 쓰기, 전화 걸 준비, 카메라, 일정 넣기, 웹 페이지 열기) 도구를 불러서 너가 직접 해. "
         + "도구를 부를 때도 무엇을 하는지 짧은 대답 한 문장을 같이 말해(예: 네이버 지도 열게!). 할 일을 글로 적거나 JSON을 말하지 마. "
-        + "결제·송금처럼 도구가 없는 일은 아직 못 한다고 말해. 대답에 주소(URL)와 이모지는 절대 쓰지 마.\n";
+        + "결제·송금처럼 도구가 없는 일은 아직 못 한다고 말해. 대답에 주소(URL)는 절대 쓰지 마. 이모지는 어울리면 하나까지(반짝이·별은 빼고).\n";
 
     /** The first call as a BuddyActs act ({"tool": name, …arguments}), its name made one of ours; null when there is none. */
     static JSONObject act(JSONArray calls) {

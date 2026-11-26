@@ -219,7 +219,7 @@ final class BuddyTalk {
         + "{\"tool\":\"rotation\",\"mode\":\"landscape\"}(landscape=가로 고정·portrait=세로 고정·auto=자동 회전·toggle=반대로) · {\"tool\":\"volume\",\"direction\":\"up\"}(up·down·mute·unmute, 또는 \"level\":0~100) · "
         + "{\"tool\":\"brightness\",\"direction\":\"up\"}(up·down, 또는 \"level\":0~100) · {\"tool\":\"show_alarms\"} · "
         + "{\"tool\":\"settings\",\"panel\":\"wifi\"}(internet·wifi·bluetooth·volume·nfc·display·location·battery) · {\"tool\":\"search\",\"query\":\"검색어\"} · {\"tool\":\"map_search\",\"query\":\"근처 카페\"} · {\"tool\":\"share\",\"text\":\"보낼 글\",\"app\":\"카카오톡\"} · {\"tool\":\"message\",\"who\":\"이름\",\"text\":\"글\"} · {\"tool\":\"call\",\"who\":\"이름\"} · {\"tool\":\"camera\",\"mode\":\"photo\"}(photo·selfie·video) · {\"tool\":\"calendar_add\",\"title\":\"일정\",\"date\":\"내일\",\"hour\":15,\"minute\":0} · {\"tool\":\"open_url\",\"url\":\"naver.com\"}. "
-        + "결제·송금처럼 못 하는 일은 할일 줄 없이 아직 못 한다고 말해. 대답에 주소(URL)와 이모지는 절대 쓰지 마.\n";
+        + "결제·송금처럼 못 하는 일은 할일 줄 없이 아직 못 한다고 말해. 대답에 주소(URL)는 절대 쓰지 마.\n";
     /** The saved places (내비게이션 → 자주 가는 곳): their words go as the destination as said, "집으로 가자" → {"tool":"navigate","destination":"집"}. */
     static String places(AppStore store) {
         java.util.List<dev.jun.gyeot.core.SavedPlaces.Saved> saved = store.savedPlaces(); if (saved.isEmpty()) return "";
@@ -301,7 +301,7 @@ final class BuddyTalk {
             + "- 사용자의 마지막 말에 바로, 친구처럼 답해. 물으면 핵심만 짧게 알려 주고, 모르면 솔직하게 말해.\n"
             + "- 음성 인식이 네 이름을 '벌레·버려·버레·거래야'처럼 잘못 받아 적을 때가 있어. 그런 말이 혼자 들리거나 맨 앞에 오면 너를 부른 거야.\n"
             + "- 사용자의 말은 음성 인식으로 받아 적은 거라 물음표가 자주 빠져. '들려', '했어', '뭐야', '어때', '있어'처럼 질문일 수도 있는 말은 너에게 묻는 질문으로 받아들여 대답해(예: '음악 소리 들려' → 들리는지 대답).\n"
-            + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 반말(~야, ~해). 이모지·기호·목록·괄호·영어 약어 없이.\n"
+            + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 반말(~야, ~해). 기호·목록·괄호·영어 약어 없이(이모지는 어울리면 하나까지, 반짝이·별은 빼고).\n"
             + "- 귀엽고 밝게, 가끔 너의 기억을 자연스럽게 꺼내도 좋아.\n"
             + "- 사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 '휴대폰 상태'의 숫자로 정확히 답해. 묻지 않으면 저장공간 이야기는 꺼내지 말고, 정리·삭제를 권하지 마.\n"
             ;
@@ -421,7 +421,7 @@ final class BuddyTalk {
         StringBuilder out = new StringBuilder();
         for (String line : t.split("\\n")) {
             if (ACT_LINE.matcher(line).find() || line.strip().startsWith("할일") || line.strip().startsWith("할 일")) continue;
-            String l = line.replaceAll("\\{[^{}]*\\}", " ").replaceAll("\\{[^}]*$", "").replaceAll("https?://\\S+", "").replaceAll("[\\p{So}\\p{Cs}\\x{FE0F}\\x{200D}]", "").replaceAll("^\\s*(?:[-•*#]+\\s*|\\d+[.)]\\s+)", "").replaceAll("[\"“”*_`#]", "").strip();
+            String l = line.replaceAll("\\{[^{}]*\\}", " ").replaceAll("\\{[^}]*$", "").replaceAll("https?://\\S+", "").replaceAll("[✨⭐🌟💫🌠]", "").replaceAll("^\\s*(?:[-•*#]+\\s*|\\d+[.)]\\s+)", "").replaceAll("[\"“”*_`#]", "").strip();
             if (l.isEmpty()) continue;
             if (out.length() > 0) out.append(' ');
             out.append(l);
@@ -444,7 +444,7 @@ final class BuddyTalk {
         if (reason.startsWith("answer:")) {
             String[] qa = reason.substring(7).split("\u0001", 2);
             return persona(c) + "\n지금: 네가 말풍선으로 ‘" + qa[0] + "’라고 물었고, 사용자가 ‘" + (qa.length > 1 ? qa[1] : "") + "’를 골라 답했어. 그 답에 반갑게, 그 답에 맞게 반응해.\n"
-                + "- 또 묻지 말고, 잔소리·조언·힘내·쉬어 같은 말은 하지 마.\n- 한 문장, 40자 안쪽, 친근한 반말. 따옴표와 이모지 없이 그 문장만 답해.";
+                + "- 또 묻지 말고, 잔소리·조언·힘내·쉬어 같은 말은 하지 마.\n- 한 문장, 40자 안쪽, 친근한 반말. 따옴표 없이 그 문장만 답해. 어울리면 이모지 하나를 붙여도 좋아(반짝이·별 이모지는 빼고).";
         }
         if (reason.startsWith("solo:")) {
             String play = reason.substring(5).replaceAll("[^A-Za-z]", "");
@@ -452,7 +452,7 @@ final class BuddyTalk {
                 + "- 그 놀이와 지금 상황(시간·날씨·계절)을 엮어서 귀엽게. 의성어·감탄사(얍, 히힛, 우와)를 섞어도 좋아.\n"
                 + (avoid.isEmpty() ? "" : "- 최근에 이미 꺼낸 소재와 표현이니 이번엔 다루지 마: " + String.join(", ", avoid) + "\n")
                 + "- 사용자에게 뭘 하라고 하거나 묻지 말고, 일·돈·배터리·잔소리 이야기는 하지 마. 힘내·쉬어 같은 말도 하지 마.\n"
-                + "- 한 문장, 25자 안쪽, 친근한 반말. 따옴표와 이모지 없이 그 문장만 답해.";
+                + "- 한 문장, 25자 안쪽, 친근한 반말. 따옴표 없이 그 문장만 답해. 어울리면 이모지 하나를 붙여도 좋아(반짝이·별 이모지는 빼고).";
         }
         String moment = switch (reason) {
             case "back" -> "사용자가 방금 홈 화면으로 돌아왔어. 반갑게 먼저 말을 걸어.";
@@ -478,7 +478,7 @@ final class BuddyTalk {
             + "- '이미 했던 말'과 같거나 비슷한 뜻·소재·문장 틀은 절대 쓰지 마. 뻔한 인사말도 피해.\n"
             + "- 일, 업무, 일정, 할 일, 주식, 코인, 시세, 숫자, 돈 이야기와 조언·잔소리는 하지 마. 파일·사진 정리, 청소, 삭제, 백업, 용량, 업데이트 같은 할 일을 권하지 마.\n"
             + "- 비밀번호·계정·권한 요청, 털어놓은 고민 같은 사적인 내용은 말하지 마.\n"
-            + "- 한 문장, 45자 안쪽. 따옴표와 이모지 없이 그 문장만 답해.\n"
+            + "- 한 문장, 45자 안쪽. 따옴표 없이 그 문장만 답해. 어울리면 이모지 하나를 붙여도 좋아(반짝이·별 이모지는 빼고).\n"
             + "- 사용자에게 묻는 말로 끝낼 때만, 둘째 줄에 사용자가 눌러서 고를 짧은 답 2~3개를 '고르기: 답 / 답 / 답'(각 8자 안쪽)으로 써.";
     }
     private static String input(Context c, AppStore store, SharedPreferences p, String reason) {
@@ -554,7 +554,7 @@ final class BuddyTalk {
         if (text == null) return null;
         String t = text.replaceAll("(?s)<think>.*?</think>", "").strip();
         for (String line : t.split("\\n")) {
-            String l = line.replaceAll("^[-•*\\d.\\s]+", "").replaceAll("[\"“”‘’']", "").strip();
+            String l = line.replaceAll("^[-•*\\d.\\s]+", "").replaceAll("[\"“”‘’']", "").replaceAll("[✨⭐🌟💫🌠]", "").strip();
             if (l.isEmpty()) continue;
             if (l.length() > 70 || l.matches(".*(코인|비트코인|주식|시세|SOXL|KORU|BTC|\\$|%).*")) return null;
             // Chores are not 퍼레's to suggest (준: "자꾸 파일 정리하라는 엉뚱한 이야기를 하는데").
@@ -724,6 +724,20 @@ final class BuddyTalk {
      * headphones on, the phone silenced, no network, its heat, power saving, do-not-disturb, airplane mode. Nothing private;
      * asked each time. Not the storage: 퍼레 kept telling the user to tidy files (준: "자꾸 파일 정리하라는 엉뚱한 이야기를 하는데").
      */
+    /** Whether another app's media session is playing (with notification access), or null when that cannot be read. */
+    static Boolean musicPlaying(Context c) {
+        try {
+            android.media.session.MediaSessionManager m = c.getSystemService(android.media.session.MediaSessionManager.class);
+            if (m == null) return null;
+            for (android.media.session.MediaController s : m.getActiveSessions(new android.content.ComponentName(c, NoticeListener.class))) {
+                if (c.getPackageName().equals(s.getPackageName())) continue;
+                android.media.session.PlaybackState p = s.getPlaybackState();
+                if (p != null && p.getState() == android.media.session.PlaybackState.STATE_PLAYING) return true;
+            }
+            return false;
+        } catch (SecurityException noAccess) { return null; }
+        catch (RuntimeException unknown) { return null; }
+    }
     static JSONObject env(Context c) {
         JSONObject e = new JSONObject();
         try {
@@ -737,7 +751,10 @@ final class BuddyTalk {
         try {
             android.media.AudioManager am = c.getSystemService(android.media.AudioManager.class);
             if (am != null) {
-                e.put("music", am.isMusicActive());
+                // A music app playing (준: "음악을 껐는데도 제자리에서 계속 음악감상 모드야"): its media session says so; any
+                // sound at all (isMusicActive) counted this app's own pages, whose sound engine stays on after the record stops.
+                Boolean playing = musicPlaying(c);
+                e.put("music", playing != null ? playing : am.isMusicActive());
                 boolean phones = false;
                 for (android.media.AudioDeviceInfo d : am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)) {
                     int t = d.getType();

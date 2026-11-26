@@ -665,7 +665,7 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 /* 퍼레's toys (board.js toys()): over the board, each one a thing to touch (a larger invisible area around it). */
 .toybox{position:absolute;inset:0;pointer-events:none;z-index:3}
 .tb{position:absolute;left:0;top:0;pointer-events:auto;touch-action:none;will-change:transform;transition:opacity .35s}
-.tb::before{content:"";position:absolute;inset:-12px}
+.tb::before{content:"";position:absolute;inset:-7px}
 .tb.bye{opacity:0}
 .tb.ball{width:18px;height:18px;border-radius:50%;background:radial-gradient(circle at 34% 30%,#fff 0 14%,#ffc14d 17%,#ff7a45 100%);box-shadow:0 2px 4px rgba(0,0,0,.25)}
 .tb.ball.squash{animation:tbSquash .18s ease-out}

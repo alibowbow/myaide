@@ -126,17 +126,18 @@ async function open(browser, at) {
   });
   await check('퍼레\'s toys fall and rest on the board; the dice says its number; the puzzle cube can be solved', async () => {
     const p = day.page;
-    await p.evaluate(() => { document.querySelector('.bubble').classList.remove('on', 'ask'); ['ball', 'dice', 'cube'].forEach(k => boards[0]._toys.out(k)); });
+    await p.evaluate(() => { document.querySelector('.bubble').classList.remove('on', 'ask'); const T = boards[0]._toys; ['ball', 'dice', 'cube'].forEach((k, i) => { const it = T.out(k); it.x = 80 + i * 110; it.vx = 0; }); T.wake(); });
     for (let i = 0; i < 20; i++) await p.clock.runFor(100);
     const rest = await p.evaluate(() => { const f = document.querySelector('.lib-head').getBoundingClientRect().top; return Array.from(document.querySelectorAll('.tb.ball, .tb.dice, .tb.cube')).map(e => ({k: e.className, gap: Math.round(f - e.getBoundingClientRect().bottom)})); });
     assert.strictEqual(rest.length, 3);
     for (const t of rest) assert(t.gap >= -2 && t.gap < 120, t.k + ' rests above App Library: ' + t.gap);
     const dice = await p.evaluate(() => { const r = document.querySelector('.tb.dice').getBoundingClientRect(); return {x: r.left + 8, y: r.top + 8}; });
+    await p.evaluate(() => { window._said = []; const b = document.querySelector('.bubble'); new MutationObserver(() => window._said.push(b.textContent)).observe(b, {childList: true, characterData: true, subtree: true}); });
     await p.touchscreen.tap(dice.x, dice.y);
     for (let i = 0; i < 30; i++) await p.clock.runFor(100);
-    const pips = await p.evaluate(() => document.querySelectorAll('.tb.dice i.on').length), said = await p.evaluate(() => document.querySelector('.bubble').textContent);
+    const pips = await p.evaluate(() => document.querySelectorAll('.tb.dice i.on').length), said = await p.evaluate(() => window._said);
     assert(pips >= 1 && pips <= 6, 'pips ' + pips);
-    assert(said.startsWith(String(pips)), 'said ' + said + ' for ' + pips);
+    assert(said.some(t => t.startsWith(String(pips))), 'said ' + said.join(' / ') + ' for ' + pips);
     const cube = await p.evaluate(() => { const r = document.querySelector('.tb.cube').getBoundingClientRect(); return {x: r.left + 10, y: r.top + 10}; });
     await p.touchscreen.tap(cube.x, cube.y);
     await p.clock.runFor(200);
@@ -151,7 +152,54 @@ async function open(browser, at) {
     assert(/풀었/.test(await p.evaluate(() => document.querySelector('.bubble').textContent)));
     assert.deepStrictEqual(day.errors, []);
   });
+  await check('a talk that ended while the screen was away does not leave 퍼레 talking in place', async () => {
+    const p = day.page, talking = () => p.evaluate(() => document.querySelector('.bot').classList.contains('talking'));
+    await p.evaluate(() => launcher.voice('speaking', '하이~ 오늘도 준비됐어?'));
+    await p.clock.runFor(500);
+    assert.strictEqual(await talking(), true);
+    await p.evaluate(() => launcher.voice('idle', ''));   // the app tells it on coming back (BuddyVoice.attach)
+    assert.strictEqual(await talking(), false, 'told it ended');
+    await p.evaluate(() => launcher.voice('speaking', '하이~'));
+    for (let i = 0; i < 26; i++) await p.clock.runFor(5000);  // never told: over by itself after two minutes
+    assert.strictEqual(await talking(), false, 'ended by itself');
+  });
+  await check('퍼레 is plain by default and dresses up now and then, never one outfit for long', async () => {
+    const p = day.page, looks = [];
+    // Forty-minute turns through the daytime of a few days (its night things while it sleeps are left out).
+    for (let k = 0; looks.length < 60; k++) {
+      const t = Date.parse('2026-11-27T07:00:00+09:00') + k * 40 * 60000;
+      if ((new Date(t).getUTCHours() + 9) % 24 < 7) continue;
+      await p.clock.setSystemTime(new Date(t));
+      looks.push(await p.evaluate(() => { launcher.env({battery: 80}); return Array.from(document.querySelector('.bot').classList).filter(c => c.startsWith('w-')).sort().join(' '); }));
+    }
+    const daytime = looks;
+    const plain = daytime.filter(l => l === '').length, outfits = new Set(daytime.filter(Boolean));
+    assert(plain >= daytime.length * .5, 'plain ' + plain + ' of ' + daytime.length);
+    assert(plain < daytime.length, 'dressed up now and then');
+    assert(outfits.size >= 3, 'outfits: ' + [...outfits].join(' | '));
+    let run = 0, longest = 0; for (let k = 1; k < looks.length; k++) { run = looks[k] && looks[k] === looks[k - 1] ? run + 1 : 0; longest = Math.max(longest, run); }
+    assert(longest <= 3, 'the same outfit ' + (longest + 1) + ' turns in a row');
+  });
   await day.ctx.close();
+
+  const dawn = await open(browser, '2026-11-27T03:10:00+09:00');
+  await check('at dawn 퍼레 sleeps, wakes a moment after the screen comes on, and dozes off again when left alone', async () => {
+    const p = dawn.page, asleep = () => p.evaluate(() => document.querySelector('.buddy').classList.contains('asleep'));
+    await p.clock.runFor(1000);
+    assert.strictEqual(await asleep(), true, 'asleep as the screen opens');
+    for (let i = 0; i < 12; i++) await p.clock.runFor(500);
+    assert.strictEqual(await asleep(), false, 'awake a few seconds later');
+    assert((await p.evaluate(() => document.querySelector('.bubble').textContent)).length > 0, 'a sleepy word');
+    for (let i = 0; i < 30; i++) await p.clock.runFor(5000);
+    assert.strictEqual(await asleep(), true, 'asleep again after two quiet minutes');
+    await p.evaluate(() => { launcher.hidden(); }); await p.clock.runFor(60000); await p.evaluate(() => { launcher.shown(); });
+    await p.clock.runFor(800);
+    assert.strictEqual(await asleep(), true, 'the screen on again: still asleep for a moment');
+    for (let i = 0; i < 12; i++) await p.clock.runFor(500);
+    assert.strictEqual(await asleep(), false, 'and awake');
+    assert.deepStrictEqual(dawn.errors, []);
+  });
+  await dawn.ctx.close();
 
   const evening = await open(browser, '2026-11-26T20:30:00+09:00');
   await check('in the evening 퍼레 wears nothing that looks like doing something for hours', async () => {

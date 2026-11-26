@@ -23,6 +23,8 @@ final class VoiceCapture {
     }
     private final Handler main = new Handler(Looper.getMainLooper());
     private volatile boolean stopped;
+    /** The failure when Android gives the microphone to another app (a navigation app in front) and this one hears only silence. */
+    static final String SILENCED = "silenced";
 
     /** Starts listening at once; waitMs of nothing said is silent. Needs the microphone permission. */
     static VoiceCapture start(long waitMs, Heard heard) {
@@ -40,13 +42,22 @@ final class VoiceCapture {
         catch (SecurityException | IllegalArgumentException refused) { post(() -> heard.failed("마이크를 열지 못했어요")); return; }
         if (mic.getState() != AudioRecord.STATE_INITIALIZED) { mic.release(); post(() -> heard.failed("마이크를 열지 못했어요")); return; }
         Utterance u = new Utterance(waitMs);
-        short[] chunk = new short[800]; boolean began = false;
+        short[] chunk = new short[800]; boolean began = false; long silencedSince = 0, checkAt = 0;
         try {
             mic.startRecording();
             if (mic.getRecordingState() != AudioRecord.RECORDSTATE_RECORDING) { post(() -> heard.failed("마이크가 다른 곳에서 쓰이고 있어요")); return; }
             while (!stopped) {
                 int n = mic.read(chunk, 0, chunk.length);
                 if (n < 0) { post(() -> heard.failed("마이크 소리를 받지 못했어요")); return; }
+                // Android silences a capture while another app has the microphone (준: "네이버지도 네비게이션 시작했을때 퍼레음성인식이 안돼"):
+                // two seconds of that is said as it is, not waited out as silence.
+                long t = android.os.SystemClock.uptimeMillis();
+                if (t >= checkAt) {
+                    checkAt = t + 500;
+                    android.media.AudioRecordingConfiguration rc = mic.getActiveRecordingConfiguration();
+                    boolean silenced = rc != null && rc.isClientSilenced();
+                    if (!silenced) silencedSince = 0; else if (silencedSince == 0) silencedSince = t; else if (t - silencedSince > 2000) { post(() -> heard.failed(SILENCED)); return; }
+                }
                 Utterance.State s = u.add(chunk, n);
                 if (s == Utterance.State.SPEAKING && !began) { began = true; post(heard::began); }
                 if (s == Utterance.State.DONE) { short[] pcm = u.pcm(); post(() -> heard.speech(pcm)); return; }

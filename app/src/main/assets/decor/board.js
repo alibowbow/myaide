@@ -366,7 +366,22 @@ function preset(moment, fitting) {
   if (typeof TALK === "undefined") return moment === "hi" ? ownLines()[Math.floor(Math.random() * 3)] : "";
   let m = moment;
   if (m === "app") { const kind = window.boardLastApp || ""; m = TALK.pools().includes("app:" + kind) ? "app:" + kind : "back"; }
-  return TALK.pick(m, boards[0] && boards[0]._env, info, fitting);
+  return emojied(TALK.pick(m, boards[0] && boards[0]._env, info, fitting), m);
+}
+/*
+  An emoji now and then after 퍼레's own words (준: "이모지도 쓸 수 있게 해줘"): one that fits the moment, about one line in three,
+  never on a line that has one already; no sparkles or stars.
+*/
+const EMOJI = {hi: ["👋", "😊", "🙌"], back: ["🤗", "😆", "🙌"], tap: ["😊", "😆", "✌️", "💜", "🙂"], poke: ["😵‍💫", "🌀", "😣"], pet: ["🥰", "💕", "☺️"],
+  shake: ["😵", "🎢"], charge: ["🍚", "😋"], hungry: ["🥺", "🔋"], heat: ["🥵", "💦"], save: ["🐢", "😪"], music: ["🎵", "🎶", "🎧"], answer: ["😊", "👍", "💜", "😆"],
+  roam: ["🐾", "👣"], done: ["😆", "👍"], solo: ["🎵", "😆", "🙌"], wake: ["😪", "🥱", "☀️"], app: ["😊", "👀"],
+  "feel:joy": ["😆", "🥳"], "feel:laugh": ["🤣", "😂"], "feel:surprise": ["😲", "😮"], "feel:proud": ["😎", "💪"], "feel:calm": ["😌", "🍃"], "feel:dizzy": ["😵‍💫"],
+  "feel:sleepy": ["😪", "💤"], "feel:shy": ["😳", "🙈"], "feel:curious": ["🤔", "👀"], "feel:sad": ["🥲", "😢"], "feel:cold": ["🥶"], "feel:hot": ["🥵"],
+  "feel:love": ["💕", "🥰"], "feel:sneaky": ["🤫", "😏"], "feel:food": ["😋", "🍪"], "feel:ouch": ["🤕", "😣"], "feel:fume": ["😤"], "feel:sing": ["🎵", "🎶"]};
+function emojied(text, moment) {
+  if (!text || /\p{Extended_Pictographic}/u.test(text) || Math.random() > .35) return text;
+  const list = EMOJI[String(moment || "").startsWith("app:") ? "app" : moment];
+  return list ? text + " " + list[Math.floor(Math.random() * list.length)] : text;
 }
 function say(b) {
   const k = info || {}, theirs = Array.isArray(k.lines) && k.lines.length ? k.lines.slice() : null;
@@ -510,7 +525,7 @@ function thought(said) {
   bubble waiting for one (20 s); the one picked gets an answer (the AI, else 퍼레's own words) and is remembered.
 */
 /** Whether a line asks the user something (not a sound like "오잉?"). */
-function asking(line) { const t = String(line || "").trim(); return /\?\s*[~!]*$/.test(t) && t.replace(/[^가-힣a-zA-Z0-9]/g, "").length >= 4; }
+function asking(line) { const t = String(line || "").replace(/[\p{Extended_Pictographic}\u200d\ufe0f]/gu, "").trim(); return /\?\s*[~!]*$/.test(t) && t.replace(/[^가-힣a-zA-Z0-9]/g, "").length >= 4; }
 /** Choices that fit a question with none of its own. */
 function choicesFor(q) {
   const t = String(q || "");
@@ -596,6 +611,8 @@ function nextLine(k, prev, opened) {
 }
 function talk(opened) {
   if (!seenNow || !info || (info.env && info.env.dnd)) return;
+  // Asleep at dawn: it says its news once it is awake, not in its sleep.
+  if (sleepHours() && boards.some(b => !awake(b))) return;
   const now = Date.now();
   if (now - lastSpoke < 45000) return;
   const line = nextLine(info, before, opened);
@@ -611,6 +628,8 @@ function talk(opened) {
 function boardSeen(on) {
   if (!on) { if (seenNow) hiddenAt = Date.now(); seenNow = false; return; }
   const away = hiddenAt ? Date.now() - hiddenAt : 0; seenNow = true;
+  // At dawn: asleep when the screen comes on, awake a few seconds later (its sleepy word in place of a greeting).
+  if (sleepHours()) { boards.forEach(b => { if (!awake(b)) { if (b._mood) b._mood("sleepy"); wake(b); } }); return; }
   if (away > 90000 && window.boardCare) window.boardCare("back");
   // Back from a short while in an app: now and then a word about it (the app knows which one).
   if (away > 20000 && away <= 90000 && Math.random() < .35 && Date.now() - (window._appTalkAt || 0) > 600000) { window._appTalkAt = Date.now(); setTimeout(() => boards.forEach(b => askThink(b, "app", "")), 900); }
@@ -622,7 +641,7 @@ function boardSeen(on) {
     else talk(true);
   }, 900);
 }
-setTimeout(() => talk(true), 2200);
+setTimeout(() => { if (sleepHours()) boards.forEach(b => { if (b._mood) b._mood("sleepy"); wake(b); }); else talk(true); }, 2200);
 
 /*
   What keeps the friend alive, per board, only while the screen is seen: breathing and a slow sway (CSS), blinks at
@@ -765,13 +784,33 @@ function alive(b) {
     clearTimeout(b._follow); b._follow = setTimeout(() => { b._following = false; gaze(0, 0, 600); }, 1700);
   }, {passive: true});
 }
-/** The friend's mood from what the app says (thinking, a new notice, night). */
+/*
+  퍼레 sleeps at dawn (준: "새벽에는 퍼레가 잠도 잘 수 있게 해줘", "자다가 휴대폰 켜면 잠시 뒤 일어나게"): from midnight to seven it
+  is asleep; the screen turned on, it sleeps on a few seconds, then wakes (a yawn, a stretch, a sleepy word); a touch wakes it
+  sooner; left alone two minutes, it dozes off again.
+*/
+const sleepHours = () => new Date().getHours() < 7;
+function awake(b) { return !!b._awakeAt && Date.now() - b._awakeAt < 120000; }
+function wake(b, soon) {
+  if (!b._mood || b._waking || awake(b)) return;
+  b._waking = true;
+  setTimeout(() => {
+    b._waking = false; if (!sleepHours() || voiceOn) return;
+    b._awakeAt = Date.now(); b._mood("");
+    if (b._feel) b._feel("yawn", 1700); move(b, "stretch", 1300);
+    setTimeout(() => { if (!$(b, ".bubble").classList.contains("on")) { const w = preset("wake"); if (w) speak(b, {text: w}, 3400); } }, 1500);
+  }, soon ? 600 : 2500 + Math.random() * 2500);
+}
+function doze(b) { if (!b._mood) return; b._awakeAt = 0; if (b._feel) b._feel("drowsy", 1800); setTimeout(() => { if (!awake(b) && sleepHours()) b._mood("sleepy"); }, 1800); }
+setInterval(() => { if (sleepHours() && seenNow && !voiceOn) boards.forEach(b => { if (b._awakeAt && !awake(b) && !b._careOn) doze(b); }); }, 15000);
+// A touch: a sleeping 퍼레 wakes soon; an awake one stays awake a while longer.
+addEventListener("pointerdown", () => { if (!sleepHours()) return; boards.forEach(b => { if (awake(b)) b._awakeAt = Date.now(); else wake(b, true); }); }, {passive: true, capture: true});
+/** The friend's mood from what the app says (thinking, a new notice, dawn's sleep). */
 function moodOf(b, k) {
   if (!b._mood) return;
-  const h = new Date().getHours(), night = h >= 0 && h < 6;
   const more = (k.noticeCount || 0) > (b._notices == null ? Infinity : b._notices); b._notices = k.noticeCount || 0;
-  if (more && b._feel) b._feel("surprised", 1400);
-  b._mood(!k.locked && ((k.working || 0) > 0 || k.lab) ? "thinking" : night ? "sleepy" : "");
+  if (more && b._feel && !(sleepHours() && !awake(b))) b._feel("surprised", 1400);
+  b._mood(!k.locked && ((k.working || 0) > 0 || k.lab) ? "thinking" : sleepHours() && !awake(b) ? "sleepy" : "");
 }
 /** The app's data for every board drawn. */
 function setBoardData(k) {
@@ -851,7 +890,16 @@ function envOf(b, k) {
     : head === "chef" || hand === "riceball" ? "apron" : "";
   // No lasting outfit from how fond it is (준: "자꾸 눈하트에 이상한날개 단 상태에서 캐릭터가 안 풀려"): those are days' picks now.
   const back = night ? "moon" : freezing && !snow ? "mittens" : code != null && code >= 1 && code <= 3 && h >= 15 && h < 18 && doy % 5 === 0 ? "rainbow" : "";
-  const wear = [head, face, neck, hand, body, back, storm ? "storm" : ""].filter(Boolean);
+  /*
+    Plain is how 퍼레 is (준: "특정 의상 고정 경향이 있어 하나로 고정하지 말게 해줘", "보통은 기본 모드로 있고", "종종 의상을 바꾸게
+    해", "기본모드로 있는게 디폴트야"): what stays is for a reason, an umbrella in rain, its night things while it is sleep
+    time, a storm cloud in thunder; and now and then, for a while, one or two things the day calls for, different each time
+    (forty-minute turns, about three in ten dressed up).
+  */
+  const turn = Math.floor(d.getTime() / 2400000), mix = n => { let x = Math.imul(turn ^ 0x9e3779b9, 2654435761) ^ Math.imul(n + 1, 40503); x ^= x >>> 15; x = Math.imul(x, 2246822507); x ^= x >>> 13; return x >>> 0; };
+  const sleepTime = h < 7, choices = sleepTime ? [] : [head, face, neck, hand, body, back].filter(Boolean), picked = [];
+  if (mix(1) % 100 < 30) for (let i = 0, n = 1 + mix(2) % 2; i < n && choices.length; i++) picked.push(choices.splice(mix(3 + i) % choices.length, 1)[0]);
+  const wear = [rain && !drizzle ? "umbrella" : "", storm ? "storm" : "", sleepTime ? "cap" : "", sleepTime ? "pajamas" : "", sleepTime && h < 6 ? "moon" : ""].filter(Boolean).concat(picked);
   if (!b._dressed) WEAR.forEach(x => svg.classList.toggle("w-" + x, wear.includes(x)));
   svg.classList.toggle("w-bolt", !!e.charging); svg.classList.toggle("w-sweat", hot && !night);
   svg.classList.toggle("w-notes", !!e.music); svg.classList.toggle("w-q", !!e.offline);
@@ -879,6 +927,8 @@ function boardLife(life) {
 }
 /** The phone as it is now (launcher.env, asked every quarter minute while seen), so music and charging are noticed soon. */
 function boardEnv(env) { if (!env) return; info = info || {}; info.env = env; boards.forEach(b => { envOf(b, info); if (b._careOn) drawCare(b); }); }
+// Its clothes follow the time (a dress-up turn begins or ends): looked at again every minute while the screen is seen.
+setInterval(() => { if (info && seenNow && !document.hidden) boards.forEach(b => envOf(b, info)); }, 60000);
 
 /*
   The care card (the heart by 퍼레): its state only (준: "하트누르면 상태표시만 나오게해", "쓰다듬기 놀아주기 등은 없애줘", "그냥 내가
@@ -940,8 +990,11 @@ function drawCare(b) {
   퍼레's voice talk (held 퍼레, the home screen app's BuddyVoice): what it shows while it listens (a soft ring, what it hears
   so far in the bubble), thinks (the dots), speaks (the words as they are said, its mouth moving) and when it ends.
 */
-let voiceOn = false;
+let voiceOn = false, voiceAt = 0;
+// A talk the page heard nothing of for two minutes (it ended while another app was in front): over, the mouth still.
+setInterval(() => { if (voiceOn && !document.hidden && Date.now() - voiceAt > 120000) boardVoiceState("idle", ""); }, 10000);
 function boardVoiceState(state, text) {
+  voiceAt = Date.now();
   boards.forEach(b => {
     const buddy = $(b, ".buddy"), bubble = $(b, ".bubble"), svg = $(b, ".bot");
     clearTimeout(b._bubble); clearInterval(b._typing);

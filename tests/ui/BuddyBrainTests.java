@@ -320,7 +320,10 @@ public class BuddyBrainTests {
         org.json.JSONObject act = BuddyTalk.act(answer);
         assertNotNull(act); assertEquals("open_app", act.optString("tool")); assertEquals("네이버 지도", act.optString("app"));
         String said = BuddyTalk.spoken(answer);
-        assertFalse(said, said.contains("http") || said.contains("할일") || said.contains("😊"));
+        assertFalse(said, said.contains("http") || said.contains("할일"));
+        // 준: "이모지도 쓸 수 있게 해줘" — kept in what is shown, not said aloud; no sparkles.
+        assertTrue(said, said.contains("😊")); assertEquals("두구두구! 네이버 지도 바로 열어볼게.", BuddyVoice.voiced(said));
+        assertFalse(BuddyTalk.spoken("좋아 ✨ 가자").contains("✨"));
         assertTrue(said, said.startsWith("두구두구! 네이버 지도 바로 열어볼게"));
         assertNull(BuddyTalk.act("그냥 이야기야"));
         // 준: 퍼레가 "{tool:openapp,app:YouTube}"를 그대로 외쳤다: a bare {…}, quotes or not, its tool's own name, never said.

@@ -68,7 +68,9 @@ final class BuddyVoice {
     /** The home screen came to the front: it shows the talk (and asks for the fingerprint); the overlay goes. */
     void attach(Show screen, Unlock unlock) {
         this.screen = screen; this.unlock = unlock; overlay.hide();
-        if (on) screen.state(lastState, lastText);
+        // A talk that ended while another app was in front: the home screen still showed it talking (준: "말도 안하는데 입을 자꾸
+        // 움직여", "제자리에서 계속"), so it is told it ended.
+        if (on) screen.state(lastState, lastText); else screen.state("idle", "");
     }
     /** The home screen went behind another app: while the talk is on, 퍼레 shows over it. */
     void detach() {
@@ -123,14 +125,17 @@ final class BuddyVoice {
                 heardAt = android.os.SystemClock.uptimeMillis(); wordsAt = heardAt;
                 closeEar();
                 if (words == null || words.isBlank()) { quiet(some[0]); return; }
-                heardSome = true; silences = 0; filler(); think(BuddyTalk.heard(context, words.strip()), false);
+                if (screen == null && guidance(words)) { quiet(false); return; } // the navigation app's own voice
+                heardSome = true; silences = 0; micSince = 0; filler(); think(BuddyTalk.heard(context, words.strip()), false);
             }
             @Override public void failed(String reason) {
                 if (!on || mine != generation) return;
                 if (ownEarCanTakeOver()) { closeEar(); deviceOff = true; listen(); return; }
+                // Over another app the recognizer fails while that app has the microphone: it waits and tries again.
+                if (screen == null && waitForMicrophone(reason)) return;
                 end("error", reason);
             }
-            @Override public void silent(String reason) { if (on && mine == generation) quiet(some[0]); }
+            @Override public void silent(String reason) { if (on && mine == generation) { if (!some[0] && micTaken()) { closeEar(); if (switchEar()) return; } quiet(some[0]); } }
         });
     }
     /**
@@ -142,7 +147,13 @@ final class BuddyVoice {
         capture = VoiceCapture.start(7000, new VoiceCapture.Heard() {
             @Override public void speech(short[] pcm) { if (on && mine == generation) { capture = null; heardAt = android.os.SystemClock.uptimeMillis(); filler(); hear(pcm, mine); } }
             @Override public void silent() { if (on && mine == generation) { capture = null; quiet(false); } }
-            @Override public void failed(String why) { if (on && mine == generation) { capture = null; ownEar = false; ownBroken = true; listen(); } }
+            @Override public void failed(String why) {
+                if (!on || mine != generation) return;
+                capture = null;
+                // Silenced by another app: not broken, it waits for the microphone (and says why, with the way to fix it).
+                if (VoiceCapture.SILENCED.equals(why)) { if (!waitForMicrophone(why)) end("error", micWords()); return; }
+                ownEar = false; ownBroken = true; listen();
+            }
             @Override public void began() { if (on && mine == generation) show("listening", "…"); }
         });
     }
@@ -163,11 +174,57 @@ final class BuddyVoice {
                     if (!on || mine != generation) return;
                     if (got == null) { ownEar = false; ownBroken = true; listen(); return; }
                     if (got.isBlank()) { quiet(false); return; }
+                    if (screen == null && guidance(got)) { quiet(false); return; }
                     wordsAt = android.os.SystemClock.uptimeMillis();
-                    heardSome = true; silences = 0; think(got, who == dev.jun.gyeot.core.VoicePrint.Who.STRANGER);
+                    heardSome = true; silences = 0; micSince = 0; think(got, who == dev.jun.gyeot.core.VoicePrint.Who.STRANGER);
                 });
             });
         } catch (RuntimeException stopped) { end("error", ""); }
+    }
+    // ── another app's microphone (준: "네이버지도 네비게이션 시작했을때 퍼레음성인식이 안돼", "네비게이션 모드 앱위에서") ──
+    /** Whether another app is recording now (this one's ear is closed when it asks): a navigation app's voice commands … */
+    private boolean micTaken() {
+        try { android.media.AudioManager a = context.getSystemService(android.media.AudioManager.class); return a != null && !a.getActiveRecordingConfigurations().isEmpty(); }
+        catch (RuntimeException unknown) { return false; }
+    }
+    /**
+     * The phone's recognizer (another app's process) gets only silence while the app in front records; 퍼레's own ear may still
+     * hear, as Android lets an app with an accessibility service (폰 조작) share the microphone. True when it switched.
+     */
+    private boolean switchEar() {
+        if (ownEar || deviceOff || ownBroken || !GroqWork.on()) return false;
+        deviceOff = true; store.phoneLog("● 퍼레 음성: 다른 앱이 마이크를 써서 퍼레의 귀로 들어요");
+        show("listening", "다른 앱이 마이크를 쓰는 중이라 내 귀로 들을게");
+        main.postDelayed(this::listen, 300); return true;
+    }
+    private String micWords() {
+        return "다른 앱이 마이크를 쓰고 있어서 지금은 못 들어." + (PhoneService.connected() ? "" : " 폰 조작(접근성)을 켜 주면 같이 들을 수 있어.");
+    }
+    private long micSince;
+    /**
+     * The microphone is another app's for now: 퍼레 shows why, keeps it with the way to fix it (폰 조작 on: then Android shares the
+     * microphone with 퍼레), and tries again every few seconds while the talk may go on. False when it is time to stop.
+     */
+    private boolean waitForMicrophone(String reason) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (now - lastTalk >= QUIET_OVER) return false;
+        if (switchEar()) return true;
+        if (micSince == 0 || now - micSince > QUIET_OVER) {
+            micSince = now;
+            store.phoneLog("● 퍼레 음성: 마이크를 못 받음 (" + reason + ") · 다른 앱 녹음 " + (micTaken() ? "있음" : "없음") + " · 폰 조작 " + (PhoneService.connected() ? "연결" : "꺼짐"));
+            BuddyMisses.add(context, "", "음성 대화", "다른 앱이 마이크를 쓰고 있어서 못 들었어요", PhoneService.connected() ? "" : "accessibility");
+        }
+        show("listening", micWords());
+        int mine = generation;
+        main.postDelayed(() -> { if (on && mine == generation) listen(); }, 4000);
+        return true;
+    }
+    /** Words heard over a navigation app that are its own guidance, not the user's ("300미터 앞에서 우회전입니다"). */
+    static boolean guidance(String said) {
+        if (said == null) return false;
+        String t = said.replaceAll("\\s+", "");
+        if (t.contains("퍼레")) return false;
+        return t.matches(".*((\\d+|[일이삼사오육칠팔구십백천]+)(미터|m|킬로|km)(앞|후|전방)|좌회전|우회전|유턴|차선|경로를|안내를시작|안내를종료|목적지|도착했습니다|과속|단속|보호구역|톨게이트|고속도로|진입|출구|교차로|터널|분기점|합류).*");
     }
     /**
      * How long 퍼레 waits for words before the talk ends (준: "들퍼레가 너무 빨리 꺼져", "홈화면에서는 15초 다른 앱 위에서는 3분으로
@@ -183,6 +240,7 @@ final class BuddyVoice {
         closeEar();
         // Over another app the recognizer may get only silence: before ending, 퍼레's own ear gets one more try.
         if (silences + 1 >= 2 && !heardSome && ownEarCanTakeOver()) { deviceOff = true; main.postDelayed(this::listen, 150); return; }
+        if (screen == null && !misheard && micTaken() && switchEar()) return;
         silences++;
         long now = android.os.SystemClock.uptimeMillis();
         if (now - lastTalk >= (screen == null ? QUIET_OVER : QUIET_HOME)) { end("done", "또 불러 줘!"); return; }
@@ -269,19 +327,22 @@ final class BuddyVoice {
         long wait = cueEnds - android.os.SystemClock.uptimeMillis();
         if (wait > 0) { int mine = generation; main.postDelayed(() -> { if (on && mine == generation) say(line); }, Math.min(wait, 2500) + 60); return; }
         show("speaking", line);
+        // Shown with its emoji, said without them (준: "이모지도 쓸 수 있게 해줘").
+        String words = voiced(line);
+        if (words.isEmpty()) { main.postDelayed(this::spoken, 900); return; }
         listenOver();
         int mine = generation;
         TypecastAccount t = store.typecast;
         JSONObject voice = t.voice();
-        if (!t.connected() || voice.optString("id").isBlank() || !t.fits(line.length())) { speakPhone(line); return; }
+        if (!t.connected() || voice.optString("id").isBlank() || !t.fits(words.length())) { speakPhone(words); return; }
         Thread worker = new Thread(() -> {
-            int played = stream(t, voice, line, mine);
-            if (played > 0) { t.count(line.length()); main.post(() -> { if (on && mine == generation) spoken(); }); return; }
+            int played = stream(t, voice, words, mine);
+            if (played > 0) { t.count(words.length()); main.post(() -> { if (on && mine == generation) spoken(); }); return; }
             if (played < 0 || !on || mine != generation) return; // stopped
             File out = null;
-            try { out = synth(context, t, voice, line); t.count(line.length()); } catch (Exception failed) { out = null; }
+            try { out = synth(context, t, voice, words); t.count(words.length()); } catch (Exception failed) { out = null; }
             File got = out;
-            main.post(() -> { if (!on || mine != generation) return; if (got == null) speakPhone(line); else play(got); });
+            main.post(() -> { if (!on || mine != generation) return; if (got == null) speakPhone(words); else play(got); });
         }, "gyeot-buddy-say");
         worker.setDaemon(true); worker.start();
     }
@@ -433,6 +494,10 @@ final class BuddyVoice {
         if (promised != null && act != null) { doNow(promised, todoHeard); return; }
         main.postDelayed(this::listen, 150); // the microphone let go first
     }
+    /** What is said aloud of a line: its words without emoji or symbols. */
+    static String voiced(String line) {
+        return line == null ? "" : line.replaceAll("[\\p{So}\\p{Cs}\\x{FE0F}\\x{200D}\\x{20E3}]", "").replaceAll("\\s+", " ").strip();
+    }
     /** The phone's own voice, a little higher and quicker, for 퍼레. */
     private void speakPhone(String line) {
         int mine = generation;
@@ -479,7 +544,7 @@ final class BuddyVoice {
         if (o == null) { main.postDelayed(this::listen, 350); return; }
         if (o.confirm() != null) confirming = o.confirm();
         // Another app came up: the talk goes on over it (BuddyOverlay), 퍼레 listening again.
-        if (o.leaves()) { if (o.say() != null && !o.say().isBlank()) { say(o.say()); return; } main.postDelayed(this::listen, 900); return; }
+        if (o.leaves()) { if (o.say() != null && !o.say().isBlank()) { say(o.say()); return; } main.postDelayed(this::listen, 2500); return; }
         if (o.say() != null && !o.say().isBlank()) { turns.add(new String[]{"assistant", o.say()}); say(o.say()); return; }
         main.postDelayed(this::listen, 350);
     }
