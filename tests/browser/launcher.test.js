@@ -96,6 +96,26 @@ async function open(browser, at) {
     assert(!got.heart, 'the heart stayed');
     assert.deepStrictEqual(day.errors, []);
   });
+  await check('a question in 퍼레\'s bubble comes with choices; a tap answers it', async () => {
+    const p = day.page;
+    await p.evaluate(() => { window._solo = []; launcher.thought('오늘 저녁은 뭐 먹을 거야?\n고르기: 치킨 / 라면 / 아직 몰라'); });
+    await p.clock.runFor(2500);
+    const picks = await p.evaluate(() => Array.from(document.querySelectorAll('.bubble .pick')).map(x => x.textContent));
+    assert.deepStrictEqual(picks, ['치킨', '라면', '아직 몰라']);
+    const box = await p.evaluate(() => { const r = document.querySelector('.bubble .pick').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, h: r.height }; });
+    assert(box.h <= 30, 'small chips: ' + box.h);
+    await p.touchscreen.tap(box.x, box.y);
+    await p.clock.runFor(1000);
+    const asked = await p.evaluate(() => window._solo.find(w => w.startsWith('answer:')) || '');
+    assert(asked.startsWith('answer:오늘 저녁은 뭐 먹을 거야?') && asked.endsWith('치킨'), asked);
+    // A question of its own words (no AI choices) gets choices that fit it; a sound does not.
+    await p.evaluate(() => { launcher.thought('오늘 기분 점수는 몇 점이야?'); });
+    await p.clock.runFor(2500);
+    assert.deepStrictEqual(await p.evaluate(() => Array.from(document.querySelectorAll('.bubble .pick')).map(x => x.textContent)), ['100점!', '70점쯤', '별로…']);
+    await p.evaluate(() => { launcher.thought('오잉?'); });
+    await p.clock.runFor(1500);
+    assert.strictEqual(await p.evaluate(() => document.querySelectorAll('.bubble .pick').length), 0);
+  });
   await day.ctx.close();
 
   const evening = await open(browser, '2026-11-26T20:30:00+09:00');

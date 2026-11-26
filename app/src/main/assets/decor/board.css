@@ -99,6 +99,12 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .bubble.act{pointer-events:auto}
 /* A sound or a word while it plays alone: a smaller bubble. */
 .bubble.sfx{padding:6px 11px;font-size:13px;font-weight:700}
+/* A question with its choices (tap one): small chips under it. */
+.bubble.ask{pointer-events:auto}
+.bubble .picks{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+.bubble .pick{border:0;border-radius:999px;padding:5px 10px;font:inherit;font-size:12.5px;font-weight:750;background:#efeaff;color:#5b3fd6;line-height:1.2}
+.bubble .pick:active{transform:scale(.94)}
+.bubble.mine{background:#5b3fd6;color:#fff}
 .bubble .more{font-weight:800;opacity:.55}
 
 .think{position:absolute;right:-8px;top:-6px;display:none;align-items:center;gap:5px;padding:6px 10px 6px 8px;border-radius:999px;background:#fff;color:#1c1c1e;box-shadow:var(--shade);font-size:12.5px;font-weight:800;z-index:2}

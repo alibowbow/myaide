@@ -46,11 +46,17 @@ final class BuddyTalk {
         boolean hasMemory = !memories(c).isEmpty(), hasApp = c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).getString("recentLabels", "[]").length() > 2;
         JSONObject used; try { used = new JSONObject(p.getString("topics", "{}")); } catch (Exception e) { used = new JSONObject(); }
         // Playing alone (board.js "solo:<play>"): the play is the topic.
-        boolean solo = reason.startsWith("solo:");
+        boolean solo = reason.startsWith("solo:") || reason.startsWith("answer:");
         String topic = solo ? "지금 하고 있는 놀이" : dev.jun.gyeot.core.BuddyMind.topic(used, hasMemory, hasApp, new java.util.Random());
         if (!solo) { try { used.put(topic, System.currentTimeMillis()); } catch (Exception ignored) {} p.edit().putString("topics", used.toString()).apply(); }
         String instructions = instructions(c, reason, topic, dev.jun.gyeot.core.BuddyMind.overused(said, 8)), input = input(c, store, p, reason);
-        ask(c, instructions, input, attempt == 0 ? 0.75 : 0.9, 9_000, text -> clean(text, p), line -> { remember(p, line); busy.set(false); done.accept(line); },
+        // A question's choices (고르기: …) go along on a second line, for the page to show under it.
+        ask(c, instructions, input, attempt == 0 ? 0.75 : 0.9, 9_000, text -> { String l = clean(text, p); String picks = l == null ? "" : picks(l, text); return l == null || picks.isEmpty() ? l : l + "\n고르기: " + picks; },
+            line -> {
+                String first = line.split("\n")[0]; remember(p, first); busy.set(false); done.accept(line);
+                // A choice the user picked: something about them, kept as 퍼레 keeps what it hears.
+                if (reason.startsWith("answer:")) { String[] qa = reason.substring(7).split("\u0001", 2); if (qa.length == 2) learnLater(c, "(퍼레가 ‘" + qa[0] + "’라고 묻자) " + qa[1], first); }
+            },
             () -> { if (attempt == 0) thinkOnce(c, store, p, reason, done, failed, 1); else { busy.set(false); failed.run(); } });
     }
     /** What 퍼레 said lately, oldest first. */
@@ -420,7 +426,21 @@ final class BuddyTalk {
         if (s.isEmpty()) return null;
         return s.length() <= 140 ? s : s.substring(0, 140).replaceAll("[^.!?요]*$", "").strip();
     }
+    private static final java.util.regex.Pattern PICKS = java.util.regex.Pattern.compile("(?m)^\\s*고르기\\s*[:：]\\s*(.+)$");
+    /** The choices the brain wrote under a question ("고르기: 응 / 아니 / 글쎄"), two or three short ones joined by " / ", or "". */
+    static String picks(String line, String text) {
+        if (line == null || text == null || !line.strip().matches("(?s).*\\?\\s*[~!]*$")) return "";
+        java.util.regex.Matcher m = PICKS.matcher(text); if (!m.find()) return "";
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String one : m.group(1).split("[/|·,]")) { String v = one.replaceAll("[\"“”‘’']", "").strip(); if (!v.isEmpty() && v.length() <= 12 && out.size() < 3) out.add(v); }
+        return out.size() >= 2 ? String.join(" / ", out) : "";
+    }
     private static String instructions(Context c, String reason, String topic, java.util.List<String> avoid) {
+        if (reason.startsWith("answer:")) {
+            String[] qa = reason.substring(7).split("\u0001", 2);
+            return persona(c) + "\n지금: 네가 말풍선으로 ‘" + qa[0] + "’라고 물었고, 사용자가 ‘" + (qa.length > 1 ? qa[1] : "") + "’를 골라 답했어. 그 답에 반갑게, 그 답에 맞게 반응해.\n"
+                + "- 또 묻지 말고, 잔소리·조언·힘내·쉬어 같은 말은 하지 마.\n- 한 문장, 40자 안쪽, 친근한 반말. 따옴표와 이모지 없이 그 문장만 답해.";
+        }
         if (reason.startsWith("solo:")) {
             String play = reason.substring(5).replaceAll("[^A-Za-z]", "");
             return persona(c) + "\n지금: 너는 홈 화면 구석에서 혼자 놀고 있어. 지금 하는 놀이는 '" + play + "'(영어 이름)야. 놀면서 혼잣말처럼 한마디 해.\n"
@@ -453,7 +473,8 @@ final class BuddyTalk {
             + "- '이미 했던 말'과 같거나 비슷한 뜻·소재·문장 틀은 절대 쓰지 마. 뻔한 인사말도 피해.\n"
             + "- 일, 업무, 일정, 할 일, 주식, 코인, 시세, 숫자, 돈 이야기와 조언·잔소리는 하지 마. 파일·사진 정리, 청소, 삭제, 백업, 용량, 업데이트 같은 할 일을 권하지 마.\n"
             + "- 비밀번호·계정·권한 요청, 털어놓은 고민 같은 사적인 내용은 말하지 마.\n"
-            + "- 한 문장, 45자 안쪽. 따옴표와 이모지 없이 그 문장만 답해.";
+            + "- 한 문장, 45자 안쪽. 따옴표와 이모지 없이 그 문장만 답해.\n"
+            + "- 사용자에게 묻는 말로 끝낼 때만, 둘째 줄에 사용자가 눌러서 고를 짧은 답 2~3개를 '고르기: 답 / 답 / 답'(각 8자 안쪽)으로 써.";
     }
     private static String input(Context c, AppStore store, SharedPreferences p, String reason) {
         long now = System.currentTimeMillis();

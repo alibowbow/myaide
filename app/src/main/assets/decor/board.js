@@ -226,6 +226,9 @@ function makeBoard(slot) {
   const bubble = $(b, ".bubble");
   bubble.addEventListener("click", e => {
     e.stopPropagation();
+    const pick = e.target.closest ? e.target.closest(".pick") : null;
+    if (pick) { answer(b, bubble.dataset.q || "", pick.textContent); return; }
+    if (bubble.classList.contains("ask")) return; // a question waits for its answer
     const go = bubble.dataset.go; bubble.classList.remove("on", "act");
     if (go && !lockedNow) (window.boardGo || (w => { location.href = "/do/" + encodeURIComponent(w); }))(go);
   });
@@ -476,30 +479,71 @@ function hearts(b, n) {
 /** 퍼레 is thinking (the AI writes its line): the thinking face, dots in the bubble, until the line arrives. */
 function thinking(b) {
   const bubble = $(b, ".bubble");
-  bubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>'; bubble.dataset.go = ""; bubble.classList.remove("act", "sfx"); bubble.classList.add("on");
+  bubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>'; bubble.dataset.go = ""; bubble.classList.remove("act", "sfx", "ask"); bubble.classList.add("on");
   if (b._mood) b._mood("thinking");
   clearTimeout(b._bubble); b._bubble = setTimeout(() => { if (!b._spoken) bubble.classList.remove("on"); }, 15000);
   b._spoken = false;
 }
 /** The line the AI wrote, typed into the bubble as it is said (the mouth moves while it types). */
-function thought(line) {
-  window._soloAsk = 0;
+function thought(said) {
+  window._soloAsk = 0; window._answerAsk = 0;
+  // A question comes with its choices on a second line ("고르기: 응 / 아니 / 글쎄").
+  const parts = String(said || "").split("\n"), line = parts[0].trim();
+  const given = (parts.slice(1).find(l => /^\s*고르기\s*[:：]/.test(l)) || "").replace(/^\s*고르기\s*[:：]/, "").split(/[\/|·]/).map(x => x.trim()).filter(x => x && x.length <= 12).slice(0, 3);
+  const picks = asking(line) ? (given.length >= 2 ? given : choicesFor(line)) : [];
   boards.forEach(b => {
     b._spoke = Date.now();
     const bubble = $(b, ".bubble"), svg = $(b, ".bot"); b._spoken = true;
     if (b._mood) b._mood(""); if (b._feel) b._feel("happy", 1600);
-    bubble.textContent = ""; bubble.classList.remove("sfx"); bubble.classList.add("on"); if (svg) svg.classList.add("talking");
+    bubble.textContent = ""; bubble.classList.remove("sfx", "ask"); bubble.classList.add("on"); if (svg) svg.classList.add("talking");
     let i = 0; const chars = Array.from(line);
     clearInterval(b._typing);
     b._typing = setInterval(() => {
       i++; bubble.textContent = chars.slice(0, i).join("");
-      if (i >= chars.length) { clearInterval(b._typing); if (svg) svg.classList.remove("talking"); clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on"), 6500); }
+      if (i >= chars.length) { clearInterval(b._typing); if (svg) svg.classList.remove("talking"); clearTimeout(b._bubble); if (picks.length) offer(b, line, picks); else b._bubble = setTimeout(() => bubble.classList.remove("on"), 6500); }
     }, 38);
   });
+}
+/*
+  퍼레's questions are answered with a tap (준: "퍼레가 가끔 나에게 말풍선으로 질문하는데 그럴경우에는 선택가능한 선택지를 주고 내가
+  터치해서 고를 수 있게해줘"): two or three small choices under the question (the AI's own, or ones that fit the question), the
+  bubble waiting for one (20 s); the one picked gets an answer (the AI, else 퍼레's own words) and is remembered.
+*/
+/** Whether a line asks the user something (not a sound like "오잉?"). */
+function asking(line) { const t = String(line || "").trim(); return /\?\s*[~!]*$/.test(t) && t.replace(/[^가-힣a-zA-Z0-9]/g, "").length >= 4; }
+/** Choices that fit a question with none of its own. */
+function choicesFor(q) {
+  const t = String(q || "");
+  if (/몇 ?점/.test(t)) return ["100점!", "70점쯤", "별로…"];
+  if (/뭐 ?먹|메뉴|간식|배고/.test(t)) return ["밥!", "면!", "아직 몰라"];
+  if (/누구게|뭐게|무슨 생각|맞혀|퀴즈/.test(t)) return ["궁금해!", "몰라~", "알려 줘!"];
+  if (/어디/.test(t)) return ["집!", "밖이야", "비밀~"];
+  if (/(할래|할까|어때|갈까|볼래|줄래|않을래|어떨까|좋을까)\s*\?/.test(t)) return ["좋아!", "다음에", "음… 글쎄"];
+  if (/(했어|봤어|먹었어|잤어|마셨어|있었어|왔어|들었어|갔어)\s*\?/.test(t)) return ["응!", "아직", "비밀~"];
+  return ["응!", "아니", "글쎄~"];
+}
+function offer(b, question, picks) {
+  const bubble = $(b, ".bubble");
+  const box = document.createElement("div"); box.className = "picks";
+  picks.forEach(p => { const c = document.createElement("button"); c.className = "pick"; c.type = "button"; c.textContent = p; box.appendChild(c); });
+  bubble.appendChild(box); bubble.dataset.q = question; bubble.classList.add("on", "ask");
+  clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on", "ask"), 20000);
+}
+/** A choice picked: 퍼레 hears it, answers (the AI, or its own words when there is none) and keeps it in mind. */
+function answer(b, question, picked) {
+  const bubble = $(b, ".bubble");
+  bubble.classList.remove("ask"); bubble.textContent = picked; bubble.classList.add("mine");
+  move(b, "hop", 760); if (b._feel) b._feel("happy", 1400);
+  setTimeout(() => {
+    bubble.classList.remove("mine");
+    if (window.boardThink && !lockedNow) { window._answerAsk = Date.now(); thinkAt = Date.now(); boards.forEach(thinking); window.boardThink("answer:" + question.slice(0, 80) + "\u0001" + picked.slice(0, 20)); }
+    else { const w = preset("answer"); speak(b, {text: w || "헤헤, 그렇구나!"}, 3600); }
+  }, 700);
 }
 function thoughtFail() {
   // A line it wanted while playing alone: no line, no tap words in its place.
   if (Date.now() - (window._soloAsk || 0) < 30000) { window._soloAsk = 0; boards.forEach(b => { if (b._mood) b._mood(""); }); return; }
+  if (Date.now() - (window._answerAsk || 0) < 30000) { window._answerAsk = 0; boards.forEach(b => { if (b._mood) b._mood(""); speak(b, {text: preset("answer") || "헤헤, 그렇구나!"}, 3600); }); return; }
   boards.forEach(b => { if (b._mood) b._mood(""); const line = say(b); if (line) speak(b, {text: line}, 3400); else $(b, ".bubble").classList.remove("on"); }); }
 /** The bubble over the friend: words, and what a tap on it opens (if anything). */
 function speak(b, line, ms) {
@@ -507,8 +551,9 @@ function speak(b, line, ms) {
   const bubble = $(b, ".bubble");
   bubble.textContent = line.text; bubble.dataset.go = line.go || "";
   if (line.go) { const more = document.createElement("b"); more.className = "more"; more.textContent = " ›"; bubble.appendChild(more); }
-  bubble.classList.toggle("act", !!line.go); bubble.classList.toggle("sfx", !!line.sfx); bubble.classList.add("on");
+  bubble.classList.toggle("act", !!line.go); bubble.classList.toggle("sfx", !!line.sfx); bubble.classList.remove("ask"); bubble.classList.add("on");
   clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on", "act"), ms || 6500);
+  if (!line.sfx && !line.go && asking(line.text)) offer(b, line.text, choicesFor(line.text));
 }
 
 /*
