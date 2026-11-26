@@ -4461,7 +4461,8 @@ public final class MainActivity extends Activity {
         }
         boolean coding = store.settings.getBoolean("githubCoding", true), write = store.githubWrite();
         String user = store.settings.getString("githubUser", ""), who = user.isBlank() ? "GitHub" : user;
-        add(coding ? ui.statusCard(R.drawable.ic_repo, Ui.INDIGO, "연결됨", who + " · " + (write ? "고치기 허용" : "읽기 전용"), null)
+        String saved = githubTokenShown();
+        add(coding ? ui.statusCard(R.drawable.ic_repo, Ui.INDIGO, "연결됨", who + " · " + (write ? "고치기 허용" : "읽기 전용") + (saved.isEmpty() ? "" : " · 토큰 …" + saved.substring(Math.max(0, saved.length() - 4))), null)
             : ui.statusCard(R.drawable.ic_repo, Ui.INDIGO, "꺼 둠", who + " · 작업창·메인 대화에서 쓰지 않아요", null), 0);
         add(ui.sectionHeader("사용"), 0);
         LinearLayout use = ui.group();
@@ -4480,12 +4481,17 @@ public final class MainActivity extends Activity {
         add(ui.footer("바꾸면 이미 저장한 예약 작업은 한 번 다시 저장해야 실행돼요."), 0);
         add(ui.sectionHeader("연결 관리"), 0);
         LinearLayout manage = ui.group();
+        // 준: "깃헙 토큰이 저장된건지 알 수가 없어", "어떤 토큰이 저장됐는지도 알 수가": the token kept here (its start and end only),
+        // its kind, whose, when GitHub last said yes and until when; 확인 asks GitHub again now.
+        LinearLayout kept = ui.listRow(0, 0, "저장된 토큰", githubTokenDetails(), ui.smallChip("확인", this::recheckGithub), this::recheckGithub);
+        TextView keptSub = ((Ui.ListRow) kept).parts.subtitle(); if (keptSub != null) { keptSub.setSingleLine(false); keptSub.setMaxLines(3); }
+        ui.addRow(manage, kept, false);
         ui.addRow(manage, ui.listRow(0, 0, "토큰 바꾸기", "새 토큰을 GitHub에 확인한 뒤 바꿔요", ui.chevron(), this::githubTokenSheet), false);
         ui.addRow(manage, ui.listRow(0, 0, "GitHub에서 토큰 만들기", "github.com", ui.chevron(), () -> open(GITHUB_TOKENS)), false);
         add(manage, 16);
         LinearLayout leave = ui.group();
         ui.addRow(leave, ui.dangerRow("연결 해제", "이 기기의 토큰을 지워요", () -> confirm("이 기기의 GitHub 토큰을 지울까요? 토큰 자체를 막으려면 GitHub 설정에서 토큰을 삭제해 주세요.", "해제", () -> {
-            try { store.secrets.put(SecretStore.GITHUB_CODE, ""); store.settings.edit().remove("githubUser").apply(); GitHubRepoList.forget(store); store.status("GitHub 연결을 해제했어요"); showTab(2); }
+            try { store.secrets.put(SecretStore.GITHUB_CODE, ""); store.settings.edit().remove("githubUser").remove("githubTokenAt").remove("githubTokenExpires").remove("githubTokenScopes").apply(); GitHubRepoList.forget(store); store.status("GitHub 연결을 해제했어요"); showTab(2); }
             catch (Exception e) { store.error("토큰을 지우지 못했어요."); }
         })), false);
         add(leave, 0);
@@ -4514,6 +4520,61 @@ public final class MainActivity extends Activity {
             store.changed(); if (tab == 2) showTab(2);
         }).show();
     }
+    /**
+     * Asks GitHub who the token belongs to (api.github.com only, no redirects) and keeps what it says about the token: when it
+     * was checked, until when it lasts (GitHub's expiration header) and a classic token's scopes. The login, or why not.
+     */
+    private String checkGithubToken(String token) throws Exception {
+        java.net.HttpURLConnection connection = (java.net.HttpURLConnection) java.net.URI.create(dev.jun.gyeot.core.GitHubTools.USER).toURL().openConnection();
+        String body, expires, scopes; int status;
+        try {
+            connection.setInstanceFollowRedirects(false); connection.setConnectTimeout(15_000); connection.setReadTimeout(20_000);
+            connection.setRequestProperty("Authorization", "Bearer " + token); connection.setRequestProperty("Accept", "application/vnd.github+json"); connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
+            status = connection.getResponseCode();
+            expires = connection.getHeaderField("github-authentication-token-expiration"); scopes = connection.getHeaderField("x-oauth-scopes");
+            java.io.InputStream input = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            body = input == null ? "" : OpenAiAccount.Http.read(input, 256 * 1024);
+        } finally { connection.disconnect(); }
+        if (status != 200) throw new IllegalStateException(status == 401 ? "GitHub가 이 토큰을 받지 않았어요. 만료되거나 잘못 복사됐는지 확인해 주세요." : "GitHub 토큰을 확인하지 못했어요 (" + status + ").");
+        store.settings.edit().putLong("githubTokenAt", System.currentTimeMillis()).putString("githubTokenExpires", expires == null ? "" : expires.strip())
+            .putString("githubTokenScopes", scopes == null ? "" : scopes.strip()).apply();
+        return new JSONObject(body).optString("login");
+    }
+    /** The saved token as it may be shown: its start and its last four (github_pat_11AB…9xZq), never the whole; "" when none. */
+    private String githubTokenShown() {
+        String t; try { t = store.secrets.get(SecretStore.GITHUB_CODE); } catch (Exception e) { return ""; }
+        if (t == null || t.length() < 12) return "";
+        String head = t.startsWith("github_pat_") ? "github_pat_" : t.startsWith("ghp_") ? "ghp_" : "";
+        return head + t.substring(head.length(), head.length() + 4) + "…" + t.substring(t.length() - 4);
+    }
+    private String githubTokenDetails() {
+        String shown = githubTokenShown();
+        if (shown.isEmpty()) return "이 기기에 저장된 토큰이 없어요";
+        String kind = shown.startsWith("github_pat_") ? "세분화 토큰" : shown.startsWith("ghp_") ? "클래식 토큰" : "토큰";
+        String user = store.settings.getString("githubUser", ""), expires = store.settings.getString("githubTokenExpires", ""), scopes = store.settings.getString("githubTokenScopes", "");
+        long at = store.settings.getLong("githubTokenAt", 0);
+        String checked = at == 0 ? "확인 기록 없음" : new java.text.SimpleDateFormat("M월 d일 a h:mm", java.util.Locale.KOREA).format(new java.util.Date(at)) + " 확인";
+        String until = expires.isEmpty() ? (at == 0 ? "" : "만료일 없음") : expires.replaceAll("\\s.*", "") + "까지";
+        return shown + "\n" + kind + (user.isBlank() ? "" : " · @" + user) + " · 이 기기에 암호화해 둠\n" + checked + (until.isEmpty() ? "" : " · " + until) + (scopes.isEmpty() ? "" : " · 권한 " + scopes);
+    }
+    /** 확인: the saved token asked to GitHub now; the page says what GitHub said. */
+    private void recheckGithub() {
+        if (githubChecking) return;
+        String token; try { token = store.secrets.get(SecretStore.GITHUB_CODE); } catch (Exception e) { token = ""; }
+        if (token == null || token.isBlank()) { store.error("이 기기에 저장된 GitHub 토큰이 없어요."); return; }
+        githubChecking = true; store.status("저장된 GitHub 토큰을 확인하는 중…");
+        String saved = token;
+        new Thread(() -> {
+            try {
+                String login = checkGithubToken(saved);
+                store.settings.edit().putString("githubUser", login).apply();
+                runOnUiThread(() -> { githubChecking = false; store.status("GitHub가 이 토큰을 받았어요 · @" + login); if (tab == 2) showTab(2); });
+            } catch (Exception e) {
+                String reason = e instanceof java.io.IOException ? Net.explain(e) : e.getMessage() == null ? "GitHub 토큰을 확인하지 못했어요." : e.getMessage();
+                runOnUiThread(() -> { githubChecking = false; store.error(reason); if (tab == 2) showTab(2); });
+            }
+        }, "gyeot-github-recheck").start();
+    }
     /** Checks the token with GitHub (who it belongs to) and keeps it only when that works; then done runs. A refusal is the field's error. */
     /** One check of a typed GitHub token at a time; more taps on the sheet button while it runs do nothing. */
     private boolean githubChecking;
@@ -4524,18 +4585,7 @@ public final class MainActivity extends Activity {
         store.status("GitHub 토큰을 확인하는 중…");
         new Thread(() -> {
             try {
-                java.net.HttpURLConnection connection = (java.net.HttpURLConnection) java.net.URI.create(dev.jun.gyeot.core.GitHubTools.USER).toURL().openConnection();
-                String body; int status;
-                try {
-                    // No redirects: the token goes to api.github.com and nowhere else.
-                    connection.setInstanceFollowRedirects(false); connection.setConnectTimeout(15_000); connection.setReadTimeout(20_000);
-                    connection.setRequestProperty("Authorization", "Bearer " + token); connection.setRequestProperty("Accept", "application/vnd.github+json"); connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
-                    status = connection.getResponseCode();
-                    java.io.InputStream input = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-                    body = input == null ? "" : OpenAiAccount.Http.read(input, 256 * 1024);
-                } finally { connection.disconnect(); }
-                if (status != 200) throw new IllegalStateException(status == 401 ? "GitHub가 이 토큰을 받지 않았어요. 만료되거나 잘못 복사됐는지 확인해 주세요." : "GitHub 토큰을 확인하지 못했어요 (" + status + ").");
-                String login = new JSONObject(body).optString("login");
+                String login = checkGithubToken(token);
                 store.secrets.put(SecretStore.GITHUB_CODE, token);
                 store.settings.edit().putString("githubUser", login).apply(); GitHubRepoList.forget(store);
                 runOnUiThread(() -> { githubChecking = false; field.setText(""); done.run(); store.status("GitHub에 " + login + "(으)로 연결했어요 · 메인 대화와 작업창에서 저장소 일을 맡겨 보세요"); if (tab == 2) showTab(2); });
