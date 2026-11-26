@@ -282,9 +282,17 @@ public final class DecorActivity extends Activity {
         Ui.Sheet sheet = ui.selectionSheet("생각 깊이", roster.label(engine, model) + " · 얕을수록 빨리 답해요");
         sheet.primary.setVisibility(View.GONE);
         LinearLayout list = ui.group();
-        for (int i = 0; i < values.length; i++) {
+        // The model's default first, then shallow to deep; "빨라요"/"깊게" by the level itself, not by its place
+        // (준: "낮음에 가장깊이생각이라고 되어있어": the levels came as default, high, xhigh, medium, low).
+        Integer[] order = new Integer[values.length];
+        for (int i = 0; i < values.length; i++) order[i] = i;
+        java.util.Arrays.sort(order, (a, c) -> values[a].isEmpty() ? -1 : values[c].isEmpty() ? 1 : Integer.compare(dev.jun.gyeot.core.Reasoning.rank(values[a]), dev.jun.gyeot.core.Reasoning.rank(values[c])));
+        int shallow = -1, deep = -1;
+        for (int i : order) if (!values[i].isEmpty()) { if (shallow < 0) shallow = i; deep = i; }
+        for (int i : order) {
             String value = values[i], label = i < labels.length ? labels[i] : value;
-            ui.addRow(list, ui.listRow(R.drawable.ic_tune, Ui.INDIGO, label, i == 0 ? "가장 빨라요" : i == values.length - 1 ? "가장 깊게 생각해요" : "", value.equals(current) ? inUse() : null, () -> { sheet.dismiss(); applyBrain(engine, model, value); }), true);
+            String note = value.isEmpty() ? "모델이 정한 깊이" : shallow == deep ? "" : i == shallow ? "가장 빨라요" : i == deep ? "가장 깊게 생각해요" : "";
+            ui.addRow(list, ui.listRow(R.drawable.ic_tune, Ui.INDIGO, label, note, value.equals(current) ? inUse() : null, () -> { sheet.dismiss(); applyBrain(engine, model, value); }), true);
         }
         sheet.body.addView(list);
         sheet.show();

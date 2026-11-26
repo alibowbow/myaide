@@ -76,6 +76,25 @@ public class BuddyBrainTests {
         shot(l, "buddy_brain_models");
     }
 
+    /** 생각 깊이 (준: "낮음에 가장깊이생각이라고 되어있어"): shallow to deep after the default, "빨라요"/"깊게" by the level, not its place. */
+    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void ordersThinkingDepth() throws Exception {
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        app.store().settings.edit().putString("agyEfforts", "[\"high\",\"xhigh\",\"medium\",\"low\"]").commit();
+        Activity a = Robolectric.buildActivity(DecorActivity.class).setup().get();
+        shadowOf(Looper.getMainLooper()).idle();
+        var depth = DecorActivity.class.getDeclaredMethod("brainDepth", String.class, String.class); depth.setAccessible(true);
+        depth.invoke(a, dev.jun.gyeot.core.WorkBook.ANTIGRAVITY, "agy-test-model"); shadowOf(Looper.getMainLooper()).idle();
+        View d = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+        java.util.List<String> words = new java.util.ArrayList<>();
+        java.util.function.Consumer<View> walk = new java.util.function.Consumer<>() { public void accept(View v) { if (v instanceof TextView t) words.add(t.getText().toString()); if (v instanceof ViewGroup g) for (int i = 0; i < g.getChildCount(); i++) accept(g.getChildAt(i)); } };
+        walk.accept(d);
+        int low = words.indexOf("Low · 낮음"), mid = words.indexOf("Medium · 중간"), high = words.indexOf("High · 높음"), xhigh = words.indexOf("Extra high · 매우 높음");
+        assertTrue(words.toString(), low > 0 && low < mid && mid < high && high < xhigh);
+        assertEquals("가장 빨라요", words.get(low + 1));
+        assertEquals("가장 깊게 생각해요", words.get(xhigh + 1));
+        shot(d, "buddy_brain_depth");
+    }
+
     /** 부르는 호칭 (준: "호칭은 내가 설정할 수 있게해줘"): typed and saved, 퍼레 then uses it. */
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void setsTheTitle() throws Exception {
         Activity a = Robolectric.buildActivity(DecorActivity.class).setup().get();
