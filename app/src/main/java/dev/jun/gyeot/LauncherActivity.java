@@ -18,12 +18,15 @@ public final class LauncherActivity extends Activity {
         super.onCreate(state);
         ActivityManager manager = getSystemService(ActivityManager.class);
         ComponentName main = new ComponentName(this, MainActivity.class);
+        ComponentName home = new ComponentName(this, HomeActivity.class);
         if (manager != null && !voiceFirst()) {
             for (ActivityManager.AppTask task : manager.getAppTasks()) {
                 try {
                     ActivityManager.RecentTaskInfo info = task.getTaskInfo();
-                    // This trampoline's own task, and tasks with nothing left in them, are not the app.
+                    // This trampoline's own task, and tasks with nothing left in them, are not the app. Nor is 들퍼레 홈 화면's
+                    // own task (HomeActivity): bringing it forward from itself showed nothing (준: "들퍼레 앱 실행이 안돼").
                     if (info == null || info.taskId == getTaskId() || info.topActivity == null || info.numActivities <= 0) continue;
+                    if (home.equals(info.topActivity) || home.equals(info.baseActivity)) continue;
                     if (main.equals(info.topActivity)) break;
                     task.moveToFront();
                     finish();

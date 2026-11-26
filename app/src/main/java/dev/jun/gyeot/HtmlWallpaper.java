@@ -362,7 +362,9 @@ public final class HtmlWallpaper extends WallpaperService {
             try { working = store.tasks.pendingCount(); } catch (RuntimeException ignored) {}
             lab = LabRunner.runningNow();
         }
-        return HomeBoard.json(new HomeBoard.Known(now, locked, calendarOn, next, left, notices, noticeCount, ideas, working, lab, name, quotes()));
+        JSONObject out = HomeBoard.json(new HomeBoard.Known(now, locked, calendarOn, next, left, notices, noticeCount, ideas, working, lab, name, quotes()));
+        try { JSONObject w = Weather.now(c); if (w != null) Jsons.put(out, "weather", w); } catch (RuntimeException ignored) {}
+        return out;
     }
 
     private static volatile List<HomeBoard.Quote> quotes = List.of();

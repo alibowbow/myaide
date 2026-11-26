@@ -80,6 +80,9 @@ body.launcher{position:fixed;inset:0}
 .fan .label{font-size:12px;text-shadow:var(--halo)}
 .fan .app .ic img{filter:drop-shadow(0 8px 16px rgba(10,14,30,.28))}
 .fan .app.hot .ic{transform:scale(1.24) translateY(-5px)}
+.lifted{position:relative;z-index:40;transition:none !important;filter:drop-shadow(0 14px 22px rgba(0,0,0,.45))}
+.dk.lifted.leaving{opacity:.4}
+.editing .app:not(.lifted) .label{opacity:.8}
 .fan .app.hot .label{font-weight:800}
 .hint{margin:-8px 4px 12px;font-size:12px;font-weight:650;color:var(--ink2)}
 .dk.hop{animation:hop .9s cubic-bezier(.3,.7,.4,1)}
@@ -149,6 +152,16 @@ body.liquid.photo .aurora-bg i{display:none}
 @keyframes au1{50%{transform:translate(12vw,8vh) scale(1.1)}}
 @keyframes au2{50%{transform:translate(-10vw,-6vh) scale(.92)}}
 @keyframes au3{50%{transform:translate(10vw,-8vh) scale(1.08)}}
+/* the weather widget, at the top centre */
+.weather{position:fixed;z-index:6;left:50%;top:calc(var(--top) + 6px);transform:translateX(-50%);display:inline-flex;align-items:center;gap:9px;padding:7px 16px 7px 10px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);color:#f5f5f7;font:inherit;-webkit-backdrop-filter:blur(20px) saturate(1.4);backdrop-filter:blur(20px) saturate(1.4);box-shadow:0 10px 30px rgba(0,0,0,.28);white-space:nowrap;transition:transform .4s var(--spring)}
+.launcher:not(.liquid) .weather{background:var(--glass);border-color:var(--glass-line);color:var(--ink)}
+.weather .w-ic{width:28px;height:28px;display:grid;place-items:center}.weather .w-ic svg{width:28px;height:28px}
+.weather b{font-size:20px;font-weight:600;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.weather .w-words{display:flex;flex-direction:column;line-height:1.15}
+.weather #wPlace{font-size:12px;font-weight:650;color:var(--ink2)}
+.weather #wRange{font-family:var(--mono,monospace);font-size:10.5px;color:var(--ink3);letter-spacing:.02em}
+.weather:active{transform:translateX(-50%) scale(.96)}
+body.covered .weather{opacity:0;pointer-events:none}
 /* the island: 퍼레's state, a tap away */
 .island{position:fixed;z-index:6;left:50%;top:calc(var(--top) + 8px);transform:translateX(-50%);display:none;align-items:center;gap:8px;padding:8px 15px 8px 12px;border-radius:999px;background:#000;border:1px solid rgba(255,255,255,.1);color:#f5f5f7;font:inherit;font-size:13px;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.35);white-space:nowrap;transition:transform .5s var(--spring)}
 body.liquid .island{display:inline-flex}
@@ -248,7 +261,7 @@ body.liquid .menu hr{background:var(--hair2)}
 </head>
 <body class="launcher light liquid aurora">
 <div class="aurora-bg"><i></i><i></i><i></i></div>
-<button class="island" id="island" aria-label="퍼레 대화 열기"><span class="pulse"></span><b id="islandName">퍼레</b><span class="say" id="islandSay">준비됐어요</span></button>
+<button class="weather" id="weather" aria-label="날씨"><span class="w-ic" id="wIcon"></span><b id="wTemp">–°</b><span class="w-words"><span id="wPlace">날씨</span><span id="wRange"></span></span></button>
 <script>/*GYEOT*/</script>
 <script src="/board.js"></script>
 <main id="home"><div class="inner">
@@ -272,7 +285,7 @@ body.liquid .menu hr{background:var(--hair2)}
 const B = window.Gyeot || null;
 const PAD_ICON = '<svg viewBox="0 0 24 24" fill="currentColor">' + [6, 12, 18].map(y => [6, 12, 18].map(x => '<circle cx="' + x + '" cy="' + y + '" r="2.2"/>').join("")).join("") + '</svg>';
 const el = id => document.getElementById(id);
-let APPS = [], BY = new Map(), DOCK = [], RECENT = [], STACKS = [], BADGES = {}, filter = "";
+let APPS = [], BY = new Map(), DOCK = [], RECENT = [], STACKS = [], BADGES = {}, ORDER = {}, filter = "";
 const iconOf = a => "/icon/" + encodeURIComponent(a.id) + ".png?v=" + a.v;
 const badgeOf = a => BADGES[a.pkg] || 0;
 const badgeHtml = n => n > 0 ? '<span class="badge">' + (n > 99 ? "99+" : n) + '</span>' : "";
@@ -288,12 +301,17 @@ function appButton(a) {
   return '<button class="app" data-id="' + esc(a.id) + '"><span class="ic"><img alt="" loading="lazy" decoding="async" src="' + iconOf(a) + '">' + badgeHtml(badgeOf(a)) + '</span><span class="label">' + esc(a.label) + '</span></button>';
 }
 function sorted(list) { return list.slice().sort((x, y) => x.label.localeCompare(y.label, "ko", {numeric: true})); }
+/** A folder's apps: in the order the user dragged them into (ORDER), the rest after them by name. */
+function inStack(id) {
+  const apps = APPS.filter(a => a.stack === id), mine = (ORDER[id] || []).map(i => BY.get(i)).filter(a => a && a.stack === id);
+  return mine.concat(sorted(apps.filter(a => !mine.includes(a))));
+}
 /* Each stack's dot, from DaropoOS's palette. */
 const DOT = {money: "#5eead4", chat: "#ffd166", ai: "#bf9bff", map: "#64d2ff", shop: "#ff7ab6", media: "#ff8a9a", photo: "#ffb86b", google: "#7cc4ff", web: "#64d2ff", work: "#a5b4fc", game: "#ff7ab6", tools: "#a1a1aa", etc: "#a1a1aa"};
 function drawStacks() {
   const out = [];
   for (const s of STACKS) {
-    const apps = sorted(APPS.filter(a => a.stack === s.id)); if (!apps.length) continue;
+    const apps = inStack(s.id); if (!apps.length) continue;
     // No count on a folder's corner (준: "폴더의 우상단 엣지에 숫자띄우지 말아줘"): the apps inside keep theirs.
     out.push('<button class="stack" data-stack="' + s.id + '"><span class="pile">' + apps.slice(0, 9).map(a => '<img alt="" decoding="async" src="' + iconOf(a) + '">').join("") + '</span><span class="name"><i style="background:' + (DOT[s.id] || "#a1a1aa") + '"></i>' + esc(s.name) + ' <small>' + apps.length + '</small></span></button>');
   }
@@ -306,8 +324,8 @@ function drawDock() {
   const slots = Math.floor((Math.min(innerWidth, 900) - 44) / (size + gap)) - 1 - (innerWidth >= 600 ? 2 : 0);
   const most = Math.max(3, slots); const room = slots - Math.min(ids.length, most);
   if (room < 2) recent.length = 0; else recent.length = Math.min(recent.length, room - 1);
-  const one = id => { const a = BY.get(id); return '<div class="dk" data-id="' + esc(id) + '" aria-label="' + esc(a.label) + '"><img alt="" decoding="async" src="' + iconOf(a) + '">' + badgeHtml(badgeOf(a)) + '</div>'; };
-  el("shelf").innerHTML = '<div class="dk pad-btn" data-pad="1" aria-label="모든 앱">' + PAD_ICON + '</div>' + ids.slice(0, most).map(one).join("") + (recent.length ? '<span class="sep"></span>' + recent.map(one).join("") : "")
+  const one = (id, mine) => { const a = BY.get(id); return '<div class="dk"' + (mine ? ' data-dock="1"' : "") + ' data-id="' + esc(id) + '" aria-label="' + esc(a.label) + '"><img alt="" decoding="async" src="' + iconOf(a) + '">' + badgeHtml(badgeOf(a)) + '</div>'; };
+  el("shelf").innerHTML = '<div class="dk pad-btn" data-pad="1" aria-label="모든 앱">' + PAD_ICON + '</div>' + ids.slice(0, most).map(id => one(id, true)).join("") + (recent.length ? '<span class="sep"></span>' + recent.map(id => one(id, false)).join("") : "")
     + (innerWidth >= 600 ? '<span class="sep"></span><div class="dk find-btn" data-find="1" aria-label="검색"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg></div>' : "");
 }
 function drawAll() { drawStacks(); drawDock(); if (el("pad").classList.contains("on")) drawPad(); }
@@ -339,9 +357,41 @@ function press(root, selector, onTap, onLong) {
 }
 press(el("stacks"), ".stack", t => openFan(t.dataset.stack, t), (t, x, y) => hold(t, x, y));
 document.addEventListener("contextmenu", e => e.preventDefault());
-press(document.body, ".app", t => launch(t.dataset.id, t.querySelector(".ic")), (t, x, y) => appMenu(t.dataset.id, x, y));
+press(document.body, ".app", t => launch(t.dataset.id, t.querySelector(".ic")), (t, x, y) => { if (t.closest("#fan")) lift(t, x, y, "fan"); else appMenu(t.dataset.id, x, y); });
 el("search").addEventListener("click", () => openPad(true));
-el("island").addEventListener("click", () => B && B.open("chat"));
+el("weather").addEventListener("click", () => B && B.weather && B.weather());
+/*
+  The weather widget at the top (준: "가운데 퍼레 준비됐어요를 빼고 날씨위젯을 넣어줘"), where the phone roughly is: an icon for
+  the sky (WMO weather codes), the temperature, the place, the day's high and low. Without a place yet it says how to get one.
+*/
+const SKY = {
+  sun: '<svg viewBox="0 0 32 32"><defs><radialGradient id="wsun" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#fff3b0"/><stop offset="1" stop-color="#ffb341"/></radialGradient></defs><circle cx="16" cy="16" r="7.5" fill="url(#wsun)"/><g stroke="#ffd166" stroke-width="2.2" stroke-linecap="round"><path d="M16 3.5v3M16 25.5v3M3.5 16h3M25.5 16h3M7.2 7.2l2.1 2.1M22.7 22.7l2.1 2.1M7.2 24.8l2.1-2.1M22.7 9.3l2.1-2.1"/></g></svg>',
+  moon: '<svg viewBox="0 0 32 32"><path d="M20.5 4.5a11.5 11.5 0 1 0 7 19.7A10 10 0 0 1 20.5 4.5z" fill="#d8ccff"/></svg>',
+  cloud: '<svg viewBox="0 0 32 32"><path d="M9.5 25h14a5.5 5.5 0 0 0 .6-11A7.5 7.5 0 0 0 9.8 13a6 6 0 0 0-.3 12z" fill="#e9ecf5"/></svg>',
+  part: '<svg viewBox="0 0 32 32"><circle cx="11" cy="11" r="5.5" fill="#ffc857"/><g stroke="#ffd166" stroke-width="2" stroke-linecap="round"><path d="M11 2.5v2M2.5 11h2M5 5l1.4 1.4M17 5l-1.4 1.4"/></g><path d="M11.5 27h12.5a5 5 0 0 0 .5-10A7 7 0 0 0 11.7 16a5.5 5.5 0 0 0-.2 11z" fill="#eef1f8"/></svg>',
+  fog: '<svg viewBox="0 0 32 32"><g stroke="#cfd5e6" stroke-width="2.4" stroke-linecap="round"><path d="M6 11h20M4 16h24M7 21h18M10 26h12"/></g></svg>',
+  rain: '<svg viewBox="0 0 32 32"><path d="M9.5 20h14a5.5 5.5 0 0 0 .6-11A7.5 7.5 0 0 0 9.8 8a6 6 0 0 0-.3 12z" fill="#dfe4ef"/><g stroke="#7cc4ff" stroke-width="2.2" stroke-linecap="round"><path d="M11 23l-1.5 4M17 23l-1.5 4M23 23l-1.5 4"/></g></svg>',
+  snow: '<svg viewBox="0 0 32 32"><path d="M9.5 20h14a5.5 5.5 0 0 0 .6-11A7.5 7.5 0 0 0 9.8 8a6 6 0 0 0-.3 12z" fill="#e9ecf5"/><g fill="#ffffff"><circle cx="11" cy="25" r="1.6"/><circle cx="17" cy="27" r="1.6"/><circle cx="23" cy="25" r="1.6"/></g></svg>',
+  storm: '<svg viewBox="0 0 32 32"><path d="M9.5 19h14a5.5 5.5 0 0 0 .6-11A7.5 7.5 0 0 0 9.8 7a6 6 0 0 0-.3 12z" fill="#c9cfe0"/><path d="M17 19l-4 7h4l-2 5 6-8h-4l2-4z" fill="#ffd166"/></svg>'
+};
+function sky(code, day) {
+  if (code === 0) return day ? ["sun", "맑음"] : ["moon", "맑음"];
+  if (code <= 2) return day ? ["part", "구름 조금"] : ["moon", "구름 조금"];
+  if (code === 3) return ["cloud", "흐림"];
+  if (code === 45 || code === 48) return ["fog", "안개"];
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return ["rain", code <= 57 ? "이슬비" : "비"];
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return ["snow", "눈"];
+  if (code >= 95) return ["storm", "뇌우"];
+  return ["cloud", "흐림"];
+}
+function weather(w) {
+  if (!w) { el("wIcon").innerHTML = SKY.cloud; el("wTemp").textContent = "날씨"; el("wPlace").textContent = "위치를 허용하면 보여요"; el("wRange").textContent = ""; return; }
+  const [kind, words] = sky(w.code, w.day !== false);
+  el("wIcon").innerHTML = SKY[kind]; el("wTemp").textContent = w.temp + "°";
+  el("wPlace").textContent = (w.place ? w.place + " · " : "") + words;
+  el("wRange").textContent = w.hi != null ? "↑" + w.hi + "° ↓" + w.lo + "°" : "";
+}
+weather(null);
 /* The background: the night aurora, or the user's own wallpaper under a dark veil (the home screen's menu switches). */
 function backdrop(kind) { document.body.classList.toggle("aurora", kind !== "photo"); document.body.classList.toggle("photo", kind === "photo"); }
 backdrop(G.bg || "aurora");
@@ -369,10 +419,14 @@ backdrop(G.bg || "aurora");
     active = true; moved = false; longDone = false; startX = e.clientX; startY = e.clientY; shelf.setPointerCapture(e.pointerId);
     shelf.classList.add("scrub"); swell(e.clientX);
     clearTimeout(longTimer);
-    longTimer = setTimeout(() => { if (!moved && over && over.dataset.id) { longDone = true; rest(); appMenu(over.dataset.id, startX, startY - 40, true); } }, 520);
+    longTimer = setTimeout(() => {
+      if (moved || !over || !over.dataset.id) return;
+      longDone = true; rest();
+      if (over.dataset.dock) lift(over, startX, startY, "dock"); else appMenu(over.dataset.id, startX, startY - 40, true);
+    }, 480);
   });
   shelf.addEventListener("pointermove", e => {
-    if (!active) return;
+    if (!active || dragging) return;
     if (Math.abs(e.clientX - startX) > 8 || Math.abs(e.clientY - startY) > 8) { moved = true; clearTimeout(longTimer); }
     swell(e.clientX);
   });
@@ -385,6 +439,73 @@ backdrop(G.bg || "aurora");
   };
   shelf.addEventListener("pointerup", end); shelf.addEventListener("pointercancel", end);
 })();
+
+/*
+  Moving icons (준: "독 아이콘 위치 옮기기가 너무 불편해", "폴더 내에서 아이콘 위치 이동이 안돼"): held, an icon lifts and follows
+  the finger; the others make room as it passes (each slides to its new place); let go and the order is kept. In the dock,
+  carried up off it, it leaves the dock. Held and let go without moving: the app's menu, as before.
+*/
+let dragging = null;
+const stillTouch = e => { if (e.cancelable) e.preventDefault(); };
+function lift(item, x, y, kind) {
+  dragging = {item, kind, box: item.parentElement, x, y, moved: false, out: false};
+  item.classList.add("lifted"); dragging.box.classList.add("editing");
+  if (navigator.vibrate) try { navigator.vibrate(15); } catch (e) {}
+  document.addEventListener("touchmove", stillTouch, {passive: false});
+  addEventListener("pointermove", dragMove); addEventListener("pointerup", dragEnd); addEventListener("pointercancel", dragEnd);
+  follow(x, y);
+}
+function follow(x, y) {
+  const it = dragging.item; it.style.transform = "none"; const r = it.getBoundingClientRect();
+  it.style.transform = "translate(" + (x - r.left - r.width / 2).toFixed(1) + "px," + (y - r.top - r.height / 2).toFixed(1) + "px) scale(1.16)";
+}
+function slide(nodes, change) {
+  const before = new Map(nodes.map(n => [n, n.getBoundingClientRect()]));
+  change();
+  for (const n of nodes) {
+    const a = before.get(n), b = n.getBoundingClientRect(), dx = a.left - b.left, dy = a.top - b.top;
+    if (!dx && !dy) continue;
+    n.style.transition = "none"; n.style.transform = "translate(" + dx + "px," + dy + "px)"; n.getBoundingClientRect();
+    n.style.transition = "transform .18s ease"; n.style.transform = "";
+  }
+}
+function dragMove(e) {
+  const d = dragging; if (!d) return;
+  if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) d.moved = true;
+  const sel = d.kind === "dock" ? ".dk[data-dock]" : ".app";
+  const items = Array.from(d.box.querySelectorAll(sel)), others = items.filter(i => i !== d.item);
+  if (d.kind === "dock") {
+    const r = el("shelf").getBoundingClientRect(); d.out = e.clientY < r.top - 70;
+    d.item.classList.toggle("leaving", d.out);
+    const tip = el("tip"); tip.textContent = d.out ? "놓으면 독에서 빼요" : ""; tip.classList.toggle("on", d.out);
+    if (d.out) { const tr = d.item.getBoundingClientRect(); tip.style.left = (tr.left + tr.width / 2) + "px"; tip.style.top = (tr.top - 8) + "px"; }
+  }
+  if (!d.out && others.length) {
+    // The icon nearest the finger; before it when the finger is on its leading side.
+    let near = null, best = 1e9;
+    for (const o of others) { const r = o.getBoundingClientRect(), dd = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2)); if (dd < best) { best = dd; near = o; } }
+    const r = near.getBoundingClientRect(), before = d.kind === "dock" ? e.clientX < r.left + r.width / 2 : (e.clientY < r.top || (e.clientY <= r.bottom && e.clientX < r.left + r.width / 2));
+    const now = items.indexOf(d.item), there = items.indexOf(near), want = before ? there - (now < there ? 1 : 0) : there + (now > there ? 1 : 0);
+    if (want !== now && best < 140) slide(others, () => d.box.insertBefore(d.item, before ? near : near.nextSibling));
+  }
+  follow(e.clientX, e.clientY);
+}
+function dragEnd(e) {
+  const d = dragging; if (!d) return; dragging = null;
+  document.removeEventListener("touchmove", stillTouch); removeEventListener("pointermove", dragMove); removeEventListener("pointerup", dragEnd); removeEventListener("pointercancel", dragEnd);
+  d.item.classList.remove("lifted", "leaving"); d.box.classList.remove("editing"); d.item.style.transform = ""; el("tip").classList.remove("on");
+  const id = d.item.dataset.id;
+  if (!d.moved) { if (e.type === "pointerup") appMenu(id, d.x, d.y - (d.kind === "dock" ? 40 : 0)); return; }
+  if (d.kind === "dock") {
+    if (d.out) DOCK = DOCK.filter(i => i !== id);
+    else { const shown = Array.from(d.box.querySelectorAll(".dk[data-dock]")).map(i => i.dataset.id); DOCK = shown.concat(DOCK.filter(i => !shown.includes(i))); }
+    if (B) B.dock(JSON.stringify(DOCK)); drawDock();
+  } else {
+    const ids = Array.from(d.box.querySelectorAll(".app")).map(i => i.dataset.id);
+    ORDER[fanStack] = ids; if (B && B.order) B.order(fanStack, JSON.stringify(ids)); drawStacks();
+  }
+  holdEnded = Date.now();
+}
 
 /* Pull down at the top: search. Pull up at the bottom: every app. */
 /*
@@ -426,7 +547,7 @@ function elastic(box, inner, done) {
 })();
 
 /* ── a stack opened in place: its icons fly out of the folder, and back in when it closes ── */
-let fanFrom = null, holding = false, holdEnded = 0, fanOpened = 0;
+let fanFrom = null, holding = false, holdEnded = 0, fanOpened = 0, fanStack = "";
 /*
   A folder opens at once, where it is (준: "폴더 눌렀을때 바로 즉각적으로 뜨게", "위치도 너무 동떨어지지 않게", "배경을 완전 흐리게하고
   그 자리에서 뜨게"): its icons in a grid as wide as they need, centred on the folder itself (kept on the screen), over the
@@ -434,7 +555,7 @@ let fanFrom = null, holding = false, holdEnded = 0, fanOpened = 0;
 */
 function openFan(id, from, held) {
   const s = STACKS.find(x => x.id === id); if (!s) return;
-  const apps = sorted(APPS.filter(a => a.stack === id)), fan = el("fan"), r = from.getBoundingClientRect();
+  const apps = inStack(id), fan = el("fan"), r = from.getBoundingClientRect(); fanStack = id;
   const most = innerWidth >= 600 ? 6 : 4, cols = Math.max(2, Math.min(most, apps.length));
   fan.innerHTML = '<h2>' + esc(s.name) + '</h2>' + (held ? '<div class="hint">손가락을 앱 위로 옮기고 떼면 열려요</div>' : "") + '<div class="grid-apps" style="grid-template-columns:repeat(' + cols + ',1fr)">' + apps.map(appButton).join("") + '</div>';
   fan.style.width = Math.min(innerWidth - 20, cols * (innerWidth >= 600 ? 92 : 86) + 24) + "px";
@@ -629,15 +750,12 @@ function homeMenu(x, y) {
 /* ── the app's calls ──────────────────────────────────────── */
 window.launcher = {
   apps(k) {
-    APPS = k.apps || []; BY = new Map(APPS.map(a => [a.id, a])); DOCK = k.dock || []; RECENT = k.recent || []; STACKS = k.stacks || []; BADGES = k.badges || {};
+    APPS = k.apps || []; BY = new Map(APPS.map(a => [a.id, a])); DOCK = k.dock || []; RECENT = k.recent || []; STACKS = k.stacks || []; BADGES = k.badges || {}; ORDER = k.order || {};
     drawAll();
   },
   board(k) {
     setBoardData(k);
-    const busy = (k.working || 0) > 0 || k.lab;
-    el("islandName").textContent = k.name || "퍼레";
-    el("islandSay").textContent = k.working > 0 ? "맡긴 일 " + k.working + "개 하는 중" : k.lab ? "연구실 실험 중" : "준비됐어요";
-    el("island").classList.toggle("busy", !!busy);
+    weather(k.weather);
   },
   badges(k) { BADGES = k || {}; drawAll(); },
   insets(top, bottom) { document.documentElement.style.setProperty("--top", top + "px"); document.documentElement.style.setProperty("--bottom", bottom + "px"); boards.forEach(fit); },

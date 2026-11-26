@@ -65,7 +65,7 @@ import org.json.JSONObject;
  * are drawn once and kept. Folding or unfolding keeps the page (configChanges): it only lays itself out again.
  */
 public final class HomeActivity extends Activity {
-    static final String PREFS = "launcher", DOCK = "dock", RECENT = "recent", MOVED = "moved";
+    static final String PREFS = "launcher", DOCK = "dock", RECENT = "recent", MOVED = "moved", ORDER = "order";
     private static final String BASE = "https://gyeot.local/";
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-home"); t.setDaemon(true); return t; });
@@ -168,6 +168,11 @@ public final class HomeActivity extends Activity {
         } catch (RuntimeException unknown) { return false; }
     }
 
+    private static final int LOCATION = 7531;
+    @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(request, permissions, results);
+        if (request == LOCATION) pushBoard();
+    }
     @Override protected void onResume() {
         super.onResume(); shown = true;
         NoticeListener.changed = badgesChanged;
@@ -239,7 +244,7 @@ public final class HomeActivity extends Activity {
         }
         JSONArray stacks = new JSONArray();
         for (AppStacks.Stack s : AppStacks.STACKS) stacks.put(Jsons.obj("id", s.id(), "name", s.name(), "color", s.color()));
-        return Jsons.obj("apps", list, "dock", dock, "recent", read(RECENT, new JSONArray()), "stacks", stacks, "badges", new JSONObject(badges));
+        return Jsons.obj("apps", list, "dock", dock, "recent", read(RECENT, new JSONArray()), "stacks", stacks, "badges", new JSONObject(badges), "order", read(ORDER, new JSONObject()));
     }
     /** An app's id here and in the side dock: its activity and its profile. */
     static String id(LauncherActivityInfo info, UserManager users) {
@@ -323,6 +328,11 @@ public final class HomeActivity extends Activity {
                 ready = true;
                 if (web != null) web.evaluateJavascript("launcher.insets(" + top + "," + bottom + ")", null);
                 pushApps(); main.removeCallbacks(refresh); if (shown) refresh.run(); else pushBoard();
+                // The weather needs roughly where the phone is: asked once, here where the user sees why.
+                if (!Weather.allowed(HomeActivity.this) && !prefs.getBoolean("askedLocation", false)) {
+                    prefs.edit().putBoolean("askedLocation", true).apply();
+                    try { requestPermissions(new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION); } catch (RuntimeException ignored) {}
+                }
             });
         }
         /** Opens the app, growing from its icon (x, y, w, h in the page's pixels). */
@@ -367,8 +377,26 @@ public final class HomeActivity extends Activity {
             t.setDaemon(true); t.start();
         }
         @JavascriptInterface public void stopChat() { chatTicket++; Runnable r = chatCancel.getAndSet(null); if (r != null) try { r.run(); } catch (RuntimeException ignored) {} }
+        /** The weather widget: the phone's own weather app, else the weather on the web. */
+        @JavascriptInterface public void weather() {
+            main.post(() -> {
+                for (String pkg : new String[]{"com.sec.android.daemonapp", "com.samsung.android.weather", "com.google.android.apps.weather"}) {
+                    Intent open = getPackageManager().getLaunchIntentForPackage(pkg);
+                    if (open != null) { try { startActivity(open); return; } catch (RuntimeException ignored) {} }
+                }
+                try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode("날씨")))); } catch (RuntimeException ignored) {}
+            });
+        }
         /** The background: "aurora" (the home screen's own night sky) or "photo" (the user's wallpaper under a dark veil). */
         @JavascriptInterface public void look(String bg) { prefs.edit().putString("bg", "photo".equals(bg) ? "photo" : "aurora").apply(); }
+        /** A folder's icons in the order the user dragged them into (준: "폴더 내에서 아이콘 위치 이동이 안돼"). */
+        @JavascriptInterface public void order(String stack, String ids) {
+            try {
+                JSONArray a = new JSONArray(ids); if (a.length() > 300 || stack == null || stack.length() > 20) return;
+                JSONObject all = read(ORDER, new JSONObject()); Jsons.put(all, AppStacks.stack(stack).id(), a);
+                prefs.edit().putString(ORDER, all.toString()).apply();
+            } catch (Exception ignored) {}
+        }
         @JavascriptInterface public void dock(String ids) {
             try { JSONArray a = new JSONArray(ids); if (a.length() <= 24) prefs.edit().putString(DOCK, a.toString()).apply(); } catch (Exception ignored) {}
         }
