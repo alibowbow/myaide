@@ -49,7 +49,7 @@ final class BuddyTalk {
         try { used.put(topic, System.currentTimeMillis()); } catch (Exception ignored) {}
         p.edit().putString("topics", used.toString()).apply();
         String instructions = instructions(c, reason, topic, dev.jun.gyeot.core.BuddyMind.overused(said, 8)), input = input(c, store, p, reason);
-        ask(c, instructions, input, attempt == 0 ? 1.0 : 1.15, 9_000, text -> clean(text, p), line -> { remember(p, line); busy.set(false); done.accept(line); },
+        ask(c, instructions, input, attempt == 0 ? 0.75 : 0.9, 9_000, text -> clean(text, p), line -> { remember(p, line); busy.set(false); done.accept(line); },
             () -> { if (attempt == 0) thinkOnce(c, store, p, reason, done, failed, 1); else { busy.set(false); failed.run(); } });
     }
     /** What 퍼레 said lately, oldest first. */
@@ -210,7 +210,7 @@ final class BuddyTalk {
         String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + lifeWords(c) + "\n" + todayWords(c) + memoryWords(c, said, true)
             + "사용자에 대해 아는 것:\n" + (note.isBlank() ? "(아직 잘 몰라요)" : note) + "\n\n";
         String input = context + (talk.length() == 0 ? "" : "지금까지 대화:\n" + talk) + "사용자: " + said + "\n퍼레:";
-        ask(c, instructions, input, 0.9, 12_000, BuddyTalk::spoken, line -> {
+        ask(c, instructions, input, 0.7, 12_000, BuddyTalk::spoken, line -> {
             learnLater(c, said, line);
             done.accept(line);
         }, failed);
@@ -253,7 +253,7 @@ final class BuddyTalk {
             + (avoid.isEmpty() ? "" : "- 최근에 너무 자주 쓴 표현이니 이번엔 쓰지 마: " + String.join(", ", avoid) + "\n")
             + "- '이미 했던 말'과 같거나 비슷한 뜻·소재·문장 틀은 절대 쓰지 마. 뻔한 인사말도 피해.\n"
             + "- 일, 업무, 일정, 할 일, 주식, 코인, 시세, 숫자, 돈 이야기와 조언·잔소리는 하지 마. 파일·사진 정리, 청소, 삭제, 백업, 용량, 업데이트 같은 할 일을 권하지 마.\n"
-            + "- 사적인 내용(건강·돈·연애·주소 같은 것)은 말하지 마.\n"
+            + "- 비밀번호·계정·권한 요청, 털어놓은 고민 같은 사적인 내용은 말하지 마.\n"
             + "- 한 문장, 45자 안쪽. 따옴표와 이모지 없이 그 문장만 답해.";
     }
     private static String input(Context c, AppStore store, SharedPreferences p, String reason) {
@@ -334,6 +334,8 @@ final class BuddyTalk {
             if (l.matches(".*(정리|청소|삭제|지우|백업|용량|저장 ?공간|업데이트|파일).*")) return null;
             // Too like a line already said (half its letter pairs or more): not this one (준: "했던말 자꾸 반복하는 경향 없애줘").
             if (p != null && dev.jun.gyeot.core.BuddyMind.repeats(l, said(p), 0.45)) return null;
+            // Korean that does not read (준: "가끔 한국어를 못알아듣게 말해"): a line cut at its start, or one in another script.
+            if (!dev.jun.gyeot.core.BuddyMind.readable(l)) return null;
             return l;
         }
         return null;

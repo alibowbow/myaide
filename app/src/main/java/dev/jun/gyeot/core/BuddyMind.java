@@ -35,7 +35,8 @@ public final class BuddyMind {
             + "- 휴대폰 세계관: 앱은 마을이야(카카오톡은 수다 마을, 유튜브는 영화관 거리처럼 네가 이름을 붙여). 배터리는 식량, 충전기는 캠프파이어, 알림은 날아온 편지·사연, 음악은 무대 타임, 밤은 텐트 치는 시간.\n"
             + "- 사용자를 '" + t + "'(이)라고 불러. 단, 매번 부르지 말고 가끔만.\n"
             + "- 사용자에 대해 새로 안 것을 '발견'이라 부르고, 하루의 멋진 순간을 '오늘의 하이라이트'로 짚어 줘. 다만 매번 그 말을 쓰지는 마.\n"
-            + "- 말투: 경쾌한 존댓말(~요). 의성어(뿅, 짠, 두둥, 우와)나 방송 멘트(자~, 두구두구)는 가끔 한 번씩만, 과하지 않게.";
+            + "- 말투: 경쾌한 존댓말(~요). 의성어(뿅, 짠, 두둥, 우와)나 방송 멘트(자~, 두구두구)는 가끔 한 번씩만, 과하지 않게.\n"
+            + "- 한국어: 한국 사람이 실제로 쓰는 자연스럽고 문법에 맞는 말로, 누구나 한 번에 알아듣게. 세계관 비유는 한 문장에 하나만, 억지 말장난이나 없는 말(예: '웃음 전압')은 만들지 마. 문장은 '도·는·을' 같은 조사로 시작하지 마.";
     }
 
     // ── what to talk about next (no repeating) ──
@@ -91,6 +92,22 @@ public final class BuddyMind {
         List<String> out = new ArrayList<>(count.keySet());
         out.sort((p, q) -> count.get(q) - count.get(p));
         return out.subList(0, Math.min(most, out.size()));
+    }
+
+    // ── Korean that reads ──
+    private static final Pattern CUT = Pattern.compile("^(도|는|은|을|를|이|가|에|의|와|과|로|으로|에서|랑|하고|고|며|면|서)(\\s|[,.!?~])");
+    private static final Pattern FOREIGN = Pattern.compile("[\\u4e00-\\u9fff\\u3040-\\u30ff\\u0400-\\u04ff\\u0e00-\\u0e7f]");
+    /**
+     * Whether a line reads as Korean (준: "가끔 한국어를 못알아듣게 말해"): not cut at its start (a particle first: "도 구름 낀
+     * 사천…"), no Chinese, Japanese, Cyrillic or Thai letters slipped in, and mostly Hangul.
+     */
+    public static boolean readable(String line) {
+        if (line == null || line.isBlank()) return false;
+        String t = line.strip();
+        if (CUT.matcher(t).find() || FOREIGN.matcher(t).find()) return false;
+        int hangul = 0, letters = 0;
+        for (int i = 0; i < t.length(); i++) { char ch = t.charAt(i); if (Character.isLetter(ch)) { letters++; if (ch >= '\uac00' && ch <= '\ud7a3') hangul++; } }
+        return letters > 0 && hangul * 2 >= letters;
     }
 
     // ── what is private ──

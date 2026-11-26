@@ -104,6 +104,14 @@ public class BuddyBrainTests {
         assertTrue(dev.jun.gyeot.core.BuddyMind.asksPersonal("내 고민 기억나?"));
     }
 
+    /** Korean that reads (준: "가끔 한국어를 못알아듣게 말해"): a line cut at its start or in another script is not said. */
+    @Test public void saysReadableKorean() {
+        for (String bad : new String[]{"도 구름 낀 사천, 배터리도 살포시 충전 중이네요.", "는 오늘 기분이 좋아요", "今天 날씨 좋네요", "Battery is full today, yay"})
+            assertFalse(bad, dev.jun.gyeot.core.BuddyMind.readable(bad));
+        for (String good : new String[]{"오늘도 구름 낀 사천, 충전기 앞에서 냠냠 중이에요.", "유튜브 영화관 거리 다녀오셨어요?", "YouTube 보고 오셨군요, 재밌었어요?"})
+            assertTrue(good, dev.jun.gyeot.core.BuddyMind.readable(good));
+    }
+
     /** 퍼레의 기억 (opened after the fingerprint): 오늘, 발견 노트, 약속, 추억; private ones marked 🔒. */
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void showsTheMemoryBook() throws Exception {
         Activity a = Robolectric.buildActivity(DecorActivity.class).setup().get();

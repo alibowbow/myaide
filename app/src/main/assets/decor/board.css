@@ -253,11 +253,6 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .care-row .meter.low i{background:linear-gradient(90deg,#ffc08f,#ff8a65)}
 .care-row .v{font-size:12px;color:#4a4b5c;font-weight:650;white-space:nowrap}
 .care-row .v.now{white-space:normal}
-.care-acts{display:flex;gap:6px;margin-top:10px}
-.care-acts button{flex:1;min-width:0;height:32px;border-radius:999px;border:0;background:#f1f2f6;color:#2b2c3a;font:inherit;font-size:12.5px;font-weight:700;white-space:nowrap;padding:0 6px}
-.care-acts button:active{transform:scale(.95)}
-.care-mem{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;margin-top:9px;padding:8px 10px;border:0;border-radius:12px;background:#f6f4ff;color:#5b4fc4;font:inherit;font-size:12px;font-weight:750;text-align:left}
-.care-mem .m{font-weight:550;color:#6a6b7d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 
 /* the voice talk: a soft ring while 퍼레 listens; what it hears in the bubble */
 .buddy.listening::before{content:"";position:absolute;left:50%;top:52%;width:96px;height:96px;margin:-48px 0 0 -48px;border-radius:50%;border:2px solid rgba(120,214,180,.85);box-shadow:0 0 18px rgba(120,214,180,.45);animation:listen 1.4s ease-out infinite;pointer-events:none}

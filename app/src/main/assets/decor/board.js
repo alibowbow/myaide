@@ -648,9 +648,9 @@ function boardLife(life) {
 function boardEnv(env) { if (!env) return; info = info || {}; info.env = env; boards.forEach(b => { envOf(b, info); if (b._careOn) drawCare(b); }); }
 
 /*
-  The care card (held 퍼레): its heart (five hearts), its food (the battery, and whether it is eating), what it is up to now;
-  a stroke, a snack, play; and its memory (what it lived through on the phone, kept in the app). Small, under 퍼레; a tap
-  elsewhere or twelve quiet seconds close it. It does not grow up (준: "자라기 모드 없애줘").
+  The care card (the heart by 퍼레): its state only (준: "하트누르면 상태표시만 나오게해", "쓰다듬기 놀아주기 등은 없애줘", "그냥 내가
+  터치로 상호작용하는거로 자체가 쓰다듬기 놀아주기 가능"): its heart (five hearts), its food (the battery, and whether it is
+  eating), what it is up to now. Small, under 퍼레; a tap elsewhere or twelve quiet seconds close it. It does not grow up.
 */
 function openCare(b) {
   if (lockedNow) return;
@@ -664,10 +664,6 @@ function openCare(b) {
       e.stopPropagation(); clearTimeout(b._careT); b._careT = setTimeout(() => closeCare(b), 12000);
       const btn = e.target.closest("button"); if (!btn) return;
       if (btn.dataset.care === "close") { closeCare(b); return; }
-      const kind = btn.dataset.care;
-      if (kind === "pet") { pet(b); return; }
-      if (kind === "memory") { closeCare(b); if (window.boardMemory) window.boardMemory(); return; }
-      if (window.boardCare) window.boardCare(kind);
     });
     addEventListener("pointerdown", e => { if (b._careOn && !e.target.closest(".care") && !e.target.closest(".buddy")) closeCare(b); }, {passive: true});
   }
@@ -678,11 +674,9 @@ function drawCare(b) {
   const full = Math.round(heart / 20), hearts = "♥".repeat(full) + '<s>' + "♥".repeat(5 - full) + '</s>';
   const food = e.battery == null ? "" : '<div class="care-row"><span class="k">밥</span><span class="meter' + (e.battery <= 20 && !e.charging ? " low" : "") + '"><i style="width:' + e.battery + '%"></i></span><span class="v">' + (e.charging ? "충전하며 냠냠" : e.battery <= 20 ? "배고파요" : e.battery >= 80 ? "배불러요" : "든든해요") + '</span></div>';
   const now = e.night ? "자는 시간이라 졸려요" : e.heat ? "휴대폰이 뜨거워서 땀이 나요" : e.music ? "음악에 맞춰 들썩이는 중" : e.charging ? "충전기에서 밥 먹는 중" : e.hungry ? "배터리가 적어서 배고파요" : e.dnd ? "방해 금지라 조용히 곁에 있어요" : e.save ? "절전 모드라 기운을 아끼는 중" : e.airplane ? "비행기 모드, 어디 가세요?" : e.rain ? "비가 와서 우산 썼어요" : e.cold ? "추워서 목도리 했어요" : e.hot ? "더워서 땀이 송골송골" : e.offline ? "인터넷이 끊겨서 갸우뚱" : heart >= 80 ? "기분 최고예요" : heart < 35 ? "조금 심심해요" : "편안하게 쉬는 중";
-  const memory = life.memories ? '<button class="care-mem" data-care="memory"><span>퍼레의 기억 ' + life.memories + '개</span>' + (life.lastMemory ? '<span class="m">' + esc(life.lastMemory) + '</span>' : "") + '</button>' : "";
-  const acts = window.boardCare ? '<div class="care-acts"><button data-care="pet">쓰다듬기</button><button data-care="snack">' + (life.snackReady === false ? "간식(배불러요)" : "간식 주기") + '</button><button data-care="play">놀아 주기</button></div>' : "";
   $(b, ".care").innerHTML = '<div class="care-head"><b>' + esc(k.name || "퍼레") + '</b><span>내 휴대폰에 사는 친구</span><button class="care-x" data-care="close" aria-label="닫기">✕</button></div>'
     + '<div class="care-row"><span class="k">마음</span><span class="hearts">' + hearts + '</span></div>' + food
-    + '<div class="care-row"><span class="k">지금</span><span class="v now">' + now + '</span></div>' + acts + (window.boardMemory ? memory : "");
+    + '<div class="care-row"><span class="k">지금</span><span class="v now">' + now + '</span></div>';
 }
 
 /*
