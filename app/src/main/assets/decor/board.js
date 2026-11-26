@@ -260,8 +260,17 @@ function ownLines() {
   const t = (info && info.title) || "대장님";
   return OWN[part].map(l => l.replaceAll("{t}", t));
 }
+/** A preset line for this moment (talk.js: by the hour, the day, the weather, the phone …); an app's kind for "app". */
+function preset(moment) {
+  if (typeof TALK === "undefined") return moment === "tap" || moment === "hi" ? ownLines()[Math.floor(Math.random() * 3)] : "";
+  let m = moment;
+  if (m === "app") { const kind = window.boardLastApp || ""; m = TALK.pools().includes("app:" + kind) ? "app:" + kind : "back"; }
+  return TALK.pick(m, boards[0] && boards[0]._env, info);
+}
 function say(b) {
   const k = info || {}, theirs = Array.isArray(k.lines) && k.lines.length ? k.lines.slice() : null;
+  // The AI's everyday lines (written ahead) and the presets, mixed (준: "적절히 ai말과 프리셋토크 믹스").
+  if (!theirs || Math.random() < .55) { const own = preset("tap"); if (own) return own; }
   const lines = theirs || ownLines();
   b._used = b._used && b._usedFor === lines.join("|") ? b._used : new Set(); b._usedFor = lines.join("|");
   let left = lines.filter(l => !b._used.has(l)); if (!left.length) { b._used.clear(); left = lines.slice(); }
@@ -287,8 +296,17 @@ function askThink(b, why, fallback, asked) {
   const now = Date.now();
   // Do not disturb: 퍼레 keeps its words for when it is asked.
   if (!asked && b._env && b._env.dnd) return;
-  if (window.boardThink && (asked || now - thinkAt > 12000)) { thinkAt = now; boards.forEach(thinking); window.boardThink(why); return; }
-  if (fallback) speak(b, {text: fallback}, 3600);
+  // The AI or a preset (talk.js TALK.mix): reactions mostly presets at once, a tap or coming back the AI about half the time.
+  const ai = !!window.boardThink && now - thinkAt > (asked ? 4000 : 12000);
+  const way = typeof TALK === "undefined" ? (ai ? "ai" : "preset") : TALK.mix(why, ai);
+  if (way === "preset") { const own = fallback || preset(why); if (own) speak(b, {text: own}, 3600); return; }
+  thinkAt = now;
+  if (way === "both") {
+    // A short sound at once, then the AI's words (the dots only if it is slow).
+    const sound = preset("sound");
+    if (sound) { speak(b, {text: sound}, 1600); boards.forEach(x => { x._spoken = false; }); setTimeout(() => boards.forEach(x => { if (!x._spoken) thinking(x); }), 900); window.boardThink(why); return; }
+  }
+  boards.forEach(thinking); window.boardThink(why);
 }
 
 /*
@@ -338,13 +356,13 @@ function touchBuddy(b) {
 /** Poked again and again: spiral eyes, a wobble, and a word about it. */
 function dizzy(b) {
   move(b, "wobble", 1700); if (b._feel) b._feel("dizzy", 2400);
-  askThink(b, "poke", ["어지러워… 빙글빙글", "콕콕은 그만, 별이 보여", "으앗, 머리가 핑 돌아"][Math.floor(Math.random() * 3)]);
+  askThink(b, "poke");
 }
 /** Stroked: hearts float up, it leans into the hand, its heart grows. */
 function pet(b) {
   hearts(b, 5); move(b, "nuzzle", 1900); if (b._feel) b._feel("love", 2400);
   if (window.boardCare) window.boardCare("pet");
-  askThink(b, "pet", ["헤헤, 간지러워", "쓰다듬어 줘서 좋아", "기분이 몽글몽글해"][Math.floor(Math.random() * 3)]);
+  askThink(b, "pet");
 }
 function hearts(b, n) {
   const buddy = $(b, ".buddy");
@@ -414,7 +432,9 @@ function nextLine(k, prev, opened) {
     if (min >= 0 && min <= 15) lines.push({key: "soon15:" + n.title + n.begin, text: (min <= 1 ? "곧" : min + "분 뒤") + " ‘" + n.title + "’ 시작이야" + (n.place ? " · " + n.place : ""), go: "calendar", feel: "surprised"});
   }
   if (opened) {
-    const own = Array.isArray(k.lines) && k.lines.length ? k.lines : ownLines();
+    // The hour's greeting from the presets, or one of the AI's everyday lines (준: "적절히 ai말과 프리셋토크 믹스").
+    const theirs = Array.isArray(k.lines) && k.lines.length ? k.lines : [];
+    const own = Math.random() < .6 || !theirs.length ? [preset("hi")].filter(Boolean).concat(theirs) : theirs;
     for (const t of own) lines.push({key: "line:" + today() + ":" + t, text: t, go: "", feel: "happy"});
   }
   return lines.find(l => !said(l.key)) || null;
@@ -440,7 +460,10 @@ function boardSeen(on) {
   // Back from a short while in an app: now and then a word about it (the app knows which one).
   if (away > 20000 && away <= 90000 && Math.random() < .35 && Date.now() - (window._appTalkAt || 0) > 600000) { window._appTalkAt = Date.now(); setTimeout(() => boards.forEach(b => askThink(b, "app", "")), 900); }
   if (away > 90000) setTimeout(() => {
-    if (window.boardThink && Date.now() - (window._thoughtAt || 0) > 300000 && !nextLine(info, before, false)) { window._thoughtAt = Date.now(); boards.forEach(thinking); window.boardThink("back"); }
+    if (nextLine(info, before, false)) { talk(true); return; }
+    // Coming back: the AI's greeting (at most every five minutes) or a preset one (talk.js "back").
+    if (window.boardThink && Date.now() - (window._thoughtAt || 0) > 300000 && (typeof TALK === "undefined" || TALK.mix("back", true) !== "preset")) { window._thoughtAt = Date.now(); thinkAt = Date.now(); boards.forEach(thinking); window.boardThink("back"); }
+    else if (seenNow && info && !(info.env && info.env.dnd) && Date.now() - lastSpoke > 45000) { const own = preset("back"); if (own) { lastSpoke = Date.now(); boards.forEach(b => { if (b._feel) b._feel("happy", 1600); speak(b, {text: own}, 5000); }); } else talk(true); }
     else talk(true);
   }, 900);
 }
@@ -627,11 +650,11 @@ function envOf(b, k) {
   $(b, ".buddy").classList.toggle("lowpower", !!e.powerSave);
   const was = b._was; b._was = {charging: !!e.charging, music: !!e.music, heat, save: !!e.powerSave};
   if (!was || lockedNow) return;
-  if (heat && !was.heat) { move(b, "wave", 1400); if (b._feel) b._feel("full", 1800); askThink(b, "heat", "휴대폰이 후끈해, 나 땀나"); return; }
-  if (e.powerSave && !was.save) { if (b._feel) b._feel("yawn", 1700); askThink(b, "save", "절전 모드네, 나도 살살 움직일게"); return; }
-  if (e.charging && !was.charging) { if (b._feel) b._feel("yum", 2200); move(b, "hop", 760); askThink(b, "charge", "냠냠, 충전이 제일 맛있어"); }
-  else if (e.music && !was.music) { move(b, "dance", 5200); if (b._feel) b._feel("happy", 5200); askThink(b, "music", "음악이다! 몸이 저절로 들썩여"); }
-  else if (hungry && seenNow && Date.now() - (b._hungryAt || 0) > 1800000) { b._hungryAt = Date.now(); move(b, "rumble", 1100); if (b._feel) b._feel("sad", 2000); askThink(b, "hungry", "꼬르륵… 충전해 주면 힘이 날 것 같아"); }
+  if (heat && !was.heat) { move(b, "wave", 1400); if (b._feel) b._feel("full", 1800); askThink(b, "heat"); return; }
+  if (e.powerSave && !was.save) { if (b._feel) b._feel("yawn", 1700); askThink(b, "save"); return; }
+  if (e.charging && !was.charging) { if (b._feel) b._feel("yum", 2200); move(b, "hop", 760); askThink(b, "charge"); }
+  else if (e.music && !was.music) { move(b, "dance", 5200); if (b._feel) b._feel("happy", 5200); askThink(b, "music"); }
+  else if (hungry && seenNow && Date.now() - (b._hungryAt || 0) > 1800000) { b._hungryAt = Date.now(); move(b, "rumble", 1100); if (b._feel) b._feel("sad", 2000); askThink(b, "hungry"); }
 }
 /** The app's word on 퍼레's life after a care act (launcher.life): its heart and memories, and how it took it. */
 function boardLife(life) {
@@ -696,7 +719,7 @@ function drawCare(b) {
       jolts = jolts.filter(t => now - t < 900).concat(now);
       if (jolts.length >= 3 && now - shakenAt > 6000) {
         shakenAt = now; jolts = [];
-        boards.forEach(b => { move(b, "wobble", 1700); if (b._feel) b._feel("dizzy", 2400); askThink(b, "shake", "으앗, 지진인 줄 알았어… 어질어질"); });
+        boards.forEach(b => { move(b, "wobble", 1700); if (b._feel) b._feel("dizzy", 2400); askThink(b, "shake"); });
         if (window.boardCare) window.boardCare("shake");
       }
     }
@@ -842,7 +865,11 @@ function roam(b) {
     if (e.rain) ["butterfly", "kite", "paperplane", "cloudwatch"].forEach(k => kinds.splice(kinds.indexOf(k), 1));
     const kind = kinds[Math.floor(Math.random() * kinds.length)];
     playing = true;
-    const here = () => { try { PLAYS[kind](() => { playing = false; }); } catch (err) { playing = false; } };
+    const here = () => {
+      try { PLAYS[kind](() => { playing = false; }); } catch (err) { playing = false; }
+      // Now and then a word while it plays (talk.js "play:…"), never over words already in its bubble.
+      if (Math.random() < .3 && !$(b, ".bubble").classList.contains("on")) { const w = preset("play:" + kind); if (w) setTimeout(() => { if (!$(b, ".bubble").classList.contains("on")) speak(b, {text: w}, 2200); }, 600); }
+    };
     // Most plays start somewhere new in the playground.
     if (Math.random() < .85 && !["peek", "clock", "airplane", "ninja", "skipping", "rolling", "cartwheel"].includes(kind)) { const t = spot(); walk(t.x, t.y, here); } else here();
     setTimeout(() => { playing = false; }, 16000);
@@ -851,7 +878,13 @@ function roam(b) {
   setTimeout(tick, rnd(5000, 9000));
   // Out of its corner soon after the screen opens, and now and then a stroll between plays.
   setTimeout(() => { if (!busy() && !playing) { const t = spot(); walk(t.x, t.y); } }, 2200);
-  const stroll = () => { if (!busy() && !playing && Math.random() < .6) { const t = spot(); walk(t.x, t.y); } setTimeout(stroll, rnd(14000, 26000)); };
+  const stroll = () => {
+    if (!busy() && !playing && Math.random() < .6) {
+      const t = spot(); walk(t.x, t.y);
+      if (Math.random() < .12 && !$(b, ".bubble").classList.contains("on")) { const w = preset("roam"); if (w) speak(b, {text: w}, 2000); }
+    }
+    setTimeout(stroll, rnd(14000, 26000));
+  };
   setTimeout(stroll, rnd(12000, 20000));
   // Home: back to its place (a tap, its card, the voice talk, the screen opened again).
   b._home = () => { if (x || y) { x = 0; y = 0; place(400); } };

@@ -441,6 +441,7 @@ body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18p
 <div class="aurora-bg"><i></i><i></i><i></i></div>
 
 <script>/*GYEOT*/</script>
+<script src="/talk.js"></script>
 <script src="/board.js"></script>
 <div id="pages">
 <section class="page" id="todayPage"><div class="inner">
@@ -588,6 +589,8 @@ function launch(id, from) {
   const r = (from || document.body).getBoundingClientRect();
   if (from && from.classList.contains("dk")) { from.classList.remove("hop"); void from.offsetWidth; from.classList.add("hop"); }
   if (B) B.launch(id, r.left, r.top, r.width, r.height);
+  // Which kind of app, for 퍼레's word when the user comes back (talk.js "app:…").
+  window.boardLastApp = (BY.get(id) || {}).stack || "";
   RECENT = [id].concat(RECENT.filter(x => x !== id)).slice(0, 6);
   setTimeout(() => { closeFan(); closePad(); drawDock(); }, 350);
 }
