@@ -339,6 +339,7 @@ final class BuddyTalk {
                 if (a == null && BuddyTools.promised(said, t.text())) {
                     try { a = BuddyTools.act(GroqWork.stream(used[0], used[1], used[2], withTools, messages, used[3], 0.3, BuddyTools.TOOLS, "required", 6_000, null, null).calls()); }
                     catch (Exception refused) { /* the words alone */ }
+                    if (a == null) BuddyMisses.add(c, said, "할 일 도구", "말로만 하겠다고 하고 도구를 부르지 않았어요", "");
                 }
                 String line = spoken(t.text());
                 if ((line == null || line.isBlank()) && a != null) line = BuddyTools.say(a);

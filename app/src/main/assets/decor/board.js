@@ -938,8 +938,10 @@ function roam(b) {
     Library, and at each height left to whatever stands there (the clock widget, the prices, the small buttons), never over them.
   */
   const home = () => { const r = buddy.getBoundingClientRect(); return {left: r.left - x, top: r.top - y, w: r.width, h: r.height}; };
+  // What stands there, as far as its words go (준: "움직임이 제약돼"): the clock's box is as wide as its row, its digits are not.
+  const reach = el => { const box = el.getBoundingClientRect(); try { const r = document.createRange(); r.selectNodeContents(el); const c = r.getBoundingClientRect(); if (c.width > 0 && c.right < box.right) return {left: box.left, top: box.top, right: c.right, bottom: box.bottom}; } catch (e) {} return box; };
   const obstacles = () => Array.from(document.querySelectorAll(".when > *, .grid > .card, .mini-pill"))
-    .filter(el => el.offsetParent && el.offsetWidth > 0 && !buddy.contains(el)).map(el => el.getBoundingClientRect());
+    .filter(el => el.offsetParent && el.offsetWidth > 0 && !buddy.contains(el)).map(reach);
   const floorOf = hm => { const lib = document.querySelector(".lib-head"); return lib && lib.offsetParent ? lib.getBoundingClientRect().top - hm.h - 2 : hm.top + 40; };
   const leftAt = (ty, hm, obs) => { let left = 14; for (const o of obs) if (o.bottom > ty + 10 && o.top < ty + hm.h - 10) left = Math.max(left, o.right + 10); return left; };
   /** A free spot in the playground, relative to its corner. */

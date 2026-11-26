@@ -22,14 +22,29 @@ final class BuddyActs {
     private BuddyActs() {}
 
     /** heard: what the user said (an alarm or a timer runs only after a yes); overlay: 퍼레's window is over another app. */
+    /** What failed in this act (fail()), kept by run() in BuddyMisses with the words that asked for it. */
+    private static final ThreadLocal<String[]> MISS = new ThreadLocal<>();
+    /** A failed act's words, with the tap that clears the way ("" none, BuddyMisses). */
+    private static BuddyVoice.Outcome fail(String say, String fix) { MISS.set(new String[]{say, fix == null ? "" : fix}); return new BuddyVoice.Outcome(say, false, null); }
     static BuddyVoice.Outcome run(Context context, JSONObject act, String heard, boolean overlay) {
+        MISS.remove();
+        BuddyVoice.Outcome o = runOnce(context, act, heard, overlay);
+        String[] m = MISS.get(); MISS.remove();
+        if (m != null) {
+            String what = act.optString("tool") + " " + (act.optString("app") + " " + act.optString("destination") + " " + act.optString("query") + " " + act.optString("panel")).strip();
+            BuddyMisses.add(context, heard, what.strip(), m[0], m[1]);
+            ((GyeotApp) context.getApplicationContext()).store().phoneLog("  · 퍼레 · 못 함: " + what.strip() + " · " + m[0]);
+        }
+        return o;
+    }
+    private static BuddyVoice.Outcome runOnce(Context context, JSONObject act, String heard, boolean overlay) {
         String tool = act.optString("tool").strip().toLowerCase(Locale.ROOT);
         try {
             switch (tool) {
                 case "open_app" -> {
                     String name = act.optString("app").strip();
                     LauncherActivityInfo info = findApp(context, name);
-                    if (info == null) return new BuddyVoice.Outcome("'" + name + "' 앱은 이 휴대폰에서 못 찾았어.", false, null);
+                    if (info == null) return fail("'" + name + "' 앱은 이 휴대폰에서 못 찾았어.", "store:" + name);
                     return started(context, open(context, info, overlay), info.getLabel() + " 열었어", true);
                 }
                 case "search" -> {
@@ -50,22 +65,22 @@ final class BuddyActs {
                 case "media" -> DeviceActions.MEDIA; case "torch" -> DeviceActions.TORCH; case "settings" -> DeviceActions.SETTINGS;
                 case "show_alarms" -> DeviceActions.SHOW_ALARMS; case "rotation" -> DeviceActions.ROTATION; default -> "";
             };
-            if (name.isEmpty()) return new BuddyVoice.Outcome("그건 아직 내가 못 해.", false, null);
+            if (name.isEmpty()) return fail("그건 아직 내가 못 해.", "");
             JSONObject args = new JSONObject(act.toString()); args.remove("tool");
             if (DeviceActions.ALARM.equals(name) || DeviceActions.TIMER.equals(name)) args.put("confirmed", true);
             DeviceActions.Action action = DeviceActions.parse(name, args, heard == null ? "" : heard, java.time.ZonedDateTime.now());
             JSONObject r = DeviceActionRunner.run(context, action, overlay);
             if ("needs_confirmation".equals(r.optString("outcome")))
                 return new BuddyVoice.Outcome(action.readback + (DeviceActions.ALARM.equals(name) ? "에 알람 맞출까?" : " 타이머 시작할까?"), false, act);
-            if (!r.optBoolean("ok")) return new BuddyVoice.Outcome(r.optString("say", "잘 안 됐어."), false, null);
+            if (!r.optBoolean("ok")) return fail(r.optString("say", "잘 안 됐어."), "");
             if (DeviceActions.ALARM.equals(name)) return new BuddyVoice.Outcome(action.readback + "에 알람 맞췄어!", false, null);
             if (DeviceActions.TIMER.equals(name)) return new BuddyVoice.Outcome(action.readback + " 타이머 시작!", false, null);
             // 준: "내 휴대폰 가로모드 세로모드 고정 바꾸는게 안돼"
             if (DeviceActions.ROTATION.equals(name)) { String m = r.optString("readback"); return new BuddyVoice.Outcome("auto".equals(m) ? "자동 회전 켰어!" : "landscape".equals(m) ? "가로로 고정했어!" : "세로로 고정했어!", false, null); }
             boolean leaves = DeviceActionRunner.started(r.optString("route")) && (DeviceActions.NAVIGATE.equals(name) || DeviceActions.SETTINGS.equals(name) || DeviceActions.SHOW_ALARMS.equals(name));
             return new BuddyVoice.Outcome("notification".equals(r.optString("outcome")) ? r.optString("say") : "", leaves, null);
-        } catch (IllegalArgumentException unclear) { return new BuddyVoice.Outcome(unclear.getMessage(), false, null); }
-        catch (Exception failed) { return new BuddyVoice.Outcome("잘 안 됐어. 한 번만 다시 말해 줘.", false, null); }
+        } catch (IllegalArgumentException unclear) { return fail(unclear.getMessage(), ""); }
+        catch (Exception failed) { return fail("잘 안 됐어. 한 번만 다시 말해 줘.", ""); }
     }
     /**
      * 길안내 as the edge assistant does it (준: "우리앱에 네비게이션 설정해놓은것을 퍼레가 모르고 있어"): a saved place (내비게이션 →
@@ -85,7 +100,7 @@ final class BuddyActs {
         if (saved == null && dev.jun.gyeot.core.SavedPlaces.own(destination)) {
             Intent add = new Intent(context, NavigationActivity.class).putExtra(NavigationActivity.ADD, destination.replaceAll("(으로|로|에|까지)$", "")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             DeviceActionRunner.start(context, add, overlay);
-            return new BuddyVoice.Outcome("‘" + destination + "’이 어딘지 아직 몰라. 여기 저장해 주면 다음부턴 바로 안내할게!", false, null);
+            return fail("‘" + destination + "’이 어딘지 아직 몰라. 여기 저장해 주면 다음부턴 바로 안내할게!", "place:" + destination.replaceAll("(으로|로|에|까지)$", ""));
         }
         if (saved != null) {
             place = saved.place();
@@ -105,7 +120,7 @@ final class BuddyActs {
             action = place != null ? DeviceActions.navigateTo(place, mode) : DeviceActions.search(destination, true);
         }
         JSONObject r = DeviceActionRunner.run(context, action, overlay);
-        if (!r.optBoolean("ok")) return new BuddyVoice.Outcome(r.optString("say", "지도를 못 열었어."), false, null);
+        if (!r.optBoolean("ok")) return fail(r.optString("say", "지도를 못 열었어."), "");
         if ("navigation".equals(r.optString("outcome")) && "네이버 지도".equals(r.optString("app")) && store.phoneControl() && store.pressNavigationStart() && PhoneService.connected())
             PhoneService.pressWhenShown("com.nhn.android.nmap", java.util.List.of("안내 시작", "안내시작", "길안내 시작", "경로 안내 시작"), 15_000, label -> store.phoneLog("  · 퍼레 · 네이버 지도 ‘" + label + "’ 눌렀어요"));
         if ("notification".equals(r.optString("outcome"))) return new BuddyVoice.Outcome(r.optString("say"), false, null);
@@ -135,7 +150,7 @@ final class BuddyActs {
         if (pkg == null) pkg = "com.google.android.youtube";
         if (q.isEmpty()) {
             Intent launch = pm.getLaunchIntentForPackage(pkg);
-            if (launch == null) return new BuddyVoice.Outcome("그 앱이 이 휴대폰에 없어.", false, null);
+            if (launch == null) return fail("그 앱이 이 휴대폰에 없어.", "store:" + act.optString("app"));
             return started(context, DeviceActionRunner.start(context, launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), overlay), "", true);
         }
         java.util.List<Intent> tries = new java.util.ArrayList<>();
@@ -151,12 +166,12 @@ final class BuddyActs {
             ((GyeotApp) context.getApplicationContext()).store().phoneLog("  · 퍼레 · " + pkg + " · ‘" + q + "’ " + (t.getAction() != null && t.getAction().contains("PLAY_FROM_SEARCH") ? "찾아 틀기" : "검색") + " · " + route);
             return started(context, route, "", true);
         }
-        return new BuddyVoice.Outcome("거기서 찾아 틀 수가 없어. 그 앱이 깔려 있는지 봐 줘.", false, null);
+        return fail("거기서 찾아 틀 수가 없어. 그 앱이 깔려 있는지 봐 줘.", act.optString("app").isBlank() ? "" : "store:" + act.optString("app"));
     }
     /** The media volume: up or down a few steps, a level (0–100), muted or back (the phone shows its volume bar). */
     private static BuddyVoice.Outcome volume(Context context, JSONObject act) {
         android.media.AudioManager audio = context.getSystemService(android.media.AudioManager.class);
-        if (audio == null) return new BuddyVoice.Outcome("소리를 못 바꿨어.", false, null);
+        if (audio == null) return fail("소리를 못 바꿨어.", "");
         int stream = android.media.AudioManager.STREAM_MUSIC, flags = android.media.AudioManager.FLAG_SHOW_UI, max = audio.getStreamMaxVolume(stream);
         String direction = act.optString("direction").strip().toLowerCase(Locale.ROOT);
         if (act.has("level")) {
@@ -179,7 +194,7 @@ final class BuddyActs {
         if (!android.provider.Settings.System.canWrite(context)) {
             Intent allow = new Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS, android.net.Uri.parse("package:" + context.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             try { DeviceActionRunner.start(context, allow, overlay); } catch (RuntimeException ignored) { /* Said below. */ }
-            return new BuddyVoice.Outcome("밝기를 바꾸려면 '시스템 설정 변경'을 허용해 줘. 허용 화면을 열었어.", false, null);
+            return fail("밝기를 바꾸려면 '시스템 설정 변경'을 허용해 줘. 허용 화면을 열었어.", "writeSettings");
         }
         android.content.ContentResolver settings = context.getContentResolver();
         try {
@@ -190,12 +205,12 @@ final class BuddyActs {
             android.provider.Settings.System.putInt(settings, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL);
             android.provider.Settings.System.putInt(settings, android.provider.Settings.System.SCREEN_BRIGHTNESS, to);
             return new BuddyVoice.Outcome(act.has("level") ? "밝기 " + Math.max(0, Math.min(100, act.optInt("level"))) + "으로 맞췄어!" : to > now ? "화면 밝게 했어!" : "화면 어둡게 했어.", false, null);
-        } catch (RuntimeException refused) { return new BuddyVoice.Outcome("밝기를 못 바꿨어.", false, null); }
+        } catch (RuntimeException refused) { return fail("밝기를 못 바꿨어.", ""); }
     }
     /** After a start: nothing to add when it opened, the way to open it when Android only let a notification through. */
     private static BuddyVoice.Outcome started(Context context, String route, String opened, boolean leaves) {
         if (DeviceActionRunner.started(route)) return new BuddyVoice.Outcome("", leaves, null);
-        return new BuddyVoice.Outcome("locked".equals(route) ? "화면이 잠겨 있어서 못 열었어. 잠금을 풀고 다시 말해 줘." : "지금은 바로 열 수가 없어. 다른 앱 위에 표시 권한을 켜 주면 바로 열 수 있어.", false, null);
+        return "locked".equals(route) ? fail("화면이 잠겨 있어서 못 열었어. 잠금을 풀고 다시 말해 줘.", "") : fail("지금은 바로 열 수가 없어. 다른 앱 위에 표시 권한을 켜 주면 바로 열 수 있어.", "overlay");
     }
     /** The app's own launcher intent, started the way Android allows now; a work-profile app through LauncherApps. */
     private static String open(Context context, LauncherActivityInfo info, boolean overlay) {

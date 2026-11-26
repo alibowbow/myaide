@@ -83,6 +83,54 @@ public class BuddyBrainTests {
         assertFalse("flat", dev.jun.gyeot.core.Intonation.rising(glide(160, 160, 160)));
         assertTrue(BuddyTalk.ACTS.length() > 0);
     }
+    /**
+     * 준: "1번 진행" — what 퍼레 is asked, run through its acts on a phone with Naver Map and YouTube: what opens, and what it
+     * could not do kept with the tap that clears the way.
+     */
+    @Test public void actsOnWhatWasAsked() throws Exception {
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        app.store().appVisible = true;
+        org.robolectric.shadows.ShadowPackageManager pm = shadowOf(app.getPackageManager());
+        android.content.ComponentName nmap = new android.content.ComponentName("com.nhn.android.nmap", "com.nhn.android.nmap.Main");
+        pm.addActivityIfNotPresent(nmap);
+        android.content.IntentFilter view = new android.content.IntentFilter(android.content.Intent.ACTION_VIEW); view.addCategory(android.content.Intent.CATEGORY_DEFAULT); view.addDataScheme("nmap");
+        pm.addIntentFilterForActivity(nmap, view);
+        android.content.ComponentName youtube = new android.content.ComponentName("com.google.android.youtube", "com.google.android.youtube.Home");
+        pm.addActivityIfNotPresent(youtube);
+        android.content.IntentFilter search = new android.content.IntentFilter(android.content.Intent.ACTION_SEARCH); search.addCategory(android.content.Intent.CATEGORY_DEFAULT);
+        pm.addIntentFilterForActivity(youtube, search);
+        app.store().savedPlaces(java.util.List.of(new dev.jun.gyeot.core.SavedPlaces.Saved(java.util.List.of("집", "우리집"), "래미안", "부산 수영구", 35.15, 129.11)));
+        BuddyMisses.clear(app);
+        org.robolectric.shadows.ShadowApplication shadow = shadowOf(app);
+
+        // "집으로 가자": Naver Map's navigation to the saved place, at once.
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"navigate\",\"destination\":\"집\"}"), "집으로 가자", false);
+        android.content.Intent home = shadow.getNextStartedActivity();
+        assertNotNull("navigation opened", home);
+        assertTrue(String.valueOf(home.getData()), String.valueOf(home.getData()).startsWith("nmap://") && String.valueOf(home.getData()).contains("35.15"));
+
+        // "유튜브에서 아이유 신곡 틀어 줘": YouTube's own search for it.
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"play\",\"query\":\"아이유 신곡\",\"app\":\"유튜브\"}"), "유튜브에서 아이유 신곡 틀어 줘", false);
+        android.content.Intent played = shadow.getNextStartedActivity();
+        assertNotNull("YouTube opened", played);
+        assertEquals("com.google.android.youtube", played.getPackage()); assertEquals("아이유 신곡", played.getStringExtra(android.app.SearchManager.QUERY));
+
+        // "회사로 가자" before 회사 is saved: not a map search for the word, the place to save it.
+        BuddyVoice.Outcome work = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"navigate\",\"destination\":\"회사\"}"), "회사로 가자", false);
+        android.content.Intent save = shadow.getNextStartedActivity();
+        assertNotNull(save); assertEquals(NavigationActivity.class.getName(), save.getComponent().getClassName()); assertEquals("회사", save.getStringExtra(NavigationActivity.ADD));
+        assertTrue(work.say(), work.say().contains("회사"));
+
+        // An app that is not here, and a thing it cannot do: kept, with the tap that clears the way where there is one.
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"open_app\",\"app\":\"없는앱\"}"), "없는앱 열어 줘", false);
+        BuddyVoice.Outcome call = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"call\",\"who\":\"엄마\"}"), "엄마한테 전화해 줘", false);
+        assertEquals("그건 아직 내가 못 해.", call.say());
+        java.util.List<BuddyMisses.Miss> misses = BuddyMisses.list(app);
+        assertEquals(3, misses.size());
+        assertEquals("엄마한테 전화해 줘", misses.get(0).said());
+        assertEquals("store:없는앱", misses.get(1).fix()); assertEquals("앱 찾기", BuddyMisses.fixLabel(misses.get(1).fix()));
+        assertEquals("place:회사", misses.get(2).fix()); assertNotNull(BuddyMisses.fixIntent(app, misses.get(2).fix()));
+    }
     @Test public void doesThingsWithToolsAndSpeaksAsItWrites() throws Exception {
         // 준: "2번" — a tool the brain calls is the act, with a short line when it said none.
         org.json.JSONObject a = BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "open_app").put("arguments", "{\"app\":\"YouTube\"}")));

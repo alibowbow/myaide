@@ -101,6 +101,9 @@ public final class DecorActivity extends Activity {
         // The user's voice (준: "내 목소리를 알아볼 수 있게해줘"): read three sentences once; in the voice talk 퍼레 then knows it.
         boolean known = BuddyTalk.voice(this).ready();
         ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_mic, Ui.TEAL, "내 목소리", known ? "등록했어요 · 음성 대화에서 내 목소리를 알아봐요" : "등록하면 다른 사람 목소리엔 내 기억을 말하지 않아요", ui.chevron(), this::voiceSheet), true);
+        // What 퍼레 could not do (준: "1번 진행"): each with why, and the tap that clears the way.
+        List<BuddyMisses.Miss> misses = BuddyMisses.list(this);
+        if (!misses.isEmpty()) ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_info, Ui.ORANGE, "퍼레가 못 한 일 " + misses.size(), misses.get(0).why(), ui.chevron(), this::missesSheet), true);
         LinearLayout.LayoutParams bg = new LinearLayout.LayoutParams(-1, -2); bg.bottomMargin = ui.dp(14);
         body.addView(buddyGroup, bg);
 
@@ -427,6 +430,28 @@ public final class DecorActivity extends Activity {
      * 퍼레's memory book, opened with the fingerprint: its 발견 노트 (what it knows about the user, from the night's digest), its
      * promises, its 추억 (what it was told and lived through) and today so far; private ones marked. Each can be deleted.
      */
+    /** What 퍼레 could not do, newest first: the words, why, when, and a tap that clears the way where there is one. */
+    private void missesSheet() {
+        List<BuddyMisses.Miss> list = BuddyMisses.list(this);
+        Ui.Sheet sheet = ui.selectionSheet("퍼레가 못 한 일", list.isEmpty() ? "없어요" : "최근 " + list.size() + "개 · 이 휴대폰에만 있어요");
+        sheet.primary.setVisibility(View.GONE);
+        long now = System.currentTimeMillis(); java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+        LinearLayout group = ui.group();
+        for (BuddyMisses.Miss m : list) {
+            android.content.Intent fix = BuddyMisses.fixIntent(this, m.fix());
+            View chip = fix == null ? null : ui.smallChip(BuddyMisses.fixLabel(m.fix()), () -> { sheet.dismiss(); try { startActivity(fix); } catch (RuntimeException none) { Toast.makeText(this, "그 화면을 열지 못했어요", Toast.LENGTH_SHORT).show(); } });
+            String said = m.said() == null || m.said().isBlank() || "네".equals(m.said()) ? m.what() : "“" + m.said() + "”";
+            ui.addRow(group, ui.listRow(R.drawable.ic_info, Ui.ORANGE, said, m.why() + " · " + dev.jun.gyeot.core.BuddyMemory.when(m.at(), now, zone), chip, null), true);
+        }
+        sheet.body.addView(group);
+        if (!list.isEmpty()) {
+            LinearLayout clear = ui.group();
+            ui.addRow(clear, ui.listRow(R.drawable.ic_close, Ui.ERROR, "목록 지우기", "다 해결했으면 비워요", null, () -> { sheet.dismiss(); BuddyMisses.clear(this); draw(); }), true);
+            LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-1, -2); at.topMargin = ui.dp(12);
+            sheet.body.addView(clear, at);
+        }
+        sheet.show();
+    }
     private void memorySheet(List<dev.jun.gyeot.core.BuddyMemory.Entry> list) {
         Ui.Sheet sheet = ui.selectionSheet("퍼레의 기억", list.isEmpty() ? "아직 없어요. 퍼레와 이야기하다 보면 쌓여요." : list.size() + "개 · 들퍼레 앱에만 있어요. 🔒는 지문을 확인해야 퍼레가 말해요.");
         sheet.primary.setVisibility(View.GONE);
