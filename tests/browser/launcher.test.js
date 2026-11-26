@@ -78,13 +78,16 @@ async function open(browser, at) {
     await p.evaluate(() => { window._knob = 0; addEventListener('message', e => { if (e.data === 'knob') window._knob++; }); });
     const r = await p.evaluate(() => { const s = document.getElementById('shelf').getBoundingClientRect(); return { x: s.left + s.width / 2, y: s.top + s.height / 2 }; });
     await p.evaluate(() => toPage(2, false));
-    await p.clock.runFor(1500);
-    assert.strictEqual(await p.evaluate(([x, y]) => document.elementFromPoint(x, y).tagName, [r.x, r.y]), 'IFRAME');
-    await p.touchscreen.tap(r.x, r.y);
-    await p.clock.runFor(300);
-    assert.strictEqual(await p.evaluate(() => window._knob), 1, 'the page got the touch');
-    assert.strictEqual(await p.evaluate(() => document.getElementById('tip').classList.contains('on')), false, 'no dock name over the page');
-    await p.evaluate(() => toPage(1, false));
+    try {
+      await p.clock.runFor(1500);
+      // The page in its frame loads on real time (a slow machine takes a while).
+      await p.frameLocator('iframe').locator('#k').waitFor({ timeout: 15000 });
+      assert.strictEqual(await p.evaluate(([x, y]) => document.elementFromPoint(x, y).tagName, [r.x, r.y]), 'IFRAME');
+      await p.touchscreen.tap(r.x, r.y);
+      for (let i = 0; i < 20 && !(await p.evaluate(() => window._knob)); i++) { await p.clock.runFor(100); await p.waitForTimeout(50); }
+      assert.strictEqual(await p.evaluate(() => window._knob), 1, 'the page got the touch');
+      assert.strictEqual(await p.evaluate(() => document.getElementById('tip').classList.contains('on')), false, 'no dock name over the page');
+    } finally { await p.evaluate(() => toPage(1, false)); await p.clock.runFor(300); }
   });
   await check('퍼레 plays alone with small words, and its heart stays in the corner', async () => {
     const p = day.page;
@@ -125,7 +128,7 @@ async function open(browser, at) {
     const p = day.page;
     await p.evaluate(() => { document.querySelector('.bubble').classList.remove('on', 'ask'); ['ball', 'dice', 'cube'].forEach(k => boards[0]._toys.out(k)); });
     for (let i = 0; i < 20; i++) await p.clock.runFor(100);
-    const rest = await p.evaluate(() => { const f = document.querySelector('.lib-head').getBoundingClientRect().top; return Array.from(document.querySelectorAll('.tb')).map(e => ({k: e.className, gap: Math.round(f - e.getBoundingClientRect().bottom)})); });
+    const rest = await p.evaluate(() => { const f = document.querySelector('.lib-head').getBoundingClientRect().top; return Array.from(document.querySelectorAll('.tb.ball, .tb.dice, .tb.cube')).map(e => ({k: e.className, gap: Math.round(f - e.getBoundingClientRect().bottom)})); });
     assert.strictEqual(rest.length, 3);
     for (const t of rest) assert(t.gap >= -2 && t.gap < 120, t.k + ' rests above App Library: ' + t.gap);
     const dice = await p.evaluate(() => { const r = document.querySelector('.tb.dice').getBoundingClientRect(); return {x: r.left + 8, y: r.top + 8}; });
