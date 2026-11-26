@@ -48,6 +48,8 @@ final class AppStore {
     final NimAccount nim;
     /** Groq's API key and the models it can use (GroqAccount). */
     final GroqAccount groq;
+    /** Typecast's API key and 퍼레's chosen voice (TypecastAccount). */
+    final TypecastAccount typecast;
     final GeminiKeyRing geminiKeys;
     final AntigravityAccount antigravity;
     final GroqModels groqModels;
@@ -181,6 +183,7 @@ final class AppStore {
         gmail = new GmailAccount(context, settings, this::changed);
         nim = new NimAccount(secrets, settings, this::changed);
         groq = new GroqAccount(secrets, settings, this::changed);
+        typecast = new TypecastAccount(secrets, settings, this::changed);
         // The files the browser's AI may attach (fetched by the app for the user): kept across restarts and updates.
         dev.jun.gyeot.core.BrowserUploads.persistWith(settings.getString("browserUploads", ""), json -> settings.edit().putString("browserUploads", json).apply(), System.currentTimeMillis());
         geminiKeys = new GeminiKeyRing(secrets);

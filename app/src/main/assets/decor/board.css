@@ -230,7 +230,11 @@ html,body{margin:0;height:100%;overflow:hidden;background:#dfeefe;font-family:va
 .bot.w-umbrella .b-arm.r{transform:rotate(-24deg)}
 /* what it wears and what shows by it */
 .bot .acc{display:none}
-.bot.w-umbrella .umbrella,.bot.w-scarf .scarf,.bot.w-shades .shades,.bot.w-cap .cap,.bot.w-phones .phones,.bot.w-bolt .bolt,.bot.w-sweat .sweat,.bot.w-notes .notes,.bot.w-q .q,.bot.w-bow .bow,.bot.eating .cookie{display:inline}
+.bot.w-umbrella .umbrella,.bot.w-scarf .scarf,.bot.w-shades .shades,.bot.w-cap .cap,.bot.w-phones .phones,.bot.w-bolt .bolt,.bot.w-sweat .sweat,.bot.w-notes .notes,.bot.w-q .q,.bot.eating .cookie{display:inline}
+.bot.w-save .b-eye .pill{transform:scaleY(.55) translateY(2px)}
+.bot.w-dnd .b-bulb,.bot.w-save .b-bulb{fill:#a9b0cc}
+.buddy.lowpower .body{animation-duration:6s}
+.bot{transform-origin:50% 100%;transition:transform .45s cubic-bezier(.3,1.3,.5,1)}
 .bot.w-cap .b-antenna{display:none}
 .bot.w-shades .b-eye{opacity:0}
 .bot .bolt{transform-box:fill-box;transform-origin:center;animation:boltb 1.5s ease-in-out infinite}
@@ -258,7 +262,6 @@ html,body{margin:0;height:100%;overflow:hidden;background:#dfeefe;font-family:va
 .buddy.shake .b-all{animation:shake .7s ease-in-out}
 .buddy.nod .b-body{animation:nod .9s ease-in-out}
 .buddy.rumble .b-body{animation:rumble .25s ease-in-out 4}
-.buddy.baby .bot{transform:scale(.88);transform-origin:50% 100%}
 @keyframes dance{0%,100%{transform:none}25%{transform:translateY(-3px) rotate(-7deg)}50%{transform:none}75%{transform:translateY(-3px) rotate(7deg)}}
 @keyframes armL{50%{transform:rotate(130deg)}}
 @keyframes armR{50%{transform:rotate(-130deg)}}
@@ -292,3 +295,15 @@ html,body{margin:0;height:100%;overflow:hidden;background:#dfeefe;font-family:va
 .care-acts{display:flex;gap:6px;margin-top:10px}
 .care-acts button{flex:1;min-width:0;height:32px;border-radius:999px;border:0;background:#f1f2f6;color:#2b2c3a;font:inherit;font-size:12.5px;font-weight:700;white-space:nowrap;padding:0 6px}
 .care-acts button:active{transform:scale(.95)}
+.care-mem{display:flex;flex-direction:column;align-items:flex-start;gap:1px;width:100%;margin-top:9px;padding:8px 10px;border:0;border-radius:12px;background:#f6f4ff;color:#5b4fc4;font:inherit;font-size:12px;font-weight:750;text-align:left}
+.care-mem .m{font-weight:550;color:#6a6b7d;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+
+/* the voice talk: a soft ring while 퍼레 listens; what it hears in the bubble */
+.buddy.listening::before{content:"";position:absolute;left:50%;top:52%;width:96px;height:96px;margin:-48px 0 0 -48px;border-radius:50%;border:2px solid rgba(120,214,180,.85);box-shadow:0 0 18px rgba(120,214,180,.45);animation:listen 1.4s ease-out infinite;pointer-events:none}
+.buddy.listening .b-bulb{fill:#7be0b8;animation:glow 1.1s ease-in-out infinite}
+@keyframes listen{0%{transform:scale(.82);opacity:.9}100%{transform:scale(1.18);opacity:0}}
+.bubble .heard{font-weight:600}.bubble .heard.muted{color:#8a8b9c}
+/* the heart by 퍼레: how close it feels (filled from below); a tap opens its care card */
+.care-btn{position:absolute;right:2px;top:78px;z-index:4;width:24px;height:24px;padding:0;border:0;border-radius:50%;background:rgba(255,255,255,.92);box-shadow:0 2px 8px rgba(20,20,40,.25)}
+.care-btn::before{content:"";position:absolute;inset:5px;background:linear-gradient(to top,#ff6f91 var(--fill,55%),#ffd3de var(--fill,55%));-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 21C4 15 2 10.5 4.2 7.3 6.2 4.5 10 5 12 8c2-3 5.8-3.5 7.8-.7C22 10.5 20 15 12 21z'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 21C4 15 2 10.5 4.2 7.3 6.2 4.5 10 5 12 8c2-3 5.8-3.5 7.8-.7C22 10.5 20 15 12 21z'/%3E%3C/svg%3E") center/contain no-repeat}
+.care-btn:active{transform:scale(.9)}

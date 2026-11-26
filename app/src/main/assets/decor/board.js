@@ -50,7 +50,7 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +       '<g class="acc shades"><rect x="29" y="41" width="20" height="13" rx="5.5" fill="#23232e"/><rect x="51" y="41" width="20" height="13" rx="5.5" fill="#23232e"/><path d="M49 45 h2" stroke="#23232e" stroke-width="2"/><path d="M32 44 l5 -1.5" stroke="#fff" stroke-opacity=".5" stroke-width="1.6" stroke-linecap="round"/></g></g>'
   +     '<circle class="b-cheek" cx="28.5" cy="60" r="4.6"/><circle class="b-cheek" cx="71.5" cy="60" r="4.6"/>'
   +     '<g class="acc scarf"><path d="M16 73 Q50 86 84 73 L85 81 Q50 94 15 81Z" fill="#6f9fe8"/><path d="M15 77 Q50 89 85 77" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="1.6" stroke-dasharray="3 3"/><rect x="62" y="80" width="10" height="17" rx="3.5" fill="#5d8bd6"/></g>'
-  +     '<g class="acc bow"><path d="M50 84 L41 79 L41 89Z M50 84 L59 79 L59 89Z" fill="#3c4a7a"/><circle cx="50" cy="84" r="2.6" fill="#2d3866"/></g></g>'
+  +   '</g>'
   +   '<g class="acc cap"><path d="M20 30 C22 6 56 -6 84 2 C74 6 70 12 72 22 C58 16 36 18 20 30Z" fill="#8f7cf0"/><path d="M20 30 C36 20 58 18 76 24" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/><circle cx="86" cy="3" r="5.5" fill="#fff"/></g>'
   +   '<g class="acc phones"><path d="M14 50 C12 14 88 14 86 50" fill="none" stroke="#3b3f52" stroke-width="5" stroke-linecap="round"/><rect x="5" y="40" width="13" height="22" rx="6" fill="#3b3f52"/><rect x="82" y="40" width="13" height="22" rx="6" fill="#3b3f52"/></g>'
   +   '<path class="acc bolt" d="M90 12 l-7 11 h5.5 l-3 10 l9 -13 h-5.5 l3.5 -8z" fill="#ffd34d" stroke="#e0a800" stroke-width=".8" stroke-linejoin="round"/>'
@@ -68,7 +68,7 @@ function makeBoard(slot) {
     '<div class="sky"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><div class="stars">' + stars + '</div></div>'
   + '<div class="wrap">'
   +   '<header class="hero"><div class="when"><div class="date"></div><div class="clock"></div><div class="hello"></div></div>'
-  +     '<button class="buddy" aria-label="퍼레"><div class="bubble"></div><span class="think private"><span class="dots"><i></i><i></i><i></i></span><span class="n"></span></span><span class="zz">z</span><div class="body">' + BUDDY + '</div><div class="ground"></div></button><div class="care" role="dialog" aria-label="퍼레 돌보기"></div></header>'
+  +     '<button class="buddy" aria-label="퍼레"><div class="bubble"></div><span class="think private"><span class="dots"><i></i><i></i><i></i></span><span class="n"></span></span><span class="zz">z</span><div class="body">' + BUDDY + '</div><div class="ground"></div></button><button class="care-btn" aria-label="퍼레 돌보기"></button><div class="care" role="dialog" aria-label="퍼레 돌보기"></div></header>'
   +   '<div class="grid">'
   +     '<div class="card wide event tap private" data-go="calendar" data-rank="5"><div class="cal"><span class="dow"></span><span class="day"></span></div><div class="ev"><div class="eyebrow">다음 일정</div><div class="ev-title">일정을 보는 중…</div><div class="ev-meta"></div></div><div class="soon"></div></div>'
   +     '<div class="card wide coins tap" data-go="trading" data-rank="6"><div class="eyebrow">' + ICON.chart + '시세</div><div class="coin-list"><div class="muted">시세를 받는 중…</div></div></div>'
@@ -80,6 +80,7 @@ function makeBoard(slot) {
   // Cards pop in one after another, like a console's home screen waking up.
   b.querySelectorAll(".hero,.grid>.card").forEach((c, i) => { c.classList.add("pop"); c.style.animationDelay = (60 + i * 55) + "ms"; });
   touchBuddy(b);
+  $(b, ".care-btn").addEventListener("click", e => { e.stopPropagation(); if (b._careOn) closeCare(b); else openCare(b); });
   const bubble = $(b, ".bubble");
   bubble.addEventListener("click", e => {
     e.stopPropagation();
@@ -237,6 +238,8 @@ function move(b, kind, ms) {
 let thinkAt = 0;
 function askThink(b, why, fallback, asked) {
   const now = Date.now();
+  // Do not disturb: 퍼레 keeps its words for when it is asked.
+  if (!asked && b._env && b._env.dnd) return;
   if (window.boardThink && (asked || now - thinkAt > 12000)) { thinkAt = now; boards.forEach(thinking); window.boardThink(why); return; }
   if (fallback) speak(b, {text: fallback}, 3600);
 }
@@ -244,7 +247,9 @@ function askThink(b, why, fallback, asked) {
 /*
   Touching 퍼레 (준: "퍼레 캐릭터 다양한 모션 애니메이션 표정 인터랙티브한 반응 등도 세세하게 구현 고도화"): a tap, it hops and thinks
   of something to say; two taps, the talk with it (준: "퍼레대화는 퍼레를 더블터치하면 열리는걸로"); more taps in a row, it gets
-  dizzy; stroked back and forth, it is petted (hearts float up); held, it squishes and its care card opens.
+  dizzy; stroked back and forth, it is petted (hearts float up); held, it listens and talks back in its own voice (the home
+  screen app's voice talk, 준: "퍼레 음성대화는 퍼레를 꾹 누르고 있으면 실행되게"; a tap ends it). The small heart by it opens its
+  care card (on the wallpaper, holding it does too).
 */
 function touchBuddy(b) {
   const buddy = $(b, ".buddy");
@@ -255,7 +260,7 @@ function touchBuddy(b) {
     b._longT = setTimeout(() => {
       if (!down || down.path > 16 || lockedNow) return;
       quiet = Date.now(); buddy.classList.add("squish"); if (navigator.vibrate) try { navigator.vibrate(12); } catch (x) {}
-      openCare(b);
+      if (window.boardVoice) { closeCare(b); window.boardVoice(); } else openCare(b);
     }, 520);
   });
   buddy.addEventListener("pointermove", e => {
@@ -271,6 +276,7 @@ function touchBuddy(b) {
   buddy.addEventListener("pointerup", up); buddy.addEventListener("pointercancel", up); buddy.addEventListener("pointerleave", up);
   buddy.addEventListener("click", () => {
     if (Date.now() - quiet < 450) return;
+    if (voiceOn) { if (window.boardVoiceStop) window.boardVoiceStop(); return; }
     const now = Date.now(); b._taps = (b._taps || []).filter(t => now - t < 1500).concat(now);
     const n = b._taps.length;
     // Two quick taps: the talk, unless a third comes at once (then it is being poked).
@@ -367,7 +373,7 @@ function nextLine(k, prev, opened) {
   return lines.find(l => !said(l.key)) || null;
 }
 function talk(opened) {
-  if (!seenNow || !info) return;
+  if (!seenNow || !info || (info.env && info.env.dnd)) return;
   const now = Date.now();
   if (now - lastSpoke < 45000) return;
   const line = nextLine(info, before, opened);
@@ -384,6 +390,8 @@ function boardSeen(on) {
   if (!on) { if (seenNow) hiddenAt = Date.now(); seenNow = false; return; }
   const away = hiddenAt ? Date.now() - hiddenAt : 0; seenNow = true;
   if (away > 90000 && window.boardCare) window.boardCare("back");
+  // Back from a short while in an app: now and then a word about it (the app knows which one).
+  if (away > 20000 && away <= 90000 && Math.random() < .35 && Date.now() - (window._appTalkAt || 0) > 600000) { window._appTalkAt = Date.now(); setTimeout(() => boards.forEach(b => askThink(b, "app", "")), 900); }
   if (away > 90000) setTimeout(() => {
     if (window.boardThink && Date.now() - (window._thoughtAt || 0) > 300000 && !nextLine(info, before, false)) { window._thoughtAt = Date.now(); boards.forEach(thinking); window.boardThink("back"); }
     else talk(true);
@@ -486,21 +494,21 @@ addEventListener("resize", () => boards.forEach(fit));
 
 /*
   퍼레's home, the phone (준: "내 휴대폰 공간안의 환경을 이해하고 그 공간에서 살아가는 다마고치 같은 느낌"), from what the app says
-  (k.env: battery, charging, music, headphones, silent, offline, room left; k.weather; k.life: its heart, days, stage): what it
+  (k.env: battery, charging, music, headphones, silent, offline, room left; k.weather; k.life: its heart, its memories): what it
   wears (at most two things: a nightcap at night, an umbrella in the rain, headphones to music through them, a scarf in the
-  cold, sunglasses in hot sun), what shows by it (a bolt while it charges, sweat in the heat, notes to music, ? offline, a bow
-  tie once grown), and news it reacts to (plugged in: it eats; music: it dances; a low battery: it asks for a meal, at most
-  every half hour).
+  cold, sunglasses in hot sun), what shows by it (a bolt while it charges, sweat in the heat or a hot phone, notes to music, ?
+  offline, sleepy eyes in power saving), and news it reacts to (plugged in: it eats; music: it dances; a hot phone; power
+  saving; a low battery: it asks for a meal, at most every half hour). In do-not-disturb it speaks only when asked.
 */
 function envOf(b, k) {
   const svg = $(b, ".bot"); if (!svg || !k) return;
   const e = k.env || {}, w = k.weather || {}, life = k.life || {}, h = new Date().getHours(), code = w.code, temp = w.temp;
   const rain = code != null && ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95);
   const snow = code != null && ((code >= 71 && code <= 77) || code === 85 || code === 86);
-  const cold = (temp != null && temp <= 5) || snow, hot = temp != null && temp >= 28, night = h < 6;
+  const cold = (temp != null && temp <= 5) || snow, heat = (e.heat || 0) >= 41, hot = (temp != null && temp >= 28) || heat, night = h < 6;
   const sunny = code != null && code <= 1 && w.day !== false && temp != null && temp >= 24;
   const hungry = e.battery != null && e.battery <= 20 && !e.charging;
-  b._env = {music: !!e.music, phones: !!e.phones, charging: !!e.charging, hungry, cold, hot, rain, snow, offline: !!e.offline, heart: life.heart, night, battery: e.battery, roomFree: e.roomFree, silent: !!e.silent};
+  b._env = {music: !!e.music, phones: !!e.phones, charging: !!e.charging, hungry, cold, hot, heat, rain, snow, offline: !!e.offline, heart: life.heart, night, battery: e.battery, roomFree: e.roomFree, silent: !!e.silent, save: !!e.powerSave, dnd: !!e.dnd, airplane: !!e.airplane};
   const wear = [];
   if (night) wear.push("cap");
   if (rain) wear.push("umbrella");
@@ -510,15 +518,18 @@ function envOf(b, k) {
   ["cap", "umbrella", "phones", "scarf", "shades"].forEach(x => svg.classList.toggle("w-" + x, wear.includes(x)));
   svg.classList.toggle("w-bolt", !!e.charging); svg.classList.toggle("w-sweat", hot && !night);
   svg.classList.toggle("w-notes", !!e.music); svg.classList.toggle("w-q", !!e.offline);
-  svg.classList.toggle("w-bow", life.stage === "친구" || life.stage === "단짝");
-  $(b, ".buddy").classList.toggle("baby", life.stage === "아기");
-  const was = b._was; b._was = {charging: !!e.charging, music: !!e.music};
+  svg.classList.toggle("w-save", !!e.powerSave); svg.classList.toggle("w-dnd", !!e.dnd);
+  const cb = $(b, ".care-btn"); if (cb) cb.style.setProperty("--fill", Math.max(8, Math.min(100, life.heart == null ? 55 : life.heart)) + "%");
+  $(b, ".buddy").classList.toggle("lowpower", !!e.powerSave);
+  const was = b._was; b._was = {charging: !!e.charging, music: !!e.music, heat, save: !!e.powerSave};
   if (!was || lockedNow) return;
+  if (heat && !was.heat) { move(b, "wave", 1400); if (b._feel) b._feel("full", 1800); askThink(b, "heat", "휴대폰이 후끈해요, 저 땀나요"); return; }
+  if (e.powerSave && !was.save) { if (b._feel) b._feel("yawn", 1700); askThink(b, "save", "절전 모드네요, 저도 살살 움직일게요"); return; }
   if (e.charging && !was.charging) { if (b._feel) b._feel("yum", 2200); move(b, "hop", 760); askThink(b, "charge", "냠냠, 충전이 제일 맛있어요"); }
   else if (e.music && !was.music) { move(b, "dance", 5200); if (b._feel) b._feel("happy", 5200); askThink(b, "music", "음악이다! 몸이 저절로 들썩여요"); }
   else if (hungry && seenNow && Date.now() - (b._hungryAt || 0) > 1800000) { b._hungryAt = Date.now(); move(b, "rumble", 1100); if (b._feel) b._feel("sad", 2000); askThink(b, "hungry", "꼬르륵… 충전해 주시면 힘이 날 것 같아요"); }
 }
-/** The app's word on 퍼레's life after a care act (launcher.life): its heart and days, and how it took it. */
+/** The app's word on 퍼레's life after a care act (launcher.life): its heart and memories, and how it took it. */
 function boardLife(life) {
   if (!life) return;
   const felt = life.felt; info = info || {}; info.life = Object.assign({}, life); delete info.life.felt;
@@ -533,9 +544,9 @@ function boardLife(life) {
 function boardEnv(env) { if (!env) return; info = info || {}; info.env = env; boards.forEach(b => { envOf(b, info); if (b._careOn) drawCare(b); }); }
 
 /*
-  The care card (held 퍼레): its name, how grown up it is and the days together; its heart (five hearts), its food (the
-  battery, and whether it is eating), what it is up to now; a stroke, a snack, play. Small, under 퍼레; a tap elsewhere or
-  twelve quiet seconds close it.
+  The care card (held 퍼레): its heart (five hearts), its food (the battery, and whether it is eating), what it is up to now;
+  a stroke, a snack, play; and its memory (what it lived through on the phone, kept in the app). Small, under 퍼레; a tap
+  elsewhere or twelve quiet seconds close it. It does not grow up (준: "자라기 모드 없애줘").
 */
 function openCare(b) {
   if (lockedNow) return;
@@ -550,6 +561,7 @@ function openCare(b) {
       if (btn.dataset.care === "close") { closeCare(b); return; }
       const kind = btn.dataset.care;
       if (kind === "pet") { pet(b); return; }
+      if (kind === "memory") { closeCare(b); if (window.boardMemory) window.boardMemory(); return; }
       if (window.boardCare) window.boardCare(kind);
     });
     addEventListener("pointerdown", e => { if (b._careOn && !e.target.closest(".care") && !e.target.closest(".buddy")) closeCare(b); }, {passive: true});
@@ -560,9 +572,65 @@ function drawCare(b) {
   const k = info || {}, life = k.life || {}, e = b._env || {}, heart = life.heart == null ? 55 : life.heart;
   const full = Math.round(heart / 20), hearts = "♥".repeat(full) + '<s>' + "♥".repeat(5 - full) + '</s>';
   const food = e.battery == null ? "" : '<div class="care-row"><span class="k">밥</span><span class="meter' + (e.battery <= 20 && !e.charging ? " low" : "") + '"><i style="width:' + e.battery + '%"></i></span><span class="v">' + (e.charging ? "충전하며 냠냠" : e.battery <= 20 ? "배고파요" : e.battery >= 80 ? "배불러요" : "든든해요") + '</span></div>';
-  const now = e.night ? "자는 시간이라 졸려요" : e.music ? "음악에 맞춰 들썩이는 중" : e.charging ? "충전기에서 밥 먹는 중" : e.hungry ? "배터리가 적어서 배고파요" : e.rain ? "비가 와서 우산 썼어요" : e.cold ? "추워서 목도리 했어요" : e.hot ? "더워서 땀이 송골송골" : e.offline ? "인터넷이 끊겨서 갸우뚱" : e.roomFree != null && e.roomFree < 10 ? "방(저장 공간)이 꽉 찼어요" : heart >= 80 ? "기분 최고예요" : heart < 35 ? "조금 심심해요" : "편안하게 쉬는 중";
+  const now = e.night ? "자는 시간이라 졸려요" : e.heat ? "휴대폰이 뜨거워서 땀이 나요" : e.music ? "음악에 맞춰 들썩이는 중" : e.charging ? "충전기에서 밥 먹는 중" : e.hungry ? "배터리가 적어서 배고파요" : e.dnd ? "방해 금지라 조용히 곁에 있어요" : e.save ? "절전 모드라 기운을 아끼는 중" : e.airplane ? "비행기 모드, 어디 가세요?" : e.rain ? "비가 와서 우산 썼어요" : e.cold ? "추워서 목도리 했어요" : e.hot ? "더워서 땀이 송골송골" : e.offline ? "인터넷이 끊겨서 갸우뚱" : e.roomFree != null && e.roomFree < 10 ? "방(저장 공간)이 꽉 찼어요" : heart >= 80 ? "기분 최고예요" : heart < 35 ? "조금 심심해요" : "편안하게 쉬는 중";
+  const memory = life.memories ? '<button class="care-mem" data-care="memory"><span>퍼레의 기억 ' + life.memories + '개</span>' + (life.lastMemory ? '<span class="m">' + esc(life.lastMemory) + '</span>' : "") + '</button>' : "";
   const acts = window.boardCare ? '<div class="care-acts"><button data-care="pet">쓰다듬기</button><button data-care="snack">' + (life.snackReady === false ? "간식(배불러요)" : "간식 주기") + '</button><button data-care="play">놀아 주기</button></div>' : "";
-  $(b, ".care").innerHTML = '<div class="care-head"><b>' + esc(k.name || "퍼레") + '</b><span>' + esc(life.stage || "아기") + ' · 함께한 지 ' + (life.days || 1) + '일</span><button class="care-x" data-care="close" aria-label="닫기">✕</button></div>'
+  $(b, ".care").innerHTML = '<div class="care-head"><b>' + esc(k.name || "퍼레") + '</b><span>내 휴대폰에 사는 친구</span><button class="care-x" data-care="close" aria-label="닫기">✕</button></div>'
     + '<div class="care-row"><span class="k">마음</span><span class="hearts">' + hearts + '</span></div>' + food
-    + '<div class="care-row"><span class="k">지금</span><span class="v now">' + now + '</span></div>' + acts;
+    + '<div class="care-row"><span class="k">지금</span><span class="v now">' + now + '</span></div>' + acts + (window.boardMemory ? memory : "");
+}
+
+/*
+  The phone moved (준: "퍼레가 내 휴대폰 환경에서 살아있는 ai 봇처럼 행동, 환경을 이해하고 반응"): tilted, 퍼레 leans with it;
+  shaken, it gets dizzy and says so. Only the accelerometer (the cheapest sensor), smoothed; nothing while the page is hidden.
+*/
+(function motion() {
+  let lean = 0, shown = 0, jolts = [], shakenAt = 0, raf = 0;
+  addEventListener("devicemotion", e => {
+    const a = e.accelerationIncludingGravity; if (!a || document.hidden || a.x == null) return;
+    const now = Date.now(), m = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
+    // Tilt: the right side down reads as x below zero (the push against gravity points to the left edge).
+    const want = Math.abs(a.x) < 1.2 ? 0 : -Math.asin(Math.max(-1, Math.min(1, a.x / 9.81))) * 57.3 * .4;
+    lean += (Math.max(-14, Math.min(14, want)) - lean) * .12;
+    if (!raf && Math.abs(lean - shown) > .4) raf = requestAnimationFrame(() => { raf = 0; shown = lean; boards.forEach(b => { const svg = $(b, ".bot"); if (svg) svg.style.transform = Math.abs(shown) < .6 ? "" : "rotate(" + shown.toFixed(1) + "deg)"; }); });
+    if (m > 23) {
+      jolts = jolts.filter(t => now - t < 900).concat(now);
+      if (jolts.length >= 3 && now - shakenAt > 6000) {
+        shakenAt = now; jolts = [];
+        boards.forEach(b => { move(b, "wobble", 1700); if (b._feel) b._feel("dizzy", 2400); askThink(b, "shake", "으앗, 지진인 줄 알았어요… 어질어질"); });
+        if (window.boardCare) window.boardCare("shake");
+      }
+    }
+  }, {passive: true});
+})();
+
+/*
+  퍼레's voice talk (held 퍼레, the home screen app's BuddyVoice): what it shows while it listens (a soft ring, what it hears
+  so far in the bubble), thinks (the dots), speaks (the words as they are said, its mouth moving) and when it ends.
+*/
+let voiceOn = false;
+function boardVoiceState(state, text) {
+  boards.forEach(b => {
+    const buddy = $(b, ".buddy"), bubble = $(b, ".bubble"), svg = $(b, ".bot");
+    clearTimeout(b._bubble); clearInterval(b._typing);
+    buddy.classList.toggle("listening", state === "listening");
+    if (state !== "speaking") svg.classList.remove("talking");
+    if (state === "listening") {
+      voiceOn = true; if (b._mood) b._mood(""); if (b._feel) b._feel("", 1);
+      bubble.classList.remove("act"); bubble.dataset.go = "";
+      bubble.innerHTML = text ? '<span class="heard">' + esc(text) + '</span>' : '<span class="heard muted">듣고 있어요…</span>';
+      bubble.classList.add("on");
+    } else if (state === "thinking") {
+      voiceOn = true; thinking(b); clearTimeout(b._bubble);
+    } else if (state === "speaking") {
+      voiceOn = true; if (b._mood) b._mood(""); if (b._feel) b._feel("happy", 1800);
+      bubble.textContent = ""; bubble.classList.add("on"); svg.classList.add("talking");
+      const chars = Array.from(text || ""); let i = 0;
+      b._typing = setInterval(() => { i++; bubble.textContent = chars.slice(0, i).join(""); if (i >= chars.length) clearInterval(b._typing); }, 70);
+    } else {
+      voiceOn = false; if (b._mood) b._mood("");
+      if (text) { speak(b, {text}, 3200); if (state === "done" && b._feel) b._feel("wink", 1400); }
+      else bubble.classList.remove("on");
+    }
+  });
 }

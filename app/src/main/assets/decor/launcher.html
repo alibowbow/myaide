@@ -1163,6 +1163,10 @@ window.boardThink = why => { if (B) B.think(why); };
 // 퍼레's life (core/BuddyLife): what the user did for it; the app answers with launcher.life. Its home (the battery, music …)
 // is asked every quarter minute while the home screen is seen, so a charger or a song is noticed soon.
 window.boardCare = kind => { if (B && B.care) B.care(kind); };
+window.boardMemory = () => { if (B) B.settings("memory"); };
+// 퍼레's voice talk (held 퍼레): the app listens, answers and speaks in 퍼레's Typecast voice (BuddyVoice).
+window.boardVoice = () => { if (B) B.voice(); };
+window.boardVoiceStop = () => { if (B) B.voiceStop(); };
 setInterval(() => { if (B && B.home && document.visibilityState === "visible" && !document.body.classList.contains("covered")) B.home(); }, 15000);
 function ask() {
   const q = el("q").value.trim(); if (!q) return;
@@ -1267,6 +1271,7 @@ window.launcher = {
   thought(line) { thought(line); },
   thoughtFail() { thoughtFail(); },
   life(k) { boardLife(k); },
+  voice(state, text) { boardVoiceState(state, text); },
   env(k) { boardEnv(k); },
   /** The pages to the right changed (화면 꾸미기). */
   pages(list) { drawPages(list); },

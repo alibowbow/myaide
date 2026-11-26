@@ -382,7 +382,7 @@ public final class HtmlWallpaper extends WallpaperService {
             lab = LabRunner.runningNow();
         }
         JSONObject out = HomeBoard.json(new HomeBoard.Known(now, locked, calendarOn, next, left, notices, noticeCount, ideas, working, lab, name, quotes()));
-        try { JSONObject w = Weather.now(c); if (w != null) Jsons.put(out, "weather", w); } catch (RuntimeException ignored) {}
+        try { JSONObject w = Weather.now(c); if (w != null) { Jsons.put(out, "weather", w); BuddyTalk.weatherMemory(c, w); } } catch (RuntimeException ignored) {}
         // The apps just opened (퍼레 dances after music, and so on); never on the lock screen.
         if (!locked) try { Jsons.put(out, "recent", new JSONArray(c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).getString("recentLabels", "[]"))); } catch (Exception ignored) {}
         // 퍼레's home and life (a Tamagotchi on the phone): the battery, music, the network; how close it feels, the days together.

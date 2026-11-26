@@ -6,13 +6,13 @@ import org.json.JSONObject;
  * 퍼레's life on the phone, like a Tamagotchi (준: "내 휴대폰 공간안의 환경을 이해하고 그 공간에서 살아가는 다마고치 같은 느낌"):
  * the phone is its home. The app reads the home itself (the battery is its food and charging a meal, the clock its day, the
  * weather its clothes, music it dances to); what 퍼레 keeps is how close it feels to the user (its heart, 0 to 100: petted,
- * given a snack, played with, talked to; it fades by one every two hours alone, never below FLOOR) and the day they met
- * (the days together, and how grown up it is). Pure Java.
+ * given a snack, played with, talked to; it fades by one every two hours alone, never below FLOOR). It does not grow up
+ * (준: "자라기 모드 없애줘"); what it lived through is its memory (BuddyMemory). Pure Java.
  */
 public final class BuddyLife {
     private BuddyLife() {}
     public static final int FLOOR = 15, START = 55, MOST = 100;
-    private static final long HOUR = 3_600_000L, DAY = 24 * HOUR;
+    private static final long HOUR = 3_600_000L;
 
     /** born: the day they met; heart: 0–100; at: the last fade counted; snackAt: the last snack; pets: strokes in all. */
     public record State(long born, int heart, long at, long snackAt, int pets) {}
@@ -49,20 +49,15 @@ public final class BuddyLife {
             default -> new Done(s, "");
         };
     }
-    /** The days together, counting the first. */
-    public static int days(State s, long now) { return (int) Math.max(1, (now - s.born()) / DAY + 1); }
-    /** How grown up: a baby the first week, a kid to a month, a friend to a hundred days, then a best friend. */
-    public static String stage(int days) { return days < 7 ? "아기" : days < 30 ? "꼬마" : days < 100 ? "친구" : "단짝"; }
-    /** For the board: heart, days, stage, and whether a snack would be a real one. */
+    /** For the board: its heart, and whether a snack would be a real one. */
     public static JSONObject json(State s, long now) {
-        int days = days(s, now);
-        return Jsons.obj("heart", s.heart(), "days", days, "stage", stage(days), "snackReady", now - s.snackAt() >= 2 * HOUR, "pets", s.pets());
+        return Jsons.obj("heart", s.heart(), "snackReady", now - s.snackAt() >= 2 * HOUR, "pets", s.pets());
     }
     /** For 퍼레's own words (BuddyTalk): how it feels, in plain words. */
     public static String words(State s, long now) {
-        int h = s.heart(), days = days(s, now);
+        int h = s.heart();
         String heart = h >= 80 ? "사용자가 정말 좋아서 들떠 있어" : h >= 55 ? "사용자와 사이가 좋아" : h >= 35 ? "조금 심심하고 관심이 고파" : "오래 혼자 있어서 쓸쓸해";
-        return "퍼레(너)의 마음: " + heart + " (마음 " + h + "/100), 함께한 지 " + days + "일째, " + stage(days) + " 단계";
+        return "퍼레(너)의 마음: " + heart + " (마음 " + h + "/100)";
     }
     private static int clamp(int v) { return Math.max(0, Math.min(MOST, v)); }
 }

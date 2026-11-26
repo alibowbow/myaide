@@ -52,12 +52,15 @@ public final class DecorActivity extends Activity {
     private String collection = "opus", category = ""; private int shown = 20;
     private HtmlShowcase.Catalogue catalogue; private String loading = "";
     private static final LruCache<String, Bitmap> THUMBS = new LruCache<>(60);
+    /** Opened from 퍼레's care card: its memory at once. */
+    static final String MEMORY = "memory";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         ui = new Ui(this);
         collection = prefs().getString("collection", "opus");
         draw(); load();
+        if (getIntent().getBooleanExtra(MEMORY, false)) main.post(this::showMemory);
     }
     @Override protected void onDestroy() { destroyed = true; work.shutdownNow(); super.onDestroy(); }
     private SharedPreferences prefs() { return getSharedPreferences(HtmlWallpaper.PREFS, Context.MODE_PRIVATE); }
@@ -87,6 +90,11 @@ public final class DecorActivity extends Activity {
             () -> startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))), true);
         LinearLayout.LayoutParams lg = new LinearLayout.LayoutParams(-1, -2); lg.bottomMargin = ui.dp(14);
         body.addView(launcherGroup, lg);
+        // 퍼레's own memory, kept in the app apart from the assistant's (준: "퍼레 캐릭터의 메모리는 따로 들퍼레 앱에 저장").
+        LinearLayout buddyGroup = ui.group();
+        ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_sparkle, Ui.ACCENT, "퍼레의 기억", "퍼레가 휴대폰에서 겪은 일 · 보고 지울 수 있어요", ui.chevron(), this::showMemory), true);
+        LinearLayout.LayoutParams bg = new LinearLayout.LayoutParams(-1, -2); bg.bottomMargin = ui.dp(14);
+        body.addView(buddyGroup, bg);
 
         // 들퍼레 홈 화면 in use: its own pages (준: "현재 화면 구성이랑 이게 달라", "들퍼레 홈 화면 우측 페이지들을 커스터마이징"):
         // 오늘 and 홈 as they are, then the user's pages to the right, each changed or taken out here.
@@ -189,6 +197,34 @@ public final class DecorActivity extends Activity {
         body.addView(pages);
         TextView note = ui.label("홈에서 오른쪽으로 넘기면 나와요. 페이지 양쪽 가장자리를 밀면 언제든 옆 페이지로 넘어가요.", 12, Ui.MUTED);
         note.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0); body.addView(note);
+    }
+    /** 퍼레's memories, newest first: each can be deleted, or all at once (read off the main thread). */
+    private void showMemory() {
+        work.execute(() -> {
+            List<dev.jun.gyeot.core.BuddyMemory.Entry> list = BuddyTalk.memories(this);
+            main.post(() -> { if (!destroyed) memorySheet(list); });
+        });
+    }
+    private void memorySheet(List<dev.jun.gyeot.core.BuddyMemory.Entry> list) {
+        Ui.Sheet sheet = ui.selectionSheet("퍼레의 기억", list.isEmpty() ? "아직 없어요. 퍼레와 지내다 보면 쌓여요." : list.size() + "개 · 퍼레가 말할 때 가끔 꺼내요. 들퍼레 앱에만 있어요.");
+        sheet.primary.setVisibility(View.GONE);
+        if (!list.isEmpty()) {
+            LinearLayout group = ui.group(); long now = System.currentTimeMillis();
+            for (int i = list.size() - 1, shown = 0; i >= 0 && shown < 60; i--, shown++) {
+                dev.jun.gyeot.core.BuddyMemory.Entry e = list.get(i);
+                ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, Ui.ACCENT, e.text(), dev.jun.gyeot.core.BuddyMemory.when(e.at(), now, java.time.ZoneId.systemDefault()),
+                    ui.smallChip("지우기", () -> { sheet.dismiss(); work.execute(() -> { BuddyTalk.forget(this, e.at()); main.post(() -> { if (!destroyed) showMemory(); }); }); }), null), true);
+            }
+            sheet.body.addView(group);
+            LinearLayout clear = ui.group();
+            ui.addRow(clear, ui.listRow(R.drawable.ic_close, Ui.ERROR, "기억 모두 지우기", "퍼레가 처음부터 다시 기억해요", null, () -> {
+                sheet.dismiss(); work.execute(() -> BuddyTalk.forgetAll(this));
+                Toast.makeText(this, "퍼레의 기억을 모두 지웠어요", Toast.LENGTH_SHORT).show();
+            }), true);
+            LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-1, -2); at.topMargin = ui.dp(12);
+            sheet.body.addView(clear, at);
+        }
+        sheet.show();
     }
     private View kind(String name, String id) {
         android.widget.Button chip = ui.smallChip(name, () -> { category = id; shown = 20; draw(); });

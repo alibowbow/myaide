@@ -16,6 +16,8 @@ final class SecretStore {
     static final String GROK = "grokOAuth", NIM = "nvidiaNim";
     /** Groq's API key (console.groq.com), sent only to api.groq.com (GroqAccount). */
     static final String GROQ = "groq";
+    /** Typecast's API key (typecast.ai), sent only to api.typecast.ai for 퍼레's voice (TypecastAccount). */
+    static final String TYPECAST = "typecast";
     /** 네이버 길안내: the user's NAVER API HUB application, {"id","secret"} (NaverPlacesClient). */
     static final String NAVER_PLACES = "naverPlaces";
     /** The retired Gemini subscription sign-in's slot: AppStore deletes it at start, and nothing reads it. */

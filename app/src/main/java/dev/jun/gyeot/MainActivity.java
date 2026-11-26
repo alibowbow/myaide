@@ -1752,6 +1752,7 @@ public final class MainActivity extends Activity {
             case "grok" -> pageGrok();
             case "nim" -> pageNim();
             case "groq" -> pageGroq();
+            case "typecast" -> pageTypecast();
             case "antigravity" -> pageAntigravity();
             case "claude" -> pageClaude();
             case "ai" -> pageAi();
@@ -1798,7 +1799,7 @@ public final class MainActivity extends Activity {
         return switch (page) {
             case "grok" -> "Grok";
             case "github" -> "GitHub"; case "drive" -> "Google Drive"; case "gmail" -> "Gmail"; case "memories" -> "기억한 것";
-            case "nim" -> "NVIDIA NIM"; case "groq" -> "Groq"; case "antigravity" -> "Antigravity (Gemini)";
+            case "nim" -> "NVIDIA NIM"; case "groq" -> "Groq"; case "typecast" -> "타입캐스트"; case "antigravity" -> "Antigravity (Gemini)";
             case "key" -> "Gemini"; case "chatgpt" -> "ChatGPT"; case "claude" -> "Claude"; case "ai" -> "AI 역할"; case "connectors" -> "커넥터"; case "voice" -> "목소리와 대화";
             case "quick" -> "바로 부르기"; case "phone" -> "폰 조작"; case "look" -> "화면 보기"; case "persona" -> "나에 대해"; case "routines" -> "한마디 루틴"; case "memory" -> "기억";
             case "background" -> "다른 앱 쓰는 동안"; case "backup" -> "백업 · 복원"; case "update" -> "업데이트"; case "usage" -> "사용량 · 남은 한도"; case "calendar" -> "캘린더"; case "wake" -> "차에서 호출어"; default -> "정보";
@@ -3937,6 +3938,56 @@ public final class MainActivity extends Activity {
         }
         add(ui.footer("Groq는 모델마다 매일 무료 한도를 줘요(console.groq.com → Limits). 키는 이 기기에만 암호화해 두고 Groq에만 보내요."), 16);
     }
+    /**
+     * 타입캐스트: the voice of 퍼레 on the home screen (held 퍼레 talks with it, BuddyVoice). The key, 퍼레's voice chosen from the
+     * cute ones Typecast recommends (each can be heard first, free), and the month's characters against the free 15,000.
+     */
+    private void pageTypecast() {
+        TypecastAccount t = store.typecast; boolean on = t.connected(); JSONObject voice = t.voice();
+        add(ui.statusCard(R.drawable.ic_wave, Ui.PURPLE, on ? "연결됨" : "연결 안 됨", on ? "퍼레 목소리 · " + voice.optString("name", "고르는 중") : "홈 화면 퍼레를 꾹 누르면 이 목소리로 대화해요 · 한 달 15,000자 무료", null), 0);
+        if (!t.notice.isBlank()) { TextView notice = ui.label(t.notice, 13, TEXT); notice.setPadding(ui.dp(16), ui.dp(10), ui.dp(16), 0); add(notice, 0); }
+        add(ui.sectionHeader("API 키"), 0);
+        if (!on) {
+            add(ui.button("API 키 넣기", true, this::typecastKeySheet), 0);
+            TextView get = ui.quietRow("키가 없나요? 타입캐스트 API 콘솔에서 받아요 ›", () -> open(TypecastAccount.KEYS)); get.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), 0); add(get, 0);
+        } else {
+            LinearLayout key = ui.group();
+            ui.addRow(key, ui.listRow(0, 0, "목소리 후보 다시 받기", "귀여운 목소리를 타입캐스트에서 다시 골라 와요", ui.chevron(), () -> { if (!t.busy) t.check(); }), false);
+            ui.addRow(key, ui.listRow(0, 0, "키 바꾸기", "확인되면 새 키로 바꿔요", ui.chevron(), this::typecastKeySheet), false);
+            add(key, 0);
+            JSONArray voices = t.candidates();
+            if (voices.length() > 0) {
+                add(ui.sectionHeader("퍼레 목소리"), 0);
+                LinearLayout list = ui.group();
+                for (int i = 0; i < voices.length(); i++) {
+                    JSONObject v = voices.optJSONObject(i); if (v == null) continue;
+                    boolean mine = v.optString("id").equals(voice.optString("id"));
+                    String age = switch (v.optString("age")) { case "child" -> "어린이"; case "teenager" -> "10대"; case "young_adult" -> "청년"; case "middle_age" -> "중년"; case "elder" -> "어르신"; default -> ""; };
+                    String sub = (age.isEmpty() ? "" : age + " · ") + ("female".equals(v.optString("gender")) ? "여성" : "male".equals(v.optString("gender")) ? "남성" : "") + (mine ? " · 지금 퍼레 목소리" : "");
+                    ui.addRow(list, ui.listRow(0, 0, (mine ? "✓ " : "") + v.optString("name"), sub.replaceAll("^ · ", ""), v.optString("preview").startsWith("https://") ? ui.smallChip("듣기", () -> BuddyVoice.preview(v.optString("preview"))) : null,
+                        () -> { t.choose(v); android.widget.Toast.makeText(this, "퍼레 목소리를 ‘" + v.optString("name") + "’(으)로 바꿨어요", android.widget.Toast.LENGTH_SHORT).show(); }), i < voices.length() - 1);
+                }
+                add(list, 0);
+            }
+            add(ui.sectionHeader("이번 달 사용"), 0);
+            int used = t.used();
+            LinearLayout usage = ui.group();
+            ui.addRow(usage, ui.listRow(0, 0, used + " / " + TypecastAccount.FREE + "자", used >= TypecastAccount.FREE ? "무료 글자를 다 썼어요 · 다음 달까지 휴대폰 기본 목소리로 말해요" : "남은 글자 " + (TypecastAccount.FREE - used) + "자 · 이 기기에서 센 값이에요", null, null), false);
+            add(usage, 0);
+            LinearLayout off = ui.group();
+            ui.addRow(off, ui.dangerRow("연결 해제", "이 기기의 타입캐스트 키를 지워요", () -> confirm("이 기기의 타입캐스트 API 키를 지울까요?", "해제", () -> { t.remove(); showTab(2); })), false);
+            add(off, 12);
+        }
+        add(ui.footer("홈 화면 퍼레를 꾹 누르면 퍼레와 목소리로 이야기해요(우측 바의 음성 비서와는 따로예요). 키는 이 기기에만 암호화해 두고 타입캐스트에만 보내요."), 16);
+    }
+    private void typecastKeySheet() {
+        Ui.Sheet sheet = ui.secretSheet(store.typecast.connected() ? "타입캐스트 API 키 바꾸기" : "타입캐스트 API 키", "타입캐스트 API 콘솔에서 받을 수 있어요 · 한 달 15,000자 무료", "타입캐스트 API 키", 400, "저장", (s, field) -> {
+            if (store.typecast.busy) return;
+            store.typecast.save(field.getText().toString()); s.dismiss();
+        });
+        sheet.body.addView(ui.actions(ui.chip("타입캐스트에서 키 받기", () -> open(TypecastAccount.KEYS))));
+        sheet.show();
+    }
     private void groqKeySheet() {
         Ui.Sheet sheet = ui.secretSheet(store.groq.connected() ? "Groq API 키 바꾸기" : "Groq API 키", "console.groq.com에서 무료로 받을 수 있어요", "Groq API 키 (gsk_…)", 400, "저장", (s, field) -> {
             if (store.groq.busy) return;
@@ -4015,6 +4066,7 @@ public final class MainActivity extends Activity {
         settingsRow(connect, "grok", "Grok", store.grok.connected() ? "연결됨 · 구독 로그인" : "연결 안 됨", null);
         settingsRow(connect, "nim", "NVIDIA NIM", store.nim.connected() ? "연결됨 · " + NimProtocol.label(store.nim.model()) : "연결 안 됨", null);
         settingsRow(connect, "groq", "Groq", store.groq.connected() ? "연결됨 · 모델 " + store.groq.models().length() + "개 · 무료 한도" : "연결 안 됨", null);
+        settingsRow(connect, "typecast", "타입캐스트", store.typecast.connected() ? "연결됨 · 퍼레 목소리 " + store.typecast.voice().optString("name", "고르는 중") + " · 이번 달 " + store.typecast.used() + "/" + TypecastAccount.FREE + "자" : "연결 안 됨 · 홈 화면 퍼레의 목소리", null);
         settingsRow(connect, "antigravity", "Antigravity (Gemini)", !LinuxRuntime.supported(this) ? "이 휴대폰에서는 쓸 수 없어요" : LinuxRuntime.installed(this) ? (store.antigravity.connected() ? "로그인됨 · " + store.antigravity.label(store.antigravity.model()) : AntigravityCli.installed(this) ? "CLI 설치됨 · 로그인 필요" : "Linux 환경 설치됨 · CLI 설치 필요") : "Linux 환경 설치 필요 · 구독 한도 쓰기", null);
         ui.add(sections, connect, 0);
         ui.add(sections, ui.sectionHeader("AI 활용"), 0);
@@ -4090,6 +4142,7 @@ public final class MainActivity extends Activity {
             case "grok" -> new int[]{R.drawable.ic_sparkle, Ui.GRAY};
             case "nim" -> new int[]{R.drawable.ic_sparkle, Ui.GREEN};
             case "groq" -> new int[]{R.drawable.ic_bolt, Ui.ORANGE};
+            case "typecast" -> new int[]{R.drawable.ic_wave, Ui.PURPLE};
             case "antigravity" -> new int[]{R.drawable.ic_sparkle, Ui.PURPLE};
             case "ai" -> new int[]{R.drawable.ic_tune, Ui.INDIGO};
             case "connectors" -> new int[]{R.drawable.ic_plug, Ui.TEAL};

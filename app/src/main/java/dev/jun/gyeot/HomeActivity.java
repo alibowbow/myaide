@@ -176,10 +176,21 @@ public final class HomeActivity extends Activity {
         } catch (RuntimeException unknown) { return false; }
     }
 
-    private static final int LOCATION = 7531;
+    private static final int LOCATION = 7531, MIC = 7532;
     @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(request, permissions, results);
         if (request == LOCATION) pushBoard();
+        if (request == MIC) {
+            if (results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) voice();
+            else js("launcher.voice('error'," + JSONObject.quote("마이크를 허용해야 퍼레와 말로 이야기할 수 있어요") + ")");
+        }
+    }
+    // ── 퍼레's voice talk (BuddyVoice): 퍼레 held on the home screen; apart from the edge handle's voice assistant ──
+    private BuddyVoice buddyVoice;
+    private void voice() {
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, MIC); return; }
+        if (buddyVoice == null) buddyVoice = new BuddyVoice(this, ((GyeotApp) getApplication()).store(), io, (state, text) -> js("launcher.voice(" + JSONObject.quote(state) + "," + JSONObject.quote(text) + ")"));
+        if (buddyVoice.on()) buddyVoice.stop(); else buddyVoice.start();
     }
     @Override protected void onResume() {
         super.onResume(); shown = true;
@@ -189,6 +200,7 @@ public final class HomeActivity extends Activity {
     @Override protected void onPause() {
         shown = false; pausedAt = android.os.SystemClock.uptimeMillis(); NoticeListener.changed = null; main.removeCallbacks(refresh);
         prefs.edit().putLong("awaySince", System.currentTimeMillis()).apply();
+        if (buddyVoice != null) buddyVoice.stop();
         if (ready && web != null) web.evaluateJavascript("launcher.hidden&&launcher.hidden()", null);
         super.onPause();
     }
@@ -385,6 +397,8 @@ public final class HomeActivity extends Activity {
                 case "web" -> b.web(a.optString(0, null));
                 case "settings" -> b.settings(a.optString(0, ""));
                 case "bars" -> b.bars(a.optBoolean(0));
+                case "voice" -> main.post(HomeActivity.this::voice);
+                case "voiceStop" -> main.post(() -> { if (buddyVoice != null) buddyVoice.stop(); });
                 case "care" -> { String kind = a.optString(0, ""); try { io.execute(() -> js("launcher.life(" + BuddyTalk.care(HomeActivity.this, kind) + ")")); } catch (RuntimeException ignored) {} }
                 case "home" -> { try { io.execute(() -> js("launcher.env(" + BuddyTalk.env(HomeActivity.this) + ")")); } catch (RuntimeException ignored) {} }
                 case "think" -> { String why = a.optString(0, "tap"); try { io.execute(() -> BuddyTalk.think(HomeActivity.this, why, line -> js("launcher.thought(" + JSONObject.quote(line) + ")"), () -> js("launcher.thoughtFail()"))); } catch (RuntimeException ignored) {} }
@@ -418,6 +432,7 @@ public final class HomeActivity extends Activity {
                 JSONArray names = new JSONArray(); names.put(String.valueOf(info.getLabel()));
                 try { JSONArray was = new JSONArray(prefs.getString("recentLabels", "[]")); for (int i = 0; i < was.length() && names.length() < 6; i++) if (!names.optString(0).equals(was.optString(i))) names.put(was.optString(i)); } catch (Exception ignored) {}
                 prefs.edit().putString("recentLabels", names.toString()).apply();
+                String label = String.valueOf(info.getLabel()); try { io.execute(() -> BuddyTalk.appMemory(HomeActivity.this, label)); } catch (RuntimeException ignored) {}
                 JSONArray recent = new JSONArray(); recent.put(id);
                 JSONArray old = read(RECENT, new JSONArray());
                 for (int i = 0; i < old.length() && recent.length() < 6; i++) if (!id.equals(old.optString(i))) recent.put(old.optString(i));
@@ -548,6 +563,7 @@ public final class HomeActivity extends Activity {
                 try {
                     if ("wallpaper".equals(what)) startActivity(Intent.createChooser(new Intent(Intent.ACTION_SET_WALLPAPER), "배경화면"));
                     else if ("decor".equals(what)) startActivity(new Intent(HomeActivity.this, DecorActivity.class));
+                    else if ("memory".equals(what)) startActivity(new Intent(HomeActivity.this, DecorActivity.class).putExtra(DecorActivity.MEMORY, true));
                     else if ("home".equals(what)) startActivity(new Intent(android.provider.Settings.ACTION_HOME_SETTINGS));
                 } catch (RuntimeException none) { Toast.makeText(HomeActivity.this, "이 휴대폰에서는 열 수 없어요.", Toast.LENGTH_SHORT).show(); }
             });
