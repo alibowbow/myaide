@@ -326,7 +326,7 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .bot[data-eye=small] .b-eye .pill{d:path("M-3.3 -1.4 C-3.3 -3.3 -1.8 -4.6 0 -4.6 C1.8 -4.6 3.3 -3.3 3.3 -1.4 C3.3 -0.2 3.3 1 3.3 2.2 C3.3 4 1.8 5.4 0 5.4 C-1.8 5.4 -3.3 4 -3.3 2.2 C-3.3 1 -3.3 -0.2 -3.3 -1.4Z")}
 .bot[data-eye=shut] .b-eye .pill{d:path("M-4.6 0.8 C-4.6 0.3 -4 0 0 0 C4 0 4.6 0.3 4.6 0.8 C4.6 1 4.6 1.2 4.6 1.4 C4.6 1.9 4 2.2 0 2.2 C-4 2.2 -4.6 1.9 -4.6 1.4 C-4.6 1.2 -4.6 1 -4.6 0.8Z")}
 .bot[data-eye=star] .b-eye .pill{d:path("M-5 -4.4 C-5 -7.2 -2.8 -9.4 0 -9.4 C2.8 -9.4 5 -7.2 5 -4.4 C5 -1.5 5 1.5 5 4.4 C5 7.2 2.8 9.4 0 9.4 C-2.8 9.4 -5 7.2 -5 4.4 C-5 1.5 -5 -1.5 -5 -4.4Z")}
-.bot[data-eye=curious] .b-eye.l .pill{d:path("M-5 -4.4 C-5 -7.2 -2.8 -9.4 0 -9.4 C2.8 -9.4 5 -7.2 5 -4.4 C5 -1.5 5 1.5 5 4.4 C5 7.2 2.8 9.4 0 9.4 C-2.8 9.4 -5 7.2 -5 4.4 C-5 1.5 -5 -1.5 -5 -4.4Z")}
+.bot[data-eye=curious-old] .b-eye.l .pill{d:path("M-5 -4.4 C-5 -7.2 -2.8 -9.4 0 -9.4 C2.8 -9.4 5 -7.2 5 -4.4 C5 -1.5 5 1.5 5 4.4 C5 7.2 2.8 9.4 0 9.4 C-2.8 9.4 -5 7.2 -5 4.4 C-5 1.5 -5 -1.5 -5 -4.4Z")}
 .bot[data-eye=skeptic] .b-eye.l .pill{d:path("M-4 0.2 C-4 -0.3 -2.2 -0.5 0 -0.5 C2.2 -0.5 4 -0.3 4 0.2 C4 1.4 4 2.5 4 3.6 C4 5.7 2.2 7.4 0 7.4 C-2.2 7.4 -4 5.7 -4 3.6 C-4 2.5 -4 1.4 -4 0.2Z")}
 .bot[data-eye=wink] .b-eye.r .pill{d:path("M-4.8 1.8 C-4.6 -1.6 -2.6 -4.2 0 -4.2 C2.6 -4.2 4.6 -1.6 4.8 1.8 C4.9 2.6 3.7 2.9 3.4 2 C3 -0.4 1.6 -2 0 -2 C-1.6 -2 -3 -0.4 -3.4 2 C-3.7 2.9 -4.9 2.6 -4.8 1.8Z")}
 /* Brows: short and round, just above the eyes, tipped up inside when sad or worried, down inside when cross (and a little up
@@ -733,3 +733,33 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .tpanel .tg button{height:34px;border:0;border-radius:8px;background:#3a3b4a;transition:background .15s}
 .tpanel .tg button.on{background:#ffd36e;box-shadow:0 0 10px #ffd36e99}
 .tpanel .tn{margin:6px 2px 0;font-size:11.5px;color:#6a6b7d}
+
+/* 갸우뚱 (준: "갸우뚱하는 모습도 지피티는 잘 연출했는데", "아니 왜 몸이 기울어져", from the sheet): the body stays; one eye
+   lower and tipped, the other higher, a short slanted brow over the low eye and a high arch over the other. */
+.bot[data-brow=curious] .b-eye.l .pill{translate:0 1.7px;rotate:-13deg}
+.bot[data-brow=curious] .b-eye.r .pill{translate:0 -1.5px;rotate:4deg}
+.bot[data-brow=curious] .b-eye .brow{display:block;transform-box:fill-box;transform-origin:center}
+.bot[data-brow=curious] .b-eye.l .brow{transform:translate(-.6px,1.6px) rotate(-24deg) scale(.85)}
+.bot[data-brow=curious] .b-eye.r .brow{transform:translateY(-3.4px) rotate(-4deg) scale(1.08)}
+.bot .fx-q2{font-size:24px!important;fill:#8b5cf6!important;font-weight:900}
+
+/* the mouths a little lower, as measured on the sheet */
+.bot .b-mouth,.bot [class^="m-"],.bot .m-tg{translate:0 2.4px}
+
+/* the sheet's effects: bold, clear, around the head */
+.bot[data-fx~=burst] .fx-burstl,.bot[data-fx~=burst] .fx-burstr,.bot[data-fx~=burst1] .fx-burstl,.bot[data-fx~=hearts2] .fx-hearts2,.bot[data-fx~=drops] .fx-drops,.bot[data-fx~=puff] .fx-puff,.bot[data-fx~=think] .fx-think,.bot[data-fx~=shy] .fx-shy,.bot[data-fx~=zz] .fx-zz,.bot[data-fx~=swirls] .fx-swirls,.bot[data-fx~=sparks] .fx-sparks{display:block}
+.bot .fx-burstl path,.bot .fx-burstr path{fill:none;stroke:#ffcf2e;stroke-width:2.5;stroke-linecap:round}
+.bot .fx-burstl,.bot .fx-burstr{transform-box:fill-box;transform-origin:center;animation:fxpop .5s cubic-bezier(.3,1.8,.5,1),fxpulse 1.2s ease-in-out .5s infinite}
+.bot .fx-hearts2 path{fill:#ff6f91;transform-box:fill-box;transform-origin:center;animation:fxfloat 2.2s ease-in-out infinite}.bot .fx-hearts2 path:last-child{animation-delay:.7s}
+.bot .fx-drops path{fill:#6ec3ff}.bot .fx-drops path:first-child{animation:sweat 2s ease-in infinite}
+.bot .fx-puff path{fill:#fff;stroke:#8b5cf6;stroke-width:1.1;stroke-linejoin:round}.bot .fx-puff .tail{fill:none;stroke-linecap:round}
+.bot .fx-puff{transform-box:fill-box;transform-origin:0 100%;animation:fxpuff 1.4s ease-out infinite}
+.bot .fx-think circle,.bot .fx-think path{fill:#fff;stroke:#8b5cf6;stroke-width:1.1}.bot .fx-think{animation:qbob 2.2s ease-in-out infinite}
+.bot .fx-shy path{fill:none;stroke:#ff7c93;stroke-width:2;stroke-linecap:round}
+.bot .fx-zz text{font-weight:900;fill:#7c5cf6;font-size:9px}.bot .fx-zz text:last-child{font-size:12px}.bot .fx-zz text{animation:noteup 2.4s ease-in-out infinite}.bot .fx-zz text:last-child{animation-delay:1.2s}
+.bot .fx-swirls path{fill:none;stroke:#8b5cf6;stroke-width:1.8;stroke-linecap:round;transform-box:fill-box;transform-origin:center;animation:whirl 1.4s linear infinite}
+.bot .fx-sparks path{fill:#ffc928;transform-box:fill-box;transform-origin:center;animation:twinkle 1.4s ease-in-out infinite}.bot .fx-sparks path:last-child{animation-delay:.7s}
+@keyframes fxpop{from{transform:scale(.3);opacity:0}}
+@keyframes fxpulse{50%{transform:scale(1.12)}}
+@keyframes fxfloat{50%{transform:translateY(-1.6px) scale(1.06)}}
+@keyframes fxpuff{0%{opacity:0;transform:scale(.5)}20%{opacity:1;transform:scale(1)}80%{opacity:1}100%{opacity:0;transform:scale(1.15) translate(1px,-1px)}}
