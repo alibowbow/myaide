@@ -788,28 +788,26 @@ function envOf(b, k) {
     : lunchTime && weekend ? "chef" : day === 6 ? "party"
     : seasonal && doy % 2 === 0 ? seasonal
     : pickDay(["beret", "bucket", "bow", "headband", "bandana", "cowboy", "pirate", "viking", "bunny", "catears", "tiara", "grad", "tophat", "halo"], 1, 50) || seasonal;
+  // Nothing that looks like something it is doing stays on for hours (준: "왜 안경 쓰고 책보는 모습이 계속 지속될까", "아까는
+  // 하트눈 날개모습이 지속되더니"): glasses, heart eyes, a cape, a book and the like come with a play (PROPS) and go with it;
+  // what stays is for a reason, the weather, the hour, the phone or a holiday.
   const face = e.dnd ? "mask" : e.airplane ? "goggles" : april1 ? "clownnose"
-    : head === "pirate" ? "eyepatch" : head === "tophat" ? "monocle" : head === "grad" ? "nerdglasses"
-    : sunny && !night && head !== "straw" && head !== "visor" ? "shades" : hot && summer && weekend ? "swimgoggles"
-    : h >= 20 && h < 23 ? "roundglasses" : pickDay(["mustache", "roundglasses", "nerdglasses", "heartglasses"], 2, 12);
+    : sunny && !night && head !== "straw" && head !== "visor" ? "shades" : "";
   const neck = e.charging ? "bib" : cold ? "scarf" : head === "tophat" || head === "beret" ? "bowtie" : hot && summer ? "lei"
     : head === "bandana" ? "neckbandana" : head === "tiara" ? "pearls" : head === "bow" ? "ribbon"
     : pickDay(["medal", "whistle", "pearls", "ribbon", "neckbandana", "bell"], 3, 20);
   const hand = rain && !drizzle ? "umbrella" : night ? "teddy"
     : month === 10 && date >= 25 ? "pumpkin" : month === 1 && date <= 3 ? "luckybag" : month === 12 && (date === 24 || date === 25) ? "gift"
     : snow ? "snowball" : scorching ? (h >= 12 && h < 17 ? "icecream" : "handfan") : hot ? (summer && doy % 2 ? "popsicle" : "handfan")
-    : minutes >= 6 * 60 + 30 && minutes < 10 * 60 ? (freezing ? "cocoa" : cold ? "tea" : "coffee")
-    : lunchTime ? (doy % 3 === 0 ? "riceball" : "lunch") : h >= 22 ? "toothbrush" : h >= 20 ? "book"
-    : e.music ? "mic" : cold && h >= 14 && h < 18 ? (doy % 2 ? "fishbread" : "sweetpotato")
-    : month >= 3 && month <= 5 && doy % 3 === 0 ? (doy % 2 ? "tulip" : "dandelion") : summer && doy % 3 === 0 ? (doy % 2 ? "watermelon" : "sunflower")
-    : h >= 18 && h < 20 && doy % 4 === 0 ? (doy % 8 ? "flashlight" : "lantern")
-    : pickDay(["magnifier", "map", "wand", "lollipop", "flag", "camera", "bubblewand", "balloon"], 4, 38);
+    : minutes >= 7 * 60 && minutes < 9 * 60 ? (freezing ? "cocoa" : cold ? "tea" : "coffee")
+    : minutes >= 12 * 60 && minutes < 13 * 60 ? (doy % 3 === 0 ? "riceball" : "lunch") : minutes >= 22 * 60 && minutes < 22 * 60 + 20 ? "toothbrush"
+    : e.music ? "mic" : cold && h >= 14 && h < 18 ? (doy % 2 ? "fishbread" : "sweetpotato") : "";
   const body = e.powerSave ? "blanket" : rain && !drizzle ? "raincoat" : night ? "pajamas" : cold ? "sweater" : temp != null && temp >= 6 && temp < 14 ? "hoodie"
-    : head === "chef" || hand === "riceball" ? "apron" : hand === "magnifier" || hand === "map" ? "backpack" : weekend ? pickDay(["cape"], 5, 30) : "";
+    : head === "chef" || hand === "riceball" ? "apron" : "";
   // No lasting outfit from how fond it is (준: "자꾸 눈하트에 이상한날개 단 상태에서 캐릭터가 안 풀려"): those are days' picks now.
   const back = night ? "moon" : freezing && !snow ? "mittens" : code != null && code >= 1 && code <= 3 && h >= 15 && h < 18 && doy % 5 === 0 ? "rainbow" : "";
   const wear = [head, face, neck, hand, body, back, storm ? "storm" : ""].filter(Boolean);
-  WEAR.forEach(x => svg.classList.toggle("w-" + x, wear.includes(x)));
+  if (!b._dressed) WEAR.forEach(x => svg.classList.toggle("w-" + x, wear.includes(x)));
   svg.classList.toggle("w-bolt", !!e.charging); svg.classList.toggle("w-sweat", hot && !night);
   svg.classList.toggle("w-notes", !!e.music); svg.classList.toggle("w-q", !!e.offline);
   svg.classList.toggle("w-save", !!e.powerSave); svg.classList.toggle("w-dnd", !!e.dnd);
@@ -1101,6 +1099,21 @@ function roam(b) {
     fireflies: end => { for (let i = 0; i < 5; i++) { const t = toy("firefly", "", 3600); t.style.left = rnd(0, 100).toFixed(0) + "%"; t.style.top = rnd(-10, 40).toFixed(0) + "%"; t.style.animationDelay = (i * 300) + "ms"; } feel("awed", 3500); gazeTo(-4, -4); setTimeout(() => gazeTo(4, -3), 1200); setTimeout(() => gazeTo(0, -5), 2400); setTimeout(() => { gazeTo(0, 0); end(); }, 3600); },
     dice: end => { toy("dice", "", 1800); feel("curious", 1600); setTimeout(() => { feel("gleeful", 1200); move(b, "bounce", 1000); }, 1700); setTimeout(end, 2900); }
   };
+  /** What it puts on for a play, off again when the play ends (its lasting clothes come back, envOf). */
+  const PROPS = {reading: ["book", "roundglasses"], magic: ["wand", "tophat"], explorer: ["magnifier", "backpack", "map"], radar: ["magnifier"],
+    superhero: ["cape"], champion: ["medal", "crown"], rockstar: ["mic", "shades"], singsong: ["mic"], orchestra: ["wand", "bowtie"],
+    bubbles: ["bubblewand"], hula: ["lei", "flower"], swim: ["swimgoggles"], crush: ["heartglasses"], daydream: ["heartglasses"],
+    secret: ["mustache"], puzzled: ["nerdglasses"], ninja: ["bandana"], sneakattack: ["bandana"], karate: ["headband"], boxing: ["headband"],
+    marathon: ["headband", "whistle"], cheerleader: ["bow"], ballerina: ["tiara"], skygaze: ["camera"], cloudwatch: ["camera"],
+    snacktime: ["lollipop"], kite: ["visor"], frisbee: ["cap"], goodbye: ["flag"], confetti: ["party"], sadmovie: ["blanket"],
+    coffeebreak: ["coffee"], meditate: ["halo"], yoga: ["headband"], brrr: ["scarf", "mittens"], morningstretch: ["toothbrush"]};
+  let dressed = false;
+  const dress = kind => {
+    const props = PROPS[kind]; if (!props || !props.length) return;
+    const svg = $(b, ".bot"); if (!svg) return;
+    WEAR.forEach(x => svg.classList.remove("w-" + x)); props.forEach(x => svg.classList.add("w-" + x)); dressed = true; b._dressed = true;
+  };
+  const undress = () => { if (dressed) { dressed = false; b._dressed = false; envOf(b, info); } };
   // A few motions in a row, each with its face.
   const seq = (end, steps) => {
     let at = 0;
@@ -1115,9 +1128,9 @@ function roam(b) {
     const kind = kinds[Math.floor(Math.random() * kinds.length)];
     playing = true;
     const here = () => {
-      saidInPlay = 0; inPlay = true;
-      const ended = () => { playing = false; inPlay = false; if (Math.random() < .22) { saidInPlay = Math.min(saidInPlay, 1); setTimeout(() => blurt("done", 1800), 200); } };
-      try { PLAYS[kind](ended); } catch (err) { playing = false; inPlay = false; }
+      saidInPlay = 0; inPlay = true; dress(kind);
+      const ended = () => { playing = false; inPlay = false; undress(); if (Math.random() < .22) { saidInPlay = Math.min(saidInPlay, 1); setTimeout(() => blurt("done", 1800), 200); } };
+      try { PLAYS[kind](ended); } catch (err) { playing = false; inPlay = false; undress(); }
       // The AI, now and then: something of its own about this play and the moment.
       const ai = window.boardThink && !quietNow() && Date.now() - soloAiAt > 480000 && Date.now() - (b._spoke || 0) > 60000 && Date.now() - thinkAt > 12000;
       if (ai && Math.random() < .12) { soloAiAt = Date.now(); thinkAt = Date.now(); window._soloAsk = Date.now(); saidInPlay = 2; window.boardThink("solo:" + kind); return; }
@@ -1126,7 +1139,7 @@ function roam(b) {
     };
     // Most plays start somewhere new in the playground.
     if (Math.random() < .85 && !["peek", "clock", "airplane", "ninja", "skipping", "rolling", "cartwheel"].includes(kind)) { const t = spot(); walk(t.x, t.y, here); } else here();
-    setTimeout(() => { playing = false; }, 16000);
+    setTimeout(() => { playing = false; inPlay = false; undress(); }, 16000);
   };
   const tick = () => { play(); setTimeout(tick, rnd(9000, 17000)); };
   setTimeout(tick, rnd(5000, 9000));
