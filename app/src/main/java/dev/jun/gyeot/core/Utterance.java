@@ -4,14 +4,14 @@ import java.util.Arrays;
 
 /**
  * One thing said, cut from the microphone (16 kHz mono): it opens when 30 ms of sound stand 9 dB above the room's quiet
- * (keeping the 0.3 s before), and closes after a second of quiet once at least a quarter second was spoken, or at MAX. Nothing
+ * (keeping the 0.3 s before), and closes after 0.8 s of quiet once at least a quarter second was spoken, or at MAX. Nothing
  * said within the wait: silent. The room's quiet follows the quietest recent 10 ms (it drops at once, rises slowly, and
  * hardly at all while someone speaks), so a steady hum does not count as speech and a long sentence is not cut. For 퍼레's voice talk, where the words go to Whisper and the voice to VoicePrint, and
  * for reading the sentences that enroll the user's voice. Pure Java.
  */
 public final class Utterance {
     public enum State { WAITING, SPEAKING, DONE, SILENT }
-    static final int BLOCK = 160, PRE = 30, START = 3, QUIET = 100, MIN_SPEECH = 25, MAX = 1500;
+    static final int BLOCK = 160, PRE = 30, START = 3, QUIET = 80, MIN_SPEECH = 25, MAX = 1500;
     static final float SPEECH_DB = 9f, FLOOR_DB = -62f;
     private final int waitBlocks;
     private short[] pcm = new short[WakeWord.RATE * 4]; private int length;

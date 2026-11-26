@@ -226,10 +226,32 @@ final class BuddyTalk {
             + (guest ? "" : "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + todayWords(c) + memoryWords(c, said, true)
                 + "사용자에 대해 아는 것:\n" + (note.isBlank() ? "(아직 잘 몰라)" : note) + "\n") + "\n";
         String input = context + (talk.length() == 0 ? "" : "지금까지 대화:\n" + talk) + who + ": " + said + "\n퍼레:";
-        ask(c, instructions, input, 0.7, 12_000, BuddyTalk::spoken, line -> {
+        speedy(c, instructions, input, 0.7, BuddyTalk::spoken, line -> {
             if (!guest) learnLater(c, said, line);
             done.accept(line);
         }, failed);
+    }
+    /**
+     * The voice talk's brain, quick above all (준: "음성대화 너무 느려"): the AI chosen for 퍼레 when it is Groq's (it answers in
+     * well under a second); otherwise GPT OSS 120B on Groq at its lightest thinking, then Qwen and NVIDIA as for its lines.
+     * A slow chosen AI (Antigravity, Claude …) is left to the written talk.
+     */
+    static void speedy(Context c, String instructions, String input, double temperature, java.util.function.Function<String, String> clean, Consumer<String> done, Runnable failed) {
+        AppStore store = ((GyeotApp) c.getApplicationContext()).store();
+        boolean nim = store.nim.connected(), groq = GroqWork.on();
+        if (!nim && !groq) { ask(c, instructions, input, temperature, 12_000, clean, done, failed); return; }
+        new Thread(() -> {
+            if (groq) try {
+                ScopedModels m = ScopedModels.buddy(store);
+                boolean mine = CUSTOM.equals(brain(c)) && dev.jun.gyeot.core.WorkBook.GROQ.equals(m.engine());
+                String model = mine ? m.model(m.engine()) : GroqWork.CHORES;
+                String effort = mine ? m.effort(m.engine(), model) : "low";
+                JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", input));
+                String line = clean.apply(GroqWork.converse(model, instructions, messages, store.groqModels.profile(model).normalize(effort).isEmpty() ? null : effort, temperature, 8_000, null));
+                if (line != null) { done.accept(line); return; }
+            } catch (Exception slow) { /* Qwen and NVIDIA next */ }
+            quick(c, store, nim, groq, QWEN, instructions, input, temperature, 8_000, clean, done, failed);
+        }, "gyeot-buddy-voice").start();
     }
     /** An answer as it is spoken: no thinking, no marks, at most two lines joined, not too long. */
     static String spoken(String text) {

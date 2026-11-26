@@ -70,6 +70,7 @@ final class BuddyVoice {
             @Override public void ended() {}
             @Override public void heard(String words) {
                 if (!on || mine != generation) return;
+                heardAt = android.os.SystemClock.uptimeMillis(); wordsAt = heardAt;
                 closeEar();
                 if (words == null || words.isBlank()) { quiet(); return; }
                 silences = 0; think(words.strip(), false);
@@ -85,7 +86,7 @@ final class BuddyVoice {
      */
     private void listenOwn(int mine) {
         capture = VoiceCapture.start(7000, new VoiceCapture.Heard() {
-            @Override public void speech(short[] pcm) { if (on && mine == generation) { capture = null; hear(pcm, mine); } }
+            @Override public void speech(short[] pcm) { if (on && mine == generation) { capture = null; heardAt = android.os.SystemClock.uptimeMillis(); hear(pcm, mine); } }
             @Override public void silent() { if (on && mine == generation) { capture = null; quiet(); } }
             @Override public void failed(String why) { if (on && mine == generation) { capture = null; ownEar = false; listen(); } }
             @Override public void began() { if (on && mine == generation) show.state("listening", "…"); }
@@ -106,6 +107,7 @@ final class BuddyVoice {
                     if (!on || mine != generation) return;
                     if (got == null) { ownEar = false; listen(); return; }
                     if (got.isBlank()) { quiet(); return; }
+                    wordsAt = android.os.SystemClock.uptimeMillis();
                     silences = 0; think(got, who == dev.jun.gyeot.core.VoicePrint.Who.STRANGER);
                 });
             });
@@ -132,7 +134,7 @@ final class BuddyVoice {
         List<String[]> before = new ArrayList<>(turns);
         try {
             io.execute(() -> BuddyTalk.reply(context, said, before, guest,
-                line -> main.post(() -> { if (on && mine == generation) { turns.add(new String[]{"user", said}); turns.add(new String[]{"assistant", line}); say(line); } }),
+                line -> main.post(() -> { if (on && mine == generation) { answeredAt = android.os.SystemClock.uptimeMillis(); turns.add(new String[]{"user", said}); turns.add(new String[]{"assistant", line}); say(line); } }),
                 () -> main.post(() -> { if (on && mine == generation) end("error", "지금은 대답이 안 떠올라. 조금 있다 다시 불러 줘"); })));
         } catch (RuntimeException stopped) { end("error", ""); }
     }
@@ -178,7 +180,7 @@ final class BuddyVoice {
             while ((n = in.read(buffer, carry, buffer.length - carry)) > 0) {
                 if (!on || mine != generation) return -1;
                 int have = carry + n, even = have & ~1;
-                if (!started && even > 0) { started = true; main.post(() -> focus(true)); out.play(); }
+                if (!started && even > 0) { started = true; main.post(() -> focus(true)); out.play(); timing("타입캐스트"); }
                 if (even > 0) { out.write(buffer, 0, even); frames += even / 2; }
                 carry = have - even; if (carry == 1) buffer[0] = buffer[even];
             }
@@ -235,6 +237,18 @@ final class BuddyVoice {
             return out;
         }
     }
+    /**
+     * How long each step took, in the app's log (준: "음성대화 너무 느려", "타입캐스트 딜레이가 어마어마한데"): from the end of what
+     * was said to its words, to 퍼레's answer, to the first sound.
+     */
+    private volatile long heardAt, wordsAt, answeredAt;
+    private void timing(String voice) {
+        long now = android.os.SystemClock.uptimeMillis();
+        if (heardAt == 0 || answeredAt == 0) return;
+        try { store.phoneLog(String.format(java.util.Locale.ROOT, "● 퍼레 음성: 글자로 %.1f초 · 대답 %.1f초 · %s 첫 소리 %.1f초 (모두 %.1f초)", (wordsAt - heardAt) / 1000.0, (answeredAt - wordsAt) / 1000.0, voice, (now - answeredAt) / 1000.0, (now - heardAt) / 1000.0)); }
+        catch (RuntimeException ignored) {}
+        heardAt = 0; answeredAt = 0;
+    }
     private void play(File mp3) {
         releasePlayer();
         try {
@@ -244,7 +258,7 @@ final class BuddyVoice {
             player.setOnCompletionListener(p -> spoken());
             player.setOnErrorListener((p, what, extra) -> { spoken(); return true; });
             player.prepare();
-            focus(true); player.start();
+            focus(true); player.start(); timing("타입캐스트(통째로)");
         } catch (Exception failed) { releasePlayer(); spoken(); }
     }
     /** The phone's own voice, a little higher and quicker, for 퍼레. */
@@ -258,7 +272,7 @@ final class BuddyVoice {
                 @Override public void onDone(String id) { main.post(BuddyVoice.this::spoken); }
                 @Override public void onError(String id) { main.post(BuddyVoice.this::spoken); }
             });
-            focus(true);
+            focus(true); timing("휴대폰 목소리");
             if (phone.speak(line, TextToSpeech.QUEUE_FLUSH, null, "buddy") != TextToSpeech.SUCCESS) spoken();
         };
         if (phone != null && phoneReady) { go.run(); return; }
