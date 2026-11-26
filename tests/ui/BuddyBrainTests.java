@@ -76,6 +76,13 @@ public class BuddyBrainTests {
         shot(l, "buddy_brain_models");
     }
 
+    /** The fingerprint can be asked for at all (준: "지문확인을 열지못했어요 뜨면서 메뉴가 안열려"): USE_BIOMETRIC is declared. */
+    @Test public void mayAskForTheFingerprint() throws Exception {
+        android.content.Context c = org.robolectric.RuntimeEnvironment.getApplication();
+        String[] asked = c.getPackageManager().getPackageInfo(c.getPackageName(), android.content.pm.PackageManager.GET_PERMISSIONS).requestedPermissions;
+        assertTrue(java.util.Arrays.asList(asked).contains(android.Manifest.permission.USE_BIOMETRIC));
+    }
+
     /** 퍼레 does things on the phone (준: "퍼레는 폰조작이 안되네"): the "할일" line read, never said; an app found by what is said. */
     @Test public void doesThingsOnThePhone() {
         String answer = "두구두구! 네이버 지도 바로 열어볼게. https://map.naver.com/ 😊\n할일: {\"tool\":\"open_app\",\"app\":\"네이버 지도\"}";

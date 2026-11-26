@@ -10,6 +10,8 @@
     <!-- A voice call notices at once when the default network drops or returns (install-time, no prompt). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 퍼레's private memories open after the phone's fingerprint (Fingerprint, BiometricPrompt). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- GPT-Live's call (a WebView WebRTC call) sets the call's sound route: headset or speaker. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.CAMERA" />
