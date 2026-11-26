@@ -206,9 +206,11 @@ final class BuddyTalk {
 
     // ── doing things on the phone (준: "퍼레는 폰조작이 안되네": it said "네이버 지도 바로 열어볼게" and a link, and opened nothing) ──
     /** What 퍼레 may do on the phone, as the model writes it: a second line "할일: {json}" after its words. */
-    static final String ACTS = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 찾기, 알람, 타이머, 음악 재생·멈춤·다음 곡, 손전등, 와이파이·블루투스 같은 설정 화면, 인터넷 검색) 너가 직접 해. "
+    static final String ACTS = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 찾기, 알람, 타이머, 음악 재생·멈춤·다음 곡, 손전등, 화면 가로·세로 고정과 자동 회전, 소리 크기, 화면 밝기, 와이파이·블루투스 같은 설정 화면, 인터넷 검색) 너가 직접 해. "
         + "첫 줄에 짧은 대답(예: '네이버 지도 열게!'), 둘째 줄에 '할일: ' 다음에 JSON 하나만 써. 형식: {\"tool\":\"open_app\",\"app\":\"앱 이름\"} · {\"tool\":\"navigate\",\"destination\":\"장소\"} · "
         + "{\"tool\":\"alarm\",\"hour\":7,\"minute\":30} · {\"tool\":\"timer\",\"seconds\":180} · {\"tool\":\"media\",\"command\":\"play\"}(play·pause·next·previous) · {\"tool\":\"torch\",\"on\":true} · "
+        + "{\"tool\":\"rotation\",\"mode\":\"landscape\"}(landscape=가로 고정·portrait=세로 고정·auto=자동 회전·toggle=반대로) · {\"tool\":\"volume\",\"direction\":\"up\"}(up·down·mute·unmute, 또는 \"level\":0~100) · "
+        + "{\"tool\":\"brightness\",\"direction\":\"up\"}(up·down, 또는 \"level\":0~100) · {\"tool\":\"show_alarms\"} · "
         + "{\"tool\":\"settings\",\"panel\":\"wifi\"}(internet·wifi·bluetooth·volume·nfc·display·location·battery) · {\"tool\":\"search\",\"query\":\"검색어\"}. "
         + "문자·전화·결제처럼 못 하는 일은 할일 줄 없이 아직 못 한다고 말해. 주소(URL)와 이모지는 절대 쓰지 마.\n";
     private static final java.util.regex.Pattern ACT_LINE = java.util.regex.Pattern.compile("(?m)^\\s*할\\s*일\\s*[:：]\\s*(\\{.*\\})\\s*$");

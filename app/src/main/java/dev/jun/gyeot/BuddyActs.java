@@ -14,7 +14,8 @@ import org.json.JSONObject;
 /**
  * What 퍼레 does on the phone when asked (준: "퍼레는 폰조작이 안되네"), from the home screen or over another app (준: "퍼레
  * 대화모드일때는 다른 앱 위에 그려지게 해줘"): an app opened by its name, a web search, and the edge assistant's own phone
- * actions (DeviceActions: a route, an alarm, a timer, music, the torch, a settings panel), started the way Android allows from
+ * actions (DeviceActions: a route, an alarm, a timer, music, the torch, a settings panel, the screen's rotation), and the
+ * volume and brightness, started the way Android allows from
  * where it is now (DeviceActionRunner.start: in front, the accessibility service, or the overlay). Any thread.
  */
 final class BuddyActs {
@@ -38,12 +39,14 @@ final class BuddyActs {
                         search = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/search?q=" + android.net.Uri.encode(q))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     return started(context, DeviceActionRunner.start(context, search, overlay), "", true);
                 }
+                case "volume" -> { return volume(context, act); }
+                case "brightness" -> { return brightness(context, act, overlay); }
                 default -> { /* the phone's own actions, below */ }
             }
             String name = switch (tool) {
                 case "alarm" -> DeviceActions.ALARM; case "timer" -> DeviceActions.TIMER; case "navigate" -> DeviceActions.NAVIGATE;
                 case "media" -> DeviceActions.MEDIA; case "torch" -> DeviceActions.TORCH; case "settings" -> DeviceActions.SETTINGS;
-                case "show_alarms" -> DeviceActions.SHOW_ALARMS; default -> "";
+                case "show_alarms" -> DeviceActions.SHOW_ALARMS; case "rotation" -> DeviceActions.ROTATION; default -> "";
             };
             if (name.isEmpty()) return new BuddyVoice.Outcome("그건 아직 내가 못 해.", false, null);
             JSONObject args = new JSONObject(act.toString()); args.remove("tool");
@@ -55,10 +58,51 @@ final class BuddyActs {
             if (!r.optBoolean("ok")) return new BuddyVoice.Outcome(r.optString("say", "잘 안 됐어."), false, null);
             if (DeviceActions.ALARM.equals(name)) return new BuddyVoice.Outcome(action.readback + "에 알람 맞췄어!", false, null);
             if (DeviceActions.TIMER.equals(name)) return new BuddyVoice.Outcome(action.readback + " 타이머 시작!", false, null);
+            // 준: "내 휴대폰 가로모드 세로모드 고정 바꾸는게 안돼"
+            if (DeviceActions.ROTATION.equals(name)) { String m = r.optString("readback"); return new BuddyVoice.Outcome("auto".equals(m) ? "자동 회전 켰어!" : "landscape".equals(m) ? "가로로 고정했어!" : "세로로 고정했어!", false, null); }
             boolean leaves = DeviceActionRunner.started(r.optString("route")) && (DeviceActions.NAVIGATE.equals(name) || DeviceActions.SETTINGS.equals(name) || DeviceActions.SHOW_ALARMS.equals(name));
             return new BuddyVoice.Outcome("notification".equals(r.optString("outcome")) ? r.optString("say") : "", leaves, null);
         } catch (IllegalArgumentException unclear) { return new BuddyVoice.Outcome(unclear.getMessage(), false, null); }
         catch (Exception failed) { return new BuddyVoice.Outcome("잘 안 됐어. 한 번만 다시 말해 줘.", false, null); }
+    }
+    /** The media volume: up or down a few steps, a level (0–100), muted or back (the phone shows its volume bar). */
+    private static BuddyVoice.Outcome volume(Context context, JSONObject act) {
+        android.media.AudioManager audio = context.getSystemService(android.media.AudioManager.class);
+        if (audio == null) return new BuddyVoice.Outcome("소리를 못 바꿨어.", false, null);
+        int stream = android.media.AudioManager.STREAM_MUSIC, flags = android.media.AudioManager.FLAG_SHOW_UI, max = audio.getStreamMaxVolume(stream);
+        String direction = act.optString("direction").strip().toLowerCase(Locale.ROOT);
+        if (act.has("level")) {
+            int level = Math.max(0, Math.min(100, act.optInt("level")));
+            audio.setStreamVolume(stream, Math.round(max * level / 100f), flags);
+            return new BuddyVoice.Outcome("소리 " + level + "으로 맞췄어!", false, null);
+        }
+        switch (direction) {
+            case "mute" -> { audio.adjustStreamVolume(stream, android.media.AudioManager.ADJUST_MUTE, flags); return new BuddyVoice.Outcome("소리 껐어.", false, null); }
+            case "unmute" -> { audio.adjustStreamVolume(stream, android.media.AudioManager.ADJUST_UNMUTE, flags); return new BuddyVoice.Outcome("소리 다시 켰어!", false, null); }
+            default -> {
+                boolean up = !"down".equals(direction); int steps = Math.max(1, Math.min(max, act.optInt("steps", 2)));
+                for (int i = 0; i < steps; i++) audio.adjustStreamVolume(stream, up ? android.media.AudioManager.ADJUST_RAISE : android.media.AudioManager.ADJUST_LOWER, i == steps - 1 ? flags : 0);
+                return new BuddyVoice.Outcome(up ? "소리 키웠어!" : "소리 줄였어.", false, null);
+            }
+        }
+    }
+    /** The screen's brightness: up or down a fifth, or a level (0–100); auto brightness off. Needs 시스템 설정 변경 (as rotation). */
+    private static BuddyVoice.Outcome brightness(Context context, JSONObject act, boolean overlay) {
+        if (!android.provider.Settings.System.canWrite(context)) {
+            Intent allow = new Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS, android.net.Uri.parse("package:" + context.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            try { DeviceActionRunner.start(context, allow, overlay); } catch (RuntimeException ignored) { /* Said below. */ }
+            return new BuddyVoice.Outcome("밝기를 바꾸려면 '시스템 설정 변경'을 허용해 줘. 허용 화면을 열었어.", false, null);
+        }
+        android.content.ContentResolver settings = context.getContentResolver();
+        try {
+            int now = android.provider.Settings.System.getInt(settings, android.provider.Settings.System.SCREEN_BRIGHTNESS, 128);
+            String direction = act.optString("direction").strip().toLowerCase(Locale.ROOT);
+            int to = act.has("level") ? Math.round(255 * Math.max(0, Math.min(100, act.optInt("level"))) / 100f) : "down".equals(direction) ? now - 51 : now + 51;
+            to = Math.max(5, Math.min(255, to));
+            android.provider.Settings.System.putInt(settings, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL);
+            android.provider.Settings.System.putInt(settings, android.provider.Settings.System.SCREEN_BRIGHTNESS, to);
+            return new BuddyVoice.Outcome(act.has("level") ? "밝기 " + Math.max(0, Math.min(100, act.optInt("level"))) + "으로 맞췄어!" : to > now ? "화면 밝게 했어!" : "화면 어둡게 했어.", false, null);
+        } catch (RuntimeException refused) { return new BuddyVoice.Outcome("밝기를 못 바꿨어.", false, null); }
     }
     /** After a start: nothing to add when it opened, the way to open it when Android only let a notification through. */
     private static BuddyVoice.Outcome started(Context context, String route, String opened, boolean leaves) {

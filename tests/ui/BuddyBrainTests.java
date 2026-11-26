@@ -76,6 +76,25 @@ public class BuddyBrainTests {
         shot(l, "buddy_brain_models");
     }
 
+    /** The screen's rotation, the volume and the brightness (준: "가로모드 세로모드 고정 바꾸는게 안돼"). */
+    @Test public void turnsTheScreenAndTheSound() throws Exception {
+        android.content.Context c = org.robolectric.RuntimeEnvironment.getApplication();
+        assertTrue(BuddyTalk.ACTS.contains("rotation") && BuddyTalk.ACTS.contains("volume") && BuddyTalk.ACTS.contains("brightness"));
+        BuddyVoice.Outcome o = BuddyActs.run(c, new org.json.JSONObject("{\"tool\":\"rotation\",\"mode\":\"landscape\"}"), "", false);
+        if (android.provider.Settings.System.canWrite(c)) {
+            assertEquals("가로로 고정했어!", o.say());
+            assertEquals(0, android.provider.Settings.System.getInt(c.getContentResolver(), android.provider.Settings.System.ACCELEROMETER_ROTATION));
+            assertEquals(android.view.Surface.ROTATION_90, android.provider.Settings.System.getInt(c.getContentResolver(), android.provider.Settings.System.USER_ROTATION));
+            assertEquals("자동 회전 켰어!", BuddyActs.run(c, new org.json.JSONObject("{\"tool\":\"rotation\",\"mode\":\"auto\"}"), "", false).say());
+        } else assertTrue(o.say(), o.say().contains("시스템 설정 변경"));
+        android.media.AudioManager audio = c.getSystemService(android.media.AudioManager.class);
+        audio.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, 3, 0);
+        assertEquals("소리 키웠어!", BuddyActs.run(c, new org.json.JSONObject("{\"tool\":\"volume\",\"direction\":\"up\"}"), "", false).say());
+        assertTrue(audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) > 3);
+        String bright = BuddyActs.run(c, new org.json.JSONObject("{\"tool\":\"brightness\",\"direction\":\"up\"}"), "", false).say();
+        assertTrue(bright, android.provider.Settings.System.canWrite(c) ? bright.equals("화면 밝게 했어!") : bright.contains("시스템 설정 변경"));
+    }
+
     /** 퍼레 over other apps while it talks (준: "퍼레 대화모드일때는 다른 앱 위에 그려지게 해줘"): a small card, its face, its words, ✕. */
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void talksOverOtherApps() throws Exception {
         org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(true);
