@@ -130,6 +130,17 @@ const TALK = (() => {
     "play:singsong": ["랄랄라~", "노래 한 곡 뽑을게!"], "play:reading": ["책 읽는 중, 쉿", "이 이야기 재밌다"], "play:coffeebreak": ["후루룩, 잠깐 쉬는 시간", "커피 향 좋다~"],
     "play:cloudwatch": ["구름 모양 보는 중", "저 구름은 토끼 같아"], "play:tumbling": ["앞구르기!", "데굴 착지!"], "play:sneezing": ["에, 에, 에취!", "누가 내 얘기 하나?"],
     "play:melting": ["녹는다~", "흐물흐물…"], "play:clapping": ["짝짝짝!", "박수 박수!"],
+    "play:pogostick": ["통! 통! 통!", "스카이 콩콩~"], "play:tantrum": ["흥! 흥!", "삐졌어… 아니 안 삐졌어!"], "play:laughfit": ["푸하하!", "배꼽 빠지겠다"],
+    "play:sneakattack": ["살금살금… 덮쳐라!", "앗싸, 잡았다!"], "play:marathon": ["헥헥, 마라톤 중", "결승선까지 조금만!"], "play:balloonpop": ["후우우~ 빵!", "앗, 터졌다!"],
+    "play:ballerina": ["빙그르르~", "발레리나 퍼레"], "play:swing": ["그네 타기~ 슝!", "높이높이!"], "play:bananaslip": ["으앗, 미끄러졌다!", "바나나 껍질 누구야!"],
+    "play:brrr": ["으으, 추워", "덜덜덜…"], "play:explorer": ["탐험 출발!", "뭔가 발견할 것 같아"], "play:skygaze": ["하늘 예쁘다", "저 구름 좀 봐"],
+    "play:sadmovie": ["훌쩍… 슬픈 장면이야", "눈물 나…"], "play:helicopter": ["위잉~ 헬리콥터!", "이륙!"], "play:birdie": ["파닥파닥!", "나도 날 수 있어!"],
+    "play:orchestra": ["자, 연주 시작!", "브라보!"], "play:drummer": ["둥둥 탁!", "드럼 솔로!"], "play:superhero": ["정의의 퍼레 등장!", "출동!"],
+    "play:champion": ["우승이다!", "내가 챔피언!"], "play:goodbye": ["안녕안녕~", "또 만나!"], "play:secret": ["쉿, 비밀이야", "아무한테도 말하면 안 돼"],
+    "play:puzzled": ["음… 뭐였더라?", "아하! 생각났다"], "play:daydream": ["음냐… 좋은 꿈", "헤헤, 상상 중"], "play:snacktime": ["냠냠 간식 시간!", "맛있겠다…"],
+    "play:leafcatch": ["낙엽 잡기!", "팔랑팔랑~"], "play:snowplay": ["눈이다!", "차가워, 히히"], "play:confetti": ["축하해! 빵빠레!", "짜잔!"],
+    "play:yoyo": ["요요 묘기!", "올라갔다 내려갔다"], "play:frisbee": ["원반 날아간다!", "받아라!"], "play:pinwheel": ["바람개비 빙글빙글", "후~ 돈다 돈다"],
+    "play:fireflies": ["반딧불이다!", "반짝반짝 예쁘다"], "play:dice": ["주사위 굴려 볼까?", "무슨 숫자 나올까?"],
 
     // ── roaming between plays ──
     roam: ["여기 좋다!", "어디 가 볼까?", "순찰 중~", "탐험 중이야", "이쪽엔 뭐가 있을까?", "산책 산책~", "발 도장 쾅!", "새로운 자리 발견!"]

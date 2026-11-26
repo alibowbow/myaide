@@ -305,6 +305,32 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .bot .b-eye .tear{fill:#8fd3ff;stroke:none}
 .bot[data-eye]:not([data-eye=pill]):not([data-eye=half]):not([data-eye=small]):not([data-eye=wink]) .b-eye .pill,.bot[data-eye=wink] .b-eye.r .pill{display:none}
 .bot[data-eye=arc] .b-eye .arc,.bot[data-eye=wink] .b-eye.r .arc,.bot[data-eye=o] .b-eye .o,.bot[data-eye=shut] .b-eye .shut,.bot[data-eye=heart] .b-eye .heart,.bot[data-eye=dz] .b-eye .dz,.bot[data-eye=x] .b-eye .x,.bot[data-eye=dot] .b-eye .dot,.bot[data-eye=line] .b-eye .line,.bot[data-eye=wide] .b-eye .wide,.bot[data-eye=u] .b-eye .u,.bot[data-eye=sq] .b-eye .sq{display:block}
+/* more eyes, mouths and effects (board.js FACES) */
+.bot .b-eye .tri,.bot .b-eye .ring,.bot .b-eye .wavy,.bot .b-eye .plus,.bot .b-eye .lid-line{fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
+.bot .b-eye .ring{stroke-width:2.6}.bot .b-eye .wavy{stroke-width:2.4}
+.bot .b-eye .tri,.bot .b-eye .oval,.bot .b-eye .lid,.bot .b-eye .ring,.bot .b-eye .wavy,.bot .b-eye .plus{display:none}
+.bot[data-eye=tri] .b-eye .tri,.bot[data-eye=oval] .b-eye .oval,.bot[data-eye=lid] .b-eye .lid,.bot[data-eye=ring] .b-eye .ring,.bot[data-eye=wavy] .b-eye .wavy,.bot[data-eye=plus] .b-eye .plus{display:block}
+.bot[data-eye=plus] .b-eye .plus{transform-box:fill-box;transform-origin:center;animation:whirl 2.4s linear infinite}
+.bot .m-drool,.bot .m-tri,.bot .m-zig,.bot .m-bite,.bot .m-wide,.bot .m-whistle,.bot .m-hat,.bot .m-tiny{display:none;transform-box:fill-box;transform-origin:center}
+.bot .m-tri,.bot .m-wide,.bot .m-whistle{fill:#2b2b3a}
+.bot .m-zig,.bot .m-hat,.bot .m-tiny,.bot .m-drool path:first-child,.bot .m-bite path{fill:none;stroke:#2b2b3a;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.bot .m-bite path:last-child{fill:#fff;stroke-width:1}
+.bot[data-mouth=drool] .m-drool,.bot[data-mouth=tri] .m-tri,.bot[data-mouth=zig] .m-zig,.bot[data-mouth=bite] .m-bite,.bot[data-mouth=wide] .m-wide,.bot[data-mouth=whistle] .m-whistle,.bot[data-mouth=hat] .m-hat,.bot[data-mouth=tiny] .m-tiny{display:block}
+.bot.talking .m-drool,.bot.talking .m-tri,.bot.talking .m-zig,.bot.talking .m-bite,.bot.talking .m-wide,.bot.talking .m-whistle,.bot.talking .m-hat,.bot.talking .m-tiny{display:none}
+.bot[data-mouth=drool] .m-drool path:last-child{animation:sweat 2s ease-in infinite}
+.bot[data-mouth=zig] .m-zig{animation:shiver .12s linear infinite}
+.bot[data-fx~=zzz] .fx-zzz,.bot[data-fx~=hearts] .fx-hearts,.bot[data-fx~=flower] .fx-flower,.bot[data-fx~=fire] .fx-fire,.bot[data-fx~=bubble] .fx-bubble,.bot[data-fx~=swirl] .fx-swirl,.bot[data-fx~=lines] .fx-lines,.bot[data-fx~=cloud] .fx-cloud,.bot[data-fx~=pale] .fx-pale,.bot[data-fx~=red] .fx-red{display:inline}
+.bot .fx-zzz text{font-size:11px;font-weight:900;fill:#a9b4ff;animation:noteup 2.2s ease-in-out infinite}.bot .fx-zzz text:last-child{animation-delay:1.1s;font-size:8px}
+.bot .fx-hearts path{fill:#ff6f91;transform-box:fill-box;transform-origin:center;animation:kissup 1.8s ease-out infinite}.bot .fx-hearts path:last-child{animation-delay:.9s}
+.bot .fx-flower circle{fill:#ffb3c8}.bot .fx-flower g{transform-box:fill-box;transform-origin:center;animation:k2bloom 2.4s ease-in-out infinite}
+.bot .fx-fire path{fill:#ff8a3d;transform-box:fill-box;transform-origin:50% 100%;animation:k2flame .3s ease-in-out infinite alternate}
+.bot .fx-bubble{fill:#cfe9ff;fill-opacity:.7;stroke:#8fd3ff;stroke-width:.8;transform-box:fill-box;transform-origin:0 50%;animation:k2snot 2.4s ease-in-out infinite}
+.bot .fx-swirl{fill:none;stroke:#a5acc4;stroke-width:1.8;stroke-linecap:round;transform-box:fill-box;transform-origin:center;animation:whirl 1.4s linear infinite}
+.bot .fx-lines path{fill:none;stroke:#8f8fd6;stroke-width:1.8;stroke-linecap:round;animation:gloom .5s ease-in-out infinite}
+.bot .fx-cloud{animation:qbob 2s ease-in-out infinite}
+@keyframes k2bloom{50%{transform:scale(1.18) rotate(18deg)}}
+@keyframes k2flame{to{transform:scaleY(1.2) scaleX(.9)}}
+@keyframes k2snot{0%,100%{transform:scale(.4)}60%{transform:scale(1.25)}}
 .bot[data-eye=half] .b-eye .pill{transform:scaleY(.5) translateY(3px)}
 .bot[data-eye=small] .b-eye .pill{transform:scaleY(.72) translateY(1.5px)}
 .bot[data-eye=heart] .b-eye .heart,.bot[data-eye=dz] .b-eye .dz{transform-box:fill-box;transform-origin:center}
@@ -495,3 +521,136 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .buddy.tiptoe-walk .body{animation:tiptoe .3s ease-in-out infinite}
 .buddy.skipping .body{animation:skip .45s ease-in-out infinite}
 .buddy.rolling .body{animation:roll .7s linear infinite;transform-origin:50% 55%}
+/* ── motions, to a hundred (board.js MOTIONS; 준: "모션 종류 4가지도 각각 100개씩") ── */
+.buddy.swaying .b-all{animation:k2sway 1s ease-in-out 3}
+@keyframes k2sway{25%{transform:rotate(-8deg)}75%{transform:rotate(8deg)}}
+.buddy.bobbing .body{animation:k2bob .5s ease-in-out 4}
+@keyframes k2bob{50%{transform:translateY(4px) scale(1.03,.97)}}
+.buddy.pogo .body{animation:k2pogo .45s cubic-bezier(.3,0,.5,1) 4}
+@keyframes k2pogo{0%,100%{transform:scale(1.08,.92)}45%{transform:translateY(-18px) scale(.94,1.08)}}
+.buddy.squash .body{animation:k2squash 1s ease-in-out}
+@keyframes k2squash{20%{transform:scale(1.25,.75)}45%{transform:scale(.82,1.2) translateY(-6px)}65%{transform:scale(1.1,.9)}85%{transform:scale(.97,1.03)}}
+.buddy.stomp .body{animation:k2stomp .4s ease-in 3}
+@keyframes k2stomp{40%{transform:translateY(-7px) rotate(-4deg)}70%{transform:translateY(1px) scale(1.06,.94)}}
+.buddy.shimmy .b-body{animation:k2shimmy .12s linear 14}
+@keyframes k2shimmy{25%{transform:translateX(-2.4px) rotate(-2deg)}75%{transform:translateX(2.4px) rotate(2deg)}}
+.buddy.leanback .b-all{animation:k2leanback 1.6s ease-in-out;transform-origin:50% 100%}
+@keyframes k2leanback{20%,70%{transform:rotate(-14deg) translateX(-3px)}35%{transform:rotate(-17deg) translateX(-3px)}50%{transform:rotate(-12deg) translateX(-3px)}}
+.buddy.crouch .body{animation:k2crouch 1.8s ease-in-out;transform-origin:50% 100%}
+@keyframes k2crouch{20%,75%{transform:scale(1.12,.72)}}
+.buddy.pounce .body{animation:k2pounce 1.2s cubic-bezier(.4,0,.4,1);transform-origin:50% 100%}
+@keyframes k2pounce{30%{transform:scale(1.15,.8)}55%{transform:translate(-14px,-20px) rotate(-12deg)}80%{transform:translate(-18px,0) scale(1.1,.9)}100%{transform:none}}
+.buddy.sprint .body{animation:k2bob .2s ease-in-out 10}.buddy.sprint .b-arm.l{animation:k2runL .4s ease-in-out 5}.buddy.sprint .b-arm.r{animation:k2runR .4s ease-in-out 5}
+@keyframes k2runL{50%{transform:rotate(55deg)}}@keyframes k2runR{0%,100%{transform:rotate(-55deg)}50%{transform:none}}
+.buddy.shuffle .body{animation:k2shuffle 1.6s ease-in-out}
+@keyframes k2shuffle{15%{transform:translateX(-8px) rotate(-5deg)}30%{transform:translateX(-8px)}45%{transform:translateX(8px) rotate(5deg)}60%{transform:translateX(8px)}80%{transform:translateX(0) rotate(-3deg)}}
+.buddy.heartbeat .body{animation:k2beat .5s ease-in-out 3}
+@keyframes k2beat{15%{transform:scale(1.1)}30%{transform:scale(1)}45%{transform:scale(1.07)}}
+.buddy.inflate .body{animation:k2inflate 1.6s ease-in-out}
+@keyframes k2inflate{40%,70%{transform:scale(1.28)}85%{transform:scale(.92)}}
+.buddy.shrink .body{animation:k2shrink 1.6s ease-in-out;transform-origin:50% 100%}
+@keyframes k2shrink{30%,75%{transform:scale(.7)}}
+.buddy.spinslow .body{animation:k2spinslow 2s ease-in-out}
+@keyframes k2spinslow{to{transform:rotate(360deg)}}
+.buddy.flipside .b-all{animation:k2side 1.6s ease-in-out;transform-origin:50% 100%}
+@keyframes k2side{30%,60%{transform:rotate(84deg) translate(-6px,0)}}
+.buddy.rockback .b-all{animation:k2rockback 1.2s ease-in-out 2;transform-origin:50% 100%}
+@keyframes k2rockback{25%{transform:rotate(-12deg)}75%{transform:rotate(6deg)}}
+.buddy.seesaw .b-all{animation:k2seesaw .8s ease-in-out 3}
+@keyframes k2seesaw{25%{transform:translateY(-4px) rotate(-10deg)}75%{transform:translateY(-4px) rotate(10deg)}}
+.buddy.pendulum .body{animation:k2pend 1.2s ease-in-out 2;transform-origin:50% -30%}
+@keyframes k2pend{25%{transform:rotate(14deg)}75%{transform:rotate(-14deg)}}
+.buddy.levitate .body{animation:k2lev .8s ease-in-out 3}
+@keyframes k2lev{50%{transform:translateY(-12px)}}
+.buddy.sink .body{animation:k2sink 1.8s ease-in-out;transform-origin:50% 100%}
+@keyframes k2sink{35%,70%{transform:translateY(10px) scale(1.06,.86)}}
+.buddy.trip .body{animation:k2trip 1.4s ease;transform-origin:50% 100%}
+@keyframes k2trip{20%{transform:rotate(18deg) translateX(6px)}35%{transform:rotate(-10deg) translateX(4px)}55%{transform:rotate(6deg)}75%{transform:rotate(-3deg)}100%{transform:none}}
+.buddy.slip .body{animation:k2slip 1.5s ease;transform-origin:50% 100%}
+@keyframes k2slip{15%{transform:translateX(10px) rotate(-20deg)}30%{transform:translateX(6px) rotate(-75deg) translateY(4px)}65%{transform:translateX(6px) rotate(-75deg) translateY(4px)}85%{transform:rotate(-8deg)}100%{transform:none}}
+.buddy.shiverbig .b-all{animation:k2shivbig .08s linear 20}
+@keyframes k2shivbig{25%{transform:translateX(-2.6px) rotate(-1.5deg)}75%{transform:translateX(2.6px) rotate(1.5deg)}}
+.buddy.lookaround .b-look{animation:k2lookaround 2s ease-in-out}
+@keyframes k2lookaround{20%,35%{transform:translate(-6px,-1px)}55%,75%{transform:translate(6px,-1px)}90%{transform:translate(0,-3px)}}
+.buddy.eyeroll .b-look{animation:k2eyeroll 1.2s ease-in-out}
+@keyframes k2eyeroll{20%{transform:translate(-5px,-2px)}45%{transform:translate(0,-5px)}70%{transform:translate(5px,-2px)}}
+.buddy.lookup .b-look{animation:k2lookup 1.6s ease-in-out}.buddy.lookup .b-all{animation:k2tiltup 1.6s ease-in-out}
+@keyframes k2lookup{25%,75%{transform:translateY(-5px)}}@keyframes k2tiltup{25%,75%{transform:rotate(-5deg)}}
+.buddy.lookdown .b-look{animation:k2lookdown 1.6s ease-in-out}
+@keyframes k2lookdown{25%,75%{transform:translate(-2px,4px)}}
+.buddy.giggleshake .body{animation:k2giggle .16s ease-in-out 8}
+@keyframes k2giggle{50%{transform:translateY(-2px) rotate(2deg)}}
+.buddy.sob .b-body{animation:k2sob .3s ease-in-out 6}
+@keyframes k2sob{50%{transform:translateY(2px) scale(1.02,.97)}}
+.buddy.pant .b-body{animation:k2pant .35s ease-in-out 6}
+@keyframes k2pant{50%{transform:scale(1.05,.95)}}
+.buddy.stretchup .b-arm.l{animation:k2upL 1.8s ease-in-out}.buddy.stretchup .b-arm.r{animation:k2upR 1.8s ease-in-out}.buddy.stretchup .body{animation:tall 1.8s ease-in-out}
+@keyframes k2upL{30%,75%{transform:rotate(165deg)}}@keyframes k2upR{30%,75%{transform:rotate(-165deg)}}
+.buddy.armswing .b-arm.l{animation:k2swingL .6s ease-in-out 3}.buddy.armswing .b-arm.r{animation:k2swingR .6s ease-in-out 3}
+@keyframes k2swingL{25%{transform:rotate(40deg)}75%{transform:rotate(-30deg)}}@keyframes k2swingR{25%{transform:rotate(30deg)}75%{transform:rotate(-40deg)}}
+.buddy.propeller .b-arm.l{animation:k2propL .4s linear 5}.buddy.propeller .b-arm.r{animation:k2propR .4s linear 5}.buddy.propeller .body{animation:k2lev .8s ease-in-out 2}
+@keyframes k2propL{to{transform:rotate(360deg)}}@keyframes k2propR{to{transform:rotate(-360deg)}}
+.buddy.flapping .b-arm.l{animation:k2flapL .25s ease-in-out 8}.buddy.flapping .b-arm.r{animation:k2flapR .25s ease-in-out 8}.buddy.flapping .body{animation:k2lev .5s ease-in-out 4}
+@keyframes k2flapL{50%{transform:rotate(80deg)}}@keyframes k2flapR{50%{transform:rotate(-80deg)}}
+.buddy.conductor .b-arm.r{animation:k2baton .5s ease-in-out 4}.buddy.conductor .b-all{animation:rock 1s ease-in-out 2}
+@keyframes k2baton{0%,100%{transform:rotate(-110deg)}50%{transform:rotate(-150deg)}}
+.buddy.drum .b-arm.l{animation:k2drumL .2s ease-in-out 8}.buddy.drum .b-arm.r{animation:k2drumR .2s ease-in-out .1s 8}
+@keyframes k2drumL{50%{transform:rotate(-35deg)}}@keyframes k2drumR{50%{transform:rotate(35deg)}}
+.buddy.hugself .b-arm.l{animation:k2hugL 2s ease-in-out}.buddy.hugself .b-arm.r{animation:k2hugR 2s ease-in-out}.buddy.hugself .b-all{animation:nuzzle 1s ease-in-out 2}
+@keyframes k2hugL{20%,80%{transform:translate(14px,-6px) rotate(-60deg)}}@keyframes k2hugR{20%,80%{transform:translate(-14px,-6px) rotate(60deg)}}
+.buddy.akimbo .b-arm.l{animation:k2akL 1.8s ease-in-out}.buddy.akimbo .b-arm.r{animation:k2akR 1.8s ease-in-out}.buddy.akimbo .body{animation:tall 1.8s ease-in-out}
+@keyframes k2akL{20%,80%{transform:rotate(-38deg) translate(4px,-2px)}}@keyframes k2akR{20%,80%{transform:rotate(38deg) translate(-4px,-2px)}}
+.buddy.fistpump .b-arm.r{animation:k2pump .4s ease-in-out 4}.buddy.fistpump .body{animation:k2bob .4s ease-in-out 4}
+@keyframes k2pump{0%,100%{transform:rotate(-120deg)}50%{transform:rotate(-170deg)}}
+.buddy.highfive .b-arm.r{animation:k2high 1s cubic-bezier(.3,1.5,.5,1)}.buddy.highfive .body{animation:hop .72s var(--soft)}
+@keyframes k2high{25%,70%{transform:rotate(-165deg) translateY(-2px)}}
+.buddy.wavebye .b-arm.l{animation:k2byeL .5s ease-in-out 3}.buddy.wavebye .b-arm.r{animation:k2byeR .5s ease-in-out .25s 3}
+@keyframes k2byeL{0%,100%{transform:rotate(130deg)}50%{transform:rotate(160deg)}}@keyframes k2byeR{0%,100%{transform:rotate(-130deg)}50%{transform:rotate(-160deg)}}
+.buddy.beckon .b-arm.r{animation:k2beckon .5s ease-in-out 3}
+@keyframes k2beckon{0%,100%{transform:rotate(-70deg)}50%{transform:rotate(-30deg)}}
+.buddy.shush .b-arm.r{animation:k2shush 1.8s ease-in-out}
+@keyframes k2shush{20%,80%{transform:translate(-30px,-6px) rotate(-30deg)}}
+.buddy.scratch .b-arm.r{animation:k2scratch 1.8s ease-in-out}.buddy.scratch .b-all{animation:tilt 1.8s ease-in-out}
+@keyframes k2scratch{20%{transform:rotate(-160deg)}30%{transform:rotate(-150deg)}40%{transform:rotate(-160deg)}50%{transform:rotate(-150deg)}60%{transform:rotate(-160deg)}80%{transform:rotate(-150deg)}}
+.buddy.clapfast .b-arm.l{animation:clapL .15s ease-in-out 10}.buddy.clapfast .b-arm.r{animation:clapR .15s ease-in-out 10}.buddy.clapfast .body{animation:k2bob .3s ease-in-out 5}
+.buddy.antwiggle .b-antenna{animation:k2antwig .15s ease-in-out 10;transform-origin:50px 20px}
+@keyframes k2antwig{25%{transform:rotate(-14deg)}75%{transform:rotate(14deg)}}
+.buddy.antboing .b-antenna{animation:k2antboing 1s cubic-bezier(.3,1.8,.5,1);transform-origin:50px 20px}
+@keyframes k2antboing{20%{transform:scaleY(1.6)}40%{transform:scaleY(.7)}60%{transform:scaleY(1.2)}80%{transform:scaleY(.95)}}
+.buddy.antscan .b-antenna{animation:k2antscan 2s ease-in-out;transform-origin:50px 20px}.buddy.antscan .b-look{animation:k2lookaround 2s ease-in-out}
+@keyframes k2antscan{25%{transform:rotate(-30deg)}50%{transform:rotate(25deg)}75%{transform:rotate(-15deg)}}
+.buddy.bodywave .body{animation:k2bodywave 1.2s ease-in-out}
+@keyframes k2bodywave{20%{transform:skewX(10deg)}40%{transform:skewX(-10deg)}60%{transform:skewX(7deg)}80%{transform:skewX(-4deg)}}
+.buddy.zigzag .body{animation:k2zigzag 1.6s ease-in-out}
+@keyframes k2zigzag{12%{transform:translate(-8px,-6px)}25%{transform:translate(-14px,0)}37%{transform:translate(-6px,-6px)}50%{transform:translate(0,0)}62%{transform:translate(8px,-6px)}75%{transform:translate(14px,0)}87%{transform:translate(6px,-6px)}}
+.buddy.orbit .body{animation:k2orbit 1.6s linear}
+@keyframes k2orbit{0%{transform:translate(0,0)}25%{transform:translate(9px,-6px)}50%{transform:translate(0,-12px)}75%{transform:translate(-9px,-6px)}100%{transform:translate(0,0)}}
+/* toys for the new plays (board.js PLAYS) */
+.toy.heartpop{bottom:62%;width:14px;height:14px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 21C4 15 2 10.5 4.2 7.3 6.2 4.5 10 5 12 8c2-3 5.8-3.5 7.8-.7C22 10.5 20 15 12 21z' fill='%23ff6f91'/%3E%3C/svg%3E") center/contain no-repeat;animation:k2rise 2s ease-out forwards}
+.toy.leafy{top:-24px;width:12px;height:12px;border-radius:0 80% 0 80%;background:#f08a3c;animation:k2leaf 2.6s ease-in forwards}
+.toy.flake{top:-20px;width:8px;height:8px;border-radius:50%;background:#fff;box-shadow:0 0 4px rgba(255,255,255,.9);animation:k2leaf 2.8s linear forwards}
+.toy.confetti{top:-10px;width:6px;height:10px;border-radius:2px;animation:k2confetti 2.4s ease-in forwards}
+.toy.confetti.c0{background:#ff6f91}.toy.confetti.c1{background:#ffd36e}.toy.confetti.c2{background:#7ad3c8}.toy.confetti.c3{background:#c4b5fd}
+.toy.yoyo{right:2px;top:48%;width:2px;height:30px;background:rgba(255,255,255,.7);transform-origin:50% 0;animation:k2yoyo .8s ease-in-out 4}
+.toy.yoyo b{position:absolute;left:-6px;bottom:-12px;width:14px;height:14px;border-radius:50%;background:radial-gradient(circle,#fff 0 18%,#5b8def 20%)}
+.toy.frisbee{left:50%;top:20px;width:22px;height:7px;border-radius:50%;background:#ff7a45;box-shadow:inset 0 -2px 0 rgba(0,0,0,.15);animation:k2frisbee 2.4s ease-in-out forwards}
+.toy.pinwheel{right:-6px;top:30%;width:2px;height:34px;background:#c9b48a}
+.toy.pinwheel b{position:absolute;left:-10px;top:-12px;width:22px;height:22px;background:conic-gradient(#ff6f91 0 25%,#ffd36e 0 50%,#7ad3c8 0 75%,#c4b5fd 0);clip-path:polygon(50% 50%,50% 0,100% 0,50% 50%,100% 50%,100% 100%,50% 50%,50% 100%,0 100%,50% 50%,0 50%,0 0);animation:whirl .5s linear infinite}
+.toy.firefly{width:6px;height:6px;border-radius:50%;background:#fff6a8;box-shadow:0 0 8px 3px rgba(255,240,140,.7);animation:k2firefly 3.6s ease-in-out forwards}
+.toy.dice{left:50%;top:-6px;width:14px;height:14px;margin-left:-7px;border-radius:3px;background:#fff;box-shadow:inset 0 0 0 1px #d6d8e4;background-image:radial-gradient(circle,#2b2b3a 0 1.6px,transparent 2px),radial-gradient(circle,#2b2b3a 0 1.6px,transparent 2px);background-size:7px 7px;background-position:0 0,3.5px 3.5px;animation:k2dice 1.7s cubic-bezier(.3,.5,.4,1) forwards}
+@keyframes k2rise{0%{opacity:0;transform:translateY(0) scale(.5)}20%{opacity:1}100%{opacity:0;transform:translateY(-60px) scale(1.1)}}
+@keyframes k2leaf{0%{opacity:0;transform:translate(0,0) rotate(0)}15%{opacity:1}50%{transform:translate(12px,60px) rotate(160deg)}100%{opacity:0;transform:translate(-8px,120px) rotate(320deg)}}
+@keyframes k2confetti{0%{opacity:1;transform:translate(0,0) rotate(0)}100%{opacity:0;transform:translate(10px,110px) rotate(540deg)}}
+@keyframes k2yoyo{50%{transform:scaleY(.35)}}
+@keyframes k2frisbee{0%{opacity:1;transform:translate(0,0) rotate(-8deg)}50%{transform:translate(-110px,-30px) rotate(8deg)}100%{opacity:1;transform:translate(10px,-4px) rotate(-6deg)}}
+@keyframes k2firefly{0%{opacity:0;transform:translate(0,0)}20%{opacity:1}50%{opacity:.4;transform:translate(10px,-8px)}80%{opacity:1;transform:translate(-6px,-14px)}100%{opacity:0;transform:translate(4px,-22px)}}
+@keyframes k2dice{0%{transform:translateY(-30px) rotate(0)}60%{transform:translateY(40px) rotate(540deg)}75%{transform:translateY(32px) rotate(560deg)}100%{transform:translateY(40px) rotate(560deg)}}
+/* more to wear (board.js WEAR, envOf; 준: "모션 종류 4가지도 각각 100개씩") */
+.bot.w-beret .beret,.bot.w-bucket .bucket,.bot.w-crown .crown,.bot.w-tiara .tiara,.bot.w-bow .bow,.bot.w-headband .headband,.bot.w-bandana .bandana,.bot.w-chef .chef,.bot.w-grad .grad,.bot.w-pirate .pirate,.bot.w-viking .viking,.bot.w-cowboy .cowboy,.bot.w-tophat .tophat,.bot.w-visor .visor,.bot.w-flowercrown .flowercrown,.bot.w-sprout .sprout,.bot.w-halo .halo,.bot.w-horns .horns,.bot.w-witch .witch,.bot.w-bunny .bunny,.bot.w-catears .catears,.bot.w-froghat .froghat,.bot.w-mushroom .mushroom,.bot.w-roundglasses .roundglasses,.bot.w-heartglasses .heartglasses,.bot.w-monocle .monocle,.bot.w-swimgoggles .swimgoggles,.bot.w-mustache .mustache,.bot.w-eyepatch .eyepatch,.bot.w-clownnose .clownnose,.bot.w-nerdglasses .nerdglasses,.bot.w-bowtie .bowtie,.bot.w-pearls .pearls,.bot.w-medal .medal,.bot.w-bell .bell,.bot.w-lei .lei,.bot.w-neckbandana .neckbandana,.bot.w-ribbon .ribbon,.bot.w-whistle .whistle,.bot.w-lollipop .lollipop,.bot.w-popsicle .popsicle,.bot.w-watermelon .watermelon,.bot.w-sunflower .sunflower,.bot.w-tulip .tulip,.bot.w-dandelion .dandelion,.bot.w-magnifier .magnifier,.bot.w-map .map,.bot.w-flashlight .flashlight,.bot.w-lantern .lantern,.bot.w-gift .gift,.bot.w-wand .wand,.bot.w-mic .mic,.bot.w-teddy .teddy,.bot.w-toothbrush .toothbrush,.bot.w-tea .tea,.bot.w-cocoa .cocoa,.bot.w-fishbread .fishbread,.bot.w-sweetpotato .sweetpotato,.bot.w-riceball .riceball,.bot.w-snowball .snowball,.bot.w-flag .flag,.bot.w-camera .camera,.bot.w-bubblewand .bubblewand,.bot.w-raincoat .raincoat,.bot.w-sweater .sweater,.bot.w-apron .apron,.bot.w-pajamas .pajamas,.bot.w-hoodie .hoodie,.bot.w-cape .cape,.bot.w-backpack .backpack,.bot.w-wings .wings,.bot.w-rainbow .rainbow,.bot.w-moon .moon{display:inline}
+.bot.w-beret .b-antenna,.bot.w-bucket .b-antenna,.bot.w-crown .b-antenna,.bot.w-chef .b-antenna,.bot.w-grad .b-antenna,.bot.w-pirate .b-antenna,.bot.w-viking .b-antenna,.bot.w-cowboy .b-antenna,.bot.w-tophat .b-antenna,.bot.w-witch .b-antenna,.bot.w-bunny .b-antenna,.bot.w-catears .b-antenna,.bot.w-froghat .b-antenna,.bot.w-mushroom .b-antenna,.bot.w-bandana .b-antenna{display:none}
+.bot.w-heartglasses .b-eye,.bot.w-eyepatch .b-eye.r{opacity:0}
+.bot .roundglasses{fill:none;stroke:#6b4f3a;stroke-width:2}.bot .heartglasses path{fill:#ff5f8f;fill-opacity:.9}.bot .nerdglasses{fill:none;stroke:#2b2b3a;stroke-width:2.6}
+.bot .wings path{fill:#fff;stroke:#e3e5ee;stroke-width:1.2;transform-box:fill-box;transform-origin:100% 50%;animation:k2wing .6s ease-in-out infinite alternate}.bot .wings path:last-child{transform-origin:0 50%}
+.bot .halo{animation:k2halo 2s ease-in-out infinite}.bot .lantern .flame{animation:glow 1.2s ease-in-out infinite}.bot .flag .cloth{transform-box:fill-box;transform-origin:0 50%;animation:k2flag .7s ease-in-out infinite alternate}
+.bot .moon{animation:qbob 3s ease-in-out infinite}.bot .bubblewand .pop1,.bot .bubblewand .pop2{animation:k2rise 2.4s ease-out infinite}.bot .bubblewand .pop2{animation-delay:1.2s}
+@keyframes k2wing{to{transform:rotate(-14deg)}}@keyframes k2halo{50%{transform:translateY(-2px);opacity:.75}}@keyframes k2flag{to{transform:scaleX(.82) skewY(4deg)}}

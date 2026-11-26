@@ -31,7 +31,11 @@ const EYE = '<rect class="pill" x="-4" y="-7.5" width="8" height="15" rx="4"/><c
   + '<path class="dz" d="M0 0 m-.8 0 a.8 .8 0 1 1 1.6 0 a2.2 2.2 0 1 1 -4.4 0 a3.6 3.6 0 1 1 7.2 0 a5 5 0 1 1 -10 0"/><path class="brow" d="M-5 -9 L4.5 -11.5"/>'
   + '<path class="x" d="M-4.3 -4.3 L4.3 4.3 M4.3 -4.3 L-4.3 4.3"/><circle class="dot" r="2.7"/><path class="line" d="M-5 0 H5"/>'
   + '<g class="wide"><circle r="6.4"/><circle class="w-gl" cx="-2.2" cy="-2.6" r="2"/><circle class="w-gl" cx="2" cy="2.2" r=".9"/></g>'
-  + '<path class="u" d="M-5.5 -1.5 Q0 4.5 5.5 -1.5"/><path class="sq" d="M-4.5 -4.5 L3.5 0 L-4.5 4.5"/><path class="tear" d="M2.5 6 q2.6 4.2 0 6.2 q-2.6 -2 0 -6.2z"/>';
+  + '<path class="u" d="M-5.5 -1.5 Q0 4.5 5.5 -1.5"/><path class="sq" d="M-4.5 -4.5 L3.5 0 L-4.5 4.5"/><path class="tear" d="M2.5 6 q2.6 4.2 0 6.2 q-2.6 -2 0 -6.2z"/>'
+  // more eyes (준: "표정 … 100개"): a sharp caret, a tall oval, a heavy lid, a ring, a wavy line, a plus
+  + '<path class="tri" d="M-5.5 2.5 L0 -4 L5.5 2.5"/><g class="oval"><ellipse rx="4.2" ry="7.2"/><circle class="w-gl" cx="-1.4" cy="-3.4" r="1.6"/></g>'
+  + '<g class="lid"><path d="M-5.6 -1 A5.6 5.6 0 0 0 5.6 -1Z"/><path class="lid-line" d="M-6.4 -1.4 H6.4"/></g><circle class="ring" r="5"/>'
+  + '<path class="wavy" d="M-6 0 q1.5 -2.4 3 0 t3 0 t3 0 t3 0"/><path class="plus" d="M-4.6 0 H4.6 M0 -4.6 V4.6"/>';
 /*
   퍼레's parts. Faces (FACES) are made of an eye (pill, arc, round, shut, heart, spiral, x, dot, line, wide, u, squint …), a
   mouth (smile, open, frown, wavy, chewing, flat, grin, tongue, small o, cat, teeth, pout, kiss, smirk), brows and effects
@@ -40,19 +44,34 @@ const EYE = '<rect class="pill" x="-4" y="-7.5" width="8" height="15" rx="4"/><c
   the hour, the day and the phone (envOf): each piece is hidden until its w- class is on.
 */
 const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="botBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff9e7a"/><stop offset="1" stop-color="#ff6640"/></linearGradient>'
-  + '<radialGradient id="botShine" cx=".32" cy=".22" r=".55"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>'
+  + '<radialGradient id="botShine" cx=".32" cy=".22" r=".55"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>'
+  + '<linearGradient id="botPale" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7b8cff" stop-opacity=".45"/><stop offset=".55" stop-color="#7b8cff" stop-opacity="0"/></linearGradient>'
+  + '<clipPath id="botClip"><rect x="12" y="18" width="76" height="70" rx="30"/></clipPath></defs>'
   + '<g class="b-all">'
   // behind 퍼레: what it holds high or that floats over it
   +   '<g class="acc umbrella"><path d="M86 66 L60 -6" stroke="#5b6470" stroke-width="2.4" stroke-linecap="round"/><path d="M86 66 q3 5 -2 6" fill="none" stroke="#5b6470" stroke-width="2.4" stroke-linecap="round"/>'
   +     '<path d="M24 6 C30 -16 84 -26 98 -2 Q90 -6 84 0 Q76 -8 68 -1 Q59 -8 50 1 Q41 -4 34 3 Q29 0 24 6Z" fill="#7cc4e8"/><path d="M61 -16 C58 -10 55 -3 50 1" fill="none" stroke="#5aa9d0" stroke-width="1.4"/></g>'
   +   '<g class="acc balloon"><path d="M90 60 Q96 30 92 4" fill="none" stroke="#9aa0b4" stroke-width="1.2"/><path d="M92 6 C80 -2 80 -16 88 -16 C91 -16 92 -14 92 -12 C92 -14 93 -16 96 -16 C104 -16 104 -2 92 6Z" fill="#ff6f91"/><path d="M86 -11 q2 -3 4 -2" stroke="#fff" stroke-opacity=".7" stroke-width="1.4" fill="none" stroke-linecap="round"/></g>'
   +   '<g class="acc storm"><path d="M30 -2 a10 10 0 0 1 14 -10 a12 12 0 0 1 22 2 a9 9 0 0 1 6 16 H34 a9 9 0 0 1 -4 -8z" fill="#8d93a8"/><path d="M52 6 l-4 8 h4 l-2 7 l7 -10 h-4 l3 -5z" fill="#ffd34d"/></g>'
+  // more to wear, behind it (준: "모션 종류 4가지도 각각 100개씩"): a cape, a backpack, wings, a rainbow, the moon
+  +   '<path class="acc cape" d="M22 34 Q2 62 5 90 Q22 85 50 87 Q78 85 95 90 Q98 62 78 34Z" fill="#e5484d"/>'
+  +   '<g class="acc backpack"><rect x="24" y="8" width="52" height="40" rx="14" fill="#5bc0eb"/><path d="M42 9 Q50 1 58 9" stroke="#3a9fcb" stroke-width="3" fill="none"/></g>'
+  +   '<g class="acc wings"><path d="M14 52 C-8 30 -10 60 4 70 C-6 72 0 84 14 76Z"/><path d="M86 52 C108 30 110 60 96 70 C106 72 100 84 86 76Z"/></g>'
+  +   '<g class="acc rainbow" fill="none" stroke-width="3"><path d="M8 34 A42 42 0 0 1 92 34" stroke="#ff6f6f"/><path d="M12 34 A38 38 0 0 1 88 34" stroke="#ffd36e"/><path d="M16 34 A34 34 0 0 1 84 34" stroke="#7cc576"/><path d="M20 34 A30 30 0 0 1 80 34" stroke="#5bc0eb"/></g>'
+  +   '<path class="acc moon" d="M88 -6 a9 9 0 1 0 8 13 a7 7 0 1 1 -8 -13z" fill="#ffe07a"/>'
   +   '<g class="b-arm l"><rect x="4" y="50" width="13" height="22" rx="6.5" fill="#ff7a55"/></g><g class="b-arm r"><rect x="83" y="50" width="13" height="22" rx="6.5" fill="#ff7a55"/></g>'
   +   '<g class="b-antenna"><line x1="50" y1="20" x2="50" y2="8.5" stroke="#ff6640" stroke-width="4" stroke-linecap="round"/><circle class="b-bulb" cx="50" cy="7" r="5.2"/>'
   +     '<g class="acc flower"><circle cx="50" cy="1.5" r="3.4" fill="#ffb3c8"/><circle cx="55" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="53" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="47" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="45" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="50" cy="7" r="2.6" fill="#ffd36e"/></g></g>'
   +   '<g class="b-body"><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botBody)"/><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botShine)"/>'
-  +     '<g class="acc blanket"><path d="M11 60 Q50 52 89 60 L90 90 Q50 98 10 90Z" fill="#9fc8ff"/><g fill="#fff" opacity=".6"><circle cx="24" cy="70" r="2"/><circle cx="40" cy="78" r="2"/><circle cx="58" cy="70" r="2"/><circle cx="74" cy="80" r="2"/><circle cx="32" cy="86" r="2"/><circle cx="66" cy="88" r="2"/></g></g>'
+  +     '<g class="acc blanket" clip-path="url(#botClip)"><path d="M11 60 Q50 52 89 60 L90 90 Q50 98 10 90Z" fill="#9fc8ff"/><g fill="#fff" opacity=".6"><circle cx="24" cy="70" r="2"/><circle cx="40" cy="78" r="2"/><circle cx="58" cy="70" r="2"/><circle cx="74" cy="80" r="2"/><circle cx="32" cy="86" r="2"/><circle cx="66" cy="88" r="2"/></g></g>'
+  +     '<g class="acc raincoat" clip-path="url(#botClip)"><path d="M12 62 Q50 56 88 62 L90 90 Q50 98 10 90Z" fill="#ffd23f"/><path d="M50 60 V95" stroke="#e8b923" stroke-width="1.4"/><circle cx="46" cy="74" r="1.4" fill="#e8b923"/><circle cx="46" cy="84" r="1.4" fill="#e8b923"/></g>'
+  +     '<g class="acc sweater" clip-path="url(#botClip)"><path d="M12 64 Q50 58 88 64 L89 90 Q50 98 11 90Z" fill="#8fb7e8"/><path d="M14 72 Q50 66 86 72 M13 82 Q50 76 87 82" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="3 3"/></g>'
+  +     '<g class="acc apron" clip-path="url(#botClip)"><path d="M30 64 H70 L72 92 Q50 96 28 92Z" fill="#fff" stroke="#e3e5ee" stroke-width="1"/><rect x="40" y="76" width="20" height="9" rx="2" fill="none" stroke="#ff8fa3" stroke-width="1.4"/></g>'
+  +     '<g class="acc pajamas" clip-path="url(#botClip)"><path d="M12 64 Q50 58 88 64 L89 90 Q50 98 11 90Z" fill="#b8c4ff"/><path d="M22 63 V94 M34 61 V96 M46 60 V97 M58 60 V97 M70 61 V96 M82 63 V93" stroke="#fff" stroke-width="2.4" opacity=".55"/></g>'
+  +     '<g class="acc hoodie" clip-path="url(#botClip)"><path d="M12 64 Q50 58 88 64 L89 90 Q50 98 11 90Z" fill="#a78bfa"/><path d="M40 64 Q50 74 60 64" fill="none" stroke="#8b6ff0" stroke-width="2"/><path d="M44 66 V76 M56 66 V76" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/><rect x="36" y="80" width="28" height="8" rx="3" fill="#8b6ff0"/></g>'
+  +     '<g class="acc backpack" clip-path="url(#botClip)"><path d="M19 30 Q16 58 21 86 M81 30 Q84 58 79 86" stroke="#3a9fcb" stroke-width="4.5" fill="none" stroke-linecap="round"/></g>'
   +     '<rect x="22" y="31" width="56" height="37" rx="18" fill="#fff" opacity=".97"/>'
+  +     '<rect class="fx fx-pale" x="22" y="31" width="56" height="37" rx="18" fill="url(#botPale)"/><rect class="fx fx-red" x="22" y="31" width="56" height="37" rx="18" fill="#ff6b6b" opacity=".16"/>'
   +     '<g class="fx fx-gloom"><path d="M32 33 v7 M40 33 v9 M48 33 v6 M56 33 v9 M64 33 v7" stroke="#8f8fd6" stroke-width="1.6" stroke-linecap="round" opacity=".7"/></g>'
   +     '<g class="b-look"><g class="b-eye l" transform="translate(39 48)">' + EYE + '</g><g class="b-eye r" transform="translate(61 48) scale(-1 1)">' + EYE + '</g>'
   +       '<path class="b-mouth" d="M45.5 60 Q50 64.5 54.5 60"/><ellipse class="m-open" cx="50" cy="61.5" rx="3.6" ry="3.2"/><path class="m-frown" d="M45.5 63 Q50 58.5 54.5 63"/>'
@@ -62,9 +81,22 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +       '<circle class="m-osm" cx="50" cy="61.5" r="1.9"/><path class="m-cat" d="M44.5 60 q2.75 3.2 5.5 0 q2.75 3.2 5.5 0"/>'
   +       '<g class="m-teeth"><rect x="44" y="58.6" width="12" height="5.6" rx="2"/><path d="M44 61.4 H56 M48 58.6 V64.2 M52 58.6 V64.2"/></g>'
   +       '<path class="m-pout" d="M48.5 59.5 q3 1.5 0 2.8 q3 1.4 0 2.8"/><path class="m-kiss" d="M49 59 q3 1.6 0 3 q3 1.6 0 3"/><path class="m-smirk" d="M46 61.5 Q51 62.5 55 58.8"/>'
+  +       '<g class="m-drool"><path d="M45.5 60 Q50 64.5 54.5 60" fill="none"/><path d="M53.2 61.6 q1.6 3 0 4.6 q-1.6 -1.6 0 -4.6z" fill="#8fd3ff"/></g>'
+  +       '<path class="m-tri" d="M45 58.5 H55 L50 66.5Z"/><path class="m-zig" d="M43 61.5 l2.4 -2 l2.4 2 l2.4 -2 l2.4 2 l2.4 -2 l2.4 2"/>'
+  +       '<g class="m-bite"><path d="M45 61 H55" fill="none"/><path d="M47.6 61 v2.2 h2 v-2.2 M50.4 61 v2.2 h2 v-2.2" fill="#fff"/></g>'
+  +       '<path class="m-wide" d="M41.5 58 H58.5 Q57.5 68 50 68 Q42.5 68 41.5 58Z"/><circle class="m-whistle" cx="53" cy="61" r="1.6"/>'
+  +       '<path class="m-hat" d="M46.5 62.4 L50 59 L53.5 62.4"/><path class="m-tiny" d="M47.6 60.6 Q50 62.4 52.4 60.6"/>'
   +       '<g class="acc shades"><rect x="29" y="41" width="20" height="13" rx="5.5" fill="#23232e"/><rect x="51" y="41" width="20" height="13" rx="5.5" fill="#23232e"/><path d="M49 45 h2" stroke="#23232e" stroke-width="2"/><path d="M32 44 l5 -1.5" stroke="#fff" stroke-opacity=".5" stroke-width="1.6" stroke-linecap="round"/></g>'
   +       '<g class="acc mask"><rect x="23" y="39" width="54" height="16" rx="8" fill="#5b6bbf"/><path d="M31 47 q4 3 8 0 M61 47 q4 3 8 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></g>'
   +       '<g class="acc goggles"><path d="M20 34 H80" stroke="#7a5236" stroke-width="3.5"/><circle cx="38" cy="34" r="7.5" fill="#9fd7ff" stroke="#7a5236" stroke-width="2.4"/><circle cx="62" cy="34" r="7.5" fill="#9fd7ff" stroke="#7a5236" stroke-width="2.4"/><path d="M35 31 l3 -2 M59 31 l3 -2" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></g></g>'
+  +       '<g class="acc roundglasses"><circle cx="39" cy="48" r="8.5"/><circle cx="61" cy="48" r="8.5"/><path d="M47.5 47 Q50 45 52.5 47"/></g>'
+  +       '<g class="acc heartglasses"><path d="M39 56 C27 48 28 39 34 39 C36.5 39 38.5 41 39 42.5 C39.5 41 41.5 39 44 39 C50 39 51 48 39 56Z"/><path d="M61 56 C49 48 50 39 56 39 C58.5 39 60.5 41 61 42.5 C61.5 41 63.5 39 66 39 C72 39 73 48 61 56Z"/><path d="M49.5 45 H50.5" stroke="#ff3f7f" stroke-width="2"/></g>'
+  +       '<g class="acc monocle"><circle cx="61" cy="48" r="8" fill="#dff3ff" fill-opacity=".35" stroke="#d4a72c" stroke-width="1.8"/><path d="M69 50 Q74 62 70 74" fill="none" stroke="#d4a72c" stroke-width="1"/></g>'
+  +       '<g class="acc swimgoggles"><path d="M22 48 H78" stroke="#ff6f91" stroke-width="3"/><ellipse cx="39" cy="48" rx="8.5" ry="7" fill="#7fd1ff" fill-opacity=".5" stroke="#ff6f91" stroke-width="2"/><ellipse cx="61" cy="48" rx="8.5" ry="7" fill="#7fd1ff" fill-opacity=".5" stroke="#ff6f91" stroke-width="2"/></g>'
+  +       '<path class="acc mustache" d="M50 57.5 C46 53 38 54 36 59.5 C40 57.5 44 59.5 50 59.5 C56 59.5 60 57.5 64 59.5 C62 54 54 53 50 57.5Z" fill="#5a3b28"/>'
+  +       '<g class="acc eyepatch"><path d="M24 37 L76 57" stroke="#26283a" stroke-width="1.8"/><ellipse cx="61" cy="48" rx="8" ry="7" fill="#26283a"/></g>'
+  +       '<circle class="acc clownnose" cx="50" cy="55" r="4.2" fill="#ff3b3b"/>'
+  +       '<g class="acc nerdglasses"><rect x="30" y="41" width="18" height="14" rx="3"/><rect x="52" y="41" width="18" height="14" rx="3"/><path d="M48 46 H52"/></g>'
   +     '<circle class="b-cheek" cx="28.5" cy="60" r="4.6"/><circle class="b-cheek" cx="71.5" cy="60" r="4.6"/>'
   +     '<g class="fx fx-blush"><path d="M24 58 l-2 4 M28 58 l-2 4 M32 58 l-2 4 M68 58 l-2 4 M72 58 l-2 4 M76 58 l-2 4" stroke="#ff7c93" stroke-width="1.5" stroke-linecap="round"/></g>'
   +     '<g class="fx fx-stream"><rect x="36.5" y="54" width="5" height="16" rx="2.5" fill="#8fd3ff" opacity=".85"/><rect x="58.5" y="54" width="5" height="16" rx="2.5" fill="#8fd3ff" opacity=".85"/></g>'
@@ -72,6 +104,14 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +     '<g class="acc scarf"><path d="M16 73 Q50 86 84 73 L85 81 Q50 94 15 81Z" fill="#6f9fe8"/><path d="M15 77 Q50 89 85 77" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="1.6" stroke-dasharray="3 3"/><rect x="62" y="80" width="10" height="17" rx="3.5" fill="#5d8bd6"/></g>'
   +     '<g class="acc bib"><path d="M31 69 Q50 80 69 69 L66 82 Q50 92 34 82Z" fill="#fff"/><path d="M50 81 c-3 -2 -3 -5 -1 -5 c.8 0 1 .6 1 1 c0 -.4 .2 -1 1 -1 c2 0 2 3 -1 5z" fill="#ff8fa3"/></g>'
   +     '<g class="acc book"><path d="M28 72 L50 76 L72 72 L72 88 L50 92 L28 88Z" fill="#fff" stroke="#7aa0d6" stroke-width="1.4"/><path d="M50 76 V92 M33 77 l13 2.5 M33 81 l13 2.5 M54 79 l13 -2.5 M54 83 l13 -2.5" stroke="#b9c9e6" stroke-width="1.1"/></g>'
+  +     '<g class="acc bowtie"><path d="M50 77 L40 71 L40 83Z M50 77 L60 71 L60 83Z" fill="#e5484d"/><circle cx="50" cy="77" r="2.6" fill="#c23a3f"/></g>'
+  +     '<g class="acc pearls" fill="#fff" stroke="#e2dbe8" stroke-width=".6"><circle cx="28" cy="71" r="2.2"/><circle cx="33" cy="75" r="2.2"/><circle cx="38.5" cy="78" r="2.2"/><circle cx="44" cy="79.6" r="2.2"/><circle cx="50" cy="80.2" r="2.4"/><circle cx="56" cy="79.6" r="2.2"/><circle cx="61.5" cy="78" r="2.2"/><circle cx="67" cy="75" r="2.2"/><circle cx="72" cy="71" r="2.2"/></g>'
+  +     '<g class="acc medal"><path d="M42 68 L50 80 L58 68" fill="none" stroke="#e5484d" stroke-width="3"/><circle cx="50" cy="83" r="5.5" fill="#ffcf3f" stroke="#e0a800" stroke-width="1.2"/><path d="M50 80.4 v5.2" stroke="#e0a800" stroke-width="1"/></g>'
+  +     '<g class="acc bell"><path d="M24 70 Q50 82 76 70" fill="none" stroke="#e5484d" stroke-width="3.4"/><circle cx="50" cy="80.5" r="4.6" fill="#ffcf3f" stroke="#e0a800" stroke-width="1"/><path d="M47 81.5 H53" stroke="#b8860b" stroke-width="1"/></g>'
+  +     '<g class="acc lei"><circle cx="26" cy="70" r="3.2" fill="#ff6f91"/><circle cx="32" cy="75" r="3.2" fill="#ffd36e"/><circle cx="39" cy="78.5" r="3.2" fill="#7ad3c8"/><circle cx="46" cy="80" r="3.2" fill="#ff6f91"/><circle cx="54" cy="80" r="3.2" fill="#ffd36e"/><circle cx="61" cy="78.5" r="3.2" fill="#7ad3c8"/><circle cx="68" cy="75" r="3.2" fill="#ff6f91"/><circle cx="74" cy="70" r="3.2" fill="#ffd36e"/></g>'
+  +     '<g class="acc neckbandana"><path d="M26 70 Q50 78 74 70 L50 90Z" fill="#3e7bd6"/><g fill="#fff"><circle cx="42" cy="76" r="1"/><circle cx="50" cy="79" r="1"/><circle cx="58" cy="76" r="1"/><circle cx="50" cy="85" r="1"/></g></g>'
+  +     '<g class="acc ribbon"><path d="M50 74 L41 69 L41 79Z M50 74 L59 69 L59 79Z" fill="#ff7eb6"/><path d="M48 76 L45 85 M52 76 L55 85" stroke="#ff7eb6" stroke-width="2.4" stroke-linecap="round"/><circle cx="50" cy="74" r="2.4" fill="#ff5fa2"/></g>'
+  +     '<g class="acc whistle"><path d="M30 68 Q50 78 70 68" fill="none" stroke="#5b8def" stroke-width="1.6"/><path d="M57 75 h9 v5 h-9 a2.5 2.5 0 0 1 0 -5z" fill="#c9ced9" stroke="#9aa3b5" stroke-width=".8"/></g>'
   +   '</g>'
   // on its head
   +   '<g class="acc cap"><path d="M20 30 C22 6 56 -6 84 2 C74 6 70 12 72 22 C58 16 36 18 20 30Z" fill="#8f7cf0"/><path d="M20 30 C36 20 58 18 76 24" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/><circle cx="86" cy="3" r="5.5" fill="#fff"/></g>'
@@ -84,6 +124,30 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +   '<g class="acc snowtop"><path d="M22 23 Q28 11 39 17 Q48 8 58 16 Q69 9 78 21 Q68 25 50 24 Q32 25 22 23Z" fill="#fff"/><circle cx="34" cy="17" r="1.4" fill="#dbe8ff"/><circle cx="62" cy="14" r="1.4" fill="#dbe8ff"/></g>'
   +   '<path class="acc leaf" d="M70 14 l3 -5 l2 4 l4 -2 l-1 5 l5 1 l-4 3 l2 4 l-5 -1 l-2 5 l-2 -5 l-4 2 l1 -5 l-4 -2 z" fill="#f08a3c"/>'
   +   '<g class="acc phones"><path d="M14 50 C12 14 88 14 86 50" fill="none" stroke="#3b3f52" stroke-width="5" stroke-linecap="round"/><rect x="5" y="40" width="13" height="22" rx="6" fill="#3b3f52"/><rect x="82" y="40" width="13" height="22" rx="6" fill="#3b3f52"/></g>'
+  // more on its head
+  +   '<g class="acc beret" transform="rotate(-8 46 20)"><ellipse cx="46" cy="20" rx="30" ry="10" fill="#e5484d"/><path d="M20 22 Q46 30 74 22" fill="none" stroke="#c23a3f" stroke-width="2"/><rect x="45" y="6" width="3" height="5" rx="1.5" fill="#c23a3f"/></g>'
+  +   '<g class="acc bucket"><path d="M28 22 Q30 6 50 6 Q70 6 72 22Z" fill="#f2d08a"/><path d="M14 26 Q50 16 86 26 Q86 31 80 31 Q50 23 20 31 Q14 31 14 26Z" fill="#e8bf6a"/><path d="M29 18 Q50 13 71 18" stroke="#c99b45" stroke-width="1.6" fill="none"/></g>'
+  +   '<g class="acc crown"><path d="M30 24 L32 6 L41 16 L50 3 L59 16 L68 6 L70 24Z" fill="#ffcf3f" stroke="#e0a800" stroke-width="1.2" stroke-linejoin="round"/><circle cx="50" cy="17" r="2.6" fill="#ff5f8f"/><circle cx="38" cy="19" r="1.8" fill="#5bc0eb"/><circle cx="62" cy="19" r="1.8" fill="#5bc0eb"/></g>'
+  +   '<g class="acc tiara"><path d="M28 24 Q50 14 72 24" fill="none" stroke="#d9dbe8" stroke-width="2.4"/><path d="M42 20 L46 12 L50 18 L54 12 L58 20" fill="none" stroke="#d9dbe8" stroke-width="2" stroke-linejoin="round"/><circle cx="50" cy="15" r="2.4" fill="#ff9ecb"/></g>'
+  +   '<g class="acc bow" transform="translate(72 22) rotate(18)"><path d="M0 0 L-10 -6 L-10 6Z M0 0 L10 -6 L10 6Z" fill="#ff7eb6"/><circle r="3" fill="#ff5fa2"/></g>'
+  +   '<path class="acc headband" d="M16 34 C18 10 82 10 84 34" fill="none" stroke="#7ad3c8" stroke-width="4.5" stroke-linecap="round"/>'
+  +   '<g class="acc bandana"><path d="M16 30 C20 10 80 10 84 30 Q50 22 16 30Z" fill="#3e7bd6"/><g fill="#fff"><circle cx="34" cy="20" r="1.2"/><circle cx="50" cy="16" r="1.2"/><circle cx="66" cy="20" r="1.2"/><circle cx="42" cy="24" r="1"/><circle cx="58" cy="24" r="1"/></g><path d="M82 28 l9 4 l-6 5z" fill="#3e7bd6"/></g>'
+  +   '<g class="acc chef"><rect x="32" y="12" width="36" height="14" rx="3" fill="#fff" stroke="#e3e5ee" stroke-width="1.2"/><circle cx="36" cy="8" r="8" fill="#fff"/><circle cx="50" cy="3" r="10" fill="#fff"/><circle cx="64" cy="8" r="8" fill="#fff"/><path d="M32 20 H68" stroke="#e3e5ee" stroke-width="1.2"/></g>'
+  +   '<g class="acc grad"><path d="M28 22 Q50 30 72 22 V14 H28Z" fill="#2b2f45"/><path d="M50 2 L86 12 L50 22 L14 12Z" fill="#363b57"/><path d="M50 12 L80 16 V30" stroke="#ffcf3f" stroke-width="1.6" fill="none"/><circle cx="80" cy="31" r="2.2" fill="#ffcf3f"/></g>'
+  +   '<g class="acc pirate"><path d="M14 26 Q20 4 50 4 Q80 4 86 26 Q50 16 14 26Z" fill="#26283a"/><path d="M20 24 Q50 15 80 24" stroke="#d9a63e" stroke-width="1.6" fill="none"/><circle cx="50" cy="12" r="3.4" fill="#fff"/><path d="M46.5 17.5 l7 -2 M46.5 15.5 l7 2" stroke="#fff" stroke-width="1.1"/></g>'
+  +   '<g class="acc viking"><path d="M22 28 C22 8 78 8 78 28Z" fill="#9aa3b5"/><path d="M22 26 H78" stroke="#7d869a" stroke-width="3"/><path d="M24 18 C14 16 8 8 10 0 C14 8 20 10 26 12Z M76 18 C86 16 92 8 90 0 C86 8 80 10 74 12Z" fill="#f3ead2" stroke="#d8ccae" stroke-width="1"/></g>'
+  +   '<g class="acc cowboy"><path d="M32 22 C30 6 40 4 50 8 C60 4 70 6 68 22Z" fill="#b07a45"/><path d="M8 22 Q14 30 50 28 Q86 30 92 22 Q88 18 80 22 Q50 26 20 22 Q12 18 8 22Z" fill="#9a6838"/><path d="M33 19 Q50 23 67 19" stroke="#6e4524" stroke-width="2.4" fill="none"/></g>'
+  +   '<g class="acc tophat"><rect x="32" y="-6" width="36" height="28" rx="3" fill="#2b2b3a"/><rect x="32" y="13" width="36" height="5" fill="#e5484d"/><ellipse cx="50" cy="23" rx="28" ry="4.5" fill="#2b2b3a"/></g>'
+  +   '<g class="acc visor"><path d="M17 32 C18 16 82 16 83 32" fill="none" stroke="#fff" stroke-width="4.5"/><path d="M26 30 Q50 22 74 30 Q50 39 26 30Z" fill="#5bc0eb"/></g>'
+  +   '<g class="acc flowercrown"><path d="M18 30 Q50 6 82 30" fill="none" stroke="#7cc576" stroke-width="2"/><circle cx="22" cy="27" r="3.6" fill="#ff9ecb"/><circle cx="32" cy="19" r="3.6" fill="#ffd36e"/><circle cx="44" cy="15" r="3.6" fill="#c4b5fd"/><circle cx="56" cy="15" r="3.6" fill="#ff9ecb"/><circle cx="68" cy="19" r="3.6" fill="#ffd36e"/><circle cx="78" cy="27" r="3.6" fill="#c4b5fd"/><g fill="#fff"><circle cx="22" cy="27" r="1.3"/><circle cx="32" cy="19" r="1.3"/><circle cx="44" cy="15" r="1.3"/><circle cx="56" cy="15" r="1.3"/><circle cx="68" cy="19" r="1.3"/><circle cx="78" cy="27" r="1.3"/></g></g>'
+  +   '<g class="acc sprout"><path d="M34 19 V10" stroke="#5aa95a" stroke-width="2" stroke-linecap="round"/><path d="M34 11 C28 11 26 6 27 4 C31 4 34 7 34 11Z M34 10 C40 9 42 4 41 2 C37 2 34 5 34 10Z" fill="#7cc576"/></g>'
+  +   '<ellipse class="acc halo" cx="50" cy="-3" rx="16" ry="4" fill="none" stroke="#ffd94d" stroke-width="2.6"/>'
+  +   '<path class="acc horns" d="M28 22 Q22 10 26 4 Q30 14 36 18Z M72 22 Q78 10 74 4 Q70 14 64 18Z" fill="#e5383b"/>'
+  +   '<g class="acc witch"><path d="M34 22 L54 -16 Q58 -20 60 -14 L66 22Z" fill="#5b3fa0"/><ellipse cx="50" cy="23" rx="30" ry="5" fill="#4a3285"/><rect x="35" y="14" width="30" height="4" fill="#ffb347"/></g>'
+  +   '<g class="acc bunny"><path d="M38 20 C30 -6 34 -14 38 -14 C44 -14 46 -2 44 20Z M62 20 C70 -6 66 -14 62 -14 C56 -14 54 -2 56 20Z" fill="#fff" stroke="#e8e0ec" stroke-width="1.2"/><path d="M39 16 C35 0 37 -8 39 -9 C41 -8 42 2 41 16Z M61 16 C65 0 63 -8 61 -9 C59 -8 58 2 59 16Z" fill="#ffc4d8"/></g>'
+  +   '<g class="acc catears"><path d="M22 26 L24 4 L40 18Z M78 26 L76 4 L60 18Z" fill="#ff8a65"/><path d="M26 20 L27 10 L35 17Z M74 20 L73 10 L65 17Z" fill="#ffc4b0"/></g>'
+  +   '<g class="acc froghat"><path d="M16 30 C16 6 84 6 84 30Z" fill="#7cc576"/><circle cx="34" cy="8" r="7" fill="#7cc576"/><circle cx="66" cy="8" r="7" fill="#7cc576"/><circle cx="34" cy="8" r="4" fill="#fff"/><circle cx="66" cy="8" r="4" fill="#fff"/><circle cx="34" cy="9" r="2" fill="#2b2b3a"/><circle cx="66" cy="9" r="2" fill="#2b2b3a"/></g>'
+  +   '<g class="acc mushroom"><path d="M14 28 C14 2 86 2 86 28 Q50 22 14 28Z" fill="#e5484d"/><circle cx="32" cy="14" r="4" fill="#fff"/><circle cx="52" cy="9" r="5" fill="#fff"/><circle cx="70" cy="16" r="3.4" fill="#fff"/></g>'
   // in its hands, beside it
   +   '<g class="acc handfan"><g class="fan-blade"><path d="M92 50 L80 30 A22 22 0 0 1 104 30 Z" fill="#7ad3c8"/><path d="M92 50 L86 28 M92 50 L92 27 M92 50 L98 28" stroke="#fff" stroke-width="1.2"/></g></g>'
   +   '<g class="acc icecream"><path d="M4 50 L10 66 L16 50Z" fill="#e3a857"/><path d="M5 52 l9 0 M7 57 l6 0" stroke="#c98a3c" stroke-width="1"/><circle cx="10" cy="46" r="6.5" fill="#ffc3d8"/><circle cx="10" cy="39" r="5" fill="#bfe6c9"/></g>'
@@ -91,6 +155,31 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +   '<g class="acc lunch"><path d="M-2 62 H20 Q19 74 9 74 Q-1 74 -2 62Z" fill="#7aa0d6"/><ellipse cx="9" cy="62" rx="11" ry="3" fill="#fff"/><path d="M15 50 L20 66" stroke="#b9bccb" stroke-width="2" stroke-linecap="round"/></g>'
   +   '<g class="acc pumpkin"><ellipse cx="92" cy="80" rx="10" ry="8" fill="#ff9b3d"/><path d="M86 74 q-2 6 0 12 M98 74 q2 6 0 12 M92 72 v16" stroke="#e07b1c" stroke-width="1.2" fill="none"/><path d="M92 72 q1 -5 4 -6" stroke="#5c8a3a" stroke-width="2" fill="none" stroke-linecap="round"/></g>'
   +   '<g class="acc luckybag"><path d="M0 70 Q-2 84 10 86 Q22 84 20 70 Q14 66 10 66 Q6 66 0 70Z" fill="#e5383b"/><path d="M3 68 Q10 72 17 68" stroke="#ffd36e" stroke-width="2" fill="none"/><circle cx="10" cy="78" r="3" fill="#ffd36e"/></g>'
+  // more in its hands
+  +   '<g class="acc lollipop"><path d="M10 72 V54" stroke="#fff" stroke-width="1.8"/><circle cx="10" cy="48" r="7" fill="#ff8fb3"/><path d="M10 48 m-4 0 a4 4 0 1 1 4 4" fill="none" stroke="#fff" stroke-width="1.4"/></g>'
+  +   '<g class="acc popsicle"><rect x="5" y="40" width="10" height="16" rx="4" fill="#7ad3c8"/><rect x="5" y="40" width="10" height="6" rx="3" fill="#ff8fb3"/><rect x="8.8" y="56" width="2.4" height="8" fill="#e3c08a"/></g>'
+  +   '<g class="acc watermelon"><path d="M-2 56 A12 12 0 0 0 22 56Z" fill="#ff5d73"/><path d="M-2 56 A12 12 0 0 0 22 56" fill="none" stroke="#3fa34d" stroke-width="2.4"/><g fill="#2b2b3a"><circle cx="5" cy="60" r=".9"/><circle cx="10" cy="62" r=".9"/><circle cx="15" cy="60" r=".9"/></g></g>'
+  +   '<g class="acc sunflower"><path d="M92 72 V40" stroke="#5aa95a" stroke-width="2"/><circle cx="92" cy="34" r="9.5" fill="none" stroke="#ffcf3f" stroke-width="4" stroke-dasharray="3 2"/><circle cx="92" cy="34" r="7" fill="#ffcf3f"/><circle cx="92" cy="34" r="4" fill="#8a5a2b"/></g>'
+  +   '<g class="acc tulip"><path d="M92 72 V48" stroke="#5aa95a" stroke-width="2"/><path d="M86 40 L88 48 Q92 52 96 48 L98 40 L95 44 L92 38 L89 44Z" fill="#ff6f91"/></g>'
+  +   '<g class="acc dandelion"><path d="M92 72 V44" stroke="#8bbf6a" stroke-width="1.6"/><circle cx="92" cy="38" r="7" fill="#fff" fill-opacity=".85" stroke="#e8eef8" stroke-dasharray="1.5 1.5"/></g>'
+  +   '<g class="acc magnifier"><circle cx="90" cy="44" r="7" fill="#dff3ff" fill-opacity=".5" stroke="#6b4f3a" stroke-width="2.4"/><path d="M90 51 V64" stroke="#6b4f3a" stroke-width="3" stroke-linecap="round"/></g>'
+  +   '<g class="acc map"><path d="M-4 54 L4 50 L12 54 L20 50 V68 L12 72 L4 68 L-4 72Z" fill="#f3e3b5" stroke="#d6c28e" stroke-width="1"/><path d="M0 60 q5 -4 8 1 t9 -3" fill="none" stroke="#e5484d" stroke-width="1.2" stroke-dasharray="2 1.5"/></g>'
+  +   '<g class="acc flashlight"><path d="M84 44 L72 18 H108 L96 44Z" fill="#fff6b0" opacity=".3"/><rect x="86" y="50" width="8" height="16" rx="2" fill="#5b6470"/><path d="M85 50 H95 L97 44 H83Z" fill="#8a93a3"/></g>'
+  +   '<g class="acc lantern"><path d="M90 40 V34" stroke="#8a93a3" stroke-width="1.4"/><rect x="84" y="40" width="12" height="16" rx="3" fill="#ffd36e" stroke="#c98a3c" stroke-width="1.4"/><circle class="flame" cx="90" cy="48" r="3" fill="#fff6b0"/></g>'
+  +   '<g class="acc gift"><rect x="-2" y="56" width="20" height="16" rx="2" fill="#e5484d"/><rect x="6" y="56" width="4" height="16" fill="#ffd36e"/><path d="M8 56 C2 48 -2 54 8 56 C18 54 14 48 8 56Z" fill="#ffd36e"/></g>'
+  +   '<g class="acc wand"><path d="M88 68 L96 40" stroke="#c4b5fd" stroke-width="2.2" stroke-linecap="round"/><circle cx="96.5" cy="38" r="4" fill="#ff9ecb"/></g>'
+  +   '<g class="acc mic"><rect x="88" y="52" width="4" height="16" rx="2" fill="#2b2b3a"/><circle cx="90" cy="48" r="5.5" fill="#9aa3b5"/><path d="M85.5 46 h9 M85.5 49 h9" stroke="#6f7787" stroke-width=".8"/></g>'
+  +   '<g class="acc teddy"><circle cx="9" cy="64" r="8" fill="#c8915a"/><circle cx="9" cy="54" r="6" fill="#c8915a"/><circle cx="4.5" cy="49.5" r="2.4" fill="#c8915a"/><circle cx="13.5" cy="49.5" r="2.4" fill="#c8915a"/><circle cx="7" cy="54" r=".9" fill="#2b2b3a"/><circle cx="11" cy="54" r=".9" fill="#2b2b3a"/><circle cx="9" cy="56.5" r="1.2" fill="#6b4226"/></g>'
+  +   '<g class="acc toothbrush"><rect x="89" y="40" width="3" height="26" rx="1.5" fill="#5bc0eb"/><rect x="86" y="37" width="9" height="6" rx="1.5" fill="#fff"/><path d="M84 35 q3 -3 6 0 q3 -3 6 0" fill="none" stroke="#bfe6ff" stroke-width="1.4"/></g>'
+  +   '<g class="acc tea"><path d="M0 58 H14 V66 Q14 70 10 70 H4 Q0 70 0 66Z" fill="#fff" stroke="#c7b8a8" stroke-width="1.2"/><path d="M14 60 q4 0 4 3 q0 3 -4 3" fill="none" stroke="#c7b8a8" stroke-width="1.4"/><path d="M8 58 V51" stroke="#c7b8a8" stroke-width=".8"/><rect x="6" y="47" width="4" height="4" fill="#7cc576"/></g>'
+  +   '<g class="acc cocoa"><rect x="0" y="56" width="14" height="14" rx="3" fill="#e5484d"/><path d="M14 59 q5 0 5 3.5 q0 3.5 -5 3.5" fill="none" stroke="#e5484d" stroke-width="1.8"/><ellipse cx="7" cy="56.5" rx="6" ry="1.8" fill="#7a4a2a"/><rect x="3" y="53" width="3" height="3" rx=".6" fill="#fff"/><rect x="7" y="54" width="3" height="3" rx=".6" fill="#ffd6e6"/></g>'
+  +   '<g class="acc fishbread"><path d="M-2 62 Q6 52 16 58 L22 52 L21 62 L22 70 L16 64 Q6 72 -2 62Z" fill="#e0a052"/><circle cx="4" cy="60" r="1" fill="#6b4226"/><path d="M8 58 q2 2 0 4 M11 58 q2 2 0 4" stroke="#b97a32" stroke-width=".9" fill="none"/></g>'
+  +   '<g class="acc sweetpotato"><ellipse cx="8" cy="62" rx="10" ry="6" fill="#9c4a6b" transform="rotate(-20 8 62)"/><path d="M2 59 q6 6 12 3" fill="none" stroke="#ffcf6e" stroke-width="2.4"/></g>'
+  +   '<g class="acc riceball"><path d="M8 49 Q10 49 18 66 Q18 69 15 69 H1 Q-2 69 -2 66 Q6 49 8 49Z" fill="#fff" stroke="#e2e3ea" stroke-width="1"/><rect x="3" y="61" width="10" height="8" fill="#2f4a3a"/></g>'
+  +   '<circle class="acc snowball" cx="9" cy="60" r="7" fill="#fff" stroke="#dbe8ff" stroke-width="1.2"/>'
+  +   '<g class="acc flag"><path d="M88 70 V30" stroke="#8a93a3" stroke-width="1.8"/><path class="cloth" d="M88 31 H104 L100 37 L104 43 H88Z" fill="#5bc0eb"/></g>'
+  +   '<g class="acc camera"><rect x="-3" y="56" width="22" height="15" rx="3" fill="#3b3f52"/><rect x="2" y="53" width="7" height="4" rx="1" fill="#3b3f52"/><circle cx="8" cy="63.5" r="5" fill="#9fd7ff" stroke="#c9ced9" stroke-width="1.6"/><circle cx="15.5" cy="59" r="1.2" fill="#ff6f6f"/></g>'
+  +   '<g class="acc bubblewand"><path d="M90 70 L92 44" stroke="#c4b5fd" stroke-width="2" stroke-linecap="round"/><circle cx="92.5" cy="38" r="5.5" fill="none" stroke="#c4b5fd" stroke-width="1.8"/><circle class="pop1" cx="84" cy="26" r="3.4" fill="#dff3ff" fill-opacity=".45" stroke="#fff" stroke-width=".8"/><circle class="pop2" cx="96" cy="20" r="2.4" fill="#dff3ff" fill-opacity=".45" stroke="#fff" stroke-width=".8"/></g>'
   +   '<path class="acc bolt" d="M90 12 l-7 11 h5.5 l-3 10 l9 -13 h-5.5 l3.5 -8z" fill="#ffd34d" stroke="#e0a800" stroke-width=".8" stroke-linejoin="round"/>'
   +   '<path class="acc sweat" d="M84 26 q5 7 0 10.5 q-5 -3.5 0 -10.5z" fill="#8fd3ff"/>'
   +   '<g class="acc notes"><text class="note n1" x="88" y="22">♪</text><text class="note n2" x="2" y="30">♫</text></g>'
@@ -102,6 +191,15 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +   '<text class="fx fx-bang" x="80" y="16">!</text><text class="fx fx-q2" x="80" y="16">?</text>'
   +   '<g class="fx fx-steam"><circle cx="8" cy="22" r="5" fill="#fff" opacity=".75"/><circle cx="3" cy="16" r="3.5" fill="#fff" opacity=".6"/><circle cx="92" cy="22" r="5" fill="#fff" opacity=".75"/><circle cx="97" cy="16" r="3.5" fill="#fff" opacity=".6"/></g>'
   +   '<g class="fx fx-notes"><text x="74" y="62">♪</text><text x="84" y="50">♫</text></g>'
+  // more effects: Zz, hearts, flowers, a little fire, a sleep bubble, a swirl, shock lines, a rain cloud
+  +   '<g class="fx fx-zzz"><text x="76" y="22">Z</text><text x="85" y="12">z</text></g>'
+  +   '<g class="fx fx-hearts"><path d="M14 30 c-4 -2.6 -4 -6.4 -1.4 -6.4 c1 0 1.4 .8 1.4 1.4 c0 -.6 .4 -1.4 1.4 -1.4 c2.6 0 2.6 3.8 -1.4 6.4z"/><path d="M86 24 c-4 -2.6 -4 -6.4 -1.4 -6.4 c1 0 1.4 .8 1.4 1.4 c0 -.6 .4 -1.4 1.4 -1.4 c2.6 0 2.6 3.8 -1.4 6.4z"/></g>'
+  +   '<g class="fx fx-flower"><g transform="translate(16 26)"><circle cx="0" cy="-3" r="2.4"/><circle cx="3" cy="0" r="2.4"/><circle cx="0" cy="3" r="2.4"/><circle cx="-3" cy="0" r="2.4"/><circle r="1.8" fill="#ffd36e"/></g><g transform="translate(84 30)"><circle cx="0" cy="-3" r="2.4"/><circle cx="3" cy="0" r="2.4"/><circle cx="0" cy="3" r="2.4"/><circle cx="-3" cy="0" r="2.4"/><circle r="1.8" fill="#ffd36e"/></g></g>'
+  +   '<g class="fx fx-fire"><path d="M20 26 q-5 -6 0 -13 q1 5 4 6 q1 -4 -1 -7 q7 5 3 14z"/><path d="M80 26 q5 -6 0 -13 q-1 5 -4 6 q-1 -4 1 -7 q-7 5 -3 14z"/></g>'
+  +   '<circle class="fx fx-bubble" cx="58" cy="57" r="3.4"/>'
+  +   '<path class="fx fx-swirl" d="M72 10 m-1 0 a1 1 0 1 1 2 0 a2.6 2.6 0 1 1 -5.2 0 a4.2 4.2 0 1 1 8.4 0"/>'
+  +   '<g class="fx fx-lines"><path d="M8 34 v12 M3 38 v6 M92 34 v12 M97 38 v6"/></g>'
+  +   '<g class="fx fx-cloud"><path d="M36 2 a6 6 0 0 1 9 -6 a8 8 0 0 1 14 2 a6 6 0 0 1 4 10 H39 a6 6 0 0 1 -3 -6z" fill="#a5acc4"/><path d="M42 12 l-1.5 4 M50 12 l-1.5 4 M58 12 l-1.5 4" stroke="#8fd3ff" stroke-width="1.6" stroke-linecap="round"/></g>'
   + '</g></svg>';
 
 function makeBoard(slot) {
@@ -489,7 +587,21 @@ const FACES = {
   nervous: "small teeth none sweat2", flustered: "wide wave none sweat2 blush", moved: "pill wave sad tears glint", determined: "pill flat angry",
   thrilled: "sq grin none cheeks", smug: "half smirk", sorry: "u frown sad sweat2", ko: "x wave", ouch: "sq teeth", smitten: "heart cat none blush",
   sneaky: "half smirk none sweat2", gloomy: "small flat sad gloom", idea: "wide osm none bang glow", sing: "u osm none notes", joyful: "arc big none tears cheeks",
-  pout: "small pout angry", giggle: "arc cat none cheeks", amazed: "wide big none glint", sparkly: "pill smile none glint cheeks", grumpy: "line frown angry"
+  pout: "small pout angry", giggle: "arc cat none cheeks", amazed: "wide big none glint", sparkly: "pill smile none glint cheeks", grumpy: "line frown angry",
+  // more faces (준: "모션 종류 4가지도 각각 100개씩"): new eyes (tri, oval, lid, ring, wavy, plus), mouths (drool, tri, zig, bite, wide,
+  // whistle, hat, tiny) and effects (zzz, hearts, flower, fire, bubble, swirl, lines, cloud, pale, red)
+  snooze: "shut none none zzz bubble", dreamy: "lid smile none hearts", awed: "oval big none glint", shout: "pill tri angry lines",
+  panic: "ring zig none sweat2 lines", woozy: "wavy wave none swirl", confused: "plus flat sad swirl q2", drooling: "arc drool none cheeks",
+  starving: "oval drool none", innocent: "u hat none", whistling: "half whistle none notes", bashful: "wavy tiny none blush red",
+  embarrassed: "small zig sad red sweat2", furious: "tri teeth angry fire anger red", firedup: "pill grin angry fire", chilly: "small zig sad pale",
+  queasy: "lid wave sad pale sweat2", overheated: "half wave none red sweat2", lovey: "heart wide none hearts cheeks", blissful: "arc wide none flower cheeks",
+  cheerful: "tri smile none cheeks", gleeful: "tri wide none cheeks", devious: "line wide none", bored: "lid flat none", unimpressed: "lid hat none",
+  skeptical: "lid smirk angry", sulky: "small hat sad cloud", heartbroken: "small frown sad cloud tears", stunned: "ring osm none lines",
+  speechless: "dot hat none sweat2", eek: "oval tri sad lines", yikes: "ring teeth sad sweat2 pale", sly: "half hat none", sweetdream: "shut cat none zzz",
+  nosy: "oval hat none q2", focused: "pill bite angry", anxious: "plus bite sad sweat2", cringe: "sq zig sad lines", triumphant: "arc tri none cheeks flower",
+  delighted: "wide wide none glint", lol: "arc wide none stream", grateful: "u smile sad flower", zen: "lid tiny none", horrified: "plus tri none bang pale",
+  playful: "wink wide none cheeks", hopeful: "oval smile sad glint", lonely: "small tiny sad cloud", awkward: "line zig none sweat2", chuckle: "arc hat none cheeks",
+  pleading: "wide frown sad glint tears"
 };
 const FEELS = Object.keys(FACES);
 /** Motions 퍼레 makes on its own (a class on .buddy for ms, with a face): see board.css "motions, more". */
@@ -503,7 +615,19 @@ const MOTIONS = [
   ["melt", 2500, "drowsy"], ["tall", 1700, "proud"], ["yoga", 3100, "relief"], ["jacks", 2600, "determined"], ["chop", 1000, "fume"],
   ["wavehands", 1500, "happy"], ["twirl", 2100, "giggle"], ["droop", 2300, "gloomy"], ["perk", 800, "surprised"], ["tremble", 1600, "nervous"],
   ["victory", 1300, "proud"], ["slide", 1700, "cheeky"], ["zoom", 1000, "amazed"], ["boing", 600, "sparkly"], ["rock", 3100, "sing"],
-  ["leanin", 1700, "curious"], ["tumble", 1900, "ko"], ["doubletake", 1200, "shock"], ["blinkfast", 900, "flustered"]
+  ["leanin", 1700, "curious"], ["tumble", 1900, "ko"], ["doubletake", 1200, "shock"], ["blinkfast", 900, "flustered"],
+  // to a hundred (준: "모션 종류 4가지도 각각 100개씩")
+  ["swaying", 3100, "content"], ["bobbing", 2100, "sing"], ["pogo", 1900, "gleeful"], ["squash", 1100, "giggle"], ["stomp", 1300, "pout"], ["shimmy",
+  1800, "playful"], ["leanback", 1700, "lol"], ["crouch", 1900, "sneaky"], ["pounce", 1300, "firedup"], ["sprint", 2100, "determined"], ["shuffle",
+  1700, "smug"], ["heartbeat", 1600, "lovey"], ["inflate", 1700, "blow"], ["shrink", 1700, "shy"], ["spinslow", 2100, "zen"], ["flipside", 1700,
+  "dazed"], ["rockback", 2500, "content"], ["seesaw", 2500, "cheerful"], ["pendulum", 2500, "woozy"], ["levitate", 2500, "zen"], ["sink", 1900,
+  "gloomy"], ["trip", 1500, "eek"], ["slip", 1600, "horrified"], ["shiverbig", 1700, "chilly"], ["lookaround", 2100, "curious"], ["eyeroll", 1300,
+  "unimpressed"], ["lookup", 1700, "hopeful"], ["lookdown", 1700, "bashful"], ["giggleshake", 1400, "chuckle"], ["sob", 1900, "heartbroken"], ["pant",
+  2200, "overheated"], ["stretchup", 1900, "relief"], ["armswing", 1900, "happy"], ["propeller", 2100, "excited"], ["flapping", 2100, "gleeful"],
+  ["conductor", 2100, "sing"], ["drum", 1700, "firedup"], ["hugself", 2100, "blissful"], ["akimbo", 1900, "proud"], ["fistpump", 1700, "triumphant"],
+  ["highfive", 1100, "delighted"], ["wavebye", 1700, "happy"], ["beckon", 1700, "sly"], ["shush", 1900, "innocent"], ["scratch", 1900, "confused"],
+  ["clapfast", 1600, "thrilled"], ["antwiggle", 1600, "cheeky"], ["antboing", 1100, "surprised"], ["antscan", 2100, "nosy"], ["bodywave", 1300,
+  "giggle"], ["zigzag", 1700, "excited"], ["orbit", 1700, "woozy"]
 ];
 /** Faces it pulls on its own now and then: [face, motion, gaze]. */
 const IDLE_FACES = [["curious", "tilt", [5, -3]], ["smug"], ["giggle", "jelly"], ["sing", "rock"], ["content"], ["sparkly", "boing"], ["thinking", "", [4, -4.5]],
@@ -611,6 +735,14 @@ addEventListener("resize", () => boards.forEach(fit));
   offline, sleepy eyes in power saving), and news it reacts to (plugged in: it eats; music: it dances; a hot phone; power
   saving; a low battery: it asks for a meal, at most every half hour). In do-not-disturb it speaks only when asked.
 */
+/** Everything 퍼레 can wear or hold (an acc in BUDDY, shown by its w- class): 100 with the phone's own signs. */
+const WEAR = ["cap", "umbrella", "phones", "scarf", "shades", "santa", "beanie", "muffs", "hood", "straw", "party", "flower", "leaf", "snowtop", "mask", "goggles", "bib",
+  "pumpkin", "luckybag", "icecream", "handfan", "coffee", "lunch", "book", "balloon", "blanket", "storm",
+  "beret", "bucket", "crown", "tiara", "bow", "headband", "bandana", "chef", "grad", "pirate", "viking", "cowboy", "tophat", "visor", "flowercrown", "sprout", "halo",
+  "horns", "witch", "bunny", "catears", "froghat", "mushroom", "roundglasses", "heartglasses", "monocle", "swimgoggles", "mustache", "eyepatch", "clownnose", "nerdglasses",
+  "bowtie", "pearls", "medal", "bell", "lei", "neckbandana", "ribbon", "whistle", "lollipop", "popsicle", "watermelon", "sunflower", "tulip", "dandelion", "magnifier", "map",
+  "flashlight", "lantern", "gift", "wand", "mic", "teddy", "toothbrush", "tea", "cocoa", "fishbread", "sweetpotato", "riceball", "snowball", "flag",
+  "camera", "bubblewand", "raincoat", "sweater", "apron", "pajamas", "hoodie", "cape", "backpack", "wings", "rainbow", "moon"];
 function envOf(b, k) {
   const svg = $(b, ".bot"); if (!svg || !k) return;
   const e = k.env || {}, w = k.weather || {}, life = k.life || {}, h = new Date().getHours(), code = w.code, temp = w.temp;
@@ -631,18 +763,40 @@ function envOf(b, k) {
   */
   const d = new Date(), month = d.getMonth() + 1, date = d.getDate(), day = d.getDay(), minutes = h * 60 + d.getMinutes();
   const drizzle = code != null && code >= 51 && code <= 57, storm = code != null && code >= 95, freezing = temp != null && temp <= 0, scorching = temp != null && temp >= 30;
+  // To a hundred (준: "모션 종류 4가지도 각각 100개씩"): the day's own outfit on an ordinary day (the same all day, another tomorrow).
+  const doy = Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000), weekend = day === 0 || day === 6, fond = life.heart || 0;
+  const pickDay = (list, salt, chance) => ((doy * 37 + salt * 53) % 100) < chance ? list[(doy * 11 + salt * 5) % list.length] : "";
+  const sunnyMild = code != null && code <= 1 && w.day !== false && temp != null && temp >= 20 && temp < 28, april1 = month === 4 && date === 1;
+  const lunchTime = minutes >= 11 * 60 + 40 && minutes < 13 * 60 + 20, summer = month >= 7 && month <= 8;
+  const seasonal = month === 3 ? (doy % 2 ? "sprout" : "flower") : month >= 4 && month <= 5 ? (weekend ? "flowercrown" : "flower")
+    : month === 10 && doy % 3 === 0 ? "mushroom" : month >= 9 && month <= 11 ? "leaf" : "";
   const head = night ? (month === 12 && date >= 20 ? "santa" : "cap") : e.music && e.phones ? "phones" : month === 12 && date >= 20 ? "santa"
-    : snow ? "snowtop" : freezing ? "beanie" : cold ? "muffs" : drizzle ? "hood" : rain ? "" : hot && sunny ? "straw" : day === 6 ? "party"
-    : month >= 3 && month <= 5 ? "flower" : month >= 9 && month <= 11 ? "leaf" : "";
-  const face = e.dnd ? "mask" : e.airplane ? "goggles" : sunny && !night && head !== "straw" ? "shades" : "";
-  const neck = e.charging ? "bib" : cold ? "scarf" : "";
-  const hand = rain && !drizzle ? "umbrella" : night ? "" : month === 10 && date >= 25 ? "pumpkin" : month === 1 && date <= 3 ? "luckybag"
-    : scorching ? (h >= 12 && h < 17 ? "icecream" : "handfan") : hot ? "handfan" : minutes >= 6 * 60 + 30 && minutes < 10 * 60 ? "coffee"
-    : minutes >= 11 * 60 + 40 && minutes < 13 * 60 + 20 ? "lunch" : h >= 20 && h < 23 ? "book" : (life.heart || 0) >= 90 ? "balloon" : "";
-  const body = e.powerSave ? "blanket" : "";
-  const wear = [head, face, neck, hand, body, storm ? "storm" : ""].filter(Boolean);
-  ["cap", "umbrella", "phones", "scarf", "shades", "santa", "beanie", "muffs", "hood", "straw", "party", "flower", "leaf", "snowtop", "mask", "goggles", "bib",
-   "pumpkin", "luckybag", "icecream", "handfan", "coffee", "lunch", "book", "balloon", "blanket", "storm"].forEach(x => svg.classList.toggle("w-" + x, wear.includes(x)));
+    : month === 10 && date === 31 ? "horns" : month === 10 && date >= 25 ? "witch" : month === 1 && date <= 3 ? "crown"
+    : snow ? "snowtop" : freezing ? "beanie" : cold ? "muffs" : drizzle ? "hood" : rain ? "froghat" : hot && sunny ? "straw" : sunnyMild ? "visor"
+    : lunchTime && weekend ? "chef" : fond >= 95 ? "halo" : day === 6 ? "party"
+    : seasonal && doy % 2 === 0 ? seasonal
+    : pickDay(["beret", "bucket", "bow", "headband", "bandana", "cowboy", "pirate", "viking", "bunny", "catears", "tiara", "grad", "tophat"], 1, 50) || seasonal;
+  const face = e.dnd ? "mask" : e.airplane ? "goggles" : april1 ? "clownnose"
+    : head === "pirate" ? "eyepatch" : head === "tophat" ? "monocle" : head === "grad" ? "nerdglasses"
+    : sunny && !night && head !== "straw" && head !== "visor" ? "shades" : hot && summer && weekend ? "swimgoggles"
+    : h >= 20 && h < 23 ? "roundglasses" : fond >= 85 ? "heartglasses" : pickDay(["mustache", "roundglasses", "nerdglasses"], 2, 12);
+  const neck = e.charging ? "bib" : cold ? "scarf" : head === "tophat" || head === "beret" ? "bowtie" : hot && summer ? "lei"
+    : head === "bandana" ? "neckbandana" : head === "tiara" ? "pearls" : head === "bow" ? "ribbon" : fond >= 80 ? "bell"
+    : pickDay(["medal", "whistle", "pearls", "ribbon", "neckbandana"], 3, 20);
+  const hand = rain && !drizzle ? "umbrella" : night ? "teddy"
+    : month === 10 && date >= 25 ? "pumpkin" : month === 1 && date <= 3 ? "luckybag" : month === 12 && (date === 24 || date === 25) ? "gift"
+    : snow ? "snowball" : scorching ? (h >= 12 && h < 17 ? "icecream" : "handfan") : hot ? (summer && doy % 2 ? "popsicle" : "handfan")
+    : minutes >= 6 * 60 + 30 && minutes < 10 * 60 ? (freezing ? "cocoa" : cold ? "tea" : "coffee")
+    : lunchTime ? (doy % 3 === 0 ? "riceball" : "lunch") : h >= 22 ? "toothbrush" : h >= 20 ? "book"
+    : e.music ? "mic" : fond >= 90 ? "balloon" : cold && h >= 14 && h < 18 ? (doy % 2 ? "fishbread" : "sweetpotato")
+    : month >= 3 && month <= 5 && doy % 3 === 0 ? (doy % 2 ? "tulip" : "dandelion") : summer && doy % 3 === 0 ? (doy % 2 ? "watermelon" : "sunflower")
+    : h >= 18 && h < 20 && doy % 4 === 0 ? (doy % 8 ? "flashlight" : "lantern")
+    : pickDay(["magnifier", "map", "wand", "lollipop", "flag", "camera", "bubblewand"], 4, 38);
+  const body = e.powerSave ? "blanket" : rain && !drizzle ? "raincoat" : night ? "pajamas" : cold ? "sweater" : temp != null && temp >= 6 && temp < 14 ? "hoodie"
+    : head === "chef" || hand === "riceball" ? "apron" : hand === "magnifier" || hand === "map" ? "backpack" : weekend ? pickDay(["cape"], 5, 30) : "";
+  const back = fond >= 95 ? "wings" : night ? "moon" : code != null && code >= 1 && code <= 3 && h >= 15 && h < 18 && doy % 5 === 0 ? "rainbow" : "";
+  const wear = [head, face, neck, hand, body, back, storm ? "storm" : ""].filter(Boolean);
+  WEAR.forEach(x => svg.classList.toggle("w-" + x, wear.includes(x)));
   svg.classList.toggle("w-bolt", !!e.charging); svg.classList.toggle("w-sweat", hot && !night);
   svg.classList.toggle("w-notes", !!e.music); svg.classList.toggle("w-q", !!e.offline);
   svg.classList.toggle("w-save", !!e.powerSave); svg.classList.toggle("w-dnd", !!e.dnd);
@@ -850,7 +1004,66 @@ function roam(b) {
     tumbling: end => seq(end, [["tumble", 1900, "ko"], ["shake", 800, "dazed"], ["boing", 600, "relief"]]),
     sneezing: end => seq(end, [["sneeze", 1300, "ouch"], ["hiccup", 1700, "dazed"]]),
     melting: end => seq(end, [["melt", 2500, "drowsy"], ["tall", 1700, "proud"]]),
-    clapping: end => seq(end, [["clap", 1900, "happy"], ["bounce", 1000, "laugh"]])
+    clapping: end => seq(end, [["clap", 1900, "happy"], ["bounce", 1000, "laugh"]]),
+    // to a hundred (준: "모션 종류 4가지도 각각 100개씩"): the new motions and faces in little stories, and a few new toys
+    pogostick: end => seq(end, [["pogo", 1900, "gleeful"], ["bounce", 1000, "laugh"]]),
+    jello: end => seq(end, [["squash", 1100, "giggle"], ["jelly", 1000, "giggle"], ["giggleshake", 1400, "chuckle"]]),
+    tantrum: end => seq(end, [["stomp", 1300, "pout"], ["sink", 1900, "sulky"], ["boing", 600, "cheerful"]]),
+    shimmydance: end => seq(end, [["shimmy", 1800, "playful"], ["swaying", 3100, "sing"]]),
+    laughfit: end => seq(end, [["leanback", 1700, "lol"], ["giggleshake", 1400, "chuckle"]]),
+    sneakattack: end => seq(end, [["crouch", 1900, "sneaky"], ["pounce", 1300, "firedup"], ["victory", 1300, "proud"]]),
+    marathon: end => seq(end, [["sprint", 2100, "determined"], ["pant", 2200, "overheated"], ["akimbo", 1900, "proud"]]),
+    sidestep: end => seq(end, [["shuffle", 1700, "smug"], ["shuffle", 1700, "devious"]]),
+    crush: end => seq(end, [["heartbeat", 1600, "lovey"], ["hugself", 2100, "blissful"]]),
+    balloonpop: end => seq(end, [["inflate", 1700, "blow"], ["squash", 1100, "shock"], ["giggleshake", 1400, "chuckle"]]),
+    tinyme: end => seq(end, [["shrink", 1700, "shy"], ["tall", 1700, "proud"]]),
+    ballerina: end => seq(end, [["spinslow", 2100, "zen"], ["bow", 1700, "content"]]),
+    rollover: end => seq(end, [["flipside", 1700, "dazed"], ["float", 3100, "snooze"]]),
+    rockingchair: end => seq(end, [["rockback", 2500, "content"], ["rockback", 2500, "zen"]]),
+    seesawride: end => seq(end, [["seesaw", 2500, "cheerful"], ["bounce", 1000, "laugh"]]),
+    swing: end => seq(end, [["pendulum", 2500, "gleeful"], ["pendulum", 2500, "woozy"]]),
+    hover: end => seq(end, [["levitate", 2500, "zen"], ["float", 3100, "content"]]),
+    quicksand: end => seq(end, [["sink", 1900, "eek"], ["stretchup", 1900, "relief"]]),
+    oops: end => seq(end, [["trip", 1500, "eek"], ["shrug", 1300, "awkward"]]),
+    bananaslip: end => seq(end, [["slip", 1600, "horrified"], ["shake", 800, "dazed"], ["bow", 1700, "sorry"]]),
+    brrr: end => seq(end, [["shiverbig", 1700, "chilly"], ["hugself", 2100, "content"]]),
+    explorer: end => seq(end, [["lookaround", 2100, "curious"], ["antscan", 2100, "nosy"], ["point", 1500, "idea"]]),
+    whatever: end => seq(end, [["eyeroll", 1300, "unimpressed"], ["shrug", 1300, "meh"]]),
+    skygaze: end => seq(end, [["lookup", 1700, "hopeful"], ["lookup", 1700, "awed"]]),
+    shytime: end => seq(end, [["lookdown", 1700, "bashful"], ["hide", 2100, "shy"]]),
+    chuckles: end => seq(end, [["giggleshake", 1400, "chuckle"], ["clap", 1900, "happy"]]),
+    sadmovie: end => seq(end, [["sob", 1900, "heartbroken"], ["droop", 2300, "gloomy"], ["boing", 600, "relief"]]),
+    pushups: end => seq(end, [["crouch", 1900, "determined"], ["tall", 1700, "focused"], ["crouch", 1900, "determined"], ["flex", 1700, "proud"]]),
+    morningstretch: end => seq(end, [["stretchup", 1900, "yawn"], ["shake", 800, "cheerful"]]),
+    swingarms: end => seq(end, [["armswing", 1900, "happy"], ["wavebye", 1700, "happy"]]),
+    helicopter: end => seq(end, [["propeller", 2100, "excited"], ["float", 3100, "content"]]),
+    birdie: end => seq(end, [["flapping", 2100, "gleeful"], ["levitate", 2500, "dreamy"]]),
+    orchestra: end => seq(end, [["conductor", 2100, "sing"], ["bow", 1700, "proud"]]),
+    drummer: end => seq(end, [["drum", 1700, "firedup"], ["headbang", 2100, "thrilled"]]),
+    selfhug: end => seq(end, [["hugself", 2100, "blissful"], ["heartbeat", 1600, "lovey"]]),
+    superhero: end => seq(end, [["akimbo", 1900, "proud"], ["fistpump", 1700, "triumphant"], ["zoom", 1000, "amazed"]]),
+    champion: end => seq(end, [["fistpump", 1700, "triumphant"], ["victory", 1300, "proud"], ["cheer", 2100, "laugh"]]),
+    highfives: end => seq(end, [["highfive", 1100, "delighted"], ["highfive", 1100, "delighted"], ["clapfast", 1600, "thrilled"]]),
+    goodbye: end => seq(end, [["wavebye", 1700, "happy"], ["bow", 1700, "content"]]),
+    comehere: end => seq(end, [["beckon", 1700, "sly"], ["giggleshake", 1400, "playful"]]),
+    secret: end => seq(end, [["shush", 1900, "innocent"], ["lookaround", 2100, "nosy"], ["giggleshake", 1400, "chuckle"]]),
+    puzzled: end => seq(end, [["scratch", 1900, "confused"], ["perk", 800, "idea"]]),
+    applause: end => seq(end, [["clapfast", 1600, "thrilled"], ["bounce", 1000, "laugh"]]),
+    antennadance: end => seq(end, [["antwiggle", 1600, "cheeky"], ["antboing", 1100, "surprised"], ["dance", 1800, "happy"]]),
+    radar: end => seq(end, [["antscan", 2100, "nosy"], ["perk", 800, "idea"]]),
+    noodle: end => seq(end, [["bodywave", 1300, "giggle"], ["jelly", 1000, "giggle"]]),
+    zigzagrun: end => seq(end, [["zigzag", 1700, "excited"], ["pant", 2200, "overheated"]]),
+    dizzyorbit: end => seq(end, [["orbit", 1700, "woozy"], ["tornado", 1500, "dizzy"], ["flipside", 1700, "dazed"]]),
+    daydream: end => { feel("dreamy", 3400); move(b, "float", 3100); for (let i = 0; i < 3; i++) setTimeout(() => { const t = toy("heartpop", "", 2000); t.style.left = rnd(20, 80).toFixed(0) + "%"; }, 300 + i * 700); setTimeout(() => { feel("blissful", 1000); end(); }, 3400); },
+    snacktime: end => seq(end, [["leanin", 1700, "drooling"], ["nod", 900, "yum"], ["bounce", 1000, "happy"]]),
+    leafcatch: end => { for (let i = 0; i < 3; i++) setTimeout(() => { const t = toy("leafy", "", 2600); t.style.left = rnd(25, 75).toFixed(0) + "%"; }, i * 650); gazeTo(0, -5); feel("curious", 2000); setTimeout(() => gazeTo(0, 3), 1300); setTimeout(() => { gazeTo(0, 0); move(b, "hop", 760); feel("cheerful", 1200); end(); }, 2900); },
+    snowplay: end => { for (let i = 0; i < 6; i++) setTimeout(() => { const t = toy("flake", "", 2800); t.style.left = rnd(5, 95).toFixed(0) + "%"; }, i * 350); feel("gleeful", 2600); move(b, "jumpturn", 1100); setTimeout(() => { feel("chilly", 1300); move(b, "shiverbig", 1700); }, 1500); setTimeout(end, 3300); },
+    confetti: end => { for (let i = 0; i < 10; i++) { const t = toy("confetti c" + (i % 4), "", 2400); t.style.left = rnd(0, 100).toFixed(0) + "%"; t.style.animationDelay = (i * 60) + "ms"; } seq(end, [["cheer", 2100, "triumphant"], ["bounce", 1000, "laugh"]]); },
+    yoyo: end => { toy("yoyo", "<b></b>", 3200); move(b, "point", 1500); feel("focused", 3200); [0, 800, 1600, 2400].forEach(t => setTimeout(() => { gazeTo(0, 4); setTimeout(() => gazeTo(0, -1), 400); }, t)); setTimeout(() => { gazeTo(0, 0); feel("proud", 1000); end(); }, 3300); },
+    frisbee: end => { move(b, "point", 1500); feel("excited", 2600); setTimeout(() => { toy("frisbee", "", 2400); gazeTo(-6, -3); }, 500); setTimeout(() => { gazeTo(5, -2); move(b, "hop", 760); }, 1800); setTimeout(() => { gazeTo(0, 0); feel("gleeful", 1000); end(); }, 3000); },
+    pinwheel: end => { toy("pinwheel", "<b></b>", 3400); feel("blow", 1800); setTimeout(() => feel("delighted", 1500), 1800); setTimeout(end, 3400); },
+    fireflies: end => { for (let i = 0; i < 5; i++) { const t = toy("firefly", "", 3600); t.style.left = rnd(0, 100).toFixed(0) + "%"; t.style.top = rnd(-10, 40).toFixed(0) + "%"; t.style.animationDelay = (i * 300) + "ms"; } feel("awed", 3500); gazeTo(-4, -4); setTimeout(() => gazeTo(4, -3), 1200); setTimeout(() => gazeTo(0, -5), 2400); setTimeout(() => { gazeTo(0, 0); end(); }, 3600); },
+    dice: end => { toy("dice", "", 1800); feel("curious", 1600); setTimeout(() => { feel("gleeful", 1200); move(b, "bounce", 1000); }, 1700); setTimeout(end, 2900); }
   };
   // A few motions in a row, each with its face.
   const seq = (end, steps) => {
