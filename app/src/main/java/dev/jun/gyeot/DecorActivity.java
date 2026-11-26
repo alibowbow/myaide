@@ -98,6 +98,9 @@ public final class DecorActivity extends Activity {
         // What 퍼레 calls the user (준: "호칭은 내가 설정할 수 있게해줘").
         ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_sparkle, Ui.PURPLE, "부르는 호칭", "퍼레가 나를 ‘" + BuddyTalk.title(this) + "’(이)라고 불러요", ui.chevron(), this::chooseTitle), true);
         ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_sparkle, Ui.ACCENT, "퍼레의 기억", "발견 노트 · 약속 · 추억 · 오늘 · 지문으로 열어요", ui.chevron(), () -> Fingerprint.ask(this, "퍼레의 기억", "지문으로 확인하면 열려요", this::showMemory, () -> {})), true);
+        // The user's voice (준: "내 목소리를 알아볼 수 있게해줘"): read three sentences once; in the voice talk 퍼레 then knows it.
+        boolean known = BuddyTalk.voice(this).ready();
+        ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_mic, Ui.TEAL, "내 목소리", known ? "등록했어요 · 음성 대화에서 내 목소리를 알아봐요" : "등록하면 다른 사람 목소리엔 내 기억을 말하지 않아요", ui.chevron(), this::voiceSheet), true);
         LinearLayout.LayoutParams bg = new LinearLayout.LayoutParams(-1, -2); bg.bottomMargin = ui.dp(14);
         body.addView(buddyGroup, bg);
 
@@ -316,6 +319,86 @@ public final class DecorActivity extends Activity {
             List<dev.jun.gyeot.core.BuddyMemory.Entry> list = BuddyTalk.memories(this);
             main.post(() -> { if (!destroyed) memorySheet(list); });
         });
+    }
+    /** The sentences the user reads to enroll their voice: about three seconds each, many different sounds. */
+    static final String[] VOICE_LINES = {"퍼레야, 오늘 날씨가 참 맑아서 기분이 좋아.", "나는 따뜻한 커피를 마시면서 음악 듣는 걸 좋아해.", "내일은 일찍 일어나서 공원을 천천히 걸어 볼 거야."};
+    private static final int MIC = 7541;
+    private VoiceCapture enrolling;
+    /**
+     * 내 목소리: the user reads VOICE_LINES one by one (the microphone, cut where each ends); their marks become the voice
+     * 퍼레 knows (VoicePrint), checked to agree first. Enrolled, it can be read again or deleted. On the phone only.
+     */
+    private void voiceSheet() {
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, MIC); return; }
+        dev.jun.gyeot.core.VoicePrint.Profile now = BuddyTalk.voice(this);
+        Ui.Sheet sheet = ui.selectionSheet("내 목소리", now.ready() ? "등록했어요" + (now.learned().isEmpty() ? "" : " · 대화하며 " + now.learned().size() + "번 더 익혔어요") : "아래 문장을 하나씩 소리 내어 읽어 주세요");
+        LinearLayout group = ui.group(); TextView[] states = new TextView[VOICE_LINES.length];
+        for (int i = 0; i < VOICE_LINES.length; i++) {
+            View row = ui.listRow(R.drawable.ic_mic, Ui.TEAL, VOICE_LINES[i], now.ready() ? "기억했어요" : "읽기 전", null, null);
+            ui.addRow(group, row, true);
+            states[i] = subtitleOf(row, now.ready() ? "기억했어요" : "읽기 전");
+        }
+        sheet.body.addView(group);
+        TextView note = ui.text(GroqWork.on() ? "음성 대화에서 목소리를 확인해요. 다른 사람이면 퍼레가 손님처럼 대하고 내 기억·하루 이야기는 꺼내지 않아요. 목소리 정보는 이 휴대폰에만 있어요."
+            : "목소리 확인은 Groq가 연결돼 있을 때 음성 대화에서 해요. 목소리 정보는 이 휴대폰에만 있어요.", 13, 450, Ui.MUTED);
+        note.setPadding(ui.dp(4), ui.dp(10), ui.dp(4), 0); sheet.body.addView(note);
+        if (now.ready()) {
+            LinearLayout clear = ui.group();
+            ui.addRow(clear, ui.listRow(R.drawable.ic_close, Ui.ERROR, "내 목소리 지우기", "음성 대화에서 목소리를 확인하지 않아요", null, () -> {
+                BuddyTalk.voice(this, null); sheet.dismiss(); Toast.makeText(this, "내 목소리를 지웠어요", Toast.LENGTH_SHORT).show(); draw();
+            }), true);
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, -2); cp.topMargin = ui.dp(12); sheet.body.addView(clear, cp);
+        }
+        java.util.List<float[]> marks = new java.util.ArrayList<>(); int[] at = {0};
+        sheet.primary.setText(now.ready() ? "다시 등록" : "1번 읽기");
+        sheet.primary.setOnClickListener(v -> {
+            if (enrolling != null) return;
+            if (at[0] >= VOICE_LINES.length) { sheet.dismiss(); return; }
+            if (at[0] == 0) { marks.clear(); for (TextView t : states) if (t != null) t.setText("읽기 전"); }
+            int i = at[0]; if (states[i] != null) states[i].setText("듣고 있어요… 지금 읽어 주세요");
+            sheet.primary.setEnabled(false);
+            enrolling = VoiceCapture.start(8000, new VoiceCapture.Heard() {
+                @Override public void began() { if (states[i] != null) states[i].setText("듣는 중…"); }
+                @Override public void speech(short[] pcm) {
+                    enrolling = null;
+                    work.execute(() -> {
+                        float[] mark = dev.jun.gyeot.core.VoicePrint.mark(pcm);
+                        main.post(() -> {
+                            if (destroyed) return;
+                            sheet.primary.setEnabled(true);
+                            if (mark == null) { if (states[i] != null) states[i].setText("너무 짧았어요. 문장을 끝까지 읽어 주세요"); sheet.primary.setText((i + 1) + "번 다시 읽기"); return; }
+                            marks.add(mark); if (states[i] != null) states[i].setText("기억했어요");
+                            at[0]++;
+                            if (at[0] < VOICE_LINES.length) { sheet.primary.setText((at[0] + 1) + "번 읽기"); return; }
+                            if (dev.jun.gyeot.core.VoicePrint.agreement(marks) < 0.15) {
+                                at[0] = 0; marks.clear(); sheet.primary.setText("처음부터 다시");
+                                Toast.makeText(DecorActivity.this, "세 문장의 목소리가 서로 많이 달라요. 조용한 곳에서 다시 읽어 주세요", Toast.LENGTH_LONG).show();
+                                return;
+                            }
+                            dev.jun.gyeot.core.VoicePrint.Profile p = dev.jun.gyeot.core.VoicePrint.Profile.empty();
+                            for (float[] m : marks) p = p.enroll(m);
+                            BuddyTalk.voice(DecorActivity.this, p);
+                            sheet.primary.setText("완료"); sheet.subheading.setText("등록했어요");
+                            Toast.makeText(DecorActivity.this, "이제 퍼레가 내 목소리를 알아봐요", Toast.LENGTH_SHORT).show(); draw();
+                        });
+                    });
+                }
+                @Override public void silent() { enrolling = null; sheet.primary.setEnabled(true); if (states[i] != null) states[i].setText("소리가 들리지 않았어요"); sheet.primary.setText((i + 1) + "번 다시 읽기"); }
+                @Override public void failed(String why) { enrolling = null; sheet.primary.setEnabled(true); if (states[i] != null) states[i].setText(why); sheet.primary.setText((i + 1) + "번 다시 읽기"); }
+            });
+        });
+        sheet.setOnDismissListener(d -> { if (enrolling != null) { enrolling.stop(); enrolling = null; } });
+        sheet.show();
+    }
+    /** A list row's second line (to change its words as the row's state changes). */
+    private static TextView subtitleOf(View row, String words) {
+        if (row instanceof TextView t && words.contentEquals(t.getText())) return t;
+        if (row instanceof android.view.ViewGroup g) for (int i = 0; i < g.getChildCount(); i++) { TextView t = subtitleOf(g.getChildAt(i), words); if (t != null) return t; }
+        return null;
+    }
+    @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(request, permissions, results);
+        if (request == MIC && results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) voiceSheet();
     }
     /** The title 퍼레 calls the user: a few words, kept in the app. */
     private void chooseTitle() {

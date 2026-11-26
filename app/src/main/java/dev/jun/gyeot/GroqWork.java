@@ -90,6 +90,23 @@ final class GroqWork {
         }
         return out.toString().strip();
     }
+    /**
+     * A short thing said (a WAV, 퍼레's voice talk) as Korean words by Whisper, or "" when nothing was said: Whisper's words
+     * for silence ("시청해 주셔서 감사합니다" …) count as nothing. Null when Groq cannot take it now.
+     */
+    static String words(byte[] wav, AtomicReference<Runnable> cancel) throws Exception {
+        if (wav == null || wav.length <= 44 || wav.length > WHISPER_BYTES || !ready(WHISPER, 0)) return null;
+        String boundary = "gyeot" + System.nanoTime();
+        ByteArrayOutputStream form = new ByteArrayOutputStream(wav.length + 1024);
+        field(form, boundary, "model", WHISPER); field(form, boundary, "response_format", "json"); field(form, boundary, "temperature", "0"); field(form, boundary, "language", "ko");
+        form.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"said.wav\"\r\nContent-Type: audio/wav\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+        form.write(wav);
+        form.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        JSONObject answer = post(WHISPER, "audio/transcriptions", "multipart/form-data; boundary=" + boundary, form.toByteArray(), 20_000, cancel);
+        GeminiQuotas.used(WHISPER, 0);
+        String text = answer.optString("text").strip();
+        return text.matches("(?s).*(시청해\\s*주셔서|구독과\\s*좋아요|구독\\s*부탁|MBC\\s*뉴스|자막\\s*제공|다음\\s*영상에서).*") || text.matches("[\\p{Punct}\\s.…]*") ? "" : text;
+    }
     private static void field(ByteArrayOutputStream form, String boundary, String name, String value) throws Exception {
         form.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + name + "\"\r\n\r\n" + value + "\r\n").getBytes(StandardCharsets.UTF_8));
     }

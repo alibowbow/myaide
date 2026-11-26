@@ -48,9 +48,13 @@ final class BuddyVoice {
         if (on) return;
         on = true; silences = 0; turns.clear(); generation++;
         store.buddyTalking = true; store.changed();
-        if (!SpeechInput.DEVICE.available(context)) { end("error", "이 휴대폰에서는 음성 인식을 쓸 수 없어요"); return; }
+        // The user's voice known and Whisper at hand: 퍼레 listens itself, to know whose voice it is (준: "내 목소리를 알아볼 수 있게해줘").
+        voice = BuddyTalk.voice(context); ownEar = voice.ready() && GroqWork.on();
+        if (!ownEar && !SpeechInput.DEVICE.available(context)) { end("error", "이 휴대폰에서는 음성 인식을 쓸 수 없어요"); return; }
         listen();
     }
+    private volatile dev.jun.gyeot.core.VoicePrint.Profile voice; private boolean ownEar; private VoiceCapture capture;
+    private final java.util.concurrent.atomic.AtomicReference<Runnable> whisper = new java.util.concurrent.atomic.AtomicReference<>();
     void stop() { if (on) end("done", ""); }
 
     private void listen() {
@@ -58,6 +62,7 @@ final class BuddyVoice {
         closeEar();
         int mine = generation;
         show.state("listening", "");
+        if (ownEar) { listenOwn(mine); return; }
         ear = SpeechInput.DEVICE.open(context);
         ear.start(new SpeechInput.Listener() {
             @Override public void ready() {}
@@ -67,11 +72,44 @@ final class BuddyVoice {
                 if (!on || mine != generation) return;
                 closeEar();
                 if (words == null || words.isBlank()) { quiet(); return; }
-                silences = 0; think(words.strip());
+                silences = 0; think(words.strip(), false);
             }
             @Override public void failed(String reason) { if (on && mine == generation) end("error", reason); }
             @Override public void silent(String reason) { if (on && mine == generation) quiet(); }
         });
+    }
+    /**
+     * 퍼레's own ear: the microphone cut at the end of what was said (Utterance), the voice checked against the user's
+     * (VoicePrint: the owner's confident ones are learned, another voice is a guest), the words by Whisper in Korean. When
+     * the microphone or Whisper fails, the phone's recognizer listens from then on.
+     */
+    private void listenOwn(int mine) {
+        capture = VoiceCapture.start(7000, new VoiceCapture.Heard() {
+            @Override public void speech(short[] pcm) { if (on && mine == generation) { capture = null; hear(pcm, mine); } }
+            @Override public void silent() { if (on && mine == generation) { capture = null; quiet(); } }
+            @Override public void failed(String why) { if (on && mine == generation) { capture = null; ownEar = false; listen(); } }
+            @Override public void began() { if (on && mine == generation) show.state("listening", "…"); }
+        });
+    }
+    private void hear(short[] pcm, int mine) {
+        show.state("thinking", "");
+        dev.jun.gyeot.core.VoicePrint.Profile known = voice;
+        try {
+            io.execute(() -> {
+                float[] mark = dev.jun.gyeot.core.VoicePrint.mark(pcm);
+                dev.jun.gyeot.core.VoicePrint.Who who = dev.jun.gyeot.core.VoicePrint.who(known, mark);
+                if (who == dev.jun.gyeot.core.VoicePrint.Who.OWNER) { dev.jun.gyeot.core.VoicePrint.Profile learned = known.learn(mark); voice = learned; BuddyTalk.voice(context, learned); }
+                String words;
+                try { words = GroqWork.words(dev.jun.gyeot.core.Utterance.wav(pcm, dev.jun.gyeot.core.WakeWord.RATE), whisper); } catch (Exception failed) { words = null; }
+                String got = words;
+                main.post(() -> {
+                    if (!on || mine != generation) return;
+                    if (got == null) { ownEar = false; listen(); return; }
+                    if (got.isBlank()) { quiet(); return; }
+                    silences = 0; think(got, who == dev.jun.gyeot.core.VoicePrint.Who.STRANGER);
+                });
+            });
+        } catch (RuntimeException stopped) { end("error", ""); }
     }
     /** Nothing heard: once, it listens again; twice in a row, the talk ends. */
     private void quiet() {
@@ -79,20 +117,21 @@ final class BuddyVoice {
         if (++silences >= 2) { end("done", "또 불러 줘!"); return; }
         main.postDelayed(this::listen, 250);
     }
-    private void think(String said) {
+    /** guest: not the user's voice; the fingerprint, when what was asked needs it, shows it was the user after all. */
+    private void think(String said, boolean guest) {
         if (unlock != null && BuddyTalk.needsUnlock(context, said)) {
             show.state("thinking", said); int mine = generation;
-            unlock.ask(() -> { if (on && mine == generation) answer(said); });
+            unlock.ask(() -> { if (on && mine == generation) answer(said, guest && !BuddyTalk.unlocked()); });
             return;
         }
-        answer(said);
+        answer(said, guest);
     }
-    private void answer(String said) {
+    private void answer(String said, boolean guest) {
         show.state("thinking", said);
         int mine = generation;
         List<String[]> before = new ArrayList<>(turns);
         try {
-            io.execute(() -> BuddyTalk.reply(context, said, before,
+            io.execute(() -> BuddyTalk.reply(context, said, before, guest,
                 line -> main.post(() -> { if (on && mine == generation) { turns.add(new String[]{"user", said}); turns.add(new String[]{"assistant", line}); say(line); } }),
                 () -> main.post(() -> { if (on && mine == generation) end("error", "지금은 대답이 안 떠올라. 조금 있다 다시 불러 줘"); })));
         } catch (RuntimeException stopped) { end("error", ""); }
@@ -238,12 +277,16 @@ final class BuddyVoice {
         on = false; generation++;
         if (store.buddyTalking) { store.buddyTalking = false; store.changed(); }
         Runnable cut = download.getAndSet(null); if (cut != null) try { cut.run(); } catch (RuntimeException ignored) {}
+        Runnable listening = whisper.getAndSet(null); if (listening != null) try { listening.run(); } catch (RuntimeException ignored) {}
         android.media.AudioTrack playing = track; if (playing != null) try { playing.pause(); playing.flush(); } catch (RuntimeException ignored) {}
         closeEar(); releasePlayer(); focus(false);
         if (phone != null) { try { phone.stop(); phone.shutdown(); } catch (RuntimeException ignored) {} phone = null; phoneReady = false; }
         show.state(state, words == null ? "" : words);
     }
-    private void closeEar() { if (ear != null) { try { ear.close(); } catch (RuntimeException ignored) {} ear = null; } }
+    private void closeEar() {
+        if (ear != null) { try { ear.close(); } catch (RuntimeException ignored) {} ear = null; }
+        if (capture != null) { capture.stop(); capture = null; }
+    }
     private void releasePlayer() { if (player != null) { try { player.stop(); } catch (RuntimeException ignored) {} try { player.release(); } catch (RuntimeException ignored) {} player = null; } }
     /** Music and other sounds lower while 퍼레 speaks. */
     private void focus(boolean take) {

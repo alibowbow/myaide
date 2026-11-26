@@ -65,6 +65,14 @@ final class BuddyTalk {
     /** 퍼레 as itself (BuddyMind.persona) with its name and the title the user chose. */
     static String persona(Context c) { String name = "퍼레"; try { name = AssistantProfile.readName(c); } catch (RuntimeException ignored) {} return dev.jun.gyeot.core.BuddyMind.persona(name, title(c)); }
 
+    // ── the user's voice (준: "내 목소리를 알아볼 수 있게해줘"): VoicePrint's profile, kept on the phone only ──
+    static dev.jun.gyeot.core.VoicePrint.Profile voice(Context c) { return dev.jun.gyeot.core.VoicePrint.Profile.read(c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("voicePrint", "")); }
+    static void voice(Context c, dev.jun.gyeot.core.VoicePrint.Profile p) {
+        SharedPreferences.Editor e = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit();
+        if (p == null || p.enrolled().isEmpty()) e.remove("voicePrint"); else e.putString("voicePrint", p.json());
+        e.apply();
+    }
+
     // ── private memories behind the fingerprint (준: "개인정보 중 중요한 내용은 지문인식을 요청해줘", "갤럭시 지문인식") ──
     private static volatile long unlockedUntil;
     /** The fingerprint passed in the last five minutes: private memories may be said. */
@@ -194,24 +202,32 @@ final class BuddyTalk {
      * answered as 퍼레 in one or two short spoken sentences. NIM's quick model and Groq race as for its lines; the first good
      * answer wins. Off the main thread.
      */
-    static void reply(Context c, String said, java.util.List<String[]> turns, Consumer<String> done, Runnable failed) {
+    static void reply(Context c, String said, java.util.List<String[]> turns, Consumer<String> done, Runnable failed) { reply(c, said, turns, false, done, failed); }
+    /**
+     * guest: the voice is not the user's (VoicePrint, 준: "내 목소리를 알아볼 수 있게해줘"): 퍼레 answers a guest kindly and keeps the
+     * user's memories, day and profile to itself, and learns nothing from what the guest said.
+     */
+    static void reply(Context c, String said, java.util.List<String[]> turns, boolean guest, Consumer<String> done, Runnable failed) {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
-        String instructions = persona(c) + "\n지금 사용자와 목소리로 대화하고 있어.\n"
+        String instructions = persona(c) + "\n지금 " + (guest ? "누군가와" : "사용자와") + " 목소리로 대화하고 있어.\n"
+            + (guest ? "- 지금 들리는 목소리는 '" + title(c) + "'(휴대폰 주인) 목소리가 아니야. 처음 듣는 목소리라고 반갑게 대하되, 주인의 기억·일정·하루·개인적인 이야기는 절대 꺼내지 말고, 주인에 대해 물어도 알려 주지 마. 상대를 '" + title(c) + "'(이)라고 부르지 마.\n" : "")
             + "- 사용자의 마지막 말에 바로, 친구처럼 답해. 물으면 핵심만 짧게 알려 주고, 모르면 솔직하게 말해.\n"
             + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 반말(~야, ~해). 이모지·기호·목록·괄호·영어 약어 없이.\n"
             + "- 귀엽고 밝게, 가끔 너의 기억을 자연스럽게 꺼내도 좋아.\n"
             + "- 사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 '휴대폰 상태'의 숫자로 정확히 답해. 묻지 않으면 저장공간 이야기는 꺼내지 말고, 정리·삭제를 권하지 마.";
         long now = System.currentTimeMillis();
         String when = new SimpleDateFormat("M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date(now));
-        String note = ""; try { note = Briefing.profile(store); } catch (RuntimeException ignored) {}
+        String note = ""; if (!guest) try { note = Briefing.profile(store); } catch (RuntimeException ignored) {}
         StringBuilder talk = new StringBuilder();
-        for (String[] t : turns) talk.append("user".equals(t[0]) ? "사용자: " : "퍼레: ").append(t[1]).append('\n');
+        String who = guest ? "상대" : "사용자";
+        for (String[] t : turns) talk.append("user".equals(t[0]) ? who + ": " : "퍼레: ").append(t[1]).append('\n');
         String house = home(c);
-        String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + lifeWords(c) + "\n" + todayWords(c) + memoryWords(c, said, true)
-            + "사용자에 대해 아는 것:\n" + (note.isBlank() ? "(아직 잘 몰라요)" : note) + "\n\n";
-        String input = context + (talk.length() == 0 ? "" : "지금까지 대화:\n" + talk) + "사용자: " + said + "\n퍼레:";
+        String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + lifeWords(c) + "\n"
+            + (guest ? "" : "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + todayWords(c) + memoryWords(c, said, true)
+                + "사용자에 대해 아는 것:\n" + (note.isBlank() ? "(아직 잘 몰라)" : note) + "\n") + "\n";
+        String input = context + (talk.length() == 0 ? "" : "지금까지 대화:\n" + talk) + who + ": " + said + "\n퍼레:";
         ask(c, instructions, input, 0.7, 12_000, BuddyTalk::spoken, line -> {
-            learnLater(c, said, line);
+            if (!guest) learnLater(c, said, line);
             done.accept(line);
         }, failed);
     }

@@ -114,6 +114,46 @@ public class BuddyBrainTests {
             assertTrue(good, dev.jun.gyeot.core.BuddyMind.readable(good));
     }
 
+    /** 내 목소리 (준: "내 목소리를 알아볼 수 있게해줘"): three sentences to read, compact rows; a sentence cut from the microphone. */
+    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void enrollsTheVoice() throws Exception {
+        shadowOf(org.robolectric.RuntimeEnvironment.getApplication()).grantPermissions(android.Manifest.permission.RECORD_AUDIO);
+        Activity a = Robolectric.buildActivity(DecorActivity.class).setup().get();
+        shadowOf(Looper.getMainLooper()).idle();
+        View decor = a.getWindow().getDecorView(); settle(decor);
+        View row = text(decor, "내 목소리"); assertNotNull("the voice row", row);
+        while (!row.isClickable() && row.getParent() instanceof View p) row = p;
+        assertTrue(row.performClick()); shadowOf(Looper.getMainLooper()).idle();
+        View d = ShadowDialog.getLatestDialog().getWindow().getDecorView();
+        for (String line : DecorActivity.VOICE_LINES) assertNotNull(line, text(d, line));
+        assertNotNull("ready to read", text(d, "1번 읽기"));
+        shot(d, "buddy_voice_enroll");
+        // A sentence with quiet around it is cut where it ends; quiet alone is silent.
+        java.util.Random r = new java.util.Random(3); short[] all = new short[16000 * 5];
+        for (int i = 0; i < all.length; i++) all[i] = (short) (r.nextGaussian() * 40 + (i > 16000 && i < 16000 * 3 ? Math.sin(i * 2 * Math.PI * 140 / 16000) * 6000 * (1 + Math.sin(i * 2 * Math.PI * 4 / 16000)) : 0));
+        dev.jun.gyeot.core.Utterance u = new dev.jun.gyeot.core.Utterance(7000);
+        dev.jun.gyeot.core.Utterance.State st = u.add(all, all.length);
+        assertEquals(dev.jun.gyeot.core.Utterance.State.DONE, st);
+        assertTrue("about two seconds: " + u.pcm().length, u.pcm().length > 16000 * 2 && u.pcm().length < 16000 * 3);
+        short[] quiet = new short[16000 * 8]; for (int i = 0; i < quiet.length; i++) quiet[i] = (short) (r.nextGaussian() * 40);
+        assertEquals(dev.jun.gyeot.core.Utterance.State.SILENT, new dev.jun.gyeot.core.Utterance(7000).add(quiet, quiet.length));
+        // A voice is closer to itself than to another, and the profile survives being saved.
+        float[] low = dev.jun.gyeot.core.VoicePrint.mark(voice(110, 1, 3)), low2 = dev.jun.gyeot.core.VoicePrint.mark(voice(112, 2, 3)), low3 = dev.jun.gyeot.core.VoicePrint.mark(voice(108, 3, 3)), high = dev.jun.gyeot.core.VoicePrint.mark(voice(240, 4, 1));
+        dev.jun.gyeot.core.VoicePrint.Profile p = dev.jun.gyeot.core.VoicePrint.Profile.empty().enroll(low).enroll(low2).enroll(low3);
+        dev.jun.gyeot.core.VoicePrint.Profile back = dev.jun.gyeot.core.VoicePrint.Profile.read(p.json());
+        assertTrue(back.ready());
+        assertTrue(dev.jun.gyeot.core.VoicePrint.score(back, dev.jun.gyeot.core.VoicePrint.mark(voice(111, 5, 3))) > dev.jun.gyeot.core.VoicePrint.score(back, high));
+    }
+    /** A buzzy voice for tests: a pitch with its harmonics shaped by a formant-like tilt, over a little noise. */
+    private static short[] voice(double f0, long seed, int tilt) {
+        java.util.Random r = new java.util.Random(seed); short[] out = new short[16000 * 3];
+        for (int i = 0; i < out.length; i++) {
+            double t = i / 16000.0, f = f0 * (1 + 0.04 * Math.sin(2 * Math.PI * 3 * t)), v = 0;
+            for (int h = 1; h * f0 < 4000; h++) v += Math.sin(2 * Math.PI * f * h * t) / Math.pow(h, tilt * 0.5 + 0.5);
+            out[i] = (short) (v * 5000 * (0.6 + 0.4 * Math.sin(2 * Math.PI * 2.5 * t)) + r.nextGaussian() * 30);
+        }
+        return out;
+    }
+
     /** 퍼레의 기억 (opened after the fingerprint): 오늘, 발견 노트, 약속, 추억; private ones marked 🔒. */
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void showsTheMemoryBook() throws Exception {
         Activity a = Robolectric.buildActivity(DecorActivity.class).setup().get();
