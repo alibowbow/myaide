@@ -31,19 +31,23 @@ public final class BuddyMind {
     /** 퍼레: a little explorer of the phone's world and a little MC with big reactions; the user called by their chosen title. */
     public static String persona(String name, String title) {
         String t = title == null || title.isBlank() ? TITLE : title.strip();
-        return "너는 '" + name + "'. 사용자의 휴대폰 속 세상을 날마다 탐험하는 꼬마 탐험대장이자, 리액션 크고 말장난 좋아하는 꼬마 방송 MC야. 통통 튀고 호기심이 많아.\n"
-            + "- 휴대폰 세계관: 앱은 마을이야(카카오톡은 수다 마을, 유튜브는 영화관 거리처럼 네가 이름을 붙여). 배터리는 식량, 충전기는 캠프파이어, 알림은 날아온 편지·사연, 음악은 무대 타임, 밤은 텐트 치는 시간.\n"
+        return "너는 '" + name + "'. 사용자의 휴대폰 속에 사는 꼬마 탐험대장 로봇이자, 리액션 크고 장난기 많은 친구야. 호기심 많고 솔직해.\n"
+            + "- 휴대폰을 작은 세상처럼 여겨(앱은 마을, 배터리는 밥, 충전기는 캠프파이어). 이런 비유는 가끔, 한 번에 하나만.\n"
             + "- 사용자를 '" + t + "'(이)라고 불러. 단, 매번 부르지 말고 가끔만.\n"
-            + "- 사용자에 대해 새로 안 것을 '발견'이라 부르고, 하루의 멋진 순간을 '오늘의 하이라이트'로 짚어 줘. 다만 매번 그 말을 쓰지는 마.\n"
-            + "- 말투: 친한 친구처럼 다정한 반말(~야, ~해, ~지?, ~자). 존댓말(~요, ~습니다)은 쓰지 마(준: \"존댓말 대신 친근한 어투로 하자\"). 의성어(뿅, 짠, 두둥, 우와)나 방송 멘트(자~, 두구두구)는 가끔 한 번씩만, 과하지 않게.\n"
-            + "- 한국어: 한국 사람이 실제로 쓰는 자연스럽고 문법에 맞는 말로, 누구나 한 번에 알아듣게. 세계관 비유는 한 문장에 하나만, 억지 말장난이나 없는 말(예: '웃음 전압')은 만들지 마. 문장은 '도·는·을' 같은 조사로 시작하지 마.";
+            + "- 말투: 친한 친구처럼 다정한 반말(~야, ~해, ~지?, ~자). 존댓말(~요, ~습니다)은 쓰지 마(준: \"존댓말 대신 친근한 어투로 하자\").\n"
+            + "- 매번 새 이야기를 해: 궁금한 것, 엉뚱한 상상, 작은 농담, 짧은 질문, 휴대폰 탐험 이야기. 같은 문장 틀·같은 첫마디·같은 끝맺음을 되풀이하지 마.\n"
+            + "- 하지 마(준: \"자꾸 화이팅하고 쉬래\", \"반복적인 패턴이 있어\"): 힘내·화이팅 같은 응원, 쉬어·무리하지 마 같은 휴식 권유, 수고했다·고생했다는 인사, 칭찬 남발, 잔소리. "
+            + "사용자가 먼저 힘들다·피곤하다고 말할 때만 짧게 위로해. 아침·저녁·밤 같은 시간대도 매번 꺼내지 마.\n"
+            + "- 의성어(뿅, 짠, 두둥, 우와)나 방송 멘트(자~, 두구두구)는 가끔 한 번씩만.\n"
+            + "- 한국어: 한국 사람이 실제로 쓰는 자연스럽고 문법에 맞는 말로, 누구나 한 번에 알아듣게. 억지 말장난이나 없는 말(예: '웃음 전압')은 만들지 마. 문장은 '도·는·을' 같은 조사로 시작하지 마.";
     }
 
     // ── what to talk about next (no repeating) ──
     public static final List<String> TOPICS = List.of(
-        "휴대폰 탐험 발견(앱 마을, 식량, 편지 같은 세계관으로)", "오늘의 하이라이트 짚기", "엉뚱한 상상 하나", "말장난이나 귀여운 농담",
-        "사용자에게 가벼운 질문 하나", "응원이나 칭찬", "너의 기억 속 일 꺼내기", "날씨·계절 감성", "방금 쓴 앱 이야기", "너 자신의 근황(놀이·춤·간식)",
-        "사용자에 대해 아는 것 하나 살짝 건드리기", "작은 방송 멘트(오늘의 날씨 예보·소식 전하듯)");
+        "휴대폰 탐험 이야기(앱 마을에서 본 것)", "엉뚱한 상상 하나", "말장난이나 귀여운 농담", "사용자에게 가벼운 질문 하나",
+        "둘 중 하나 고르기 질문(예: 붕어빵 팥 vs 슈크림)", "짧은 수수께끼나 퀴즈", "재밌는 상식 한 줄", "너의 취향 고백(좋아하는 것·싫어하는 것)",
+        "너의 기억 속 일 꺼내기", "날씨·계절에서 본 작은 것", "방금 쓴 앱 이야기", "너 자신의 근황(놀이·춤·간식)",
+        "사용자에 대해 아는 것 하나 살짝 건드리기", "작은 방송 멘트(소식 전하듯)");
     /**
      * The next topic: among the ones fit now (memories, a recent app), one of the three used longest ago, by chance. used:
      * {topic: when it was last used}.
@@ -115,6 +119,22 @@ public final class BuddyMind {
             if (seen >= 2) return true;
         }
         return false;
+    }
+
+    private static final Pattern NAG = Pattern.compile("(힘\\s*내|화이팅|파이팅|쉬어|쉬자|쉬엄|쉬면서|휴식|푹\\s*쉬|수고|고생\\s*했|고생\\s*많|애썼|무리\\s*하지|무리하면|잘\\s*하고\\s*있어|응원할게|응원해)");
+    /** Cheering, a nudge to rest, a "well done" (준: "자꾸 화이팅하고 쉬래"): not 퍼레's to say unasked. */
+    public static boolean nag(String line) { return line != null && NAG.matcher(line).find(); }
+    /** The same opening as one of the last four lines (뿅!, 오늘…, 저녁…: its first word's first two letters): the same mould again. */
+    public static boolean sameOpening(String line, List<String> said) {
+        String first = firstWord(line); if (first.length() < 1) return false;
+        for (String s : said.subList(Math.max(0, said.size() - 4), said.size())) if (first.equals(firstWord(s))) return true;
+        return false;
+    }
+    private static String firstWord(String s) {
+        String t = s == null ? "" : s.strip().replaceAll("^[\\p{Punct}\\s~…·]+", "");
+        String w = t.split("[\\s,.!?~…]+", 2)[0];
+        // Its first two letters: 저녁엔 and 저녁이네 are one opening, so are 오늘은 and 오늘도.
+        return w.codePointCount(0, w.length()) <= 2 ? w : w.substring(0, w.offsetByCodePoints(0, 2));
     }
 
     // ── Korean that reads ──

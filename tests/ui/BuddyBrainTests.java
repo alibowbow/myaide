@@ -161,6 +161,21 @@ public class BuddyBrainTests {
         assertFalse(dev.jun.gyeot.core.BuddyMind.staleSubject("노을이 예쁠 것 같아", said));
     }
 
+    /** No cheering or "go rest" unasked, and not the same first word again (준: "자꾸 화이팅하고 쉬래", "반복적인 패턴이 있어"). */
+    @Test public void doesNotNag() {
+        for (String nag : new String[]{"오늘 하루 수고 많았어!", "저녁엔 푹 쉬어", "힘내자, 화이팅!", "무리하지 말고 쉬엄쉬엄 해", "잠깐 쉬어 가도 돼"})
+            assertTrue(nag, dev.jun.gyeot.core.BuddyMind.nag(nag));
+        for (String fine : new String[]{"붕어빵은 팥이야 슈크림이야?", "앱 마을에 새 길이 났대", "노을이 예쁠 것 같아"})
+            assertFalse(fine, dev.jun.gyeot.core.BuddyMind.nag(fine));
+        java.util.List<String> said = java.util.List.of("저녁이네, 뭐 먹었어?", "뿅! 오늘도 반가워", "노을 봤어?");
+        assertTrue(dev.jun.gyeot.core.BuddyMind.sameOpening("저녁엔 산책이지", said));
+        assertTrue(dev.jun.gyeot.core.BuddyMind.sameOpening("뿅! 나 왔어", said));
+        assertFalse(dev.jun.gyeot.core.BuddyMind.sameOpening("붕어빵 좋아해?", said));
+        String persona = dev.jun.gyeot.core.BuddyMind.persona("퍼레", "대장님");
+        assertTrue(persona.contains("화이팅") && persona.contains("하지 마"));
+        assertFalse(dev.jun.gyeot.core.BuddyMind.TOPICS.toString().contains("응원"));
+    }
+
     /** Korean that reads (준: "가끔 한국어를 못알아듣게 말해"): a line cut at its start or in another script is not said. */
     @Test public void saysReadableKorean() {
         for (String bad : new String[]{"도 구름 낀 사천, 배터리도 살포시 충전 중이네요.", "는 오늘 기분이 좋아요", "今天 날씨 좋네요", "Battery is full today, yay"})

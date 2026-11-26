@@ -310,6 +310,7 @@ final class BuddyTalk {
             + "- 이번 화제: " + topic + ". 지금 상황(시간·날씨·휴대폰·오늘 하루·기억)에 맞게 풀어.\n"
             + (avoid.isEmpty() ? "" : "- 최근에 이미 꺼낸 소재와 표현이니 이번엔 절대 다루지 마: " + String.join(", ", avoid) + "\n")
             + "- 배터리·충전 이야기는 지금 그게 상황(충전기 꽂음, 배고픔)일 때만 해. '사용자에 대해 아는 것'과 기억은 가끔만, 같은 걸 여러 번 꺼내지 마.\n"
+            + "- '지금' 시각은 참고만 해. 아침·저녁·밤 인사나 하루 마무리 말로 시작하지 마. 힘내·쉬어·수고했어 같은 말은 하지 마.\n"
             + "- '이미 했던 말'과 같거나 비슷한 뜻·소재·문장 틀은 절대 쓰지 마. 뻔한 인사말도 피해.\n"
             + "- 일, 업무, 일정, 할 일, 주식, 코인, 시세, 숫자, 돈 이야기와 조언·잔소리는 하지 마. 파일·사진 정리, 청소, 삭제, 백업, 용량, 업데이트 같은 할 일을 권하지 마.\n"
             + "- 비밀번호·계정·권한 요청, 털어놓은 고민 같은 사적인 내용은 말하지 마.\n"
@@ -397,6 +398,9 @@ final class BuddyTalk {
             if (p != null && dev.jun.gyeot.core.BuddyMind.repeats(l, said(p), 0.45)) return null;
             // The same subject again, worded anew (준: "자꾸 전투기 배터리 이야기를 반복해서해"): not this one either.
             if (p != null && dev.jun.gyeot.core.BuddyMind.staleSubject(l, said(p))) return null;
+            // No cheering or "go rest" unasked, and not the same first word as lately (준: "자꾸 화이팅하고 쉬래", "반복적인 패턴이 있어").
+            if (dev.jun.gyeot.core.BuddyMind.nag(l)) return null;
+            if (p != null && dev.jun.gyeot.core.BuddyMind.sameOpening(l, said(p))) return null;
             // Korean that does not read (준: "가끔 한국어를 못알아듣게 말해"): a line cut at its start, or one in another script.
             if (!dev.jun.gyeot.core.BuddyMind.readable(l)) return null;
             return l;

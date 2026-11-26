@@ -255,7 +255,7 @@ function go(what) {
 const DOW = ["일요일","월요일","화요일","수요일","목요일","금요일","토요일"];
 function tone(h) { return h >= 5 && h < 10 ? "morning" : h >= 10 && h < 17 ? "day" : h >= 17 && h < 20 ? "evening" : "night"; }
 function hello(h) {
-  return h < 5 ? "조용한 새벽이에요" : h < 11 ? "좋은 아침이에요" : h < 14 ? "맛있는 점심 드세요" : h < 18 ? "오후도 힘내요" : h < 22 ? "편안한 저녁이에요" : "오늘도 수고했어요";
+  return h < 5 ? "조용한 새벽이에요" : h < 11 ? "좋은 아침이에요" : h < 14 ? "맛있는 점심 드세요" : h < 18 ? "느긋한 오후예요" : h < 22 ? "편안한 저녁이에요" : "고요한 밤이에요";
 }
 function tick(b) {
   const d = new Date(), h = d.getHours(), m = d.getMinutes();
@@ -347,9 +347,9 @@ const OWN = {
   dawn: ["쉿, 새벽 탐험대 출동 중이야. {t}도 몰래 합류할래?", "새벽의 휴대폰 마을은 조용해… 발소리 살금살금", "별빛 BGM 깔고 오늘 마지막 방송 간다"],
   morning: ["좋은 아침, {t}! 오늘 탐험 장비 점검 끝!", "두구두구… 오늘 첫 하이라이트는 {t}의 기지개!", "아침 햇살로 든든하게 충전, 출발 준비 끝"],
   lunch: ["점심 시간 속보! 배꼽시계가 딱 정각을 알렸어", "{t}, 오늘 점심은 어디로 탐험 갈까?", "짠! 오늘의 메뉴 추천은… {t} 마음대로!"],
-  afternoon: ["오후의 휴대폰 마을은 맑음, 그리고 살짝 졸림", "{t}! 기지개 한 번 켜면 오후 체력 회복!", "뿅! 오후 하이라이트 찾으러 순찰 중이야"],
-  evening: ["오늘 탐험 수고 많았어 {t}, 박수 짝짝!", "저녁 방송 시작~ 오늘 하루 어땠는지 들려줘", "노을 지는 마을 산책 중… 오늘도 멋진 하루였어"],
-  night: ["텐트 칠 시간이야. 오늘 탐험 일지 마감!", "오늘 방송은 여기까지! 내일 또 만나", "{t}, 푹 쉬어. 나는 불침번 설게"]
+  afternoon: ["오후의 휴대폰 마을은 맑음, 그리고 살짝 졸림", "뿅! 오후 순찰 출발!", "뿅! 오후 하이라이트 찾으러 순찰 중이야"],
+  evening: ["노을 지는 마을 산책 중이야", "저녁 방송 시작~ 오늘 하루 어땠는지 들려줘", "노을 지는 마을 산책 중… 오늘도 멋진 하루였어"],
+  night: ["텐트 칠 시간이야. 오늘 탐험 일지 마감!", "오늘 방송은 여기까지! 내일 또 만나", "오늘 밤 불침번은 내가 설게"]
 };
 function ownLines() {
   const h = new Date().getHours();
@@ -534,9 +534,13 @@ function nextLine(k, prev, opened) {
     if (min >= 0 && min <= 15) lines.push({key: "soon15:" + n.title + n.begin, text: (min <= 1 ? "곧" : min + "분 뒤") + " ‘" + n.title + "’ 시작이야" + (n.place ? " · " + n.place : ""), go: "calendar", feel: "surprised"});
   }
   if (opened) {
-    // The hour's greeting from the presets, or one of the AI's everyday lines (준: "적절히 ai말과 프리셋토크 믹스").
+    // The hour's greeting from the presets, at most once in three hours (준: "저녁이라고 물론 맥락에 맞는 말을 한다지만 반복적인
+    // 패턴이 있어"), or one of the AI's everyday lines.
     const theirs = Array.isArray(k.lines) && k.lines.length ? k.lines : [];
-    const own = Math.random() < .6 || !theirs.length ? [preset("hi")].filter(Boolean).concat(theirs) : theirs;
+    let greeted = 0; try { greeted = +localStorage.getItem("gyeotHi") || 0; } catch (e) {}
+    const hi = now - greeted > 3 * 3600000 ? preset("hi") : "";
+    if (hi) try { localStorage.setItem("gyeotHi", String(now)); } catch (e) {}
+    const own = hi ? [hi].concat(theirs) : theirs;
     for (const t of own) lines.push({key: "line:" + today() + ":" + t, text: t, go: "", feel: "happy"});
   }
   return lines.find(l => !said(l.key)) || null;

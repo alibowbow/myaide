@@ -331,9 +331,10 @@ body.liquid .menu hr{background:var(--hair2)}
 /* Launchpad (every app, the search, the talk with 퍼레) in soft pastel, not near-black (준: "All app 표시란 바탕이 너무 새까매서 눈이
    피로해 보기편한 파스텔톤으로"): dark words on light glass. */
 body.liquid .pad{--ink:#263238;--ink2:#53616a;--ink3:#89949a;--glass:rgba(255,255,255,.72);--glass-line:rgba(255,255,255,.95);--hair:rgba(30,50,60,.08);--hair2:rgba(30,50,60,.12);color:var(--ink)}
-/* Behind it, a watercolour wash on paper painted for it (GPT Image, from the user's whale wallpaper's paper and colours, no whale):
-   pale and even so the icons and names read everywhere (준: "너무 기괴하고 이상해" for the drawn one, "gpt로 배경 만드는게 나을듯"). */
-body.liquid .pad{background:#eceeec url(pad-bg.webp) center / cover no-repeat}
+/* Behind it, pastel coloured paper (준: "All app배경이 해상도가 낮고 물빠져 보여 파스텔 색종이 질감으로 눈이 편안하게", "물빠진듯한
+   색상이네"): pink, peach, mint and sky with their colour kept (pastel, not faded), never bright white, under a seamless paper-fibre tile (512 px drawn at 256, sharp on any screen)
+   blended soft-light so only its grain shows. Replaces the stretched watercolour picture, which was blurred and faded. */
+body.liquid .pad{background-color:#e9dff0;background-image:url(pad-paper.webp),linear-gradient(165deg,#f4c9d8 0%,#f8d5bf 28%,#cfe9d8 62%,#c6dcf2 100%);background-size:256px 256px,100% 100%;background-repeat:repeat,no-repeat;background-blend-mode:soft-light,normal}
 body.liquid .pad-top .field{background:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.98);box-shadow:0 4px 14px rgba(40,70,80,.08)}
 body.liquid .pad .field input{color:var(--ink)}
 body.liquid .pad .close{color:#4f8587}
