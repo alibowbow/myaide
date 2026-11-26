@@ -26,16 +26,16 @@ final class VoicePresets {
         {"think", "응응!"}, {"think", "에헤~"}, {"think", "아, 그거!"}, {"think", "음, 보자보자."}, {"think", "오케이!"}, {"think", "좋은 질문!"},
         {"think", "이야~"}, {"think", "후후~"}, {"think", "앗, 그거!"}, {"think", "아항~"}, {"think", "에이~"},
         {"ok", "알았어!"}, {"ok", "바로 할게!"}, {"ok", "맡겨 줘!"}, {"ok", "오케이, 해 볼게!"}, {"ok", "지금 할게!"}, {"ok", "알겠어, 잠깐만!"},
-        {"ok", "출동!"}, {"ok", "접수 완료!"}, {"ok", "좋아, 간다!"}, {"ok", "뿅, 할게!"}, {"ok", "그래그래, 해 줄게!"}, {"ok", "응, 바로!"},
+        {"ok", "출동!"}, {"ok", "접수 완료!"}, {"ok", "좋아, 간다!"}, {"ok", "뿅, 할게!"}, {"ok", "그래그래, 해 줄게!"}, {"ok", "응, 바로!"}, {"ok", "찾아볼게!"}, {"ok", "열어 줄게!"},
         {"react", "헤헤."}, {"react", "우와!"}, {"react", "짠!"}, {"react", "뿅!"}, {"react", "히히."}, {"react", "에헤헤."}, {"react", "앗!"},
         {"react", "와아!"}, {"react", "오호!"}, {"react", "야호!"}, {"react", "꺄!"}, {"react", "두둥!"}, {"react", "헉!"}, {"react", "깜짝이야!"},
-        {"react", "대박!"}, {"react", "멋지다!"}, {"react", "좋아좋아!"}, {"react", "신난다!"}, {"react", "킥킥."}, {"react", "어라?"},
+        {"react", "대박!"}, {"react", "멋지다!"}, {"react", "좋아좋아!"}, {"react", "신난다!"}, {"react", "킥킥."}, {"react", "어라?"}, {"react", "멋져!"},
         {"hello", "응, 듣고 있어!"}, {"hello", "불렀어?"}, {"hello", "나 여기 있어!"}, {"hello", "응, 말해 봐!"}, {"hello", "짠, 왔어!"},
-        {"hello", "뭐든 말해 줘!"}, {"hello", "응응, 듣는 중!"}, {"hello", "안녕!"}, {"hello", "반가워!"}, {"hello", "오, 왔어?"},
+        {"hello", "뭐든 말해 줘!"}, {"hello", "응응, 듣는 중!"}, {"hello", "안녕!"}, {"hello", "반가워!"}, {"hello", "오, 왔어?"}, {"hello", "부르면 바로 와!"},
         {"bye", "또 불러 줘!"}, {"bye", "안녕, 또 봐!"}, {"bye", "이따 또 얘기하자!"}, {"bye", "그럼 이만, 뿅!"}, {"bye", "언제든 불러!"},
         {"bye", "다음에 또 놀자!"}, {"bye", "나 여기서 기다릴게!"}, {"bye", "바이바이!"},
         {"again", "응? 다시 말해 줄래?"}, {"again", "잘 못 들었어, 한 번만 더!"}, {"again", "어? 뭐라고?"}, {"again", "조금만 크게 말해 줄래?"},
-        {"again", "다시 한 번만!"}, {"again", "음, 놓쳤어. 다시!"}, {"again", "미안, 못 들었어!"},
+        {"again", "다시 한 번만!"}, {"again", "음, 놓쳤어. 다시!"}, {"again", "미안, 못 들었어!"}, {"again", "한 번 더 말해 줄래?"},
         {"yes", "응!"}, {"yes", "그럼!"}, {"yes", "맞아!"}, {"yes", "당연하지!"}, {"yes", "아니~"}, {"yes", "글쎄~"}, {"yes", "그렇지!"}, {"yes", "물론!"}
     };
     private static final Random RANDOM = new Random();
@@ -77,6 +77,10 @@ final class VoicePresets {
         worker.setDaemon(true); worker.start();
     }
 
+    /** The words a made sound says (by its file's number). */
+    static String words(File f) {
+        try { int i = Integer.parseInt(f.getName().replace(".mp3", "")); return i >= 0 && i < LINES.length ? LINES[i][1] : ""; } catch (RuntimeException unknown) { return ""; }
+    }
     /** One of this kind in the chosen voice, not one of the last few played; null when none is made yet. */
     static synchronized File pick(Context c, AppStore store, String kind) {
         String id = store.typecast.voice().optString("id"); if (id.isBlank()) return null;

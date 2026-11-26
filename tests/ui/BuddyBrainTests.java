@@ -114,6 +114,23 @@ public class BuddyBrainTests {
         o.hide(); assertFalse(o.shown());
     }
 
+    /** 퍼레's short words in its own voice (준: "프리셋 보이스 100개", "타입캐스트로"): a hundred, kept by voice, no repeat of the last few. */
+    @Test public void keepsItsShortWords() throws Exception {
+        assertEquals(100, VoicePresets.LINES.length);
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        app.store().settings.edit().putString("typecastVoice", "{\"id\":\"tc_test\"}").commit();
+        assertNull("none made yet", VoicePresets.pick(app, app.store(), "think"));
+        java.io.File dir = VoicePresets.dir(app, "tc_test"); dir.mkdirs();
+        for (int i = 0; i < VoicePresets.LINES.length; i++) java.nio.file.Files.write(new java.io.File(dir, i + ".mp3").toPath(), new byte[]{1});
+        assertArrayEquals(new int[]{100, 100}, VoicePresets.ready(app, app.store()));
+        java.util.List<String> heard = new java.util.ArrayList<>();
+        for (int k = 0; k < 6; k++) {
+            java.io.File f = VoicePresets.pick(app, app.store(), "think"); assertNotNull(f);
+            String w = VoicePresets.words(f); assertFalse("no repeat: " + heard + " " + w, heard.contains(w)); heard.add(w);
+        }
+        for (int k = 0; k < 4; k++) { String w = VoicePresets.words(VoicePresets.pick(app, app.store(), "bye")); assertTrue(w, java.util.Arrays.stream(VoicePresets.LINES).anyMatch(l -> l[0].equals("bye") && l[1].equals(w))); }
+    }
+
     /** The fingerprint can be asked for at all (준: "지문확인을 열지못했어요 뜨면서 메뉴가 안열려"): USE_BIOMETRIC is declared. */
     @Test public void mayAskForTheFingerprint() throws Exception {
         android.content.Context c = org.robolectric.RuntimeEnvironment.getApplication();

@@ -88,6 +88,8 @@ final class BuddyVoice {
         store.buddyTalking = true; store.changed();
         BuddyVoiceService.start(context);
         if (screen == null) overlay.show();
+        // 퍼레's short words in its own voice, made once (VoicePresets; 준: "프리셋 보이스 100개", "타입캐스트로").
+        VoicePresets.prepare(context, store);
         // The user's voice known and Whisper at hand: 퍼레 listens itself, to know whose voice it is (준: "내 목소리를 알아볼 수 있게해줘").
         voice = BuddyTalk.voice(context); ownEar = voice.ready() && GroqWork.on(); ownBroken = false;
         if (!ownEar && !SpeechInput.DEVICE.available(context)) { end("error", "이 휴대폰에서는 음성 인식을 쓸 수 없어요"); return; }
@@ -114,7 +116,7 @@ final class BuddyVoice {
                 heardAt = android.os.SystemClock.uptimeMillis(); wordsAt = heardAt;
                 closeEar();
                 if (words == null || words.isBlank()) { quiet(); return; }
-                silences = 0; think(words.strip(), false);
+                silences = 0; filler(); think(words.strip(), false);
             }
             @Override public void failed(String reason) { if (on && mine == generation) end("error", reason); }
             @Override public void silent(String reason) { if (on && mine == generation) quiet(); }
@@ -127,7 +129,7 @@ final class BuddyVoice {
      */
     private void listenOwn(int mine) {
         capture = VoiceCapture.start(7000, new VoiceCapture.Heard() {
-            @Override public void speech(short[] pcm) { if (on && mine == generation) { capture = null; heardAt = android.os.SystemClock.uptimeMillis(); hear(pcm, mine); } }
+            @Override public void speech(short[] pcm) { if (on && mine == generation) { capture = null; heardAt = android.os.SystemClock.uptimeMillis(); filler(); hear(pcm, mine); } }
             @Override public void silent() { if (on && mine == generation) { capture = null; quiet(); } }
             @Override public void failed(String why) { if (on && mine == generation) { capture = null; ownEar = false; ownBroken = true; listen(); } }
             @Override public void began() { if (on && mine == generation) show("listening", "…"); }
@@ -158,7 +160,35 @@ final class BuddyVoice {
     private void quiet() {
         closeEar();
         if (++silences >= 2) { end("done", "또 불러 줘!"); return; }
-        main.postDelayed(this::listen, 250);
+        // Once, in its own voice: "응? 다시 말해 줄래?", then it listens (after the sound, so it does not hear itself).
+        int mine = generation;
+        String again = cue("again", () -> { if (on && mine == generation) main.postDelayed(this::listen, 150); });
+        if (again != null) show("speaking", again);
+    }
+
+    // ── 퍼레's short words, at once (VoicePresets) ──
+    private MediaPlayer cue; private volatile long cueEnds;
+    /** A sound while the answer is made, right as the user stops talking (most turns, a different one each time). */
+    private void filler() { if (Math.random() < .8) cue("think", null); }
+    /** One of 퍼레's short words of this kind, then after (on the main thread; at once when none is made yet); the words said, or null. */
+    private String cue(String kind, Runnable after) {
+        java.io.File f = VoicePresets.pick(context, store, kind);
+        if (f == null) { if (after != null) after.run(); return null; }
+        stopCue();
+        try {
+            MediaPlayer p = new MediaPlayer(); cue = p;
+            p.setAudioAttributes(Speech.ATTRIBUTES); p.setDataSource(f.getPath());
+            Runnable finished = () -> { cueEnds = 0; if (cue == p) cue = null; try { p.release(); } catch (RuntimeException ignored) {} if (!on && player == null && track == null) focus(false); if (after != null) after.run(); };
+            p.setOnCompletionListener(x -> finished.run());
+            p.setOnErrorListener((x, what, extra) -> { finished.run(); return true; });
+            p.prepare(); focus(true); p.start();
+            cueEnds = android.os.SystemClock.uptimeMillis() + Math.max(200, p.getDuration());
+            return VoicePresets.words(f);
+        } catch (Exception failed) { stopCue(); if (after != null) after.run(); return null; }
+    }
+    private void stopCue() {
+        MediaPlayer p = cue; cue = null; cueEnds = 0;
+        if (p != null) { try { p.stop(); } catch (RuntimeException ignored) {} try { p.release(); } catch (RuntimeException ignored) {} }
     }
     /** guest: not the user's voice; the fingerprint, when what was asked needs it, shows it was the user after all. */
     private void think(String said, boolean guest) {
@@ -189,6 +219,9 @@ final class BuddyVoice {
      * Typecast whole, else the phone's voice. Then it listens again.
      */
     private void say(String line) {
+        // The short sound first, the answer right after it.
+        long wait = cueEnds - android.os.SystemClock.uptimeMillis();
+        if (wait > 0) { int mine = generation; main.postDelayed(() -> { if (on && mine == generation) say(line); }, Math.min(wait, 2500) + 60); return; }
         show("speaking", line);
         int mine = generation;
         TypecastAccount t = store.typecast;
@@ -353,7 +386,10 @@ final class BuddyVoice {
         android.media.AudioTrack playing = track; if (playing != null) try { playing.pause(); playing.flush(); } catch (RuntimeException ignored) {}
         closeEar(); releasePlayer(); focus(false);
         if (phone != null) { try { phone.stop(); phone.shutdown(); } catch (RuntimeException ignored) {} phone = null; phoneReady = false; }
-        show(state, words == null ? "" : words);
+        // After two silences, a goodbye in its own voice (the bubble shows what it says).
+        String bye = "done".equals(state) && "또 불러 줘!".equals(words) ? cue("bye", null) : null;
+        if (bye == null) stopCue();
+        show(state, bye != null ? bye : words == null ? "" : words);
         BuddyVoiceService.stop(context);
         // The last word stays a moment over the other app, then 퍼레 goes.
         int ended = generation; main.postDelayed(() -> { if (!on && generation == ended) overlay.hide(); }, words == null || words.isBlank() ? 0 : 1800);
