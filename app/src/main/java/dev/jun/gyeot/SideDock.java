@@ -44,6 +44,7 @@ import org.json.JSONArray;
  * line and the recent ones, as a Mac's). In one stroke: pull it in, slide along, and the icons swell under the finger like a
  * Mac's dock; let go on one and it opens. Let go elsewhere and it stays for a tap, then slides away. Drawn by the
  * accessibility service like 퍼레's handle (so over every app, the phone's own home screen too); hidden while locked.
+ * Sliding only looks: an app opens on a tap, never when a slide ends (준: "드래그하다가 손을 놓으면 실행이 돼버려").
  */
 final class SideDock implements AutoCloseable {
     private final Context context; private final AppStore store; private final WindowManager manager;
@@ -120,7 +121,7 @@ final class SideDock implements AutoCloseable {
             case MotionEvent.ACTION_UP -> {
                 main.removeCallbacks(longPress);
                 if (moving) { settings().edit().putInt("sideDockY", handleParams.y).apply(); return true; }
-                if (pulling) { ImageView pick = hot; rest(); if (pick != null) launch(pick); else armClose(); return true; }
+                if (pulling) { rest(); armClose(); return true; }
                 if (Math.abs(e.getRawX() - startX) < slop && Math.abs(e.getRawY() - startY) < slop) openDock();
             }
             case MotionEvent.ACTION_CANCEL -> { main.removeCallbacks(longPress); if (pulling) { rest(); armClose(); } }
@@ -157,10 +158,16 @@ final class SideDock implements AutoCloseable {
             shelf.addView(icon, lp); icons.add(icon); shown.add(info);
         }
         // Taps and strokes on the dock itself: the same swelling, and the app under the finger when it lifts.
+        float[] down = new float[2]; boolean[] slid = new boolean[1];
         shelf.setOnTouchListener((v, ev) -> {
             switch (ev.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> { main.removeCallbacks(autoClose); swell(ev.getRawY(), ev.getRawX()); }
-                case MotionEvent.ACTION_UP -> { ImageView pick = hot; rest(); if (pick != null) launch(pick); else armClose(); }
+                case MotionEvent.ACTION_DOWN -> { down[0] = ev.getRawX(); down[1] = ev.getRawY(); slid[0] = false; main.removeCallbacks(autoClose); swell(ev.getRawY(), ev.getRawX()); }
+                case MotionEvent.ACTION_MOVE -> {
+                    if (Math.hypot(ev.getRawX() - down[0], ev.getRawY() - down[1]) > slop) slid[0] = true;
+                    main.removeCallbacks(autoClose); swell(ev.getRawY(), ev.getRawX());
+                }
+                // Only a tap opens: a slide that ends on an icon does not.
+                case MotionEvent.ACTION_UP -> { ImageView pick = slid[0] ? null : hot; rest(); if (pick != null) launch(pick); else armClose(); }
                 case MotionEvent.ACTION_CANCEL -> { rest(); armClose(); }
                 default -> {}
             }
@@ -188,7 +195,7 @@ final class SideDock implements AutoCloseable {
         for (int i = 0; i < icons.size(); i++) { ImageView ic = icons.get(i); ic.setScaleX(0.5f); ic.setScaleY(0.5f); ic.setAlpha(0f); ic.animate().scaleX(1).scaleY(1).alpha(1).setStartDelay(60 + i * 24L).setDuration(380).setInterpolator(new OvershootInterpolator(1.6f)).start(); }
         if (!pulling) armClose();
     }
-    /** Icons near the finger swell (most under it, a Mac's falloff) and lean out from the edge; the name shows beside it. */
+    /** Icons near the finger swell (most under it, a Mac's falloff) and lean out from the edge; the name shows beside it. Looking only. */
     private void swell(float rawY, float rawX) {
         if (!open || shelf == null) return;
         boolean right = right(); float reach = dp(118), lift = dp(26);

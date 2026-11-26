@@ -50,11 +50,43 @@ html,body{margin:0;height:100%;overflow:hidden;background:#dfeefe;font-family:va
 
 .buddy{position:relative;width:104px;height:118px;border:0;padding:0;background:none;flex:none}
 .buddy .body{position:absolute;left:8px;right:8px;bottom:14px;height:88px;animation:bob 3.2s ease-in-out infinite;transform-origin:50% 100%}
-.buddy .body img,.buddy .body svg{width:100%;height:100%;object-fit:contain;display:block;filter:drop-shadow(0 6px 10px rgba(40,52,90,.18))}
+.buddy .body img,.buddy .body svg.bot-old{width:100%;height:100%;object-fit:contain;display:block;filter:drop-shadow(0 6px 10px rgba(40,52,90,.18))}
 .buddy .body img.round{width:80px;height:80px;margin:4px auto 0;border-radius:50%;border:3px solid #fff;object-fit:cover;box-shadow:0 6px 14px rgba(40,52,90,.2);filter:none}
 .buddy .ground{position:absolute;left:26px;right:26px;bottom:6px;height:10px;border-radius:50%;background:rgba(30,40,80,.16);animation:ground 3.2s ease-in-out infinite}
 .board[data-tone=night] .buddy .ground{background:rgba(0,0,10,.3)}
 @keyframes bob{50%{transform:translateY(-5px)}}
+/* the friend's parts (board.js alive()) */
+.bot{width:100%;height:100%;display:block;overflow:visible;filter:drop-shadow(0 8px 14px rgba(20,20,40,.28))}
+.bot .b-all{transform-origin:50px 88px;animation:sway 7s ease-in-out infinite}
+.bot .b-body{transform-origin:50px 88px;animation:breathe 4.2s ease-in-out infinite}
+.bot .b-antenna{transform-origin:50px 20px}
+.bot .b-bulb{fill:#ffd36e;transition:fill .4s}
+.bot .b-eye *{fill:#2b2b3a;stroke:#2b2b3a;stroke-width:0;transition:transform .09s ease}
+.bot .b-eye .arc,.bot .b-eye .shut{fill:none;stroke-width:3.2;stroke-linecap:round;display:none}
+.bot .b-eye .o,.bot .b-eye .heart{display:none}
+.bot .b-eye .heart{fill:#ff5f8f;stroke:none}
+.bot .b-mouth{fill:none;stroke:#2b2b3a;stroke-width:2.6;stroke-linecap:round;opacity:0;transition:opacity .2s}
+.bot .b-cheek{fill:#ff8fa3;opacity:.7;transition:opacity .3s,transform .3s;transform-box:fill-box;transform-origin:center}
+.bot.blink .b-eye .pill{transform:scaleY(.1)}
+.bot.happy .b-eye .pill,.bot.love .b-eye .pill,.bot.surprised .b-eye .pill,.bot.sleepy .b-eye .pill{display:none}
+.bot.happy .b-eye .arc{display:block}.bot.happy .b-mouth,.bot.love .b-mouth{opacity:1}
+.bot.happy .b-cheek,.bot.love .b-cheek{opacity:1;transform:scale(1.25)}
+.bot.love .b-eye .heart{display:block;animation:beat .6s ease-in-out infinite}
+.bot.surprised .b-eye .o{display:block}
+.bot.sleepy .b-eye .shut{display:block}.bot.sleepy .b-body{animation-duration:6.5s}.bot.sleepy .b-antenna{transform:rotate(-14deg);transition:transform 1.2s}.bot.sleepy .b-bulb{fill:#b9a6ff}
+.bot.thinking .b-bulb{animation:glow 1.4s ease-in-out infinite}
+.bot .b-look{transition:transform .3s}
+.buddy.hop .b-antenna,.buddy.wiggle .b-antenna{animation:spring .9s cubic-bezier(.3,1.6,.5,1)}
+.buddy.tilt .b-all{animation:tilt 1.2s ease-in-out}
+.buddy.stretch .b-body{animation:stretch 1.2s cubic-bezier(.3,1.4,.5,1)}
+.buddy.asleep .body{animation-duration:5.5s}
+@keyframes sway{50%{transform:rotate(1.6deg)}}
+@keyframes breathe{50%{transform:scale(1.012,1.028)}}
+@keyframes spring{20%{transform:rotate(-16deg)}45%{transform:rotate(11deg)}70%{transform:rotate(-5deg)}100%{transform:none}}
+@keyframes tilt{30%{transform:rotate(-9deg)}70%{transform:rotate(-9deg)}100%{transform:none}}
+@keyframes stretch{35%{transform:scale(.94,1.1)}65%{transform:scale(1.04,.97)}100%{transform:none}}
+@keyframes beat{50%{transform:scale(1.18)}}
+@keyframes glow{50%{fill:#fff3b0}}
 @keyframes ground{50%{transform:scaleX(.86);opacity:.7}}
 .buddy.hop .body{animation:hop .72s var(--soft)}
 .buddy.hop .ground{animation:groundhop .72s var(--soft)}
@@ -63,7 +95,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#dfeefe;font-family:va
 .buddy.wiggle .body{animation:wiggle .9s ease-in-out}
 @keyframes wiggle{20%{transform:rotate(-7deg)}45%{transform:rotate(6deg)}70%{transform:rotate(-3deg)}100%{transform:none}}
 .zz{position:absolute;right:10px;top:12px;font-size:15px;font-weight:800;color:var(--ink2);opacity:0;display:none}
-.board[data-tone=night] .zz{display:block;animation:zz 3.6s ease-in-out infinite}
+.buddy.asleep .zz{display:block;animation:zz 3.6s ease-in-out infinite}
 @keyframes zz{0%{opacity:0;transform:translate(0,8px) scale(.7)}40%{opacity:.9}100%{opacity:0;transform:translate(10px,-14px) scale(1.1)}}
 .bubble{position:absolute;right:66px;bottom:84px;max-width:230px;width:max-content;padding:10px 14px;border-radius:18px 18px 4px 18px;background:#fff;color:#1c1c1e;font-size:14px;font-weight:650;line-height:1.35;box-shadow:var(--shade);opacity:0;transform:translateY(8px) scale(.85);transform-origin:100% 100%;transition:opacity .25s,transform .45s var(--spring);pointer-events:none;text-align:left}
 .bubble.on{opacity:1;transform:none}
@@ -152,4 +184,4 @@ html,body{margin:0;height:100%;overflow:hidden;background:#dfeefe;font-family:va
   .wrap{padding-top:max(40px,5vh);gap:12px}
   .hero{min-height:92px}.clock{font-size:58px}
 }
-@media (prefers-reduced-motion:reduce){.blob,.buddy .body,.buddy .ground,.star,.zz,.dots i{animation:none !important}}
+@media (prefers-reduced-motion:reduce){.blob,.buddy .body,.buddy .ground,.star,.zz,.dots i,.bot *{animation:none !important}}

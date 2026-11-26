@@ -19,15 +19,22 @@ const boards = [];
 const ICON = {
   chart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16"/><path d="M5 15l4-4 3.5 3L19 7.5"/><path d="M15 7.5h4v4"/></svg>',
   bell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/></svg>',
-  spark:'<svg viewBox="0 0 24 24" fill="#fff"><path d="M12 2.5l2.1 6.2 6.4 2.3-6.4 2.3L12 19.5l-2.1-6.2L3.5 11l6.4-2.3z"/><circle cx="19" cy="4.5" r="1.6"/><circle cx="5" cy="19" r="1.3"/></svg>'
+  spark:'<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 6.5h7A4.5 4.5 0 0 1 20 11v3.5a4.5 4.5 0 0 1-4.5 4.5h-7A4.5 4.5 0 0 1 4 14.5V11a4.5 4.5 0 0 1 4.5-4.5zM12 6.5V4.6"/><path d="M9.4 11.6v2M14.6 11.6v2" stroke-width="2.4"/><circle cx="12" cy="3.4" r="1.1" fill="#fff" stroke="none"/></svg>'
 };
-/* The friend when no avatar was made: a round coral buddy whose eyes blink. */
-const BUDDY = '<svg viewBox="0 0 100 100"><defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff9a76"/><stop offset="1" stop-color="#ff6a45"/></linearGradient></defs>'
-  + '<line x1="50" y1="17" x2="50" y2="7" stroke="#ff6a45" stroke-width="4" stroke-linecap="round"/><circle cx="50" cy="6" r="5" fill="#ffd36e"/>'
-  + '<rect x="12" y="17" width="76" height="70" rx="30" fill="url(#bg)"/><rect x="22" y="30" width="56" height="36" rx="18" fill="#fff" opacity=".95"/>'
-  + '<g class="eyes"><rect x="35" y="39" width="8" height="14" rx="4" fill="#2b2b3a"><animate attributeName="height" values="14;14;2;14;14" keyTimes="0;.9;.94;.98;1" dur="4.5s" repeatCount="indefinite"/><animate attributeName="y" values="39;39;45;39;39" keyTimes="0;.9;.94;.98;1" dur="4.5s" repeatCount="indefinite"/></rect>'
-  + '<rect x="57" y="39" width="8" height="14" rx="4" fill="#2b2b3a"><animate attributeName="height" values="14;14;2;14;14" keyTimes="0;.9;.94;.98;1" dur="4.5s" repeatCount="indefinite"/><animate attributeName="y" values="39;39;45;39;39" keyTimes="0;.9;.94;.98;1" dur="4.5s" repeatCount="indefinite"/></rect></g>'
-  + '<circle cx="29" cy="58" r="4.5" fill="#ff8fa3" opacity=".75"/><circle cx="71" cy="58" r="4.5" fill="#ff8fa3" opacity=".75"/></svg>';
+/*
+  The friend on the phone's screen (준: "너의 미리보기 화면에 있는 캐릭터", "모션 표정 자연스러운 움직임 구현"): a round
+  coral robot whose parts move on their own. Eyes: pills that blink and glance, arcs when happy, rounds when surprised,
+  lines when asleep, hearts when loved; an antenna that springs; cheeks that blush. alive() runs it.
+*/
+const EYE = '<rect class="pill" x="-4" y="-7.5" width="8" height="15" rx="4"/><path class="arc" d="M-5.5 2.5 Q0 -5 5.5 2.5"/><circle class="o" r="5.4"/><path class="shut" d="M-5.5 1 Q0 3.5 5.5 1"/><path class="heart" d="M0 5 C-7 0 -6 -6 -2.6 -6 C-1.2 -6 -.3 -5 0 -4 C.3 -5 1.2 -6 2.6 -6 C6 -6 7 0 0 5Z"/>';
+const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="botBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff9e7a"/><stop offset="1" stop-color="#ff6640"/></linearGradient>'
+  + '<radialGradient id="botShine" cx=".32" cy=".22" r=".55"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>'
+  + '<g class="b-all"><g class="b-antenna"><line x1="50" y1="20" x2="50" y2="8.5" stroke="#ff6640" stroke-width="4" stroke-linecap="round"/><circle class="b-bulb" cx="50" cy="7" r="5.2"/></g>'
+  + '<g class="b-body"><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botBody)"/><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botShine)"/>'
+  + '<rect x="22" y="31" width="56" height="37" rx="18" fill="#fff" opacity=".97"/>'
+  + '<g class="b-look"><g class="b-eye" transform="translate(39 48)">' + EYE + '</g><g class="b-eye" transform="translate(61 48)">' + EYE + '</g>'
+  + '<path class="b-mouth" d="M45.5 60 Q50 64.5 54.5 60"/></g>'
+  + '<circle class="b-cheek" cx="28.5" cy="60" r="4.6"/><circle class="b-cheek" cx="71.5" cy="60" r="4.6"/></g></g></svg>';
 
 function makeBoard(slot) {
   const b = document.createElement("section"); b.className = "board";
@@ -37,10 +44,10 @@ function makeBoard(slot) {
     '<div class="sky"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><div class="stars">' + stars + '</div></div>'
   + '<div class="wrap">'
   +   '<header class="hero"><div class="when"><div class="date"></div><div class="clock"></div><div class="hello"></div></div>'
-  +     '<button class="buddy" aria-label="퍼레"><div class="bubble"></div><span class="think private"><span class="dots"><i></i><i></i><i></i></span><span class="n"></span></span><span class="zz">z</span><div class="body">' + (G.mascot ? '<img alt="" class="' + (G.mascotKind === "round" ? "round" : "") + '" src="/mascot.png?v=' + encodeURIComponent(G.mascotAt || 0) + '">' : BUDDY) + '</div><div class="ground"></div></button></header>'
+  +     '<button class="buddy" aria-label="퍼레"><div class="bubble"></div><span class="think private"><span class="dots"><i></i><i></i><i></i></span><span class="n"></span></span><span class="zz">z</span><div class="body">' + BUDDY + '</div><div class="ground"></div></button></header>'
   +   '<div class="grid">'
   +     '<div class="card wide event tap private" data-go="calendar" data-rank="5"><div class="cal"><span class="dow"></span><span class="day"></span></div><div class="ev"><div class="eyebrow">다음 일정</div><div class="ev-title">일정을 보는 중…</div><div class="ev-meta"></div></div><div class="soon"></div></div>'
-  +     '<div class="card wide coins tap" data-go="trading" data-rank="4"><div class="eyebrow">' + ICON.chart + '시세</div><div class="coin-list"><div class="muted">시세를 받는 중…</div></div></div>'
+  +     '<div class="card wide coins tap" data-go="trading" data-rank="6"><div class="eyebrow">' + ICON.chart + '시세</div><div class="coin-list"><div class="muted">시세를 받는 중…</div></div></div>'
   +     '<div class="card wide notices tap private hidden" data-go="notices" data-rank="1"><div class="eyebrow">' + ICON.bell + '알림<span class="count"></span></div><div class="list"></div></div>'
   +     '<div class="card wide idea-card tap private hidden" data-go="home" data-rank="2"><div class="idea"><div class="spark">' + ICON.spark + '</div><div><div class="eyebrow">이건 어때요?</div><div class="t"></div><div class="s"></div></div></div></div>'
   +   '</div>'
@@ -50,7 +57,7 @@ function makeBoard(slot) {
   b.querySelectorAll(".hero,.grid>.card").forEach((c, i) => { c.classList.add("pop"); c.style.animationDelay = (60 + i * 55) + "ms"; });
   const buddy = $(b, ".buddy");
   buddy.addEventListener("click", () => cheer(b));
-  setInterval(() => { if (!document.hidden && !buddy.classList.contains("hop")) { buddy.classList.add("wiggle"); setTimeout(() => buddy.classList.remove("wiggle"), 950); } }, 14000);
+  alive(b);
   wireTaps(b); tick(b);
   boards.push(b); if (info) show(b);
   return b;
@@ -146,7 +153,7 @@ function show(b) {
   fit(b);
 }
 /* The board keeps to the top half: the rest is the home screen's own icons (준: "아이콘들이 배치될 공간을 확보"). What does not
-   fit goes, least needed first (lowest rank: notices, then 퍼레's suggestion, then the coins, then the event). */
+   fit goes, least needed first (lowest rank: notices, then 퍼레's suggestion, then the event, then the quotes). */
 function fit(b) {
   const wrap = $(b, ".wrap"), room = window.boardRoom ? window.boardRoom() : innerHeight * 0.5;
   const cards = Array.from(b.querySelectorAll(".grid>.card[data-rank]"));
@@ -170,12 +177,69 @@ function say(b) {
 }
 function cheer(b) {
   const buddy = $(b, ".buddy"), bubble = $(b, ".bubble");
-  buddy.classList.remove("hop", "wiggle"); void buddy.offsetWidth; buddy.classList.add("hop");
+  buddy.classList.remove("hop", "wiggle", "tilt", "stretch"); void buddy.offsetWidth; buddy.classList.add("hop");
   setTimeout(() => buddy.classList.remove("hop"), 760);
+  // Tapped: happy eyes; three taps in a moment, hearts.
+  const now = Date.now(); b._taps = (b._taps || []).filter(t => now - t < 1800).concat(now);
+  if (b._feel) b._feel(b._taps.length >= 3 ? "love" : "happy", b._taps.length >= 3 ? 2600 : 1500);
   bubble.textContent = say(b); bubble.classList.add("on");
   clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on"), 3400);
 }
 
+/*
+  What keeps the friend alive, per board, only while the screen is seen: breathing and a slow sway (CSS), blinks at
+  uneven gaps (now and then twice), glances that come to rest, a look toward wherever the screen is touched, and now and
+  then a small act of its own (a tilt, a stretch, a wiggle of the antenna, a look around). Its mood follows the day:
+  thinking while 퍼레 works, surprised at a new notice, asleep late at night; a feeling (happy, love) wins for a moment.
+*/
+function alive(b) {
+  const svg = $(b, ".bot"), look = $(b, ".b-look"), buddy = $(b, ".buddy"), rnd = (a, z) => a + Math.random() * (z - a);
+  let mood = "", feeling = "", feelTimer = 0;
+  const show = () => { svg.classList.remove("happy", "love", "surprised", "sleepy", "thinking"); const m = feeling || mood; if (m) svg.classList.add(m); buddy.classList.toggle("asleep", m === "sleepy"); };
+  const gaze = (x, y, ms) => { look.style.transition = "transform " + (ms || 320) + "ms cubic-bezier(.3,.7,.3,1)"; look.style.transform = "translate(" + x.toFixed(1) + "px," + y.toFixed(1) + "px)"; };
+  b._feel = (what, ms) => { feeling = what; show(); clearTimeout(feelTimer); feelTimer = setTimeout(() => { feeling = ""; show(); }, ms || 1500); };
+  b._mood = what => { if (what !== mood) { mood = what; show(); if (what === "thinking") gaze(4.5, -4.5, 500); else if (what === "sleepy") gaze(0, 1.5, 900); else gaze(0, 0, 500); } };
+  // Blinks: every 2.4 to 6 s, sometimes twice.
+  const blink = () => {
+    if (!document.hidden && !feeling && mood !== "sleepy") {
+      svg.classList.add("blink"); setTimeout(() => svg.classList.remove("blink"), 130);
+      if (Math.random() < .18) setTimeout(() => { svg.classList.add("blink"); setTimeout(() => svg.classList.remove("blink"), 120); }, 260);
+    }
+    setTimeout(blink, rnd(2400, 6000));
+  };
+  setTimeout(blink, rnd(800, 2500));
+  // Glances: small, mostly near the middle, resting a while.
+  const glance = () => {
+    if (!document.hidden && !feeling && !mood && !b._following) gaze(Math.random() < .55 ? rnd(-3, 3) : rnd(-6.5, 6.5), rnd(-3.5, 2.5), rnd(220, 420));
+    setTimeout(glance, rnd(1600, 4200));
+  };
+  setTimeout(glance, 1200);
+  // A small act of its own now and then.
+  const act = () => {
+    if (!document.hidden && !feeling && mood !== "sleepy" && !buddy.classList.contains("hop")) {
+      const kind = ["tilt", "stretch", "wiggle", "around", "tilt"][Math.floor(Math.random() * 5)];
+      if (kind === "around") { gaze(-6.5, 0, 380); setTimeout(() => gaze(6.5, 0, 520), 700); setTimeout(() => gaze(0, 0, 400), 1500); }
+      else { buddy.classList.add(kind); setTimeout(() => buddy.classList.remove(kind), 1300); }
+    }
+    setTimeout(act, rnd(8000, 15000));
+  };
+  setTimeout(act, rnd(5000, 9000));
+  // Touch anywhere on the screen: it looks there for a moment.
+  addEventListener("pointerdown", e => {
+    if (document.hidden || mood === "sleepy" || e.target.closest(".buddy")) return;
+    const r = svg.getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2), d = Math.hypot(dx, dy) || 1;
+    b._following = true; gaze(dx / d * 6.5, Math.max(-4.5, Math.min(3.5, dy / d * 4.5)), 220);
+    clearTimeout(b._follow); b._follow = setTimeout(() => { b._following = false; gaze(0, 0, 600); }, 1700);
+  }, {passive: true});
+}
+/** The friend's mood from what the app says (thinking, a new notice, night). */
+function moodOf(b, k) {
+  if (!b._mood) return;
+  const h = new Date().getHours(), night = h >= 0 && h < 6;
+  const more = (k.noticeCount || 0) > (b._notices == null ? Infinity : b._notices); b._notices = k.noticeCount || 0;
+  if (more && b._feel) b._feel("surprised", 1400);
+  b._mood(!k.locked && ((k.working || 0) > 0 || k.lab) ? "thinking" : night ? "sleepy" : "");
+}
 /** The app's data for every board drawn. */
-function setBoardData(k) { info = k || {}; lockedNow = !!info.locked; boards.forEach(show); }
+function setBoardData(k) { info = k || {}; lockedNow = !!info.locked; boards.forEach(show); boards.forEach(b => moodOf(b, info)); }
 addEventListener("resize", () => boards.forEach(fit));

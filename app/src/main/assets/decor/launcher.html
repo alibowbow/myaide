@@ -12,6 +12,9 @@
   The app gives window.Gyeot (HomeActivity's bridge) and calls launcher.apps / board / badges / insets / home / back.
 -->
 <link rel="stylesheet" href="/board.css">
+<!-- DaropoOS's type (준: "Daropo의 색감 디자인 ui등을 참고해봐"): Pretendard, Instrument Serif, JetBrains Mono; the phone's own font until they arrive or offline. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
 :root{--top:28px;--bottom:16px;--icon:56px;--dockIcon:52px}
 html,body{background:transparent !important;overflow:hidden;touch-action:manipulation}
@@ -99,7 +102,8 @@ body.launcher{position:fixed;inset:0}
 .chip{border:1px solid var(--glass-line)}
 .chip.on{background:var(--accent);color:#fff;border-color:transparent}
 #home,.dock{transition:opacity .25s ease}
-body.covered #home,body.covered .dock{opacity:0;pointer-events:none}
+body.covered #home,body.covered .dock,body.covered .island{opacity:0;pointer-events:none}
+.field{min-width:0}.close{flex:none}
 .pad-body{flex:1;overflow-y:auto;padding:4px 18px calc(var(--bottom) + 30px);scrollbar-width:none}
 .pad-body::-webkit-scrollbar{display:none}
 .pad-body h3{margin:18px 4px 12px;font-size:13px;font-weight:800;color:var(--ink2);letter-spacing:-.2px}
@@ -121,14 +125,116 @@ body.covered #home,body.covered .dock{opacity:0;pointer-events:none}
 @media (max-width:420px){.shelf{gap:8px}}
 @media (max-width:380px){:root{--icon:50px;--dockIcon:44px}.stacks{gap:14px 10px;padding:12px 14px 6px}.shelf{gap:7px;padding:8px 9px}.search{margin:12px 13px 4px;width:calc(100% - 26px)}}
 @media (min-width:600px){:root{--icon:60px;--dockIcon:56px}.stacks{grid-template-columns:repeat(6,1fr);padding:18px 28px 8px}.grid-apps,.fan .grid-apps{grid-template-columns:repeat(6,1fr)}.search{margin:14px 28px 6px;width:calc(100% - 56px)}.pad-body .grid-apps{grid-template-columns:repeat(7,1fr)}}
+
+/* ══ Liquid (준: "우리 홈화면은 뭔가 좀 옛날스러워", "2010 느낌이야"; DaropoOS · Liquid and jev's Aurora Glass and Bento) ══
+   A night aurora (or the user's wallpaper under a dark veil), dark glass with hairlines, a thin big clock, small spaced
+   labels, an island pill for 퍼레, bento cards, App Library. One violet for counts; soft pink and cyan for prices. */
+.launcher.liquid{--ink:#f5f5f7;--ink2:rgba(235,235,245,.68);--ink3:rgba(235,235,245,.44);--hair:rgba(255,255,255,.09);--hair2:rgba(255,255,255,.16);
+  --glass:linear-gradient(180deg,rgba(255,255,255,.085),rgba(255,255,255,.035));--glass-solid:rgba(22,22,34,.72);--glass-line:rgba(255,255,255,.1);--tile:rgba(255,255,255,.06);
+  --shadow:inset 0 1px 0 rgba(255,255,255,.06),0 18px 40px rgba(0,0,0,.28);--halo:none;--cover:rgba(6,7,14,.94);--accent:#8b7cf6;--accent-soft:rgba(139,124,246,.18);
+  --up:#ff8cc0;--down:#6cc8ff;--sans:'Pretendard Variable',Pretendard,'Samsung One',system-ui,sans-serif;--serif:'Instrument Serif',Georgia,serif;--mono:'JetBrains Mono',ui-monospace,monospace;
+  font-family:var(--sans);color:var(--ink);letter-spacing:-.011em}
+/* the page is see-through (the wallpaper is behind it): the night sky is painted by this layer itself */
+.aurora-bg{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;display:none;background:#05060b}
+body.liquid #home,body.liquid .dock{z-index:1}
+body.liquid .aurora-bg{display:block}
+body.liquid.photo .aurora-bg{background:rgba(5,6,11,.46)}
+body.liquid.photo .aurora-bg i{display:none}
+.aurora-bg i{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55;will-change:transform}
+.aurora-bg i:nth-child(1){width:90vw;height:70vh;left:-30vw;top:-22vh;background:#6d28d9;animation:au1 28s ease-in-out infinite}
+.aurora-bg i:nth-child(2){width:80vw;height:60vh;right:-34vw;top:24vh;background:#0e7490;opacity:.5;animation:au2 34s ease-in-out infinite}
+.aurora-bg i:nth-child(3){width:70vw;height:55vh;left:6vw;bottom:-26vh;background:#be185d;opacity:.32;animation:au3 40s ease-in-out infinite}
+.aurora-bg::after{content:"";position:absolute;inset:0;opacity:.07;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+@keyframes au1{50%{transform:translate(12vw,8vh) scale(1.1)}}
+@keyframes au2{50%{transform:translate(-10vw,-6vh) scale(.92)}}
+@keyframes au3{50%{transform:translate(10vw,-8vh) scale(1.08)}}
+/* the island: 퍼레's state, a tap away */
+.island{position:fixed;z-index:6;left:50%;top:calc(var(--top) + 8px);transform:translateX(-50%);display:none;align-items:center;gap:8px;padding:8px 15px 8px 12px;border-radius:999px;background:#000;border:1px solid rgba(255,255,255,.1);color:#f5f5f7;font:inherit;font-size:13px;font-weight:600;box-shadow:0 10px 30px rgba(0,0,0,.35);white-space:nowrap;transition:transform .5s var(--spring)}
+body.liquid .island{display:inline-flex}
+.island b{font-weight:700}.island span.say{color:rgba(235,235,245,.62)}
+.island .pulse{width:7px;height:7px;border-radius:50%;background:#30d158;box-shadow:0 0 0 0 rgba(48,209,88,.6);animation:pulse 2.4s ease-out infinite}
+.island.busy .pulse{background:#bf9bff;box-shadow:0 0 0 0 rgba(191,155,255,.6)}
+@keyframes pulse{70%{box-shadow:0 0 0 8px rgba(48,209,88,0)}100%{box-shadow:0 0 0 0 rgba(48,209,88,0)}}
+.island:active{transform:translateX(-50%) scale(.95)}
+/* the board, Liquid */
+body.liquid .board{--card:var(--glass);--card-line:var(--glass-line);--shade:var(--shadow);color:var(--ink)}
+body.liquid .board .wrap{padding-top:calc(var(--top) + 64px)}
+body.liquid .board .buddy .ground{display:none}
+body.liquid .when{text-shadow:none}
+body.liquid .date{font-family:var(--mono);font-size:11.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);display:flex;align-items:center;gap:8px}
+body.liquid .date::before{content:"";width:7px;height:7px;border-radius:50%;background:#30d158;box-shadow:0 0 10px rgba(48,209,88,.7)}
+body.liquid .clock{font-size:84px;font-weight:250;letter-spacing:-.045em;line-height:.95;margin:10px 0 8px;background:linear-gradient(180deg,#ffffff 30%,#c9c0ff 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+body.liquid .clock small{font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:.16em;vertical-align:top;margin-right:10px;-webkit-text-fill-color:rgba(235,235,245,.6)}
+body.liquid .hello{font-size:17px;font-weight:600;letter-spacing:-.02em;background:linear-gradient(100deg,#5eead4 0%,#64d2ff 40%,#bf9bff 75%,#ff7ab6 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+body.liquid .card{border-radius:26px;background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--shadow);-webkit-backdrop-filter:blur(24px) saturate(1.4);backdrop-filter:blur(24px) saturate(1.4)}
+body.liquid.photo .card{background:linear-gradient(180deg,rgba(28,28,40,.72),rgba(18,18,28,.62))}
+body.liquid .eyebrow{font-size:11.5px;font-weight:650;letter-spacing:.04em;color:var(--ink3)}
+body.liquid .eyebrow::before{content:"";width:14px;height:1px;background:linear-gradient(90deg,#5eead4,#bf9bff);margin-right:2px}
+body.liquid .eyebrow svg{display:none}
+body.liquid .cal{background:rgba(255,255,255,.06);border:1px solid var(--hair);box-shadow:none}
+body.liquid .cal .dow{color:#bf9bff;font-family:var(--mono);font-size:10px;letter-spacing:.08em}
+body.liquid .cal .day{color:#f5f5f7;font-weight:300;font-size:30px}
+body.liquid .ev-title{font-size:18px;font-weight:700;letter-spacing:-.03em}
+body.liquid .soon{background:rgba(120,120,128,.24);color:var(--ink2)}
+body.liquid .soon.now{background:rgba(48,209,88,.16);color:#4ade80}
+body.liquid .coin b{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.08em;color:var(--ink3)}
+body.liquid .coin .px{font-size:21px;font-weight:700;letter-spacing:-.03em}
+body.liquid .pct{font-family:var(--mono);font-size:11.5px;font-weight:500}
+body.liquid .count{background:var(--accent-soft);color:#c4b5fd}
+body.liquid .idea .spark{background:linear-gradient(135deg,#8b5cf6,#ec4899);box-shadow:0 6px 18px rgba(139,92,246,.35)}
+body.liquid .note .app{background:rgba(255,255,255,.1)}
+/* search, Spotlight-like */
+body.liquid .search{background:rgba(255,255,255,.06);border:1px solid var(--hair2);box-shadow:none;color:var(--ink2);border-radius:18px;padding:13px 16px;font-weight:500}
+body.liquid .search .kbd{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink3);border:1px solid var(--hair2);border-radius:7px;padding:2px 7px}
+/* App Library */
+.lib-head{display:none;align-items:flex-end;justify-content:space-between;padding:22px 22px 0}
+body.liquid .lib-head{display:flex}
+.lib-head h2{margin:0;font-size:30px;font-weight:800;letter-spacing:-.04em;color:#f5f5f7;line-height:1}
+.lib-head h2 em{font-family:var(--serif);font-style:italic;font-weight:400;letter-spacing:-.01em;background:linear-gradient(100deg,#5eead4,#64d2ff 45%,#bf9bff);-webkit-background-clip:text;background-clip:text;color:transparent;padding-right:4px}
+.lib-head span{font-size:12.5px;font-weight:600;color:var(--ink3)}
+body.liquid .pile{background:rgba(255,255,255,.065);border:1px solid var(--glass-line);box-shadow:var(--shadow);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px)}
+body.liquid .stack .name{font-size:12px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:5px}
+body.liquid .stack .name i{width:6px;height:6px;border-radius:50%;flex:none}
+body.liquid .stack .name small{color:var(--ink3);font-weight:500}
+body.liquid .app .label{color:var(--ink);font-weight:550}
+body.liquid .badge{background:#8b7cf6;box-shadow:0 2px 8px rgba(139,124,246,.45);border:0}
+/* the dock: dark glass, a violet Launchpad and a search at the end */
+body.liquid .shelf{background:rgba(24,24,34,.58);border:1px solid var(--hair2);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 20px 50px rgba(0,0,0,.4);border-radius:26px}
+body.liquid .pad-btn{background:linear-gradient(140deg,#8b5cf6,#6366f1);border:0;color:#fff;box-shadow:0 6px 16px rgba(99,102,241,.4)}
+.find-btn{display:grid;place-items:center;border-radius:28%;background:rgba(255,255,255,.09);border:1px solid var(--hair2);color:#f5f5f7}
+.find-btn svg{width:46%;height:46%}
+body.liquid .sep{background:var(--hair2);opacity:1}
+body.liquid .tip{background:rgba(0,0,0,.82);border:1px solid var(--hair2)}
+/* covers, Launchpad, menus */
+body.liquid .veil,body.liquid .pad{background:var(--cover)}
+body.liquid .pad-top .field{background:rgba(255,255,255,.07);border:1px solid var(--hair2)}
+body.liquid .close{color:#c4b5fd}
+body.liquid .chip{background:rgba(255,255,255,.06);border:1px solid var(--hair);color:var(--ink2);display:inline-flex;align-items:center;gap:6px}
+body.liquid .chip i{width:6px;height:6px;border-radius:50%}
+body.liquid .chip.on{background:#f5f5f7;color:#05060b}
+body.liquid .pad-body h3{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
+body.liquid .fan h2{color:#f5f5f7;font-weight:800;letter-spacing:-.04em}
+body.liquid .ask{background:rgba(255,255,255,.06);border:1px solid var(--hair)}
+body.liquid .ask .dot.ai{background:linear-gradient(135deg,#8b5cf6,#ec4899)}
+body.liquid .menu{background:rgba(28,28,38,.92);border:1px solid var(--hair2)}
+body.liquid .menu button{color:#f5f5f7}
+body.liquid .menu .danger{color:#ff8a9a}
+body.liquid .menu hr{background:var(--hair2)}
+@media (min-width:600px){body.liquid .clock{font-size:104px}}
+@media (max-width:420px){body.liquid .clock{font-size:74px}body.liquid .board .wrap{padding-top:calc(var(--top) + 56px)}}
+@media (max-width:380px){body.liquid .clock{font-size:66px}}
+@media (prefers-reduced-motion:reduce){.aurora-bg i,.island .pulse{animation:none}}
 </style>
 </head>
-<body class="launcher light">
+<body class="launcher light liquid aurora">
+<div class="aurora-bg"><i></i><i></i><i></i></div>
+<button class="island" id="island" aria-label="퍼레 대화 열기"><span class="pulse"></span><b id="islandName">퍼레</b><span class="say" id="islandSay">준비됐어요</span></button>
 <script>/*GYEOT*/</script>
 <script src="/board.js"></script>
 <main id="home"><div class="inner">
   <div id="boardHost"></div>
-  <button class="search" id="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>앱 검색 · 퍼레에게 묻기</button>
+  <button class="search" id="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>앱 검색 · 퍼레에게 묻기<span class="kbd">ㅋㅋㅇ</span></button>
+  <div class="lib-head"><h2>App <em>Library</em></h2><span id="libCount"></span></div>
   <div class="stacks" id="stacks"></div>
 </div></main>
 <nav class="dock"><div class="shelf" id="shelf"></div></nav>
@@ -153,7 +259,7 @@ const badgeHtml = n => n > 0 ? '<span class="badge">' + (n > 99 ? "99+" : n) + '
 
 /* ── the board on top ─────────────────────────────────────── */
 window.boardGo = what => B && B.open(what);
-window.boardRoom = () => Math.max(250, innerHeight * 0.47);
+window.boardRoom = () => Math.max(250, innerHeight * 0.54);
 makeBoard(el("boardHost"));
 if (G.dark) document.body.classList.replace("light", "dark");
 
@@ -162,23 +268,27 @@ function appButton(a) {
   return '<button class="app" data-id="' + esc(a.id) + '"><span class="ic"><img alt="" loading="lazy" decoding="async" src="' + iconOf(a) + '">' + badgeHtml(badgeOf(a)) + '</span><span class="label">' + esc(a.label) + '</span></button>';
 }
 function sorted(list) { return list.slice().sort((x, y) => x.label.localeCompare(y.label, "ko", {numeric: true})); }
+/* Each stack's dot, from DaropoOS's palette. */
+const DOT = {money: "#5eead4", chat: "#ffd166", ai: "#bf9bff", map: "#64d2ff", shop: "#ff7ab6", media: "#ff8a9a", photo: "#ffb86b", google: "#7cc4ff", web: "#64d2ff", work: "#a5b4fc", game: "#ff7ab6", tools: "#a1a1aa", etc: "#a1a1aa"};
 function drawStacks() {
   const out = [];
   for (const s of STACKS) {
     const apps = sorted(APPS.filter(a => a.stack === s.id)); if (!apps.length) continue;
-    const n = apps.reduce((t, a) => t + badgeOf(a), 0);
-    out.push('<button class="stack" data-stack="' + s.id + '"><span class="pile">' + apps.slice(0, 9).map(a => '<img alt="" decoding="async" src="' + iconOf(a) + '">').join("") + badgeHtml(n) + '</span><span class="name">' + esc(s.name) + ' ' + apps.length + '</span></button>');
+    // No count on a folder's corner (준: "폴더의 우상단 엣지에 숫자띄우지 말아줘"): the apps inside keep theirs.
+    out.push('<button class="stack" data-stack="' + s.id + '"><span class="pile">' + apps.slice(0, 9).map(a => '<img alt="" decoding="async" src="' + iconOf(a) + '">').join("") + '</span><span class="name"><i style="background:' + (DOT[s.id] || "#a1a1aa") + '"></i>' + esc(s.name) + ' <small>' + apps.length + '</small></span></button>');
   }
   el("stacks").innerHTML = out.join("");
+  el("libCount").textContent = APPS.length ? APPS.length + "개의 앱" : "";
 }
 function drawDock() {
   const ids = DOCK.filter(id => BY.has(id)); const recent = RECENT.filter(id => BY.has(id) && !ids.includes(id)).slice(0, innerWidth >= 600 ? 3 : 2);
   const size = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--dockIcon")) || 52, gap = innerWidth <= 420 ? 8 : 10;
-  const slots = Math.floor((Math.min(innerWidth, 900) - 44) / (size + gap)) - 1;
+  const slots = Math.floor((Math.min(innerWidth, 900) - 44) / (size + gap)) - 1 - (innerWidth >= 600 ? 2 : 0);
   const most = Math.max(3, slots); const room = slots - Math.min(ids.length, most);
   if (room < 2) recent.length = 0; else recent.length = Math.min(recent.length, room - 1);
   const one = id => { const a = BY.get(id); return '<div class="dk" data-id="' + esc(id) + '" aria-label="' + esc(a.label) + '"><img alt="" decoding="async" src="' + iconOf(a) + '">' + badgeHtml(badgeOf(a)) + '</div>'; };
-  el("shelf").innerHTML = '<div class="dk pad-btn" data-pad="1" aria-label="모든 앱">' + PAD_ICON + '</div>' + ids.slice(0, most).map(one).join("") + (recent.length ? '<span class="sep"></span>' + recent.map(one).join("") : "");
+  el("shelf").innerHTML = '<div class="dk pad-btn" data-pad="1" aria-label="모든 앱">' + PAD_ICON + '</div>' + ids.slice(0, most).map(one).join("") + (recent.length ? '<span class="sep"></span>' + recent.map(one).join("") : "")
+    + (innerWidth >= 600 ? '<span class="sep"></span><div class="dk find-btn" data-find="1" aria-label="검색"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg></div>' : "");
 }
 function drawAll() { drawStacks(); drawDock(); if (el("pad").classList.contains("on")) drawPad(); }
 
@@ -211,8 +321,15 @@ press(el("stacks"), ".stack", t => openFan(t.dataset.stack, t), (t, x, y) => hol
 document.addEventListener("contextmenu", e => e.preventDefault());
 press(document.body, ".app", t => launch(t.dataset.id, t.querySelector(".ic")), (t, x, y) => appMenu(t.dataset.id, x, y));
 el("search").addEventListener("click", () => openPad(true));
+el("island").addEventListener("click", () => B && B.open("chat"));
+/* The background: the night aurora, or the user's own wallpaper under a dark veil (the home screen's menu switches). */
+function backdrop(kind) { document.body.classList.toggle("aurora", kind !== "photo"); document.body.classList.toggle("photo", kind === "photo"); }
+backdrop(G.bg || "aurora");
 
-/* The dock: slide a finger along it and the icons swell like a Mac's; let go on one to open it. */
+/*
+  The dock: slide a finger along it and the icons swell like a Mac's, only to look (준: "드래그하다가 손을 놓으면 실행이
+  돼버려"); an app opens on a tap, a touch that did not move.
+*/
 (function dock() {
   const shelf = el("shelf"), tip = el("tip");
   let active = false, startX = 0, startY = 0, moved = false, over = null, longTimer = 0, longDone = false;
@@ -243,8 +360,8 @@ el("search").addEventListener("click", () => openPad(true));
     if (!active) return; active = false; clearTimeout(longTimer);
     const r = shelf.getBoundingClientRect(), outside = e.clientY < r.top - 60;
     const target = over; rest();
-    if (longDone || outside || !target || e.type === "pointercancel") return;
-    if (target.dataset.pad) openPad(false); else launch(target.dataset.id, target);
+    if (longDone || outside || moved || !target || e.type === "pointercancel") return;
+    if (target.dataset.pad) openPad(false); else if (target.dataset.find) openPad(true); else launch(target.dataset.id, target);
   };
   shelf.addEventListener("pointerup", end); shelf.addEventListener("pointercancel", end);
 })();
@@ -303,7 +420,7 @@ function openFan(id, from, held) {
   const top = r.top - h - 14 >= topMost ? r.top - h - 14 : r.bottom + 14 + h <= floor ? r.bottom + 14 : Math.max(topMost, (innerHeight - h) / 2);
   fan.style.left = left + "px"; fan.style.top = top + "px"; fan.style.transformOrigin = (cx - left) + "px " + (cy - top) + "px";
   fanFrom = {cx, cy, left, top}; fanOpened = Date.now();
-  el("veil").classList.add("on");
+  el("veil").classList.add("on"); document.body.classList.add("covered");
   requestAnimationFrame(() => { fan.classList.add("shown"); fly(fan, false); });
 }
 /** Each icon from the folder's middle to its place with a spring (or back into it), one after another. */
@@ -320,6 +437,7 @@ function fly(fan, back) {
 function closeFan() {
   const fan = el("fan"); if (!fan.classList.contains("on")) return;
   fly(fan, true); fan.classList.remove("shown"); el("veil").classList.remove("on");
+  if (!el("pad").classList.contains("on")) document.body.classList.remove("covered");
   setTimeout(() => { fan.classList.remove("on"); fan.innerHTML = ""; }, 260);
 }
 /**
@@ -367,7 +485,7 @@ function closePad() { const pad = el("pad"); if (!pad.classList.contains("on")) 
 el("padClose").addEventListener("click", closePad);
 function drawChips() {
   const have = STACKS.filter(s => APPS.some(a => a.stack === s.id));
-  el("chips").innerHTML = '<button class="chip' + (filter ? "" : " on") + '" data-f="">전체</button>' + have.map(s => '<button class="chip' + (filter === s.id ? " on" : "") + '" data-f="' + s.id + '">' + esc(s.name) + '</button>').join("");
+  el("chips").innerHTML = '<button class="chip' + (filter ? "" : " on") + '" data-f="">전체</button>' + have.map(s => '<button class="chip' + (filter === s.id ? " on" : "") + '" data-f="' + s.id + '"><i style="background:' + (DOT[s.id] || "#a1a1aa") + '"></i>' + esc(s.name) + '</button>').join("");
 }
 el("chips").addEventListener("click", e => { const c = e.target.closest(".chip"); if (!c) return; filter = c.dataset.f; drawChips(); drawPad(); });
 function initials(t) {
@@ -392,7 +510,7 @@ function drawPad() {
     const hits = APPS.map(a => [score(q, a), a]).filter(x => x[0] > 0).sort((x, y) => y[0] - x[0] || x[1].label.localeCompare(y[1].label, "ko", {numeric: true})).slice(0, 16).map(x => x[1]);
     body.innerHTML = '<div class="pad-inner">' + (hits.length ? '<h3>앱</h3><div class="grid-apps">' + hits.map(appButton).join("") + '</div>' : '<div class="empty">그런 이름의 앱이 없어요</div>')
       + '<h3>그 밖에</h3>'
-      + '<button class="ask" data-ask="1"><span class="dot" style="background:linear-gradient(140deg,#ff9a76,#ff6a45)"><svg viewBox="0 0 24 24" width="18" height="18" fill="#fff"><path d="M12 2.5l2.1 6.2 6.4 2.3-6.4 2.3L12 19.5l-2.1-6.2L3.5 11l6.4-2.3z"/></svg></span><span><b>퍼레에게 묻기</b><span>‘' + esc(q) + '’</span></span></button>'
+      + '<button class="ask" data-ask="1"><span class="dot ai"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 6.5h7A4.5 4.5 0 0 1 20 11v3.5a4.5 4.5 0 0 1-4.5 4.5h-7A4.5 4.5 0 0 1 4 14.5V11a4.5 4.5 0 0 1 4.5-4.5zM12 6.5V4.6"/><path d="M9.4 11.6v2M14.6 11.6v2" stroke-width="2.4"/><circle cx="12" cy="3.4" r="1.1" fill="#fff" stroke="none"/></svg></span><span><b>퍼레에게 묻기</b><span>‘' + esc(q) + '’</span></span></button>'
       + '<button class="ask" data-web="1"><span class="dot" style="background:#3182f6"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg></span><span><b>웹에서 찾기</b><span>‘' + esc(q) + '’</span></span></button></div>';
     return;
   }
@@ -451,8 +569,14 @@ function stackMenu(id, x, y) {
   };
 }
 function homeMenu(x, y) {
-  showMenu('<button data-do="wallpaper">배경화면 바꾸기</button><button data-do="decor">화면 꾸미기</button><button data-do="all">모든 앱</button><hr><button data-do="home">원래 홈 화면으로</button>', x, y);
-  el("menu").onclick = e => { const b = e.target.closest("button"); if (!b) return; closeMenu(); if (b.dataset.do === "all") openPad(false); else B && B.settings(b.dataset.do); };
+  const photo = document.body.classList.contains("photo");
+  showMenu('<button data-do="bg">' + (photo ? "오로라 배경으로" : "내 배경화면 보이기") + '</button><button data-do="wallpaper">배경화면 바꾸기</button><button data-do="decor">화면 꾸미기</button><button data-do="all">모든 앱</button><hr><button data-do="home">원래 홈 화면으로</button>', x, y);
+  el("menu").onclick = e => {
+    const b = e.target.closest("button"); if (!b) return; closeMenu();
+    if (b.dataset.do === "all") openPad(false);
+    else if (b.dataset.do === "bg") { const next = photo ? "aurora" : "photo"; backdrop(next); B && B.look(next); }
+    else B && B.settings(b.dataset.do);
+  };
 }
 
 /* ── the app's calls ──────────────────────────────────────── */
@@ -461,7 +585,13 @@ window.launcher = {
     APPS = k.apps || []; BY = new Map(APPS.map(a => [a.id, a])); DOCK = k.dock || []; RECENT = k.recent || []; STACKS = k.stacks || []; BADGES = k.badges || {};
     drawAll();
   },
-  board(k) { setBoardData(k); },
+  board(k) {
+    setBoardData(k);
+    const busy = (k.working || 0) > 0 || k.lab;
+    el("islandName").textContent = k.name || "퍼레";
+    el("islandSay").textContent = k.working > 0 ? "맡긴 일 " + k.working + "개 하는 중" : k.lab ? "연구실 실험 중" : "준비됐어요";
+    el("island").classList.toggle("busy", !!busy);
+  },
   badges(k) { BADGES = k || {}; drawAll(); },
   insets(top, bottom) { document.documentElement.style.setProperty("--top", top + "px"); document.documentElement.style.setProperty("--bottom", bottom + "px"); boards.forEach(fit); },
   /** Home pressed while the home screen is in front: back to its top, everything closed (a Mac's desktop). */

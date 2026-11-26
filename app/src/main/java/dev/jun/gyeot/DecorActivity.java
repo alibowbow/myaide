@@ -88,7 +88,7 @@ public final class DecorActivity extends Activity {
         AppStore store = ((GyeotApp) getApplication()).store();
         boolean dockOn = SideDock.on(store), reachable = PhoneService.connected();
         String edgeSide = store.settings.getBoolean("sideDockRight", !store.settings.getBoolean("edgeRight", true)) ? "오른쪽" : "왼쪽";
-        ui.addRow(launcherGroup, ui.listRow(R.drawable.ic_sparkle, Ui.BLUE, "사이드 독 · " + (dockOn ? "켜짐" : "꺼짐"),
+        ui.addRow(launcherGroup, ui.listRow(R.drawable.ic_layers, Ui.BLUE, "사이드 독 · " + (dockOn ? "켜짐" : "꺼짐"),
             !reachable ? "오른쪽 바(접근성)가 켜져 있어야 나타나요" : dockOn ? "화면 " + edgeSide + " 끝을 안쪽으로 밀면 맥 독처럼 앱이 나와요 · 훑다가 떼면 열려요" : "켜면 어느 앱에서든 화면 끝에서 앱을 꺼내요",
             ui.smallChip(!reachable ? "켜기" : dockOn ? "끄기" : "켜기", () -> {
                 if (!reachable) { try { startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)); } catch (RuntimeException ignored) {} return; }
@@ -105,13 +105,13 @@ public final class DecorActivity extends Activity {
         body.addView(pagesHead);
         LinearLayout pages = ui.group();
         if (slots.isEmpty()) {
-            ui.addRow(pages, ui.listRow(R.drawable.ic_sparkle, Ui.ACCENT, "퍼레 홈으로 시작하기", "1페이지는 지금 배경화면 사진, 2페이지는 일정·시세·알림을 보여 주는 퍼레 홈", ui.chevron(), this::startHome), true);
+            ui.addRow(pages, ui.listRow(R.drawable.ic_home, Ui.ACCENT, "퍼레 홈으로 시작하기", "1페이지는 지금 배경화면 사진, 2페이지는 일정·시세·알림을 보여 주는 퍼레 홈", ui.chevron(), this::startHome), true);
         } else for (int i = 0; i < slots.size(); i++) {
             HomeBoard.Slot slot = slots.get(i); int at = i;
             boolean photo = HomeBoard.PHOTO.equals(slot.src()), home = HomeBoard.HOME.equals(slot.src());
             String sub = photo ? (HtmlWallpaper.photo(this).isFile() ? "원래 배경화면 사진" : "사진이 아직 없어요 · 눌러서 골라요")
                 : home ? "일정 · 시세(BTC · SOXL · KORU) · 알림 · 퍼레의 제안" : slot.src().startsWith(HtmlWallpaper.PAGE) ? "내 페이지" : String.valueOf(android.net.Uri.parse(slot.src()).getHost());
-            ui.addRow(pages, ui.listRow(photo ? R.drawable.ic_gallery : home ? R.drawable.ic_home : R.drawable.ic_sparkle, photo ? Ui.BLUE : home ? Ui.ACCENT : Ui.PURPLE,
+            ui.addRow(pages, ui.listRow(photo ? R.drawable.ic_gallery : home ? R.drawable.ic_home : R.drawable.ic_layers, photo ? Ui.BLUE : home ? Ui.ACCENT : Ui.PURPLE,
                 (slots.size() > 1 ? (i + 1) + "페이지 · " : "모든 페이지 · ") + slot.title(), sub, ui.smallChip("바꾸기", () -> choose(at)), () -> choose(at)), true);
         }
         body.addView(pages);
@@ -256,7 +256,7 @@ public final class DecorActivity extends Activity {
             () -> { menu.dismiss(); target = page; if (HtmlWallpaper.photo(this).isFile()) put(HomeBoard.PHOTO, HomeBoard.name(HomeBoard.PHOTO)); else takeWallpaper(); }), true);
         if (HtmlWallpaper.photo(this).isFile()) ui.addRow(group, ui.listRow(R.drawable.ic_gallery, Ui.TEAL, "다른 사진 고르기", "갤러리에서 한 장", null, () -> { menu.dismiss(); target = page; pickPhoto(); }), true);
         ui.addRow(group, ui.listRow(R.drawable.ic_home, Ui.ACCENT, "퍼레 홈", "일정 · 시세 · 알림 · 퍼레의 제안, 누르면 앱 화면이 열려요", null, () -> { menu.dismiss(); target = page; put(HomeBoard.HOME, HomeBoard.name(HomeBoard.HOME)); }), true);
-        ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, Ui.PURPLE, "작품에서 고르기", "아래 목록의 움직이는 화면", ui.chevron(), () -> { menu.dismiss(); target = page; Toast.makeText(this, (page + 1) + "페이지에 넣을 작품을 아래에서 골라 주세요", Toast.LENGTH_SHORT).show(); }), true);
+        ui.addRow(group, ui.listRow(R.drawable.ic_layers, Ui.PURPLE, "작품에서 고르기", "아래 목록의 움직이는 화면", ui.chevron(), () -> { menu.dismiss(); target = page; Toast.makeText(this, (page + 1) + "페이지에 넣을 작품을 아래에서 골라 주세요", Toast.LENGTH_SHORT).show(); }), true);
         ui.addRow(group, ui.listRow(R.drawable.ic_pages, Ui.BLUE, "내 페이지에서", "페이지에 저장한 HTML", ui.chevron(), () -> { menu.dismiss(); target = page; fromPages(); }), true);
         ui.addRow(group, ui.listRow(R.drawable.ic_globe, Ui.TEAL, "주소로 넣기", "https:// 로 시작하는 웹 페이지", ui.chevron(), () -> { menu.dismiss(); target = page; fromAddress(); }), true);
         if (page < slots.size()) ui.addRow(group, ui.listRow(R.drawable.ic_close, Ui.ERROR, slots.size() > 1 ? "이 페이지 빼기" : "움직이는 배경화면 끄기", slots.size() > 1 ? "뒤 페이지가 한 칸씩 당겨져요" : "고른 화면을 비워요", null, () -> {

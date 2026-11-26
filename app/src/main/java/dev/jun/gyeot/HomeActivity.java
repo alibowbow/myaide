@@ -128,11 +128,11 @@ public final class HomeActivity extends Activity {
         root.addView(web, new FrameLayout.LayoutParams(-1, -1));
         web.loadUrl(BASE + "launcher.html");
     }
-    /** Status and navigation bar icons dark on a light wallpaper, light on a dark one. */
+    /** The home screen is dark glass (the aurora, or the wallpaper under a dark veil): the bars' icons are light on it. */
     private void systemBars() {
         WindowInsetsController c = getWindow().getInsetsController(); if (c == null) return;
         int light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
-        c.setSystemBarsAppearance(darkWallpaper() ? 0 : light, light);
+        c.setSystemBarsAppearance(0, light);
     }
     /**
      * The one accent of the home screen, from the wallpaper's own main color (준: "전체적인 색감과 디자인이 좀 조화롭지 않다"):
@@ -263,7 +263,7 @@ public final class HomeActivity extends Activity {
         String html;
         try (InputStream in = getAssets().open("decor/launcher.html")) { html = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
         String kind = HtmlWallpaper.mascotReady(this);
-        JSONObject config = Jsons.obj("launcher", true, "dark", darkWallpaper(), "accent", accent(), "mascot", !kind.isEmpty(), "mascotKind", kind, "mascotAt", HtmlWallpaper.mascot(this).lastModified());
+        JSONObject config = Jsons.obj("launcher", true, "dark", darkWallpaper(), "accent", accent(), "bg", prefs.getString("bg", "aurora"), "mascot", !kind.isEmpty(), "mascotKind", kind, "mascotAt", HtmlWallpaper.mascot(this).lastModified());
         return html.replace("/*GYEOT*/", "window.GYEOT=" + config.toString().replace("</", "<\\/") + ";");
     }
     /** An app's icon as the phone draws it (its shape, a work badge), once: kept in memory and in the cache folder. */
@@ -308,6 +308,8 @@ public final class HomeActivity extends Activity {
                 prefs.edit().putString(RECENT, recent.toString()).apply();
             });
         }
+        /** The background: "aurora" (the home screen's own night sky) or "photo" (the user's wallpaper under a dark veil). */
+        @JavascriptInterface public void look(String bg) { prefs.edit().putString("bg", "photo".equals(bg) ? "photo" : "aurora").apply(); }
         @JavascriptInterface public void dock(String ids) {
             try { JSONArray a = new JSONArray(ids); if (a.length() <= 24) prefs.edit().putString(DOCK, a.toString()).apply(); } catch (Exception ignored) {}
         }

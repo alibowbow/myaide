@@ -75,7 +75,7 @@ public final class FileExplorerActivity extends Activity {
                 ui.feature(R.drawable.ic_lock,"휴대폰 보안","설정 점검 · 최근 변경 · 의심 앱 차단",Ui.GREEN,this::phoneCheck),
                 ui.feature(R.drawable.ic_navigation,"내비게이션","자주 가는 곳 · 경유지 · 말로 길안내",Ui.BLUE,()->startActivity(new Intent(this,NavigationActivity.class))),
                 ui.feature(R.drawable.ic_bell,"알림 비서","알림 모아 보기 · AI 요약",Ui.ORANGE,()->startActivity(new Intent(this,NoticeActivity.class))),
-                ui.feature(R.drawable.ic_sparkle,"화면 꾸미기","맥 스타일 홈 화면 · 움직이는 배경화면",Ui.PURPLE,()->startActivity(new Intent(this,DecorActivity.class)))};
+                ui.feature(R.drawable.ic_layers,"화면 꾸미기","맥 스타일 홈 화면 · 움직이는 배경화면",Ui.PURPLE,()->startActivity(new Intent(this,DecorActivity.class)))};
             int across=getResources().getConfiguration().screenWidthDp>=600?3:2,gap=ui.dp(10);
             for(int i=0;i<tiles.length;i+=across){
                 LinearLayout line=ui.row();line.setBaselineAligned(false);
