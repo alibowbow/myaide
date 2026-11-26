@@ -546,54 +546,85 @@ backdrop(G.bg || "aurora");
   carried up off it, it leaves the dock. Held and let go without moving: the app's menu, as before.
 */
 let dragging = null;
-const stillTouch = e => { if (e.cancelable) e.preventDefault(); };
+/*
+  The page never scrolls under a lifted icon or a held folder (준: "조작감 오류 수정": the folder jumped while dragging). The
+  touchmove listener has to be there from the start: one added mid-touch comes too late, the phone has already decided to
+  scroll. It only stops the scroll while something is held.
+*/
+const stillTouch = () => {};
+document.addEventListener("touchmove", e => { if ((dragging || holding) && e.cancelable) e.preventDefault(); }, {passive: false});
+/** Where an element sits without any transform on it (the slot it holds, not where an animation shows it). */
+function slotOf(n) {
+  const p = n.offsetParent || document.body, pr = p.getBoundingClientRect();
+  const left = pr.left + n.offsetLeft - p.scrollLeft, top = pr.top + n.offsetTop - p.scrollTop;
+  return {left, top, w: n.offsetWidth, h: n.offsetHeight, cx: left + n.offsetWidth / 2, cy: top + n.offsetHeight / 2};
+}
 function lift(item, x, y, kind) {
-  dragging = {item, kind, box: item.parentElement, x, y, moved: false, out: false};
+  const fan = kind === "fan" ? el("fan") : null;
+  dragging = {item, kind, box: item.parentElement, x, y, lx: x, ly: y, moved: false, out: false, at: 0, fan, raf: 0};
   item.classList.add("lifted"); dragging.box.classList.add("editing");
+  // The folder holds still under the finger; near its top or bottom edge it scrolls on its own (drift).
+  if (fan) { fan.style.overflowY = "hidden"; dragging.raf = requestAnimationFrame(drift); }
   if (navigator.vibrate) try { navigator.vibrate(15); } catch (e) {}
-  document.addEventListener("touchmove", stillTouch, {passive: false});
   addEventListener("pointermove", dragMove); addEventListener("pointerup", dragEnd); addEventListener("pointercancel", dragEnd);
   follow(x, y);
 }
 function follow(x, y) {
-  const it = dragging.item; it.style.transform = "none"; const r = it.getBoundingClientRect();
-  it.style.transform = "translate(" + (x - r.left - r.width / 2).toFixed(1) + "px," + (y - r.top - r.height / 2).toFixed(1) + "px) scale(1.16)";
+  const it = dragging.item, r = slotOf(it);
+  it.style.transform = "translate(" + (x - r.cx).toFixed(1) + "px," + (y - r.cy).toFixed(1) + "px) scale(1.16)";
 }
 function slide(nodes, change) {
   const before = new Map(nodes.map(n => [n, n.getBoundingClientRect()]));
   change();
   for (const n of nodes) {
-    const a = before.get(n), b = n.getBoundingClientRect(), dx = a.left - b.left, dy = a.top - b.top;
-    if (!dx && !dy) continue;
+    const a = before.get(n), b = slotOf(n), dx = a.left - b.left, dy = a.top - b.top;
+    if (Math.abs(dx) < .5 && Math.abs(dy) < .5) continue;
     n.style.transition = "none"; n.style.transform = "translate(" + dx + "px," + dy + "px)"; n.getBoundingClientRect();
-    n.style.transition = "transform .18s ease"; n.style.transform = "";
+    n.style.transition = "transform .2s cubic-bezier(.2,.8,.2,1)"; n.style.transform = "";
   }
+}
+/** The slot under the finger, by where the icons sit (not where they are sliding): it moves there once the finger is well inside it. */
+function place() {
+  const d = dragging; if (!d || d.out) return;
+  const sel = d.kind === "dock" ? ".dk[data-dock]" : ".app";
+  const items = Array.from(d.box.querySelectorAll(sel)); if (items.length < 2) return;
+  let k = -1, best = 1e9;
+  items.forEach((n, i) => { const r = slotOf(n), dd = Math.hypot(d.lx - r.cx, d.ly - r.cy); if (dd < best) { best = dd; k = i; } });
+  const now = items.indexOf(d.item), cell = slotOf(items[k]);
+  if (k === now || best > Math.max(cell.w, cell.h) * 0.5 || Date.now() - d.at < 110) return;
+  d.at = Date.now();
+  const others = items.filter(i => i !== d.item), target = items[k];
+  slide(others, () => d.box.insertBefore(d.item, k > now ? target.nextSibling : target));
+}
+function drift() {
+  const d = dragging; if (!d || !d.fan) return;
+  const r = d.fan.getBoundingClientRect(), zone = 64; let v = 0;
+  if (d.ly < r.top + zone) v = -(r.top + zone - d.ly) / 4; else if (d.ly > r.bottom - zone) v = (d.ly - (r.bottom - zone)) / 4;
+  if (v) { const was = d.fan.scrollTop; d.fan.scrollTop += Math.max(-18, Math.min(18, v)); if (d.fan.scrollTop !== was) { follow(d.lx, d.ly); place(); } }
+  d.raf = requestAnimationFrame(drift);
 }
 function dragMove(e) {
   const d = dragging; if (!d) return;
+  d.lx = e.clientX; d.ly = e.clientY;
   if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8) d.moved = true;
-  const sel = d.kind === "dock" ? ".dk[data-dock]" : ".app";
-  const items = Array.from(d.box.querySelectorAll(sel)), others = items.filter(i => i !== d.item);
   if (d.kind === "dock") {
     const r = el("shelf").getBoundingClientRect(); d.out = e.clientY < r.top - 70;
     d.item.classList.toggle("leaving", d.out);
     const tip = el("tip"); tip.textContent = d.out ? "놓으면 독에서 빼요" : ""; tip.classList.toggle("on", d.out);
     if (d.out) { const tr = d.item.getBoundingClientRect(); tip.style.left = (tr.left + tr.width / 2) + "px"; tip.style.top = (tr.top - 8) + "px"; }
   }
-  if (!d.out && others.length) {
-    // The icon nearest the finger; before it when the finger is on its leading side.
-    let near = null, best = 1e9;
-    for (const o of others) { const r = o.getBoundingClientRect(), dd = Math.hypot(e.clientX - (r.left + r.width / 2), e.clientY - (r.top + r.height / 2)); if (dd < best) { best = dd; near = o; } }
-    const r = near.getBoundingClientRect(), before = d.kind === "dock" ? e.clientX < r.left + r.width / 2 : (e.clientY < r.top || (e.clientY <= r.bottom && e.clientX < r.left + r.width / 2));
-    const now = items.indexOf(d.item), there = items.indexOf(near), want = before ? there - (now < there ? 1 : 0) : there + (now > there ? 1 : 0);
-    if (want !== now && best < 140) slide(others, () => d.box.insertBefore(d.item, before ? near : near.nextSibling));
-  }
+  place();
   follow(e.clientX, e.clientY);
 }
 function dragEnd(e) {
   const d = dragging; if (!d) return; dragging = null;
-  document.removeEventListener("touchmove", stillTouch); removeEventListener("pointermove", dragMove); removeEventListener("pointerup", dragEnd); removeEventListener("pointercancel", dragEnd);
-  d.item.classList.remove("lifted", "leaving"); d.box.classList.remove("editing"); d.item.style.transform = ""; el("tip").classList.remove("on");
+  removeEventListener("pointermove", dragMove); removeEventListener("pointerup", dragEnd); removeEventListener("pointercancel", dragEnd);
+  if (d.raf) cancelAnimationFrame(d.raf); if (d.fan) d.fan.style.overflowY = "";
+  // It settles into its slot instead of jumping there.
+  const it = d.item, from = it.getBoundingClientRect(), to = slotOf(it);
+  it.classList.remove("lifted", "leaving"); d.box.classList.remove("editing"); el("tip").classList.remove("on");
+  it.style.transition = "none"; it.style.transform = "translate(" + (from.left + from.width / 2 - to.cx).toFixed(1) + "px," + (from.top + from.height / 2 - to.cy).toFixed(1) + "px)"; it.getBoundingClientRect();
+  it.style.transition = "transform .22s cubic-bezier(.2,.8,.2,1)"; it.style.transform = "";
   const id = d.item.dataset.id;
   if (!d.moved) { if (e.type === "pointerup") appMenu(id, d.x, d.y - (d.kind === "dock" ? 40 : 0)); return; }
   if (d.kind === "dock") {
@@ -614,9 +645,10 @@ function dragEnd(e) {
 */
 function elastic(box, inner, done) {
   let y0 = null, last = 0;
-  box.addEventListener("touchstart", e => { if (e.touches.length !== 1 || holding) { y0 = null; return; } y0 = e.touches[0].clientY; last = 0; const i = inner(); if (i) i.style.transition = "none"; }, {passive: true});
+  box.addEventListener("touchstart", e => { if (e.touches.length !== 1 || holding || dragging) { y0 = null; return; } y0 = e.touches[0].clientY; last = 0; const i = inner(); if (i) i.style.transition = "none"; }, {passive: true});
   box.addEventListener("touchmove", e => {
-    if (y0 == null || holding) return;
+    // Not while an icon is lifted or a folder held: the drag moves the icon, never the page (the folder jumped: 준 "조작감 오류").
+    if (y0 == null || holding || dragging) { if (y0 != null && last) { last = 0; const i = inner(); if (i) i.style.transform = ""; } return; }
     const y = e.touches[0].clientY, atTop = box.scrollTop <= 0, atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 1;
     let d = 0;
     if (atTop && y > y0) d = y - y0; else if (atEnd && y < y0) d = y - y0; else y0 = y;
@@ -626,6 +658,7 @@ function elastic(box, inner, done) {
   }, {passive: true});
   const end = () => {
     if (y0 == null) return; y0 = null; const i = inner();
+    if (dragging || holding) { if (i) i.style.transform = ""; last = 0; return; }
     if (i) { i.style.transition = "transform .6s cubic-bezier(.2,1.3,.35,1)"; i.style.transform = ""; }
     if (done) done(last); last = 0;
   };
@@ -682,8 +715,7 @@ function hold(tile, x, y) {
   openFan(tile.dataset.stack, tile, true);
   holding = true; if (navigator.vibrate) try { navigator.vibrate(14); } catch (e) {}
   const fan = el("fan"); let hot = null, lastX = x, lastY = y, raf = 0;
-  const still = e => { if (e.cancelable) e.preventDefault(); };
-  document.addEventListener("touchmove", still, {passive: false});
+  // The page holds still while it is held (the global touchmove listener, see dragging).
   const mark = () => {
     const t = document.elementFromPoint(lastX, lastY), a = t && t.closest ? t.closest("#fan .app") : null;
     if (a !== hot) { if (hot) hot.classList.remove("hot"); hot = a; if (hot) { hot.classList.add("hot"); if (navigator.vibrate) try { navigator.vibrate(6); } catch (e) {} } }
@@ -697,7 +729,7 @@ function hold(tile, x, y) {
   raf = requestAnimationFrame(drift);
   const move = e => { lastX = e.clientX; lastY = e.clientY; mark(); };
   const up = e => {
-    cancelAnimationFrame(raf); document.removeEventListener("touchmove", still);
+    cancelAnimationFrame(raf);
     removeEventListener("pointermove", move); removeEventListener("pointerup", up); removeEventListener("pointercancel", up);
     holding = false; holdEnded = Date.now();
     const hint = fan.querySelector(".hint"); if (hint) hint.remove();
