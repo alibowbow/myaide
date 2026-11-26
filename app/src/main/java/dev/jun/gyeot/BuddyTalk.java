@@ -177,7 +177,7 @@ final class BuddyTalk {
             + "사용자에 대해 아는 것:\n" + (note.isBlank() ? "(아직 잘 몰라요)" : note) + "\n\n";
         String input = context + (talk.length() == 0 ? "" : "지금까지 대화:\n" + talk) + "사용자: " + said + "\n퍼레:";
         ask(c, instructions, input, 0.9, 12_000, BuddyTalk::spoken, line -> {
-            remember(c, "voice", "사용자와 목소리로 이야기했어요" + (said.length() <= 24 ? " (‘" + said + "’)" : ""), 2 * 3_600_000L);
+            learnLater(c, said, line);
             done.accept(line);
         }, failed);
     }
@@ -297,15 +297,8 @@ final class BuddyTalk {
         SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         dev.jun.gyeot.core.BuddyLife.Done d = dev.jun.gyeot.core.BuddyLife.act(dev.jun.gyeot.core.BuddyLife.read(p.getString(LIFE, ""), now), kind, now);
         p.edit().putString(LIFE, dev.jun.gyeot.core.BuddyLife.save(d.state())).apply();
-        switch (kind == null ? "" : kind) {
-            case "pet" -> remember(c, "pet", "사용자가 쓰다듬어 줘서 몽글몽글 행복했어요", 3_600_000L);
-            case "snack" -> { if ("yum".equals(d.felt())) remember(c, "snack", "사용자에게 간식을 받아먹었어요", 3_600_000L); }
-            case "play" -> remember(c, "play", "사용자랑 같이 놀았어요", 3_600_000L);
-            case "talk" -> remember(c, "talk", "퍼레 대화로 사용자와 이야기를 나눴어요", 2 * 3_600_000L);
-            case "back" -> back(c, now);
-            case "shake" -> remember(c, "shake", "사용자가 휴대폰을 마구 흔들어서 어질어질했어요", 3_600_000L);
-            default -> {}
-        }
+        // Only what is worth remembering (준: "필요없는것들이 다 기록이돼"): not a stroke, a snack, play or a talk as such.
+        if ("back".equals(kind)) back(c, now);
         JSONObject out = life(c);
         try { out.put("felt", d.felt()); } catch (Exception ignored) {}
         return out;
@@ -313,16 +306,42 @@ final class BuddyTalk {
     /** The user came home: after hours away it is a memory, and so is being up in the small hours. */
     private static void back(Context c, long now) {
         long since = c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).getLong("awaySince", 0);
-        if (since > 0 && now - since >= 3 * 3_600_000L) remember(c, "away", (now - since) / 3_600_000L + "시간 만에 사용자가 돌아왔어요. 기다렸어요", 0);
+        if (since > 0 && now - since >= 8 * 3_600_000L) remember(c, "away", (now - since) / 3_600_000L + "시간 만에 사용자가 돌아왔어요. 기다렸어요", 0);
         int h = java.time.LocalTime.now().getHour();
-        if (h >= 1 && h < 5) remember(c, "late", "새벽 " + h + "시에도 사용자가 깨어 있었어요", 3 * 3_600_000L);
+        if (h >= 1 && h < 5) remember(c, "late", "새벽 " + h + "시에도 사용자가 깨어 있었어요", 6 * 3_600_000L);
     }
 
     // ── 퍼레's own memory (core/BuddyMemory), in the app's files apart from the assistant's memory ──
+    /** The kinds of memory kept: what the user told (fact), long away, up late, snow and very cold or hot days. */
+    static final java.util.Set<String> KEPT = java.util.Set.of("fact", "away", "late", "snow", "cold", "hot");
+    /**
+     * What 퍼레 learned about the user in a talk (퍼레 대화, 음성 대화): the quick brain reads the exchange and writes one line a
+     * friend would remember (a plan, something they like, why they feel so, someone dear), or nothing. Never secrets, numbers
+     * or money. Off the main thread; nothing when no quick brain is connected.
+     */
+    static void learnLater(Context c, String said, String answer) {
+        if (said == null || said.strip().length() < 8) return;
+        AppStore store = ((GyeotApp) c.getApplicationContext()).store();
+        boolean nim = store.nim.connected(), groq = GroqWork.on(); if (!nim && !groq) return;
+        String instructions = "사용자와 AI 친구 퍼레가 나눈 대화 한 토막이야. 퍼레가 친구로서 오래 기억해 둘 만한 사용자의 이야기(계획·약속, 좋아하거나 싫어하는 것, 기분이나 그 이유, 일상의 일, 소중한 사람·동물)가 있으면 '사용자는 …'으로 시작하는 한 문장(45자 안쪽, ~대요/~래요 말투)으로만 써.\n"
+            + "인사·잡담·질문·부탁·명령·앱 사용법·날씨·지금 잠깐의 일뿐이면 '없음'이라고만 써. 비밀번호·주소·전화번호·계좌·돈 액수는 절대 쓰지 마.";
+        String input = "사용자: " + said.strip() + "\n퍼레: " + (answer == null ? "" : answer.strip());
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> before = memories(c);
+        new Thread(() -> quick(c, store, nim, groq, QWEN, instructions, input, 0.2, 12_000, text -> {
+            String t = text == null ? "" : text.replaceAll("(?s)<think>.*?</think>", "").strip().split("\n")[0].replaceAll("[\"“”*]", "").strip();
+            if (t.isEmpty() || t.startsWith("없음") || !t.startsWith("사용자") || t.length() > 70 || t.matches(".*\\d{4,}.*")) return "";
+            return t;
+        }, line -> {
+            if (line.isEmpty()) return;
+            for (dev.jun.gyeot.core.BuddyMemory.Entry e : before) if (e.text().replaceAll("\\s", "").equals(line.replaceAll("\\s", ""))) return;
+            remember(c, "fact", line, 0);
+        }, () -> {}), "gyeot-buddy-learn").start();
+    }
     private static java.io.File memoryFile(Context c) { return new java.io.File(new java.io.File(c.getFilesDir(), "buddy"), "memory.json"); }
     static synchronized java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> memories(Context c) {
         // The storage memories of 0.4.560 are left out (준: "자꾸 파일 정리하라는 엉뚱한 이야기를 하는데"): 퍼레 does not talk about storage.
-        try { java.io.File f = memoryFile(c); java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = dev.jun.gyeot.core.BuddyMemory.read(f.isFile() ? java.nio.file.Files.readString(f.toPath()) : "[]"); all.removeIf(m -> "room".equals(m.kind())); return all; }
+        // Only what is worth remembering; the routine records of 0.4.559–0.4.567 (apps opened, charging, play …) are left out.
+        try { java.io.File f = memoryFile(c); java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = dev.jun.gyeot.core.BuddyMemory.read(f.isFile() ? java.nio.file.Files.readString(f.toPath()) : "[]"); all.removeIf(m -> !KEPT.contains(m.kind())); return all; }
         catch (Exception unreadable) { return new java.util.ArrayList<>(); }
     }
     private static synchronized void keepMemories(Context c, java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> list) {
@@ -340,17 +359,11 @@ final class BuddyTalk {
     static void weatherMemory(Context c, JSONObject w) {
         if (w == null) return;
         int code = w.optInt("code", -1), t = w.optInt("temp", 15); String place = w.optString("place").isBlank() ? "" : w.optString("place") + "에 ";
-        if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95) remember(c, "rain", place + "비가 와서 우산을 썼어요", 12 * 3_600_000L);
-        else if ((code >= 71 && code <= 77) || code == 85 || code == 86) remember(c, "snow", place + "눈이 내렸어요", 12 * 3_600_000L);
+        if ((code >= 71 && code <= 77) || code == 85 || code == 86) remember(c, "snow", place + "눈이 내렸어요", 12 * 3_600_000L);
         if (t <= -5) remember(c, "cold", "영하로 꽁꽁 추운 날이라 목도리를 했어요", 12 * 3_600_000L);
         else if (t >= 33) remember(c, "hot", "푹푹 찌게 더운 날이었어요", 12 * 3_600_000L);
     }
     /** An app the user opened from the home screen, once in six hours each. */
-    static void appMemory(Context c, String label) {
-        if (label == null || label.isBlank()) return;
-        int h = java.time.LocalTime.now().getHour();
-        remember(c, "app:" + label, (h < 5 ? "새벽에 " : h >= 22 ? "밤늦게 " : "") + "사용자가 ‘" + label + "’을(를) 열었어요", 6 * 3_600_000L);
-    }
     /**
      * 퍼레's home, the phone, as it is now: the battery (its food; charging is a meal), music playing (it dances) and
      * headphones on, the phone silenced, no network, its heat, power saving, do-not-disturb, airplane mode. Nothing private;
@@ -391,24 +404,7 @@ final class BuddyTalk {
         try { android.os.PowerManager pm = c.getSystemService(android.os.PowerManager.class); if (pm != null) e.put("powerSave", pm.isPowerSaveMode()); } catch (Exception ignored) {}
         try { android.app.NotificationManager nm = c.getSystemService(android.app.NotificationManager.class); if (nm != null) e.put("dnd", nm.getCurrentInterruptionFilter() > android.app.NotificationManager.INTERRUPTION_FILTER_ALL); } catch (Exception ignored) {}
         try { e.put("airplane", android.provider.Settings.Global.getInt(c.getContentResolver(), android.provider.Settings.Global.AIRPLANE_MODE_ON, 0) != 0); } catch (Exception ignored) {}
-        try { changes(c, e); } catch (RuntimeException ignored) {}
         return e;
-    }
-    /** What changed in 퍼레's home since it last looked: each change worth it becomes a memory. */
-    private static synchronized void changes(Context c, JSONObject e) {
-        SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        JSONObject was; try { was = new JSONObject(p.getString("env", "{}")); } catch (Exception bad) { was = new JSONObject(); }
-        p.edit().putString("env", e.toString()).apply();
-        if (was.length() == 0) return;
-        int h = java.time.LocalTime.now().getHour(); String late = h < 5 ? "새벽에 " : h >= 23 ? "밤늦게 " : "";
-        if (e.optBoolean("charging") && !was.optBoolean("charging")) remember(c, "charge", late + "충전기에 꽂혀서 밥을 든든히 먹었어요", 30 * 60_000L);
-        if (e.has("battery") && e.optInt("battery") <= 15 && !e.optBoolean("charging") && (!was.has("battery") || was.optInt("battery") > 15)) remember(c, "hungry", "배터리가 " + e.optInt("battery") + "%까지 떨어져서 배가 고팠어요", 3 * 3_600_000L);
-        if (e.optBoolean("music") && !was.optBoolean("music")) remember(c, "music", late + (e.optBoolean("phones") ? "사용자가 이어폰으로 음악을 들어서 같이 들썩였어요" : "음악이 흘러서 같이 춤췄어요"), 3_600_000L);
-        if (e.optBoolean("offline") && !was.optBoolean("offline")) remember(c, "offline", "인터넷이 끊겨서 한참 갸우뚱했어요", 3 * 3_600_000L);
-        if (e.optInt("heat") >= 41 && was.optInt("heat") < 41) remember(c, "heat", "휴대폰이 " + e.optInt("heat") + "도까지 뜨거워져서 땀이 났어요", 2 * 3_600_000L);
-        if (e.optBoolean("powerSave") && !was.optBoolean("powerSave")) remember(c, "save", "절전 모드라 기운을 아끼며 조용히 지냈어요", 6 * 3_600_000L);
-        if (e.optBoolean("dnd") && !was.optBoolean("dnd")) remember(c, "dnd", "방해 금지라서 말을 아끼고 곁에 있었어요", 6 * 3_600_000L);
-        if (e.optBoolean("airplane") && !was.optBoolean("airplane")) remember(c, "airplane", "비행기 모드였어요. 어디 멀리 가셨나 봐요", 6 * 3_600_000L);
     }
     /**
      * The phone's state as plain facts, for answers when the user asks (준: "내가 지금 저장공간 얼마남았어? 라고 물을 때 답을 못하자나"):

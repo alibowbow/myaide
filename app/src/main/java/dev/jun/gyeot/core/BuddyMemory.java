@@ -10,11 +10,11 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 퍼레's own memory (준: "퍼레 캐릭터의 메모리는 따로 들퍼레 앱에 저장"): what it lived through on the phone, kept in the app apart
- * from the assistant's memory. The charger, music late at night, the user coming back after hours, a hot phone, an app opened,
- * being petted: a short line each with its time and kind, the newest last, at most MOST. The same kind within its quiet time
- * is kept once (a charger plugged in every few minutes is one memory). 퍼레's own words read the latest ones; the user sees
- * and deletes them in the app. Pure Java.
+ * 퍼레's own memory (준: "퍼레 캐릭터의 메모리는 따로 들퍼레 앱에 저장"), kept in the app apart from the assistant's memory:
+ * what the user told it in a talk (a plan, something they like …), the user coming back after a long while, being up in the
+ * small hours, a snowy or very cold or hot day; not the phone's routine (준: "필요없는것들이 다 기록이돼"). A short line each with
+ * its time and kind, the newest last, at most MOST. The same kind within its quiet time is kept once. 퍼레's own words read the
+ * latest ones; the user sees and deletes them in the app. Pure Java.
  */
 public final class BuddyMemory {
     private BuddyMemory() {}

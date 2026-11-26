@@ -475,7 +475,6 @@ public final class HomeActivity extends Activity {
                 JSONArray names = new JSONArray(); names.put(String.valueOf(info.getLabel()));
                 try { JSONArray was = new JSONArray(prefs.getString("recentLabels", "[]")); for (int i = 0; i < was.length() && names.length() < 6; i++) if (!names.optString(0).equals(was.optString(i))) names.put(was.optString(i)); } catch (Exception ignored) {}
                 prefs.edit().putString("recentLabels", names.toString()).apply();
-                String label = String.valueOf(info.getLabel()); try { io.execute(() -> BuddyTalk.appMemory(HomeActivity.this, label)); } catch (RuntimeException ignored) {}
                 JSONArray recent = new JSONArray(); recent.put(id);
                 JSONArray old = read(RECENT, new JSONArray());
                 for (int i = 0; i < old.length() && recent.length() < 6; i++) if (!id.equals(old.optString(i))) recent.put(old.optString(i));
@@ -503,7 +502,8 @@ public final class HomeActivity extends Activity {
                         // The AI the user chose for 퍼레 (화면 꾸미기 → 퍼레 두뇌); when it cannot answer, Qwen or NVIDIA below.
                         try {
                             String text = BuddyTalk.askCustom(store, chatInstructions(store), chatInput(history, question.strip()), cancel);
-                            if (ticket == chatTicket) js("launcher.reply(" + JSONObject.quote(text.replaceAll("(?s)<think>.*?</think>", "").strip()) + ")");
+                            String said = text.replaceAll("(?s)<think>.*?</think>", "").strip();
+                            if (ticket == chatTicket) { js("launcher.reply(" + JSONObject.quote(said) + ")"); BuddyTalk.learnLater(HomeActivity.this, question, said); }
                             return;
                         } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
                         catch (Exception unavailable) { if (ticket != chatTicket) return; if (!qwen && !store.nim.connected()) throw unavailable; }
@@ -514,13 +514,13 @@ public final class HomeActivity extends Activity {
                         try { text = GroqWork.converse(model, chatInstructions(store), messages, "none", 0.7, 30_000, cancel); }
                         catch (Exception first) { if (ticket != chatTicket) throw new java.util.concurrent.CancellationException(); text = GroqWork.converse(model, chatInstructions(store), messages, null, 0.7, 30_000, cancel); }
                         text = text.replaceAll("(?s)<think>.*?</think>", "").strip();
-                        if (ticket == chatTicket) js("launcher.reply(" + JSONObject.quote(text) + ")");
+                        if (ticket == chatTicket) { js("launcher.reply(" + JSONObject.quote(text) + ")"); BuddyTalk.learnLater(HomeActivity.this, question, text); }
                         return;
                     }
                     WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), store.nim.model(), chatInstructions(store), chatInput(history, question.strip()),
                         () -> { if (ticket != chatTicket) throw new java.util.concurrent.CancellationException(); }, cancel,
                         delta -> { if (ticket == chatTicket && !delta.isEmpty()) js("launcher.stream(" + JSONObject.quote(delta) + ")"); });
-                    if (ticket == chatTicket) js("launcher.reply(" + JSONObject.quote(answer.text == null ? "" : answer.text.strip()) + ")");
+                    if (ticket == chatTicket) { String said = answer.text == null ? "" : answer.text.strip(); js("launcher.reply(" + JSONObject.quote(said) + ")"); BuddyTalk.learnLater(HomeActivity.this, question, said); }
                 } catch (java.util.concurrent.CancellationException stopped) { /* a newer question, or stopped */ }
                 catch (Exception e) {
                     String why = e instanceof java.io.IOException ? "인터넷이 끊겼거나 " + (qwen ? "Groq" : "NVIDIA") + "가 답하지 않았어요. 잠시 뒤 다시 물어봐 주세요." : e.getMessage() == null ? "답을 받지 못했어요." : e.getMessage();
