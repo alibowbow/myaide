@@ -1784,7 +1784,7 @@ public final class MainActivity extends Activity {
         return page != null && !page.isEmpty() && SETTINGS_PAGES.contains(page) ? page : null;
     }
     /** Every settings page id; anything else opens the list. */
-    private static final java.util.Set<String> SETTINGS_PAGES = java.util.Set.of("", "key", "chatgpt", "grok", "nim", "groq", "antigravity", "claude", "ai", "connectors", "voice",
+    private static final java.util.Set<String> SETTINGS_PAGES = java.util.Set.of("", "key", "chatgpt", "grok", "nim", "groq", "typecast", "antigravity", "claude", "ai", "connectors", "voice",
         "quick", "phone", "look", "persona", "routines", "memory", "background", "update", "usage", "calendar", "wake", "about", "github", "drive", "gmail", "memories", "backup");
     /** The page a sub-page belongs to, "" for the pages listed on the settings home. */
     static String settingsParent(String page) {
