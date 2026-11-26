@@ -76,4 +76,20 @@ public class HomeScreenTests {
         assertFalse("percentages are not dates", dev.jun.gyeot.core.Proactive.stale(card.apply("SOXL 3.12% 하락, 1.5배 레버리지 점검"), now, zone));
         assertFalse("no date at all", dev.jun.gyeot.core.Proactive.stale(card.apply("AI 모델 카탈로그 업데이트"), now, zone));
     }
+
+    /** A suggestion about work already done in the app is left out (준: "이미 다 완료한 작업들을 자꾸 제안해"); a new one is kept. */
+    @Test public void dropsSuggestionsAlreadyDone() throws Exception {
+        java.util.function.Function<String, dev.jun.gyeot.core.Proactive.Card> card = t -> new dev.jun.gyeot.core.Proactive.Card(t, "", "", "");
+        java.util.List<String> done = java.util.List.of(
+            "석션덴쳐의 모든 것 · 석션덴쳐의 모든것에 대해 교과서처럼 보기 좋은 html로 만들어줘",
+            "AI 모델 카탈로그 · feable5.2, gemini4 neon, gpt 6.2 astra 활용 사례 조사해서 카탈로그에 추가해줘",
+            "은행 데이터센터 대출 기사 요약해서 보고서에 넣을 수 있게 정리해 줘");
+        for (String t : new String[]{"석션덴쳐 교과서 HTML 작성", "AI 모델 카탈로그 업데이트", "은행 데이터센터 대출 요약"}) assertTrue(t, dev.jun.gyeot.core.Proactive.done(card.apply(t), done));
+        for (String t : new String[]{"오늘 오후 3시 회의 준비", "임플란트 교과서 HTML 작성", "진주 여행 후기 정리"}) assertFalse(t, dev.jun.gyeot.core.Proactive.done(card.apply(t), done));
+        // A work room's state, as the cards read it.
+        org.json.JSONObject finished = new org.json.JSONObject().put("state", "idle").put("messages", new org.json.JSONArray().put(new org.json.JSONObject().put("role", "user").put("text", "만들어 줘")).put(new org.json.JSONObject().put("role", "assistant").put("text", "다 만들었어요")));
+        org.json.JSONObject failed = new org.json.JSONObject().put("state", "idle").put("messages", new org.json.JSONArray().put(new org.json.JSONObject().put("role", "user").put("text", "만들어 줘")).put(new org.json.JSONObject().put("role", "error").put("text", "실패")));
+        assertEquals("[끝남]", Briefing.status(finished)); assertEquals("[실패]", Briefing.status(failed));
+        assertEquals("[진행 중]", Briefing.status(new org.json.JSONObject().put("state", "running")));
+    }
 }
