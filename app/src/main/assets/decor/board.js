@@ -476,18 +476,19 @@ function hearts(b, n) {
 /** 퍼레 is thinking (the AI writes its line): the thinking face, dots in the bubble, until the line arrives. */
 function thinking(b) {
   const bubble = $(b, ".bubble");
-  bubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>'; bubble.dataset.go = ""; bubble.classList.remove("act"); bubble.classList.add("on");
+  bubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>'; bubble.dataset.go = ""; bubble.classList.remove("act", "sfx"); bubble.classList.add("on");
   if (b._mood) b._mood("thinking");
   clearTimeout(b._bubble); b._bubble = setTimeout(() => { if (!b._spoken) bubble.classList.remove("on"); }, 15000);
   b._spoken = false;
 }
 /** The line the AI wrote, typed into the bubble as it is said (the mouth moves while it types). */
 function thought(line) {
+  window._soloAsk = 0;
   boards.forEach(b => {
     b._spoke = Date.now();
     const bubble = $(b, ".bubble"), svg = $(b, ".bot"); b._spoken = true;
     if (b._mood) b._mood(""); if (b._feel) b._feel("happy", 1600);
-    bubble.textContent = ""; bubble.classList.add("on"); if (svg) svg.classList.add("talking");
+    bubble.textContent = ""; bubble.classList.remove("sfx"); bubble.classList.add("on"); if (svg) svg.classList.add("talking");
     let i = 0; const chars = Array.from(line);
     clearInterval(b._typing);
     b._typing = setInterval(() => {
@@ -496,14 +497,17 @@ function thought(line) {
     }, 38);
   });
 }
-function thoughtFail() { boards.forEach(b => { if (b._mood) b._mood(""); const line = say(b); if (line) speak(b, {text: line}, 3400); else $(b, ".bubble").classList.remove("on"); }); }
+function thoughtFail() {
+  // A line it wanted while playing alone: no line, no tap words in its place.
+  if (Date.now() - (window._soloAsk || 0) < 30000) { window._soloAsk = 0; boards.forEach(b => { if (b._mood) b._mood(""); }); return; }
+  boards.forEach(b => { if (b._mood) b._mood(""); const line = say(b); if (line) speak(b, {text: line}, 3400); else $(b, ".bubble").classList.remove("on"); }); }
 /** The bubble over the friend: words, and what a tap on it opens (if anything). */
 function speak(b, line, ms) {
   b._spoke = Date.now();
   const bubble = $(b, ".bubble");
   bubble.textContent = line.text; bubble.dataset.go = line.go || "";
   if (line.go) { const more = document.createElement("b"); more.className = "more"; more.textContent = " ›"; bubble.appendChild(more); }
-  bubble.classList.toggle("act", !!line.go); bubble.classList.add("on");
+  bubble.classList.toggle("act", !!line.go); bubble.classList.toggle("sfx", !!line.sfx); bubble.classList.add("on");
   clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on", "act"), ms || 6500);
 }
 
@@ -928,7 +932,7 @@ function boardVoiceState(state, text) {
   is held, sleeps at night or its card is open; a tap, its card or the voice talk bring it home first.
 */
 function roam(b) {
-  const buddy = $(b, ".buddy"), hero = $(b, ".hero"), cb = $(b, ".care-btn"), rnd = (a, z) => a + Math.random() * (z - a);
+  const buddy = $(b, ".buddy"), hero = $(b, ".hero"), rnd = (a, z) => a + Math.random() * (z - a);
   let x = 0, y = 0, playing = false;
   // How far it may go: left to just past the widget's words, a little up and down.
   /*
@@ -955,8 +959,9 @@ function roam(b) {
     || $(b, ".bubble").classList.contains("on") || $(b, ".bot").classList.contains("thinking");
   const place = ms => {
     const t = "translate(" + x.toFixed(0) + "px," + y.toFixed(0) + "px)";
-    buddy.style.transition = cb.style.transition = "transform " + ms + "ms cubic-bezier(.45,.1,.55,.9)";
-    buddy.style.transform = cb.style.transform = t;
+    // Its heart stays in the corner (준: "퍼레가 하트 버튼을 끌고 다니느라 움직임이 제약돼"): only 퍼레 goes.
+    buddy.style.transition = "transform " + ms + "ms cubic-bezier(.45,.1,.55,.9)";
+    buddy.style.transform = t;
   };
   const walk = (nx, ny, done, how) => {
     const dist = Math.hypot(nx - x, ny - y);
@@ -967,7 +972,29 @@ function roam(b) {
     setTimeout(() => { buddy.classList.remove(how || "walking"); if (done) done(); }, ms);
   };
   const toy = (cls, html, ms) => { const t = document.createElement("i"); t.className = "toy " + cls; if (html) t.innerHTML = html; buddy.appendChild(t); setTimeout(() => t.remove(), ms); return t; };
-  const feel = (f, ms) => { if (b._feel) b._feel(f, ms); };
+  /*
+    Words while it plays on its own (준: "퍼레가 혼자 놀때 프리셋 말풍선을 적극 활용해", "프리셋 감정표현 의성어 등등", "필요한 경우엔 혼자
+    놀때도 ai써서 이야기하게"): a small bubble (talk.js) with the play's own words, the sound of the feeling on its face, a word
+    when it ends or as it walks; two at most in one play, never over words already in its bubble, not while 방해 금지 or locked.
+    They do not count as 퍼레 having spoken, so a tap still gets its answer. Now and then, when an AI is here, it says
+    something of its own about the play and the moment instead (BuddyTalk "solo:"), at most every eight minutes.
+  */
+  let saidInPlay = 0, saidAt = 0, soloAiAt = 0, inPlay = false;
+  const quietNow = () => $(b, ".bubble").classList.contains("on") || (b._env && b._env.dnd) || lockedNow || document.hidden || voiceOn || b._careOn;
+  const blurt = (moment, ms) => {
+    if (quietNow() || saidInPlay >= 2 || Date.now() - saidAt < 2200) return false;
+    const w = preset(moment); if (!w) return false;
+    saidInPlay++; saidAt = Date.now();
+    const before = b._spoke; speak(b, {text: w, sfx: true}, ms || 2000); b._spoke = before;
+    return true;
+  };
+  const GROUP = {happy: "joy", cheerful: "joy", gleeful: "joy", delighted: "joy", excited: "joy", thrilled: "joy", sparkly: "joy", playful: "joy", cheeky: "joy",
+    laugh: "laugh", giggle: "laugh", chuckle: "laugh", lol: "laugh", surprised: "surprise", shock: "surprise", amazed: "surprise", awed: "surprise", eek: "surprise", horrified: "surprise",
+    proud: "proud", triumphant: "proud", smug: "proud", determined: "proud", focused: "proud", firedup: "proud", content: "calm", relief: "calm", zen: "calm", blissful: "calm", dreamy: "calm", hopeful: "calm",
+    dizzy: "dizzy", dazed: "dizzy", woozy: "dizzy", ko: "dizzy", yawn: "sleepy", drowsy: "sleepy", snooze: "sleepy", sleepy: "sleepy", shy: "shy", bashful: "shy", awkward: "shy", innocent: "shy", sorry: "shy",
+    curious: "curious", nosy: "curious", confused: "curious", idea: "curious", heartbroken: "sad", gloomy: "sad", pout: "sad", sulky: "sad", unimpressed: "sad", meh: "sad",
+    chilly: "cold", overheated: "hot", lovey: "love", sneaky: "sneaky", devious: "sneaky", sly: "sneaky", drooling: "food", yum: "food", ouch: "ouch", fume: "fume", sing: "sing"};
+  const feel = (f, ms) => { if (b._feel) b._feel(f, ms); if (inPlay && GROUP[f] && Math.random() < .3) setTimeout(() => blurt("feel:" + GROUP[f], 1700), 260); };
   const gazeTo = (gx, gy) => { const look = $(b, ".b-look"); look.style.transition = "transform 260ms ease"; look.style.transform = "translate(" + gx + "px," + gy + "px)"; };
   const PLAYS = {
     ball: end => { toy("ball", "", 2900); [0, 600, 1200].forEach((t, i) => setTimeout(() => { gazeTo(0, -4.5); setTimeout(() => gazeTo(0, 1.5), 300); }, t)); setTimeout(() => { move(b, "hop", 760); feel("laugh", 1200); }, 1900); setTimeout(() => { gazeTo(0, 0); end(); }, 2900); },
@@ -1088,9 +1115,14 @@ function roam(b) {
     const kind = kinds[Math.floor(Math.random() * kinds.length)];
     playing = true;
     const here = () => {
-      try { PLAYS[kind](() => { playing = false; }); } catch (err) { playing = false; }
-      // Now and then a word while it plays (talk.js "play:…"), never over words already in its bubble.
-      if (Math.random() < .1 && Date.now() - (b._spoke || 0) > 90000 && !$(b, ".bubble").classList.contains("on")) { const w = preset("play:" + kind); if (w) setTimeout(() => { if (!$(b, ".bubble").classList.contains("on")) speak(b, {text: w}, 2200); }, 600); }
+      saidInPlay = 0; inPlay = true;
+      const ended = () => { playing = false; inPlay = false; if (Math.random() < .22) { saidInPlay = Math.min(saidInPlay, 1); setTimeout(() => blurt("done", 1800), 200); } };
+      try { PLAYS[kind](ended); } catch (err) { playing = false; inPlay = false; }
+      // The AI, now and then: something of its own about this play and the moment.
+      const ai = window.boardThink && !quietNow() && Date.now() - soloAiAt > 480000 && Date.now() - (b._spoke || 0) > 60000 && Date.now() - thinkAt > 12000;
+      if (ai && Math.random() < .12) { soloAiAt = Date.now(); thinkAt = Date.now(); window._soloAsk = Date.now(); saidInPlay = 2; window.boardThink("solo:" + kind); return; }
+      // Mostly its words for the play, else a sound.
+      setTimeout(() => { if (Math.random() < .6) blurt("play:" + kind, 2200); else if (Math.random() < .5) blurt("solo", 1700); }, 450);
     };
     // Most plays start somewhere new in the playground.
     if (Math.random() < .85 && !["peek", "clock", "airplane", "ninja", "skipping", "rolling", "cartwheel"].includes(kind)) { const t = spot(); walk(t.x, t.y, here); } else here();
@@ -1103,6 +1135,7 @@ function roam(b) {
   const stroll = () => {
     if (!busy() && !playing && Math.random() < .6) {
       const t = spot(); walk(t.x, t.y);
+      if (Math.random() < .3) { saidInPlay = 0; setTimeout(() => blurt("roam", 1800), 300); }
     }
     setTimeout(stroll, rnd(14000, 26000));
   };

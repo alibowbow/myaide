@@ -66,6 +66,9 @@
         <intent><action android:name="android.accessibilityservice.AccessibilityService" /></intent>
         <intent><action android:name="android.service.notification.NotificationListenerService" /></intent>
         <intent><action android:name="android.app.action.DEVICE_ADMIN_ENABLED" /></intent>
+        <!-- 퍼레's 찾아 틀기: music and video apps that play or search what is asked. -->
+        <intent><action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" /></intent>
+        <intent><action android:name="android.intent.action.SEARCH" /></intent>
         <package android:name="com.android.vending" />
         <package android:name="com.android.settings" />
     </queries>

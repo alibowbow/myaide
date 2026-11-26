@@ -30,11 +30,16 @@ public final class NavigationActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService work = Executors.newSingleThreadExecutor();
     private boolean destroyed;
+    /** Opened with a place's words to add (퍼레 was asked to go to 집 before it was saved): the add sheet, those words in. */
+    static final String ADD = "addPlace";
+    private String prefill;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         ui = new Ui(this); store = ((GyeotApp) getApplication()).store();
         draw();
+        prefill = getIntent().getStringExtra(ADD);
+        if (prefill != null && !prefill.isBlank() && state == null) edit(-1);
     }
     @Override protected void onResume() { super.onResume(); if (body != null) draw(); }
     @Override protected void onDestroy() { destroyed = true; work.shutdownNow(); super.onDestroy(); }
@@ -92,7 +97,7 @@ public final class NavigationActivity extends Activity {
         String[] mode = {old == null ? "" : old.mode()};
 
         sheet.body.addView(ui.label("부르는 말 (쉼표로 여러 개)", 13, Ui.MUTED));
-        EditText words = ui.input("예: 집, 우리집", 1, 80); if (old != null) words.setText(String.join(", ", old.words())); ui.add(sheet.body, words, 12);
+        EditText words = ui.input("예: 집, 우리집", 1, 80); if (old != null) words.setText(String.join(", ", old.words())); else if (prefill != null) { words.setText(prefill); prefill = null; } ui.add(sheet.body, words, 12);
 
         sheet.body.addView(ui.label("목적지", 13, Ui.MUTED));
         TextView chosen = ui.text("", 15, 600, Ui.TEXT); ui.add(sheet.body, chosen, 4);

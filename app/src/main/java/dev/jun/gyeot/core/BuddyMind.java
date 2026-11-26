@@ -153,6 +153,25 @@ public final class BuddyMind {
         return letters > 0 && hangul * 2 >= letters;
     }
 
+    // ── its name, misheard ──
+    /** How the phone's recognizer and Whisper hear 퍼레 (준: "퍼레가 자기 이름을 못알아듣고 자꾸 벌레 버려 이런걸로 알아들어"). */
+    private static final String LIKE = "벌레|벌래|버레|버래|버려|퍼래|퍼려|펄레|펄래|뻐레|빠레|페레|파레|퍼리|프레|포레|허레";
+    /** Said as a call anywhere (벌레야, 퍼래야): never meant as a bug. 버려야 and 거래야 are words too, so only at the start. */
+    private static final Pattern CALLED = Pattern.compile("(^|[\\s,.!?~])(?:벌레|벌래|버레|버래|퍼래|퍼려|펄레|펄래|뻐레|빠레|페레|파레|퍼리|프레|포레|허레)(야|아)(?=$|[\\s,.!?~])");
+    private static final Pattern FIRST = Pattern.compile("^(?:(?:" + LIKE + ")(?:야|아)?|거래야)(?:$|[\\s,.!?~]+)(.*)$", Pattern.DOTALL);
+    /**
+     * What was said with 퍼레's name put back where the recognizer heard something like it: the whole thing (벌레, 버려야!),
+     * the first word before the rest (버려 지금 몇 시야 → 퍼레야 지금 몇 시야), or a call in the middle (오늘 벌레야 뭐 해).
+     * Words that are not a call stay (벌레가 나왔어, 이거 버려야 해).
+     */
+    public static String nameHeard(String said) {
+        if (said == null) return null;
+        String t = said.strip();
+        java.util.regex.Matcher first = FIRST.matcher(t);
+        if (first.matches()) { String rest = first.group(1).strip(); return rest.isEmpty() ? "퍼레야" : "퍼레야, " + rest; }
+        return CALLED.matcher(t).replaceAll("$1퍼레야");
+    }
+
     // ── what is private ──
     /*
      * Private (준: "병원에 간대요 정도는 민감한 기억이 아닌 듯", "비번이나 사이트 권한요청 고민거리 뭐 그런거 있자나"): passwords and

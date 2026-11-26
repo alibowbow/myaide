@@ -83,6 +83,18 @@ public class BuddyBrainTests {
         assertFalse("flat", dev.jun.gyeot.core.Intonation.rising(glide(160, 160, 160)));
         assertTrue(BuddyTalk.ACTS.length() > 0);
     }
+    @Test public void hearsItsName() {
+        // 준: "퍼레가 자기 이름을 못알아듣고 자꾸 벌레 버려 이런걸로 알아들어"
+        assertEquals("퍼레야", dev.jun.gyeot.core.BuddyMind.nameHeard("벌레야"));
+        assertEquals("퍼레야", dev.jun.gyeot.core.BuddyMind.nameHeard("버려!"));
+        assertEquals("퍼레야, 지금 몇 시야", dev.jun.gyeot.core.BuddyMind.nameHeard("버려 지금 몇 시야"));
+        assertEquals("퍼레야, 음악 틀어 줘", dev.jun.gyeot.core.BuddyMind.nameHeard("거래야 음악 틀어 줘"));
+        assertEquals("오늘 퍼레야 뭐 해", dev.jun.gyeot.core.BuddyMind.nameHeard("오늘 벌레야 뭐 해"));
+        assertEquals("벌레가 나왔어", dev.jun.gyeot.core.BuddyMind.nameHeard("벌레가 나왔어"));
+        assertEquals("이거 버려야 해?", dev.jun.gyeot.core.BuddyMind.nameHeard("이거 버려야 해?"));
+        assertEquals("거래 내역 보여 줘", dev.jun.gyeot.core.BuddyMind.nameHeard("거래 내역 보여 줘"));
+        assertEquals("퍼레야, 안녕", BuddyTalk.heard(org.robolectric.RuntimeEnvironment.getApplication(), "펄레야 안녕"));
+    }
     /** 1.6 s of a voiced sound at one pitch, then 0.4 s gliding from b to c (Hz), with a little noise. */
     private static short[] glide(double a, double b, double c) {
         java.util.Random r = new java.util.Random(5); int n = 16000 * 2; short[] out = new short[n]; double phase = 0;
@@ -177,6 +189,25 @@ public class BuddyBrainTests {
         assertFalse(said, said.contains("http") || said.contains("할일") || said.contains("😊"));
         assertTrue(said, said.startsWith("두구두구! 네이버 지도 바로 열어볼게"));
         assertNull(BuddyTalk.act("그냥 이야기야"));
+        // 준: 퍼레가 "{tool:openapp,app:YouTube}"를 그대로 외쳤다: a bare {…}, quotes or not, its tool's own name, never said.
+        String loose = "유튜브 열고 최신곡 틀게!\n{tool:openapp,app:YouTube}";
+        org.json.JSONObject open = BuddyTalk.act(loose);
+        assertNotNull(open); assertEquals("open_app", open.optString("tool")); assertEquals("YouTube", open.optString("app"));
+        assertEquals("유튜브 열고 최신곡 틀게!", BuddyTalk.spoken(loose));
+        org.json.JSONObject play = BuddyTalk.act("틀어 줄게 {\"tool\":\"play_music\",\"song\":\"아이유 신곡\",\"app\":\"유튜브\"}");
+        assertEquals("play", play.optString("tool")); assertEquals("아이유 신곡", play.optString("query"));
+        org.json.JSONObject home = BuddyTalk.act("집으로 갈게!\n할 일: {tool: navigation, destination: 우리 집}");
+        assertEquals("navigate", home.optString("tool")); assertEquals("우리 집", home.optString("destination"));
+        assertNull(BuddyTalk.act("{t} 안녕"));
+        // 집으로 가자: the saved place, said as 집, 우리 집, or copied with its name.
+        java.util.List<dev.jun.gyeot.core.SavedPlaces.Saved> saved = java.util.List.of(new dev.jun.gyeot.core.SavedPlaces.Saved(java.util.List.of("우리집"), "래미안", "부산", 35.1, 129.1),
+            new dev.jun.gyeot.core.SavedPlaces.Saved(java.util.List.of("엄마집"), "엄마", "부산", 35.2, 129.2));
+        assertEquals("래미안", dev.jun.gyeot.core.SavedPlaces.match("집", saved).name());
+        assertEquals("래미안", dev.jun.gyeot.core.SavedPlaces.match("우리 집으로", saved).name());
+        assertEquals("래미안", dev.jun.gyeot.core.SavedPlaces.match("우리집(래미안)", saved).name());
+        assertEquals("엄마", dev.jun.gyeot.core.SavedPlaces.match("엄마집", saved).name());
+        assertNull(dev.jun.gyeot.core.SavedPlaces.match("회사", saved));
+        assertTrue(dev.jun.gyeot.core.SavedPlaces.own("회사로")); assertFalse(dev.jun.gyeot.core.SavedPlaces.own("해운대"));
         java.util.Map<String, String[]> apps = new java.util.HashMap<>();
         apps.put("map", new String[]{"네이버 지도", "com.nhn.android.nmap"}); apps.put("gmap", new String[]{"지도", "com.google.android.apps.maps"});
         apps.put("yt", new String[]{"YouTube", "com.google.android.youtube"}); apps.put("talk", new String[]{"카카오톡", "com.kakao.talk"});

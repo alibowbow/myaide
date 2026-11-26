@@ -62,7 +62,9 @@ final class SpeechInput {
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             // Punctuation where the recognizer can (a "?" for a question; 준: "퍼레가 의문문을 못 알아 들어").
-            .putExtra(RecognizerIntent.EXTRA_ENABLE_FORMATTING, RecognizerIntent.FORMATTING_OPTIMIZE_LATENCY);
+            .putExtra(RecognizerIntent.EXTRA_ENABLE_FORMATTING, RecognizerIntent.FORMATTING_OPTIMIZE_LATENCY)
+            // 퍼레's name, so it is not heard as 벌레 or 버려 (준: "퍼레가 자기 이름을 못알아듣고"); recognizers that cannot bias ignore it.
+            .putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, new java.util.ArrayList<>(java.util.List.of("퍼레", "퍼레야", "들퍼레")));
     }
     /** What the user is told when a recognizer error ends a listening. */
     static String reason(int error) {

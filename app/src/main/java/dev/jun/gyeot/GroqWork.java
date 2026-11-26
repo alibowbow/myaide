@@ -99,6 +99,7 @@ final class GroqWork {
         String boundary = "gyeot" + System.nanoTime();
         ByteArrayOutputStream form = new ByteArrayOutputStream(wav.length + 1024);
         field(form, boundary, "model", WHISPER); field(form, boundary, "response_format", "json"); field(form, boundary, "temperature", "0"); field(form, boundary, "language", "ko");
+        field(form, boundary, "prompt", "퍼레야,"); // its name spelled so (not 벌레, 버려)
         form.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"said.wav\"\r\nContent-Type: audio/wav\r\n\r\n").getBytes(StandardCharsets.UTF_8));
         form.write(wav);
         form.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));

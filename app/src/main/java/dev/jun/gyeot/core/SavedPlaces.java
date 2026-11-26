@@ -74,7 +74,18 @@ public final class SavedPlaces {
         String wanted = key(destination);
         if (wanted.isEmpty() || places == null) return null;
         for (Saved one : places) for (String word : one.words()) if (key(word).equals(wanted)) return one;
+        // 우리 집 · 내 집 for 집 (and 집 for 우리집), the words before a bracket ("집(래미안)" as a brain copied it), the place's name.
+        String bare = key((destination == null ? "" : destination).replaceAll("[(\\[].*$", "")), plain = mine(wanted);
+        for (Saved one : places) {
+            for (String word : one.words()) { String w = key(word); if (w.equals(bare) || mine(w).equals(plain)) return one; }
+            if (!one.name().isBlank() && (key(one.name()).equals(wanted) || key(one.name()).equals(bare))) return one;
+        }
         return null;
+    }
+    private static String mine(String key) { String v = key.replaceFirst("^(우리|내|저희|나의|울)", ""); return v.isEmpty() ? key : v; }
+    /** Words for a place of the user's own (집, 회사, 엄마집 …): never a place to search for by that word. */
+    public static boolean own(String destination) {
+        return mine(key(destination)).matches("집|집앞|회사|직장|사무실|학교|본가|친정|시댁|처가|엄마집|아빠집|부모님집|할머니집|할머니댁|부모님댁|시골집|자취방|기숙사|숙소");
     }
     /** A word as matched: no spaces or marks, lower case, and the endings of a spoken destination taken off (으로, 로, 에, 까지, 쪽 …). */
     static String key(String text) {

@@ -45,9 +45,10 @@ final class BuddyTalk {
         java.util.List<String> said = said(p);
         boolean hasMemory = !memories(c).isEmpty(), hasApp = c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).getString("recentLabels", "[]").length() > 2;
         JSONObject used; try { used = new JSONObject(p.getString("topics", "{}")); } catch (Exception e) { used = new JSONObject(); }
-        String topic = dev.jun.gyeot.core.BuddyMind.topic(used, hasMemory, hasApp, new java.util.Random());
-        try { used.put(topic, System.currentTimeMillis()); } catch (Exception ignored) {}
-        p.edit().putString("topics", used.toString()).apply();
+        // Playing alone (board.js "solo:<play>"): the play is the topic.
+        boolean solo = reason.startsWith("solo:");
+        String topic = solo ? "지금 하고 있는 놀이" : dev.jun.gyeot.core.BuddyMind.topic(used, hasMemory, hasApp, new java.util.Random());
+        if (!solo) { try { used.put(topic, System.currentTimeMillis()); } catch (Exception ignored) {} p.edit().putString("topics", used.toString()).apply(); }
         String instructions = instructions(c, reason, topic, dev.jun.gyeot.core.BuddyMind.overused(said, 8)), input = input(c, store, p, reason);
         ask(c, instructions, input, attempt == 0 ? 0.75 : 0.9, 9_000, text -> clean(text, p), line -> { remember(p, line); busy.set(false); done.accept(line); },
             () -> { if (attempt == 0) thinkOnce(c, store, p, reason, done, failed, 1); else { busy.set(false); failed.run(); } });
@@ -206,9 +207,9 @@ final class BuddyTalk {
 
     // ── doing things on the phone (준: "퍼레는 폰조작이 안되네": it said "네이버 지도 바로 열어볼게" and a link, and opened nothing) ──
     /** What 퍼레 may do on the phone, as the model writes it: a second line "할일: {json}" after its words. */
-    static final String ACTS = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 찾기, 알람, 타이머, 음악 재생·멈춤·다음 곡, 손전등, 화면 가로·세로 고정과 자동 회전, 소리 크기, 화면 밝기, 와이파이·블루투스 같은 설정 화면, 인터넷 검색) 너가 직접 해. "
+    static final String ACTS = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 찾기, 알람, 타이머, 음악 재생·멈춤·다음 곡, 유튜브·음악 앱에서 노래나 영상 찾아 틀기, 손전등, 화면 가로·세로 고정과 자동 회전, 소리 크기, 화면 밝기, 와이파이·블루투스 같은 설정 화면, 인터넷 검색) 너가 직접 해. "
         + "첫 줄에 짧은 대답(예: '네이버 지도 열게!'), 둘째 줄에 '할일: ' 다음에 JSON 하나만 써. 형식: {\"tool\":\"open_app\",\"app\":\"앱 이름\"} · {\"tool\":\"navigate\",\"destination\":\"장소\"}(걸어서·대중교통·자전거라고 하면 \"mode\":\"walk|public|bicycle\") · "
-        + "{\"tool\":\"alarm\",\"hour\":7,\"minute\":30} · {\"tool\":\"timer\",\"seconds\":180} · {\"tool\":\"media\",\"command\":\"play\"}(play·pause·next·previous) · {\"tool\":\"torch\",\"on\":true} · "
+        + "{\"tool\":\"alarm\",\"hour\":7,\"minute\":30} · {\"tool\":\"timer\",\"seconds\":180} · {\"tool\":\"media\",\"command\":\"play\"}(play·pause·next·previous, 지금 나오는 것) · {\"tool\":\"play\",\"query\":\"노래·영상 검색어\",\"app\":\"YouTube\"}(유튜브·유튜브 뮤직·멜론·스포티파이에서 찾아 틀기, 앱을 말하지 않으면 app 빼기) · {\"tool\":\"torch\",\"on\":true} · "
         + "{\"tool\":\"rotation\",\"mode\":\"landscape\"}(landscape=가로 고정·portrait=세로 고정·auto=자동 회전·toggle=반대로) · {\"tool\":\"volume\",\"direction\":\"up\"}(up·down·mute·unmute, 또는 \"level\":0~100) · "
         + "{\"tool\":\"brightness\",\"direction\":\"up\"}(up·down, 또는 \"level\":0~100) · {\"tool\":\"show_alarms\"} · "
         + "{\"tool\":\"settings\",\"panel\":\"wifi\"}(internet·wifi·bluetooth·volume·nfc·display·location·battery) · {\"tool\":\"search\",\"query\":\"검색어\"}. "
@@ -216,27 +217,70 @@ final class BuddyTalk {
     /** The saved places (내비게이션 → 자주 가는 곳): their words go as the destination as said, "집으로 가자" → {"tool":"navigate","destination":"집"}. */
     static String places(AppStore store) {
         java.util.List<dev.jun.gyeot.core.SavedPlaces.Saved> saved = store.savedPlaces(); if (saved.isEmpty()) return "";
-        StringBuilder out = new StringBuilder("- 사용자가 저장해 둔 자주 가는 곳이야. 이 말로 길을 부탁하면 묻지 말고 그 말을 그대로 destination으로 써:");
+        StringBuilder out = new StringBuilder("- 사용자가 저장해 둔 자주 가는 곳이야. 이 말로 길을 부탁하면 묻지 말고 그 부르는 말만 그대로 destination으로 써(괄호 속 이름·주소는 쓰지 마, 예: \"destination\":\"집\"):");
         for (dev.jun.gyeot.core.SavedPlaces.Saved one : saved) out.append(" ").append(String.join("/", one.words())).append("(").append(one.name().isEmpty() ? one.address() : one.name()).append(")");
         return out.append("\n").toString();
     }
     private static final java.util.regex.Pattern ACT_LINE = java.util.regex.Pattern.compile("(?m)^\\s*할\\s*일\\s*[:：]\\s*(\\{.*\\})\\s*$");
-    /** The thing to do the answer names ("할일: {…}"), or null. */
+    /** A {…} naming a tool, as the quick brains write it: with or without 할일:, quotes or underscores. */
+    private static final java.util.regex.Pattern BRACES = java.util.regex.Pattern.compile("\\{[^{}]*\\}");
+    private static final java.util.regex.Pattern PAIR = java.util.regex.Pattern.compile("[\"']?([A-Za-z_]+)[\"']?\\s*[:=]\\s*(?:\"([^\"]*)\"|'([^']*)'|([^,}]*))");
+    /** The tool names the quick brains use for ours (준: "{tool:openapp,app:YouTube}"를 말로 외쳤다). */
+    private static final java.util.Map<String, String> TOOLS = java.util.Map.ofEntries(
+        java.util.Map.entry("openapp", "open_app"), java.util.Map.entry("open", "open_app"), java.util.Map.entry("app", "open_app"), java.util.Map.entry("launch", "open_app"), java.util.Map.entry("launchapp", "open_app"), java.util.Map.entry("앱열기", "open_app"),
+        java.util.Map.entry("navigation", "navigate"), java.util.Map.entry("navi", "navigate"), java.util.Map.entry("directions", "navigate"), java.util.Map.entry("route", "navigate"), java.util.Map.entry("길안내", "navigate"), java.util.Map.entry("길찾기", "navigate"),
+        java.util.Map.entry("setalarm", "alarm"), java.util.Map.entry("settimer", "timer"), java.util.Map.entry("flashlight", "torch"), java.util.Map.entry("light", "torch"),
+        java.util.Map.entry("setting", "settings"), java.util.Map.entry("showalarms", "show_alarms"), java.util.Map.entry("websearch", "search"), java.util.Map.entry("google", "search"),
+        java.util.Map.entry("playmusic", "play"), java.util.Map.entry("music", "play"), java.util.Map.entry("youtube", "play"), java.util.Map.entry("playvideo", "play"), java.util.Map.entry("재생", "play"),
+        java.util.Map.entry("mediacontrol", "media"), java.util.Map.entry("rotate", "rotation"), java.util.Map.entry("sound", "volume"));
+    /** The thing to do the answer names ("할일: {…}", or a bare {…} with a tool), its tool one of ACTS', or null. */
     static JSONObject act(String text) {
         if (text == null) return null;
-        java.util.regex.Matcher m = ACT_LINE.matcher(text.replaceAll("(?s)<think>.*?</think>", ""));
-        if (!m.find()) return null;
-        try { JSONObject a = new JSONObject(m.group(1)); return a.optString("tool").isBlank() ? null : a; } catch (Exception broken) { return null; }
+        java.util.regex.Matcher m = BRACES.matcher(text.replaceAll("(?s)<think>.*?</think>", ""));
+        while (m.find()) { JSONObject a = loose(m.group()); if (a != null) return a; }
+        return null;
+    }
+    /** One {…}: JSON, else its key: value pairs as written; null when it names no tool. */
+    static JSONObject loose(String braces) {
+        JSONObject a;
+        try { a = new JSONObject(braces); }
+        catch (Exception notJson) {
+            a = new JSONObject(); java.util.regex.Matcher p = PAIR.matcher(braces.substring(1, braces.length() - 1));
+            while (p.find()) { String v = p.group(2) != null ? p.group(2) : p.group(3) != null ? p.group(3) : p.group(4).strip(); try { a.put(p.group(1), v.matches("-?\\d+") && v.length() < 9 ? (Object) Integer.parseInt(v) : v.equals("true") || v.equals("false") ? (Object) Boolean.parseBoolean(v) : v); } catch (Exception ignored) {} }
+        }
+        String tool = a.optString("tool", a.optString("action")).strip().toLowerCase(Locale.ROOT);
+        if (tool.isEmpty()) return null;
+        String key = tool.replaceAll("[\\s_-]", "");
+        String known = TOOLS.getOrDefault(key, TOOLS.getOrDefault(tool, tool));
+        if (known.equals("showalarms")) known = "show_alarms";
+        // "music" with a command is the one playing now (pause, next), not a search.
+        if (known.equals("play") && !a.optString("command").isBlank() && a.optString("query").isBlank() && a.optString("song").isBlank()) known = "media";
+        try {
+            a.put("tool", known);
+            // The words for each thing as the brains vary them.
+            if (known.equals("open_app") && a.optString("app").isBlank()) a.put("app", a.optString("name", a.optString("target", a.optString("package"))));
+            if (known.equals("navigate") && a.optString("destination").isBlank()) a.put("destination", a.optString("place", a.optString("to", a.optString("address", a.optString("query")))));
+            if (known.equals("search") && a.optString("query").isBlank()) a.put("query", a.optString("q", a.optString("keyword", a.optString("text"))));
+            if (known.equals("play") && a.optString("query").isBlank()) a.put("query", a.optString("song", a.optString("title", a.optString("q", a.optString("keyword")))));
+        } catch (Exception ignored) {}
+        return a;
     }
     /**
      * guest: the voice is not the user's (VoicePrint, 준: "내 목소리를 알아볼 수 있게해줘"): 퍼레 answers a guest kindly and keeps the
      * user's memories, day and profile to itself, and learns nothing from what the guest said.
      */
+    /** What was heard with 퍼레's name put back where the recognizer took it for 벌레, 버려 … (only while its name is 퍼레). */
+    static String heard(Context c, String said) {
+        if (said == null || said.isBlank()) return said;
+        String name = "퍼레"; try { name = AssistantProfile.readName(c); } catch (RuntimeException ignored) {}
+        return name == null || name.isBlank() || name.contains("퍼레") ? dev.jun.gyeot.core.BuddyMind.nameHeard(said) : said;
+    }
     static void reply(Context c, String said, java.util.List<String[]> turns, boolean guest, Consumer<JSONObject> doIt, Consumer<String> done, Runnable failed) {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
         String instructions = persona(c) + "\n지금 " + (guest ? "누군가와" : "사용자와") + " 목소리로 대화하고 있어.\n"
             + (guest ? "- 지금 들리는 목소리는 '" + title(c) + "'(휴대폰 주인) 목소리가 아니야. 처음 듣는 목소리라고 반갑게 대하되, 주인의 기억·일정·하루·개인적인 이야기는 절대 꺼내지 말고, 주인에 대해 물어도 알려 주지 마. 상대를 '" + title(c) + "'(이)라고 부르지 마.\n" : "")
             + "- 사용자의 마지막 말에 바로, 친구처럼 답해. 물으면 핵심만 짧게 알려 주고, 모르면 솔직하게 말해.\n"
+            + "- 음성 인식이 네 이름을 '벌레·버려·버레·거래야'처럼 잘못 받아 적을 때가 있어. 그런 말이 혼자 들리거나 맨 앞에 오면 너를 부른 거야.\n"
             + "- 사용자의 말은 음성 인식으로 받아 적은 거라 물음표가 자주 빠져. '들려', '했어', '뭐야', '어때', '있어'처럼 질문일 수도 있는 말은 너에게 묻는 질문으로 받아들여 대답해(예: '음악 소리 들려' → 들리는지 대답).\n"
             + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 반말(~야, ~해). 이모지·기호·목록·괄호·영어 약어 없이.\n"
             + "- 귀엽고 밝게, 가끔 너의 기억을 자연스럽게 꺼내도 좋아.\n"
@@ -288,8 +332,8 @@ final class BuddyTalk {
         String t = text.replaceAll("(?s)<think>.*?</think>", "").replaceAll("^\\s*퍼레\\s*[:：]\\s*", "").strip();
         StringBuilder out = new StringBuilder();
         for (String line : t.split("\\n")) {
-            if (ACT_LINE.matcher(line).find() || line.strip().startsWith("할일")) continue;
-            String l = line.replaceAll("https?://\\S+", "").replaceAll("[\\p{So}\\p{Cs}\\x{FE0F}\\x{200D}]", "").replaceAll("^[-•*#\\d.\\s]+", "").replaceAll("[\"“”*_`#]", "").strip();
+            if (ACT_LINE.matcher(line).find() || line.strip().startsWith("할일") || line.strip().startsWith("할 일")) continue;
+            String l = line.replaceAll("\\{[^{}]*\\}", " ").replaceAll("\\{[^}]*$", "").replaceAll("https?://\\S+", "").replaceAll("[\\p{So}\\p{Cs}\\x{FE0F}\\x{200D}]", "").replaceAll("^[-•*#\\d.\\s]+", "").replaceAll("[\"“”*_`#]", "").strip();
             if (l.isEmpty()) continue;
             if (out.length() > 0) out.append(' ');
             out.append(l);
@@ -300,6 +344,14 @@ final class BuddyTalk {
         return s.length() <= 140 ? s : s.substring(0, 140).replaceAll("[^.!?요]*$", "").strip();
     }
     private static String instructions(Context c, String reason, String topic, java.util.List<String> avoid) {
+        if (reason.startsWith("solo:")) {
+            String play = reason.substring(5).replaceAll("[^A-Za-z]", "");
+            return persona(c) + "\n지금: 너는 홈 화면 구석에서 혼자 놀고 있어. 지금 하는 놀이는 '" + play + "'(영어 이름)야. 놀면서 혼잣말처럼 한마디 해.\n"
+                + "- 그 놀이와 지금 상황(시간·날씨·계절)을 엮어서 귀엽게. 의성어·감탄사(얍, 히힛, 우와)를 섞어도 좋아.\n"
+                + (avoid.isEmpty() ? "" : "- 최근에 이미 꺼낸 소재와 표현이니 이번엔 다루지 마: " + String.join(", ", avoid) + "\n")
+                + "- 사용자에게 뭘 하라고 하거나 묻지 말고, 일·돈·배터리·잔소리 이야기는 하지 마. 힘내·쉬어 같은 말도 하지 마.\n"
+                + "- 한 문장, 25자 안쪽, 친근한 반말. 따옴표와 이모지 없이 그 문장만 답해.";
+        }
         String moment = switch (reason) {
             case "back" -> "사용자가 방금 홈 화면으로 돌아왔어. 반갑게 먼저 말을 걸어.";
             case "pet" -> "사용자가 너를 쓰다듬어 줬어. 기분 좋은 반응을 해.";

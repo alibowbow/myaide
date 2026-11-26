@@ -114,14 +114,14 @@ final class BuddyVoice {
         ear = SpeechInput.DEVICE.open(context);
         ear.start(new SpeechInput.Listener() {
             @Override public void ready() {}
-            @Override public void partial(String words) { if (on && mine == generation) show("listening", words); }
+            @Override public void partial(String words) { if (on && mine == generation) show("listening", BuddyTalk.heard(context, words)); }
             @Override public void ended() {}
             @Override public void heard(String words) {
                 if (!on || mine != generation) return;
                 heardAt = android.os.SystemClock.uptimeMillis(); wordsAt = heardAt;
                 closeEar();
                 if (words == null || words.isBlank()) { quiet(); return; }
-                heardSome = true; silences = 0; filler(); think(words.strip(), false);
+                heardSome = true; silences = 0; filler(); think(BuddyTalk.heard(context, words.strip()), false);
             }
             @Override public void failed(String reason) {
                 if (!on || mine != generation) return;
@@ -156,7 +156,7 @@ final class BuddyVoice {
                 try { words = GroqWork.words(dev.jun.gyeot.core.Utterance.wav(pcm, dev.jun.gyeot.core.WakeWord.RATE), whisper); } catch (Exception failed) { words = null; }
                 // The voice went up at the end: a question, though the words carry no "?" (준: "음악소리들려? 라고 말하면 음악소리들려로 알아들어").
                 if (words != null && !words.isBlank() && !words.strip().endsWith("?") && dev.jun.gyeot.core.Intonation.rising(pcm)) words = words.strip().replaceAll("[.!。]+$", "") + "?";
-                String got = words;
+                String got = words == null ? null : BuddyTalk.heard(context, words);
                 main.post(() -> {
                     if (!on || mine != generation) return;
                     if (got == null) { ownEar = false; ownBroken = true; listen(); return; }

@@ -40,6 +40,7 @@ final class BuddyActs {
                     return started(context, DeviceActionRunner.start(context, search, overlay), "", true);
                 }
                 case "navigate" -> { return navigate(context, act, overlay); }
+                case "play" -> { return play(context, act, overlay); }
                 case "volume" -> { return volume(context, act); }
                 case "brightness" -> { return brightness(context, act, overlay); }
                 default -> { /* the phone's own actions, below */ }
@@ -77,7 +78,15 @@ final class BuddyActs {
         String destination = DeviceActions.destination(act), said = act.optString("mode").strip();
         String mode = dev.jun.gyeot.core.NaverPlaces.mode(said.isEmpty() ? store.navigationMode() : said);
         DeviceActions.Action action; dev.jun.gyeot.core.NaverPlaces.Place place = null;
-        dev.jun.gyeot.core.SavedPlaces.Saved saved = dev.jun.gyeot.core.SavedPlaces.match(destination, store.savedPlaces());
+        java.util.List<dev.jun.gyeot.core.SavedPlaces.Saved> all = store.savedPlaces();
+        dev.jun.gyeot.core.SavedPlaces.Saved saved = dev.jun.gyeot.core.SavedPlaces.match(destination, all);
+        store.phoneLog("  · 퍼레 · 길안내 ‘" + destination + "’ → " + (saved != null ? "자주 가는 곳 " + (saved.name().isEmpty() ? saved.address() : saved.name()) : "자주 가는 곳 아님 (저장 " + all.size() + "곳)"));
+        // 집·회사 not saved yet: not a map search for the word 집 (준: "집으로 가자니깐 엉뚱한 걸 여는데?"), but where it is saved.
+        if (saved == null && dev.jun.gyeot.core.SavedPlaces.own(destination)) {
+            Intent add = new Intent(context, NavigationActivity.class).putExtra(NavigationActivity.ADD, destination.replaceAll("(으로|로|에|까지)$", "")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            DeviceActionRunner.start(context, add, overlay);
+            return new BuddyVoice.Outcome("‘" + destination + "’이 어딘지 아직 몰라. 여기 저장해 주면 다음부턴 바로 안내할게!", false, null);
+        }
         if (saved != null) {
             place = saved.place();
             action = DeviceActions.navigateTo(place, said.isEmpty() && !saved.mode().isEmpty() ? saved.mode() : mode, saved.via());
@@ -101,6 +110,48 @@ final class BuddyActs {
             PhoneService.pressWhenShown("com.nhn.android.nmap", java.util.List.of("안내 시작", "안내시작", "길안내 시작", "경로 안내 시작"), 15_000, label -> store.phoneLog("  · 퍼레 · 네이버 지도 ‘" + label + "’ 눌렀어요"));
         if ("notification".equals(r.optString("outcome"))) return new BuddyVoice.Outcome(r.optString("say"), false, null);
         return new BuddyVoice.Outcome("", DeviceActionRunner.started(r.optString("route")), null);
+    }
+    /** The apps a song or a video is found and played in, by the words for them. */
+    private static final String[][] PLAYERS = {
+        {"com.google.android.apps.youtube.music", "유튜브뮤직", "youtubemusic", "ytmusic", "유튜브음악"},
+        {"com.google.android.youtube", "유튜브", "youtube"},
+        {"com.iloen.melon", "멜론", "melon"},
+        {"com.spotify.music", "스포티파이", "spotify"},
+        {"com.ktmusic.geniemusic", "지니", "지니뮤직", "genie"},
+        {"com.sec.android.app.music", "삼성뮤직", "samsungmusic"}};
+    /**
+     * 유튜브·음악 앱에서 찾아 틀기 (준: "유튜브 열고 최신곡 틀게!"라고만 하고 안 틀었다): the app said (YouTube when none), asked to
+     * play what was asked (MEDIA_PLAY_FROM_SEARCH, what the phone's assistant uses), else its search for it; YouTube itself
+     * shows its results for it.
+     */
+    private static BuddyVoice.Outcome play(Context context, JSONObject act, boolean overlay) {
+        String q = act.optString("query").strip(), named = appKey(act.optString("app"));
+        android.content.pm.PackageManager pm = context.getPackageManager();
+        String pkg = null;
+        // The name as said first (유튜브뮤직 is not 유튜브), then one inside the words (유튜브에서).
+        for (String[] p : PLAYERS) for (int i = 1; i < p.length && pkg == null; i++) if (named.equals(p[i])) pkg = p[0];
+        for (String[] p : PLAYERS) for (int i = 1; i < p.length && pkg == null; i++) if (!named.isEmpty() && named.contains(p[i])) pkg = p[0];
+        if (pkg == null && !named.isEmpty()) { LauncherActivityInfo info = findApp(context, act.optString("app")); if (info != null) pkg = info.getComponentName().getPackageName(); }
+        if (pkg == null) pkg = "com.google.android.youtube";
+        if (q.isEmpty()) {
+            Intent launch = pm.getLaunchIntentForPackage(pkg);
+            if (launch == null) return new BuddyVoice.Outcome("그 앱이 이 휴대폰에 없어.", false, null);
+            return started(context, DeviceActionRunner.start(context, launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), overlay), "", true);
+        }
+        java.util.List<Intent> tries = new java.util.ArrayList<>();
+        if (!pkg.equals("com.google.android.youtube"))
+            tries.add(new Intent(android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).setPackage(pkg).putExtra(android.app.SearchManager.QUERY, q).putExtra(android.provider.MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*"));
+        tries.add(new Intent(Intent.ACTION_SEARCH).setPackage(pkg).putExtra(android.app.SearchManager.QUERY, q).putExtra("query", q));
+        if (pkg.equals("com.google.android.youtube"))
+            tries.add(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.youtube.com/results?search_query=" + android.net.Uri.encode(q))).setPackage(pkg));
+        for (Intent t : tries) {
+            t.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            if (t.resolveActivity(pm) == null) continue;
+            String route = DeviceActionRunner.start(context, t, overlay);
+            ((GyeotApp) context.getApplicationContext()).store().phoneLog("  · 퍼레 · " + pkg + " · ‘" + q + "’ " + (t.getAction() != null && t.getAction().contains("PLAY_FROM_SEARCH") ? "찾아 틀기" : "검색") + " · " + route);
+            return started(context, route, "", true);
+        }
+        return new BuddyVoice.Outcome("거기서 찾아 틀 수가 없어. 그 앱이 깔려 있는지 봐 줘.", false, null);
     }
     /** The media volume: up or down a few steps, a level (0–100), muted or back (the phone shows its volume bar). */
     private static BuddyVoice.Outcome volume(Context context, JSONObject act) {
