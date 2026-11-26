@@ -58,8 +58,9 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +   '<g class="acc backpack"><rect x="24" y="8" width="52" height="40" rx="14" fill="#5bc0eb"/><path d="M42 9 Q50 1 58 9" stroke="#3a9fcb" stroke-width="3" fill="none"/></g>'
   +   '<g class="acc rainbow" fill="none" stroke-width="3"><path d="M8 34 A42 42 0 0 1 92 34" stroke="#ff6f6f"/><path d="M12 34 A38 38 0 0 1 88 34" stroke="#ffd36e"/><path d="M16 34 A34 34 0 0 1 84 34" stroke="#7cc576"/><path d="M20 34 A30 30 0 0 1 80 34" stroke="#5bc0eb"/></g>'
   +   '<path class="acc moon" d="M88 -6 a9 9 0 1 0 8 13 a7 7 0 1 1 -8 -13z" fill="#ffe07a"/>'
-  +   '<g class="b-arm l"><rect x="4" y="50" width="13" height="22" rx="6.5" fill="#ff7a55"/><g class="acc mittens"><rect x="2.5" y="62" width="16" height="13" rx="6.5" fill="#6f9fe8"/><rect x="2.5" y="61" width="16" height="4" rx="2" fill="#fff"/></g></g>'
-  +   '<g class="b-arm r"><rect x="83" y="50" width="13" height="22" rx="6.5" fill="#ff7a55"/><g class="acc mittens"><rect x="81.5" y="62" width="16" height="13" rx="6.5" fill="#6f9fe8"/><rect x="81.5" y="61" width="16" height="4" rx="2" fill="#fff"/></g></g>'
+  // Short round arms tucked into its body (준: "팔이 움직일 때 너무 덜렁덜렁 달린 느낌이야", "귀엽게"): they turn where they join it.
+  +   '<g class="b-arm l"><ellipse cx="10.5" cy="61" rx="8.5" ry="7.5" fill="#ff7a55"/><ellipse cx="8.5" cy="58.5" rx="3.2" ry="2.2" fill="#fff" opacity=".28"/><g class="acc mittens"><ellipse cx="10" cy="62" rx="8.5" ry="7" fill="#6f9fe8"/><rect x="11" y="55" width="4" height="13" rx="2" fill="#fff"/></g></g>'
+  +   '<g class="b-arm r"><ellipse cx="89.5" cy="61" rx="8.5" ry="7.5" fill="#ff7a55"/><ellipse cx="87.5" cy="58.5" rx="3.2" ry="2.2" fill="#fff" opacity=".28"/><g class="acc mittens"><ellipse cx="90" cy="62" rx="8.5" ry="7" fill="#6f9fe8"/><rect x="85" y="55" width="4" height="13" rx="2" fill="#fff"/></g></g>'
   +   '<g class="b-antenna"><line x1="50" y1="20" x2="50" y2="8.5" stroke="#ff6640" stroke-width="4" stroke-linecap="round"/><circle class="b-bulb" cx="50" cy="7" r="5.2"/>'
   +     '<g class="acc flower"><circle cx="50" cy="1.5" r="3.4" fill="#ffb3c8"/><circle cx="55" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="53" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="47" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="45" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="50" cy="7" r="2.6" fill="#ffd36e"/></g></g>'
   +   '<g class="b-body"><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botBody)"/><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botShine)"/>'
@@ -653,30 +654,32 @@ setTimeout(() => { if (sleepHours()) boards.forEach(b => { if (b._mood) b._mood(
   퍼레's faces (준: "표정 움직임 너무 부족", "3배로 늘려줘"): each an eye, a mouth, brows and effects ("eye mouth brow fx …"),
   shown by data attributes on the svg (board.css). The old names stay (happy, love, sleepy …) and many more join them.
 */
+// Cute, not odd (준: "표정도 너무 이상한것보다 귀엽게"): no gritted teeth, zigzag or triangle mouths, X or ring eyes, fire, anger
+// marks or a pale or red face; pouts with puffed cheeks, little round mouths, closed-eye wobbles and a drop of sweat instead.
 const FACES = {
   happy: "arc smile none cheeks", laugh: "arc big none cheeks", wink: "wink smile", love: "heart smile none cheeks", surprised: "o osm",
-  shock: "wide open none bang", sad: "small frown sad", teary: "small wave sad tears glint", cry: "shut open sad stream", dizzy: "dz wave",
+  shock: "wide osm none glint", sad: "small frown sad", teary: "small wave sad tears glint", cry: "small wave sad tears", dizzy: "dz osm none cheeks",
   yum: "arc chew none cheeks", full: "arc wave", yawn: "shut yawn", drowsy: "half flat", sleepy: "shut none", shy: "small smile none blush cheeks",
-  thinking: "pill flat", blow: "pill osm none cheeks", angry: "pill teeth angry anger", fume: "sq flat angry steam", proud: "u smile none cheeks",
+  thinking: "pill flat", blow: "pill osm none cheeks", angry: "pill pout angry cheeks", fume: "pill pout angry cheeks", proud: "u smile none cheeks",
   relief: "u smile none sweat2", content: "u cat none cheeks", cheeky: "wink tongue", kiss: "shut kiss none kiss blush", excited: "wide osm none glint",
-  curious: "wide flat none q2", suspicious: "line smirk", blank: "dot flat", dazed: "dot osm", meh: "line flat", annoyed: "line teeth angry",
-  nervous: "small teeth none sweat2", flustered: "wide wave none sweat2 blush", moved: "pill wave sad tears glint", determined: "pill flat angry",
-  thrilled: "sq grin none cheeks", smug: "half smirk", sorry: "u frown sad sweat2", ko: "x wave", ouch: "sq teeth", smitten: "heart cat none blush",
-  sneaky: "half smirk none sweat2", gloomy: "small flat sad gloom", idea: "wide osm none bang glow", sing: "u osm none notes", joyful: "arc big none tears cheeks",
-  pout: "small pout angry", giggle: "arc cat none cheeks", amazed: "wide big none glint", sparkly: "pill smile none glint cheeks", grumpy: "line frown angry",
+  curious: "wide osm none q2", suspicious: "half smirk none", blank: "pill osm", dazed: "dz osm", meh: "pill tiny none", annoyed: "pill pout angry",
+  nervous: "small wave none sweat2", flustered: "wide wave none sweat2 blush", moved: "pill wave sad tears glint", determined: "pill flat angry",
+  thrilled: "sq grin none cheeks", smug: "half smirk", sorry: "u frown sad sweat2", ko: "shut wave none", ouch: "shut pout none sweat2", smitten: "heart cat none blush",
+  sneaky: "half smirk none sweat2", gloomy: "small tiny sad", idea: "wide osm none bang glow", sing: "u osm none notes", joyful: "arc big none tears cheeks",
+  pout: "small pout angry", giggle: "arc cat none cheeks", amazed: "wide big none glint", sparkly: "pill smile none glint cheeks", grumpy: "small pout angry",
   // more faces (준: "모션 종류 4가지도 각각 100개씩"): new eyes (tri, oval, lid, ring, wavy, plus), mouths (drool, tri, zig, bite, wide,
   // whistle, hat, tiny) and effects (zzz, hearts, flower, fire, bubble, swirl, lines, cloud, pale, red)
-  snooze: "shut none none zzz bubble", dreamy: "lid smile none hearts", awed: "oval big none glint", shout: "pill tri angry lines",
-  panic: "ring zig none sweat2 lines", woozy: "wavy wave none swirl", confused: "plus flat sad swirl q2", drooling: "arc drool none cheeks",
-  starving: "oval drool none", innocent: "u hat none", whistling: "half whistle none notes", bashful: "wavy tiny none blush red",
-  embarrassed: "small zig sad red sweat2", furious: "tri teeth angry fire anger red", firedup: "pill grin angry fire", chilly: "small zig sad pale",
-  queasy: "lid wave sad pale sweat2", overheated: "half wave none red sweat2", lovey: "heart wide none hearts cheeks", blissful: "arc wide none flower cheeks",
-  cheerful: "tri smile none cheeks", gleeful: "tri wide none cheeks", devious: "line wide none", bored: "lid flat none", unimpressed: "lid hat none",
-  skeptical: "lid smirk angry", sulky: "small hat sad cloud", heartbroken: "small frown sad cloud tears", stunned: "ring osm none lines",
-  speechless: "dot hat none sweat2", eek: "oval tri sad lines", yikes: "ring teeth sad sweat2 pale", sly: "half hat none", sweetdream: "shut cat none zzz",
-  nosy: "oval hat none q2", focused: "pill bite angry", anxious: "plus bite sad sweat2", cringe: "sq zig sad lines", triumphant: "arc tri none cheeks flower",
-  delighted: "wide wide none glint", lol: "arc wide none stream", grateful: "u smile sad flower", zen: "lid tiny none", horrified: "plus tri none bang pale",
-  playful: "wink wide none cheeks", hopeful: "oval smile sad glint", lonely: "small tiny sad cloud", awkward: "line zig none sweat2", chuckle: "arc hat none cheeks",
+  snooze: "shut none none zzz bubble", dreamy: "lid smile none hearts", awed: "oval big none glint", shout: "pill osm angry",
+  panic: "wide wave none sweat2", woozy: "dz wave none cheeks", confused: "small flat none q2", drooling: "arc osm none cheeks",
+  starving: "small osm sad", innocent: "u hat none", whistling: "half whistle none notes", bashful: "arc tiny none blush",
+  embarrassed: "small wave none blush sweat2", furious: "pill pout angry cheeks", firedup: "pill smile angry glint", chilly: "small wave sad",
+  queasy: "shut wave sad sweat2", overheated: "half wave none sweat2", lovey: "heart wide none hearts cheeks", blissful: "arc wide none flower cheeks",
+  cheerful: "tri smile none cheeks", gleeful: "tri wide none cheeks", devious: "half cat none", bored: "lid flat none", unimpressed: "half tiny none",
+  skeptical: "half smirk none", sulky: "small pout sad", heartbroken: "small wave sad tears", stunned: "wide osm none glint",
+  speechless: "pill tiny none sweat2", eek: "wide osm sad sweat2", yikes: "wide wave sad sweat2", sly: "half cat none", sweetdream: "shut cat none zzz",
+  nosy: "oval osm none q2", focused: "pill flat none", anxious: "small wave sad sweat2", cringe: "shut wave sad sweat2", triumphant: "arc big none cheeks flower",
+  delighted: "wide wide none glint", lol: "arc big none cheeks", grateful: "u smile sad flower", zen: "lid tiny none", horrified: "wide osm sad sweat2",
+  playful: "wink wide none cheeks", hopeful: "oval smile sad glint", lonely: "small tiny sad", awkward: "pill wave none sweat2", chuckle: "arc hat none cheeks",
   pleading: "wide frown sad glint tears"
 };
 const FEELS = Object.keys(FACES);
