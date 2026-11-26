@@ -76,6 +76,17 @@ public class BuddyBrainTests {
         shot(l, "buddy_brain_models");
     }
 
+    /** 퍼레 knows the saved places (준: "우리앱에 네비게이션 설정해놓은것을 퍼레가 모르고 있어"): their words in its brief, "집" goes there. */
+    @Test public void knowsTheSavedPlaces() throws Exception {
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        app.store().savedPlaces(java.util.List.of(new dev.jun.gyeot.core.SavedPlaces.Saved(java.util.List.of("집", "우리집"), "사천 우리집", "경남 사천시 용현면", 35.0, 128.0, "car", java.util.List.of())));
+        String brief = BuddyTalk.places(app.store());
+        assertTrue(brief, brief.contains("집/우리집") && brief.contains("사천 우리집"));
+        // The saved place is used as it is: no search, the maps app asked for (none installed in the test, so it says so).
+        BuddyVoice.Outcome o = BuddyActs.run(app, new org.json.JSONObject("{\"tool\":\"navigate\",\"destination\":\"집\"}"), "", false);
+        assertNotNull(o); assertTrue(o.say(), o.say().contains("지도 앱"));
+    }
+
     /** The screen's rotation, the volume and the brightness (준: "가로모드 세로모드 고정 바꾸는게 안돼"). */
     @Test public void turnsTheScreenAndTheSound() throws Exception {
         android.content.Context c = org.robolectric.RuntimeEnvironment.getApplication();

@@ -207,12 +207,19 @@ final class BuddyTalk {
     // ── doing things on the phone (준: "퍼레는 폰조작이 안되네": it said "네이버 지도 바로 열어볼게" and a link, and opened nothing) ──
     /** What 퍼레 may do on the phone, as the model writes it: a second line "할일: {json}" after its words. */
     static final String ACTS = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 찾기, 알람, 타이머, 음악 재생·멈춤·다음 곡, 손전등, 화면 가로·세로 고정과 자동 회전, 소리 크기, 화면 밝기, 와이파이·블루투스 같은 설정 화면, 인터넷 검색) 너가 직접 해. "
-        + "첫 줄에 짧은 대답(예: '네이버 지도 열게!'), 둘째 줄에 '할일: ' 다음에 JSON 하나만 써. 형식: {\"tool\":\"open_app\",\"app\":\"앱 이름\"} · {\"tool\":\"navigate\",\"destination\":\"장소\"} · "
+        + "첫 줄에 짧은 대답(예: '네이버 지도 열게!'), 둘째 줄에 '할일: ' 다음에 JSON 하나만 써. 형식: {\"tool\":\"open_app\",\"app\":\"앱 이름\"} · {\"tool\":\"navigate\",\"destination\":\"장소\"}(걸어서·대중교통·자전거라고 하면 \"mode\":\"walk|public|bicycle\") · "
         + "{\"tool\":\"alarm\",\"hour\":7,\"minute\":30} · {\"tool\":\"timer\",\"seconds\":180} · {\"tool\":\"media\",\"command\":\"play\"}(play·pause·next·previous) · {\"tool\":\"torch\",\"on\":true} · "
         + "{\"tool\":\"rotation\",\"mode\":\"landscape\"}(landscape=가로 고정·portrait=세로 고정·auto=자동 회전·toggle=반대로) · {\"tool\":\"volume\",\"direction\":\"up\"}(up·down·mute·unmute, 또는 \"level\":0~100) · "
         + "{\"tool\":\"brightness\",\"direction\":\"up\"}(up·down, 또는 \"level\":0~100) · {\"tool\":\"show_alarms\"} · "
         + "{\"tool\":\"settings\",\"panel\":\"wifi\"}(internet·wifi·bluetooth·volume·nfc·display·location·battery) · {\"tool\":\"search\",\"query\":\"검색어\"}. "
         + "문자·전화·결제처럼 못 하는 일은 할일 줄 없이 아직 못 한다고 말해. 주소(URL)와 이모지는 절대 쓰지 마.\n";
+    /** The saved places (내비게이션 → 자주 가는 곳): their words go as the destination as said, "집으로 가자" → {"tool":"navigate","destination":"집"}. */
+    static String places(AppStore store) {
+        java.util.List<dev.jun.gyeot.core.SavedPlaces.Saved> saved = store.savedPlaces(); if (saved.isEmpty()) return "";
+        StringBuilder out = new StringBuilder("- 사용자가 저장해 둔 자주 가는 곳이야. 이 말로 길을 부탁하면 묻지 말고 그 말을 그대로 destination으로 써:");
+        for (dev.jun.gyeot.core.SavedPlaces.Saved one : saved) out.append(" ").append(String.join("/", one.words())).append("(").append(one.name().isEmpty() ? one.address() : one.name()).append(")");
+        return out.append("\n").toString();
+    }
     private static final java.util.regex.Pattern ACT_LINE = java.util.regex.Pattern.compile("(?m)^\\s*할\\s*일\\s*[:：]\\s*(\\{.*\\})\\s*$");
     /** The thing to do the answer names ("할일: {…}"), or null. */
     static JSONObject act(String text) {
@@ -233,7 +240,7 @@ final class BuddyTalk {
             + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 반말(~야, ~해). 이모지·기호·목록·괄호·영어 약어 없이.\n"
             + "- 귀엽고 밝게, 가끔 너의 기억을 자연스럽게 꺼내도 좋아.\n"
             + "- 사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 '휴대폰 상태'의 숫자로 정확히 답해. 묻지 않으면 저장공간 이야기는 꺼내지 말고, 정리·삭제를 권하지 마.\n"
-            + (guest || doIt == null ? "" : ACTS);
+            + (guest || doIt == null ? "" : ACTS + places(store));
         long now = System.currentTimeMillis();
         String when = new SimpleDateFormat("M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date(now));
         String note = ""; if (!guest) try { note = Briefing.profile(store); } catch (RuntimeException ignored) {}

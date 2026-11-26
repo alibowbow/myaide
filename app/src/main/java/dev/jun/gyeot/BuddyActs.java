@@ -39,6 +39,7 @@ final class BuddyActs {
                         search = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/search?q=" + android.net.Uri.encode(q))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                     return started(context, DeviceActionRunner.start(context, search, overlay), "", true);
                 }
+                case "navigate" -> { return navigate(context, act, overlay); }
                 case "volume" -> { return volume(context, act); }
                 case "brightness" -> { return brightness(context, act, overlay); }
                 default -> { /* the phone's own actions, below */ }
@@ -64,6 +65,42 @@ final class BuddyActs {
             return new BuddyVoice.Outcome("notification".equals(r.optString("outcome")) ? r.optString("say") : "", leaves, null);
         } catch (IllegalArgumentException unclear) { return new BuddyVoice.Outcome(unclear.getMessage(), false, null); }
         catch (Exception failed) { return new BuddyVoice.Outcome("잘 안 됐어. 한 번만 다시 말해 줘.", false, null); }
+    }
+    /**
+     * 길안내 as the edge assistant does it (준: "우리앱에 네비게이션 설정해놓은것을 퍼레가 모르고 있어"): a saved place (내비게이션 →
+     * 자주 가는 곳, with its own way of travel and stops) at once; an address by the phone's geocoder; a place by 네이버 지역 검색
+     * (the saved key), navigation started on the one it is sure of; the maps app's own search otherwise. The way of travel is the
+     * one said, else the app's setting; Naver Map's 안내 시작 is pressed when 폰 조작 allows it. Network: never on the main thread.
+     */
+    private static BuddyVoice.Outcome navigate(Context context, JSONObject act, boolean overlay) throws Exception {
+        AppStore store = ((GyeotApp) context.getApplicationContext()).store();
+        String destination = DeviceActions.destination(act), said = act.optString("mode").strip();
+        String mode = dev.jun.gyeot.core.NaverPlaces.mode(said.isEmpty() ? store.navigationMode() : said);
+        DeviceActions.Action action; dev.jun.gyeot.core.NaverPlaces.Place place = null;
+        dev.jun.gyeot.core.SavedPlaces.Saved saved = dev.jun.gyeot.core.SavedPlaces.match(destination, store.savedPlaces());
+        if (saved != null) {
+            place = saved.place();
+            action = DeviceActions.navigateTo(place, said.isEmpty() && !saved.mode().isEmpty() ? saved.mode() : mode, saved.via());
+        } else if (dev.jun.gyeot.core.NaverPlaces.address(destination)) {
+            java.util.List<dev.jun.gyeot.core.NaverPlaces.Place> found = PlaceLocator.geocode(context, destination);
+            if (found.isEmpty()) action = DeviceActions.search(destination, true);
+            else { place = new dev.jun.gyeot.core.NaverPlaces.Place(destination, found.get(0).address(), found.get(0).lat(), found.get(0).lng()); action = DeviceActions.navigateTo(place, mode); }
+        } else {
+            java.util.List<dev.jun.gyeot.core.NaverPlaces.Place> found = java.util.List.of();
+            NaverPlacesClient.Key key = NaverPlacesClient.key(store);
+            if (key != null) try {
+                found = NaverPlacesClient.search(key, destination, null);
+                for (String shorter : dev.jun.gyeot.core.NaverPlaces.shorter(destination)) { if (!found.isEmpty()) break; found = NaverPlacesClient.search(key, shorter, null); }
+            } catch (Exception unreachable) { found = java.util.List.of(); }
+            place = dev.jun.gyeot.core.NaverPlaces.sure(destination, found);
+            action = place != null ? DeviceActions.navigateTo(place, mode) : DeviceActions.search(destination, true);
+        }
+        JSONObject r = DeviceActionRunner.run(context, action, overlay);
+        if (!r.optBoolean("ok")) return new BuddyVoice.Outcome(r.optString("say", "지도를 못 열었어."), false, null);
+        if ("navigation".equals(r.optString("outcome")) && "네이버 지도".equals(r.optString("app")) && store.phoneControl() && store.pressNavigationStart() && PhoneService.connected())
+            PhoneService.pressWhenShown("com.nhn.android.nmap", java.util.List.of("안내 시작", "안내시작", "길안내 시작", "경로 안내 시작"), 15_000, label -> store.phoneLog("  · 퍼레 · 네이버 지도 ‘" + label + "’ 눌렀어요"));
+        if ("notification".equals(r.optString("outcome"))) return new BuddyVoice.Outcome(r.optString("say"), false, null);
+        return new BuddyVoice.Outcome("", DeviceActionRunner.started(r.optString("route")), null);
     }
     /** The media volume: up or down a few steps, a level (0–100), muted or back (the phone shows its volume bar). */
     private static BuddyVoice.Outcome volume(Context context, JSONObject act) {

@@ -206,7 +206,7 @@ final class BuddyVoice {
         // An alarm or a timer waiting for a yes: this was the answer.
         if (confirming != null) {
             org.json.JSONObject waiting = confirming; confirming = null;
-            if (!guest && act != null && dev.jun.gyeot.core.DeviceActions.affirmative(said)) { show("thinking", said); done(act.run(waiting, said)); return; }
+            if (!guest && act != null && dev.jun.gyeot.core.DeviceActions.affirmative(said)) { show("thinking", said); doNow(waiting, said); return; }
         }
         if (unlock != null && BuddyTalk.needsUnlock(context, said)) {
             show("thinking", said); int mine = generation;
@@ -377,8 +377,14 @@ final class BuddyVoice {
         focus(false); releasePlayer();
         if (!on) return;
         org.json.JSONObject now = todo; todo = null;
-        if (now != null && act != null) { done(act.run(now, todoHeard)); return; }
+        if (now != null && act != null) { doNow(now, todoHeard); return; }
         main.postDelayed(this::listen, 350);
+    }
+    /** A thing to do, off the main thread (a place search may wait on the network), then its words. */
+    private void doNow(org.json.JSONObject a, String heard) {
+        int mine = generation;
+        try { io.execute(() -> { Outcome o = act.run(a, heard); main.post(() -> { if (on && mine == generation) done(o); }); }); }
+        catch (RuntimeException stopped) { main.postDelayed(this::listen, 350); }
     }
     /** After a thing done: its words (a question when it waits for a yes), and the talk ends when another app came up. */
     private void done(Outcome o) {

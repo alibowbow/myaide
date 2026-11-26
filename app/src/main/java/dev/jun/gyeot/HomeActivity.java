@@ -317,7 +317,7 @@ public final class HomeActivity extends Activity {
         String now = new java.text.SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", java.util.Locale.KOREA).format(new java.util.Date());
         return BuddyTalk.persona(this) + "\n지금은 " + now + ". 사용자가 홈 화면에서 너에게 글로 말을 걸었어.\n"
             + "한국어로, 너답게 밝고 상냥하게 답해. 핵심부터 2~6문장. 표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써.\n"
-            + "모르는 것은 지어내지 말고 모른다고 말해.\n" + BuddyTalk.ACTS
+            + "모르는 것은 지어내지 말고 모른다고 말해.\n" + BuddyTalk.ACTS + BuddyTalk.places(store)
             + "사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 아래 '휴대폰 상태'의 숫자로 답해. 묻지 않으면 꺼내지 말고 정리·삭제를 권하지 마.\n"
             + "휴대폰 상태: " + BuddyTalk.facts(this) + "\n" + BuddyTalk.todayWords(this) + BuddyTalk.memoryWords(this, question, true)
             + (about.isBlank() ? "" : "사용자에 대해 알고 있는 것:\n" + about);
