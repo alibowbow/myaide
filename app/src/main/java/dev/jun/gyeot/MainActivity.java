@@ -73,6 +73,8 @@ import static dev.jun.gyeot.core.Jsons.obj;
 public final class MainActivity extends Activity {
     /** Set by QuickVoiceActivity when it could not start voice by itself (no key or microphone permission yet). */
     static final String START_VOICE = "startVoice";
+    /** Words for 퍼레 from the home screen's search (HomeActivity's "퍼레에게 묻기"): put in 메인 대화's message box, never sent. */
+    static final String ASK = "gyeot.ask";
     private static final String[] HOME_MODE_NAMES = {"음성 비서 ▾", "통역", "받아쓰기", "녹음"}, MODE_IDS = {ASSISTANT, INTERPRETER, DICTATION};
     /** GeminiProtocol.VOICES as the picker shows them: Google's one-word characteristic of each, in Korean. */
     private static final String[] VOICE_LABELS = {"기본 (모델 선택)", "Aoede · 산뜻한 여성", "Leda · 젊고 밝은 여성", "Zephyr · 밝은 여성", "Kore · 단단한 여성", "Sulafat · 따뜻한 여성", "Achernar · 부드러운 여성", "Vindemiatrix · 다정한 여성", "Despina · 매끄러운 여성", "Callirrhoe · 느긋한 여성", "Autonoe · 밝은 여성", "Erinome · 맑은 여성", "Laomedeia · 경쾌한 여성", "Gacrux · 성숙한 여성", "Pulcherrima · 당찬 여성", "Puck · 경쾌한 남성", "Charon · 또렷한 남성", "Fenrir · 들뜬 남성", "Orus · 단단한 남성", "Enceladus · 숨결 섞인 남성", "Iapetus · 맑은 남성", "Umbriel · 느긋한 남성", "Algieba · 매끄러운 남성", "Algenib · 걸걸한 남성", "Rasalgethi · 또렷한 남성", "Alnilam · 단단한 남성", "Schedar · 차분한 남성", "Achird · 친근한 남성", "Zubenelgenubi · 편한 남성", "Sadachbia · 활기찬 남성", "Sadaltager · 박식한 남성"};
@@ -298,6 +300,7 @@ public final class MainActivity extends Activity {
         showTab(tab);
         if(state!=null){mainChatSaved=state.getBundle("mainChatPage");chatReturnTab=state.getInt("chatReturnTab",tab);}
         if((state!=null&&state.getBoolean("mainChatShown"))||(state==null&&"chat".equals(getIntent().getStringExtra(MainNavigation.TARGET))))showMainChat();
+        if(state==null&&"chat".equals(getIntent().getStringExtra(MainNavigation.TARGET)))askFrom(getIntent());
         // Recreated, the saved page wins: a notification tap that once opened this window is not asked again.
         if (state == null || !AppNavigator.tapped(getIntent())) openRequestedScreen(getIntent());
         if (state == null) { startFromShortcut(getIntent()); startOnOpen(getIntent()); talkFromNotification(getIntent()); }
@@ -358,7 +361,7 @@ public final class MainActivity extends Activity {
         super.onNewIntent(intent); setIntent(intent);
         if (AppNavigator.isRequest(intent)) { openRequestedScreen(intent); return; }
         if (talkFromNotification(intent)) return;
-        String menuTarget=intent.getStringExtra(MainNavigation.TARGET);if(java.util.List.of("voice","chat","work","gallery","settings").contains(menuTarget==null?"":menuTarget)){navigateMenu(menuTarget);return;}
+        String menuTarget=intent.getStringExtra(MainNavigation.TARGET);if(java.util.List.of("voice","chat","work","gallery","settings").contains(menuTarget==null?"":menuTarget)){navigateMenu(menuTarget);if("chat".equals(menuTarget))askFrom(intent);return;}
         // The calendar's tap-to-open notification (a call without the permission): 설정 → 캘린더, where it is allowed.
         if (PhoneCalendar.PAGE.equals(intent.getStringExtra(PhoneCalendar.PAGE_EXTRA))) { openSettings(PhoneCalendar.PAGE); return; }
         if (settingsPageAsked(intent) != null) { openSettings(settingsPageAsked(intent)); return; }
@@ -445,6 +448,11 @@ public final class MainActivity extends Activity {
     private static boolean isLauncher(Intent intent){return intent!=null&&Intent.ACTION_MAIN.equals(intent.getAction())&&intent.hasCategory(Intent.CATEGORY_LAUNCHER);}
     private void startOnOpen(Intent intent) {
         pendingLaunchVoice=store.voiceOnOpen()&&!store.voiceActive&&isLauncher(intent)&&(intent.getFlags()&Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY)==0;
+    }
+    /** The home screen's question, once: into the message box for the user to send (it is only suggested). */
+    private void askFrom(Intent intent){
+        String ask=intent==null?null:intent.getStringExtra(ASK);if(ask==null||ask.isBlank()||ask.length()>2000)return;intent.removeExtra(ASK);
+        String words=ask.strip();main.post(()->{if(mainChat!=null)mainChat.suggest(words);});
     }
     void navigateMenu(String target){
         switch(target){case "chat" -> showMainChat();case "voice" -> {recordingPage=false;mode=store.voiceActive?store.voiceMode:ASSISTANT;showTab(0);}case "work" -> showTab(3);case "gallery" -> showTab(4);case "settings" -> {settingsPage="";settingsQuery="";showTab(2);}default -> MainNavigation.open(this,target);}

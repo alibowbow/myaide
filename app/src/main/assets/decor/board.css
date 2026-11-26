@@ -1,0 +1,148 @@
+/* 퍼레 홈's board: shared by the live wallpaper (home.html) and the home screen app (launcher.html). Soft, rounded, no neon. */
+:root{
+  --ink:#1c1c1e; --ink2:#6b6b73; --ink3:#9a9aa3;
+  --card:rgba(255,255,255,.74); --card-line:rgba(255,255,255,.65); --shade:0 10px 30px rgba(40,52,90,.13),0 2px 6px rgba(40,52,90,.07);
+  --up:#f04452; --down:#3182f6; --ok:#2dbe60; --warn:#ff9f0a; --bad:#ff453a;
+  --spring:cubic-bezier(.34,1.56,.64,1); --soft:cubic-bezier(.22,1,.36,1);
+  --font:ui-rounded,"SF Pro Rounded","Samsung One","SamsungOneUI","Pretendard","Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:#dfeefe;font-family:var(--font);word-break:keep-all;overflow-wrap:break-word;color:var(--ink);-webkit-user-select:none;user-select:none;touch-action:none}
+
+/* ── the sky under the board ───────────────────────────────── */
+.board{position:absolute;inset:0;color:var(--ink);transition:background 2s ease}
+.board[data-tone=morning]{background:linear-gradient(165deg,#ffe2d1 0%,#fff2e4 46%,#d8ecff 100%)}
+.board[data-tone=day]{background:linear-gradient(165deg,#bfe2ff 0%,#e7f4ff 52%,#fff3dd 100%)}
+.board[data-tone=evening]{background:linear-gradient(165deg,#ffc6b3 0%,#f4d4f6 50%,#c6d2ff 100%)}
+.board[data-tone=night]{background:linear-gradient(165deg,#252c5e 0%,#30306f 55%,#403b7c 100%)}
+.board[data-tone=night]{--ink:#fff;--ink2:rgba(255,255,255,.72);--ink3:rgba(255,255,255,.5);--card:rgba(255,255,255,.13);--card-line:rgba(255,255,255,.16);--shade:0 10px 30px rgba(8,10,40,.28)}
+.sky{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.blob{position:absolute;border-radius:50%;filter:blur(38px);opacity:.55;will-change:transform}
+.b1{width:62vw;height:62vw;left:-14vw;top:8vh;animation:drift1 26s ease-in-out infinite}
+.b2{width:54vw;height:54vw;right:-16vw;top:34vh;animation:drift2 31s ease-in-out infinite}
+.b3{width:48vw;height:48vw;left:18vw;bottom:-6vh;animation:drift3 36s ease-in-out infinite}
+.board[data-tone=morning] .b1{background:#ffb59e}.board[data-tone=morning] .b2{background:#ffd98a}.board[data-tone=morning] .b3{background:#a9d8ff}
+.board[data-tone=day] .b1{background:#8cc8ff}.board[data-tone=day] .b2{background:#ffe08a}.board[data-tone=day] .b3{background:#b5efd6}
+.board[data-tone=evening] .b1{background:#ff9f8a}.board[data-tone=evening] .b2{background:#d9a8ff}.board[data-tone=evening] .b3{background:#9fb5ff}
+.board[data-tone=night] .blob{opacity:.32}.board[data-tone=night] .b1{background:#5b6cff}.board[data-tone=night] .b2{background:#9a6bff}.board[data-tone=night] .b3{background:#3fb6c9}
+@keyframes drift1{50%{transform:translate(12vw,6vh) scale(1.08)}}
+@keyframes drift2{50%{transform:translate(-10vw,-5vh) scale(.94)}}
+@keyframes drift3{50%{transform:translate(8vw,-8vh) scale(1.1)}}
+.stars{position:absolute;inset:0;display:none}
+.board[data-tone=night] .stars{display:block}
+.star{position:absolute;width:3px;height:3px;border-radius:50%;background:#fff;opacity:.0;animation:twinkle 5s ease-in-out infinite}
+@keyframes twinkle{50%{opacity:.85}}
+
+/* ── the board ─────────────────────────────────────────────── */
+.wrap{position:absolute;left:0;right:0;top:0;padding:max(54px,7vh) 18px 0;display:flex;flex-direction:column;gap:12px}
+.hero{display:flex;align-items:flex-end;justify-content:space-between;min-height:106px}
+.when{padding-left:4px}
+.date{font-size:15px;font-weight:650;color:var(--ink2);letter-spacing:-.2px}
+.clock{font-size:62px;line-height:1;font-weight:750;letter-spacing:-2.5px;margin:4px 0 6px;font-variant-numeric:tabular-nums}
+.clock small{font-size:22px;font-weight:700;letter-spacing:-.5px;margin-right:6px;color:var(--ink2)}
+.hello{font-size:16px;font-weight:650;color:var(--ink)}
+.locked .when .date,.locked .when .clock{display:none}
+
+.buddy{position:relative;width:104px;height:118px;border:0;padding:0;background:none;flex:none}
+.buddy .body{position:absolute;left:8px;right:8px;bottom:14px;height:88px;animation:bob 3.2s ease-in-out infinite;transform-origin:50% 100%}
+.buddy .body img,.buddy .body svg{width:100%;height:100%;object-fit:contain;display:block;filter:drop-shadow(0 6px 10px rgba(40,52,90,.18))}
+.buddy .body img.round{width:80px;height:80px;margin:4px auto 0;border-radius:50%;border:3px solid #fff;object-fit:cover;box-shadow:0 6px 14px rgba(40,52,90,.2);filter:none}
+.buddy .ground{position:absolute;left:26px;right:26px;bottom:6px;height:10px;border-radius:50%;background:rgba(30,40,80,.16);animation:ground 3.2s ease-in-out infinite}
+.board[data-tone=night] .buddy .ground{background:rgba(0,0,10,.3)}
+@keyframes bob{50%{transform:translateY(-5px)}}
+@keyframes ground{50%{transform:scaleX(.86);opacity:.7}}
+.buddy.hop .body{animation:hop .72s var(--soft)}
+.buddy.hop .ground{animation:groundhop .72s var(--soft)}
+@keyframes hop{0%{transform:none}14%{transform:scale(1.14,.84)}42%{transform:translateY(-34px) scale(.92,1.08)}70%{transform:translateY(0) scale(1.1,.9)}84%{transform:scale(.97,1.03)}100%{transform:none}}
+@keyframes groundhop{42%{transform:scaleX(.55);opacity:.4}}
+.buddy.wiggle .body{animation:wiggle .9s ease-in-out}
+@keyframes wiggle{20%{transform:rotate(-7deg)}45%{transform:rotate(6deg)}70%{transform:rotate(-3deg)}100%{transform:none}}
+.zz{position:absolute;right:10px;top:12px;font-size:15px;font-weight:800;color:var(--ink2);opacity:0;display:none}
+.board[data-tone=night] .zz{display:block;animation:zz 3.6s ease-in-out infinite}
+@keyframes zz{0%{opacity:0;transform:translate(0,8px) scale(.7)}40%{opacity:.9}100%{opacity:0;transform:translate(10px,-14px) scale(1.1)}}
+.bubble{position:absolute;right:66px;bottom:84px;max-width:230px;width:max-content;padding:10px 14px;border-radius:18px 18px 4px 18px;background:#fff;color:#1c1c1e;font-size:14px;font-weight:650;line-height:1.35;box-shadow:var(--shade);opacity:0;transform:translateY(8px) scale(.85);transform-origin:100% 100%;transition:opacity .25s,transform .45s var(--spring);pointer-events:none;text-align:left}
+.bubble.on{opacity:1;transform:none}
+
+.think{position:absolute;left:-6px;top:-2px;display:none;align-items:center;gap:5px;padding:6px 10px 6px 8px;border-radius:999px;background:#fff;color:#1c1c1e;box-shadow:var(--shade);font-size:12.5px;font-weight:800;z-index:2}
+.think::after{content:"";position:absolute;right:6px;bottom:-7px;width:9px;height:9px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(40,52,90,.12)}
+.think.on{display:inline-flex;animation:pop .6s var(--spring) both}
+.dots{display:inline-flex;gap:3px}.dots i{width:6px;height:6px;border-radius:50%;background:#7c5cff;animation:dot 1.2s ease-in-out infinite}
+.dots i:nth-child(2){animation-delay:.15s;background:#ff6b4a}.dots i:nth-child(3){animation-delay:.3s;background:#12b5a6}
+@keyframes dot{30%{transform:translateY(-4px)}60%{transform:none}}
+
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{position:relative;border-radius:26px;padding:15px 16px;background:var(--card);border:1px solid var(--card-line);box-shadow:var(--shade);-webkit-backdrop-filter:blur(20px) saturate(1.7);backdrop-filter:blur(20px) saturate(1.7);overflow:hidden;transition:transform .5s var(--spring),opacity .4s ease}
+.card.wide{grid-column:span 2}
+.card.hidden{display:none}
+.pop{animation:pop .7s var(--spring) both}
+@keyframes pop{from{opacity:0;transform:translateY(14px) scale(.92)}}
+.tap.down{transform:scale(.955);transition:transform .12s ease}
+.eyebrow{font-size:12.5px;font-weight:750;color:var(--ink2);display:flex;align-items:center;gap:6px;letter-spacing:-.1px}
+.eyebrow svg{width:15px;height:15px;flex:none}
+
+/* 다음 일정 */
+.event{display:flex;align-items:center;gap:14px}
+.cal{flex:none;width:58px;height:62px;border-radius:16px;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(40,52,90,.10)}
+.cal .dow{font-size:11.5px;font-weight:800;color:#ff3b30;line-height:1}
+.cal .day{font-size:28px;font-weight:750;color:#1c1c1e;line-height:1.08;letter-spacing:-1px}
+.ev{flex:1;min-width:0}
+.ev-title{font-size:16.5px;font-weight:750;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.3px}
+.ev-meta{font-size:13px;font-weight:550;color:var(--ink2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.soon{flex:none;align-self:flex-start;font-size:12px;font-weight:800;padding:5px 9px;border-radius:999px;background:rgba(255,59,48,.12);color:#ff3b30}
+.soon.now{background:rgba(45,190,96,.14);color:#1fa652}
+.soon:empty{display:none}
+
+
+/* 코인: one slim row, a coin each side */
+.coins{display:flex;flex-direction:column;gap:6px}
+.coin-list{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.coin{display:flex;flex-direction:column;gap:2px;min-width:0;white-space:nowrap}
+.coin b{font-size:12.5px;font-weight:800;color:var(--ink2)}
+.coin .px{font-size:18px;font-weight:800;letter-spacing:-.6px;font-variant-numeric:tabular-nums}
+.pct{align-self:flex-start;font-size:12px;font-weight:800;padding:2px 7px;border-radius:8px;font-variant-numeric:tabular-nums}
+.pct.up{color:var(--up);background:rgba(240,68,82,.11)}.pct.down{color:var(--down);background:rgba(49,130,246,.11)}
+.coin-list .muted{grid-column:1/-1}
+.btc{width:16px;height:16px;border-radius:50%;background:#f7931a;color:#fff;font-size:10.5px;font-weight:900;display:inline-grid;place-items:center}
+.muted{color:var(--ink3);font-size:13px;font-weight:600}
+
+/* 알림 */
+.notices .list{display:flex;flex-direction:column;gap:8px;margin-top:9px}
+.note{display:flex;align-items:center;gap:10px;min-width:0}
+.note .app{flex:none;width:30px;height:30px;border-radius:9px;display:grid;place-items:center;color:#fff;font-size:13px;font-weight:800}
+.note .words{flex:1;min-width:0}
+.note .t{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.2px}
+.note .s{font-size:12.5px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.note .ago{flex:none;font-size:11.5px;color:var(--ink3);font-weight:650}
+.count{margin-left:auto;font-size:12px;font-weight:800;color:#fff;background:#ff3b30;border-radius:999px;padding:2px 8px}
+
+/* 퍼레의 제안 */
+.idea{display:flex;gap:12px;align-items:flex-start}
+.idea .spark{flex:none;width:38px;height:38px;border-radius:12px;background:linear-gradient(140deg,#ffd36e,#ff8a5c);display:grid;place-items:center;box-shadow:0 3px 10px rgba(255,138,92,.35)}
+.idea .spark svg{width:20px;height:20px}
+.idea .t{font-size:15px;font-weight:750;letter-spacing:-.3px;margin-top:2px}
+.idea .s{font-size:13px;color:var(--ink2);line-height:1.4;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+.locked .private{display:none !important}
+/* Foldables: the narrow cover screen (and older, narrower covers), then the opened inner screen, square-ish and wide. */
+@media (max-width:380px){
+  .wrap{padding-left:13px;padding-right:13px;gap:10px}
+  .clock{font-size:54px;letter-spacing:-2px}.clock small{font-size:19px}
+  .hello{font-size:15px}.date{font-size:14px}
+  .buddy{width:88px;height:104px}.buddy .body{height:76px}
+  .grid{gap:10px}.card{padding:13px 14px;border-radius:23px}
+  .cal{width:52px;height:56px}.cal .day{font-size:25px}
+  .ev-title{font-size:15.5px}
+  .coin .px{font-size:16px}.coin-list{gap:6px}.pct{font-size:11px;padding:2px 5px}
+}
+@media (min-width:600px){
+  .wrap{max-width:840px;margin:0 auto;padding-left:28px;padding-right:28px;gap:14px}
+  .clock{font-size:76px}
+  .grid{grid-template-columns:repeat(4,1fr);gap:14px}
+  .event{align-items:center}
+  .bubble{max-width:320px}
+}
+@media (min-width:600px) and (max-height:760px){
+  .wrap{padding-top:max(40px,5vh);gap:12px}
+  .hero{min-height:92px}.clock{font-size:58px}
+}
+@media (prefers-reduced-motion:reduce){.blob,.buddy .body,.buddy .ground,.star,.zz,.dots i{animation:none !important}}

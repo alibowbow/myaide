@@ -282,6 +282,7 @@ public final class HtmlWallpaper extends WallpaperService {
             try {
                 switch (path) {
                     case "/", "/index.html": return html(index());
+                    case "/board.css", "/board.js": return asset(HtmlWallpaper.this, path);
                     case "/photo.jpg": { File f = photo(HtmlWallpaper.this); return f.isFile() ? new WebResourceResponse("image/jpeg", null, new FileInputStream(f)) : missing(); }
                     case "/mascot.png": { File f = mascot(HtmlWallpaper.this); return f.isFile() ? new WebResourceResponse("image/png", null, new FileInputStream(f)) : missing(); }
                     default: return missing();
@@ -302,10 +303,17 @@ public final class HtmlWallpaper extends WallpaperService {
         }
     }
 
-    private static WebResourceResponse html(String body) {
+    /** One of the board's shared files (assets/decor/board.css · board.js), for this wallpaper and the home screen app. */
+    static WebResourceResponse asset(Context c, String path) {
+        String name = path.substring(path.lastIndexOf('/') + 1);
+        if (!name.matches("board\\.(css|js)|launcher\\.(css|js)")) return missing();
+        try { return new WebResourceResponse(name.endsWith(".css") ? "text/css" : "text/javascript", "utf-8", c.getAssets().open("decor/" + name)); }
+        catch (Exception gone) { return missing(); }
+    }
+    static WebResourceResponse html(String body) {
         return new WebResourceResponse("text/html", "utf-8", new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)));
     }
-    private static WebResourceResponse missing() {
+    static WebResourceResponse missing() {
         return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found", Map.of(), new ByteArrayInputStream(new byte[0]));
     }
 

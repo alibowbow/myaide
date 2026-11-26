@@ -40,7 +40,34 @@ public final class NoticeListener extends NotificationListenerService {
     /** Forgets every kept notice (turned off, or 모두 지우기). */
     static void clear(Context context) { synchronized (LOCK) { kept = new java.util.ArrayList<>(); file(context).delete(); } }
 
+    // ── the home screen's badges (HomeActivity) ─────────────────────
+    private static volatile NoticeListener live;
+    /** Told when the phone's notifications change, while the home screen is shown. */
+    static volatile Runnable changed;
+    @Override public void onListenerConnected() { super.onListenerConnected(); live = this; tell(); }
+    @Override public void onListenerDisconnected() { if (live == this) live = null; super.onListenerDisconnected(); }
+    @Override public void onNotificationRemoved(StatusBarNotification removed) { tell(); }
+    private static void tell() { Runnable r = changed; if (r != null) try { r.run(); } catch (RuntimeException ignored) {} }
+    /**
+     * The notifications showing now, counted per app (only counts: no words are read): what a home screen puts on its icons.
+     * Empty when 알림 접근 is off. Ongoing ones (music, downloads) and group summaries are not counted.
+     */
+    static java.util.Map<String, Integer> badges() {
+        java.util.Map<String, Integer> out = new java.util.HashMap<>();
+        NoticeListener l = live; if (l == null) return out;
+        try {
+            StatusBarNotification[] all = l.getActiveNotifications();
+            for (StatusBarNotification n : all == null ? new StatusBarNotification[0] : all) {
+                Notification note = n.getNotification();
+                if (note == null || n.isOngoing() || (note.flags & Notification.FLAG_GROUP_SUMMARY) != 0 || (note.flags & Notification.FLAG_FOREGROUND_SERVICE) != 0) continue;
+                out.merge(n.getPackageName(), Math.max(1, Math.min(99, note.number)), Integer::sum);
+            }
+        } catch (RuntimeException unavailable) { out.clear(); }
+        return out;
+    }
+
     @Override public void onNotificationPosted(StatusBarNotification posted) {
+        tell();
         try {
             if (posted == null || !on(this) || getPackageName().equals(posted.getPackageName())) return;
             Notification n = posted.getNotification(); if (n == null) return;

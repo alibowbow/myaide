@@ -76,6 +76,17 @@ public final class DecorActivity extends Activity {
         TextView title = ui.title("화면 꾸미기", 26); title.setAccessibilityHeading(true); ui.add(body, title, 4);
         ui.add(body, ui.label("움직이고 손으로 만질 수 있는 화면을 바탕화면으로 깔아요. 다른 앱을 쓰는 동안에는 멈춰서 배터리를 아껴요.", 13, Ui.MUTED), 8);
 
+        // 홈 화면 앱 (준: "이 아이콘들을 혁신적으로 편리하게 사용, 정리할 수 있게(애플 맥북like)"): 들퍼레 as the phone's home screen,
+        // only when the user picks it; tapping the row tries it first.
+        boolean homeApp = homeHeld();
+        LinearLayout launcherGroup = ui.group();
+        ui.addRow(launcherGroup, ui.listRow(R.drawable.ic_home, Ui.ACCENT, homeApp ? "들퍼레 홈 화면 · 사용 중" : "들퍼레 홈 화면 · 맥 스타일",
+            homeApp ? "원래 홈 화면으로 돌아가려면 ‘바꾸기’" : "독 · 자동 묶음 · 런치패드 · 초성 검색 · 눌러서 미리 보기",
+            ui.smallChip(homeApp ? "바꾸기" : "켜기", homeApp ? this::homeSettings : this::askHome),
+            () -> startActivity(new Intent(this, HomeActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))), true);
+        LinearLayout.LayoutParams lg = new LinearLayout.LayoutParams(-1, -2); lg.bottomMargin = ui.dp(14);
+        body.addView(launcherGroup, lg);
+
         // 홈 화면 페이지 (준: "1페이지는 기존 배경화면 2페이지 3페이지...에만 앱에서 넣은화면"): each page's slot, changed in place.
         List<HomeBoard.Slot> slots = HtmlWallpaper.slots(prefs()); boolean ours = ours();
         LinearLayout pagesHead = ui.row(); pagesHead.setGravity(Gravity.CENTER_VERTICAL); pagesHead.setPadding(ui.dp(4), ui.dp(6), 0, ui.dp(8));
@@ -300,6 +311,7 @@ public final class DecorActivity extends Activity {
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == HOME_ROLE) { if (homeHeld()) Toast.makeText(this, "이제 홈 버튼을 누르면 들퍼레 홈 화면이 열려요", Toast.LENGTH_LONG).show(); draw(); return; }
         if (request != PICK) return;
         android.net.Uri uri = data == null ? null : data.getData();
         if (result != RESULT_OK || uri == null) { if (!HtmlWallpaper.photo(this).isFile()) { target = -1; draw(); } return; }
@@ -332,6 +344,25 @@ public final class DecorActivity extends Activity {
         prefs().edit().putLong(HtmlWallpaper.PHOTO_AT, System.currentTimeMillis()).apply();
         return true;
     }
+    // ── 홈 화면 앱 ───────────────────────────────────────────────────
+    private static final int HOME_ROLE = 7522;
+    private boolean homeHeld() {
+        try { android.app.role.RoleManager roles = getSystemService(android.app.role.RoleManager.class); return roles != null && roles.isRoleHeld(android.app.role.RoleManager.ROLE_HOME); }
+        catch (RuntimeException unknown) { return false; }
+    }
+    /** The phone's own question (which app is the home screen); without it, the home app settings. */
+    private void askHome() {
+        try {
+            android.app.role.RoleManager roles = getSystemService(android.app.role.RoleManager.class);
+            if (roles != null && roles.isRoleAvailable(android.app.role.RoleManager.ROLE_HOME)) { startActivityForResult(roles.createRequestRoleIntent(android.app.role.RoleManager.ROLE_HOME), HOME_ROLE); return; }
+        } catch (RuntimeException refused) { /* the settings instead */ }
+        homeSettings();
+    }
+    private void homeSettings() {
+        try { startActivity(new Intent(android.provider.Settings.ACTION_HOME_SETTINGS)); Toast.makeText(this, "쓰고 싶은 홈 화면 앱을 골라 주세요", Toast.LENGTH_LONG).show(); }
+        catch (RuntimeException none) { Toast.makeText(this, "이 휴대폰에서는 홈 화면 앱 설정을 열 수 없어요.", Toast.LENGTH_LONG).show(); }
+    }
+
     /** 들퍼레 becomes the wallpaper: the system's own preview asks once. */
     private void ensureOurs() {
         if (ours()) { draw(); return; }

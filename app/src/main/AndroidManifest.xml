@@ -73,6 +73,18 @@
         <activity android:name=".NoticeActivity" android:exported="false" />
         <!-- 내 휴대폰 → 화면 꾸미기: 움직이는 배경화면 (HtmlWallpaper) and what goes on the home screen. -->
         <activity android:name=".DecorActivity" android:exported="false" />
+        <!-- 들퍼레 홈 화면: chosen as the home app only when the user picks it (화면 꾸미기 → 홈 화면 앱). Its own task, never in recents;
+             folding or unfolding keeps the page. -->
+        <activity android:name=".HomeActivity" android:exported="true" android:launchMode="singleTask" android:stateNotNeeded="true"
+            android:clearTaskOnLaunch="true" android:excludeFromRecents="true" android:taskAffinity="dev.jun.gyeot.home" android:resizeableActivity="true"
+            android:theme="@style/HomeTheme" android:windowSoftInputMode="adjustNothing" android:screenOrientation="unspecified"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <service android:name=".HtmlWallpaper" android:label="@string/wallpaper_label" android:exported="true"
             android:permission="android.permission.BIND_WALLPAPER">
             <intent-filter>
