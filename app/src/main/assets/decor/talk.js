@@ -8,8 +8,8 @@
   and a line that fits more of now is preferred. Lines said lately wait their turn. {t} is what 퍼레 calls the user.
 
   TALK.mix(moment) decides between these and the AI: quick reactions (a poke, a stroke, a shake, the charger, music …) are
-  mostly these, at once; a tap and coming back go to the AI about half the time, with a word from here first so 퍼레 never
-  just stares while it thinks; the AI at most every twelve seconds, and never when it is not there.
+  mostly these, at once; a tap goes to the AI, and without it only a line made for the moment (rain, music, a holiday …)
+  is said; board.js says nothing at all after words lately (준: "상황에 맞게 적절히 꼭 필요할때 써야지").
 */
 const TALK = (() => {
   const P = {
@@ -181,9 +181,10 @@ const TALK = (() => {
     A line for this moment, or "" when the pool has none that fits: of the lines whose tags all hold now, those not said
     lately; the more tags a line matches the likelier it is (each tag counts four times a plain line), by chance among them.
   */
-  function pick(moment, env, info) {
+  function pick(moment, env, info, fitting) {
     const now = tags(env, info), pool = P[moment] || [], title = (info && info.title) || "대장님";
-    const fit = pool.map(parse).filter(l => l.tags.every(t => now.has(t)));
+    // fitting: only a line made for this moment (tagged, every tag holding now), not everyday chatter.
+    const fit = pool.map(parse).filter(l => l.tags.every(t => now.has(t)) && (!fitting || l.tags.length > 0));
     if (!fit.length) return "";
     let fresh = fit.filter(l => !recent.includes(l.text)); if (!fresh.length) fresh = fit;
     let total = 0; const weights = fresh.map(l => { const w = 1 + 4 * l.tags.length; total += w; return w; });
@@ -197,12 +198,12 @@ const TALK = (() => {
     Whose words for this moment: "preset" (these, at once), "ai" (the AI writes it) or "both" (a short sound from here, then
     the AI). ai: whether an AI is there and has not spoken in the last twelve seconds.
   */
-  const AI_SHARE = {tap: 0.5, back: 0.6, hi: 0.35, app: 0.5, poke: 0.15, pet: 0.25, shake: 0.2, charge: 0.25, hungry: 0.3, heat: 0.3, save: 0.2, music: 0.3};
+  // A tap is the AI's (준: "터치할때 프리셋 문구를 너무 많이 뱉어"); quick reactions and the phone's moments mostly these.
+  const AI_SHARE = {tap: 1, back: 0.6, hi: 0.35, app: 0.6, poke: 0.1, pet: 0.2, shake: 0.2, charge: 0.25, hungry: 0.3, heat: 0.3, save: 0.2, music: 0.3};
   function mix(moment, ai) {
     if (!ai) return "preset";
     const share = AI_SHARE[moment] == null ? 0 : AI_SHARE[moment];
-    if (Math.random() >= share) return "preset";
-    return moment === "tap" || moment === "back" || moment === "app" ? "both" : "ai";
+    return Math.random() < share ? "ai" : "preset";
   }
   function size() { let n = 0; for (const k in P) n += P[k].length; return n; }
   return {pick, mix, tags, size, pools: () => Object.keys(P), lines: k => (P[k] || []).map(l => parse(l).text)};

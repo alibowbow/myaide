@@ -53,13 +53,13 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +     '<path d="M24 6 C30 -16 84 -26 98 -2 Q90 -6 84 0 Q76 -8 68 -1 Q59 -8 50 1 Q41 -4 34 3 Q29 0 24 6Z" fill="#7cc4e8"/><path d="M61 -16 C58 -10 55 -3 50 1" fill="none" stroke="#5aa9d0" stroke-width="1.4"/></g>'
   +   '<g class="acc balloon"><path d="M90 60 Q96 30 92 4" fill="none" stroke="#9aa0b4" stroke-width="1.2"/><path d="M92 6 C80 -2 80 -16 88 -16 C91 -16 92 -14 92 -12 C92 -14 93 -16 96 -16 C104 -16 104 -2 92 6Z" fill="#ff6f91"/><path d="M86 -11 q2 -3 4 -2" stroke="#fff" stroke-opacity=".7" stroke-width="1.4" fill="none" stroke-linecap="round"/></g>'
   +   '<g class="acc storm"><path d="M30 -2 a10 10 0 0 1 14 -10 a12 12 0 0 1 22 2 a9 9 0 0 1 6 16 H34 a9 9 0 0 1 -4 -8z" fill="#8d93a8"/><path d="M52 6 l-4 8 h4 l-2 7 l7 -10 h-4 l3 -5z" fill="#ffd34d"/></g>'
-  // more to wear, behind it (준: "모션 종류 4가지도 각각 100개씩"): a cape, a backpack, wings, a rainbow, the moon
+  // more to wear, behind it (준: "모션 종류 4가지도 각각 100개씩"): a cape, a backpack, a rainbow, the moon
   +   '<path class="acc cape" d="M22 34 Q2 62 5 90 Q22 85 50 87 Q78 85 95 90 Q98 62 78 34Z" fill="#e5484d"/>'
   +   '<g class="acc backpack"><rect x="24" y="8" width="52" height="40" rx="14" fill="#5bc0eb"/><path d="M42 9 Q50 1 58 9" stroke="#3a9fcb" stroke-width="3" fill="none"/></g>'
-  +   '<g class="acc wings"><path d="M14 52 C-8 30 -10 60 4 70 C-6 72 0 84 14 76Z"/><path d="M86 52 C108 30 110 60 96 70 C106 72 100 84 86 76Z"/></g>'
   +   '<g class="acc rainbow" fill="none" stroke-width="3"><path d="M8 34 A42 42 0 0 1 92 34" stroke="#ff6f6f"/><path d="M12 34 A38 38 0 0 1 88 34" stroke="#ffd36e"/><path d="M16 34 A34 34 0 0 1 84 34" stroke="#7cc576"/><path d="M20 34 A30 30 0 0 1 80 34" stroke="#5bc0eb"/></g>'
   +   '<path class="acc moon" d="M88 -6 a9 9 0 1 0 8 13 a7 7 0 1 1 -8 -13z" fill="#ffe07a"/>'
-  +   '<g class="b-arm l"><rect x="4" y="50" width="13" height="22" rx="6.5" fill="#ff7a55"/></g><g class="b-arm r"><rect x="83" y="50" width="13" height="22" rx="6.5" fill="#ff7a55"/></g>'
+  +   '<g class="b-arm l"><rect x="4" y="50" width="13" height="22" rx="6.5" fill="#ff7a55"/><g class="acc mittens"><rect x="2.5" y="62" width="16" height="13" rx="6.5" fill="#6f9fe8"/><rect x="2.5" y="61" width="16" height="4" rx="2" fill="#fff"/></g></g>'
+  +   '<g class="b-arm r"><rect x="83" y="50" width="13" height="22" rx="6.5" fill="#ff7a55"/><g class="acc mittens"><rect x="81.5" y="62" width="16" height="13" rx="6.5" fill="#6f9fe8"/><rect x="81.5" y="61" width="16" height="4" rx="2" fill="#fff"/></g></g>'
   +   '<g class="b-antenna"><line x1="50" y1="20" x2="50" y2="8.5" stroke="#ff6640" stroke-width="4" stroke-linecap="round"/><circle class="b-bulb" cx="50" cy="7" r="5.2"/>'
   +     '<g class="acc flower"><circle cx="50" cy="1.5" r="3.4" fill="#ffb3c8"/><circle cx="55" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="53" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="47" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="45" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="50" cy="7" r="2.6" fill="#ffd36e"/></g></g>'
   +   '<g class="b-body"><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botBody)"/><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botShine)"/>'
@@ -359,26 +359,29 @@ function ownLines() {
   return OWN[part].map(l => l.replaceAll("{t}", t));
 }
 /** A preset line for this moment (talk.js: by the hour, the day, the weather, the phone …); an app's kind for "app". */
-function preset(moment) {
-  if (typeof TALK === "undefined") return moment === "tap" || moment === "hi" ? ownLines()[Math.floor(Math.random() * 3)] : "";
+function preset(moment, fitting) {
+  if (typeof TALK === "undefined") return moment === "hi" ? ownLines()[Math.floor(Math.random() * 3)] : "";
   let m = moment;
   if (m === "app") { const kind = window.boardLastApp || ""; m = TALK.pools().includes("app:" + kind) ? "app:" + kind : "back"; }
-  return TALK.pick(m, boards[0] && boards[0]._env, info);
+  return TALK.pick(m, boards[0] && boards[0]._env, info, fitting);
 }
 function say(b) {
   const k = info || {}, theirs = Array.isArray(k.lines) && k.lines.length ? k.lines.slice() : null;
-  // The AI's everyday lines (written ahead) and the presets, mixed (준: "적절히 ai말과 프리셋토크 믹스").
-  if (!theirs || Math.random() < .55) { const own = preset("tap"); if (own) return own; }
-  const lines = theirs || ownLines();
+  // The AI's everyday lines (written ahead) first; a preset only when one fits this moment (rain, music, a holiday …),
+  // else nothing (준: "터치할때 프리셋 문구를 너무 많이 뱉어", "상황에 맞게 적절히 꼭 필요할때 써야지").
+  if (!theirs) return preset("tap", true);
+  const lines = theirs;
   b._used = b._used && b._usedFor === lines.join("|") ? b._used : new Set(); b._usedFor = lines.join("|");
   let left = lines.filter(l => !b._used.has(l)); if (!left.length) { b._used.clear(); left = lines.slice(); }
   const pick = left[Math.floor(Math.random() * left.length)]; b._used.add(pick);
   return pick;
 }
 function cheer(b) {
-  move(b, "hop", 760);
-  if (b._feel) b._feel(Math.random() < .25 ? "wink" : "happy", 1500);
-  askThink(b, "tap", say(b), true);
+  // A tap always gets a little motion and a face; words only when it has not spoken lately (askThink).
+  const [m, ms] = [["hop", 760], ["hop", 760], ["boing", 600], ["nod", 900], ["jelly", 1000], ["giggleshake", 1400]][Math.floor(Math.random() * 6)];
+  move(b, m, ms);
+  if (b._feel) b._feel(["happy", "wink", "giggle", "cheeky", "sparkly", "chuckle"][Math.floor(Math.random() * 6)], 1500);
+  askThink(b, "tap", null, true);
 }
 /** A motion of 퍼레's (a class on it for a while): hop, spin, dance, wave, shiver, wobble, nuzzle, shake, nod, rumble … */
 function move(b, kind, ms) {
@@ -394,16 +397,15 @@ function askThink(b, why, fallback, asked) {
   const now = Date.now();
   // Do not disturb: 퍼레 keeps its words for when it is asked.
   if (!asked && b._env && b._env.dnd) return;
-  // The AI or a preset (talk.js TALK.mix): reactions mostly presets at once, a tap or coming back the AI about half the time.
+  // Words only now and then (준: "터치할때 프리셋 문구를 너무 많이 뱉어", "상황에 맞게 적절히 꼭 필요할때 써야지"): after words
+  // lately, a tap, a stroke or a shake gets its motion and face alone.
+  const hush = {tap: 25000, pet: 40000, poke: 15000, shake: 40000}[why] || 0;
+  if (hush && now - (b._spoke || 0) < hush) return;
+  // The AI or a preset (talk.js TALK.mix): a tap goes to the AI; quick reactions and the phone's moments mostly presets.
   const ai = !!window.boardThink && now - thinkAt > (asked ? 4000 : 12000);
   const way = typeof TALK === "undefined" ? (ai ? "ai" : "preset") : TALK.mix(why, ai);
-  if (way === "preset") { const own = fallback || preset(why); if (own) speak(b, {text: own}, 3600); return; }
-  thinkAt = now;
-  if (way === "both") {
-    // A short sound at once, then the AI's words (the dots only if it is slow).
-    const sound = preset("sound");
-    if (sound) { speak(b, {text: sound}, 1600); boards.forEach(x => { x._spoken = false; }); setTimeout(() => boards.forEach(x => { if (!x._spoken) thinking(x); }), 900); window.boardThink(why); return; }
-  }
+  if (way === "preset") { const own = fallback || (why === "tap" ? say(b) : preset(why)); if (own) speak(b, {text: own}, 3600); return; }
+  thinkAt = now; b._spoke = now;
   boards.forEach(thinking); window.boardThink(why);
 }
 
@@ -482,6 +484,7 @@ function thinking(b) {
 /** The line the AI wrote, typed into the bubble as it is said (the mouth moves while it types). */
 function thought(line) {
   boards.forEach(b => {
+    b._spoke = Date.now();
     const bubble = $(b, ".bubble"), svg = $(b, ".bot"); b._spoken = true;
     if (b._mood) b._mood(""); if (b._feel) b._feel("happy", 1600);
     bubble.textContent = ""; bubble.classList.add("on"); if (svg) svg.classList.add("talking");
@@ -493,9 +496,10 @@ function thought(line) {
     }, 38);
   });
 }
-function thoughtFail() { boards.forEach(b => { if (b._mood) b._mood(""); speak(b, {text: say(b)}, 3400); }); }
+function thoughtFail() { boards.forEach(b => { if (b._mood) b._mood(""); const line = say(b); if (line) speak(b, {text: line}, 3400); else $(b, ".bubble").classList.remove("on"); }); }
 /** The bubble over the friend: words, and what a tap on it opens (if anything). */
 function speak(b, line, ms) {
+  b._spoke = Date.now();
   const bubble = $(b, ".bubble");
   bubble.textContent = line.text; bubble.dataset.go = line.go || "";
   if (line.go) { const more = document.createElement("b"); more.className = "more"; more.textContent = " ›"; bubble.appendChild(more); }
@@ -742,7 +746,7 @@ const WEAR = ["cap", "umbrella", "phones", "scarf", "shades", "santa", "beanie",
   "horns", "witch", "bunny", "catears", "froghat", "mushroom", "roundglasses", "heartglasses", "monocle", "swimgoggles", "mustache", "eyepatch", "clownnose", "nerdglasses",
   "bowtie", "pearls", "medal", "bell", "lei", "neckbandana", "ribbon", "whistle", "lollipop", "popsicle", "watermelon", "sunflower", "tulip", "dandelion", "magnifier", "map",
   "flashlight", "lantern", "gift", "wand", "mic", "teddy", "toothbrush", "tea", "cocoa", "fishbread", "sweetpotato", "riceball", "snowball", "flag",
-  "camera", "bubblewand", "raincoat", "sweater", "apron", "pajamas", "hoodie", "cape", "backpack", "wings", "rainbow", "moon"];
+  "camera", "bubblewand", "raincoat", "sweater", "apron", "pajamas", "hoodie", "cape", "backpack", "mittens", "rainbow", "moon"];
 function envOf(b, k) {
   const svg = $(b, ".bot"); if (!svg || !k) return;
   const e = k.env || {}, w = k.weather || {}, life = k.life || {}, h = new Date().getHours(), code = w.code, temp = w.temp;
@@ -759,12 +763,12 @@ function envOf(b, k) {
     spring, a leaf in autumn, snow on its head when it snows; a sleep mask in do-not-disturb, goggles in airplane mode; a bib
     while it charges (eats), a scarf in the cold; a coffee in the morning, lunch at noon, an ice cream or a fan in the heat, a
     book in the evening, a pumpkin at Halloween, a lucky bag at New Year; a blanket in power saving; a heart balloon when it
-    is very fond of the user; a storm cloud in thunder.
+    is very fond of the user (some days); a storm cloud in thunder.
   */
   const d = new Date(), month = d.getMonth() + 1, date = d.getDate(), day = d.getDay(), minutes = h * 60 + d.getMinutes();
   const drizzle = code != null && code >= 51 && code <= 57, storm = code != null && code >= 95, freezing = temp != null && temp <= 0, scorching = temp != null && temp >= 30;
   // To a hundred (준: "모션 종류 4가지도 각각 100개씩"): the day's own outfit on an ordinary day (the same all day, another tomorrow).
-  const doy = Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000), weekend = day === 0 || day === 6, fond = life.heart || 0;
+  const doy = Math.floor((d - new Date(d.getFullYear(), 0, 0)) / 86400000), weekend = day === 0 || day === 6;
   const pickDay = (list, salt, chance) => ((doy * 37 + salt * 53) % 100) < chance ? list[(doy * 11 + salt * 5) % list.length] : "";
   const sunnyMild = code != null && code <= 1 && w.day !== false && temp != null && temp >= 20 && temp < 28, april1 = month === 4 && date === 1;
   const lunchTime = minutes >= 11 * 60 + 40 && minutes < 13 * 60 + 20, summer = month >= 7 && month <= 8;
@@ -773,28 +777,29 @@ function envOf(b, k) {
   const head = night ? (month === 12 && date >= 20 ? "santa" : "cap") : e.music && e.phones ? "phones" : month === 12 && date >= 20 ? "santa"
     : month === 10 && date === 31 ? "horns" : month === 10 && date >= 25 ? "witch" : month === 1 && date <= 3 ? "crown"
     : snow ? "snowtop" : freezing ? "beanie" : cold ? "muffs" : drizzle ? "hood" : rain ? "froghat" : hot && sunny ? "straw" : sunnyMild ? "visor"
-    : lunchTime && weekend ? "chef" : fond >= 95 ? "halo" : day === 6 ? "party"
+    : lunchTime && weekend ? "chef" : day === 6 ? "party"
     : seasonal && doy % 2 === 0 ? seasonal
-    : pickDay(["beret", "bucket", "bow", "headband", "bandana", "cowboy", "pirate", "viking", "bunny", "catears", "tiara", "grad", "tophat"], 1, 50) || seasonal;
+    : pickDay(["beret", "bucket", "bow", "headband", "bandana", "cowboy", "pirate", "viking", "bunny", "catears", "tiara", "grad", "tophat", "halo"], 1, 50) || seasonal;
   const face = e.dnd ? "mask" : e.airplane ? "goggles" : april1 ? "clownnose"
     : head === "pirate" ? "eyepatch" : head === "tophat" ? "monocle" : head === "grad" ? "nerdglasses"
     : sunny && !night && head !== "straw" && head !== "visor" ? "shades" : hot && summer && weekend ? "swimgoggles"
-    : h >= 20 && h < 23 ? "roundglasses" : fond >= 85 ? "heartglasses" : pickDay(["mustache", "roundglasses", "nerdglasses"], 2, 12);
+    : h >= 20 && h < 23 ? "roundglasses" : pickDay(["mustache", "roundglasses", "nerdglasses", "heartglasses"], 2, 12);
   const neck = e.charging ? "bib" : cold ? "scarf" : head === "tophat" || head === "beret" ? "bowtie" : hot && summer ? "lei"
-    : head === "bandana" ? "neckbandana" : head === "tiara" ? "pearls" : head === "bow" ? "ribbon" : fond >= 80 ? "bell"
-    : pickDay(["medal", "whistle", "pearls", "ribbon", "neckbandana"], 3, 20);
+    : head === "bandana" ? "neckbandana" : head === "tiara" ? "pearls" : head === "bow" ? "ribbon"
+    : pickDay(["medal", "whistle", "pearls", "ribbon", "neckbandana", "bell"], 3, 20);
   const hand = rain && !drizzle ? "umbrella" : night ? "teddy"
     : month === 10 && date >= 25 ? "pumpkin" : month === 1 && date <= 3 ? "luckybag" : month === 12 && (date === 24 || date === 25) ? "gift"
     : snow ? "snowball" : scorching ? (h >= 12 && h < 17 ? "icecream" : "handfan") : hot ? (summer && doy % 2 ? "popsicle" : "handfan")
     : minutes >= 6 * 60 + 30 && minutes < 10 * 60 ? (freezing ? "cocoa" : cold ? "tea" : "coffee")
     : lunchTime ? (doy % 3 === 0 ? "riceball" : "lunch") : h >= 22 ? "toothbrush" : h >= 20 ? "book"
-    : e.music ? "mic" : fond >= 90 ? "balloon" : cold && h >= 14 && h < 18 ? (doy % 2 ? "fishbread" : "sweetpotato")
+    : e.music ? "mic" : cold && h >= 14 && h < 18 ? (doy % 2 ? "fishbread" : "sweetpotato")
     : month >= 3 && month <= 5 && doy % 3 === 0 ? (doy % 2 ? "tulip" : "dandelion") : summer && doy % 3 === 0 ? (doy % 2 ? "watermelon" : "sunflower")
     : h >= 18 && h < 20 && doy % 4 === 0 ? (doy % 8 ? "flashlight" : "lantern")
-    : pickDay(["magnifier", "map", "wand", "lollipop", "flag", "camera", "bubblewand"], 4, 38);
+    : pickDay(["magnifier", "map", "wand", "lollipop", "flag", "camera", "bubblewand", "balloon"], 4, 38);
   const body = e.powerSave ? "blanket" : rain && !drizzle ? "raincoat" : night ? "pajamas" : cold ? "sweater" : temp != null && temp >= 6 && temp < 14 ? "hoodie"
     : head === "chef" || hand === "riceball" ? "apron" : hand === "magnifier" || hand === "map" ? "backpack" : weekend ? pickDay(["cape"], 5, 30) : "";
-  const back = fond >= 95 ? "wings" : night ? "moon" : code != null && code >= 1 && code <= 3 && h >= 15 && h < 18 && doy % 5 === 0 ? "rainbow" : "";
+  // No lasting outfit from how fond it is (준: "자꾸 눈하트에 이상한날개 단 상태에서 캐릭터가 안 풀려"): those are days' picks now.
+  const back = night ? "moon" : freezing && !snow ? "mittens" : code != null && code >= 1 && code <= 3 && h >= 15 && h < 18 && doy % 5 === 0 ? "rainbow" : "";
   const wear = [head, face, neck, hand, body, back, storm ? "storm" : ""].filter(Boolean);
   WEAR.forEach(x => svg.classList.toggle("w-" + x, wear.includes(x)));
   svg.classList.toggle("w-bolt", !!e.charging); svg.classList.toggle("w-sweat", hot && !night);
@@ -1081,7 +1086,7 @@ function roam(b) {
     const here = () => {
       try { PLAYS[kind](() => { playing = false; }); } catch (err) { playing = false; }
       // Now and then a word while it plays (talk.js "play:…"), never over words already in its bubble.
-      if (Math.random() < .3 && !$(b, ".bubble").classList.contains("on")) { const w = preset("play:" + kind); if (w) setTimeout(() => { if (!$(b, ".bubble").classList.contains("on")) speak(b, {text: w}, 2200); }, 600); }
+      if (Math.random() < .1 && Date.now() - (b._spoke || 0) > 90000 && !$(b, ".bubble").classList.contains("on")) { const w = preset("play:" + kind); if (w) setTimeout(() => { if (!$(b, ".bubble").classList.contains("on")) speak(b, {text: w}, 2200); }, 600); }
     };
     // Most plays start somewhere new in the playground.
     if (Math.random() < .85 && !["peek", "clock", "airplane", "ninja", "skipping", "rolling", "cartwheel"].includes(kind)) { const t = spot(); walk(t.x, t.y, here); } else here();
@@ -1094,7 +1099,6 @@ function roam(b) {
   const stroll = () => {
     if (!busy() && !playing && Math.random() < .6) {
       const t = spot(); walk(t.x, t.y);
-      if (Math.random() < .12 && !$(b, ".bubble").classList.contains("on")) { const w = preset("roam"); if (w) speak(b, {text: w}, 2000); }
     }
     setTimeout(stroll, rnd(14000, 26000));
   };
