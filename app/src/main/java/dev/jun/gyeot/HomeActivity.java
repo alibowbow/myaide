@@ -299,7 +299,9 @@ public final class HomeActivity extends Activity {
         String now = new java.text.SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", java.util.Locale.KOREA).format(new java.util.Date());
         return "너는 사용자의 휴대폰 홈 화면에 사는 AI 비서 '" + name + "'이야. 지금은 " + now + ".\n"
             + "한국어로, 친구처럼 상냥하고 짧게 답해. 핵심부터 2~6문장. 표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써.\n"
-            + "모르는 것은 지어내지 말고 모른다고 말해. 휴대폰을 직접 조작하거나 앱을 열 수는 없으니, 그런 부탁이면 앱에서 이어가자고 말해."
+            + "모르는 것은 지어내지 말고 모른다고 말해. 휴대폰을 직접 조작하거나 앱을 열 수는 없으니, 그런 부탁이면 앱에서 이어가자고 말해.\n"
+            + "사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 아래 '휴대폰 상태'의 숫자로 답해. 묻지 않으면 꺼내지 말고 정리·삭제를 권하지 마.\n"
+            + "휴대폰 상태: " + BuddyTalk.facts(this)
             + (about.isBlank() ? "" : "\n사용자에 대해 알고 있는 것:\n" + about);
     }
     /** The question with the turns before it (at most six, each cut short), as the model reads them. */
@@ -447,19 +449,30 @@ public final class HomeActivity extends Activity {
         public void chat(String question, String history) {
             if (question == null || question.isBlank() || question.length() > 4000) return;
             AppStore store = ((GyeotApp) getApplication()).store();
-            if (!store.nim.connected()) { js("launcher.replyError(" + JSONObject.quote("NVIDIA 모델이 아직 연결되지 않았어요. 설정 → AI 연결에서 NVIDIA 키를 넣으면 여기서 바로 답해요.") + ",\"settings\")"); return; }
+            // 퍼레's brain (BuddyTalk.brain): Groq's Qwen unless the user chose NVIDIA; the other when the chosen one is not connected.
+            boolean qwen = GroqWork.on() && !BuddyTalk.NIM.equals(BuddyTalk.brain(HomeActivity.this));
+            if (!qwen && !store.nim.connected()) { js("launcher.replyError(" + JSONObject.quote("퍼레의 두뇌가 아직 연결되지 않았어요. 설정 → AI 연결에서 Groq나 NVIDIA 키를 넣으면 여기서 바로 답해요.") + ",\"settings\")"); return; }
             Runnable old = chatCancel.getAndSet(null); if (old != null) try { old.run(); } catch (RuntimeException ignored) {}
             long ticket = ++chatTicket;
             Thread t = new Thread(() -> {
                 AtomicReference<Runnable> cancel = new AtomicReference<>(); chatCancel.set(() -> { Runnable r = cancel.get(); if (r != null) r.run(); });
                 try {
+                    if (qwen) {
+                        String model = BuddyTalk.qwen(store), in = chatInput(history, question.strip()), text;
+                        JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", in));
+                        try { text = GroqWork.converse(model, chatInstructions(store), messages, "none", 0.7, 30_000, cancel); }
+                        catch (Exception first) { if (ticket != chatTicket) throw new java.util.concurrent.CancellationException(); text = GroqWork.converse(model, chatInstructions(store), messages, null, 0.7, 30_000, cancel); }
+                        text = text.replaceAll("(?s)<think>.*?</think>", "").strip();
+                        if (ticket == chatTicket) js("launcher.reply(" + JSONObject.quote(text) + ")");
+                        return;
+                    }
                     WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), store.nim.model(), chatInstructions(store), chatInput(history, question.strip()),
                         () -> { if (ticket != chatTicket) throw new java.util.concurrent.CancellationException(); }, cancel,
                         delta -> { if (ticket == chatTicket && !delta.isEmpty()) js("launcher.stream(" + JSONObject.quote(delta) + ")"); });
                     if (ticket == chatTicket) js("launcher.reply(" + JSONObject.quote(answer.text == null ? "" : answer.text.strip()) + ")");
                 } catch (java.util.concurrent.CancellationException stopped) { /* a newer question, or stopped */ }
                 catch (Exception e) {
-                    String why = e instanceof java.io.IOException ? "인터넷이 끊겼거나 NVIDIA가 답하지 않았어요. 잠시 뒤 다시 물어봐 주세요." : e.getMessage() == null ? "답을 받지 못했어요." : e.getMessage();
+                    String why = e instanceof java.io.IOException ? "인터넷이 끊겼거나 " + (qwen ? "Groq" : "NVIDIA") + "가 답하지 않았어요. 잠시 뒤 다시 물어봐 주세요." : e.getMessage() == null ? "답을 받지 못했어요." : e.getMessage();
                     if (ticket == chatTicket) js("launcher.replyError(" + JSONObject.quote(why) + ",\"\")");
                 }
             }, "gyeot-home-chat");

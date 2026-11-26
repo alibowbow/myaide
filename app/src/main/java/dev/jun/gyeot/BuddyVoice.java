@@ -34,7 +34,9 @@ final class BuddyVoice {
     private final List<String[]> turns = new ArrayList<>();
     private SpeechInput.Ear ear; private MediaPlayer player; private TextToSpeech phone; private boolean phoneReady;
     private AudioFocusRequest focus;
-    private boolean on; private int silences, generation;
+    private volatile boolean on; private volatile int generation; private int silences;
+    /** The speech playing as it streams in, and how to stop its download (end()). */
+    private volatile android.media.AudioTrack track; private final java.util.concurrent.atomic.AtomicReference<Runnable> download = new java.util.concurrent.atomic.AtomicReference<>();
 
     BuddyVoice(Context context, AppStore store, ExecutorService io, Show show) { this.context = context.getApplicationContext(); this.store = store; this.io = io; this.show = show; }
     boolean on() { return on; }
@@ -83,31 +85,96 @@ final class BuddyVoice {
                 () -> main.post(() -> { if (on && mine == generation) end("error", "지금은 대답이 떠오르지 않아요. 조금 뒤에 다시 불러 주세요"); })));
         } catch (RuntimeException stopped) { end("error", ""); }
     }
-    /** The answer, said: Typecast first; the phone's voice when Typecast cannot. Then it listens again. */
+    /**
+     * The answer, said: Typecast streamed (it starts as the first sound arrives, 준: "라이브가 아니라 딜레이가 있긴하겠네"), else
+     * Typecast whole, else the phone's voice. Then it listens again.
+     */
     private void say(String line) {
         show.state("speaking", line);
         int mine = generation;
         TypecastAccount t = store.typecast;
         JSONObject voice = t.voice();
         if (!t.connected() || voice.optString("id").isBlank() || !t.fits(line.length())) { speakPhone(line); return; }
-        try {
-            io.execute(() -> {
-                File out = null;
-                try { out = synth(context, t, voice, line); t.count(line.length()); } catch (Exception failed) { out = null; }
-                File got = out;
-                main.post(() -> { if (!on || mine != generation) return; if (got == null) speakPhone(line); else play(got); });
-            });
-        } catch (RuntimeException stopped) { speakPhone(line); }
+        Thread worker = new Thread(() -> {
+            int played = stream(t, voice, line, mine);
+            if (played > 0) { t.count(line.length()); main.post(() -> { if (on && mine == generation) spoken(); }); return; }
+            if (played < 0 || !on || mine != generation) return; // stopped
+            File out = null;
+            try { out = synth(context, t, voice, line); t.count(line.length()); } catch (Exception failed) { out = null; }
+            File got = out;
+            main.post(() -> { if (!on || mine != generation) return; if (got == null) speakPhone(line); else play(got); });
+        }, "gyeot-buddy-say");
+        worker.setDaemon(true); worker.start();
     }
-    /** Typecast's speech for the line, as an mp3 in the cache. */
-    static File synth(Context c, TypecastAccount t, JSONObject voice, String line) throws Exception {
+    /**
+     * Typecast's streamed speech (WAV: a header, then 16-bit mono PCM as it is made) played through an AudioTrack as it comes.
+     * Returns 1 when it was played to the end, 0 when nothing could be played (the caller tries the whole file), -1 when it
+     * was stopped.
+     */
+    private int stream(TypecastAccount t, JSONObject voice, String line, int mine) {
+        android.media.AudioTrack out = null; boolean started = false;
+        try (OpenAiAccount.Http.Exchange response = OpenAiAccount.Http.open("POST", TypecastAccount.API + "/v1/text-to-speech/stream",
+                Map.of("X-API-KEY", t.key(), "Content-Type", "application/json", "Accept", "audio/wav"), request(voice, line, "wav").toString().getBytes(StandardCharsets.UTF_8), 30_000, download)) {
+            if (response.status >= 300) { OpenAiAccount.Http.read(response.body, 64 * 1024); return 0; }
+            java.io.DataInputStream in = new java.io.DataInputStream(new java.io.BufferedInputStream(response.body, 16 * 1024));
+            int rate = wavHeader(in);
+            int min = android.media.AudioTrack.getMinBufferSize(rate, android.media.AudioFormat.CHANNEL_OUT_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT);
+            out = new android.media.AudioTrack.Builder().setAudioAttributes(Speech.ATTRIBUTES)
+                .setAudioFormat(new android.media.AudioFormat.Builder().setSampleRate(rate).setEncoding(android.media.AudioFormat.ENCODING_PCM_16BIT).setChannelMask(android.media.AudioFormat.CHANNEL_OUT_MONO).build())
+                .setBufferSizeInBytes(Math.max(min * 4, rate)).setTransferMode(android.media.AudioTrack.MODE_STREAM).build();
+            track = out;
+            byte[] buffer = new byte[8192]; int n, carry = 0; long frames = 0;
+            while ((n = in.read(buffer, carry, buffer.length - carry)) > 0) {
+                if (!on || mine != generation) return -1;
+                int have = carry + n, even = have & ~1;
+                if (!started && even > 0) { started = true; main.post(() -> focus(true)); out.play(); }
+                if (even > 0) { out.write(buffer, 0, even); frames += even / 2; }
+                carry = have - even; if (carry == 1) buffer[0] = buffer[even];
+            }
+            if (!started) return 0;
+            // Played to its last frame (or stopped on the way).
+            while (on && mine == generation && out.getPlaybackHeadPosition() < frames) Thread.sleep(30);
+            return on && mine == generation ? 1 : -1;
+        } catch (Exception failed) {
+            return !on || mine != generation ? -1 : started ? 1 : 0;
+        } finally {
+            if (out != null) { try { out.stop(); } catch (RuntimeException ignored) {} out.release(); }
+            if (track == out) track = null;
+            download.set(null);
+        }
+    }
+    /** The sample rate from a streamed WAV header (RIFF … fmt … data), the stream left at the first sample. */
+    private static int wavHeader(java.io.DataInputStream in) throws java.io.IOException {
+        byte[] id = new byte[4]; in.readFully(id);
+        if (!"RIFF".equals(new String(id, StandardCharsets.US_ASCII))) throw new java.io.IOException("not a wav");
+        in.readInt(); in.readFully(id);
+        int rate = 32_000;
+        for (int chunks = 0; chunks < 16; chunks++) {
+            in.readFully(id); String name = new String(id, StandardCharsets.US_ASCII);
+            int size = Integer.reverseBytes(in.readInt());
+            if ("data".equals(name)) return rate;
+            if ("fmt ".equals(name)) {
+                byte[] fmt = new byte[Math.max(16, size)]; in.readFully(fmt, 0, size);
+                rate = (fmt[4] & 0xff) | (fmt[5] & 0xff) << 8 | (fmt[6] & 0xff) << 16 | (fmt[7] & 0xff) << 24;
+                int channels = (fmt[2] & 0xff) | (fmt[3] & 0xff) << 8, bits = (fmt[14] & 0xff) | (fmt[15] & 0xff) << 8;
+                if (channels != 1 || bits != 16) throw new java.io.IOException("unexpected wav");
+            } else in.skipNBytes(size & 0xffffffffL);
+        }
+        throw new java.io.IOException("no data");
+    }
+    /** The request for a line in 퍼레's voice: its model, happy when the voice can be, a touch quick. */
+    private static JSONObject request(JSONObject voice, String line, String format) throws Exception {
         String model = voice.optString("model", "ssfm-v30");
         JSONArray emotions = voice.optJSONArray("emotions"); boolean happy = false;
         for (int i = 0; emotions != null && i < emotions.length(); i++) if ("happy".equals(emotions.optString(i))) happy = true;
         JSONObject prompt = new JSONObject().put("emotion_preset", happy ? "happy" : "normal").put("emotion_intensity", 1.1);
         if (!"ssfm-v21".equals(model)) prompt.put("emotion_type", "preset");
-        JSONObject body = new JSONObject().put("voice_id", voice.optString("id")).put("text", line).put("model", model).put("language", "kor")
-            .put("prompt", prompt).put("output", new JSONObject().put("audio_format", "mp3").put("audio_tempo", 1.05));
+        return new JSONObject().put("voice_id", voice.optString("id")).put("text", line).put("model", model).put("language", "kor")
+            .put("prompt", prompt).put("output", new JSONObject().put("audio_format", format).put("audio_tempo", 1.05));
+    }
+    /** Typecast's speech for the line, as an mp3 in the cache. */
+    static File synth(Context c, TypecastAccount t, JSONObject voice, String line) throws Exception {
+        JSONObject body = request(voice, line, "mp3");
         try (OpenAiAccount.Http.Exchange response = OpenAiAccount.Http.open("POST", TypecastAccount.API + "/v1/text-to-speech",
                 Map.of("X-API-KEY", t.key(), "Content-Type", "application/json", "Accept", "audio/mpeg"), body.toString().getBytes(StandardCharsets.UTF_8), 30_000, null)) {
             if (response.status >= 300) { OpenAiAccount.Http.read(response.body, 64 * 1024); throw new IllegalStateException("Typecast HTTP " + response.status); }
@@ -157,6 +224,8 @@ final class BuddyVoice {
     }
     private void end(String state, String words) {
         on = false; generation++;
+        Runnable cut = download.getAndSet(null); if (cut != null) try { cut.run(); } catch (RuntimeException ignored) {}
+        android.media.AudioTrack playing = track; if (playing != null) try { playing.pause(); playing.flush(); } catch (RuntimeException ignored) {}
         closeEar(); releasePlayer(); focus(false);
         if (phone != null) { try { phone.stop(); phone.shutdown(); } catch (RuntimeException ignored) {} phone = null; phoneReady = false; }
         show.state(state, words == null ? "" : words);

@@ -35,45 +35,98 @@ final class BuddyTalk {
     /** One line for now (reason: "tap" or "back"), told to done, or failed when no model could answer. Off the main thread. */
     static void think(Context c, String reason, Consumer<String> done, Runnable failed) {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
-        boolean nim = store.nim.connected(), groq = GroqWork.on();
-        if (!nim && !groq) { failed.run(); return; }
+        if (!store.nim.connected() && !GroqWork.on()) { failed.run(); return; }
         if (!busy.compareAndSet(false, true)) return;
         SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         String instructions = instructions(c, reason), input = input(c, store, p, reason);
+        ask(c, instructions, input, 1.0, 9_000, text -> clean(text, p), line -> { remember(p, line); busy.set(false); done.accept(line); }, () -> { busy.set(false); failed.run(); });
+    }
+
+    // ── 퍼레's brain (준: "퍼레 메세지 약간 느린거 같은데 groq qwen 3.8로 두뇌 바꿔줘", "들퍼레앱에서 설정 가능하게 해줘", "Qwen으로 바꿔줘") ──
+    static final String BRAIN = "brain", QWEN = "qwen", NIM = "nim", BOTH = "both";
+    /** Which brain 퍼레 thinks with: Groq's Qwen (the default, quick), NVIDIA NIM, or both at once. */
+    static String brain(Context c) { String b = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(BRAIN, QWEN); return NIM.equals(b) || BOTH.equals(b) ? b : QWEN; }
+    static void brain(Context c, String which) { c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(BRAIN, which).apply(); }
+    /** The newest Qwen the user's Groq key lists (its chat models, not guards, coders or vision), else Qwen3 32B. */
+    static String qwen(AppStore store) {
+        org.json.JSONArray ids = store.groq.models(); String best = null; double newest = -1;
+        java.util.regex.Pattern version = java.util.regex.Pattern.compile("qwen-?(\\d+(?:\\.\\d+)?)");
+        for (int i = 0; i < ids.length(); i++) {
+            String id = ids.optString(i), low = id.toLowerCase(Locale.ROOT);
+            if (!low.contains("qwen") || low.matches(".*(guard|coder|vl|embed|tts|whisper).*")) continue;
+            String tail = low.substring(low.lastIndexOf('/') + 1);
+            java.util.regex.Matcher m = version.matcher(tail);
+            double v = 0; if (m.find()) try { v = Double.parseDouble(m.group(1)); } catch (NumberFormatException ignored) {}
+            if (v > newest) { newest = v; best = id; }
+        }
+        return best != null ? best : "qwen/qwen3-32b";
+    }
+    /**
+     * One answer from 퍼레's brain (brain()): Groq's Qwen first with NVIDIA NIM after four seconds, NIM first with Qwen after
+     * two and a half, or both at once; the first good answer wins and the other is stopped. When one is not connected or
+     * fails, the other answers. clean makes what 퍼레 says of the text (null: not usable). Off the main thread.
+     */
+    static void ask(Context c, String instructions, String input, double temperature, int timeoutMs, java.util.function.Function<String, String> clean, Consumer<String> done, Runnable failed) {
+        AppStore store = ((GyeotApp) c.getApplicationContext()).store();
+        boolean nim = store.nim.connected(), groq = GroqWork.on();
+        if (!nim && !groq) { failed.run(); return; }
         AtomicBoolean answered = new AtomicBoolean();
         AtomicReference<Runnable> stopNim = new AtomicReference<>(), stopGroq = new AtomicReference<>();
-        int[] runners = {0};
+        Object lock = new Object(); int[] running = {0}; boolean[] tried = {false, false};
+        Runnable[] start = new Runnable[2];
         Consumer<String> win = line -> {
             if (!answered.compareAndSet(false, true)) return;
             Runnable a = stopNim.get(), b = stopGroq.get();
             if (a != null) try { a.run(); } catch (RuntimeException ignored) {}
             if (b != null) try { b.run(); } catch (RuntimeException ignored) {}
-            remember(p, line); busy.set(false); done.accept(line);
+            done.accept(line);
         };
-        Runnable lost = () -> { synchronized (runners) { if (--runners[0] == 0 && answered.compareAndSet(false, true)) { busy.set(false); failed.run(); } } };
-        Runnable askGroq = () -> {
-            synchronized (runners) { if (answered.get()) return; runners[0]++; }
+        Runnable lost = () -> {
+            Runnable next = null;
+            synchronized (lock) {
+                running[0]--;
+                if (answered.get() || running[0] > 0) return;
+                if (groq && !tried[0]) next = start[0];
+                else if (nim && !tried[1]) next = start[1];
+                else if (answered.compareAndSet(false, true)) next = failed;
+            }
+            if (next != null) next.run();
+        };
+        JSONArray messages = new JSONArray();
+        try { messages.put(new JSONObject().put("role", "user").put("content", input)); } catch (Exception ignored) {}
+        start[0] = () -> {
+            synchronized (lock) { if (answered.get() || tried[0]) return; tried[0] = true; running[0]++; }
             new Thread(() -> {
+                String model = qwen(store);
                 try {
-                    String text = GroqWork.converse(GroqWork.CHORES, instructions, new JSONArray().put(new JSONObject().put("role", "user").put("content", input)), "low", 1.0, 9_000, stopGroq);
-                    String line = clean(text, p); if (line != null) win.accept(line); else lost.run();
+                    String text;
+                    // Qwen's thinking off for speed; a model that refuses the setting is asked again without it.
+                    try { text = GroqWork.converse(model, instructions, messages, "none", temperature, timeoutMs, stopGroq); }
+                    catch (Exception first) { if (answered.get()) throw first; text = GroqWork.converse(model, instructions, messages, null, temperature, timeoutMs, stopGroq); }
+                    String line = clean.apply(text); if (line != null) win.accept(line); else lost.run();
                 } catch (Exception e) { lost.run(); }
-            }, "gyeot-buddy-groq").start();
+            }, "gyeot-buddy-qwen").start();
         };
-        long now = System.currentTimeMillis();
-        if (nim && !(groq && now < nimSlowUntil)) {
-            synchronized (runners) { runners[0]++; }
+        start[1] = () -> {
+            synchronized (lock) { if (answered.get() || tried[1]) return; tried[1] = true; running[0]++; }
             new Thread(() -> {
-                long start = System.currentTimeMillis();
+                long begun = System.currentTimeMillis();
                 try {
                     WorkClient.Result r = NimClient.complete(store.nim, store.nim.generation(), NIM_MODEL, instructions, input, () -> { if (answered.get()) throw new java.util.concurrent.CancellationException(); }, stopNim);
-                    if (System.currentTimeMillis() - start > 4_000) nimSlowUntil = System.currentTimeMillis() + 10 * 60_000L;
-                    String line = clean(r.text, p); if (line != null) win.accept(line); else lost.run();
+                    if (System.currentTimeMillis() - begun > 4_000) nimSlowUntil = System.currentTimeMillis() + 10 * 60_000L;
+                    String line = clean.apply(r.text); if (line != null) win.accept(line); else lost.run();
                 } catch (Exception e) { nimSlowUntil = System.currentTimeMillis() + 5 * 60_000L; lost.run(); }
             }, "gyeot-buddy-nim").start();
-            // NIM slow to answer: Groq joins the race.
-            if (groq) new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> { if (!answered.get()) askGroq.run(); }, 2_500);
-        } else askGroq.run();
+        };
+        android.os.Handler later = new android.os.Handler(android.os.Looper.getMainLooper());
+        switch (brain(c)) {
+            case NIM -> {
+                if (nim && !(groq && System.currentTimeMillis() < nimSlowUntil)) { start[1].run(); if (groq) later.postDelayed(() -> { if (!answered.get()) start[0].run(); }, 2_500); }
+                else start[0].run();
+            }
+            case BOTH -> { if (groq) start[0].run(); if (nim) start[1].run(); }
+            default -> { if (groq) { start[0].run(); if (nim) later.postDelayed(() -> { if (!answered.get()) start[1].run(); }, 4_000); } else start[1].run(); }
+        }
     }
 
     /**
@@ -89,50 +142,21 @@ final class BuddyTalk {
         String instructions = "너는 사용자의 휴대폰 안에 살면서 홈 화면에 나와 있는 귀엽고 다정한 AI 친구 '" + name + "'이야. 지금 사용자와 목소리로 대화하고 있어. 휴대폰이 너의 집이야(배터리는 밥, 충전은 식사).\n"
             + "- 사용자의 마지막 말에 바로, 친구처럼 답해. 물으면 핵심만 짧게 알려 주고, 모르면 솔직하게 말해.\n"
             + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 존댓말(~요). 이모지·기호·목록·괄호·영어 약어 없이.\n"
-            + "- 귀엽고 밝게, 가끔 너의 기억이나 휴대폰 상태를 자연스럽게 꺼내도 좋아.";
+            + "- 귀엽고 밝게, 가끔 너의 기억을 자연스럽게 꺼내도 좋아.\n"
+            + "- 사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 '휴대폰 상태'의 숫자로 정확히 답해. 묻지 않으면 저장공간 이야기는 꺼내지 말고, 정리·삭제를 권하지 마.";
         long now = System.currentTimeMillis();
         String when = new SimpleDateFormat("M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date(now));
         String note = ""; try { note = Briefing.profile(store); } catch (RuntimeException ignored) {}
         StringBuilder talk = new StringBuilder();
         for (String[] t : turns) talk.append("user".equals(t[0]) ? "사용자: " : "퍼레: ").append(t[1]).append('\n');
         String house = home(c);
-        String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + lifeWords(c) + "\n" + memoryWords(c)
+        String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + lifeWords(c) + "\n" + memoryWords(c)
             + "사용자에 대해 아는 것:\n" + (note.isBlank() ? "(아직 잘 몰라요)" : note) + "\n\n";
         String input = context + (talk.length() == 0 ? "" : "지금까지 대화:\n" + talk) + "사용자: " + said + "\n퍼레:";
-        AtomicBoolean answered = new AtomicBoolean();
-        AtomicReference<Runnable> stopNim = new AtomicReference<>(), stopGroq = new AtomicReference<>();
-        int[] runners = {0};
-        Consumer<String> win = line -> {
-            if (!answered.compareAndSet(false, true)) return;
-            Runnable a = stopNim.get(), b = stopGroq.get();
-            if (a != null) try { a.run(); } catch (RuntimeException ignored) {}
-            if (b != null) try { b.run(); } catch (RuntimeException ignored) {}
+        ask(c, instructions, input, 0.9, 12_000, BuddyTalk::spoken, line -> {
             remember(c, "voice", "사용자와 목소리로 이야기했어요" + (said.length() <= 24 ? " (‘" + said + "’)" : ""), 2 * 3_600_000L);
             done.accept(line);
-        };
-        Runnable lost = () -> { synchronized (runners) { if (--runners[0] == 0 && answered.compareAndSet(false, true)) failed.run(); } };
-        Runnable askGroq = () -> {
-            synchronized (runners) { if (answered.get()) return; runners[0]++; }
-            new Thread(() -> {
-                try {
-                    JSONArray msgs = new JSONArray().put(new JSONObject().put("role", "user").put("content", input));
-                    String line = spoken(GroqWork.converse(GroqWork.CHORES, instructions, msgs, "low", 0.9, 12_000, stopGroq));
-                    if (line != null) win.accept(line); else lost.run();
-                } catch (Exception e) { lost.run(); }
-            }, "gyeot-buddy-voice-groq").start();
-        };
-        if (nim && !(groq && now < nimSlowUntil)) {
-            synchronized (runners) { runners[0]++; }
-            new Thread(() -> {
-                long start = System.currentTimeMillis();
-                try {
-                    WorkClient.Result r = NimClient.complete(store.nim, store.nim.generation(), NIM_MODEL, instructions, input, () -> { if (answered.get()) throw new java.util.concurrent.CancellationException(); }, stopNim);
-                    if (System.currentTimeMillis() - start > 4_000) nimSlowUntil = System.currentTimeMillis() + 10 * 60_000L;
-                    String line = spoken(r.text); if (line != null) win.accept(line); else lost.run();
-                } catch (Exception e) { nimSlowUntil = System.currentTimeMillis() + 5 * 60_000L; lost.run(); }
-            }, "gyeot-buddy-voice-nim").start();
-            if (groq) new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> { if (!answered.get()) askGroq.run(); }, 2_500);
-        } else askGroq.run();
+        }, failed);
     }
     /** An answer as it is spoken: no thinking, no marks, at most two lines joined, not too long. */
     static String spoken(String text) {
@@ -362,6 +386,27 @@ final class BuddyTalk {
         if (e.optBoolean("powerSave") && !was.optBoolean("powerSave")) remember(c, "save", "절전 모드라 기운을 아끼며 조용히 지냈어요", 6 * 3_600_000L);
         if (e.optBoolean("dnd") && !was.optBoolean("dnd")) remember(c, "dnd", "방해 금지라서 말을 아끼고 곁에 있었어요", 6 * 3_600_000L);
         if (e.optBoolean("airplane") && !was.optBoolean("airplane")) remember(c, "airplane", "비행기 모드였어요. 어디 멀리 가셨나 봐요", 6 * 3_600_000L);
+    }
+    /**
+     * The phone's state as plain facts, for answers when the user asks (준: "내가 지금 저장공간 얼마남았어? 라고 물을 때 답을 못하자나"):
+     * the storage left and in all (as the phone's settings count it, in GB), the battery, its heat, the network. Not for
+     * 퍼레's own lines, which never bring storage up.
+     */
+    static String facts(Context c) {
+        StringBuilder out = new StringBuilder();
+        try {
+            android.os.StatFs fs = new android.os.StatFs(android.os.Environment.getDataDirectory().getPath());
+            double free = fs.getAvailableBytes() / 1e9, total = fs.getTotalBytes() / 1e9;
+            if (total > 0) out.append(String.format(Locale.KOREA, "저장공간 남은 %.1fGB / 전체 약 %.0fGB (%d%% 사용). ", free, total, Math.round((1 - free / total) * 100)));
+        } catch (Exception ignored) {}
+        JSONObject e = env(c);
+        if (e.has("battery")) out.append("배터리 ").append(e.optInt("battery")).append("%").append(e.optBoolean("charging") ? " 충전 중" : "").append(". ");
+        if (e.optInt("heat") > 0) out.append("배터리 온도 ").append(e.optInt("heat")).append("도. ");
+        out.append(e.optBoolean("offline") ? "인터넷 끊김. " : e.optBoolean("wifi") ? "와이파이 연결. " : "모바일 데이터 연결. ");
+        if (e.optBoolean("powerSave")) out.append("절전 모드. ");
+        if (e.optBoolean("dnd")) out.append("방해 금지. ");
+        if (e.optBoolean("airplane")) out.append("비행기 모드. ");
+        return out.toString().strip();
     }
     /** The phone as 퍼레's home, in plain words for its own lines. */
     private static String home(Context c) {

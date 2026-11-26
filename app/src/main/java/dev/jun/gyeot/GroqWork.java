@@ -39,6 +39,8 @@ final class GroqWork {
         for (int i = 0; i < turns.length(); i++) messages.put(turns.get(i));
         JSONObject body = new JSONObject().put("model", model).put("temperature", temperature).put("messages", messages);
         if (reasoning != null && model.startsWith("openai/gpt-oss")) body.put("reasoning_effort", reasoning);
+        // Qwen's thinking: "none" answers at once (퍼레, BuddyTalk.ask).
+        else if (reasoning != null && model.toLowerCase(java.util.Locale.ROOT).contains("qwen")) body.put("reasoning_effort", reasoning);
         JSONObject answer = post(model, "chat/completions", "application/json", body.toString().getBytes(StandardCharsets.UTF_8), timeoutMs, cancel);
         JSONArray choices = answer.optJSONArray("choices");
         JSONObject message = choices == null || choices.length() == 0 ? null : choices.optJSONObject(0).optJSONObject("message");

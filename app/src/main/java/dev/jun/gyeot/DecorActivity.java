@@ -92,6 +92,11 @@ public final class DecorActivity extends Activity {
         body.addView(launcherGroup, lg);
         // 퍼레's own memory, kept in the app apart from the assistant's (준: "퍼레 캐릭터의 메모리는 따로 들퍼레 앱에 저장").
         LinearLayout buddyGroup = ui.group();
+        // 퍼레's brain (준: "groq qwen으로 두뇌 바꿔줘", "들퍼레앱에서 설정 가능하게 해줘"): Qwen (quick, the default), NVIDIA, or both.
+        String[] brains = {BuddyTalk.QWEN, BuddyTalk.NIM, BuddyTalk.BOTH};
+        int brainAt = java.util.Arrays.asList(brains).indexOf(BuddyTalk.brain(this));
+        ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_bolt, Ui.ORANGE, "퍼레 두뇌", "한마디 · 퍼레 대화 · 음성 대화 · 안 되면 다른 쪽이 답해요",
+            ui.switcher(new String[]{"Qwen", "NVIDIA", "둘 다"}, Math.max(0, brainAt), i -> BuddyTalk.brain(this, brains[i])), null), true);
         ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_sparkle, Ui.ACCENT, "퍼레의 기억", "퍼레가 휴대폰에서 겪은 일 · 보고 지울 수 있어요", ui.chevron(), this::showMemory), true);
         LinearLayout.LayoutParams bg = new LinearLayout.LayoutParams(-1, -2); bg.bottomMargin = ui.dp(14);
         body.addView(buddyGroup, bg);
