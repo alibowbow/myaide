@@ -75,7 +75,8 @@ final class SideDock implements AutoCloseable {
     private SharedPreferences settings() { return store.settings; }
     /** On the edge opposite 퍼레's handle unless the user moved it. */
     private boolean right() { return settings().getBoolean("sideDockRight", !settings().getBoolean("edgeRight", true)); }
-    static boolean on(AppStore store) { return store.settings.getBoolean("sideDock", true); }
+    /** Off unless the user turns it on (준: "갑자기 왼쪽에 이상한 바가 생겼어 이거 없애줘"): 화면 꾸미기 → 사이드 독. */
+    static boolean on(AppStore store) { return store.settings.getBoolean("sideDock", false); }
 
     /** Shown or hidden for the state now (every app state change, screen on and off). */
     void refresh() {
