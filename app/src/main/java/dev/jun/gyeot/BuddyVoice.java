@@ -31,6 +31,13 @@ final class BuddyVoice {
     interface Show { void state(String state, String text); }
     /** The fingerprint before an answer that may need private memories; then runs either way (passed or not). */
     interface Unlock { void ask(Runnable then); }
+    /**
+     * Something done on the phone (준: "퍼레는 폰조작이 안되네"): an app opened, a route, an alarm … ("할일" from the answer). Its
+     * outcome: what 퍼레 says after (may be empty), whether another app is now in front (the talk ends), and the thing again
+     * when it waits for a yes (an alarm or a timer).
+     */
+    record Outcome(String say, boolean leaves, org.json.JSONObject confirm) {}
+    interface Act { Outcome run(org.json.JSONObject act, String heard); }
     private final Context context; private final AppStore store; private final ExecutorService io; private final Show show;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<String[]> turns = new ArrayList<>();
@@ -40,8 +47,10 @@ final class BuddyVoice {
     /** The speech playing as it streams in, and how to stop its download (end()). */
     private volatile android.media.AudioTrack track; private final java.util.concurrent.atomic.AtomicReference<Runnable> download = new java.util.concurrent.atomic.AtomicReference<>();
 
-    private final Unlock unlock;
-    BuddyVoice(Context context, AppStore store, ExecutorService io, Show show, Unlock unlock) { this.context = context.getApplicationContext(); this.store = store; this.io = io; this.show = show; this.unlock = unlock; }
+    private final Unlock unlock; private final Act act;
+    /** The thing to do once 퍼레 has said its words, and the one waiting for a yes. */
+    private org.json.JSONObject todo, confirming; private String todoHeard = "";
+    BuddyVoice(Context context, AppStore store, ExecutorService io, Show show, Unlock unlock, Act act) { this.context = context.getApplicationContext(); this.store = store; this.io = io; this.show = show; this.unlock = unlock; this.act = act; }
     boolean on() { return on; }
 
     void start() {
@@ -121,6 +130,11 @@ final class BuddyVoice {
     }
     /** guest: not the user's voice; the fingerprint, when what was asked needs it, shows it was the user after all. */
     private void think(String said, boolean guest) {
+        // An alarm or a timer waiting for a yes: this was the answer.
+        if (confirming != null) {
+            org.json.JSONObject waiting = confirming; confirming = null;
+            if (!guest && act != null && dev.jun.gyeot.core.DeviceActions.affirmative(said)) { show.state("thinking", said); done(act.run(waiting, said)); return; }
+        }
         if (unlock != null && BuddyTalk.needsUnlock(context, said)) {
             show.state("thinking", said); int mine = generation;
             unlock.ask(() -> { if (on && mine == generation) answer(said, guest && !BuddyTalk.unlocked()); });
@@ -133,7 +147,7 @@ final class BuddyVoice {
         int mine = generation;
         List<String[]> before = new ArrayList<>(turns);
         try {
-            io.execute(() -> BuddyTalk.reply(context, said, before, guest,
+            io.execute(() -> BuddyTalk.reply(context, said, before, guest, guest || act == null ? null : a -> main.post(() -> { if (on && mine == generation) { todo = a; todoHeard = said; } }),
                 line -> main.post(() -> { if (on && mine == generation) { answeredAt = android.os.SystemClock.uptimeMillis(); turns.add(new String[]{"user", said}); turns.add(new String[]{"assistant", line}); say(line); } }),
                 () -> main.post(() -> { if (on && mine == generation) end("error", "지금은 대답이 안 떠올라. 조금 있다 다시 불러 줘"); })));
         } catch (RuntimeException stopped) { end("error", ""); }
@@ -282,13 +296,24 @@ final class BuddyVoice {
             if (phoneReady) go.run(); else spoken();
         }));
     }
-    /** Said: listen again (the loop goes on until silence or a tap). */
+    /** Said: what was promised is done now, then it listens again (the loop goes on until silence or a tap). */
     private void spoken() {
         focus(false); releasePlayer();
-        if (on) main.postDelayed(this::listen, 350);
+        if (!on) return;
+        org.json.JSONObject now = todo; todo = null;
+        if (now != null && act != null) { done(act.run(now, todoHeard)); return; }
+        main.postDelayed(this::listen, 350);
+    }
+    /** After a thing done: its words (a question when it waits for a yes), and the talk ends when another app came up. */
+    private void done(Outcome o) {
+        if (o == null) { main.postDelayed(this::listen, 350); return; }
+        if (o.confirm() != null) confirming = o.confirm();
+        if (o.leaves()) { end("done", o.say() == null ? "" : o.say()); return; }
+        if (o.say() != null && !o.say().isBlank()) { turns.add(new String[]{"assistant", o.say()}); say(o.say()); return; }
+        main.postDelayed(this::listen, 350);
     }
     private void end(String state, String words) {
-        on = false; generation++;
+        on = false; generation++; todo = null; confirming = null;
         if (store.buddyTalking) { store.buddyTalking = false; store.changed(); }
         Runnable cut = download.getAndSet(null); if (cut != null) try { cut.run(); } catch (RuntimeException ignored) {}
         Runnable listening = whisper.getAndSet(null); if (listening != null) try { listening.run(); } catch (RuntimeException ignored) {}

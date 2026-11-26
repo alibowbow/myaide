@@ -190,9 +190,78 @@ public final class HomeActivity extends Activity {
     private void voice() {
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, MIC); return; }
         if (buddyVoice == null) buddyVoice = new BuddyVoice(this, ((GyeotApp) getApplication()).store(), io, (state, text) -> js("launcher.voice(" + JSONObject.quote(state) + "," + JSONObject.quote(text) + ")"),
-            then -> main.post(() -> Fingerprint.ask(this, "퍼레의 비밀 기억", "지문으로 확인하면 말해 줄게", () -> { BuddyTalk.unlock(); then.run(); }, then)));
+            then -> main.post(() -> Fingerprint.ask(this, "퍼레의 비밀 기억", "지문으로 확인하면 말해 줄게", () -> { BuddyTalk.unlock(); then.run(); }, then)),
+            this::buddyDo);
         if (buddyVoice.on()) buddyVoice.stop(); else buddyVoice.start();
     }
+    /**
+     * 퍼레 does what it was asked on the phone (준: "퍼레는 폰조작이 안되네"): an app opened by its name, a web search, and the
+     * edge assistant's own phone actions (DeviceActions: a route, an alarm, a timer, music, the torch, a settings panel).
+     * heard: what the user said (an alarm or a timer runs only after a yes). Any thread.
+     */
+    BuddyVoice.Outcome buddyDo(JSONObject act, String heard) {
+        String tool = act.optString("tool").strip().toLowerCase(java.util.Locale.ROOT);
+        try {
+            switch (tool) {
+                case "open_app" -> {
+                    String name = act.optString("app").strip(), id = findApp(name);
+                    if (id == null) return new BuddyVoice.Outcome("'" + name + "' 앱은 이 휴대폰에서 못 찾았어.", false, null);
+                    bridge.launch(id, 0, 0, 0, 0);
+                    return new BuddyVoice.Outcome("", true, null);
+                }
+                case "search" -> { String q = act.optString("query").strip(); if (q.isEmpty()) return null; bridge.web(q); return new BuddyVoice.Outcome("", true, null); }
+                default -> { /* the phone's own actions, below */ }
+            }
+            String name = switch (tool) {
+                case "alarm" -> dev.jun.gyeot.core.DeviceActions.ALARM; case "timer" -> dev.jun.gyeot.core.DeviceActions.TIMER;
+                case "navigate" -> dev.jun.gyeot.core.DeviceActions.NAVIGATE; case "media" -> dev.jun.gyeot.core.DeviceActions.MEDIA;
+                case "torch" -> dev.jun.gyeot.core.DeviceActions.TORCH; case "settings" -> dev.jun.gyeot.core.DeviceActions.SETTINGS;
+                case "show_alarms" -> dev.jun.gyeot.core.DeviceActions.SHOW_ALARMS; default -> "";
+            };
+            if (name.isEmpty()) return new BuddyVoice.Outcome("그건 아직 내가 못 해.", false, null);
+            JSONObject args = new JSONObject(act.toString()); args.remove("tool");
+            boolean clock = dev.jun.gyeot.core.DeviceActions.ALARM.equals(name) || dev.jun.gyeot.core.DeviceActions.TIMER.equals(name);
+            if (clock) args.put("confirmed", true);
+            dev.jun.gyeot.core.DeviceActions.Action action = dev.jun.gyeot.core.DeviceActions.parse(name, args, heard == null ? "" : heard, java.time.ZonedDateTime.now());
+            JSONObject r = DeviceActionRunner.run(this, action, false);
+            if ("needs_confirmation".equals(r.optString("outcome")))
+                return new BuddyVoice.Outcome(action.readback + (dev.jun.gyeot.core.DeviceActions.ALARM.equals(name) ? "에 알람 맞출까?" : " 타이머 시작할까?"), false, act);
+            if (!r.optBoolean("ok")) return new BuddyVoice.Outcome(r.optString("say", "잘 안 됐어."), false, null);
+            if (dev.jun.gyeot.core.DeviceActions.ALARM.equals(name)) return new BuddyVoice.Outcome(action.readback + "에 알람 맞췄어!", false, null);
+            if (dev.jun.gyeot.core.DeviceActions.TIMER.equals(name)) return new BuddyVoice.Outcome(action.readback + " 타이머 시작!", false, null);
+            boolean leaves = DeviceActionRunner.started(r.optString("route")) && (dev.jun.gyeot.core.DeviceActions.NAVIGATE.equals(name) || dev.jun.gyeot.core.DeviceActions.SETTINGS.equals(name) || dev.jun.gyeot.core.DeviceActions.SHOW_ALARMS.equals(name));
+            return new BuddyVoice.Outcome("notification".equals(r.optString("outcome")) ? r.optString("say") : "", leaves, null);
+        } catch (IllegalArgumentException unclear) { return new BuddyVoice.Outcome(unclear.getMessage(), false, null); }
+        catch (Exception failed) { return new BuddyVoice.Outcome("잘 안 됐어. 한 번만 다시 말해 줘.", false, null); }
+    }
+    /** Names people say for apps whose label is in another script or a nickname. */
+    private static final Map<String, String> APP_ALIASES = Map.ofEntries(Map.entry("유튜브", "youtube"), Map.entry("크롬", "chrome"), Map.entry("인스타", "instagram"),
+        Map.entry("인스타그램", "instagram"), Map.entry("넷플릭스", "netflix"), Map.entry("디스코드", "discord"), Map.entry("카톡", "카카오톡"), Map.entry("지메일", "gmail"),
+        Map.entry("구글지도", "지도"), Map.entry("구글맵", "지도"), Map.entry("트위터", "x"), Map.entry("페이스북", "facebook"), Map.entry("스포티파이", "spotify"),
+        Map.entry("테슬라", "tesla"), Map.entry("바이낸스", "binance"), Map.entry("챗지피티", "chatgpt"), Map.entry("클로드", "claude"), Map.entry("제미나이", "gemini"));
+    /** The launchable app a spoken name means (bestApp over the apps this home screen knows). */
+    String findApp(String spoken) {
+        Map<String, String[]> apps = new java.util.HashMap<>();
+        for (Map.Entry<String, LauncherActivityInfo> e : known.entrySet()) apps.put(e.getKey(), new String[]{String.valueOf(e.getValue().getLabel()), e.getValue().getApplicationInfo().packageName});
+        return bestApp(apps, spoken);
+    }
+    /** Of apps (id → {label, package}), the one a spoken name means: the same label, else one starting with it, else one containing it; shorter first. */
+    static String bestApp(Map<String, String[]> apps, String spoken) {
+        String want = appKey(spoken).replaceAll("앱$|어플$", "");
+        if (want.isEmpty()) return null;
+        String alias = APP_ALIASES.getOrDefault(want, "");
+        String best = null; int bestScore = 0;
+        for (Map.Entry<String, String[]> e : apps.entrySet()) {
+            String label = appKey(e.getValue()[0]), pkg = e.getValue()[1] == null ? "" : e.getValue()[1].toLowerCase(java.util.Locale.ROOT);
+            int score = label.equals(want) || !alias.isEmpty() && label.equals(alias) ? 100 : label.startsWith(want) ? 80 : label.contains(want) ? 60
+                : !alias.isEmpty() && (label.contains(alias) || pkg.contains(alias)) ? 55 : want.length() >= 3 && want.contains(label) && label.length() >= 2 ? 40 : 0;
+            if (score == 0) continue;
+            score = score * 100 - Math.min(99, label.length());
+            if (score > bestScore) { bestScore = score; best = e.getKey(); }
+        }
+        return best;
+    }
+    private static String appKey(String s) { return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[\\s\\p{Punct}·]", ""); }
     @Override protected void onResume() {
         super.onResume(); shown = true;
         NoticeListener.changed = badgesChanged;
@@ -313,10 +382,19 @@ public final class HomeActivity extends Activity {
         String now = new java.text.SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", java.util.Locale.KOREA).format(new java.util.Date());
         return BuddyTalk.persona(this) + "\n지금은 " + now + ". 사용자가 홈 화면에서 너에게 글로 말을 걸었어.\n"
             + "한국어로, 너답게 밝고 상냥하게 답해. 핵심부터 2~6문장. 표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써.\n"
-            + "모르는 것은 지어내지 말고 모른다고 말해. 휴대폰을 직접 조작하거나 앱을 열 수는 없으니, 그런 부탁이면 앱에서 이어가자고 말해.\n"
+            + "모르는 것은 지어내지 말고 모른다고 말해.\n" + BuddyTalk.ACTS
             + "사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 아래 '휴대폰 상태'의 숫자로 답해. 묻지 않으면 꺼내지 말고 정리·삭제를 권하지 마.\n"
             + "휴대폰 상태: " + BuddyTalk.facts(this) + "\n" + BuddyTalk.todayWords(this) + BuddyTalk.memoryWords(this, question, true)
             + (about.isBlank() ? "" : "사용자에 대해 알고 있는 것:\n" + about);
+    }
+    /** A written answer shown, and the thing it names done (BuddyTalk.ACTS; typed, so an alarm needs no spoken yes). */
+    private void chatAnswer(String question, String text) {
+        JSONObject a = BuddyTalk.act(text);
+        String shown = text.replaceAll("(?m)^\\s*할\\s*일\\s*[:：].*$", "").strip();
+        if (a == null) { js("launcher.reply(" + JSONObject.quote(shown) + ")"); BuddyTalk.learnLater(this, question, shown); return; }
+        BuddyVoice.Outcome o = buddyDo(a, "네");
+        String more = o == null || o.say() == null ? "" : o.say().strip();
+        js("launcher.reply(" + JSONObject.quote(more.isEmpty() ? shown : shown + "\n" + more) + ")");
     }
     /** The question with the turns before it (at most six, each cut short), as the model reads them. */
     private static String chatInput(String history, String question) {
@@ -530,7 +608,7 @@ public final class HomeActivity extends Activity {
                         try {
                             String text = BuddyTalk.askCustom(store, chatInstructions(store, question), chatInput(history, question.strip()), cancel);
                             String said = text.replaceAll("(?s)<think>.*?</think>", "").strip();
-                            if (ticket == chatTicket) { js("launcher.reply(" + JSONObject.quote(said) + ")"); BuddyTalk.learnLater(HomeActivity.this, question, said); }
+                            if (ticket == chatTicket) chatAnswer(question, said);
                             return;
                         } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
                         catch (Exception unavailable) { if (ticket != chatTicket) return; if (!qwen && !store.nim.connected()) throw unavailable; }
@@ -541,13 +619,13 @@ public final class HomeActivity extends Activity {
                         try { text = GroqWork.converse(model, chatInstructions(store, question), messages, "none", 0.7, 30_000, cancel); }
                         catch (Exception first) { if (ticket != chatTicket) throw new java.util.concurrent.CancellationException(); text = GroqWork.converse(model, chatInstructions(store, question), messages, null, 0.7, 30_000, cancel); }
                         text = text.replaceAll("(?s)<think>.*?</think>", "").strip();
-                        if (ticket == chatTicket) { js("launcher.reply(" + JSONObject.quote(text) + ")"); BuddyTalk.learnLater(HomeActivity.this, question, text); }
+                        if (ticket == chatTicket) chatAnswer(question, text);
                         return;
                     }
                     WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), store.nim.model(), chatInstructions(store, question), chatInput(history, question.strip()),
                         () -> { if (ticket != chatTicket) throw new java.util.concurrent.CancellationException(); }, cancel,
                         delta -> { if (ticket == chatTicket && !delta.isEmpty()) js("launcher.stream(" + JSONObject.quote(delta) + ")"); });
-                    if (ticket == chatTicket) { String said = answer.text == null ? "" : answer.text.strip(); js("launcher.reply(" + JSONObject.quote(said) + ")"); BuddyTalk.learnLater(HomeActivity.this, question, said); }
+                    if (ticket == chatTicket) chatAnswer(question, answer.text == null ? "" : answer.text.strip());
                 } catch (java.util.concurrent.CancellationException stopped) { /* a newer question, or stopped */ }
                 catch (Exception e) {
                     String why = e instanceof java.io.IOException ? "인터넷이 끊겼거나 " + (qwen ? "Groq" : "NVIDIA") + "가 답하지 않았어요. 잠시 뒤 다시 물어봐 주세요." : e.getMessage() == null ? "답을 받지 못했어요." : e.getMessage();

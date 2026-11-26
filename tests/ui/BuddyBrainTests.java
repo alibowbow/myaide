@@ -76,6 +76,27 @@ public class BuddyBrainTests {
         shot(l, "buddy_brain_models");
     }
 
+    /** 퍼레 does things on the phone (준: "퍼레는 폰조작이 안되네"): the "할일" line read, never said; an app found by what is said. */
+    @Test public void doesThingsOnThePhone() {
+        String answer = "두구두구! 네이버 지도 바로 열어볼게. https://map.naver.com/ 😊\n할일: {\"tool\":\"open_app\",\"app\":\"네이버 지도\"}";
+        org.json.JSONObject act = BuddyTalk.act(answer);
+        assertNotNull(act); assertEquals("open_app", act.optString("tool")); assertEquals("네이버 지도", act.optString("app"));
+        String said = BuddyTalk.spoken(answer);
+        assertFalse(said, said.contains("http") || said.contains("할일") || said.contains("😊"));
+        assertTrue(said, said.startsWith("두구두구! 네이버 지도 바로 열어볼게"));
+        assertNull(BuddyTalk.act("그냥 이야기야"));
+        java.util.Map<String, String[]> apps = new java.util.HashMap<>();
+        apps.put("map", new String[]{"네이버 지도", "com.nhn.android.nmap"}); apps.put("gmap", new String[]{"지도", "com.google.android.apps.maps"});
+        apps.put("yt", new String[]{"YouTube", "com.google.android.youtube"}); apps.put("talk", new String[]{"카카오톡", "com.kakao.talk"});
+        apps.put("music", new String[]{"YouTube Music", "com.google.android.apps.youtube.music"});
+        assertEquals("map", HomeActivity.bestApp(apps, "네이버 지도"));
+        assertEquals("map", HomeActivity.bestApp(apps, "네이버지도 앱"));
+        assertEquals("yt", HomeActivity.bestApp(apps, "유튜브"));
+        assertEquals("talk", HomeActivity.bestApp(apps, "카톡"));
+        assertEquals("gmap", HomeActivity.bestApp(apps, "구글맵"));
+        assertNull(HomeActivity.bestApp(apps, "당근마켓"));
+    }
+
     /** 생각 깊이 (준: "낮음에 가장깊이생각이라고 되어있어"): shallow to deep after the default, "빨라요"/"깊게" by the level, not its place. */
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void ordersThinkingDepth() throws Exception {
         GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();

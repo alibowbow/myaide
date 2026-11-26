@@ -202,19 +202,36 @@ final class BuddyTalk {
      * answered as 퍼레 in one or two short spoken sentences. NIM's quick model and Groq race as for its lines; the first good
      * answer wins. Off the main thread.
      */
-    static void reply(Context c, String said, java.util.List<String[]> turns, Consumer<String> done, Runnable failed) { reply(c, said, turns, false, done, failed); }
+    static void reply(Context c, String said, java.util.List<String[]> turns, Consumer<String> done, Runnable failed) { reply(c, said, turns, false, null, done, failed); }
+
+    // ── doing things on the phone (준: "퍼레는 폰조작이 안되네": it said "네이버 지도 바로 열어볼게" and a link, and opened nothing) ──
+    /** What 퍼레 may do on the phone, as the model writes it: a second line "할일: {json}" after its words. */
+    static final String ACTS = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 찾기, 알람, 타이머, 음악 재생·멈춤·다음 곡, 손전등, 와이파이·블루투스 같은 설정 화면, 인터넷 검색) 너가 직접 해. "
+        + "첫 줄에 짧은 대답(예: '네이버 지도 열게!'), 둘째 줄에 '할일: ' 다음에 JSON 하나만 써. 형식: {\"tool\":\"open_app\",\"app\":\"앱 이름\"} · {\"tool\":\"navigate\",\"destination\":\"장소\"} · "
+        + "{\"tool\":\"alarm\",\"hour\":7,\"minute\":30} · {\"tool\":\"timer\",\"seconds\":180} · {\"tool\":\"media\",\"command\":\"play\"}(play·pause·next·previous) · {\"tool\":\"torch\",\"on\":true} · "
+        + "{\"tool\":\"settings\",\"panel\":\"wifi\"}(internet·wifi·bluetooth·volume·nfc·display·location·battery) · {\"tool\":\"search\",\"query\":\"검색어\"}. "
+        + "문자·전화·결제처럼 못 하는 일은 할일 줄 없이 아직 못 한다고 말해. 주소(URL)와 이모지는 절대 쓰지 마.\n";
+    private static final java.util.regex.Pattern ACT_LINE = java.util.regex.Pattern.compile("(?m)^\\s*할\\s*일\\s*[:：]\\s*(\\{.*\\})\\s*$");
+    /** The thing to do the answer names ("할일: {…}"), or null. */
+    static JSONObject act(String text) {
+        if (text == null) return null;
+        java.util.regex.Matcher m = ACT_LINE.matcher(text.replaceAll("(?s)<think>.*?</think>", ""));
+        if (!m.find()) return null;
+        try { JSONObject a = new JSONObject(m.group(1)); return a.optString("tool").isBlank() ? null : a; } catch (Exception broken) { return null; }
+    }
     /**
      * guest: the voice is not the user's (VoicePrint, 준: "내 목소리를 알아볼 수 있게해줘"): 퍼레 answers a guest kindly and keeps the
      * user's memories, day and profile to itself, and learns nothing from what the guest said.
      */
-    static void reply(Context c, String said, java.util.List<String[]> turns, boolean guest, Consumer<String> done, Runnable failed) {
+    static void reply(Context c, String said, java.util.List<String[]> turns, boolean guest, Consumer<JSONObject> doIt, Consumer<String> done, Runnable failed) {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
         String instructions = persona(c) + "\n지금 " + (guest ? "누군가와" : "사용자와") + " 목소리로 대화하고 있어.\n"
             + (guest ? "- 지금 들리는 목소리는 '" + title(c) + "'(휴대폰 주인) 목소리가 아니야. 처음 듣는 목소리라고 반갑게 대하되, 주인의 기억·일정·하루·개인적인 이야기는 절대 꺼내지 말고, 주인에 대해 물어도 알려 주지 마. 상대를 '" + title(c) + "'(이)라고 부르지 마.\n" : "")
             + "- 사용자의 마지막 말에 바로, 친구처럼 답해. 물으면 핵심만 짧게 알려 주고, 모르면 솔직하게 말해.\n"
             + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 반말(~야, ~해). 이모지·기호·목록·괄호·영어 약어 없이.\n"
             + "- 귀엽고 밝게, 가끔 너의 기억을 자연스럽게 꺼내도 좋아.\n"
-            + "- 사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 '휴대폰 상태'의 숫자로 정확히 답해. 묻지 않으면 저장공간 이야기는 꺼내지 말고, 정리·삭제를 권하지 마.";
+            + "- 사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 '휴대폰 상태'의 숫자로 정확히 답해. 묻지 않으면 저장공간 이야기는 꺼내지 말고, 정리·삭제를 권하지 마.\n"
+            + (guest || doIt == null ? "" : ACTS);
         long now = System.currentTimeMillis();
         String when = new SimpleDateFormat("M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date(now));
         String note = ""; if (!guest) try { note = Briefing.profile(store); } catch (RuntimeException ignored) {}
@@ -226,8 +243,10 @@ final class BuddyTalk {
             + (guest ? "" : "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + todayWords(c) + memoryWords(c, said, true)
                 + "사용자에 대해 아는 것:\n" + (note.isBlank() ? "(아직 잘 몰라)" : note) + "\n") + "\n";
         String input = context + (talk.length() == 0 ? "" : "지금까지 대화:\n" + talk) + who + ": " + said + "\n퍼레:";
-        speedy(c, instructions, input, 0.7, BuddyTalk::spoken, line -> {
-            if (!guest) learnLater(c, said, line);
+        AtomicReference<JSONObject> todo = new AtomicReference<>();
+        speedy(c, instructions, input, 0.7, text -> { todo.set(guest ? null : act(text)); return spoken(text); }, line -> {
+            if (!guest && todo.get() == null) learnLater(c, said, line);
+            if (doIt != null && todo.get() != null) doIt.accept(todo.get());
             done.accept(line);
         }, failed);
     }
@@ -259,7 +278,8 @@ final class BuddyTalk {
         String t = text.replaceAll("(?s)<think>.*?</think>", "").replaceAll("^\\s*퍼레\\s*[:：]\\s*", "").strip();
         StringBuilder out = new StringBuilder();
         for (String line : t.split("\\n")) {
-            String l = line.replaceAll("^[-•*#\\d.\\s]+", "").replaceAll("[\"“”*_`#]", "").strip();
+            if (ACT_LINE.matcher(line).find() || line.strip().startsWith("할일")) continue;
+            String l = line.replaceAll("https?://\\S+", "").replaceAll("[\\p{So}\\p{Cs}\\x{FE0F}\\x{200D}]", "").replaceAll("^[-•*#\\d.\\s]+", "").replaceAll("[\"“”*_`#]", "").strip();
             if (l.isEmpty()) continue;
             if (out.length() > 0) out.append(' ');
             out.append(l);
