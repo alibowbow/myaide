@@ -84,13 +84,16 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         if (appPort != null) { try { appPort.close(); } catch (RuntimeException ignored) {} appPort = null; }
         if (web != null) { web.destroy(); web = null; } super.onDestroy();
     }
+    @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); }
+    /** Leaving: back to the home screen when it opened this (HtmlWallpaper.backHome), else to the list. */
+    private void leave() { if (!HtmlWallpaper.backHome(this)) finish(); }
     @Override public void onBackPressed() {
         if (showingSource) { showSource(false); return; }
-        if (web == null) { finish(); return; }
+        if (web == null) { leave(); return; }
         // The page's own back first: a chart shown large, an editor open.
         web.evaluateJavascript("(function(){try{return window.gyeotBack&&window.gyeotBack()?1:0}catch(e){return 0}})()", r -> {
             if (destroyed) return;
-            if (!"1".equals(r)) { if (composerOpen && input != null && input.getText().toString().isBlank() && !book.html(id).isBlank()) toggleComposer(false); else finish(); }
+            if (!"1".equals(r)) { if (composerOpen && input != null && input.getText().toString().isBlank() && !book.html(id).isBlank()) toggleComposer(false); else leave(); }
         });
     }
     @Override public void changed(String project) { if (project.equals(id) && !destroyed) refresh(); }
@@ -99,7 +102,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
 
     private void build() {
         LinearLayout bar = ui.row(); bar.setPadding(ui.dp(4), ui.dp(2), ui.dp(4), ui.dp(2)); bar.setMinimumHeight(ui.dp(52));
-        bar.addView(ui.bareIcon(R.drawable.ic_back, TEXT, "프로젝트 목록으로", this::finish), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
+        bar.addView(ui.bareIcon(R.drawable.ic_back, TEXT, "프로젝트 목록으로", this::leave), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         LinearLayout words = ui.column(); words.setPadding(ui.dp(4), 0, ui.dp(4), 0);
         title = ui.text("", 16, 700, TEXT); title.setSingleLine(true); title.setEllipsize(TextUtils.TruncateAt.END); words.addView(title);
         subtitle = ui.text("", 12, 500, MUTED); subtitle.setSingleLine(true); subtitle.setEllipsize(TextUtils.TruncateAt.END); words.addView(subtitle);

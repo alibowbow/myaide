@@ -612,7 +612,7 @@ public final class MainActivity extends Activity {
         if(showingMainChat){if(mainChat!=null&&mainChat.back())return;showTab(chatReturnTab);return;}
         if (tab == 2 && !settingsPage.isEmpty()) { settingsPage = settingsParent(settingsPage); showTab(2); return; }
         if (tab == 3 && !workId.isEmpty()) { showWorkList(); return; }
-        super.onBackPressed();
+        if (!HtmlWallpaper.backHome(this)) super.onBackPressed();
     }
     private void add(View view, int bottom) { ui.add(body, view, bottom); }
     /** Opens or closes the line for typing in a call; opened, the keyboard comes with it. */

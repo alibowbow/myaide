@@ -424,6 +424,18 @@ public final class HtmlWallpaper extends WallpaperService {
     }
 
     /** The screen a tap on the board opens (off the main thread: the trading page is looked up among the projects). */
+    /** Set on a screen the home screen opened, so its back returns there (backHome). */
+    static final String FROM_HOME = "fromHome";
+    /**
+     * Back on a screen the home screen opened (준: "시세막대를 터치하면 … 뒤로가기를 누르면 바로 홈으로 복귀가 안돼 또다른 들퍼레앱의
+     * 매뉴로 가져"): the app's own screens under it go behind and the home screen shows, instead of the app's last menu. True
+     * when it did; the caller's own back otherwise.
+     */
+    static boolean backHome(android.app.Activity a) {
+        android.content.Intent i = a.getIntent();
+        if (i == null || !i.getBooleanExtra(FROM_HOME, false)) return false;
+        a.moveTaskToBack(true); a.finish(); return true;
+    }
     static Intent target(Context c, String what) {
         Intent open;
         switch (what) {

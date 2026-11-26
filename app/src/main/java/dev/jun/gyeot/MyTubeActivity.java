@@ -250,7 +250,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         for (AtomicReference<Runnable> job : feedJobs.values()) { Runnable stop = job.getAndSet(null); if (stop != null) stop.run(); }
         for (Dialog d : new ArrayList<>(dialogs)) d.dismiss(); work.shutdownNow(); super.onDestroy();
     }
-    @Override public void onBackPressed() { if (navigation != null && navigation.close()) return; if (askPanel != null && askPanel.isOpen()) { askPanel.close(); return; } if ("full".equals(viewMode)) { setView(lastView); return; } super.onBackPressed(); }
+    @Override public void onBackPressed() { if (navigation != null && navigation.close()) return; if (askPanel != null && askPanel.isOpen()) { askPanel.close(); return; } if ("full".equals(viewMode)) { setView(lastView); return; } if (!HtmlWallpaper.backHome(this)) super.onBackPressed(); }
     /** 보기 바꾸기: 가로 꽉 · 나란히 are remembered; 전체화면 lasts until it is left (✕ on the video, or back). */
     private void setView(String mode) {
         viewMode = mode; if (!"full".equals(mode)) { lastView = mode; store.settings.edit().putString(VIEW, mode).apply(); }

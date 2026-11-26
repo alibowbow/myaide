@@ -126,7 +126,7 @@ public final class PagesActivity extends Activity {
         if (navigation != null && navigation.close()) return;
         if (openId != null) { showList(); return; }
         if (section == 0 && !query.isEmpty()) { query = ""; showList(); return; }
-        super.onBackPressed();
+        if (!HtmlWallpaper.backHome(this)) super.onBackPressed();
     }
 
     /** A change saved somewhere else (the main chat, the 작업창, another sheet): the list is drawn again, an open page too. */

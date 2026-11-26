@@ -114,7 +114,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
     @Override public void onBackPressed() {
         if (navigation != null && navigation.close()) return;
         if (!wide && openId != null) { openId = null; draw(); return; }
-        super.onBackPressed();
+        if (!HtmlWallpaper.backHome(this)) super.onBackPressed();
     }
     private boolean wideScreen() { return getResources().getConfiguration().screenWidthDp >= 600; }
     private final java.util.Map<String, String> shown = new java.util.HashMap<>();

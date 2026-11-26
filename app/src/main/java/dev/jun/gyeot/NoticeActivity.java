@@ -36,7 +36,7 @@ public final class NoticeActivity extends Activity {
             v.setPadding(bars.left, bars.top, bars.right, Math.max(bars.bottom, insets.getInsets(WindowInsets.Type.ime()).bottom)); return insets;
         });
         setContentView(scroll); scroll.requestApplyInsets();
-        View back = ui.backButton("내 휴대폰", this::finish); back.setMinimumHeight(ui.dp(48)); body.addView(back, new LinearLayout.LayoutParams(-2, -2));
+        View back = ui.backButton("내 휴대폰", () -> { if (!HtmlWallpaper.backHome(this)) finish(); }); back.setMinimumHeight(ui.dp(48)); body.addView(back, new LinearLayout.LayoutParams(-2, -2));
         TextView title = ui.title("알림 비서", 26); title.setAccessibilityHeading(true); ui.add(body, title, 4);
         ui.add(body, ui.label("다른 앱의 알림을 하루 동안 모아 두고, 요약하거나 음성 대화에서 “무슨 알림 왔어?”라고 물으면 알려 드려요.", 13, Ui.MUTED), 12);
 
@@ -85,4 +85,7 @@ public final class NoticeActivity extends Activity {
             main.post(() -> { if (!destroyed && summary != null) summary.setText(RichText.render(text)); });
         }, "notice-summary").start();
     }
+    @Override protected void onNewIntent(android.content.Intent intent) { super.onNewIntent(intent); setIntent(intent); }
+    @SuppressWarnings("deprecation")
+    @Override public void onBackPressed() { if (!HtmlWallpaper.backHome(this)) super.onBackPressed(); }
 }

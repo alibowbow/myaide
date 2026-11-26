@@ -644,6 +644,7 @@ public final class HomeActivity extends Activity {
         /** 퍼레 홈's cards: the app's own screens. */
         public void open(String what) {
             Intent t = HtmlWallpaper.target(HomeActivity.this, what == null ? "" : what);
+            if (t != null && t.getComponent() != null) t.putExtra(HtmlWallpaper.FROM_HOME, true);
             if (t != null) main.post(() -> { try { startActivity(t); } catch (RuntimeException none) { Toast.makeText(HomeActivity.this, "열 수 있는 앱이 없어요.", Toast.LENGTH_SHORT).show(); } });
         }
         /** The search's words, into 퍼레's message box (the user reads and sends them). */
