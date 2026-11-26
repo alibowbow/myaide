@@ -42,9 +42,48 @@ public final class BuddyMind {
             + "- 한국어: 한국 사람이 실제로 쓰는 자연스럽고 문법에 맞는 말로, 누구나 한 번에 알아듣게. 억지 말장난이나 없는 말(예: '웃음 전압')은 만들지 마. 문장은 '도·는·을' 같은 조사로 시작하지 마.";
     }
 
+    // ── what 퍼레 would like to know about the user (준: "아는것이 전투기 밖에 없어?", "모르면 질문을 하면 되자너") ──
+    /** A thing to know about the user, then the words that show 퍼레 already knows it. */
+    public static final String[][] CURIOUS = {
+        {"좋아하는 음식", "음식", "메뉴", "맛집", "요리", "먹는 걸 좋아"}, {"좋아하는 음악이나 가수", "음악", "노래", "가수", "밴드"},
+        {"좋아하는 계절", "계절", "봄을", "여름을", "가을을", "겨울을"}, {"좋아하는 동물", "동물", "강아지", "고양이", "반려"},
+        {"쉬는 날 하는 일", "주말", "쉬는 날", "휴일"}, {"아침형인지 밤형인지", "아침형", "저녁형", "밤형", "올빼미", "일찍 일어"},
+        {"좋아하는 음료(커피·차 …)", "커피", "음료", "라떼", "녹차"}, {"좋아하는 영화나 드라마", "영화", "드라마", "넷플릭스", "애니"},
+        {"가 보고 싶은 곳", "여행", "가 보고 싶", "가고 싶"}, {"하는 운동", "운동", "헬스", "산책", "달리기", "수영", "등산"},
+        {"좋아하는 게임", "게임"}, {"좋아하는 색", "색깔", "좋아하는 색"}, {"좋아하는 간식", "간식", "디저트", "과자", "빵", "아이스크림"},
+        {"요즘 빠진 취미", "취미", "빠졌", "빠져"}, {"어릴 때 꿈", "어릴 때", "꿈이"}, {"기분 좋아지는 순간", "기분 좋아", "행복해"},
+        {"좋아하는 날씨", "날씨를 좋아", "비 오는 날", "맑은 날"}, {"요즘 가장 기다리는 일", "기다리", "기대하"}};
+    /**
+     * What to ask about next: something it knows nothing of yet (none of its words in what it knows), not asked in the last
+     * three days, by chance among the first few still unknown; else what was asked longest ago. "" when it asked within
+     * twenty minutes. asked: {thing: when it was asked}.
+     */
+    public static String curious(String known, JSONObject asked, long now, Random random) {
+        String k = known == null ? "" : known;
+        long last = 0; for (String[] c : CURIOUS) last = Math.max(last, asked == null ? 0 : asked.optLong(c[0], 0));
+        if (now - last < 20 * 60_000L) return "";
+        List<String> unknown = new ArrayList<>(), all = new ArrayList<>();
+        for (String[] c : CURIOUS) {
+            if (asked != null && now - asked.optLong(c[0], 0) < 3 * 86_400_000L) continue;
+            all.add(c[0]);
+            boolean knows = false; for (int i = 1; i < c.length && !knows; i++) knows = k.contains(c[i]);
+            if (!knows) unknown.add(c[0]);
+        }
+        if (!unknown.isEmpty()) return unknown.get(random.nextInt(Math.min(4, unknown.size())));
+        if (all.isEmpty()) return "";
+        all.sort(Comparator.comparingLong(t -> asked == null ? 0 : asked.optLong(t, 0)));
+        return all.get(0);
+    }
+    /** How many of the things it would like to know it already knows (CURIOUS): few means it asks more often. */
+    public static int knows(String known) {
+        int n = 0; String k = known == null ? "" : known;
+        for (String[] c : CURIOUS) for (int i = 1; i < c.length; i++) if (k.contains(c[i])) { n++; break; }
+        return n;
+    }
+
     // ── what to talk about next (no repeating) ──
     public static final List<String> TOPICS = List.of(
-        "휴대폰 탐험 이야기(앱 마을에서 본 것)", "엉뚱한 상상 하나", "말장난이나 귀여운 농담", "사용자에게 가벼운 질문 하나",
+        "휴대폰 탐험 이야기(앱 마을에서 본 것)", "엉뚱한 상상 하나", "말장난이나 귀여운 농담", "사용자를 알아 가는 질문",
         "둘 중 하나 고르기 질문(예: 붕어빵 팥 vs 슈크림)", "짧은 수수께끼나 퀴즈", "재밌는 상식 한 줄", "너의 취향 고백(좋아하는 것·싫어하는 것)",
         "너의 기억 속 일 꺼내기", "날씨·계절에서 본 작은 것", "방금 쓴 앱 이야기", "너 자신의 근황(놀이·춤·간식)",
         "사용자에 대해 아는 것 하나 살짝 건드리기", "작은 방송 멘트(소식 전하듯)");

@@ -62,7 +62,7 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .bot .b-body{transform-origin:50px 88px;animation:breathe 4.2s ease-in-out infinite}
 .bot .b-antenna{transform-origin:50px 20px}
 .bot .b-bulb{fill:#ffd36e;transition:fill .4s}
-.bot .b-cheek{fill:#ff8fa3;opacity:.7;transition:opacity .3s,transform .3s;transform-box:fill-box;transform-origin:center}
+.bot .b-cheek{fill:url(#cheekG);opacity:.85;transition:opacity .3s,transform .3s;transform-box:fill-box;transform-origin:center}
 .bot.sleepy .b-body{animation-duration:6.5s}.bot.sleepy .b-antenna{transform:rotate(-14deg);transition:transform 1.2s}.bot.sleepy .b-bulb{fill:#b9a6ff}
 .bot.thinking .b-bulb{animation:glow 1.4s ease-in-out infinite}
 .bot .b-look{transition:transform .3s}
@@ -309,7 +309,7 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .bot .b-eye .pill{display:block}
 .bot .b-eye *{fill:#2b2b3a;stroke:#2b2b3a;stroke-width:0;transition:transform .09s ease}
 .bot .b-eye .arc,.bot .b-eye .shut,.bot .b-eye .x,.bot .b-eye .line,.bot .b-eye .u,.bot .b-eye .sq,.bot .b-eye .dz,.bot .b-eye .brow{fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
-.bot .b-eye .dz{stroke-width:2.1}.bot .b-eye .brow{stroke-width:1.9}
+.bot .b-eye .dz{stroke-width:2.1}.bot .b-eye .brow{stroke-width:1.35}
 .bot .b-eye .heart{fill:#ff5f8f;stroke:none}
 .bot .b-eye .gl,.bot .b-eye .w-gl{fill:#fff;stroke:none}
 .bot .b-eye .tear{fill:#8fd3ff;stroke:none}
@@ -318,23 +318,29 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 /* 퍼레's own eyes in every face (준: "표정이 너무 흔한 이모티야", "원래 캐릭터 정체성을 유지하면서 표정의 다양한 배리에이션",
    "눈아래파인모양은 다 빼줘"): its pill as it is, opened wide, made small, a heavy lid when sleepy or smug, closed asleep, a
    round arch when it laughs; one outline that morphs between them. Sad and cross are in short round brows, not cut eyes. */
-.bot .b-eye .pill{d:path("M-4 -3.5 C-4 -5.7 -2.2 -7.5 0 -7.5 C2.2 -7.5 4 -5.7 4 -3.5 C4 -1.2 4 1.2 4 3.5 C4 5.7 2.2 7.5 0 7.5 C-2.2 7.5 -4 5.7 -4 3.5 C-4 1.2 -4 -1.2 -4 -3.5Z");transition:d .18s cubic-bezier(.3,.7,.3,1),transform .09s ease}
-.bot[data-eye=beam] .b-eye .pill{d:path("M-5 1.6 C-5 -2.4 -2.8 -5.6 0 -5.6 C2.8 -5.6 5 -2.4 5 1.6 C5 3 3.4 3.4 2.8 2.2 C2.2 0.4 1.3 -0.6 0 -0.6 C-1.3 -0.6 -2.2 0.4 -2.8 2.2 C-3.4 3.4 -5 3 -5 1.6Z")}
+.bot .b-eye .pill{d:path("M-3.9 -2.6 C-3.9 -5.5 -2.2 -7.4 0 -7.4 C2.2 -7.4 3.9 -5.5 3.9 -2.6 C3.95 -0.9 3.95 0.9 3.9 2.6 C3.9 5.5 2.2 7.4 0 7.4 C-2.2 7.4 -3.9 5.5 -3.9 2.6 C-3.95 0.9 -3.95 -0.9 -3.9 -2.6Z");transition:d .18s cubic-bezier(.3,.7,.3,1),transform .09s ease}
+.bot[data-eye=beam] .b-eye .pill{d:path("M-4.8 1.8 C-4.6 -1.6 -2.6 -4.2 0 -4.2 C2.6 -4.2 4.6 -1.6 4.8 1.8 C4.9 2.6 3.7 2.9 3.4 2 C3 -0.4 1.6 -2 0 -2 C-1.6 -2 -3 -0.4 -3.4 2 C-3.7 2.9 -4.9 2.6 -4.8 1.8Z")}
 .bot[data-eye=half] .b-eye .pill{d:path("M-4 0.2 C-4 -0.3 -2.2 -0.5 0 -0.5 C2.2 -0.5 4 -0.3 4 0.2 C4 1.4 4 2.5 4 3.6 C4 5.7 2.2 7.4 0 7.4 C-2.2 7.4 -4 5.7 -4 3.6 C-4 2.5 -4 1.4 -4 0.2Z")}
 .bot[data-eye=smug] .b-eye .pill{d:path("M-4 1.4 C-4 0.6 -2 -0.3 0 -0.8 C2 -1.3 4 -1.6 4 -1 C4 0.7 4 2.1 4 3.6 C4 5.7 2.2 7.4 0 7.4 C-2.2 7.4 -4 5.7 -4 3.6 C-4 2.8 -4 2.1 -4 1.4Z")}
 .bot[data-eye=wide] .b-eye .pill{d:path("M-5 -4.4 C-5 -7.2 -2.8 -9.4 0 -9.4 C2.8 -9.4 5 -7.2 5 -4.4 C5 -1.5 5 1.5 5 4.4 C5 7.2 2.8 9.4 0 9.4 C-2.8 9.4 -5 7.2 -5 4.4 C-5 1.5 -5 -1.5 -5 -4.4Z")}
 .bot[data-eye=small] .b-eye .pill{d:path("M-3.3 -1.4 C-3.3 -3.3 -1.8 -4.6 0 -4.6 C1.8 -4.6 3.3 -3.3 3.3 -1.4 C3.3 -0.2 3.3 1 3.3 2.2 C3.3 4 1.8 5.4 0 5.4 C-1.8 5.4 -3.3 4 -3.3 2.2 C-3.3 1 -3.3 -0.2 -3.3 -1.4Z")}
-.bot[data-eye=shut] .b-eye .pill{d:path("M-5.1 -0.2 C-3.7 1.3 -1.9 2 0 2 C1.9 2 3.7 1.3 5.1 -0.2 C5.7 0.4 5.6 1.2 5.1 1.8 C3.7 3.5 1.9 4.4 0 4.4 C-1.9 4.4 -3.7 3.5 -5.1 1.8 C-5.6 1.2 -5.7 0.4 -5.1 -0.2Z")}
+.bot[data-eye=shut] .b-eye .pill{d:path("M-4.6 0.8 C-4.6 0.3 -4 0 0 0 C4 0 4.6 0.3 4.6 0.8 C4.6 1 4.6 1.2 4.6 1.4 C4.6 1.9 4 2.2 0 2.2 C-4 2.2 -4.6 1.9 -4.6 1.4 C-4.6 1.2 -4.6 1 -4.6 0.8Z")}
+.bot[data-eye=star] .b-eye .pill{d:path("M-5 -4.4 C-5 -7.2 -2.8 -9.4 0 -9.4 C2.8 -9.4 5 -7.2 5 -4.4 C5 -1.5 5 1.5 5 4.4 C5 7.2 2.8 9.4 0 9.4 C-2.8 9.4 -5 7.2 -5 4.4 C-5 1.5 -5 -1.5 -5 -4.4Z")}
 .bot[data-eye=curious] .b-eye.l .pill{d:path("M-5 -4.4 C-5 -7.2 -2.8 -9.4 0 -9.4 C2.8 -9.4 5 -7.2 5 -4.4 C5 -1.5 5 1.5 5 4.4 C5 7.2 2.8 9.4 0 9.4 C-2.8 9.4 -5 7.2 -5 4.4 C-5 1.5 -5 -1.5 -5 -4.4Z")}
 .bot[data-eye=skeptic] .b-eye.l .pill{d:path("M-4 0.2 C-4 -0.3 -2.2 -0.5 0 -0.5 C2.2 -0.5 4 -0.3 4 0.2 C4 1.4 4 2.5 4 3.6 C4 5.7 2.2 7.4 0 7.4 C-2.2 7.4 -4 5.7 -4 3.6 C-4 2.5 -4 1.4 -4 0.2Z")}
-.bot[data-eye=wink] .b-eye.r .pill{d:path("M-5 1.6 C-5 -2.4 -2.8 -5.6 0 -5.6 C2.8 -5.6 5 -2.4 5 1.6 C5 3 3.4 3.4 2.8 2.2 C2.2 0.4 1.3 -0.6 0 -0.6 C-1.3 -0.6 -2.2 0.4 -2.8 2.2 C-3.4 3.4 -5 3 -5 1.6Z")}
+.bot[data-eye=wink] .b-eye.r .pill{d:path("M-4.8 1.8 C-4.6 -1.6 -2.6 -4.2 0 -4.2 C2.6 -4.2 4.6 -1.6 4.8 1.8 C4.9 2.6 3.7 2.9 3.4 2 C3 -0.4 1.6 -2 0 -2 C-1.6 -2 -3 -0.4 -3.4 2 C-3.7 2.9 -4.9 2.6 -4.8 1.8Z")}
 /* Brows: short and round, just above the eyes, tipped up inside when sad or worried, down inside when cross (and a little up
    over wide eyes); sad eyes look a little down. */
 .bot[data-brow=sad] .b-eye .brow,.bot[data-brow=angry] .b-eye .brow{display:block;transform-box:fill-box;transform-origin:center;transition:transform .2s}
 .bot[data-brow=sad] .b-eye .brow{transform:rotate(-17deg)}
-.bot[data-brow=angry] .b-eye .brow{transform:translateY(1.4px) rotate(20deg)}
-.bot[data-eye=wide] .b-eye .brow{translate:0 -1.8px}.bot[data-eye=small] .b-eye .brow{translate:0 2px}
+.bot[data-brow=angry] .b-eye .brow{transform:translateY(.9px) rotate(20deg)}
+.bot[data-eye=wide] .b-eye .brow,.bot[data-eye=star] .b-eye .brow{translate:0 -1.9px}.bot[data-eye=small] .b-eye .brow{translate:0 2.2px}
 .bot[data-brow=sad] .b-eye .pill{translate:0 .8px}
+.bot .b-eye .hl-heart,.bot .b-eye .hl-star{fill:#fff;stroke:none}
+.bot[data-eye=love] .b-eye .hl-heart{display:block;transform-box:fill-box;transform-origin:center;animation:beat .9s ease-in-out infinite}
+.bot[data-eye=star] .b-eye .hl-star{display:block;transform-box:fill-box;transform-origin:center;animation:twinkle 1.4s ease-in-out infinite}
+@keyframes twinkle{50%{transform:scale(.72) rotate(12deg)}}
+.bot.blink .b-eye .hl-heart,.bot.blink .b-eye .hl-star{display:none}
 /* more eyes, mouths and effects (board.js FACES) */
 .bot .b-eye .tri,.bot .b-eye .ring,.bot .b-eye .wavy,.bot .b-eye .plus,.bot .b-eye .lid-line{fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
 .bot .b-eye .ring{stroke-width:2.6}.bot .b-eye .wavy{stroke-width:2.4}
@@ -343,7 +349,7 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .bot[data-eye=plus] .b-eye .plus{transform-box:fill-box;transform-origin:center;animation:whirl 2.4s linear infinite}
 .bot .m-drool,.bot .m-tri,.bot .m-zig,.bot .m-bite,.bot .m-wide,.bot .m-whistle,.bot .m-hat,.bot .m-tiny{display:none;transform-box:fill-box;transform-origin:center}
 .bot .m-tri,.bot .m-wide,.bot .m-whistle{fill:#2b2b3a}
-.bot .m-zig,.bot .m-hat,.bot .m-tiny,.bot .m-drool path:first-child,.bot .m-bite path{fill:none;stroke:#2b2b3a;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.bot .m-zig,.bot .m-hat,.bot .m-tiny,.bot .m-drool path:first-child,.bot .m-bite path{fill:none;stroke:#2b2b3a;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .bot .m-bite path:last-child{fill:#fff;stroke-width:1}
 .bot[data-mouth=drool] .m-drool,.bot[data-mouth=tri] .m-tri,.bot[data-mouth=zig] .m-zig,.bot[data-mouth=bite] .m-bite,.bot[data-mouth=wide] .m-wide,.bot[data-mouth=whistle] .m-whistle,.bot[data-mouth=hat] .m-hat,.bot[data-mouth=tiny] .m-tiny{display:block}
 .bot.talking .m-drool,.bot.talking .m-tri,.bot.talking .m-zig,.bot.talking .m-bite,.bot.talking .m-wide,.bot.talking .m-whistle,.bot.talking .m-hat,.bot.talking .m-tiny{display:none}
@@ -369,16 +375,19 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .bot[data-fx~=tears] .b-eye .tear{display:block;animation:tear 1.4s ease-in infinite}
 @keyframes tear{0%{opacity:0;transform:translateY(-2px)}25%{opacity:1}100%{opacity:0;transform:translateY(7px)}}
 /* mouths */
-.bot .b-mouth{fill:none;stroke:#2b2b3a;stroke-width:2.6;stroke-linecap:round;opacity:0;transition:opacity .2s;transform-box:fill-box;transform-origin:center}
+.bot .b-mouth{fill:none;stroke:#2b2b3a;stroke-width:1.9;stroke-linecap:round;opacity:0;transition:opacity .2s;transform-box:fill-box;transform-origin:center}
 .bot .m-open,.bot .m-frown,.bot .m-wave,.bot .m-chew,.bot .m-flat,.bot .m-grin,.bot .m-tongue,.bot .m-osm,.bot .m-cat,.bot .m-teeth,.bot .m-pout,.bot .m-kiss,.bot .m-smirk{display:none;transform-box:fill-box;transform-origin:center}
 .bot .m-open,.bot .m-chew,.bot .m-osm,.bot .m-grin{fill:#2b2b3a}
 /* An open mouth is a mouth: deep berry inside, a tongue at the bottom. */
 .bot .m-open,.bot .m-grin,.bot .m-wide{fill:#5a2134}
 .bot .m-tg{display:none;fill:#ff8597;transform-box:fill-box;transform-origin:center}
-.bot[data-mouth=big] .tg-open,.bot[data-mouth=grin] .tg-grin,.bot[data-mouth=wide] .tg-wide{display:block}
+.bot[data-mouth=big] .tg-open,.bot[data-mouth=grin] .tg-grin,.bot[data-mouth=wide] .tg-wide,.bot[data-mouth=osm] .tg-osm{display:block}
+.bot .m-osm{fill:#5a2134}
+/* small mouths (the sheet): the open smile a little smaller */
+.bot[data-mouth=grin] .m-grin{transform:scale(.8)}.bot[data-mouth=grin] .tg-grin{transform:translateY(-.3px) scale(.8)}
 .bot[data-mouth=big] .tg-open{transform:translateY(.6px) scale(1.25,1.1)}
 .bot.talking .m-tg{display:none}
-.bot .m-frown,.bot .m-wave,.bot .m-flat,.bot .m-cat,.bot .m-pout,.bot .m-kiss,.bot .m-smirk,.bot .m-tongue path:first-child{fill:none;stroke:#2b2b3a;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.bot .m-frown,.bot .m-wave,.bot .m-flat,.bot .m-cat,.bot .m-pout,.bot .m-kiss,.bot .m-smirk,.bot .m-tongue path:first-child{fill:none;stroke:#2b2b3a;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .bot .m-teeth rect{fill:#fff;stroke:#2b2b3a;stroke-width:1.6}.bot .m-teeth path{fill:none;stroke:#2b2b3a;stroke-width:1}
 .bot[data-mouth=smile] .b-mouth{opacity:1}
 .bot[data-mouth=open] .m-open,.bot[data-mouth=big] .m-open,.bot[data-mouth=yawn] .m-open,.bot[data-mouth=frown] .m-frown,.bot[data-mouth=wave] .m-wave,.bot[data-mouth=chew] .m-chew,.bot[data-mouth=flat] .m-flat,.bot[data-mouth=grin] .m-grin,.bot[data-mouth=tongue] .m-tongue,.bot[data-mouth=osm] .m-osm,.bot[data-mouth=cat] .m-cat,.bot[data-mouth=teeth] .m-teeth,.bot[data-mouth=pout] .m-pout,.bot[data-mouth=kiss] .m-kiss,.bot[data-mouth=smirk] .m-smirk{display:block}

@@ -47,8 +47,22 @@ final class BuddyTalk {
         JSONObject used; try { used = new JSONObject(p.getString("topics", "{}")); } catch (Exception e) { used = new JSONObject(); }
         // Playing alone (board.js "solo:<play>"): the play is the topic.
         boolean solo = reason.startsWith("solo:") || reason.startsWith("answer:");
-        String topic = solo ? "지금 하고 있는 놀이" : dev.jun.gyeot.core.BuddyMind.topic(used, hasMemory, hasApp, new java.util.Random());
+        java.util.Random random = new java.util.Random();
+        String topic = solo ? "지금 하고 있는 놀이" : dev.jun.gyeot.core.BuddyMind.topic(used, hasMemory, hasApp, random);
         if (!solo) { try { used.put(topic, System.currentTimeMillis()); } catch (Exception ignored) {} p.edit().putString("topics", used.toString()).apply(); }
+        // What it does not know about the user it asks (준: "아는것이 전투기 밖에 없어?", "모르면 질문을 하면 되자너"): on its
+        // question turn, and more often while it knows little; the answer picked is kept (answer: → learnLater).
+        if (!solo && !reason.equals("hungry") && !reason.equals("charge")) {
+            String known = knownWords(c, store);
+            JSONObject asked; try { asked = new JSONObject(p.getString("asked", "{}")); } catch (Exception e) { asked = new JSONObject(); }
+            String wonder = dev.jun.gyeot.core.BuddyMind.curious(known, asked, System.currentTimeMillis(), random);
+            boolean thin = dev.jun.gyeot.core.BuddyMind.knows(known) < 6;
+            if (!wonder.isEmpty() && (topic.startsWith("사용자를 알아 가는 질문") || thin && random.nextDouble() < .35)) {
+                topic = "사용자를 알아 가는 질문: 아직 모르는 '" + wonder + "'";
+                try { asked.put(wonder, System.currentTimeMillis()); } catch (Exception ignored) {}
+                p.edit().putString("asked", asked.toString()).apply();
+            }
+        }
         String instructions = instructions(c, reason, topic, avoid(said)), input = input(c, store, p, reason, topic, said);
         // A question's choices (고르기: …) go along on a second line, for the page to show under it.
         ask(c, instructions, input, attempt == 0 ? 0.75 : 0.9, 9_000, text -> { String l = clean(text, p); String picks = l == null ? "" : picks(l, text); return l == null || picks.isEmpty() ? l : l + "\n고르기: " + picks; },
@@ -64,6 +78,13 @@ final class BuddyTalk {
         java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>(dev.jun.gyeot.core.BuddyMind.staleSubjects(said));
         out.addAll(dev.jun.gyeot.core.BuddyMind.overused(said, 8));
         return new java.util.ArrayList<>(out).subList(0, Math.min(14, out.size()));
+    }
+    /** Everything 퍼레 knows about the user, as words (the night's profile and its memories), for what it may still ask. */
+    static String knownWords(Context c, AppStore store) {
+        StringBuilder out = new StringBuilder();
+        try { out.append(Briefing.profile(store)).append('\n'); } catch (RuntimeException ignored) {}
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : memories(c)) out.append(e.text()).append('\n');
+        return out.toString();
     }
     /** What 퍼레 said lately, oldest first. */
     private static java.util.List<String> said(SharedPreferences p) {
@@ -482,6 +503,10 @@ final class BuddyTalk {
             case "app" -> "사용자가 방금 다른 앱을 쓰고 홈 화면으로 돌아왔어(방금 쓴 앱 참고). 그 앱 이야기로 가볍게 한마디 해.";
             default -> "사용자가 너를 톡 건드렸어.";
         };
+        if (topic.startsWith("사용자를 알아 가는 질문: ")) return persona(c) + "\n지금: " + moment + "\n"
+            + "- 이번엔 사용자에 대해 " + topic.substring("사용자를 알아 가는 질문: ".length()) + "을 친구처럼 궁금해하며 물어봐. 짧고 귀엽게, 너 자신의 취향을 살짝 곁들여도 좋아. 물음표로 끝내.\n"
+            + "- 일·업무·작업·돈 이야기는 하지 마. 사적인 고민·비밀번호·주소 같은 건 묻지 마.\n"
+            + "- 한 문장, 40자 안쪽, 친근한 반말. 따옴표 없이 그 문장만 쓰고, 둘째 줄에 사용자가 눌러서 고를 짧은 답 3개를 '고르기: 답 / 답 / 답'(각 8자 안쪽)으로 써.";
         return persona(c) + "\n지금: " + moment + " 짧게 한마디 해.\n"
             + "- 이번 화제: " + topic + ". 지금 상황(시간·날씨·휴대폰·오늘 하루·기억)에 맞게 풀어.\n"
             + (avoid.isEmpty() ? "" : "- 최근에 이미 꺼낸 소재와 표현이니 이번엔 절대 다루지 마: " + String.join(", ", avoid) + "\n")

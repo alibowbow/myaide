@@ -250,6 +250,17 @@ public class BuddyBrainTests {
         assertEquals(2, calls.size());
         BuddyBoard.away();
     }
+    /** What it does not know about the user it asks (준: "아는것이 전투기 밖에 없어?", "모르면 질문을 하면 되자너"). */
+    @Test public void asksWhatItDoesNotKnow() throws Exception {
+        String known = "사용자는 전투기 3D 모델링을 한대\n사용자는 커피를 좋아한대";
+        long now = 1_800_000_000_000L;
+        String q = dev.jun.gyeot.core.BuddyMind.curious(known, new org.json.JSONObject(), now, new java.util.Random(3));
+        assertFalse(q.isEmpty()); assertNotEquals("not what it knows", "좋아하는 음료(커피·차 …)", q);
+        assertEquals(1, dev.jun.gyeot.core.BuddyMind.knows(known));
+        org.json.JSONObject asked = new org.json.JSONObject().put(q, now);
+        assertEquals("not again within twenty minutes", "", dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 60_000, new java.util.Random(3)));
+        for (int i = 0; i < 20; i++) assertNotEquals("not the same one within three days", q, dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 3_600_000L, new java.util.Random(i)));
+    }
     @Test public void hearsItsName() {
         // 준: "퍼레가 자기 이름을 못알아듣고 자꾸 벌레 버려 이런걸로 알아들어"
         assertEquals("퍼레야", dev.jun.gyeot.core.BuddyMind.nameHeard("벌레야"));

@@ -26,9 +26,11 @@ const ICON = {
   coral robot whose parts move on their own. Eyes: pills that blink and glance and bend into each face (squashed by a smile, cut by a lid, wide when surprised),
   lines when asleep, hearts when loved; an antenna that springs; cheeks that blush. alive() runs it.
 */
-const EYE = '<path class="pill" d="M-4 -3.5 C-4 -5.7 -2.2 -7.5 0 -7.5 C2.2 -7.5 4 -5.7 4 -3.5 C4 -1.2 4 1.2 4 3.5 C4 5.7 2.2 7.5 0 7.5 C-2.2 7.5 -4 5.7 -4 3.5 C-4 1.2 -4 -1.2 -4 -3.5Z"/><circle class="gl" cx="-1.3" cy="-3.6" r="1.4"/><path class="arc" d="M-5.5 2.5 Q0 -5 5.5 2.5"/><circle class="o" r="5.4"/><path class="shut" d="M-5.5 1 Q0 3.5 5.5 1"/>'
+const EYE = '<path class="pill" d="M-3.9 -2.6 C-3.9 -5.5 -2.2 -7.4 0 -7.4 C2.2 -7.4 3.9 -5.5 3.9 -2.6 C3.95 -0.9 3.95 0.9 3.9 2.6 C3.9 5.5 2.2 7.4 0 7.4 C-2.2 7.4 -3.9 5.5 -3.9 2.6 C-3.95 0.9 -3.95 -0.9 -3.9 -2.6Z"/><circle class="gl" cx="-1.3" cy="-3.6" r="1.4"/><path class="arc" d="M-5.5 2.5 Q0 -5 5.5 2.5"/><circle class="o" r="5.4"/><path class="shut" d="M-5.5 1 Q0 3.5 5.5 1"/>'
   + '<path class="heart" d="M0 5 C-7 0 -6 -6 -2.6 -6 C-1.2 -6 -.3 -5 0 -4 C.3 -5 1.2 -6 2.6 -6 C6 -6 7 0 0 5Z"/>'
-  + '<path class="dz" d="M0 0 m-.8 0 a.8 .8 0 1 1 1.6 0 a2.2 2.2 0 1 1 -4.4 0 a3.6 3.6 0 1 1 7.2 0 a5 5 0 1 1 -10 0"/><path class="brow" d="M-4 -10.6 Q0 -12.6 4 -10.6"/>'
+  + '<path class="dz" d="M0 0 m-.8 0 a.8 .8 0 1 1 1.6 0 a2.2 2.2 0 1 1 -4.4 0 a3.6 3.6 0 1 1 7.2 0 a5 5 0 1 1 -10 0"/><path class="brow" d="M-3.2 -9 Q0 -10.3 3.2 -9"/>'
+  // what shines in its eyes (준: "표정만 커비 같은 표정으로", from the expression sheet): a white heart when in love, a star when thrilled
+  + '<path class="hl-heart" d="M0 2.2 C-3.4 0 -3.1 -3.4 -1.3 -3.4 C-.6 -3.4 -.1 -2.9 0 -2.4 C.1 -2.9 .6 -3.4 1.3 -3.4 C3.1 -3.4 3.4 0 0 2.2Z"/><path class="hl-star" d="M0 -3.8 Q.55 -.55 2.9 0 Q.55 .55 0 3.8 Q-.55 .55 -2.9 0 Q-.55 -.55 0 -3.8Z"/>'
   + '<path class="x" d="M-4.3 -4.3 L4.3 4.3 M4.3 -4.3 L-4.3 4.3"/><circle class="dot" r="2.7"/><path class="line" d="M-5 0 H5"/>'
   + '<g class="wide"><circle r="6.4"/><circle class="w-gl" cx="-2.2" cy="-2.6" r="2"/><circle class="w-gl" cx="2" cy="2.2" r=".9"/></g>'
   + '<path class="u" d="M-5.5 -1.5 Q0 4.5 5.5 -1.5"/><path class="sq" d="M-4.5 -4.5 L3.5 0 L-4.5 4.5"/><path class="tear" d="M2.5 6 q2.6 4.2 0 6.2 q-2.6 -2 0 -6.2z"/>'
@@ -47,6 +49,7 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   + '<radialGradient id="botShine" cx=".32" cy=".22" r=".55"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>'
   + '<linearGradient id="botPale" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7b8cff" stop-opacity=".45"/><stop offset=".55" stop-color="#7b8cff" stop-opacity="0"/></linearGradient>'
   + '<clipPath id="botClip"><rect x="12" y="18" width="76" height="70" rx="30"/></clipPath><linearGradient id="botLower" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b19bff"/><stop offset="1" stop-color="#8b6ff0"/></linearGradient>'
+  + '<radialGradient id="cheekG"><stop offset=".5" stop-color="#ff8fa3"/><stop offset="1" stop-color="#ff8fa3" stop-opacity="0"/></radialGradient>'
   + '<radialGradient id="armL" cx=".32" cy=".26" r=".85"><stop offset="0" stop-color="#ffa27c"/><stop offset=".55" stop-color="#ff7a52"/><stop offset="1" stop-color="#f2603c"/></radialGradient>'
   + '<radialGradient id="armR" cx=".68" cy=".26" r=".85"><stop offset="0" stop-color="#ffa27c"/><stop offset=".55" stop-color="#ff7a52"/><stop offset="1" stop-color="#f2603c"/></radialGradient></defs>'
   + '<g class="b-all">'
@@ -65,11 +68,11 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   // "와들디 팔을 참고", "팔이너무 귀같아", "닌텐도 커비처럼", "팔참고", "퍼레 기본디자인에 충실해줘 거기서 팔을 바꾸고"): round arms,
   // rounded mitts widest where they join the body, not the same above and below (준: "왜 베이스가 더 넓어야하는데 베이스가 더
   // 좁아?", "우리는 팔시작부가 뭉툭하자나", "곡선을 좀 더 예쁘게 와들디처럼", "대칭반원이 아니야", "와들디를 잘봐 위아래 대칭이
-  // 아냐", "D는 너무 말려들어갔어"): the top flows out of the body's side in one long gentle curve, the fullest part is low and
+  // 아냐", "D는 너무 말려들어갔어", "G가 나은듯"): the top flows out of the body's side in one long gentle curve, the fullest part is low and
   // outside, the bottom rounds off and runs back into the body without curling up; lit from the upper outside and softly
   // darker below; turning where they join it.
-  +   '<g class="b-arm l"><clipPath id="armClipL"><path d="M12.4 44 C9 46.5 3.4 51.5 2.6 58.5 C1.9 64.6 3.8 70.6 8.4 73 C11.4 74.6 15.4 74.8 19 74.2 L20 45Z"/></clipPath><path d="M12.4 44 C9 46.5 3.4 51.5 2.6 58.5 C1.9 64.6 3.8 70.6 8.4 73 C11.4 74.6 15.4 74.8 19 74.2 L20 45Z" fill="url(#armL)"/><ellipse cx="6.6" cy="55" rx="3" ry="1.8" transform="rotate(-40 6.6 55)" fill="#fff" opacity=".4"/><g class="acc mittens" clip-path="url(#armClipL)"><path d="M12.4 44 C9 46.5 3.4 51.5 2.6 58.5 C1.9 64.6 3.8 70.6 8.4 73 C11.4 74.6 15.4 74.8 19 74.2 L20 45Z" fill="#6f9fe8"/><path d="M13.8 47 Q10.4 58 14.4 70" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></g></g>'
-  +   '<g class="b-arm r"><clipPath id="armClipR"><path d="M87.6 44 C91 46.5 96.6 51.5 97.4 58.5 C98.1 64.6 96.2 70.6 91.6 73 C88.6 74.6 84.6 74.8 81 74.2 L80 45Z"/></clipPath><path d="M87.6 44 C91 46.5 96.6 51.5 97.4 58.5 C98.1 64.6 96.2 70.6 91.6 73 C88.6 74.6 84.6 74.8 81 74.2 L80 45Z" fill="url(#armR)"/><ellipse cx="93.4" cy="55" rx="3" ry="1.8" transform="rotate(40 93.4 55)" fill="#fff" opacity=".4"/><g class="acc mittens" clip-path="url(#armClipR)"><path d="M87.6 44 C91 46.5 96.6 51.5 97.4 58.5 C98.1 64.6 96.2 70.6 91.6 73 C88.6 74.6 84.6 74.8 81 74.2 L80 45Z" fill="#6f9fe8"/><path d="M86.2 47 Q89.6 58 85.6 70" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></g></g>'
+  +   '<g class="b-arm l"><clipPath id="armClipL"><path d="M12.4 44 C9.2 46.8 3.8 52 3 59 C2.4 64.6 4.4 70 8.8 72.4 C11.8 74 15.2 74 18.4 73.2 L20 45Z"/></clipPath><path d="M12.4 44 C9.2 46.8 3.8 52 3 59 C2.4 64.6 4.4 70 8.8 72.4 C11.8 74 15.2 74 18.4 73.2 L20 45Z" fill="url(#armL)"/><ellipse cx="6.6" cy="55" rx="3" ry="1.8" transform="rotate(-40 6.6 55)" fill="#fff" opacity=".4"/><g class="acc mittens" clip-path="url(#armClipL)"><path d="M12.4 44 C9.2 46.8 3.8 52 3 59 C2.4 64.6 4.4 70 8.8 72.4 C11.8 74 15.2 74 18.4 73.2 L20 45Z" fill="#6f9fe8"/><path d="M13.8 47 Q10.4 58 14.4 70" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></g></g>'
+  +   '<g class="b-arm r"><clipPath id="armClipR"><path d="M87.6 44 C90.8 46.8 96.2 52 97 59 C97.6 64.6 95.6 70 91.2 72.4 C88.2 74 84.8 74 81.6 73.2 L80 45Z"/></clipPath><path d="M87.6 44 C90.8 46.8 96.2 52 97 59 C97.6 64.6 95.6 70 91.2 72.4 C88.2 74 84.8 74 81.6 73.2 L80 45Z" fill="url(#armR)"/><ellipse cx="93.4" cy="55" rx="3" ry="1.8" transform="rotate(40 93.4 55)" fill="#fff" opacity=".4"/><g class="acc mittens" clip-path="url(#armClipR)"><path d="M87.6 44 C90.8 46.8 96.2 52 97 59 C97.6 64.6 95.6 70 91.2 72.4 C88.2 74 84.8 74 81.6 73.2 L80 45Z" fill="#6f9fe8"/><path d="M86.2 47 Q89.6 58 85.6 70" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></g></g>'
   +   '<g class="b-antenna"><line x1="50" y1="20" x2="50" y2="8.5" stroke="#ff6640" stroke-width="4" stroke-linecap="round"/><circle class="b-bulb" cx="50" cy="7" r="5.2"/>'
   +     '<g class="acc flower"><circle cx="50" cy="1.5" r="3.4" fill="#ffb3c8"/><circle cx="55" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="53" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="47" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="45" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="50" cy="7" r="2.6" fill="#ffd36e"/></g></g>'
   +   '<g class="b-body"><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botBody)"/><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botShine)"/><path class="b-lower" clip-path="url(#botClip)" d="M12 66 Q50 59 88 66 L89 90 Q50 98 11 90Z" fill="url(#botLower)"/>'
@@ -84,11 +87,11 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +     '<rect class="fx fx-pale" x="22" y="31" width="56" height="37" rx="18" fill="url(#botPale)"/><rect class="fx fx-red" x="22" y="31" width="56" height="37" rx="18" fill="#ff6b6b" opacity=".16"/>'
   +     '<g class="fx fx-gloom"><path d="M32 33 v7 M40 33 v9 M48 33 v6 M56 33 v9 M64 33 v7" stroke="#8f8fd6" stroke-width="1.6" stroke-linecap="round" opacity=".7"/></g>'
   +     '<g class="b-look"><g class="b-eye l" transform="translate(39 48)">' + EYE + '</g><g class="b-eye r" transform="translate(61 48) scale(-1 1)">' + EYE + '</g>'
-  +       '<path class="b-mouth" d="M45.5 60 Q50 64.5 54.5 60"/><ellipse class="m-open" cx="50" cy="61.5" rx="3.6" ry="3.2"/><path class="m-frown" d="M45.5 63 Q50 58.5 54.5 63"/>'
+  +       '<path class="b-mouth" d="M46.6 60.4 Q50 63.8 53.4 60.4"/><ellipse class="m-open" cx="50" cy="61.5" rx="3.6" ry="3.2"/><path class="m-frown" d="M45.5 63 Q50 58.5 54.5 63"/>'
   +       '<path class="m-wave" d="M43.5 61 q1.6 -2 3.2 0 t3.2 0 t3.2 0 t3.2 0"/><path class="m-chew" d="M46 60.5 Q50 63.5 54 60.5 Q50 61.8 46 60.5Z"/>'
   +       '<path class="m-flat" d="M46 61 H54"/><path class="m-grin" d="M43.5 59 H56.5 Q56 66 50 66 Q44 66 43.5 59Z"/>'
   +       '<g class="m-tongue"><path d="M45.5 60 Q50 64.5 54.5 60" fill="none"/><path d="M48.2 62.2 q0 4 2.4 4 q2.4 0 2.2 -4.6z" fill="#ff7c93"/></g>'
-  +       '<circle class="m-osm" cx="50" cy="61.5" r="1.9"/><path class="m-cat" d="M44.5 60 q2.75 3.2 5.5 0 q2.75 3.2 5.5 0"/>'
+  +       '<ellipse class="m-osm" cx="50" cy="61.6" rx="2.2" ry="2.5"/><path class="m-cat" d="M44.5 60 q2.75 3.2 5.5 0 q2.75 3.2 5.5 0"/>'
   +       '<g class="m-teeth"><rect x="44" y="58.6" width="12" height="5.6" rx="2"/><path d="M44 61.4 H56 M48 58.6 V64.2 M52 58.6 V64.2"/></g>'
   +       '<path class="m-pout" d="M48.5 59.5 q3 1.5 0 2.8 q3 1.4 0 2.8"/><path class="m-kiss" d="M49 59 q3 1.6 0 3 q3 1.6 0 3"/><path class="m-smirk" d="M46 61.5 Q51 62.5 55 58.8"/>'
   +       '<g class="m-drool"><path d="M45.5 60 Q50 64.5 54.5 60" fill="none"/><path d="M53.2 61.6 q1.6 3 0 4.6 q-1.6 -1.6 0 -4.6z" fill="#8fd3ff"/></g>'
@@ -96,7 +99,7 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +       '<g class="m-bite"><path d="M45 61 H55" fill="none"/><path d="M47.6 61 v2.2 h2 v-2.2 M50.4 61 v2.2 h2 v-2.2" fill="#fff"/></g>'
   +       '<path class="m-wide" d="M41.5 58 H58.5 Q57.5 68 50 68 Q42.5 68 41.5 58Z"/>'
   // the tongue in an open mouth (준: "단선끄적임" — a mouth with something in it, not only a dark shape)
-  +       '<ellipse class="m-tg tg-open" cx="50" cy="63.7" rx="2.3" ry="1.2"/><ellipse class="m-tg tg-grin" cx="50" cy="64.1" rx="2.8" ry="1.4"/><ellipse class="m-tg tg-wide" cx="50" cy="65.4" rx="3.8" ry="1.8"/><circle class="m-whistle" cx="53" cy="61" r="1.6"/>'
+  +       '<ellipse class="m-tg tg-open" cx="50" cy="63.7" rx="2.3" ry="1.2"/><ellipse class="m-tg tg-osm" cx="50" cy="62.9" rx="1.3" ry=".8"/><ellipse class="m-tg tg-grin" cx="50" cy="64.1" rx="2.8" ry="1.4"/><ellipse class="m-tg tg-wide" cx="50" cy="65.4" rx="3.8" ry="1.8"/><circle class="m-whistle" cx="53" cy="61" r="1.6"/>'
   +       '<path class="m-hat" d="M46.5 62.4 L50 59 L53.5 62.4"/><path class="m-tiny" d="M47.6 60.6 Q50 62.4 52.4 60.6"/>'
   +       '<g class="acc shades"><rect x="29" y="41" width="20" height="13" rx="5.5" fill="#23232e"/><rect x="51" y="41" width="20" height="13" rx="5.5" fill="#23232e"/><path d="M49 45 h2" stroke="#23232e" stroke-width="2"/><path d="M32 44 l5 -1.5" stroke="#fff" stroke-opacity=".5" stroke-width="1.6" stroke-linecap="round"/></g>'
   +       '<g class="acc mask"><rect x="23" y="39" width="54" height="16" rx="8" fill="#5b6bbf"/><path d="M31 47 q4 3 8 0 M61 47 q4 3 8 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></g>'
@@ -109,7 +112,7 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +       '<g class="acc eyepatch"><path d="M24 37 L76 57" stroke="#26283a" stroke-width="1.8"/><ellipse cx="61" cy="48" rx="8" ry="7" fill="#26283a"/></g>'
   +       '<circle class="acc clownnose" cx="50" cy="55" r="4.2" fill="#ff3b3b"/>'
   +       '<g class="acc nerdglasses"><rect x="30" y="41" width="18" height="14" rx="3"/><rect x="52" y="41" width="18" height="14" rx="3"/><path d="M48 46 H52"/></g>'
-  +     '<circle class="b-cheek" cx="28.5" cy="60" r="4.6"/><circle class="b-cheek" cx="71.5" cy="60" r="4.6"/>'
+  +     '<ellipse class="b-cheek" cx="30.6" cy="58.2" rx="4.6" ry="3.2"/><ellipse class="b-cheek" cx="69.4" cy="58.2" rx="4.6" ry="3.2"/>'
   +     '<g class="fx fx-blush"><path d="M24 58 l-2 4 M28 58 l-2 4 M32 58 l-2 4 M68 58 l-2 4 M72 58 l-2 4 M76 58 l-2 4" stroke="#ff7c93" stroke-width="1.5" stroke-linecap="round"/></g>'
   +     '<g class="fx fx-stream"><rect x="36.5" y="54" width="5" height="16" rx="2.5" fill="#8fd3ff" opacity=".85"/><rect x="58.5" y="54" width="5" height="16" rx="2.5" fill="#8fd3ff" opacity=".85"/></g>'
   +     '<path class="fx fx-kiss" d="M64 58 c-3 -2 -3 -5 -1 -5 c.8 0 1 .6 1 1 c0 -.4 .2 -1 1 -1 c2 0 2 3 -1 5z" fill="#ff6f91"/>'
@@ -712,7 +715,7 @@ const FACES = {
   shock: "wide osm none glint", sad: "small frown sad", teary: "small wave sad tears glint", cry: "small wave sad tears", dizzy: "dz osm none cheeks",
   yum: "arc chew none cheeks", full: "arc wave", yawn: "shut yawn", drowsy: "half flat", sleepy: "shut none", shy: "small smile none blush cheeks",
   thinking: "pill flat", blow: "pill osm none cheeks", angry: "pill frown angry", fume: "pill pout angry cheeks", proud: "u smile none cheeks",
-  relief: "u smile none sweat2", content: "u cat none cheeks", cheeky: "wink tongue", kiss: "shut kiss none kiss blush", excited: "wide osm none glint",
+  relief: "u smile none sweat2", content: "u cat none cheeks", cheeky: "wink tongue", kiss: "shut kiss none kiss blush", excited: "wide grin none glint",
   curious: "wide osm none q2", suspicious: "half smirk none", blank: "pill osm", dazed: "dz osm", meh: "pill tiny none", annoyed: "pill pout angry",
   nervous: "small wave none sweat2", flustered: "wide wave none sweat2 blush", moved: "pill wave sad tears glint", determined: "pill flat angry",
   thrilled: "sq grin none cheeks", smug: "half smirk", sorry: "u frown sad sweat2", ko: "shut wave none", ouch: "shut pout none sweat2", smitten: "heart cat none blush",
@@ -748,12 +751,21 @@ const FACES = {
 */
 const LOOKS = {
   beam: "laugh joyful lol chuckle giggle triumphant thrilled blissful gleeful full content relief grateful dreamy",
-  wide: "surprised shock excited flustered idea amazed panic stunned delighted awed blank moved eek yikes horrified pleading hopeful",
+  wide: "surprised shock flustered idea panic stunned awed blank moved eek yikes horrified pleading hopeful",
+  star: "excited delighted amazed sparkly", love: "love smitten lovey",
   curious: "curious nosy", skeptic: "confused suspicious skeptical", wink: "wink cheeky playful",
   small: "shy nervous embarrassed speechless awkward gloomy lonely sulky", half: "drowsy overheated unimpressed bored meh", smug: "smug sneaky whistling devious sly",
-  shut: "yawn sleepy kiss ko ouch snooze sweetdream zen queasy cringe", heart: "love smitten lovey", dz: "dizzy woozy dazed"};
+  shut: "yawn sleepy kiss ko ouch snooze sweetdream zen queasy cringe", dz: "dizzy woozy dazed"};
 const LOOK_OF = {}; for (const l in LOOKS) LOOKS[l].split(" ").forEach(k => { LOOK_OF[k] = l; });
-for (const k in FACES) { const p = FACES[k].split(" "); p[0] = LOOK_OF[k] || "pill"; if (p[0] === "dz" && !p.includes("swirl")) p.push("swirl"); FACES[k] = p.join(" "); }
+// Brows only where the feeling needs them (준's references: short, thin, right on the eyes, only when sad, worried or cross).
+// Most faces are the face alone (준: "이펙트없는 표정들도 많이 만들어"): sweat, a flower, tears and "?" only where they are the point.
+const FX_ONLY = {sweat2: "panic overheated awkward", flower: "triumphant", tears: "teary cry heartbroken", q2: "curious confused"};
+for (const k in FACES) {
+  let p = FACES[k].split(" "); p[0] = LOOK_OF[k] || "pill";
+  p = p.filter((x, i) => i < 3 || !FX_ONLY[x] || FX_ONLY[x].split(" ").includes(k));
+  if (p[0] === "dz" && !p.includes("swirl")) p.push("swirl");
+  FACES[k] = p.join(" ");
+}
 const FEELS = Object.keys(FACES);
 /** Motions 퍼레 makes on its own (a class on .buddy for ms, with a face): see board.css "motions, more". */
 const MOTIONS = [
