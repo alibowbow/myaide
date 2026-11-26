@@ -1142,7 +1142,10 @@ function openPad(typing, into) {
   if (typing) setTimeout(() => el("q").focus(), 60);
 }
 function closePad() {
-  const pad = el("pad"); if (!pad.classList.contains("on")) return; el("q").blur(); pad.classList.remove("shown"); document.body.classList.remove("covered"); if (B) B.bars(false); setTimeout(() => pad.classList.remove("on"), 230);
+  const pad = el("pad"); if (!pad.classList.contains("on")) return; el("q").blur();
+  // A toy or a play asked for in the talk: on the home screen, now that it is seen.
+  if (selfLater) { const o = selfLater; selfLater = null; setTimeout(() => selfAct(o), 450); }
+  pad.classList.remove("shown"); document.body.classList.remove("covered"); if (B) B.bars(false); setTimeout(() => pad.classList.remove("on"), 230);
   // Back from picking: the folder again, still in its edit.
   if (pickInto) { const back = pickInto; pickInto = ""; pad.classList.remove("picking"); setTimeout(() => { openFan(back, null); fanEdit = true; fillFan(false); placeFan(); }, 240); }
 }
@@ -1225,7 +1228,7 @@ el("padBody").addEventListener("click", e => {
   messages are drawn, with 이전 대화 더 보기 for the rest.
 */
 const SEARCH_HINT = "앱 이름 · 초성(ㅋㅋㅇ)", CHAT_HINT = "퍼레에게 말하기";
-let thread = [], chatting = false, talkedAt = 0, chatView = "talk", shownTurns = 30, chatHello = "";
+let selfLater = null, thread = [], chatting = false, talkedAt = 0, chatView = "talk", shownTurns = 30, chatHello = "";
 const FACE = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 6.5h7A4.5 4.5 0 0 1 20 11v3.5a4.5 4.5 0 0 1-4.5 4.5h-7A4.5 4.5 0 0 1 4 14.5V11a4.5 4.5 0 0 1 4.5-4.5zM12 6.5V4.6"/><path d="M9.4 11.6v2M14.6 11.6v2" stroke-width="2.4"/><circle cx="12" cy="3.4" r="1.1" fill="#fff" stroke="none"/></svg>';
 const CI = d => '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>';
 const ICON_LIST = CI('<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>'), ICON_NEW = CI('<path d="M12 5v14M5 12h14"/>'),
@@ -1529,6 +1532,16 @@ window.launcher = {
   },
   resized() { drawDock(); boards.forEach(fit); },
   /** 퍼레's line from the AI (NVIDIA, Groq when NVIDIA is slow), or none (its own lines then). */
+  /**
+    퍼레 itself, asked by voice or in the talk (BuddyBoard.java): clothes at once (the talk's 퍼레 too); a toy or a play on the
+    home screen, after the talk is closed when it is open.
+  */
+  self(o) {
+    if (!o) return false;
+    if (o.wear) { const done = selfAct(o); const pal = document.querySelector(".chatpal .bot"); if (pal && chosen) WEAR.forEach(w => pal.classList.toggle("w-" + w, chosen.wear.includes(w))); return done; }
+    if (el("pad").classList.contains("on")) { selfLater = o; return true; }
+    return selfAct(o);
+  },
   thought(line) { thought(line); },
   thoughtFail() { thoughtFail(); },
   life(k) { boardLife(k); },

@@ -202,8 +202,12 @@ public final class HomeActivity extends Activity {
         NoticeListener.changed = badgesChanged;
         main.removeCallbacks(refresh); if (ready) { refresh.run(); pushBadges(); if (web != null) web.evaluateJavascript("launcher.shown&&launcher.shown()", null); }
         BuddyVoice talk = BuddyVoice.current(); if (talk != null) talk.attach(talkShown, talkUnlock);
+        if (ready) BuddyBoard.shown(selfCall);
     }
+    /** 퍼레 itself, asked by voice or in the talk (BuddyBoard): a launcher.self() call to the page. */
+    private final java.util.function.Consumer<String> selfCall = call -> js(call);
     @Override protected void onPause() {
+        BuddyBoard.away();
         shown = false; pausedAt = android.os.SystemClock.uptimeMillis(); NoticeListener.changed = null; main.removeCallbacks(refresh);
         prefs.edit().putLong("awaySince", System.currentTimeMillis()).apply();
         // The voice talk goes on over the next app (준: "퍼레가 말할때 브라우저라도 켜면 바로 꺼져버려").
@@ -485,6 +489,8 @@ public final class HomeActivity extends Activity {
                 ready = true;
                 if (web != null) web.evaluateJavascript("launcher.insets(" + top + "," + bottom + "," + keyboard + ")", null);
                 pushApps(); main.removeCallbacks(refresh); if (shown) refresh.run(); else pushBoard();
+                // 퍼레 itself, asked by voice or in the talk (BuddyBoard): now that the page can hear it.
+                if (shown) BuddyBoard.shown(selfCall);
                 // The weather needs roughly where the phone is: asked once, here where the user sees why.
                 if (!Weather.allowed(HomeActivity.this) && !prefs.getBoolean("askedLocation", false)) {
                     prefs.edit().putBoolean("askedLocation", true).apply();

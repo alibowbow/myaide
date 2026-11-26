@@ -108,17 +108,43 @@ public final class BuddyMind {
         return out;
     }
     /**
-     * A line on a subject already said lately (준: "자꾸 전투기 배터리 이야기를 반복해서해"): one of its words came up in two or
-     * more of the last six lines, however differently those were worded.
+     * The subjects said too often lately (준: "자꾸 전투기 배터리 이야기를 반복해서해", "전투기이야기만 수백번 하고 있어"): a word
+     * in two or more of the last thirty lines, or a long one (three letters or more: 전투기, 모델링, 배터리) in any of the last
+     * eight, however differently those were worded.
      */
-    public static boolean staleSubject(String line, List<String> said) {
-        List<String> last = said.subList(Math.max(0, said.size() - 6), said.size());
-        for (String word : subjects(line)) {
-            int seen = 0;
-            for (String s : last) if (subjects(s).contains(word)) seen++;
-            if (seen >= 2) return true;
+    public static Set<String> staleSubjects(List<String> said) {
+        Map<String, Integer> count = new HashMap<>();
+        Set<String> out = new HashSet<>();
+        int from = Math.max(0, said.size() - 30), close = Math.max(0, said.size() - 8);
+        for (int i = from; i < said.size(); i++) for (String w : subjects(said.get(i))) {
+            if (count.merge(w, 1, Integer::sum) >= 2 || i >= close && w.length() >= 3) out.add(w);
+        }
+        return out;
+    }
+    /** Whether a word is one of these subjects: the same, or one a longer form of the other (전투기 and 전투기라서, 모델링하는). */
+    public static boolean among(String word, Set<String> subjects) {
+        for (String s : subjects) {
+            String shorter = s.length() <= word.length() ? s : word, longer = shorter == s ? word : s;
+            if (s.equals(word) || shorter.length() >= 3 && longer.startsWith(shorter)) return true;
         }
         return false;
+    }
+    /** A line on a subject already said too often lately (staleSubjects). */
+    public static boolean staleSubject(String line, List<String> said) {
+        Set<String> stale = staleSubjects(said);
+        for (String word : subjects(line)) if (among(word, stale)) return true;
+        return false;
+    }
+    /** The lines of what is known (a profile, notes) on none of these subjects: what 퍼레 may bring up now. */
+    public static String freshLines(String text, Set<String> stale) {
+        if (text == null || text.isBlank() || stale.isEmpty()) return text == null ? "" : text;
+        StringBuilder out = new StringBuilder();
+        for (String line : text.split("\\n")) {
+            boolean old = false;
+            for (String word : subjects(line)) if (among(word, stale)) { old = true; break; }
+            if (!old) out.append(out.length() == 0 ? "" : "\n").append(line);
+        }
+        return out.toString();
     }
 
     private static final Pattern NAG = Pattern.compile("(힘\\s*내|화이팅|파이팅|쉬어|쉬자|쉬엄|쉬면서|휴식|푹\\s*쉬|수고|고생\\s*했|고생\\s*많|애썼|무리\\s*하지|무리하면|잘\\s*하고\\s*있어|응원할게|응원해)");

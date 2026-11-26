@@ -100,7 +100,7 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 /* A sound or a word while it plays alone: a smaller bubble. */
 .bubble.sfx{padding:6px 11px;font-size:13px;font-weight:700}
 /* A question with its choices (tap one): small chips under it. */
-.bubble.ask{pointer-events:auto}
+.bubble.asking{pointer-events:auto;width:min(220px,calc(100vw - 40px))}
 .bubble .picks{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
 .bubble .pick{border:0;border-radius:999px;padding:5px 10px;font:inherit;font-size:12.5px;font-weight:750;background:#efeaff;color:#5b3fd6;line-height:1.2}
 .bubble .pick:active{transform:scale(.94)}
@@ -309,12 +309,32 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .bot .b-eye .pill{display:block}
 .bot .b-eye *{fill:#2b2b3a;stroke:#2b2b3a;stroke-width:0;transition:transform .09s ease}
 .bot .b-eye .arc,.bot .b-eye .shut,.bot .b-eye .x,.bot .b-eye .line,.bot .b-eye .u,.bot .b-eye .sq,.bot .b-eye .dz,.bot .b-eye .brow{fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
-.bot .b-eye .dz,.bot .b-eye .brow{stroke-width:2.1}
+.bot .b-eye .dz{stroke-width:2.1}.bot .b-eye .brow{stroke-width:1.9}
 .bot .b-eye .heart{fill:#ff5f8f;stroke:none}
 .bot .b-eye .gl,.bot .b-eye .w-gl{fill:#fff;stroke:none}
 .bot .b-eye .tear{fill:#8fd3ff;stroke:none}
-.bot[data-eye]:not([data-eye=pill]):not([data-eye=half]):not([data-eye=small]):not([data-eye=wink]) .b-eye .pill,.bot[data-eye=wink] .b-eye.r .pill{display:none}
-.bot[data-eye=arc] .b-eye .arc,.bot[data-eye=wink] .b-eye.r .arc,.bot[data-eye=o] .b-eye .o,.bot[data-eye=shut] .b-eye .shut,.bot[data-eye=heart] .b-eye .heart,.bot[data-eye=dz] .b-eye .dz,.bot[data-eye=x] .b-eye .x,.bot[data-eye=dot] .b-eye .dot,.bot[data-eye=line] .b-eye .line,.bot[data-eye=wide] .b-eye .wide,.bot[data-eye=u] .b-eye .u,.bot[data-eye=sq] .b-eye .sq{display:block}
+.bot[data-eye=heart] .b-eye .pill,.bot[data-eye=dz] .b-eye .pill{display:none}
+.bot[data-eye=heart] .b-eye .heart,.bot[data-eye=dz] .b-eye .dz{display:block}
+/* 퍼레's own eyes in every face (준: "표정이 너무 흔한 이모티야", "원래 캐릭터 정체성을 유지하면서 표정의 다양한 배리에이션",
+   "눈아래파인모양은 다 빼줘"): its pill as it is, opened wide, made small, a heavy lid when sleepy or smug, closed asleep, a
+   round arch when it laughs; one outline that morphs between them. Sad and cross are in short round brows, not cut eyes. */
+.bot .b-eye .pill{d:path("M-4 -3.5 C-4 -5.7 -2.2 -7.5 0 -7.5 C2.2 -7.5 4 -5.7 4 -3.5 C4 -1.2 4 1.2 4 3.5 C4 5.7 2.2 7.5 0 7.5 C-2.2 7.5 -4 5.7 -4 3.5 C-4 1.2 -4 -1.2 -4 -3.5Z");transition:d .18s cubic-bezier(.3,.7,.3,1),transform .09s ease}
+.bot[data-eye=beam] .b-eye .pill{d:path("M-5 1.6 C-5 -2.4 -2.8 -5.6 0 -5.6 C2.8 -5.6 5 -2.4 5 1.6 C5 3 3.4 3.4 2.8 2.2 C2.2 0.4 1.3 -0.6 0 -0.6 C-1.3 -0.6 -2.2 0.4 -2.8 2.2 C-3.4 3.4 -5 3 -5 1.6Z")}
+.bot[data-eye=half] .b-eye .pill{d:path("M-4 0.2 C-4 -0.3 -2.2 -0.5 0 -0.5 C2.2 -0.5 4 -0.3 4 0.2 C4 1.4 4 2.5 4 3.6 C4 5.7 2.2 7.4 0 7.4 C-2.2 7.4 -4 5.7 -4 3.6 C-4 2.5 -4 1.4 -4 0.2Z")}
+.bot[data-eye=smug] .b-eye .pill{d:path("M-4 1.4 C-4 0.6 -2 -0.3 0 -0.8 C2 -1.3 4 -1.6 4 -1 C4 0.7 4 2.1 4 3.6 C4 5.7 2.2 7.4 0 7.4 C-2.2 7.4 -4 5.7 -4 3.6 C-4 2.8 -4 2.1 -4 1.4Z")}
+.bot[data-eye=wide] .b-eye .pill{d:path("M-5 -4.4 C-5 -7.2 -2.8 -9.4 0 -9.4 C2.8 -9.4 5 -7.2 5 -4.4 C5 -1.5 5 1.5 5 4.4 C5 7.2 2.8 9.4 0 9.4 C-2.8 9.4 -5 7.2 -5 4.4 C-5 1.5 -5 -1.5 -5 -4.4Z")}
+.bot[data-eye=small] .b-eye .pill{d:path("M-3.3 -1.4 C-3.3 -3.3 -1.8 -4.6 0 -4.6 C1.8 -4.6 3.3 -3.3 3.3 -1.4 C3.3 -0.2 3.3 1 3.3 2.2 C3.3 4 1.8 5.4 0 5.4 C-1.8 5.4 -3.3 4 -3.3 2.2 C-3.3 1 -3.3 -0.2 -3.3 -1.4Z")}
+.bot[data-eye=shut] .b-eye .pill{d:path("M-5.1 -0.2 C-3.7 1.3 -1.9 2 0 2 C1.9 2 3.7 1.3 5.1 -0.2 C5.7 0.4 5.6 1.2 5.1 1.8 C3.7 3.5 1.9 4.4 0 4.4 C-1.9 4.4 -3.7 3.5 -5.1 1.8 C-5.6 1.2 -5.7 0.4 -5.1 -0.2Z")}
+.bot[data-eye=curious] .b-eye.l .pill{d:path("M-5 -4.4 C-5 -7.2 -2.8 -9.4 0 -9.4 C2.8 -9.4 5 -7.2 5 -4.4 C5 -1.5 5 1.5 5 4.4 C5 7.2 2.8 9.4 0 9.4 C-2.8 9.4 -5 7.2 -5 4.4 C-5 1.5 -5 -1.5 -5 -4.4Z")}
+.bot[data-eye=skeptic] .b-eye.l .pill{d:path("M-4 0.2 C-4 -0.3 -2.2 -0.5 0 -0.5 C2.2 -0.5 4 -0.3 4 0.2 C4 1.4 4 2.5 4 3.6 C4 5.7 2.2 7.4 0 7.4 C-2.2 7.4 -4 5.7 -4 3.6 C-4 2.5 -4 1.4 -4 0.2Z")}
+.bot[data-eye=wink] .b-eye.r .pill{d:path("M-5 1.6 C-5 -2.4 -2.8 -5.6 0 -5.6 C2.8 -5.6 5 -2.4 5 1.6 C5 3 3.4 3.4 2.8 2.2 C2.2 0.4 1.3 -0.6 0 -0.6 C-1.3 -0.6 -2.2 0.4 -2.8 2.2 C-3.4 3.4 -5 3 -5 1.6Z")}
+/* Brows: short and round, just above the eyes, tipped up inside when sad or worried, down inside when cross (and a little up
+   over wide eyes); sad eyes look a little down. */
+.bot[data-brow=sad] .b-eye .brow,.bot[data-brow=angry] .b-eye .brow{display:block;transform-box:fill-box;transform-origin:center;transition:transform .2s}
+.bot[data-brow=sad] .b-eye .brow{transform:rotate(-17deg)}
+.bot[data-brow=angry] .b-eye .brow{transform:translateY(1.4px) rotate(20deg)}
+.bot[data-eye=wide] .b-eye .brow{translate:0 -1.8px}.bot[data-eye=small] .b-eye .brow{translate:0 2px}
+.bot[data-brow=sad] .b-eye .pill{translate:0 .8px}
 /* more eyes, mouths and effects (board.js FACES) */
 .bot .b-eye .tri,.bot .b-eye .ring,.bot .b-eye .wavy,.bot .b-eye .plus,.bot .b-eye .lid-line{fill:none;stroke-width:3;stroke-linecap:round;stroke-linejoin:round}
 .bot .b-eye .ring{stroke-width:2.6}.bot .b-eye .wavy{stroke-width:2.4}
@@ -341,21 +361,23 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 @keyframes k2bloom{50%{transform:scale(1.18) rotate(18deg)}}
 @keyframes k2flame{to{transform:scaleY(1.2) scaleX(.9)}}
 @keyframes k2snot{0%,100%{transform:scale(.4)}60%{transform:scale(1.25)}}
-.bot[data-eye=half] .b-eye .pill{transform:scaleY(.5) translateY(3px)}
-.bot[data-eye=small] .b-eye .pill{transform:scaleY(.72) translateY(1.5px)}
 .bot[data-eye=heart] .b-eye .heart,.bot[data-eye=dz] .b-eye .dz{transform-box:fill-box;transform-origin:center}
 .bot[data-eye=heart] .b-eye .heart{animation:beat .6s ease-in-out infinite}
 .bot[data-eye=dz] .b-eye .dz{animation:whirl .9s linear infinite}
 .bot.blink .b-eye .pill{transform:scaleY(.1)}
 .bot[data-fx~=glint] .b-eye .gl{display:block}
 .bot[data-fx~=tears] .b-eye .tear{display:block;animation:tear 1.4s ease-in infinite}
-.bot[data-brow=sad] .b-eye .brow{display:block}
-.bot[data-brow=angry] .b-eye .brow{display:block;transform:scaleY(-1);transform-box:fill-box;transform-origin:center}
 @keyframes tear{0%{opacity:0;transform:translateY(-2px)}25%{opacity:1}100%{opacity:0;transform:translateY(7px)}}
 /* mouths */
 .bot .b-mouth{fill:none;stroke:#2b2b3a;stroke-width:2.6;stroke-linecap:round;opacity:0;transition:opacity .2s;transform-box:fill-box;transform-origin:center}
 .bot .m-open,.bot .m-frown,.bot .m-wave,.bot .m-chew,.bot .m-flat,.bot .m-grin,.bot .m-tongue,.bot .m-osm,.bot .m-cat,.bot .m-teeth,.bot .m-pout,.bot .m-kiss,.bot .m-smirk{display:none;transform-box:fill-box;transform-origin:center}
 .bot .m-open,.bot .m-chew,.bot .m-osm,.bot .m-grin{fill:#2b2b3a}
+/* An open mouth is a mouth: deep berry inside, a tongue at the bottom. */
+.bot .m-open,.bot .m-grin,.bot .m-wide{fill:#5a2134}
+.bot .m-tg{display:none;fill:#ff8597;transform-box:fill-box;transform-origin:center}
+.bot[data-mouth=big] .tg-open,.bot[data-mouth=grin] .tg-grin,.bot[data-mouth=wide] .tg-wide{display:block}
+.bot[data-mouth=big] .tg-open{transform:translateY(.6px) scale(1.25,1.1)}
+.bot.talking .m-tg{display:none}
 .bot .m-frown,.bot .m-wave,.bot .m-flat,.bot .m-cat,.bot .m-pout,.bot .m-kiss,.bot .m-smirk,.bot .m-tongue path:first-child{fill:none;stroke:#2b2b3a;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
 .bot .m-teeth rect{fill:#fff;stroke:#2b2b3a;stroke-width:1.6}.bot .m-teeth path{fill:none;stroke:#2b2b3a;stroke-width:1}
 .bot[data-mouth=smile] .b-mouth{opacity:1}

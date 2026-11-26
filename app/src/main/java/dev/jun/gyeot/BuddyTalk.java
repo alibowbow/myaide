@@ -49,7 +49,7 @@ final class BuddyTalk {
         boolean solo = reason.startsWith("solo:") || reason.startsWith("answer:");
         String topic = solo ? "지금 하고 있는 놀이" : dev.jun.gyeot.core.BuddyMind.topic(used, hasMemory, hasApp, new java.util.Random());
         if (!solo) { try { used.put(topic, System.currentTimeMillis()); } catch (Exception ignored) {} p.edit().putString("topics", used.toString()).apply(); }
-        String instructions = instructions(c, reason, topic, dev.jun.gyeot.core.BuddyMind.overused(said, 8)), input = input(c, store, p, reason);
+        String instructions = instructions(c, reason, topic, avoid(said)), input = input(c, store, p, reason, topic, said);
         // A question's choices (고르기: …) go along on a second line, for the page to show under it.
         ask(c, instructions, input, attempt == 0 ? 0.75 : 0.9, 9_000, text -> { String l = clean(text, p); String picks = l == null ? "" : picks(l, text); return l == null || picks.isEmpty() ? l : l + "\n고르기: " + picks; },
             line -> {
@@ -58,6 +58,12 @@ final class BuddyTalk {
                 if (reason.startsWith("answer:")) { String[] qa = reason.substring(7).split("\u0001", 2); if (qa.length == 2) learnLater(c, "(퍼레가 ‘" + qa[0] + "’라고 묻자) " + qa[1], first); }
             },
             () -> { if (attempt == 0) thinkOnce(c, store, p, reason, done, failed, 1); else { busy.set(false); failed.run(); } });
+    }
+    /** What not to bring up this time: the subjects said too often lately first, then the words used most in the last lines. */
+    static java.util.List<String> avoid(java.util.List<String> said) {
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>(dev.jun.gyeot.core.BuddyMind.staleSubjects(said));
+        out.addAll(dev.jun.gyeot.core.BuddyMind.overused(said, 8));
+        return new java.util.ArrayList<>(out).subList(0, Math.min(14, out.size()));
     }
     /** What 퍼레 said lately, oldest first. */
     private static java.util.List<String> said(SharedPreferences p) {
@@ -219,6 +225,9 @@ final class BuddyTalk {
         + "{\"tool\":\"rotation\",\"mode\":\"landscape\"}(landscape=가로 고정·portrait=세로 고정·auto=자동 회전·toggle=반대로) · {\"tool\":\"volume\",\"direction\":\"up\"}(up·down·mute·unmute, 또는 \"level\":0~100) · "
         + "{\"tool\":\"brightness\",\"direction\":\"up\"}(up·down, 또는 \"level\":0~100) · {\"tool\":\"show_alarms\"} · "
         + "{\"tool\":\"settings\",\"panel\":\"wifi\"}(internet·wifi·bluetooth·volume·nfc·display·location·battery) · {\"tool\":\"search\",\"query\":\"검색어\"} · {\"tool\":\"map_search\",\"query\":\"근처 카페\"} · {\"tool\":\"share\",\"text\":\"보낼 글\",\"app\":\"카카오톡\"} · {\"tool\":\"message\",\"who\":\"이름\",\"text\":\"글\"} · {\"tool\":\"call\",\"who\":\"이름\"} · {\"tool\":\"camera\",\"mode\":\"photo\"}(photo·selfie·video) · {\"tool\":\"calendar_add\",\"title\":\"일정\",\"date\":\"내일\",\"hour\":15,\"minute\":0} · {\"tool\":\"open_url\",\"url\":\"naver.com\"}. "
+        + "너(퍼레) 자신에게 하는 부탁도 직접 해: {\"tool\":\"buddy_toy\",\"toy\":\"주사위\"}(" + String.join("·", BuddyBoard.words(BuddyBoard.TOYS)) + ") · "
+        + "{\"tool\":\"buddy_outfit\",\"items\":[\"고양이 귀\"]}(" + String.join("·", BuddyBoard.words(BuddyBoard.CLOTHES)) + ") · "
+        + "{\"tool\":\"buddy_move\",\"play\":\"춤\"}(" + String.join("·", BuddyBoard.words(BuddyBoard.PLAYS)) + "). "
         + "결제·송금처럼 못 하는 일은 할일 줄 없이 아직 못 한다고 말해. 대답에 주소(URL)는 절대 쓰지 마.\n";
     /** The saved places (내비게이션 → 자주 가는 곳): their words go as the destination as said, "집으로 가자" → {"tool":"navigate","destination":"집"}. */
     static String places(AppStore store) {
@@ -242,7 +251,9 @@ final class BuddyTalk {
         java.util.Map.entry("send", "share"), java.util.Map.entry("kakao", "share"), java.util.Map.entry("sms", "message"), java.util.Map.entry("text", "message"), java.util.Map.entry("sendmessage", "message"),
         java.util.Map.entry("dial", "call"), java.util.Map.entry("phone", "call"), java.util.Map.entry("photo", "camera"), java.util.Map.entry("selfie", "camera"),
         java.util.Map.entry("calendar", "calendar_add"), java.util.Map.entry("calendaradd", "calendar_add"), java.util.Map.entry("addevent", "calendar_add"), java.util.Map.entry("schedule", "calendar_add"),
-        java.util.Map.entry("openurl", "open_url"), java.util.Map.entry("url", "open_url"), java.util.Map.entry("web", "open_url"), java.util.Map.entry("mapsearch", "map_search"), java.util.Map.entry("nearby", "map_search"));
+        java.util.Map.entry("openurl", "open_url"), java.util.Map.entry("url", "open_url"), java.util.Map.entry("web", "open_url"), java.util.Map.entry("mapsearch", "map_search"), java.util.Map.entry("nearby", "map_search"),
+        java.util.Map.entry("toy", "buddy_toy"), java.util.Map.entry("buddytoy", "buddy_toy"), java.util.Map.entry("outfit", "buddy_outfit"), java.util.Map.entry("buddyoutfit", "buddy_outfit"),
+        java.util.Map.entry("dress", "buddy_outfit"), java.util.Map.entry("wear", "buddy_outfit"), java.util.Map.entry("move", "buddy_move"), java.util.Map.entry("buddymove", "buddy_move"), java.util.Map.entry("dance", "buddy_move"));
     /** The thing to do the answer names ("할일: {…}", or a bare {…} with a tool), its tool one of ACTS', or null. */
     static JSONObject act(String text) {
         if (text == null) return null;
@@ -264,6 +275,7 @@ final class BuddyTalk {
         String known = TOOLS.getOrDefault(key, TOOLS.getOrDefault(tool, tool));
         if (known.equals("showalarms")) known = "show_alarms";
         if (known.equals("calendaradd")) known = "calendar_add"; if (known.equals("openurl")) known = "open_url"; if (known.equals("mapsearch")) known = "map_search";
+        if (known.equals("buddytoy")) known = "buddy_toy"; if (known.equals("buddyoutfit")) known = "buddy_outfit"; if (known.equals("buddymove")) known = "buddy_move";
         // "music" with a command is the one playing now (pause, next), not a search.
         if (known.equals("play") && !a.optString("command").isBlank() && a.optString("query").isBlank() && a.optString("song").isBlank()) known = "media";
         try {
@@ -481,12 +493,19 @@ final class BuddyTalk {
             + "- 한 문장, 45자 안쪽. 따옴표 없이 그 문장만 답해. 어울리면 이모지 하나를 붙여도 좋아(반짝이·별 이모지는 빼고).\n"
             + "- 사용자에게 묻는 말로 끝낼 때만, 둘째 줄에 사용자가 눌러서 고를 짧은 답 2~3개를 '고르기: 답 / 답 / 답'(각 8자 안쪽)으로 써.";
     }
-    private static String input(Context c, AppStore store, SharedPreferences p, String reason) {
+    /**
+     * What 퍼레 sees now. What it knows about the user (the night's profile, its discovery notes) only when this topic is about
+     * them, and never a subject it said too often lately (준: "전투기이야기만 수백번 하고 있어": the profile went along every
+     * time, and the brain took its biggest subject every time).
+     */
+    private static String input(Context c, AppStore store, SharedPreferences p, String reason, String topic, java.util.List<String> said) {
         long now = System.currentTimeMillis();
         String when = new SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date(now));
         String weather = "";
         try { JSONObject w = Weather.now(c); if (w != null) weather = (w.optString("place").isBlank() ? "" : w.optString("place") + " ") + w.optInt("temp") + "도, " + sky(w.optInt("code"), w.optBoolean("day", true)); } catch (RuntimeException ignored) {}
-        String note = ""; try { note = Briefing.profile(store); } catch (RuntimeException ignored) {}
+        boolean aboutUser = topic.startsWith("사용자에 대해") || topic.startsWith("너의 기억");
+        java.util.Set<String> stale = dev.jun.gyeot.core.BuddyMind.staleSubjects(said);
+        String note = ""; if (aboutUser) try { note = dev.jun.gyeot.core.BuddyMind.freshLines(Briefing.profile(store), stale).strip(); } catch (RuntimeException ignored) {}
         SharedPreferences home = c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE);
         String recent = home.getString("recentLabels", "[]");
         long since = home.getLong("awaySince", 0);
@@ -499,8 +518,8 @@ final class BuddyTalk {
             + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n")
             + lifeWords(c) + "\n"
             + todayWords(c)
-            + memoryWords(c, when + " " + weather + " " + recent, false)
-            + "사용자에 대해 아는 것:\n" + (note.isBlank() ? "(아직 잘 몰라요)" : note) + "\n"
+            + memoryWords(c, when + " " + weather + " " + recent, false, aboutUser, stale)
+            + (aboutUser && !note.isBlank() ? "사용자에 대해 아는 것:\n" + note + "\n" : "")
             + "이미 했던 말(다시 쓰지 말 것): " + p.getString("memory", "[]");
     }
     /**
@@ -508,22 +527,25 @@ final class BuddyTalk {
      * the moment (BuddyMind.recall: important, recent, related, not brought up in the last day); private ones only after the
      * fingerprint (forSpeech: an answer the user asked for, where they may be needed).
      */
-    static String memoryWords(Context c, String context, boolean forSpeech) {
-        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = memories(c);
+    static String memoryWords(Context c, String context, boolean forSpeech) { return memoryWords(c, context, forSpeech, true, java.util.Set.of()); }
+    /** The same; the discovery notes and memories only when aboutUser (the promises always), and nothing on a stale subject. */
+    static String memoryWords(Context c, String context, boolean forSpeech, boolean aboutUser, java.util.Set<String> stale) {
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = new java.util.ArrayList<>();
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : memories(c)) if (dev.jun.gyeot.core.BuddyMind.freshLines(e.text(), stale).equals(e.text())) all.add(e);
         if (all.isEmpty()) return "";
         boolean open = forSpeech && unlocked();
         StringBuilder out = new StringBuilder(); long now = System.currentTimeMillis(); java.time.ZoneId zone = java.time.ZoneId.systemDefault();
         java.util.List<String> profile = new java.util.ArrayList<>(), promises = new java.util.ArrayList<>();
         for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) {
             if (e.secret() && !open) continue;
-            if ("profile".equals(e.kind())) profile.add(e.text()); else if ("promise".equals(e.kind()) && now - e.at() < 7 * 86_400_000L) promises.add(e.text());
+            if ("profile".equals(e.kind())) { if (aboutUser) profile.add(e.text()); } else if ("promise".equals(e.kind()) && now - e.at() < 7 * 86_400_000L) promises.add(e.text());
         }
         if (!profile.isEmpty()) out.append("너의 발견 노트(사용자에 대해 알게 된 것):\n- ").append(String.join("\n- ", profile)).append('\n');
         if (!promises.isEmpty()) out.append("너와 사용자의 약속:\n- ").append(String.join("\n- ", promises)).append('\n');
         SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         java.util.Map<Long, Long> shown = new java.util.HashMap<>();
         try { JSONObject o = new JSONObject(p.getString("shown", "{}")); for (java.util.Iterator<String> k = o.keys(); k.hasNext();) { String key = k.next(); shown.put(Long.parseLong(key), o.optLong(key)); } } catch (Exception ignored) {}
-        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> picked = dev.jun.gyeot.core.BuddyMind.recall(all, context, now, forSpeech ? new java.util.HashMap<>() : shown, open, forSpeech ? 6 : 3);
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> picked = !aboutUser ? java.util.List.of() : dev.jun.gyeot.core.BuddyMind.recall(all, context, now, forSpeech ? new java.util.HashMap<>() : shown, open, forSpeech ? 6 : 3);
         if (!picked.isEmpty()) {
             out.append("너의 추억(지금 떠오르는 것):\n");
             JSONObject o = new JSONObject();

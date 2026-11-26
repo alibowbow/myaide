@@ -58,10 +58,23 @@ final class BuddyTools {
         .put(fn("calendar_add", "캘린더에 새 일정을 채워 둔다(저장은 사용자가 누른다).",
             props("title", "string", "일정 이름", "date", "string", "오늘·내일·모레 또는 YYYY-MM-DD", "hour", "integer", "시 (0~23), 시간을 말했으면", "minute", "integer", "분", "minutes", "integer", "길이(분)", "place", "string", "장소"), "title"))
         .put(fn("open_url", "웹 페이지를 연다.", props("url", "string", "주소 (예: naver.com)"), "url"))
-        .put(fn("map_search", "지도에서 장소를 찾는다(근처 카페, 맛집 …).", props("query", "string", "찾을 것"), "query"));
+        .put(fn("map_search", "지도에서 장소를 찾는다(근처 카페, 맛집 …).", props("query", "string", "찾을 것"), "query"))
+        // 퍼레 itself (준: "음성대화로 퍼레의 상호작용이 안돼"): its toys, its clothes, its plays on the home screen
+        .put(fn("buddy_toy", "너(퍼레)의 장난감을 홈 화면에 꺼내서 갖고 논다. 다 치우려면 치우기.", props("toy", BuddyBoard.words(BuddyBoard.TOYS).toArray(new String[0]), "장난감"), "toy"))
+        .put(outfit())
+        .put(fn("buddy_move", "너(퍼레)가 홈 화면에서 놀이·동작을 한다(춤, 점프, 요가 …).", props("play", BuddyBoard.words(BuddyBoard.PLAYS).toArray(new String[0]), "놀이"), "play"));
+    /** buddy_outfit: one or more things to wear (an array the props helper does not make). */
+    private static JSONObject outfit() {
+        try {
+            JSONObject items = new JSONObject().put("type", "array").put("description", "입을 것(여러 개 가능). 기본=다 벗고 원래 모습, 아무거나=퍼레가 골라 입기")
+                .put("items", new JSONObject().put("type", "string").put("enum", new JSONArray(BuddyBoard.words(BuddyBoard.CLOTHES))));
+            return fn("buddy_outfit", "너(퍼레)의 옷·모자·소품을 갈아입는다.", new JSONObject().put("items", items), "items");
+        } catch (Exception impossible) { throw new IllegalStateException(impossible); }
+    }
 
     /** The rule for the brain with tools (in place of BuddyTalk.ACTS). */
     static final String RULE = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 안내, 지도에서 찾기, 노래·영상 찾아 틀기, 음악 멈춤·다음 곡, 알람, 타이머, 손전등, 화면 방향, 소리 크기, 밝기, 설정 화면, 검색, 카톡으로 보내기, 문자 쓰기, 전화 걸 준비, 카메라, 일정 넣기, 웹 페이지 열기) 도구를 불러서 너가 직접 해. "
+        + "너(퍼레) 자신에게 하는 부탁(장난감 꺼내기, 옷 갈아입기·벗기, 춤·점프 같은 놀이)도 buddy_toy·buddy_outfit·buddy_move 도구로 직접 해. 못 한다고 하지 마. "
         + "도구를 부를 때도 무엇을 하는지 짧은 대답 한 문장을 같이 말해(예: 네이버 지도 열게!). 할 일을 글로 적거나 JSON을 말하지 마. "
         + "결제·송금처럼 도구가 없는 일은 아직 못 한다고 말해. 대답에 주소(URL)는 절대 쓰지 마. 이모지는 어울리면 하나까지(반짝이·별은 빼고).\n";
 
@@ -77,11 +90,17 @@ final class BuddyTools {
         return null;
     }
 
-    private static final java.util.regex.Pattern ASKED = java.util.regex.Pattern.compile("열어|켜 ?줘|켜$|꺼 ?줘|꺼$|틀어|재생|알람|타이머|가자|안내|길 ?찾|찾아 ?줘|검색|소리|볼륨|밝기|화면|손전등|플래시|와이파이|블루투스|설정|멈춰|다음 ?곡|이전 ?곡|가로|세로|회전|일정|캘린더|넣어|셀카|카메라|사진 ?찍|동영상|문자|보내|전화|카톡|카카오톡|공유|사이트|홈페이지|근처|맛집"),
-        PROMISE = java.util.regex.Pattern.compile("할게|줄게|열게|틀게|켤게|끌게|맞출게|찾아볼게|바꿀게|멈출게|둘게|보낼게|걸게|찍게|넣을게|시작");
+    private static final java.util.regex.Pattern ASKED = java.util.regex.Pattern.compile("꺼내|입어|입자|벗어|갈아입|옷|모자|장난감|주사위|공 ?놀|큐브|팽이|풍선|비눗방울|춤|점프|해 ?봐|보여 ?줘|열어|켜 ?줘|켜$|꺼 ?줘|꺼$|틀어|재생|알람|타이머|가자|안내|길 ?찾|찾아 ?줘|검색|소리|볼륨|밝기|화면|손전등|플래시|와이파이|블루투스|설정|멈춰|다음 ?곡|이전 ?곡|가로|세로|회전|일정|캘린더|넣어|셀카|카메라|사진 ?찍|동영상|문자|보내|전화|카톡|카카오톡|공유|사이트|홈페이지|근처|맛집"),
+        PROMISE = java.util.regex.Pattern.compile("꺼낼게|입을게|벗을게|쓸게|출게|뛸게|놀게|해 볼게|할게|줄게|열게|틀게|켤게|끌게|맞출게|찾아볼게|바꿀게|멈출게|둘게|보낼게|걸게|찍게|넣을게|시작");
     /** The user asked for a thing on the phone and the answer says it will be done (the brain then called no tool). */
     static boolean promised(String said, String answer) {
         return said != null && answer != null && ASKED.matcher(said).find() && PROMISE.matcher(answer).find();
+    }
+    private static String outfitSay(JSONObject a) {
+        JSONArray items = a.optJSONArray("items"); String first = items != null && items.length() > 0 ? items.optString(0).strip() : a.optString("item").strip();
+        if (first.isEmpty() || first.equals("기본")) return "원래 모습으로 돌아갈게!";
+        if (first.equals("아무거나")) return "뭐 입을지 골라 볼게!";
+        return first + " 해 볼게!";
     }
     /** What 퍼레 says for an act the brain did without words ("" when BuddyActs says it after: an alarm's read-back …). */
     static String say(JSONObject a) {
@@ -102,6 +121,9 @@ final class BuddyTools {
             case "message" -> "문자 써 둘게!";
             case "camera" -> "selfie".equals(a.optString("mode")) ? "셀카 모드!" : "video".equals(a.optString("mode")) ? "동영상 찍자!" : "카메라 열게!";
             case "open_url" -> "열게!";
+            case "buddy_toy" -> "치우기".equals(a.optString("toy")) ? "다 치울게!" : a.optString("toy").isBlank() ? "장난감 꺼낼게!" : a.optString("toy").strip() + " 꺼낼게!";
+            case "buddy_outfit" -> outfitSay(a);
+            case "buddy_move" -> a.optString("play").isBlank() ? "볼래? 짠!" : a.optString("play").strip() + " 보여 줄게!";
             default -> "";
         };
     }

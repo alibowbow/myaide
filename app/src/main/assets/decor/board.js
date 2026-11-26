@@ -23,12 +23,12 @@ const ICON = {
 };
 /*
   The friend on the phone's screen (준: "너의 미리보기 화면에 있는 캐릭터", "모션 표정 자연스러운 움직임 구현"): a round
-  coral robot whose parts move on their own. Eyes: pills that blink and glance, arcs when happy, rounds when surprised,
+  coral robot whose parts move on their own. Eyes: pills that blink and glance and bend into each face (squashed by a smile, cut by a lid, wide when surprised),
   lines when asleep, hearts when loved; an antenna that springs; cheeks that blush. alive() runs it.
 */
-const EYE = '<rect class="pill" x="-4" y="-7.5" width="8" height="15" rx="4"/><circle class="gl" cx="-1.3" cy="-3.6" r="1.4"/><path class="arc" d="M-5.5 2.5 Q0 -5 5.5 2.5"/><circle class="o" r="5.4"/><path class="shut" d="M-5.5 1 Q0 3.5 5.5 1"/>'
+const EYE = '<path class="pill" d="M-4 -3.5 C-4 -5.7 -2.2 -7.5 0 -7.5 C2.2 -7.5 4 -5.7 4 -3.5 C4 -1.2 4 1.2 4 3.5 C4 5.7 2.2 7.5 0 7.5 C-2.2 7.5 -4 5.7 -4 3.5 C-4 1.2 -4 -1.2 -4 -3.5Z"/><circle class="gl" cx="-1.3" cy="-3.6" r="1.4"/><path class="arc" d="M-5.5 2.5 Q0 -5 5.5 2.5"/><circle class="o" r="5.4"/><path class="shut" d="M-5.5 1 Q0 3.5 5.5 1"/>'
   + '<path class="heart" d="M0 5 C-7 0 -6 -6 -2.6 -6 C-1.2 -6 -.3 -5 0 -4 C.3 -5 1.2 -6 2.6 -6 C6 -6 7 0 0 5Z"/>'
-  + '<path class="dz" d="M0 0 m-.8 0 a.8 .8 0 1 1 1.6 0 a2.2 2.2 0 1 1 -4.4 0 a3.6 3.6 0 1 1 7.2 0 a5 5 0 1 1 -10 0"/><path class="brow" d="M-5 -9 L4.5 -11.5"/>'
+  + '<path class="dz" d="M0 0 m-.8 0 a.8 .8 0 1 1 1.6 0 a2.2 2.2 0 1 1 -4.4 0 a3.6 3.6 0 1 1 7.2 0 a5 5 0 1 1 -10 0"/><path class="brow" d="M-4 -10.6 Q0 -12.6 4 -10.6"/>'
   + '<path class="x" d="M-4.3 -4.3 L4.3 4.3 M4.3 -4.3 L-4.3 4.3"/><circle class="dot" r="2.7"/><path class="line" d="M-5 0 H5"/>'
   + '<g class="wide"><circle r="6.4"/><circle class="w-gl" cx="-2.2" cy="-2.6" r="2"/><circle class="w-gl" cx="2" cy="2.2" r=".9"/></g>'
   + '<path class="u" d="M-5.5 -1.5 Q0 4.5 5.5 -1.5"/><path class="sq" d="M-4.5 -4.5 L3.5 0 L-4.5 4.5"/><path class="tear" d="M2.5 6 q2.6 4.2 0 6.2 q-2.6 -2 0 -6.2z"/>'
@@ -61,10 +61,11 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   // Short round arms at its sides (준: "팔이 움직일 때 너무 덜렁덜렁 달린 느낌이야", "귀엽게", "팔이 약간 삼각모양인데 둥근형태"):
   // (퍼레's own body: orange above, purple below — 준: "주황로봇이 맞는데 하단 색상이 보라색으로 디자인됐어", "의상이 아니라 기본디자인")
   // "와들디 팔을 참고", "팔이너무 귀같아", "닌텐도 커비처럼", "팔참고", "퍼레 기본디자인에 충실해줘 거기서 팔을 바꾸고"): round arms,
-  // a little taller than wide, pressed to the lower middle of its sides and tipped a touch down, half tucked behind the body,
-  // turning where they join it. The rest of 퍼레 is as it was.
-  +   '<g class="b-arm l"><g transform="rotate(-16 12 64)"><ellipse cx="10.5" cy="64" rx="9.6" ry="10.4" fill="#ff7a55"/><ellipse cx="11" cy="68.5" rx="7.4" ry="4.4" fill="#e5532f" opacity=".3"/><ellipse cx="7" cy="59.6" rx="3.2" ry="2.3" fill="#fff" opacity=".32"/><g class="acc mittens"><ellipse cx="10.5" cy="64" rx="9.8" ry="10.6" fill="#6f9fe8"/><rect x="14.6" y="55" width="3.4" height="18" rx="1.7" fill="#fff"/></g></g></g>'
-  +   '<g class="b-arm r"><g transform="rotate(16 88 64)"><ellipse cx="89.5" cy="64" rx="9.6" ry="10.4" fill="#ff7a55"/><ellipse cx="89" cy="68.5" rx="7.4" ry="4.4" fill="#e5532f" opacity=".3"/><ellipse cx="93" cy="59.6" rx="3.2" ry="2.3" fill="#fff" opacity=".32"/><g class="acc mittens"><ellipse cx="89.5" cy="64" rx="9.8" ry="10.6" fill="#6f9fe8"/><rect x="82" y="55" width="3.4" height="18" rx="1.7" fill="#fff"/></g></g></g>'
+  // smooth half-ovals widest where they join the body (준: "왜 베이스가 더 넓어야하는데 베이스가 더 좁아?", "우리는 팔시작부가
+  // 뭉툭하자나", "팔도 이상해 와들디처럼 곡선을 이쁘게"): an oval whose middle is inside the body's side, so less than half of it
+  // shows and its widest part is the join; tipped a little down and out; turning where they join it. The rest is as it was.
+  +   '<g class="b-arm l"><clipPath id="armClipL"><ellipse cx="15.2" cy="60.5" rx="11.2" ry="12.6" transform="rotate(22 15.2 60.5)"/></clipPath><ellipse cx="15.2" cy="60.5" rx="11.2" ry="12.6" transform="rotate(22 15.2 60.5)" fill="#ff7a55"/><g clip-path="url(#armClipL)"><ellipse cx="9.5" cy="69.5" rx="10" ry="6.5" fill="#e5532f" opacity=".3"/><ellipse cx="8.4" cy="53.5" rx="3.4" ry="2" transform="rotate(-40 8.4 53.5)" fill="#fff" opacity=".38"/><g class="acc mittens"><rect x="0" y="45" width="24" height="32" fill="#6f9fe8"/><path d="M13.4 48 Q10.4 60.5 13.4 73" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></g></g></g>'
+  +   '<g class="b-arm r"><clipPath id="armClipR"><ellipse cx="84.8" cy="60.5" rx="11.2" ry="12.6" transform="rotate(-22 84.8 60.5)"/></clipPath><ellipse cx="84.8" cy="60.5" rx="11.2" ry="12.6" transform="rotate(-22 84.8 60.5)" fill="#ff7a55"/><g clip-path="url(#armClipR)"><ellipse cx="90.5" cy="69.5" rx="10" ry="6.5" fill="#e5532f" opacity=".3"/><ellipse cx="91.6" cy="53.5" rx="3.4" ry="2" transform="rotate(40 91.6 53.5)" fill="#fff" opacity=".38"/><g class="acc mittens"><rect x="76" y="45" width="24" height="32" fill="#6f9fe8"/><path d="M86.6 48 Q89.6 60.5 86.6 73" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></g></g></g>'
   +   '<g class="b-antenna"><line x1="50" y1="20" x2="50" y2="8.5" stroke="#ff6640" stroke-width="4" stroke-linecap="round"/><circle class="b-bulb" cx="50" cy="7" r="5.2"/>'
   +     '<g class="acc flower"><circle cx="50" cy="1.5" r="3.4" fill="#ffb3c8"/><circle cx="55" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="53" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="47" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="45" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="50" cy="7" r="2.6" fill="#ffd36e"/></g></g>'
   +   '<g class="b-body"><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botBody)"/><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botShine)"/><path class="b-lower" clip-path="url(#botClip)" d="M12 66 Q50 59 88 66 L89 90 Q50 98 11 90Z" fill="url(#botLower)"/>'
@@ -89,7 +90,9 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +       '<g class="m-drool"><path d="M45.5 60 Q50 64.5 54.5 60" fill="none"/><path d="M53.2 61.6 q1.6 3 0 4.6 q-1.6 -1.6 0 -4.6z" fill="#8fd3ff"/></g>'
   +       '<path class="m-tri" d="M45 58.5 H55 L50 66.5Z"/><path class="m-zig" d="M43 61.5 l2.4 -2 l2.4 2 l2.4 -2 l2.4 2 l2.4 -2 l2.4 2"/>'
   +       '<g class="m-bite"><path d="M45 61 H55" fill="none"/><path d="M47.6 61 v2.2 h2 v-2.2 M50.4 61 v2.2 h2 v-2.2" fill="#fff"/></g>'
-  +       '<path class="m-wide" d="M41.5 58 H58.5 Q57.5 68 50 68 Q42.5 68 41.5 58Z"/><circle class="m-whistle" cx="53" cy="61" r="1.6"/>'
+  +       '<path class="m-wide" d="M41.5 58 H58.5 Q57.5 68 50 68 Q42.5 68 41.5 58Z"/>'
+  // the tongue in an open mouth (준: "단선끄적임" — a mouth with something in it, not only a dark shape)
+  +       '<ellipse class="m-tg tg-open" cx="50" cy="63.7" rx="2.3" ry="1.2"/><ellipse class="m-tg tg-grin" cx="50" cy="64.1" rx="2.8" ry="1.4"/><ellipse class="m-tg tg-wide" cx="50" cy="65.4" rx="3.8" ry="1.8"/><circle class="m-whistle" cx="53" cy="61" r="1.6"/>'
   +       '<path class="m-hat" d="M46.5 62.4 L50 59 L53.5 62.4"/><path class="m-tiny" d="M47.6 60.6 Q50 62.4 52.4 60.6"/>'
   +       '<g class="acc shades"><rect x="29" y="41" width="20" height="13" rx="5.5" fill="#23232e"/><rect x="51" y="41" width="20" height="13" rx="5.5" fill="#23232e"/><path d="M49 45 h2" stroke="#23232e" stroke-width="2"/><path d="M32 44 l5 -1.5" stroke="#fff" stroke-opacity=".5" stroke-width="1.6" stroke-linecap="round"/></g>'
   +       '<g class="acc mask"><rect x="23" y="39" width="54" height="16" rx="8" fill="#5b6bbf"/><path d="M31 47 q4 3 8 0 M61 47 q4 3 8 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></g>'
@@ -233,7 +236,7 @@ function makeBoard(slot) {
     e.stopPropagation();
     const pick = e.target.closest ? e.target.closest(".pick") : null;
     if (pick) { answer(b, bubble.dataset.q || "", pick.textContent); return; }
-    if (bubble.classList.contains("ask")) return; // a question waits for its answer
+    if (bubble.classList.contains("asking")) return; // a question waits for its answer
     const go = bubble.dataset.go; bubble.classList.remove("on", "act");
     if (go && !lockedNow) (window.boardGo || (w => { location.href = "/do/" + encodeURIComponent(w); }))(go);
   });
@@ -526,7 +529,7 @@ function hearts(b, n) {
 /** 퍼레 is thinking (the AI writes its line): the thinking face, dots in the bubble, until the line arrives. */
 function thinking(b) {
   const bubble = $(b, ".bubble");
-  bubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>'; bubble.dataset.go = ""; bubble.classList.remove("act", "sfx", "ask"); bubble.classList.add("on");
+  bubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>'; bubble.dataset.go = ""; bubble.classList.remove("act", "sfx", "asking"); bubble.classList.add("on"); fitBubble(bubble);
   if (b._mood) b._mood("thinking");
   clearTimeout(b._bubble); b._bubble = setTimeout(() => { if (!b._spoken) bubble.classList.remove("on"); }, 15000);
   b._spoken = false;
@@ -542,11 +545,11 @@ function thought(said) {
     b._spoke = Date.now();
     const bubble = $(b, ".bubble"), svg = $(b, ".bot"); b._spoken = true;
     if (b._mood) b._mood(""); if (b._feel) b._feel("happy", 1600);
-    bubble.textContent = ""; bubble.classList.remove("sfx", "ask"); bubble.classList.add("on"); if (svg) svg.classList.add("talking");
+    bubble.textContent = ""; bubble.classList.remove("sfx", "asking"); bubble.classList.add("on"); if (svg) svg.classList.add("talking");
     let i = 0; const chars = Array.from(line);
     clearInterval(b._typing);
     b._typing = setInterval(() => {
-      i++; bubble.textContent = chars.slice(0, i).join("");
+      i++; bubble.textContent = chars.slice(0, i).join(""); fitBubble(bubble);
       if (i >= chars.length) { clearInterval(b._typing); if (svg) svg.classList.remove("talking"); clearTimeout(b._bubble); if (picks.length) offer(b, line, picks); else b._bubble = setTimeout(() => bubble.classList.remove("on"), 6500); }
     }, 38);
   });
@@ -573,13 +576,14 @@ function offer(b, question, picks) {
   const bubble = $(b, ".bubble");
   const box = document.createElement("div"); box.className = "picks";
   picks.forEach(p => { const c = document.createElement("button"); c.className = "pick"; c.type = "button"; c.textContent = p; box.appendChild(c); });
-  bubble.appendChild(box); bubble.dataset.q = question; bubble.classList.add("on", "ask");
-  clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on", "ask"), 20000);
+  bubble.appendChild(box); bubble.dataset.q = question; bubble.classList.add("on", "asking");
+  clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on", "asking"), 20000);
+  fitBubble(bubble);
 }
 /** A choice picked: 퍼레 hears it, answers (the AI, or its own words when there is none) and keeps it in mind. */
 function answer(b, question, picked) {
   const bubble = $(b, ".bubble");
-  bubble.classList.remove("ask"); bubble.textContent = picked; bubble.classList.add("mine");
+  bubble.classList.remove("asking"); bubble.textContent = picked; bubble.classList.add("mine"); fitBubble(bubble);
   move(b, "hop", 760); if (b._feel) b._feel("happy", 1400);
   setTimeout(() => {
     bubble.classList.remove("mine");
@@ -592,15 +596,27 @@ function thoughtFail() {
   if (Date.now() - (window._soloAsk || 0) < 30000) { window._soloAsk = 0; boards.forEach(b => { if (b._mood) b._mood(""); }); return; }
   if (Date.now() - (window._answerAsk || 0) < 30000) { window._answerAsk = 0; boards.forEach(b => { if (b._mood) b._mood(""); speak(b, {text: preset("answer") || "헤헤, 그렇구나!"}, 3600); }); return; }
   boards.forEach(b => { if (b._mood) b._mood(""); const line = say(b); if (line) speak(b, {text: line}, 3400); else $(b, ".bubble").classList.remove("on"); }); }
+/**
+  The bubble kept inside the screen, 8 px from either side, wherever 퍼레 stands (준: "말풍선 배치가 엉망이야"): measured
+  without its own pop-in scale (퍼레's place plus the bubble's own), moved with translate so the pop-in still plays.
+*/
+function fitBubble(bubble) {
+  if (!bubble || !bubble.offsetWidth || !bubble.offsetParent) return;
+  bubble.style.translate = "";
+  const vw = document.documentElement.clientWidth || innerWidth, left = bubble.offsetParent.getBoundingClientRect().left + bubble.offsetLeft, right = left + bubble.offsetWidth;
+  const shift = left < 8 ? 8 - left : right > vw - 8 ? Math.max(8 - left, vw - 8 - right) : 0;
+  if (shift) bubble.style.translate = Math.round(shift) + "px 0";
+}
 /** The bubble over the friend: words, and what a tap on it opens (if anything). */
 function speak(b, line, ms) {
   b._spoke = Date.now();
   const bubble = $(b, ".bubble");
   bubble.textContent = line.text; bubble.dataset.go = line.go || "";
   if (line.go) { const more = document.createElement("b"); more.className = "more"; more.textContent = " ›"; bubble.appendChild(more); }
-  bubble.classList.toggle("act", !!line.go); bubble.classList.toggle("sfx", !!line.sfx); bubble.classList.remove("ask"); bubble.classList.add("on");
+  bubble.classList.toggle("act", !!line.go); bubble.classList.toggle("sfx", !!line.sfx); bubble.classList.remove("asking"); bubble.classList.add("on");
   clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on", "act"), ms || 6500);
   if (!line.sfx && !line.go && asking(line.text)) offer(b, line.text, choicesFor(line.text));
+  fitBubble(bubble);
 }
 
 /*
@@ -688,10 +704,10 @@ setTimeout(() => { if (sleepHours()) boards.forEach(b => { if (b._mood) b._mood(
 // Cute, not odd (준: "표정도 너무 이상한것보다 귀엽게"): no gritted teeth, zigzag or triangle mouths, X or ring eyes, fire, anger
 // marks or a pale or red face; pouts with puffed cheeks, little round mouths, closed-eye wobbles and a drop of sweat instead.
 const FACES = {
-  happy: "arc smile none cheeks", laugh: "arc big none cheeks", wink: "wink smile", love: "heart smile none cheeks", surprised: "o osm",
+  happy: "arc grin none cheeks", laugh: "arc big none cheeks", wink: "wink smile", love: "heart smile none cheeks", surprised: "o osm",
   shock: "wide osm none glint", sad: "small frown sad", teary: "small wave sad tears glint", cry: "small wave sad tears", dizzy: "dz osm none cheeks",
   yum: "arc chew none cheeks", full: "arc wave", yawn: "shut yawn", drowsy: "half flat", sleepy: "shut none", shy: "small smile none blush cheeks",
-  thinking: "pill flat", blow: "pill osm none cheeks", angry: "pill pout angry cheeks", fume: "pill pout angry cheeks", proud: "u smile none cheeks",
+  thinking: "pill flat", blow: "pill osm none cheeks", angry: "pill frown angry", fume: "pill pout angry cheeks", proud: "u smile none cheeks",
   relief: "u smile none sweat2", content: "u cat none cheeks", cheeky: "wink tongue", kiss: "shut kiss none kiss blush", excited: "wide osm none glint",
   curious: "wide osm none q2", suspicious: "half smirk none", blank: "pill osm", dazed: "dz osm", meh: "pill tiny none", annoyed: "pill pout angry",
   nervous: "small wave none sweat2", flustered: "wide wave none sweat2 blush", moved: "pill wave sad tears glint", determined: "pill flat angry",
@@ -700,10 +716,10 @@ const FACES = {
   pout: "small pout angry", giggle: "arc cat none cheeks", amazed: "wide big none glint", sparkly: "pill smile none glint cheeks", grumpy: "small pout angry",
   // more faces (준: "모션 종류 4가지도 각각 100개씩"): new eyes (tri, oval, lid, ring, wavy, plus), mouths (drool, tri, zig, bite, wide,
   // whistle, hat, tiny) and effects (zzz, hearts, flower, fire, bubble, swirl, lines, cloud, pale, red)
-  snooze: "shut none none zzz bubble", dreamy: "lid smile none hearts", awed: "oval big none glint", shout: "pill osm angry",
+  snooze: "shut none none zzz bubble", dreamy: "lid smile none hearts", awed: "oval big none glint", shout: "pill big angry",
   panic: "wide wave none sweat2", woozy: "dz wave none cheeks", confused: "small flat none q2", drooling: "arc osm none cheeks",
   starving: "small osm sad", innocent: "u hat none", whistling: "half whistle none notes", bashful: "arc tiny none blush",
-  embarrassed: "small wave none blush sweat2", furious: "pill pout angry cheeks", firedup: "pill smile angry glint", chilly: "small wave sad",
+  embarrassed: "small wave none blush sweat2", furious: "pill teeth angry cheeks", firedup: "pill smile angry glint", chilly: "small wave sad",
   queasy: "shut wave sad sweat2", overheated: "half wave none sweat2", lovey: "heart wide none hearts cheeks", blissful: "arc wide none flower cheeks",
   cheerful: "tri smile none cheeks", gleeful: "tri wide none cheeks", devious: "half cat none", bored: "lid flat none", unimpressed: "half tiny none",
   skeptical: "half smirk none", sulky: "small pout sad", heartbroken: "small wave sad tears", stunned: "wide osm none glint",
@@ -719,8 +735,21 @@ const FACES = {
   crosses or triangles. A feeling shows in the lids, the brows, the mouth, the blush, tears and sweat (dizziness as a swirl
   over it).
 */
-const OWN_EYES = {wide: "pill", o: "pill", oval: "pill", ring: "pill", dot: "small", plus: "small", x: "shut", dz: "shut", wavy: "shut", tri: "arc", sq: "arc", lid: "half", line: "half"};
-for (const k in FACES) { const p = FACES[k].split(" "); if (OWN_EYES[p[0]]) p[0] = OWN_EYES[p[0]]; if ((k === "dizzy" || k === "dazed" || k === "woozy") && !p.includes("swirl")) p.push("swirl"); FACES[k] = p.join(" "); }
+/*
+  퍼레's own eyes in every face (준: "표정이 너무 흔한 이모티야 그냥 단선끄적임", "원래 캐릭터 정체성을 유지하면서 표정의 다양한
+  배리에이션을 만든단구", "눈아래파인모양은 다 빼줘", "차라리 그럴거면 이모지가 낫지"): as the references do it, the eyes stay
+  its pills, and the face is in short round brows (tipped up inside when sad, down when cross), the eyes' size (wide, small),
+  a heavy lid (sleepy, smug), one eye unlike the other (curious, skeptic, wink), the mouth and the cheeks; a round arch when it
+  laughs or is content, a closed lid asleep, hearts and a swirl now and then (love, dizzy). No cut or carved eyes.
+*/
+const LOOKS = {
+  beam: "laugh joyful lol chuckle giggle triumphant thrilled blissful gleeful full content relief grateful dreamy",
+  wide: "surprised shock excited flustered idea amazed panic stunned delighted awed blank moved eek yikes horrified pleading hopeful",
+  curious: "curious nosy", skeptic: "confused suspicious skeptical", wink: "wink cheeky playful",
+  small: "shy nervous embarrassed speechless awkward gloomy lonely sulky", half: "drowsy overheated unimpressed bored meh", smug: "smug sneaky whistling devious sly",
+  shut: "yawn sleepy kiss ko ouch snooze sweetdream zen queasy cringe", heart: "love smitten lovey", dz: "dizzy woozy dazed"};
+const LOOK_OF = {}; for (const l in LOOKS) LOOKS[l].split(" ").forEach(k => { LOOK_OF[k] = l; });
+for (const k in FACES) { const p = FACES[k].split(" "); p[0] = LOOK_OF[k] || "pill"; if (p[0] === "dz" && !p.includes("swirl")) p.push("swirl"); FACES[k] = p.join(" "); }
 const FEELS = Object.keys(FACES);
 /** Motions 퍼레 makes on its own (a class on .buddy for ms, with a face): see board.css "motions, more". */
 const MOTIONS = [
@@ -847,6 +876,28 @@ function doze(b) { if (!b._mood) return; b._awakeAt = 0; if (b._feel) b._feel("d
 setInterval(() => { if (sleepHours() && seenNow && !voiceOn) boards.forEach(b => { if (b._awakeAt && !awake(b) && !b._careOn) doze(b); }); }, 15000);
 // A touch: a sleeping 퍼레 wakes soon; an awake one stays awake a while longer.
 addEventListener("pointerdown", () => { if (!sleepHours()) return; boards.forEach(b => { if (awake(b)) b._awakeAt = Date.now(); else wake(b, true); }); }, {passive: true, capture: true});
+/*
+  What the user asks 퍼레 to do with itself, by voice or in 퍼레와 대화 (준: "음성 대화로 주사위 꺼내봐 해도 안된다고해", "의상바꿔도
+  안되고", "음성대화로 퍼레의 상호작용이 안돼"): a toy out (a play with it), clothes (kept two hours; none: plain; any: a cute
+  one of its own), a play by name. Awake for it at dawn. o: {toy} | {wear: [..], any} | {play}.
+*/
+const ASK_TOY = {ball: "kickball", dice: "rolldice", cube: "puzzlecube", top: "spintop", balloon: "balloonbat", butterfly: "flutter", meteors: "meteors", bubbles: "bubbles"};
+function selfAct(o) {
+  const b = boards[0]; if (!b || !o) return false;
+  if (sleepHours()) { b._awakeAt = Date.now(); if (b._mood) b._mood(""); }
+  if (o.toy === "away") { if (b._toys) b._toys.clear(); if (b._feel) b._feel("content", 1400); return true; }
+  if (o.toy) { if (!ASK_TOY[o.toy] || !b._ask) return false; if (b._home) b._home(); b._ask(ASK_TOY[o.toy]); return true; }
+  if (o.play) { if (!b._ask) return false; b._ask(o.play); return true; }
+  if (o.wear) {
+    let wear = o.wear.filter(x => WEAR.includes(x)).slice(0, 4);
+    if (o.any && !wear.length) { const was = chosen ? chosen.wear : []; const left = CUTE.filter(x => !was.includes(x)); wear = [left[Math.floor(Math.random() * left.length)]]; }
+    chosen = {wear, until: Date.now() + 2 * 3600000};
+    try { localStorage.setItem("gyeotWear", JSON.stringify(chosen)); } catch (e) { /* this time only */ }
+    boards.forEach(x => { const svg = $(x, ".bot"); if (svg) WEAR.forEach(w => svg.classList.toggle("w-" + w, wear.includes(w))); if (x._feel) x._feel(wear.length ? "proud" : "content", 1800); move(x, "hop", 760); });
+    return true;
+  }
+  return false;
+}
 /** The friend's mood from what the app says (thinking, a new notice, dawn's sleep). */
 function moodOf(b, k) {
   if (!b._mood) return;
@@ -881,6 +932,10 @@ const WEAR = ["cap", "umbrella", "phones", "scarf", "shades", "santa", "beanie",
   "bowtie", "pearls", "medal", "bell", "lei", "neckbandana", "ribbon", "whistle", "lollipop", "popsicle", "watermelon", "sunflower", "tulip", "dandelion", "magnifier", "map",
   "flashlight", "lantern", "gift", "wand", "mic", "teddy", "toothbrush", "tea", "cocoa", "fishbread", "sweetpotato", "riceball", "snowball", "flag",
   "camera", "bubblewand", "raincoat", "sweater", "apron", "pajamas", "hoodie", "cape", "backpack", "mittens", "rainbow", "moon"];
+/** Clothes the user asked for (selfAct): worn two hours (an empty list: plain), on this phone. */
+let chosen = (() => { try { const c = JSON.parse(localStorage.getItem("gyeotWear") || "null"); return c && c.until > Date.now() ? c : null; } catch (e) { return null; } })();
+/** The cute things it may pick for itself (준: "의상은 좀 더 귀욤귀욤하게"). */
+const CUTE = ["catears", "bunny", "bow", "beret", "bucket", "beanie", "flowercrown", "sprout", "froghat", "mushroom", "tiara", "ribbon", "bell", "scarf", "mittens", "hoodie", "teddy", "lollipop", "roundglasses", "flower"];
 function envOf(b, k) {
   const svg = $(b, ".bot"); if (!svg || !k) return;
   const e = k.env || {}, w = k.weather || {}, life = k.life || {}, h = new Date().getHours(), code = w.code, temp = w.temp;
@@ -913,7 +968,7 @@ function envOf(b, k) {
     : snow ? "snowtop" : freezing ? "beanie" : cold ? "muffs" : drizzle ? "hood" : rain ? "froghat" : hot && sunny ? "straw" : sunnyMild ? "visor"
     : lunchTime && weekend ? "chef" : day === 6 ? "party"
     : seasonal && doy % 2 === 0 ? seasonal
-    : pickDay(["beret", "bucket", "bow", "headband", "bandana", "cowboy", "pirate", "viking", "bunny", "catears", "tiara", "grad", "tophat", "halo"], 1, 50) || seasonal;
+    : pickDay(["beret", "bucket", "bow", "bunny", "catears", "tiara", "froghat", "mushroom", "flowercrown", "sprout", "beanie"], 1, 50) || seasonal;
   // Nothing that looks like something it is doing stays on for hours (준: "왜 안경 쓰고 책보는 모습이 계속 지속될까", "아까는
   // 하트눈 날개모습이 지속되더니"): glasses, heart eyes, a cape, a book and the like come with a play (PROPS) and go with it;
   // what stays is for a reason, the weather, the hour, the phone or a holiday.
@@ -921,7 +976,7 @@ function envOf(b, k) {
     : sunny && !night && head !== "straw" && head !== "visor" ? "shades" : "";
   const neck = e.charging ? "bib" : cold ? "scarf" : head === "tophat" || head === "beret" ? "bowtie" : hot && summer ? "lei"
     : head === "bandana" ? "neckbandana" : head === "bow" ? "ribbon"
-    : pickDay(["medal", "whistle", "ribbon", "neckbandana", "bell"], 3, 12);
+    : pickDay(["ribbon", "bell", "bowtie"], 3, 12);
   const hand = rain && !drizzle ? "umbrella" : night ? "teddy"
     : month === 10 && date >= 25 ? "pumpkin" : month === 1 && date <= 3 ? "luckybag" : month === 12 && (date === 24 || date === 25) ? "gift"
     : snow ? "snowball" : scorching ? (h >= 12 && h < 17 ? "icecream" : "handfan") : hot ? (summer && doy % 2 ? "popsicle" : "handfan")
@@ -942,7 +997,8 @@ function envOf(b, k) {
   const sleepTime = h < 7, choices = sleepTime ? [] : [head, face, neck, hand, body, back].filter(Boolean), picked = [];
   if (mix(1) % 100 < 30) for (let i = 0, n = 1 + mix(2) % 2; i < n && choices.length; i++) picked.push(choices.splice(mix(3 + i) % choices.length, 1)[0]);
   const wear = [rain && !drizzle ? "umbrella" : "", storm ? "storm" : "", sleepTime ? "cap" : "", sleepTime ? "pajamas" : "", sleepTime && h < 6 ? "moon" : ""].filter(Boolean).concat(picked);
-  if (!b._dressed) WEAR.forEach(x => svg.classList.toggle("w-" + x, wear.includes(x)));
+  const own = chosen && chosen.until > Date.now() ? chosen.wear : null;
+  if (!b._dressed) WEAR.forEach(x => svg.classList.toggle("w-" + x, (own || wear).includes(x)));
   svg.classList.toggle("w-bolt", !!e.charging); svg.classList.toggle("w-sweat", hot && !night);
   svg.classList.toggle("w-notes", !!e.music); svg.classList.toggle("w-q", !!e.offline);
   svg.classList.toggle("w-save", !!e.powerSave); svg.classList.toggle("w-dnd", !!e.dnd);
@@ -1045,7 +1101,7 @@ function boardVoiceState(state, text) {
     if (state === "listening") {
       voiceOn = true; if (b._mood) b._mood(""); if (b._feel) b._feel("", 1);
       bubble.classList.remove("act"); bubble.dataset.go = "";
-      bubble.innerHTML = text ? '<span class="heard">' + esc(text) + '</span>' : '<span class="heard muted">듣고 있어…</span>';
+      bubble.innerHTML = text ? '<span class="heard">' + esc(text) + '</span>' : '<span class="heard muted">듣고 있어…</span>'; fitBubble(bubble);
       bubble.classList.add("on");
     } else if (state === "thinking") {
       voiceOn = true; thinking(b); clearTimeout(b._bubble);
@@ -1053,7 +1109,7 @@ function boardVoiceState(state, text) {
       voiceOn = true; if (b._mood) b._mood(""); if (b._feel) b._feel("happy", 1800);
       bubble.textContent = ""; bubble.classList.add("on"); svg.classList.add("talking");
       const chars = Array.from(text || ""); let i = 0;
-      b._typing = setInterval(() => { i++; bubble.textContent = chars.slice(0, i).join(""); if (i >= chars.length) clearInterval(b._typing); }, 70);
+      b._typing = setInterval(() => { i++; bubble.textContent = chars.slice(0, i).join(""); fitBubble(bubble); if (i >= chars.length) clearInterval(b._typing); }, 70);
     } else {
       voiceOn = false; if (b._mood) b._mood("");
       if (text) { speak(b, {text}, 3200); if (state === "done" && b._feel) b._feel("wink", 1400); }
@@ -1320,6 +1376,15 @@ function roam(b) {
   // One play by name, now (for a look at it; the home screen never calls it).
   b._play = kind => { if (PLAYS[kind] && !playing) { playing = true; PLAYS[kind](() => { playing = false; }); } };
   b._playNames = () => Object.keys(PLAYS);
+  // A play the user asked for (selfAct): as soon as the one going on ends (at most eight seconds), dressed for it.
+  b._ask = (kind, tries) => {
+    if (!PLAYS[kind]) return;
+    if (playing && (tries || 0) < 20) { setTimeout(() => b._ask(kind, (tries || 0) + 1), 400); return; }
+    playing = true; inPlay = true; saidInPlay = 2; dress(kind);
+    const ended = () => { playing = false; inPlay = false; undress(); };
+    try { PLAYS[kind](ended); } catch (err) { ended(); }
+    setTimeout(() => { if (inPlay) ended(); }, 16000);
+  };
   b._playNow = (kind, done) => PLAYS[kind](done || (() => {}));
   b._walk = (nx, ny) => walk(nx, ny);
   // For the toys: a small word now (not counted as 퍼레 speaking), its eyes, and a walk to a spot on the board.
@@ -1574,6 +1639,8 @@ function toys(b) {
     sx: it => W().left + it.x,
     kick(it, dir) { it.vx = (dir || (Math.random() < .5 ? -1 : 1)) * rnd(380, 640); it.vy = -rnd(380, 600); it.rest = 0; wake(); },
     spin(it) { it.tap(it); },
-    count: () => items.length
+    count: () => items.length,
+    /** All put away (the user asked). */
+    clear() { items.slice().forEach(gone); }
   };
 }

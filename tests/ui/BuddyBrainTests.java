@@ -196,7 +196,7 @@ public class BuddyBrainTests {
         assertEquals("navigate", home.optString("tool")); assertEquals("walk", home.optString("mode")); assertEquals("집으로 안내할게!", BuddyTools.say(home));
         assertEquals("show_alarms", BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "show_alarms").put("arguments", "{}"))).optString("tool"));
         assertNull(BuddyTools.act(new org.json.JSONArray()));
-        assertEquals(20, BuddyTools.TOOLS.length());
+        assertEquals(23, BuddyTools.TOOLS.length());
         assertTrue(BuddyTools.promised("3분 타이머 맞춰 줘", "3분 타이머 시작할게!"));
         assertFalse("small talk is never forced into a tool", BuddyTools.promised("오늘 기분 어때", "나 오늘 완전 좋아!"));
         assertFalse(BuddyTools.promised("유튜브 틀어 줘", "어떤 노래가 좋아?"));
@@ -214,6 +214,41 @@ public class BuddyBrainTests {
         java.util.Arrays.fill(f, (short) 600); for (int i = 0; i < 10; i++) assertFalse(over.add(f, f.length));
         java.util.Arrays.fill(f, (short) 5000); boolean stopped = false; for (int i = 0; i < 30 && !stopped; i++) stopped = over.add(f, f.length);
         assertTrue("talked over", stopped);
+    }
+    /**
+     * 퍼레 itself by voice or in the talk (준: "음성 대화로 주사위 꺼내봐 해도 안된다고해", "의상바꿔도 안되고", "음성대화로 퍼레의
+     * 상호작용이 안돼"): its toys, clothes and plays are tools; every word names something board.js has; asked while the home
+     * screen is away, it is done when the home screen is shown.
+     */
+    @Test public void playsWithItselfWhenAsked() throws Exception {
+        org.json.JSONObject toy = BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "buddy_toy").put("arguments", "{\"toy\":\"주사위\"}")));
+        assertEquals("launcher.self({\"toy\":\"dice\"})", BuddyBoard.call(toy)); assertEquals("주사위 꺼낼게!", BuddyTools.say(toy));
+        org.json.JSONObject wear = BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "buddy_outfit").put("arguments", "{\"items\":[\"고양이 귀\",\"목도리\"]}")));
+        assertEquals("launcher.self({\"wear\":[\"catears\",\"scarf\"]})", BuddyBoard.call(wear));
+        assertEquals("launcher.self({\"wear\":[]})", BuddyBoard.call(new org.json.JSONObject().put("tool", "buddy_outfit").put("items", new org.json.JSONArray().put("기본"))));
+        assertEquals("launcher.self({\"wear\":[],\"any\":true})", BuddyBoard.call(new org.json.JSONObject().put("tool", "buddy_outfit").put("items", new org.json.JSONArray().put("아무거나"))));
+        assertEquals("launcher.self({\"play\":\"dance\"})", BuddyBoard.call(new org.json.JSONObject().put("tool", "buddy_move").put("play", "춤")));
+        // The brains without tools write it as text, as they do the others.
+        org.json.JSONObject typed = BuddyTalk.act("좋아!\n할일: {\"tool\":\"toy\",\"toy\":\"공\"}");
+        assertEquals("buddy_toy", typed.optString("tool")); assertEquals("launcher.self({\"toy\":\"ball\"})", BuddyBoard.call(typed));
+        assertTrue(BuddyTools.promised("퍼레야 주사위 꺼내 봐", "주사위 꺼낼게!"));
+        assertTrue(BuddyTools.promised("옷 갈아입어 봐", "고양이 귀 쓸게!"));
+        // Every word is something the page has.
+        String board; try (java.io.InputStream in = org.robolectric.RuntimeEnvironment.getApplication().getAssets().open("decor/board.js")) { board = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8); }
+        String wearList = board.substring(board.indexOf("const WEAR = ["), board.indexOf("];", board.indexOf("const WEAR = [")));
+        for (String k : BuddyBoard.CLOTHES.values()) if (!k.isEmpty() && !k.equals("any")) assertTrue("WEAR has " + k, wearList.contains("\"" + k + "\""));
+        for (String k : BuddyBoard.PLAYS.values()) assertTrue("PLAYS has " + k, board.contains("    " + k + ": end =>"));
+        for (String k : BuddyBoard.TOYS.values()) assertTrue("ASK_TOY has " + k, k.equals("away") || board.contains(k + ": \""));
+        // Away from the home screen: kept, then done when it is shown.
+        BuddyBoard.away();
+        BuddyVoice.Outcome later = BuddyActs.run(org.robolectric.RuntimeEnvironment.getApplication(), toy, "주사위 꺼내 봐", true);
+        assertEquals("홈 화면에 가면 바로 할게!", later.say());
+        java.util.List<String> calls = new java.util.ArrayList<>();
+        BuddyBoard.shown(calls::add);
+        assertEquals(java.util.List.of("launcher.self({\"toy\":\"dice\"})"), calls);
+        assertEquals("", BuddyActs.run(org.robolectric.RuntimeEnvironment.getApplication(), wear, "고양이 귀 써 봐", false).say());
+        assertEquals(2, calls.size());
+        BuddyBoard.away();
     }
     @Test public void hearsItsName() {
         // 준: "퍼레가 자기 이름을 못알아듣고 자꾸 벌레 버려 이런걸로 알아들어"
@@ -412,6 +447,24 @@ public class BuddyBrainTests {
         assertTrue(dev.jun.gyeot.core.BuddyMind.staleSubject("전투기 타고 날아가고 싶다", said));
         assertTrue(dev.jun.gyeot.core.BuddyMind.staleSubject("배터리도 든든하다", said));
         assertFalse(dev.jun.gyeot.core.BuddyMind.staleSubject("노을이 예쁠 것 같아", said));
+    }
+
+    /**
+     * One subject does not come back again and again (준: "전투기이야기만 수백번 하고 있어"): once in the last eight lines is
+     * enough for a long word, twice in the last thirty for any; what it knows on that subject is left out of what it sees.
+     */
+    @Test public void doesNotKeepComingBackToOneSubject() {
+        String[] other = {"하늘이 맑다", "구름 모양이 솜사탕 같아", "붕어빵 팥이 좋아 슈크림이 좋아?", "바람 소리 슝슝", "노래 한 곡 듣고 싶다",
+            "고양이 꿈 꿨어", "단풍잎 하나 주웠어", "춤 연습 중이야", "수수께끼 낼게", "간식 냠냠"};
+        java.util.List<String> said = new java.util.ArrayList<>(java.util.List.of("전투기 모델링은 잘 돼 가?"));
+        said.addAll(java.util.List.of(other));
+        assertFalse("once, long ago", dev.jun.gyeot.core.BuddyMind.staleSubject("전투기 날개 멋지더라", said));
+        said.add("전투기 소리 쌩!");
+        assertTrue("twice in thirty", dev.jun.gyeot.core.BuddyMind.staleSubject("모델링하는 전투기 보고 싶다", said));
+        assertTrue("once, just now", dev.jun.gyeot.core.BuddyMind.staleSubject("전투기라서 빠르지", java.util.List.of("전투기 소리 쌩!")));
+        assertFalse("a short word once", dev.jun.gyeot.core.BuddyMind.staleSubject("하늘 높다", java.util.List.of("하늘이 맑다")));
+        assertEquals("사용자는 고양이를 좋아한대", dev.jun.gyeot.core.BuddyMind.freshLines("사용자는 전투기를 3D로 모델링한대\n사용자는 고양이를 좋아한대",
+            dev.jun.gyeot.core.BuddyMind.staleSubjects(said)));
     }
 
     /** No cheering or "go rest" unasked, and not the same first word again (준: "자꾸 화이팅하고 쉬래", "반복적인 패턴이 있어"). */

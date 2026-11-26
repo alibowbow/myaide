@@ -81,6 +81,12 @@ final class BuddyActs {
                 case "map_search" -> { String q = act.optString("query").strip(); if (q.isEmpty()) return fail("뭘 찾을지 알려 줘.", ""); JSONObject r = DeviceActionRunner.run(context, DeviceActions.search(q, true), overlay); return r.optBoolean("ok") ? new BuddyVoice.Outcome("", DeviceActionRunner.started(r.optString("route")), null) : fail(r.optString("say", "지도를 못 열었어."), ""); }
                 case "volume" -> { return volume(context, act); }
                 case "brightness" -> { return brightness(context, act, overlay); }
+                // 퍼레 itself on the home screen (BuddyBoard): at once while it is in front, else when it is shown again.
+                case "buddy_toy", "buddy_outfit", "buddy_move" -> {
+                    String call = BuddyBoard.call(act);
+                    if (call == null) return fail("그건 나한테 없어.", "");
+                    return new BuddyVoice.Outcome(BuddyBoard.send(call) ? "" : "홈 화면에 가면 바로 할게!", false, null);
+                }
                 default -> { /* the phone's own actions, below */ }
             }
             String name = switch (tool) {

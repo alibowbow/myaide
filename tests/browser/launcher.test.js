@@ -110,6 +110,14 @@ async function open(browser, at) {
     await p.clock.runFor(2500);
     const picks = await p.evaluate(() => Array.from(document.querySelectorAll('.bubble .pick')).map(x => x.textContent));
     assert.deepStrictEqual(picks, ['치킨', '라면', '아직 몰라']);
+    // Laid out as a bubble (준: "말풍선 배치가 엉망이야"): the words in lines of several, the chips under them inside it, on screen.
+    const lay = await p.evaluate(() => {
+      const b = document.querySelector('.buddy .bubble'), r = b.getBoundingClientRect(), chips = Array.from(b.querySelectorAll('.pick')).map(x => x.getBoundingClientRect());
+      return { left: r.left, right: r.right, width: r.width, vw: document.documentElement.clientWidth, inside: chips.every(c => c.left >= r.left && c.right <= r.right && c.bottom <= r.bottom + 1), below: chips.every(c => c.top > r.top + 18) };
+    });
+    assert(lay.width >= 180, 'a bubble wide enough for words: ' + lay.width);
+    assert(lay.left >= 0 && lay.right <= lay.vw, 'on screen: ' + lay.left + '..' + lay.right);
+    assert(lay.inside && lay.below, 'the chips under the words, inside the bubble');
     const box = await p.evaluate(() => { const r = document.querySelector('.bubble .pick').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, h: r.height }; });
     assert(box.h <= 30, 'small chips: ' + box.h);
     await p.touchscreen.tap(box.x, box.y);
@@ -126,7 +134,7 @@ async function open(browser, at) {
   });
   await check('퍼레\'s toys fall and rest on the board; the dice says its number; the puzzle cube can be solved', async () => {
     const p = day.page;
-    await p.evaluate(() => { document.querySelector('.bubble').classList.remove('on', 'ask'); const T = boards[0]._toys; ['ball', 'dice', 'cube'].forEach((k, i) => { const it = T.out(k); it.x = 80 + i * 110; it.vx = 0; }); T.wake(); });
+    await p.evaluate(() => { document.querySelector('.bubble').classList.remove('on', 'asking'); const T = boards[0]._toys; ['ball', 'dice', 'cube'].forEach((k, i) => { const it = T.out(k); it.x = 80 + i * 110; it.vx = 0; }); T.wake(); });
     for (let i = 0; i < 20; i++) await p.clock.runFor(100);
     const rest = await p.evaluate(() => { const f = document.querySelector('.lib-head').getBoundingClientRect().top; return Array.from(document.querySelectorAll('.tb.ball, .tb.dice, .tb.cube')).map(e => ({k: e.className, gap: Math.round(f - e.getBoundingClientRect().bottom)})); });
     assert.strictEqual(rest.length, 3);
@@ -165,6 +173,8 @@ async function open(browser, at) {
   });
   await check('퍼레 is plain by default and dresses up now and then, never one outfit for long', async () => {
     const p = day.page, looks = [];
+    // A play's own outfit (a headband for karate) is that play's, not the day's: the one going on ends first.
+    for (let i = 0; i < 80 && await p.evaluate(() => !!boards[0]._dressed); i++) await p.clock.runFor(500);
     // Forty-minute turns through the daytime of a few days (its night things while it sleeps are left out).
     for (let k = 0; looks.length < 60; k++) {
       const t = Date.parse('2026-11-27T07:00:00+09:00') + k * 40 * 60000;
@@ -180,8 +190,12 @@ async function open(browser, at) {
     let run = 0, longest = 0; for (let k = 1; k < looks.length; k++) { run = looks[k] && looks[k] === looks[k - 1] ? run + 1 : 0; longest = Math.max(longest, run); }
     assert(longest <= 3, 'the same outfit ' + (longest + 1) + ' turns in a row');
   });
+  await day.ctx.close();
+
+  // The talk on a page of its own: what earlier checks left playing on the board does not reach it.
+  const talk = await open(browser, '2026-11-26T14:00:00+09:00');
   await check('퍼레와 대화: 퍼레 lives on its strip, KakaoTalk dates and times, the box at the bottom, circling 퍼레 makes it dizzy', async () => {
-    const p = day.page;
+    const p = talk.page;
     await p.evaluate(() => { boardChat(); });
     await p.clock.runFor(600);
     const look = await p.evaluate(() => ({pal: !!document.querySelector('.chatpal .buddy'), day: (document.querySelector('.kday') || {}).textContent, hello: (document.querySelector('.kb.ai') || {}).textContent,
@@ -201,9 +215,36 @@ async function open(browser, at) {
     await p.mouse.up(); await p.clock.runFor(200);
     assert(/dizzy/.test(await p.evaluate(() => document.querySelector('.chatpal .bot').getAttribute('class'))), 'dizzy after two turns round it');
     await p.evaluate(() => closePad()); await p.clock.runFor(400);
-    assert.deepStrictEqual(day.errors, []);
+    assert.deepStrictEqual(talk.errors, []);
   });
-  await day.ctx.close();
+  // 준: "음성 대화로 주사위 꺼내봐 해도 안된다고해", "의상바꿔도 안되고", "음성대화로 퍼레의 상호작용이 안돼"
+  await check('asked by voice or in the talk, 퍼레 takes out a toy, changes clothes and keeps them, plays what it is asked', async () => {
+    const p = talk.page;
+    await p.evaluate(() => launcher.self({toy: 'dice'}));
+    for (let i = 0; i < 16; i++) await p.clock.runFor(500);
+    assert(await p.evaluate(() => !!document.querySelector('.toy.dice, .dice')), 'a die on the board');
+    await p.evaluate(() => launcher.self({toy: 'away'})); await p.clock.runFor(1500);
+    assert.strictEqual(await p.evaluate(() => boards[0]._toys.count()), 0, 'all put away');
+    await p.evaluate(() => launcher.self({wear: ['catears', 'scarf']}));
+    await p.clock.runFor(30000);
+    await p.clock.setSystemTime(new Date('2026-11-26T15:10:00+09:00'));
+    const worn = await p.evaluate(() => { launcher.env({battery: 80}); return Array.from(document.querySelector('.bot').classList).filter(c => c.startsWith('w-')).sort().join(' '); });
+    assert.strictEqual(worn, 'w-catears w-scarf', 'still worn after a turn of clothes: ' + worn);
+    await p.evaluate(() => launcher.self({wear: [], any: true}));
+    const any = await p.evaluate(() => Array.from(document.querySelector('.bot').classList).filter(c => c.startsWith('w-')));
+    assert.strictEqual(any.length, 1, 'one cute thing of its own: ' + any.join(' '));
+    await p.evaluate(() => launcher.self({wear: []}));
+    assert.strictEqual(await p.evaluate(() => Array.from(document.querySelector('.bot').classList).filter(c => c.startsWith('w-')).length), 0, 'plain');
+    // A play asked for in the talk waits for the talk to close.
+    await p.evaluate(() => { boardChat(); launcher.self({play: 'dance'}); });
+    await p.clock.runFor(600);
+    await p.evaluate(() => closePad());
+    let danced = false;
+    for (let i = 0; i < 8 && !danced; i++) { await p.clock.runFor(500); danced = await p.evaluate(() => document.querySelector('.buddy').classList.contains('dance')); }
+    assert(danced, 'dancing once the talk closed');
+    assert.deepStrictEqual(talk.errors, []);
+  });
+  await talk.ctx.close();
 
   const dawn = await open(browser, '2026-11-27T03:10:00+09:00');
   await check('at dawn 퍼레 sleeps, wakes a moment after the screen comes on, and dozes off again when left alone', async () => {
