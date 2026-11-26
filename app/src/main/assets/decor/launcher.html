@@ -85,7 +85,8 @@ body.launcher{position:fixed;inset:0}
 #home .stacks{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:none;align-content:start;touch-action:manipulation;scrollbar-width:none}
 #home .stacks::-webkit-scrollbar{display:none}
 .stack{display:flex;flex-direction:column;align-items:center;gap:7px;border:0;background:none;padding:0;font:inherit;color:var(--ink);min-width:0}
-.pile{position:relative;width:100%;aspect-ratio:1;max-width:var(--folder,72px);border-radius:23%;background:var(--tile);border:1px solid var(--glass-line);box-shadow:var(--shadow);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:5%;padding:12%;transition:transform .5s var(--spring)}
+.pile{position:relative;width:100%;aspect-ratio:1;max-width:var(--folder,72px);border-radius:23%;background:var(--tile);border:1px solid var(--glass-line);box-shadow:var(--shadow);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);display:grid;grid-template-columns:repeat(2,1fr);grid-auto-rows:1fr;gap:9%;padding:14%;transition:transform .5s var(--spring)}
+/* Four apps a folder, not nine (준: "폴더 미리보기 동그라미가 너무 많이보여서 어지러워"): fewer, bigger, calmer. */
 .pile img{width:100%;height:100%;object-fit:contain}
 .stack .name{font-size:12px;font-weight:700;letter-spacing:-.3px;text-shadow:var(--halo);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .stack.down .pile,.app.down .ic{transform:scale(.9);transition:transform .1s ease}
@@ -133,6 +134,23 @@ body.launcher{position:fixed;inset:0}
 .hint{margin:-8px 4px 12px;font-size:12px;font-weight:650;color:var(--ink2)}
 .dk.hop{animation:hop .9s cubic-bezier(.3,.7,.4,1)}
 @keyframes hop{0%,100%{transform:none}22%{transform:translateY(-24px)}44%{transform:none}64%{transform:translateY(-11px)}82%{transform:none}}
+.fan-head{display:flex;align-items:center;gap:10px;margin:0 4px 16px}
+.fan-head h2{margin:0 !important;flex:1;min-width:0}
+.fan-edit{flex:none;height:30px;padding:0 13px;border-radius:999px;border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.14);color:#fff;font:inherit;font-size:13px;font-weight:700}
+.fan.edit .fan-edit{background:#fff;color:#22232f;border-color:#fff}
+.fan .rm{display:none;position:absolute;left:-5px;top:-5px;z-index:2;width:22px;height:22px;border-radius:50%;background:rgba(60,62,74,.92);box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.fan .rm::before{content:"";position:absolute;left:6px;right:6px;top:10px;height:2px;border-radius:1px;background:#fff}
+.fan.edit .rm{display:block}
+.fan.edit .app .ic{animation:jiggle .32s ease-in-out infinite alternate}
+.fan.edit .app:nth-child(2n) .ic{animation-delay:-.16s}
+@keyframes jiggle{from{transform:rotate(-1.6deg)}to{transform:rotate(1.6deg)}}
+.add-app{display:flex;flex-direction:column;align-items:center;gap:6px;border:0;background:none;padding:0;font:inherit;color:#fff}
+.add-app .ic{width:var(--icon);height:var(--icon);border-radius:28%;border:1.5px dashed rgba(255,255,255,.6);display:grid;place-items:center}
+.add-app svg{width:42%;height:42%}
+.add-app .label{font-size:12px;font-weight:650}
+.pick-note{margin:4px 4px 6px;padding:9px 13px;border-radius:14px;background:rgba(95,149,150,.14);color:#3d6e70;font-size:13px;font-weight:700}
+.pad.picking .app.in{opacity:.45}
+.pad.picking .app.in .ic::after{content:"";position:absolute;right:-4px;bottom:-4px;width:20px;height:20px;border-radius:50%;background:#5f9596 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 12.5l4 4 8-9'/%3E%3C/svg%3E") center/70% no-repeat}
 .fan h2{margin:0 4px 16px;font-size:26px;font-weight:800;letter-spacing:-.8px;color:var(--ink);text-shadow:var(--halo)}
 .fan .grid-apps{display:grid;grid-template-columns:repeat(4,1fr);gap:18px 8px}
 
@@ -502,7 +520,7 @@ function drawStacks() {
   for (const s of STACKS) {
     const apps = inStack(s.id); if (!apps.length) continue;
     // No count on a folder's corner (준: "폴더의 우상단 엣지에 숫자띄우지 말아줘"): the apps inside keep theirs.
-    out.push('<button class="stack" data-stack="' + s.id + '"><span class="pile">' + apps.slice(0, 9).map(a => '<img alt="" decoding="async" src="' + iconOf(a) + '">').join("") + '</span><span class="name"><i style="background:' + (DOT[s.id] || "#a1a1aa") + '"></i>' + esc(s.name) + ' <small>' + apps.length + '</small></span></button>');
+    out.push('<button class="stack" data-stack="' + s.id + '"><span class="pile">' + apps.slice(0, 4).map(a => '<img alt="" decoding="async" src="' + iconOf(a) + '">').join("") + '</span><span class="name"><i style="background:' + (DOT[s.id] || "#a1a1aa") + '"></i>' + esc(s.name) + ' <small>' + apps.length + '</small></span></button>');
   }
   el("stacks").innerHTML = out.join("");
   el("libCount").textContent = APPS.length ? APPS.length + "개의 앱" : "";
@@ -585,7 +603,11 @@ function press(root, selector, onTap, onLong) {
 }
 press(el("stacks"), ".stack", t => openFan(t.dataset.stack, t), (t, x, y) => lift(t, x, y, "stack"));
 document.addEventListener("contextmenu", e => e.preventDefault());
-press(document.body, ".app", t => launch(t.dataset.id, t.querySelector(".ic")), (t, x, y) => { if (t.closest("#fan")) lift(t, x, y, "fan"); else appMenu(t.dataset.id, x, y); });
+press(document.body, ".app", t => {
+  if (fanEdit && t.closest("#fan")) { const r = t.getBoundingClientRect(); stackMenu(t.dataset.id, r.left + r.width / 2, r.bottom); return; }
+  if (pickInto && t.closest("#pad")) { const a = BY.get(t.dataset.id); if (a && a.stack !== pickInto) moveApp(a.id, pickInto); return; }
+  launch(t.dataset.id, t.querySelector(".ic"));
+}, (t, x, y) => { if (t.closest("#fan")) lift(t, x, y, "fan"); else appMenu(t.dataset.id, x, y); });
 // (No search bar on the home page: the dock's 🔍 opens the search.)
 el("weather").addEventListener("click", () => B && B.weather && B.weather());
 /*
@@ -634,7 +656,7 @@ pagesBox.addEventListener("scroll", () => { const i = Math.round(pagesBox.scroll
 (function swipes() {
   let x0 = null, y0 = 0, t0 = 0, left0 = 0;
   pagesBox.addEventListener("touchstart", e => {
-    if (e.touches.length !== 1 || e.target.closest(".chips,.page.custom")) { x0 = null; return; }
+    if (e.touches.length !== 1 || e.target.closest(".chips,.page.custom,.buddy,.care")) { x0 = null; return; }
     x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now(); left0 = pagesBox.scrollLeft;
   }, {passive: true});
   pagesBox.addEventListener("touchend", e => {
@@ -953,21 +975,59 @@ let fanFrom = null, holding = false, holdEnded = 0, fanOpened = 0, fanStack = ""
   over the home screen lightly blurred ("바탕 흐림정도를 덜 흐리게"); a short fade only.
 */
 function openFan(id, from, held) {
-  const s = STACKS.find(x => x.id === id); if (!s) return;
-  const apps = inStack(id), fan = el("fan"), r = from.getBoundingClientRect(); fanStack = id;
-  const most = innerWidth >= 600 ? 6 : 4, cols = Math.max(2, Math.min(most, apps.length));
-  fan.innerHTML = '<h2>' + esc(s.name) + '</h2>' + (held ? '<div class="hint">손가락을 앱 위로 옮기고 떼면 열려요</div>' : "") + '<div class="grid-apps" style="grid-template-columns:repeat(' + cols + ',1fr)">' + apps.map(appButton).join("") + '</div>';
-  fan.style.width = Math.min(innerWidth - 20, cols * (innerWidth >= 600 ? 92 : 86) + 24) + "px";
-  // Kept between the status bar and the navigation bar (준: "홈버튼에랑 겹치게 표시가돼"): taller than that, it scrolls inside.
-  const css = getComputedStyle(document.documentElement), topMost = parseFloat(css.getPropertyValue("--top")) + 8, floor = innerHeight - parseFloat(css.getPropertyValue("--bottom")) - 14;
-  fan.style.maxHeight = Math.max(200, floor - topMost) + "px";
-  fan.classList.add("on"); fan.scrollTop = 0;
-  const w = fan.offsetWidth, h = fan.offsetHeight, cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-  const left = Math.max(10, Math.round((innerWidth - w) / 2)), top = Math.max(topMost, Math.round((topMost + floor - h) / 2));
-  fan.style.left = left + "px"; fan.style.top = top + "px"; fan.style.transformOrigin = "50% 50%";
-  fanFrom = {cx, cy, left, top}; fanOpened = Date.now();
+  if (!STACKS.find(x => x.id === id)) return;
+  const fan = el("fan"), r = from ? from.getBoundingClientRect() : {left: innerWidth / 2, top: innerHeight / 2, width: 0, height: 0};
+  fanStack = id; fanEdit = false;
+  fillFan(held);
+  fan.classList.add("on"); fan.scrollTop = 0; placeFan();
+  fanFrom = {cx: r.left + r.width / 2, cy: r.top + r.height / 2}; fanOpened = Date.now();
   el("veil").classList.add("on"); fan.classList.add("shown");
 }
+/*
+  A folder's own edit (준: "아이콘을 다른 폴더로 옮기거나 폴더 내에서 지우거나 새로 넣는게 안돼"): 편집 at the end of its name. Then
+  each app has a − (out of this folder, into 기타; in 기타 itself, the folders to pick from), a tap on an app offers the other
+  folders, and + at the end opens every app to pick ones to put in. 완료 ends it. Holding an app still moves it within.
+*/
+let fanEdit = false;
+function fillFan(held) {
+  const s = STACKS.find(x => x.id === fanStack); if (!s) return;
+  const apps = inStack(fanStack), fan = el("fan");
+  const most = innerWidth >= 600 ? 6 : 4, cols = Math.max(2, Math.min(most, apps.length + (fanEdit ? 1 : 0)));
+  fan.classList.toggle("edit", fanEdit);
+  fan.innerHTML = '<div class="fan-head"><h2>' + esc(s.name) + '</h2><button class="fan-edit" data-edit="1">' + (fanEdit ? "완료" : "편집") + '</button></div>'
+    + (held ? '<div class="hint">손가락을 앱 위로 옮기고 떼면 열려요</div>' : fanEdit ? '<div class="hint">−는 이 폴더에서 빼기 · 앱을 누르면 다른 폴더로</div>' : "")
+    + '<div class="grid-apps" style="grid-template-columns:repeat(' + cols + ',1fr)">' + apps.map(a => appButton(a).replace('<span class="ic">', '<span class="ic"><i class="rm" data-rm="' + esc(a.id) + '" aria-label="이 폴더에서 빼기"></i>')).join("")
+    + (fanEdit ? '<button class="add-app" data-add="1"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 6v12M6 12h12"/></svg></span><span class="label">앱 넣기</span></button>' : "") + '</div>';
+  fan.style.width = Math.min(innerWidth - 20, cols * (innerWidth >= 600 ? 92 : 86) + 24) + "px";
+}
+/** The folder in the middle, between the status bar and the navigation bar (taller than that, it scrolls inside). */
+function placeFan() {
+  const fan = el("fan"), css = getComputedStyle(document.documentElement), topMost = parseFloat(css.getPropertyValue("--top")) + 8, floor = innerHeight - parseFloat(css.getPropertyValue("--bottom")) - 14;
+  fan.style.maxHeight = Math.max(200, floor - topMost) + "px";
+  const w = fan.offsetWidth, h = fan.offsetHeight;
+  fan.style.left = Math.max(10, Math.round((innerWidth - w) / 2)) + "px"; fan.style.top = Math.max(topMost, Math.round((topMost + floor - h) / 2)) + "px"; fan.style.transformOrigin = "50% 50%";
+}
+/** An app goes to another folder now (the app keeps it), and what is on screen follows. */
+function moveApp(id, to) {
+  const a = BY.get(id); if (!a) return;
+  if (to) a.stack = to;
+  if (B) B.move(id, to || "");
+  drawStacks();
+  if (el("fan").classList.contains("on")) { fillFan(false); placeFan(); }
+  if (el("pad").classList.contains("on")) drawPad();
+}
+// −, 편집 · 완료 and + inside an open folder: before the app under them takes the touch.
+el("fan").addEventListener("pointerdown", e => { if (e.target.closest(".rm,.fan-edit,.add-app")) e.stopPropagation(); });
+el("fan").addEventListener("click", e => {
+  const rm = e.target.closest(".rm"), edit = e.target.closest(".fan-edit"), add = e.target.closest(".add-app");
+  if (edit) { fanEdit = !fanEdit; fillFan(false); placeFan(); return; }
+  if (add) { const into = fanStack; closeFan(); openPad(false, into); return; }
+  if (rm && fanEdit) {
+    const id = rm.dataset.rm;
+    if (fanStack === "etc") { const r = rm.getBoundingClientRect(); stackMenu(id, r.left, r.bottom); }
+    else moveApp(id, "etc");
+  }
+});
 function closeFan() {
   const fan = el("fan"); if (!fan.classList.contains("on")) return;
   fan.classList.remove("shown"); el("veil").classList.remove("on");
@@ -1007,8 +1067,10 @@ el("veil").addEventListener("click", () => { if (Date.now() - holdEnded < 450 ||
 
 
 /* ── Launchpad and search ──────────────────────────────────── */
-function openPad(typing) {
-  closeFan(); closeMenu();
+/** Every app; with a folder (pickInto), the picker that puts apps into it (+ in a folder's edit). */
+let pickInto = "";
+function openPad(typing, into) {
+  closeFan(); closeMenu(); pickInto = into || ""; el("pad").classList.toggle("picking", !!pickInto);
   // A talk left more than ten minutes ago starts over.
   if (thread.length && Date.now() - talkedAt > 600000) thread = [];
   chatting = false; el("q").placeholder = SEARCH_HINT; el("pad").classList.remove("chat-mode");
@@ -1017,7 +1079,11 @@ function openPad(typing) {
   if (B) B.bars(true);
   if (typing) setTimeout(() => el("q").focus(), 60);
 }
-function closePad() { const pad = el("pad"); if (!pad.classList.contains("on")) return; el("q").blur(); pad.classList.remove("shown"); document.body.classList.remove("covered"); if (B) B.bars(false); setTimeout(() => pad.classList.remove("on"), 230); }
+function closePad() {
+  const pad = el("pad"); if (!pad.classList.contains("on")) return; el("q").blur(); pad.classList.remove("shown"); document.body.classList.remove("covered"); if (B) B.bars(false); setTimeout(() => pad.classList.remove("on"), 230);
+  // Back from picking: the folder again, still in its edit.
+  if (pickInto) { const back = pickInto; pickInto = ""; pad.classList.remove("picking"); setTimeout(() => { openFan(back, null); fanEdit = true; fillFan(false); placeFan(); }, 240); }
+}
 el("padClose").addEventListener("click", closePad);
 function drawChips() {
   const have = STACKS.filter(s => APPS.some(a => a.stack === s.id));
@@ -1044,14 +1110,17 @@ function drawPad() {
   el("chips").style.display = q ? "none" : "";
   if (q) {
     const hits = APPS.map(a => [score(q, a), a]).filter(x => x[0] > 0).sort((x, y) => y[0] - x[0] || x[1].label.localeCompare(y[1].label, "ko", {numeric: true})).slice(0, 16).map(x => x[1]);
-    body.innerHTML = '<div class="pad-inner">' + (hits.length ? '<h3>앱</h3><div class="grid-apps">' + hits.map(appButton).join("") + '</div>' : '<div class="empty">그런 이름의 앱이 없어요</div>')
+    body.innerHTML = '<div class="pad-inner">' + (hits.length ? '<h3>앱</h3><div class="grid-apps">' + hits.map(a => pickInto && a.stack === pickInto ? appButton(a).replace('class="app"', 'class="app in"') : appButton(a)).join("") + '</div>' : '<div class="empty">그런 이름의 앱이 없어요</div>')
       + '<h3>그 밖에</h3>'
       + '<button class="ask" data-web="1"><span class="dot" style="background:#3182f6"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg></span><span><b>웹에서 찾기</b><span>‘' + esc(q) + '’</span></span></button></div>';
     return;
   }
   const resume = thread.length ? '<button class="ask resume" data-resume="1"><span class="dot ai">' + FACE + '</span><span><b>아까 퍼레와 하던 대화</b><span>' + esc((thread.filter(t => t.who === "me").pop() || {}).text || "") + '</span></span></button>' : "";
   const shown = filter ? STACKS.filter(s => s.id === filter) : STACKS;
-  body.innerHTML = '<div class="pad-inner">' + shown.map(s => { const apps = sorted(APPS.filter(a => a.stack === s.id)); return apps.length ? '<h3>' + esc(s.name) + ' · ' + apps.length + '</h3><div class="grid-apps">' + apps.map(appButton).join("") + '</div>' : ""; }).join("") + '</div>';
+  const into = pickInto && STACKS.find(s => s.id === pickInto);
+  const mark = a => into && a.stack === pickInto ? appButton(a).replace('class="app"', 'class="app in"') : appButton(a);
+  body.innerHTML = '<div class="pad-inner">' + (into ? '<div class="pick-note">‘' + esc(into.name) + '’에 넣을 앱을 눌러 주세요 · 다 넣었으면 닫기</div>' : "")
+    + shown.map(s => { const apps = sorted(APPS.filter(a => a.stack === s.id)); return apps.length ? '<h3>' + esc(s.name) + ' · ' + apps.length + '</h3><div class="grid-apps">' + apps.map(mark).join("") + '</div>' : ""; }).join("") + '</div>';
   if (!body.querySelector(".app")) body.innerHTML = '<div class="pad-inner"><div class="empty">앱을 불러오는 중…</div></div>';
 }
 el("q").addEventListener("input", () => { if (!chatting) drawPad(); });
@@ -1091,6 +1160,10 @@ function openChat() {
 }
 window.boardChat = openChat;
 window.boardThink = why => { if (B) B.think(why); };
+// 퍼레's life (core/BuddyLife): what the user did for it; the app answers with launcher.life. Its home (the battery, music …)
+// is asked every quarter minute while the home screen is seen, so a charger or a song is noticed soon.
+window.boardCare = kind => { if (B && B.care) B.care(kind); };
+setInterval(() => { if (B && B.home && document.visibilityState === "visible" && !document.body.classList.contains("covered")) B.home(); }, 15000);
 function ask() {
   const q = el("q").value.trim(); if (!q) return;
   if (!B || !B.chat) { if (B) { B.ask(q); closePad(); } return; }
@@ -1129,7 +1202,7 @@ function appMenu(id, x, y) {
     + '<button data-do="dock">' + (inDock ? "독에서 빼기" : "독에 넣기") + '</button>'
     + (inDock && at > 0 ? '<button data-do="left">독에서 왼쪽으로</button>' : "")
     + (inDock && at < DOCK.length - 1 ? '<button data-do="right">독에서 오른쪽으로</button>' : "")
-    + '<button data-do="move">다른 묶음으로 옮기기</button><hr><button data-do="info">앱 정보</button><button data-do="uninstall" class="danger">삭제</button>', x, y);
+    + '<button data-do="move">다른 폴더로 옮기기</button><hr><button data-do="info">앱 정보</button><button data-do="uninstall" class="danger">삭제</button>', x, y);
   el("menu").onclick = e => {
     const b = e.target.closest("button"); if (!b) return; const what = b.dataset.do;
     if (what === "move") { stackMenu(id, x, y); return; }
@@ -1142,10 +1215,12 @@ function appMenu(id, x, y) {
 }
 function stackMenu(id, x, y) {
   const a = BY.get(id);
-  showMenu('<div class="title">' + esc(a.label) + ' · 옮길 묶음</div>' + STACKS.map(s => '<button data-s="' + s.id + '">' + (a.stack === s.id ? "✓ " : "") + esc(s.name) + '</button>').join("") + '<hr><button data-s="">자동으로 정하기</button>', x, Math.min(y, innerHeight * 0.25));
+  showMenu('<div class="title">' + esc(a.label) + ' · 옮길 폴더</div>' + STACKS.map(s => '<button data-s="' + s.id + '">' + (a.stack === s.id ? "✓ " : "") + esc(s.name) + '</button>').join("") + '<hr><button data-s="">자동으로 정하기</button>', x, Math.min(y, innerHeight * 0.25));
   el("menu").onclick = e => {
-    const b = e.target.closest("button"); if (!b) return; closeMenu(); closeFan();
-    B && B.move(id, b.dataset.s);
+    const b = e.target.closest("button"); if (!b) return; closeMenu();
+    const editing = fanEdit && el("fan").classList.contains("on");
+    if (!editing) closeFan();
+    if (b.dataset.s) moveApp(id, b.dataset.s); else { if (B) B.move(id, ""); if (editing) { const a = BY.get(id); if (a) a.stack = ""; fillFan(false); placeFan(); } }
   };
 }
 function homeMenu(x, y) {
@@ -1165,6 +1240,8 @@ window.launcher = {
     DOCK_COUNTS = new Set(k.dockCounts || []);
     APPS = k.apps || []; BY = new Map(APPS.map(a => [a.id, a])); DOCK = k.dock || []; RECENT = k.recent || []; STACKS = k.stacks || []; BADGES = k.badges || {}; ORDER = k.order || {};
     drawAll();
+    // An open folder shows what it holds now (an app just moved in or out, one sorted by itself again).
+    if (el("fan").classList.contains("on") && !dragging && !holding) { fillFan(false); placeFan(); }
   },
   board(k) {
     setBoardData(k);
@@ -1189,6 +1266,8 @@ window.launcher = {
   /** 퍼레's line from the AI (NVIDIA, Groq when NVIDIA is slow), or none (its own lines then). */
   thought(line) { thought(line); },
   thoughtFail() { thoughtFail(); },
+  life(k) { boardLife(k); },
+  env(k) { boardEnv(k); },
   /** The pages to the right changed (화면 꾸미기). */
   pages(list) { drawPages(list); },
   /** 퍼레's answer on the home screen: a piece as it streams, the whole when done, or why not. */

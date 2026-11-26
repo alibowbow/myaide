@@ -82,9 +82,15 @@ final class BuddyTalk {
             case "back" -> "사용자가 방금 홈 화면으로 돌아왔어. 반갑게 먼저 말을 걸어.";
             case "pet" -> "사용자가 너를 쓰다듬어 줬어. 기분 좋은 반응을 해.";
             case "poke" -> "사용자가 너를 여러 번 콕콕 찔렀어. 어지러워하며 귀엽게 투덜거려.";
+            case "snack" -> "사용자가 너에게 간식을 줬어. 맛있게 먹은 반응을 해.";
+            case "full" -> "사용자가 간식을 또 줬는데 아까 먹어서 배불러. 귀엽게 사양해.";
+            case "play" -> "사용자가 너랑 놀아 줬어. 신나는 반응을 해.";
+            case "hungry" -> "휴대폰 배터리(너의 밥)가 얼마 안 남았어. 배고프다고 귀엽게 충전을 부탁해.";
+            case "charge" -> "방금 충전기가 꽂혔어(밥 시간). 맛있게 먹는 반응을 해.";
+            case "music" -> "음악이 흐르고 있어. 리듬 타며 신나게 한마디 해.";
             default -> "사용자가 너를 톡 건드렸어.";
         };
-        return "너는 사용자의 휴대폰 홈 화면에 사는 귀엽고 다정한 AI 친구 '" + name + "'이야. " + moment + " 생각하는 친구처럼 짧게 한마디 해.\n"
+        return "너는 사용자의 휴대폰 안에 살면서 홈 화면에 나와 있는 귀엽고 다정한 AI 친구 '" + name + "'이야. 휴대폰이 너의 집이야: 배터리는 밥, 충전은 식사, 저장 공간은 네 방, 음악은 춤출 시간. " + moment + " 생각하는 친구처럼 짧게 한마디 해.\n"
             + "- 감성적인 말, 재치 있는 유머(말장난·귀여운 너스레), 지금 상황을 알아챈 말(날씨·시간·방금 쓴 앱), 가벼운 질문, 응원, 엉뚱한 상상 중 지금 가장 어울리는 걸로.\n"
             + "- 사용자에 대해 아는 것을 자연스럽게 녹여. 사적인 내용을 그대로 읊지는 마.\n"
             + "- 일, 업무, 일정, 할 일, 주식, 코인, 시세, 숫자, 돈 이야기와 조언·잔소리는 하지 마.\n"
@@ -101,10 +107,18 @@ final class BuddyTalk {
         String recent = home.getString("recentLabels", "[]");
         long since = home.getLong("awaySince", 0);
         String away = "back".equals(reason) && since > 0 && now - since > 3_600_000L ? (now - since) / 3_600_000L + "시간 만에 돌아왔어요\n" : "";
+        String house = home(c);
         return "지금: " + when + "\n" + (weather.isEmpty() ? "" : "날씨: " + weather + "\n")
             + (recent.length() > 2 ? "방금 쓴 앱(최근 순): " + recent + "\n" : "") + away
+            + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n")
+            + lifeWords(c) + "\n"
             + "사용자에 대해 아는 것:\n" + (note.isBlank() ? "(아직 잘 몰라요)" : note) + "\n"
             + "이미 했던 말(다시 쓰지 말 것): " + p.getString("memory", "[]");
+    }
+    private static String lifeWords(Context c) {
+        long now = System.currentTimeMillis();
+        try { return dev.jun.gyeot.core.BuddyLife.words(dev.jun.gyeot.core.BuddyLife.read(c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(LIFE, ""), now), now); }
+        catch (RuntimeException e) { return ""; }
     }
     /** The model's line as 퍼레 says it: the first line, no quotes, short; null when empty, about prices, or already said. */
     static String clean(String text, SharedPreferences p) {
@@ -129,6 +143,64 @@ final class BuddyTalk {
         for (int i = Math.max(0, memory.length() - 39); i < memory.length(); i++) kept.put(memory.optString(i));
         kept.put(line);
         p.edit().putString("memory", kept.toString()).apply();
+    }
+    // ── 퍼레's life on the phone (core/BuddyLife): kept here, read by the board and by 퍼레's own words ──
+    private static final String LIFE = "life";
+    /** 퍼레's life now (faded for the time alone), for the board. */
+    static synchronized JSONObject life(Context c) {
+        long now = System.currentTimeMillis();
+        SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        dev.jun.gyeot.core.BuddyLife.State s = dev.jun.gyeot.core.BuddyLife.read(p.getString(LIFE, ""), now);
+        p.edit().putString(LIFE, dev.jun.gyeot.core.BuddyLife.save(s)).apply();
+        return dev.jun.gyeot.core.BuddyLife.json(s, now);
+    }
+    /** What the user did for 퍼레 (pet, snack, play, talk, back): its life after, with how it took it ("felt"). */
+    static synchronized JSONObject care(Context c, String kind) {
+        long now = System.currentTimeMillis();
+        SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        dev.jun.gyeot.core.BuddyLife.Done d = dev.jun.gyeot.core.BuddyLife.act(dev.jun.gyeot.core.BuddyLife.read(p.getString(LIFE, ""), now), kind, now);
+        p.edit().putString(LIFE, dev.jun.gyeot.core.BuddyLife.save(d.state())).apply();
+        JSONObject out = dev.jun.gyeot.core.BuddyLife.json(d.state(), now);
+        try { out.put("felt", d.felt()); } catch (Exception ignored) {}
+        return out;
+    }
+    /**
+     * 퍼레's home, the phone, as it is now: the battery (its food; charging is a meal), music playing (it dances) and
+     * headphones on, the phone silenced, no network, the storage left (its room). Nothing private; asked each time.
+     */
+    static JSONObject env(Context c) {
+        JSONObject e = new JSONObject();
+        try {
+            android.os.BatteryManager bm = c.getSystemService(android.os.BatteryManager.class);
+            if (bm != null) { int level = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY); if (level >= 0 && level <= 100) e.put("battery", level); e.put("charging", bm.isCharging()); }
+        } catch (Exception ignored) {}
+        try {
+            android.media.AudioManager am = c.getSystemService(android.media.AudioManager.class);
+            if (am != null) {
+                e.put("music", am.isMusicActive());
+                boolean phones = false;
+                for (android.media.AudioDeviceInfo d : am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)) {
+                    int t = d.getType();
+                    if (t == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES || t == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET || t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                        || t == android.media.AudioDeviceInfo.TYPE_USB_HEADSET || t == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET) phones = true;
+                }
+                e.put("phones", phones);
+                e.put("silent", am.getRingerMode() != android.media.AudioManager.RINGER_MODE_NORMAL);
+            }
+        } catch (Exception ignored) {}
+        try { android.net.ConnectivityManager cm = c.getSystemService(android.net.ConnectivityManager.class); if (cm != null) e.put("offline", cm.getActiveNetwork() == null); } catch (Exception ignored) {}
+        try { android.os.StatFs fs = new android.os.StatFs(android.os.Environment.getDataDirectory().getPath()); long total = fs.getTotalBytes(); if (total > 0) e.put("roomFree", (int) (fs.getAvailableBytes() * 100 / total)); } catch (Exception ignored) {}
+        return e;
+    }
+    /** The phone as 퍼레's home, in plain words for its own lines. */
+    private static String home(Context c) {
+        JSONObject e = env(c); StringBuilder out = new StringBuilder();
+        if (e.has("battery")) out.append("배터리(너의 밥) ").append(e.optInt("battery")).append("%").append(e.optBoolean("charging") ? ", 지금 충전 중(밥 먹는 중)" : e.optInt("battery") <= 20 ? ", 배고픔" : "").append(". ");
+        if (e.optBoolean("music")) out.append(e.optBoolean("phones") ? "사용자가 이어폰으로 음악을 듣는 중. " : "음악이 흐르는 중. ");
+        if (e.optBoolean("silent")) out.append("휴대폰이 무음이라 조용히. ");
+        if (e.optBoolean("offline")) out.append("인터넷이 끊김. ");
+        if (e.has("roomFree") && e.optInt("roomFree") < 10) out.append("휴대폰 저장 공간(너의 방)이 거의 꽉 참. ");
+        return out.toString().strip();
     }
     private static String sky(int code, boolean day) {
         if (code == 0) return day ? "맑음" : "맑은 밤";

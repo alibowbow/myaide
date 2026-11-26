@@ -385,6 +385,8 @@ public final class HomeActivity extends Activity {
                 case "web" -> b.web(a.optString(0, null));
                 case "settings" -> b.settings(a.optString(0, ""));
                 case "bars" -> b.bars(a.optBoolean(0));
+                case "care" -> { String kind = a.optString(0, ""); try { io.execute(() -> js("launcher.life(" + BuddyTalk.care(HomeActivity.this, kind) + ")")); } catch (RuntimeException ignored) {} }
+                case "home" -> { try { io.execute(() -> js("launcher.env(" + BuddyTalk.env(HomeActivity.this) + ")")); } catch (RuntimeException ignored) {} }
                 case "think" -> { String why = a.optString(0, "tap"); try { io.execute(() -> BuddyTalk.think(HomeActivity.this, why, line -> js("launcher.thought(" + JSONObject.quote(line) + ")"), () -> js("launcher.thoughtFail()"))); } catch (RuntimeException ignored) {} }
                 default -> {}
             }
