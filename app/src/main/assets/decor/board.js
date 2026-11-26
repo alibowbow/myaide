@@ -165,7 +165,8 @@ function fit(b) {
   const cards = Array.from(b.querySelectorAll(".grid>.card[data-rank]"));
   cards.forEach(c => c.style.display = "");
   const shown = cards.filter(c => !c.classList.contains("hidden") && getComputedStyle(c).display !== "none").sort((a, c) => (+a.dataset.rank) - (+c.dataset.rank));
-  for (const c of shown) { if (wrap.scrollHeight <= room) break; c.style.display = "none"; }
+  // The laid-out height (offsetHeight), not scrollHeight: cards popping in (a transform) would read taller and be hidden.
+  for (const c of shown) { if (wrap.offsetHeight <= room) break; c.style.display = "none"; }
   // Opened wide (a foldable's inner screen), a wide card left alone on its row takes the whole row.
   const wides = Array.from(b.querySelectorAll(".grid>.notices,.grid>.idea-card")).filter(c => c.style.display !== "none" && getComputedStyle(c).display !== "none");
   b.querySelectorAll(".grid>.notices,.grid>.idea-card").forEach(c => c.style.gridColumn = innerWidth >= 600 && wides.length === 1 && wides[0] === c ? "1 / -1" : "");
@@ -242,7 +243,7 @@ function nextLine(k, prev, opened) {
       lines.push({key: "greet:" + today() + p, text: words + left, go: left ? "calendar" : "", feel: "happy"});
     }
     const idea = !k.locked && (k.suggestions || [])[0];
-    if (idea) lines.push({key: "idea:" + today() + idea.title, text: "이건 어때요? " + idea.title, go: "home", feel: "happy"});
+    if (idea) lines.push({key: "idea:" + today() + idea.title, text: "이건 어때요? " + idea.title, go: "ideas", feel: "happy"});
   }
   return lines.find(l => !said(l.key)) || null;
 }

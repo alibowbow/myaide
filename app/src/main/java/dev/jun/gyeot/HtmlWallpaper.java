@@ -358,7 +358,7 @@ public final class HtmlWallpaper extends WallpaperService {
                     for (Notices.Notice n : recent) if (Notices.keep(n) && notices.size() < 3) notices.add(new HomeBoard.Notice(n.label().isBlank() ? n.app() : n.label(), n.app(), n.title(), n.text(), n.at()));
                 } catch (RuntimeException unreadable) { notices = null; }
             }
-            try { for (dev.jun.gyeot.core.Proactive.Card card : Briefing.cards(store)) ideas.add(new HomeBoard.Suggestion(card.title(), card.body())); } catch (RuntimeException ignored) {}
+            try { for (dev.jun.gyeot.core.Proactive.Card card : Briefing.cards(store)) ideas.add(new HomeBoard.Suggestion(card.title(), card.body(), card.ask())); } catch (RuntimeException ignored) {}
             try { working = store.tasks.pendingCount(); } catch (RuntimeException ignored) {}
             lab = LabRunner.runningNow();
         }
@@ -404,7 +404,7 @@ public final class HtmlWallpaper extends WallpaperService {
         Intent open;
         switch (what) {
             case "chat": open = new Intent(c, MainActivity.class).putExtra(MainNavigation.TARGET, "chat"); break;
-            case "home": open = new Intent(c, MainActivity.class); break;
+            case "home", "ideas": open = new Intent(c, MainActivity.class); break;
             case "settings": open = new Intent(c, MainActivity.class).putExtra(MainNavigation.TARGET, "settings"); break;
             case "lab": open = new Intent(c, LabActivity.class); break;
             case "mytube": open = new Intent(c, MyTubeActivity.class); break;

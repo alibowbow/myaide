@@ -84,7 +84,10 @@ public final class HomeBoard {
     }
     /** app: the app's name as shown; pkg: its package (for its icon). */
     public record Notice(String app, String pkg, String title, String text, long at) {}
-    public record Suggestion(String title, String body) {}
+    /** 퍼레's suggestion: what it is, and the request that starts it (ask) when the user hands it over. */
+    public record Suggestion(String title, String body, String ask) {
+        public Suggestion(String title, String body) { this(title, body, ""); }
+    }
     /** What the app knows for the board now. calendar/notices: null when that is off (the board then leaves its card out). */
     public record Known(long now, boolean locked, boolean calendarOn, Event next, int eventsLeft,
                         List<Notice> notices, int noticeCount, List<Suggestion> suggestions, int working, boolean lab, String name,
@@ -110,7 +113,7 @@ public final class HomeBoard {
             Jsons.put(o, "notices", n); Jsons.put(o, "noticeCount", Math.max(n.length(), k.noticeCount()));
         }
         JSONArray s = new JSONArray();
-        for (Suggestion x : k.suggestions() == null ? List.<Suggestion>of() : k.suggestions()) if (s.length() < 2) s.put(Jsons.obj("title", clip(x.title(), 60), "body", clip(x.body(), 120)));
+        for (Suggestion x : k.suggestions() == null ? List.<Suggestion>of() : k.suggestions()) if (s.length() < 5) s.put(Jsons.obj("title", clip(x.title(), 60), "body", clip(x.body(), 200), "ask", clip(x.ask(), 300)));
         Jsons.put(o, "suggestions", s);
         Jsons.put(o, "working", Math.max(0, k.working())); Jsons.put(o, "lab", k.lab());
         return o;

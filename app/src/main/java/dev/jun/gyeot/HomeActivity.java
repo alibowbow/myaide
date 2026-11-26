@@ -248,8 +248,10 @@ public final class HomeActivity extends Activity {
             for (String pkg : AppStacks.dock(packages, 6)) { int at = packages.indexOf(pkg); if (at >= 0) dock.put(ids.get(at)); }
             prefs.edit().putString(DOCK, dock.toString()).apply();
         }
-        JSONArray stacks = new JSONArray();
-        for (AppStacks.Stack s : AppStacks.STACKS) stacks.put(Jsons.obj("id", s.id(), "name", s.name(), "color", s.color()));
+        // The folders in the order the user dragged them into (준: "앱 라이브러리 폴더를 누르고 있으면 위치 옮기기로"), the rest after.
+        JSONArray stacks = new JSONArray(), order = read("stackOrder", new JSONArray()); List<String> placed = new ArrayList<>();
+        for (int i = 0; i < order.length(); i++) { AppStacks.Stack s = AppStacks.stack(order.optString(i)); if (s.id().equals(order.optString(i)) && !placed.contains(s.id())) { placed.add(s.id()); stacks.put(Jsons.obj("id", s.id(), "name", s.name(), "color", s.color())); } }
+        for (AppStacks.Stack s : AppStacks.STACKS) if (!placed.contains(s.id())) stacks.put(Jsons.obj("id", s.id(), "name", s.name(), "color", s.color()));
         return Jsons.obj("apps", list, "dock", dock, "recent", read(RECENT, new JSONArray()), "stacks", stacks, "badges", new JSONObject(badges), "order", read(ORDER, new JSONObject()));
     }
     /** An app's id here and in the side dock: its activity and its profile. */
@@ -383,6 +385,26 @@ public final class HomeActivity extends Activity {
             t.setDaemon(true); t.start();
         }
         @JavascriptInterface public void stopChat() { chatTicket++; Runnable r = chatCancel.getAndSet(null); if (r != null) try { r.run(); } catch (RuntimeException ignored) {} }
+        /**
+         * 퍼레's suggestion, from the home screen (준: "제안 눌렀는데 단순히 퍼레앱이 켜지기만 해"): 맡기기 opens 메인 대화 with
+         * its request in the box (or the work room it continues), 넘기기 puts it away; either way the next mornings learn.
+         */
+        @JavascriptInterface public void idea(String title, boolean use) {
+            if (title == null) return;
+            main.post(() -> {
+                AppStore store = ((GyeotApp) getApplication()).store();
+                dev.jun.gyeot.core.Proactive.Card card = null;
+                for (dev.jun.gyeot.core.Proactive.Card c : Briefing.cards(store)) if (c.title().equals(title)) { card = c; break; }
+                if (card == null) { pushBoard(); return; }
+                Briefing.react(store, card, use);
+                pushBoard();
+                if (!use) return;
+                Intent open = new Intent(HomeActivity.this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                if (!card.work().isEmpty() && dev.jun.gyeot.core.WorkBook.find(store.works(), card.work()) != null) open.putExtra("work", card.work()).putExtra("tab", 3);
+                else open.putExtra(MainNavigation.TARGET, "chat").putExtra(MainActivity.ASK, card.ask());
+                try { startActivity(open); } catch (RuntimeException ignored) {}
+            });
+        }
         /** The weather widget: the phone's own weather app, else the weather on the web. */
         @JavascriptInterface public void weather() {
             main.post(() -> {
@@ -402,6 +424,9 @@ public final class HomeActivity extends Activity {
                 JSONObject all = read(ORDER, new JSONObject()); Jsons.put(all, AppStacks.stack(stack).id(), a);
                 prefs.edit().putString(ORDER, all.toString()).apply();
             } catch (Exception ignored) {}
+        }
+        @JavascriptInterface public void stackOrder(String ids) {
+            try { JSONArray a = new JSONArray(ids); if (a.length() <= 40) prefs.edit().putString("stackOrder", a.toString()).apply(); } catch (Exception ignored) {}
         }
         @JavascriptInterface public void dock(String ids) {
             try { JSONArray a = new JSONArray(ids); if (a.length() <= 24) prefs.edit().putString(DOCK, a.toString()).apply(); } catch (Exception ignored) {}
