@@ -91,11 +91,15 @@ final class BuddyVoice {
         // 퍼레's short words in its own voice, made once (VoicePresets; 준: "프리셋 보이스 100개", "타입캐스트로").
         VoicePresets.prepare(context, store);
         // The user's voice known and Whisper at hand: 퍼레 listens itself, to know whose voice it is (준: "내 목소리를 알아볼 수 있게해줘").
-        voice = BuddyTalk.voice(context); ownEar = voice.ready() && GroqWork.on(); ownBroken = false;
+        voice = BuddyTalk.voice(context); ownEar = voice.ready() && GroqWork.on(); ownBroken = false; deviceOff = false; heardSome = false;
         if (!ownEar && !SpeechInput.DEVICE.available(context)) { end("error", "이 휴대폰에서는 음성 인식을 쓸 수 없어요"); return; }
         listen();
     }
     private volatile dev.jun.gyeot.core.VoicePrint.Profile voice; private boolean ownEar, ownBroken; private VoiceCapture capture;
+    /** The phone's recognizer could not hear over another app (an error, or only silence before anything was heard): 퍼레's own ear from then on. */
+    private boolean deviceOff, heardSome;
+    /** Over another app, the phone's recognizer cannot hear: 퍼레's own ear (Groq) takes over when it can. */
+    private boolean ownEarCanTakeOver() { return screen == null && !ownEar && !deviceOff && !ownBroken && GroqWork.on(); }
     private final java.util.concurrent.atomic.AtomicReference<Runnable> whisper = new java.util.concurrent.atomic.AtomicReference<>();
     void stop() { if (on) end("done", ""); }
 
@@ -104,8 +108,9 @@ final class BuddyVoice {
         closeEar();
         int mine = generation;
         show("listening", "");
-        // Over another app the phone's recognizer may not get the microphone; 퍼레's own ear (this app's microphone service) does.
-        if (ownEar || screen == null && !ownBroken && GroqWork.on()) { listenOwn(mine); return; }
+        // The phone's own recognizer first, also over another app (준: "다른 앱 위에서도 휴대폰 기본 음성인식 먼저 쓰기"); 퍼레's own
+        // ear when the user's voice is known (it needs the sound) or when the recognizer could not hear there.
+        if (ownEar || deviceOff && !ownBroken && GroqWork.on()) { listenOwn(mine); return; }
         ear = SpeechInput.DEVICE.open(context);
         ear.start(new SpeechInput.Listener() {
             @Override public void ready() {}
@@ -116,9 +121,13 @@ final class BuddyVoice {
                 heardAt = android.os.SystemClock.uptimeMillis(); wordsAt = heardAt;
                 closeEar();
                 if (words == null || words.isBlank()) { quiet(); return; }
-                silences = 0; filler(); think(words.strip(), false);
+                heardSome = true; silences = 0; filler(); think(words.strip(), false);
             }
-            @Override public void failed(String reason) { if (on && mine == generation) end("error", reason); }
+            @Override public void failed(String reason) {
+                if (!on || mine != generation) return;
+                if (ownEarCanTakeOver()) { closeEar(); deviceOff = true; listen(); return; }
+                end("error", reason);
+            }
             @Override public void silent(String reason) { if (on && mine == generation) quiet(); }
         });
     }
@@ -151,7 +160,7 @@ final class BuddyVoice {
                     if (got == null) { ownEar = false; ownBroken = true; listen(); return; }
                     if (got.isBlank()) { quiet(); return; }
                     wordsAt = android.os.SystemClock.uptimeMillis();
-                    silences = 0; think(got, who == dev.jun.gyeot.core.VoicePrint.Who.STRANGER);
+                    heardSome = true; silences = 0; think(got, who == dev.jun.gyeot.core.VoicePrint.Who.STRANGER);
                 });
             });
         } catch (RuntimeException stopped) { end("error", ""); }
@@ -159,6 +168,8 @@ final class BuddyVoice {
     /** Nothing heard: once, it listens again; twice in a row, the talk ends. */
     private void quiet() {
         closeEar();
+        // Over another app the recognizer may get only silence: before ending, 퍼레's own ear gets one more try.
+        if (silences + 1 >= 2 && !heardSome && ownEarCanTakeOver()) { deviceOff = true; main.postDelayed(this::listen, 150); return; }
         if (++silences >= 2) { end("done", "또 불러 줘!"); return; }
         // Once, in its own voice: "응? 다시 말해 줄래?", then it listens (after the sound, so it does not hear itself).
         int mine = generation;
