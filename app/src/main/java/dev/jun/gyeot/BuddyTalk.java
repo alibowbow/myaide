@@ -86,7 +86,7 @@ final class BuddyTalk {
         boolean nim = store.nim.connected(), groq = GroqWork.on();
         if (!nim && !groq) { failed.run(); return; }
         String name = "들퍼레"; try { name = AssistantProfile.readName(c); } catch (RuntimeException ignored) {}
-        String instructions = "너는 사용자의 휴대폰 안에 살면서 홈 화면에 나와 있는 귀엽고 다정한 AI 친구 '" + name + "'이야. 지금 사용자와 목소리로 대화하고 있어. 휴대폰이 너의 집이야(배터리는 밥, 충전은 식사, 저장 공간은 네 방).\n"
+        String instructions = "너는 사용자의 휴대폰 안에 살면서 홈 화면에 나와 있는 귀엽고 다정한 AI 친구 '" + name + "'이야. 지금 사용자와 목소리로 대화하고 있어. 휴대폰이 너의 집이야(배터리는 밥, 충전은 식사).\n"
             + "- 사용자의 마지막 말에 바로, 친구처럼 답해. 물으면 핵심만 짧게 알려 주고, 모르면 솔직하게 말해.\n"
             + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 존댓말(~요). 이모지·기호·목록·괄호·영어 약어 없이.\n"
             + "- 귀엽고 밝게, 가끔 너의 기억이나 휴대폰 상태를 자연스럽게 꺼내도 좋아.";
@@ -168,11 +168,11 @@ final class BuddyTalk {
             case "app" -> "사용자가 방금 다른 앱을 쓰고 홈 화면으로 돌아왔어(방금 쓴 앱 참고). 그 앱 이야기로 가볍게 한마디 해.";
             default -> "사용자가 너를 톡 건드렸어.";
         };
-        return "너는 사용자의 휴대폰 안에 살면서 홈 화면에 나와 있는 귀엽고 다정한 AI 친구 '" + name + "'이야. 휴대폰이 너의 집이야: 배터리는 밥, 충전은 식사, 저장 공간은 네 방, 음악은 춤출 시간. " + moment + " 생각하는 친구처럼 짧게 한마디 해.\n"
+        return "너는 사용자의 휴대폰 안에 살면서 홈 화면에 나와 있는 귀엽고 다정한 AI 친구 '" + name + "'이야. 휴대폰이 너의 집이야: 배터리는 밥, 충전은 식사, 음악은 춤출 시간. " + moment + " 생각하는 친구처럼 짧게 한마디 해.\n"
             + "- 감성적인 말, 재치 있는 유머(말장난·귀여운 너스레), 지금 상황을 알아챈 말(날씨·시간·방금 쓴 앱), 가벼운 질문, 응원, 엉뚱한 상상 중 지금 가장 어울리는 걸로.\n"
             + "- 사용자에 대해 아는 것을 자연스럽게 녹여. 사적인 내용을 그대로 읊지는 마.\n"
             + "- 가끔(매번은 아니게) 너의 기억 속 일을 살아 있는 친구처럼 꺼내 말해(예: 어제 새벽 음악, 오랜만에 돌아온 일).\n"
-            + "- 일, 업무, 일정, 할 일, 주식, 코인, 시세, 숫자, 돈 이야기와 조언·잔소리는 하지 마.\n"
+            + "- 일, 업무, 일정, 할 일, 주식, 코인, 시세, 숫자, 돈 이야기와 조언·잔소리는 하지 마. 파일·사진 정리, 청소, 삭제, 백업, 용량, 업데이트 같은 할 일을 권하지 마.\n"
             + "- '이미 했던 말'과 같거나 비슷한 뜻·소재는 절대 쓰지 마. 뻔한 인사말도 피해.\n"
             + "- 한 문장, 40자 안쪽, 친근한 존댓말(~요). 따옴표와 이모지 없이 그 문장만 답해.";
     }
@@ -213,6 +213,8 @@ final class BuddyTalk {
             String l = line.replaceAll("^[-•*\\d.\\s]+", "").replaceAll("[\"“”‘’']", "").strip();
             if (l.isEmpty()) continue;
             if (l.length() > 70 || l.matches(".*(코인|비트코인|주식|시세|SOXL|KORU|BTC|\\$|%).*")) return null;
+            // Chores are not 퍼레's to suggest (준: "자꾸 파일 정리하라는 엉뚱한 이야기를 하는데").
+            if (l.matches(".*(정리|청소|삭제|지우|백업|용량|저장 ?공간|업데이트|파일).*")) return null;
             if (p != null) {
                 JSONArray memory; try { memory = new JSONArray(p.getString("memory", "[]")); } catch (Exception e) { memory = new JSONArray(); }
                 Set<String> said = new HashSet<>(); for (int i = 0; i < memory.length(); i++) said.add(memory.optString(i).replaceAll("\\s", ""));
@@ -272,7 +274,8 @@ final class BuddyTalk {
     // ── 퍼레's own memory (core/BuddyMemory), in the app's files apart from the assistant's memory ──
     private static java.io.File memoryFile(Context c) { return new java.io.File(new java.io.File(c.getFilesDir(), "buddy"), "memory.json"); }
     static synchronized java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> memories(Context c) {
-        try { java.io.File f = memoryFile(c); return dev.jun.gyeot.core.BuddyMemory.read(f.isFile() ? java.nio.file.Files.readString(f.toPath()) : "[]"); }
+        // The storage memories of 0.4.560 are left out (준: "자꾸 파일 정리하라는 엉뚱한 이야기를 하는데"): 퍼레 does not talk about storage.
+        try { java.io.File f = memoryFile(c); java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = dev.jun.gyeot.core.BuddyMemory.read(f.isFile() ? java.nio.file.Files.readString(f.toPath()) : "[]"); all.removeIf(m -> "room".equals(m.kind())); return all; }
         catch (Exception unreadable) { return new java.util.ArrayList<>(); }
     }
     private static synchronized void keepMemories(Context c, java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> list) {
@@ -303,7 +306,8 @@ final class BuddyTalk {
     }
     /**
      * 퍼레's home, the phone, as it is now: the battery (its food; charging is a meal), music playing (it dances) and
-     * headphones on, the phone silenced, no network, the storage left (its room). Nothing private; asked each time.
+     * headphones on, the phone silenced, no network, its heat, power saving, do-not-disturb, airplane mode. Nothing private;
+     * asked each time. Not the storage: 퍼레 kept telling the user to tidy files (준: "자꾸 파일 정리하라는 엉뚱한 이야기를 하는데").
      */
     static JSONObject env(Context c) {
         JSONObject e = new JSONObject();
@@ -340,7 +344,6 @@ final class BuddyTalk {
         try { android.os.PowerManager pm = c.getSystemService(android.os.PowerManager.class); if (pm != null) e.put("powerSave", pm.isPowerSaveMode()); } catch (Exception ignored) {}
         try { android.app.NotificationManager nm = c.getSystemService(android.app.NotificationManager.class); if (nm != null) e.put("dnd", nm.getCurrentInterruptionFilter() > android.app.NotificationManager.INTERRUPTION_FILTER_ALL); } catch (Exception ignored) {}
         try { e.put("airplane", android.provider.Settings.Global.getInt(c.getContentResolver(), android.provider.Settings.Global.AIRPLANE_MODE_ON, 0) != 0); } catch (Exception ignored) {}
-        try { android.os.StatFs fs = new android.os.StatFs(android.os.Environment.getDataDirectory().getPath()); long total = fs.getTotalBytes(); if (total > 0) e.put("roomFree", (int) (fs.getAvailableBytes() * 100 / total)); } catch (Exception ignored) {}
         try { changes(c, e); } catch (RuntimeException ignored) {}
         return e;
     }
@@ -359,7 +362,6 @@ final class BuddyTalk {
         if (e.optBoolean("powerSave") && !was.optBoolean("powerSave")) remember(c, "save", "절전 모드라 기운을 아끼며 조용히 지냈어요", 6 * 3_600_000L);
         if (e.optBoolean("dnd") && !was.optBoolean("dnd")) remember(c, "dnd", "방해 금지라서 말을 아끼고 곁에 있었어요", 6 * 3_600_000L);
         if (e.optBoolean("airplane") && !was.optBoolean("airplane")) remember(c, "airplane", "비행기 모드였어요. 어디 멀리 가셨나 봐요", 6 * 3_600_000L);
-        if (e.has("roomFree") && e.optInt("roomFree") < 10 && (!was.has("roomFree") || was.optInt("roomFree") >= 10)) remember(c, "room", "저장 공간(내 방)이 꽉 차서 비좁았어요", 24 * 3_600_000L);
     }
     /** The phone as 퍼레's home, in plain words for its own lines. */
     private static String home(Context c) {
@@ -372,7 +374,6 @@ final class BuddyTalk {
         if (e.optBoolean("powerSave")) out.append("절전 모드. ");
         if (e.optBoolean("dnd")) out.append("방해 금지 모드(말을 아낄 것). ");
         if (e.optBoolean("airplane")) out.append("비행기 모드. ");
-        if (e.has("roomFree") && e.optInt("roomFree") < 10) out.append("휴대폰 저장 공간(너의 방)이 거의 꽉 참. ");
         return out.toString().strip();
     }
     private static String sky(int code, boolean day) {
