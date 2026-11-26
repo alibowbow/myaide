@@ -338,7 +338,7 @@ public final class HomeActivity extends Activity {
         /** Opens the app, growing from its icon (x, y, w, h in the page's pixels). */
         @JavascriptInterface public void launch(String id, float x, float y, float w, float h) {
             main.post(() -> {
-                LauncherActivityInfo info = known.get(id); if (info == null) return;
+                LauncherActivityInfo info = id == null ? null : known.get(id); if (info == null) return;
                 float d = getResources().getDisplayMetrics().density;
                 Rect from = new Rect(Math.round(x * d), Math.round(y * d), Math.round((x + w) * d), Math.round((y + h) * d));
                 Bundle opts = web == null ? null : ActivityOptions.makeScaleUpAnimation(web, from.left, from.top, from.width(), from.height()).toBundle();
@@ -408,11 +408,11 @@ public final class HomeActivity extends Activity {
             pushApps();
         }
         @JavascriptInterface public void info(String id) {
-            main.post(() -> { LauncherActivityInfo i = known.get(id); if (i != null) try { launcher.startAppDetailsActivity(i.getComponentName(), i.getUser(), null, null); } catch (RuntimeException ignored) {} });
+            main.post(() -> { LauncherActivityInfo i = (id == null ? null : known.get(id)); if (i != null) try { launcher.startAppDetailsActivity(i.getComponentName(), i.getUser(), null, null); } catch (RuntimeException ignored) {} });
         }
         @JavascriptInterface public void uninstall(String id) {
             main.post(() -> {
-                LauncherActivityInfo i = known.get(id); if (i == null) return;
+                LauncherActivityInfo i = (id == null ? null : known.get(id)); if (i == null) return;
                 try { startActivity(new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + i.getApplicationInfo().packageName)).putExtra(Intent.EXTRA_USER, i.getUser())); }
                 catch (RuntimeException refused) { info(id); }
             });

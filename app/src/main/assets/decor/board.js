@@ -116,10 +116,10 @@ function money(v) { return "$" + (v >= 1000 ? Math.round(v).toLocaleString("en-U
 /* A notice's app: its own icon (the app serves /appicon/…), else its first letter on the accent. */
 function appMark(n) {
   const letter = esc(Array.from(n.app || "?")[0]);
-  // No icon after all: the accent square comes back under it.
+  // No icon after all: the accent square comes back under it. ("nmark", never "app": on the home screen app that is a button.)
   return n.pkg && /^[A-Za-z0-9_.]+$/.test(n.pkg)
-    ? '<div class="app icon" data-letter="' + letter + '"><img alt="" src="/appicon/' + n.pkg + '.png" onerror="this.parentNode.className=\'app\';this.parentNode.textContent=this.parentNode.dataset.letter"></div>'
-    : '<div class="app">' + letter + '</div>';
+    ? '<div class="nmark icon" data-letter="' + letter + '"><img alt="" src="/appicon/' + n.pkg + '.png" onerror="this.parentNode.className=\'nmark\';this.parentNode.textContent=this.parentNode.dataset.letter"></div>'
+    : '<div class="nmark">' + letter + '</div>';
 }
 
 /* ── what the app says ────────────────────────────────────── */
