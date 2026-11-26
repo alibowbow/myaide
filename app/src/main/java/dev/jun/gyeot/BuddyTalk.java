@@ -35,7 +35,7 @@ final class BuddyTalk {
     /** One line for now (reason: "tap" or "back"), told to done, or failed when no model could answer. Off the main thread. */
     static void think(Context c, String reason, Consumer<String> done, Runnable failed) {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
-        if (!store.nim.connected() && !GroqWork.on()) { failed.run(); return; }
+        if (!store.nim.connected() && !GroqWork.on() && !(CUSTOM.equals(brain(c)) && !customLabel(store).isEmpty())) { failed.run(); return; }
         if (!busy.compareAndSet(false, true)) return;
         SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         String instructions = instructions(c, reason), input = input(c, store, p, reason);
@@ -43,9 +43,21 @@ final class BuddyTalk {
     }
 
     // ── 퍼레's brain (준: "퍼레 메세지 약간 느린거 같은데 groq qwen 3.8로 두뇌 바꿔줘", "들퍼레앱에서 설정 가능하게 해줘", "Qwen으로 바꿔줘") ──
-    static final String BRAIN = "brain", QWEN = "qwen", NIM = "nim", BOTH = "both";
-    /** Which brain 퍼레 thinks with: Groq's Qwen (the default, quick), NVIDIA NIM, or both at once. */
-    static String brain(Context c) { String b = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(BRAIN, QWEN); return NIM.equals(b) || BOTH.equals(b) ? b : QWEN; }
+    static final String BRAIN = "brain", QWEN = "qwen", NIM = "nim", BOTH = "both", CUSTOM = "custom";
+    /** Which brain 퍼레 thinks with: Groq's Qwen (the default, quick), NVIDIA NIM, both at once, or any of the app's AIs (CUSTOM, ScopedModels.buddy). */
+    static String brain(Context c) { String b = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(BRAIN, QWEN); return NIM.equals(b) || BOTH.equals(b) || CUSTOM.equals(b) ? b : QWEN; }
+    /** The AI chosen for 퍼레 (CUSTOM) as "engine · model", or "" when none is connected. */
+    static String customLabel(AppStore store) {
+        try { ScopedModels m = ScopedModels.buddy(store); String engine = m.engine(); if (engine == null || engine.isBlank() || !store.ready(engine)) return ""; return dev.jun.gyeot.core.WorkBook.author(engine) + " · " + new TeamRoster(store, m).label(engine, m.model(engine)); }
+        catch (Exception unavailable) { return ""; }
+    }
+    /** One answer from the AI chosen for 퍼레 (CUSTOM): its engine, model and depth, no tools. Throws when it is not connected. */
+    static String askCustom(AppStore store, String instructions, String input, AtomicReference<Runnable> cancel) throws Exception {
+        ScopedModels m = ScopedModels.buddy(store); String engine = m.engine();
+        if (engine == null || engine.isBlank() || !store.ready(engine)) throw new IllegalStateException("퍼레 두뇌로 고른 AI가 연결되지 않았어요.");
+        String model = m.model(engine), effort = m.effort(engine, model);
+        return FileAiOperationsUi.complete(store, FileAiOperationsUi.Connection.capture(store, engine), model, effort, instructions, input, () -> {}, cancel);
+    }
     static void brain(Context c, String which) { c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(BRAIN, which).apply(); }
     /** The newest Qwen the user's Groq key lists (its chat models, not guards, coders or vision), else Qwen3 32B. */
     static String qwen(AppStore store) {
@@ -69,7 +81,20 @@ final class BuddyTalk {
     static void ask(Context c, String instructions, String input, double temperature, int timeoutMs, java.util.function.Function<String, String> clean, Consumer<String> done, Runnable failed) {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
         boolean nim = store.nim.connected(), groq = GroqWork.on();
+        // The app's AI chosen for 퍼레: it answers; when it cannot, the quick ones below do.
+        if (CUSTOM.equals(brain(c)) && !customLabel(store).isEmpty()) {
+            new Thread(() -> {
+                try { String line = clean.apply(askCustom(store, instructions, input, null)); if (line != null) { done.accept(line); return; } }
+                catch (Exception unavailable) { /* the quick brains next */ }
+                if (nim || groq) quick(c, store, nim, groq, QWEN, instructions, input, temperature, timeoutMs, clean, done, failed); else failed.run();
+            }, "gyeot-buddy-custom").start();
+            return;
+        }
         if (!nim && !groq) { failed.run(); return; }
+        quick(c, store, nim, groq, brain(c), instructions, input, temperature, timeoutMs, clean, done, failed);
+    }
+    /** Groq's Qwen and NVIDIA NIM, raced as the brain says (QWEN, NIM or BOTH). */
+    private static void quick(Context c, AppStore store, boolean nim, boolean groq, String brain, String instructions, String input, double temperature, int timeoutMs, java.util.function.Function<String, String> clean, Consumer<String> done, Runnable failed) {
         AtomicBoolean answered = new AtomicBoolean();
         AtomicReference<Runnable> stopNim = new AtomicReference<>(), stopGroq = new AtomicReference<>();
         Object lock = new Object(); int[] running = {0}; boolean[] tried = {false, false};
@@ -119,7 +144,7 @@ final class BuddyTalk {
             }, "gyeot-buddy-nim").start();
         };
         android.os.Handler later = new android.os.Handler(android.os.Looper.getMainLooper());
-        switch (brain(c)) {
+        switch (brain) {
             case NIM -> {
                 if (nim && !(groq && System.currentTimeMillis() < nimSlowUntil)) { start[1].run(); if (groq) later.postDelayed(() -> { if (!answered.get()) start[0].run(); }, 2_500); }
                 else start[0].run();
@@ -136,8 +161,6 @@ final class BuddyTalk {
      */
     static void reply(Context c, String said, java.util.List<String[]> turns, Consumer<String> done, Runnable failed) {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
-        boolean nim = store.nim.connected(), groq = GroqWork.on();
-        if (!nim && !groq) { failed.run(); return; }
         String name = "들퍼레"; try { name = AssistantProfile.readName(c); } catch (RuntimeException ignored) {}
         String instructions = "너는 사용자의 휴대폰 안에 살면서 홈 화면에 나와 있는 귀엽고 다정한 AI 친구 '" + name + "'이야. 지금 사용자와 목소리로 대화하고 있어. 휴대폰이 너의 집이야(배터리는 밥, 충전은 식사).\n"
             + "- 사용자의 마지막 말에 바로, 친구처럼 답해. 물으면 핵심만 짧게 알려 주고, 모르면 솔직하게 말해.\n"

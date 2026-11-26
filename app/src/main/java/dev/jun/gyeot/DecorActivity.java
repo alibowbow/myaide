@@ -92,11 +92,9 @@ public final class DecorActivity extends Activity {
         body.addView(launcherGroup, lg);
         // 퍼레's own memory, kept in the app apart from the assistant's (준: "퍼레 캐릭터의 메모리는 따로 들퍼레 앱에 저장").
         LinearLayout buddyGroup = ui.group();
-        // 퍼레's brain (준: "groq qwen으로 두뇌 바꿔줘", "들퍼레앱에서 설정 가능하게 해줘"): Qwen (quick, the default), NVIDIA, or both.
-        String[] brains = {BuddyTalk.QWEN, BuddyTalk.NIM, BuddyTalk.BOTH};
-        int brainAt = java.util.Arrays.asList(brains).indexOf(BuddyTalk.brain(this));
-        ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_bolt, Ui.ORANGE, "퍼레 두뇌", "한마디 · 퍼레 대화 · 음성 대화 · 안 되면 다른 쪽이 답해요",
-            ui.switcher(new String[]{"Qwen", "NVIDIA", "둘 다"}, Math.max(0, brainAt), i -> BuddyTalk.brain(this, brains[i])), null), true);
+        // 퍼레's brain (준: "groq qwen으로 두뇌 바꿔줘", "퍼레두뇌 설정 메뉴에서 이 앱의 모든 ai 모델을 다 설정할 수 있게 해줘"):
+        // Qwen (quick, the default), NVIDIA, both, or any of the app's AIs and models.
+        ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_bolt, Ui.ORANGE, "퍼레 두뇌", brainLabel(), ui.chevron(), this::chooseBrain), true);
         ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_sparkle, Ui.ACCENT, "퍼레의 기억", "퍼레가 휴대폰에서 겪은 일 · 보고 지울 수 있어요", ui.chevron(), this::showMemory), true);
         LinearLayout.LayoutParams bg = new LinearLayout.LayoutParams(-1, -2); bg.bottomMargin = ui.dp(14);
         body.addView(buddyGroup, bg);
@@ -202,6 +200,32 @@ public final class DecorActivity extends Activity {
         body.addView(pages);
         TextView note = ui.label("홈에서 오른쪽으로 넘기면 나와요. 페이지 양쪽 가장자리를 밀면 언제든 옆 페이지로 넘어가요.", 12, Ui.MUTED);
         note.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0); body.addView(note);
+    }
+    /** What 퍼레 thinks with now, in a line. */
+    private String brainLabel() {
+        AppStore store = ((GyeotApp) getApplication()).store();
+        return switch (BuddyTalk.brain(this)) {
+            case BuddyTalk.NIM -> "NVIDIA 빠른 모델 · 늦으면 Qwen";
+            case BuddyTalk.BOTH -> "Qwen과 NVIDIA 함께 · 먼저 온 답";
+            case BuddyTalk.CUSTOM -> { String l = BuddyTalk.customLabel(store); yield l.isEmpty() ? "고른 AI가 연결 안 됨 · Qwen이 대신 답해요" : l + " · 안 되면 Qwen"; }
+            default -> "Qwen · Groq (빠름) · 늦으면 NVIDIA";
+        };
+    }
+    /** 퍼레 두뇌: the quick ones, or any of the app's AIs with its model and depth (the same picker the other screens use). */
+    private void chooseBrain() {
+        AppStore store = ((GyeotApp) getApplication()).store(); String now = BuddyTalk.brain(this);
+        Ui.Sheet menu = ui.selectionSheet("퍼레 두뇌", "한마디 · 퍼레 대화 · 음성 대화에 써요");
+        menu.primary.setVisibility(View.GONE);
+        LinearLayout group = ui.group();
+        String[][] quick = {{BuddyTalk.QWEN, "Qwen · Groq", "가장 빨라요 · 늦으면 NVIDIA가 답해요"}, {BuddyTalk.NIM, "NVIDIA 빠른 모델", "늦으면 Qwen이 답해요"}, {BuddyTalk.BOTH, "Qwen과 NVIDIA 함께", "둘에게 묻고 먼저 온 답"}};
+        for (String[] q : quick) ui.addRow(group, ui.listRow(R.drawable.ic_bolt, Ui.ORANGE, (q[0].equals(now) ? "✓ " : "") + q[1], q[2], null, () -> { menu.dismiss(); BuddyTalk.brain(this, q[0]); draw(); }), true);
+        String custom = BuddyTalk.customLabel(store);
+        ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, Ui.PURPLE, (BuddyTalk.CUSTOM.equals(now) ? "✓ " : "") + "앱의 AI에서 고르기", custom.isEmpty() ? "ChatGPT · Claude · Gemini · Grok · NVIDIA · Groq · Antigravity의 모델과 생각 깊이" : "지금: " + custom, ui.chevron(), () -> {
+            menu.dismiss();
+            FileExplorerModelUi.show(this, store, () -> ScopedModels.buddy(store), "퍼레 두뇌", "퍼레에 적용", () -> !isDestroyed(), dialog -> dialog.show(), () -> { BuddyTalk.brain(this, BuddyTalk.CUSTOM); draw(); });
+        }), true);
+        menu.body.addView(group);
+        menu.show();
     }
     /** 퍼레's memories, newest first: each can be deleted, or all at once (read off the main thread). */
     private void showMemory() {

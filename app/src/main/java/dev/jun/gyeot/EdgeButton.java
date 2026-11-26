@@ -72,7 +72,8 @@ final class EdgeButton implements AutoCloseable {
 
     /** Shows or hides the handle for the current state; called on every app state change and screen on/off. */
     void refresh() {
-        boolean show = store.edgeButton() && !hidden && !store.voiceActive && !PhoneService.gate.armed() && unlocked();
+        // Hidden while 퍼레 talks on the home screen too (준: "퍼레랑 음성대화에서는 우측바 버블 띄우지 말기").
+        boolean show = store.edgeButton() && !hidden && !store.voiceActive && !store.buddyTalking && !PhoneService.gate.armed() && unlocked();
         if (show && !attached) {
             place(right(), params.y);
             try { manager.addView(view, params); attached = true; } catch (RuntimeException ignored) {}

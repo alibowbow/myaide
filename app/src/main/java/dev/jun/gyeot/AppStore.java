@@ -50,6 +50,8 @@ final class AppStore {
     final GroqAccount groq;
     /** Typecast's API key and 퍼레's chosen voice (TypecastAccount). */
     final TypecastAccount typecast;
+    /** 퍼레's voice talk on the home screen is on (BuddyVoice): the edge handle hides meanwhile, so a touch near 퍼레 never starts the assistant. */
+    volatile boolean buddyTalking;
     final GeminiKeyRing geminiKeys;
     final AntigravityAccount antigravity;
     final GroqModels groqModels;

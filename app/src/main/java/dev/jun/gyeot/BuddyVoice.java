@@ -44,6 +44,7 @@ final class BuddyVoice {
     void start() {
         if (on) return;
         on = true; silences = 0; turns.clear(); generation++;
+        store.buddyTalking = true; store.changed();
         if (!SpeechInput.DEVICE.available(context)) { end("error", "이 휴대폰에서는 음성 인식을 쓸 수 없어요"); return; }
         listen();
     }
@@ -224,6 +225,7 @@ final class BuddyVoice {
     }
     private void end(String state, String words) {
         on = false; generation++;
+        if (store.buddyTalking) { store.buddyTalking = false; store.changed(); }
         Runnable cut = download.getAndSet(null); if (cut != null) try { cut.run(); } catch (RuntimeException ignored) {}
         android.media.AudioTrack playing = track; if (playing != null) try { playing.pause(); playing.flush(); } catch (RuntimeException ignored) {}
         closeEar(); releasePlayer(); focus(false);

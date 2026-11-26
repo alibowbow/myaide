@@ -26,38 +26,82 @@ const ICON = {
   coral robot whose parts move on their own. Eyes: pills that blink and glance, arcs when happy, rounds when surprised,
   lines when asleep, hearts when loved; an antenna that springs; cheeks that blush. alive() runs it.
 */
-const EYE = '<rect class="pill" x="-4" y="-7.5" width="8" height="15" rx="4"/><path class="arc" d="M-5.5 2.5 Q0 -5 5.5 2.5"/><circle class="o" r="5.4"/><path class="shut" d="M-5.5 1 Q0 3.5 5.5 1"/><path class="heart" d="M0 5 C-7 0 -6 -6 -2.6 -6 C-1.2 -6 -.3 -5 0 -4 C.3 -5 1.2 -6 2.6 -6 C6 -6 7 0 0 5Z"/>'
-  + '<path class="dz" d="M0 0 m-.8 0 a.8 .8 0 1 1 1.6 0 a2.2 2.2 0 1 1 -4.4 0 a3.6 3.6 0 1 1 7.2 0 a5 5 0 1 1 -10 0"/><path class="brow" d="M-5 -9 L4.5 -11.5"/>';
+const EYE = '<rect class="pill" x="-4" y="-7.5" width="8" height="15" rx="4"/><circle class="gl" cx="-1.3" cy="-3.6" r="1.4"/><path class="arc" d="M-5.5 2.5 Q0 -5 5.5 2.5"/><circle class="o" r="5.4"/><path class="shut" d="M-5.5 1 Q0 3.5 5.5 1"/>'
+  + '<path class="heart" d="M0 5 C-7 0 -6 -6 -2.6 -6 C-1.2 -6 -.3 -5 0 -4 C.3 -5 1.2 -6 2.6 -6 C6 -6 7 0 0 5Z"/>'
+  + '<path class="dz" d="M0 0 m-.8 0 a.8 .8 0 1 1 1.6 0 a2.2 2.2 0 1 1 -4.4 0 a3.6 3.6 0 1 1 7.2 0 a5 5 0 1 1 -10 0"/><path class="brow" d="M-5 -9 L4.5 -11.5"/>'
+  + '<path class="x" d="M-4.3 -4.3 L4.3 4.3 M4.3 -4.3 L-4.3 4.3"/><circle class="dot" r="2.7"/><path class="line" d="M-5 0 H5"/>'
+  + '<g class="wide"><circle r="6.4"/><circle class="w-gl" cx="-2.2" cy="-2.6" r="2"/><circle class="w-gl" cx="2" cy="2.2" r=".9"/></g>'
+  + '<path class="u" d="M-5.5 -1.5 Q0 4.5 5.5 -1.5"/><path class="sq" d="M-4.5 -4.5 L3.5 0 L-4.5 4.5"/><path class="tear" d="M2.5 6 q2.6 4.2 0 6.2 q-2.6 -2 0 -6.2z"/>';
 /*
-  퍼레's parts: arms at its sides (they wave, dance and hold the umbrella), a mouth for each face (smile, open, frown, wavy,
-  chewing), and what it wears or shows as its home, the phone, changes (준: "내 휴대폰 공간안의 환경을 이해하고 그 공간에서 살아가는
-  다마고치 같은 느낌"): an umbrella in the rain, a scarf in the cold, sunglasses in hot sun, a nightcap at night, headphones while
-  music plays through them, a bolt while it charges (eats), a drop of sweat in the heat, notes to music, a question mark offline.
-  The svg's classes pick them (envOf); each is hidden otherwise.
+  퍼레's parts. Faces (FACES) are made of an eye (pill, arc, round, shut, heart, spiral, x, dot, line, wide, u, squint …), a
+  mouth (smile, open, frown, wavy, chewing, flat, grin, tongue, small o, cat, teeth, pout, kiss, smirk), brows and effects
+  (tears, blush lines, an anger mark, sweat, "!", gloom, steam, a kiss heart, notes, "?"), picked by data attributes on the svg.
+  What it wears (준: "내 휴대폰 공간안의 환경을 이해하고 그 공간에서 살아가는 다마고치 같은 느낌", "3배로 늘려줘") follows the weather,
+  the hour, the day and the phone (envOf): each piece is hidden until its w- class is on.
 */
 const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="botBody" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff9e7a"/><stop offset="1" stop-color="#ff6640"/></linearGradient>'
   + '<radialGradient id="botShine" cx=".32" cy=".22" r=".55"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient></defs>'
   + '<g class="b-all">'
+  // behind 퍼레: what it holds high or that floats over it
   +   '<g class="acc umbrella"><path d="M86 66 L60 -6" stroke="#5b6470" stroke-width="2.4" stroke-linecap="round"/><path d="M86 66 q3 5 -2 6" fill="none" stroke="#5b6470" stroke-width="2.4" stroke-linecap="round"/>'
   +     '<path d="M24 6 C30 -16 84 -26 98 -2 Q90 -6 84 0 Q76 -8 68 -1 Q59 -8 50 1 Q41 -4 34 3 Q29 0 24 6Z" fill="#7cc4e8"/><path d="M61 -16 C58 -10 55 -3 50 1" fill="none" stroke="#5aa9d0" stroke-width="1.4"/></g>'
+  +   '<g class="acc balloon"><path d="M90 60 Q96 30 92 4" fill="none" stroke="#9aa0b4" stroke-width="1.2"/><path d="M92 6 C80 -2 80 -16 88 -16 C91 -16 92 -14 92 -12 C92 -14 93 -16 96 -16 C104 -16 104 -2 92 6Z" fill="#ff6f91"/><path d="M86 -11 q2 -3 4 -2" stroke="#fff" stroke-opacity=".7" stroke-width="1.4" fill="none" stroke-linecap="round"/></g>'
+  +   '<g class="acc storm"><path d="M30 -2 a10 10 0 0 1 14 -10 a12 12 0 0 1 22 2 a9 9 0 0 1 6 16 H34 a9 9 0 0 1 -4 -8z" fill="#8d93a8"/><path d="M52 6 l-4 8 h4 l-2 7 l7 -10 h-4 l3 -5z" fill="#ffd34d"/></g>'
   +   '<g class="b-arm l"><rect x="4" y="50" width="13" height="22" rx="6.5" fill="#ff7a55"/></g><g class="b-arm r"><rect x="83" y="50" width="13" height="22" rx="6.5" fill="#ff7a55"/></g>'
-  +   '<g class="b-antenna"><line x1="50" y1="20" x2="50" y2="8.5" stroke="#ff6640" stroke-width="4" stroke-linecap="round"/><circle class="b-bulb" cx="50" cy="7" r="5.2"/></g>'
+  +   '<g class="b-antenna"><line x1="50" y1="20" x2="50" y2="8.5" stroke="#ff6640" stroke-width="4" stroke-linecap="round"/><circle class="b-bulb" cx="50" cy="7" r="5.2"/>'
+  +     '<g class="acc flower"><circle cx="50" cy="1.5" r="3.4" fill="#ffb3c8"/><circle cx="55" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="53" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="47" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="45" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="50" cy="7" r="2.6" fill="#ffd36e"/></g></g>'
   +   '<g class="b-body"><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botBody)"/><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botShine)"/>'
+  +     '<g class="acc blanket"><path d="M11 60 Q50 52 89 60 L90 90 Q50 98 10 90Z" fill="#9fc8ff"/><g fill="#fff" opacity=".6"><circle cx="24" cy="70" r="2"/><circle cx="40" cy="78" r="2"/><circle cx="58" cy="70" r="2"/><circle cx="74" cy="80" r="2"/><circle cx="32" cy="86" r="2"/><circle cx="66" cy="88" r="2"/></g></g>'
   +     '<rect x="22" y="31" width="56" height="37" rx="18" fill="#fff" opacity=".97"/>'
+  +     '<g class="fx fx-gloom"><path d="M32 33 v7 M40 33 v9 M48 33 v6 M56 33 v9 M64 33 v7" stroke="#8f8fd6" stroke-width="1.6" stroke-linecap="round" opacity=".7"/></g>'
   +     '<g class="b-look"><g class="b-eye l" transform="translate(39 48)">' + EYE + '</g><g class="b-eye r" transform="translate(61 48) scale(-1 1)">' + EYE + '</g>'
   +       '<path class="b-mouth" d="M45.5 60 Q50 64.5 54.5 60"/><ellipse class="m-open" cx="50" cy="61.5" rx="3.6" ry="3.2"/><path class="m-frown" d="M45.5 63 Q50 58.5 54.5 63"/>'
   +       '<path class="m-wave" d="M43.5 61 q1.6 -2 3.2 0 t3.2 0 t3.2 0 t3.2 0"/><path class="m-chew" d="M46 60.5 Q50 63.5 54 60.5 Q50 61.8 46 60.5Z"/>'
-  +       '<g class="acc shades"><rect x="29" y="41" width="20" height="13" rx="5.5" fill="#23232e"/><rect x="51" y="41" width="20" height="13" rx="5.5" fill="#23232e"/><path d="M49 45 h2" stroke="#23232e" stroke-width="2"/><path d="M32 44 l5 -1.5" stroke="#fff" stroke-opacity=".5" stroke-width="1.6" stroke-linecap="round"/></g></g>'
+  +       '<path class="m-flat" d="M46 61 H54"/><path class="m-grin" d="M43.5 59 H56.5 Q56 66 50 66 Q44 66 43.5 59Z"/>'
+  +       '<g class="m-tongue"><path d="M45.5 60 Q50 64.5 54.5 60" fill="none"/><path d="M48.2 62.2 q0 4 2.4 4 q2.4 0 2.2 -4.6z" fill="#ff7c93"/></g>'
+  +       '<circle class="m-osm" cx="50" cy="61.5" r="1.9"/><path class="m-cat" d="M44.5 60 q2.75 3.2 5.5 0 q2.75 3.2 5.5 0"/>'
+  +       '<g class="m-teeth"><rect x="44" y="58.6" width="12" height="5.6" rx="2"/><path d="M44 61.4 H56 M48 58.6 V64.2 M52 58.6 V64.2"/></g>'
+  +       '<path class="m-pout" d="M48.5 59.5 q3 1.5 0 2.8 q3 1.4 0 2.8"/><path class="m-kiss" d="M49 59 q3 1.6 0 3 q3 1.6 0 3"/><path class="m-smirk" d="M46 61.5 Q51 62.5 55 58.8"/>'
+  +       '<g class="acc shades"><rect x="29" y="41" width="20" height="13" rx="5.5" fill="#23232e"/><rect x="51" y="41" width="20" height="13" rx="5.5" fill="#23232e"/><path d="M49 45 h2" stroke="#23232e" stroke-width="2"/><path d="M32 44 l5 -1.5" stroke="#fff" stroke-opacity=".5" stroke-width="1.6" stroke-linecap="round"/></g>'
+  +       '<g class="acc mask"><rect x="23" y="39" width="54" height="16" rx="8" fill="#5b6bbf"/><path d="M31 47 q4 3 8 0 M61 47 q4 3 8 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></g>'
+  +       '<g class="acc goggles"><path d="M20 34 H80" stroke="#7a5236" stroke-width="3.5"/><circle cx="38" cy="34" r="7.5" fill="#9fd7ff" stroke="#7a5236" stroke-width="2.4"/><circle cx="62" cy="34" r="7.5" fill="#9fd7ff" stroke="#7a5236" stroke-width="2.4"/><path d="M35 31 l3 -2 M59 31 l3 -2" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></g></g>'
   +     '<circle class="b-cheek" cx="28.5" cy="60" r="4.6"/><circle class="b-cheek" cx="71.5" cy="60" r="4.6"/>'
+  +     '<g class="fx fx-blush"><path d="M24 58 l-2 4 M28 58 l-2 4 M32 58 l-2 4 M68 58 l-2 4 M72 58 l-2 4 M76 58 l-2 4" stroke="#ff7c93" stroke-width="1.5" stroke-linecap="round"/></g>'
+  +     '<g class="fx fx-stream"><rect x="36.5" y="54" width="5" height="16" rx="2.5" fill="#8fd3ff" opacity=".85"/><rect x="58.5" y="54" width="5" height="16" rx="2.5" fill="#8fd3ff" opacity=".85"/></g>'
+  +     '<path class="fx fx-kiss" d="M64 58 c-3 -2 -3 -5 -1 -5 c.8 0 1 .6 1 1 c0 -.4 .2 -1 1 -1 c2 0 2 3 -1 5z" fill="#ff6f91"/>'
   +     '<g class="acc scarf"><path d="M16 73 Q50 86 84 73 L85 81 Q50 94 15 81Z" fill="#6f9fe8"/><path d="M15 77 Q50 89 85 77" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="1.6" stroke-dasharray="3 3"/><rect x="62" y="80" width="10" height="17" rx="3.5" fill="#5d8bd6"/></g>'
+  +     '<g class="acc bib"><path d="M31 69 Q50 80 69 69 L66 82 Q50 92 34 82Z" fill="#fff"/><path d="M50 81 c-3 -2 -3 -5 -1 -5 c.8 0 1 .6 1 1 c0 -.4 .2 -1 1 -1 c2 0 2 3 -1 5z" fill="#ff8fa3"/></g>'
+  +     '<g class="acc book"><path d="M28 72 L50 76 L72 72 L72 88 L50 92 L28 88Z" fill="#fff" stroke="#7aa0d6" stroke-width="1.4"/><path d="M50 76 V92 M33 77 l13 2.5 M33 81 l13 2.5 M54 79 l13 -2.5 M54 83 l13 -2.5" stroke="#b9c9e6" stroke-width="1.1"/></g>'
   +   '</g>'
+  // on its head
   +   '<g class="acc cap"><path d="M20 30 C22 6 56 -6 84 2 C74 6 70 12 72 22 C58 16 36 18 20 30Z" fill="#8f7cf0"/><path d="M20 30 C36 20 58 18 76 24" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/><circle cx="86" cy="3" r="5.5" fill="#fff"/></g>'
+  +   '<g class="acc santa"><path d="M20 30 C22 6 56 -6 84 2 C74 6 70 12 72 22 C58 16 36 18 20 30Z" fill="#e5383b"/><path d="M20 30 C36 20 58 18 76 24" fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round"/><circle cx="86" cy="3" r="5.5" fill="#fff"/></g>'
+  +   '<g class="acc beanie"><path d="M17 31 C18 6 82 6 83 31Z" fill="#e8737a"/><rect x="15" y="25" width="70" height="9" rx="4.5" fill="#f3a5a5"/><path d="M30 12 v12 M42 8 v16 M58 8 v16 M70 12 v12" stroke="#d9606a" stroke-width="1.4"/><circle cx="50" cy="6" r="6.5" fill="#fff"/></g>'
+  +   '<g class="acc hood"><path d="M9 54 C6 4 94 4 91 54 C86 36 72 29 50 29 C28 29 14 36 9 54Z" fill="#ffd23f"/><path d="M50 4 V29" stroke="#e8b923" stroke-width="1.4"/></g>'
+  +   '<g class="acc straw"><path d="M30 24 C30 6 70 6 70 24Z" fill="#e8b84f"/><rect x="30" y="18" width="40" height="5" fill="#e3646a"/><ellipse cx="50" cy="24" rx="41" ry="7.5" fill="#f2c869"/><path d="M14 24 Q50 30 86 24" stroke="#d9a63e" stroke-width="1" fill="none"/></g>'
+  +   '<g class="acc party"><path d="M50 -14 L36 24 Q50 28 64 24Z" fill="#7ad3c8"/><path d="M45 0 L58 8 M41 11 L61 19" stroke="#fff" stroke-width="2.4"/><circle cx="50" cy="-14" r="4" fill="#ffd36e"/><path d="M38 24 Q50 30 62 24" stroke="#3aa597" stroke-width="2" fill="none"/></g>'
+  +   '<g class="acc muffs"><path d="M15 46 C13 10 87 10 85 46" fill="none" stroke="#c98bff" stroke-width="4" stroke-linecap="round"/><circle cx="12" cy="48" r="9" fill="#f4c6ff"/><circle cx="88" cy="48" r="9" fill="#f4c6ff"/></g>'
+  +   '<g class="acc snowtop"><path d="M22 23 Q28 11 39 17 Q48 8 58 16 Q69 9 78 21 Q68 25 50 24 Q32 25 22 23Z" fill="#fff"/><circle cx="34" cy="17" r="1.4" fill="#dbe8ff"/><circle cx="62" cy="14" r="1.4" fill="#dbe8ff"/></g>'
+  +   '<path class="acc leaf" d="M70 14 l3 -5 l2 4 l4 -2 l-1 5 l5 1 l-4 3 l2 4 l-5 -1 l-2 5 l-2 -5 l-4 2 l1 -5 l-4 -2 z" fill="#f08a3c"/>'
   +   '<g class="acc phones"><path d="M14 50 C12 14 88 14 86 50" fill="none" stroke="#3b3f52" stroke-width="5" stroke-linecap="round"/><rect x="5" y="40" width="13" height="22" rx="6" fill="#3b3f52"/><rect x="82" y="40" width="13" height="22" rx="6" fill="#3b3f52"/></g>'
+  // in its hands, beside it
+  +   '<g class="acc handfan"><g class="fan-blade"><path d="M92 50 L80 30 A22 22 0 0 1 104 30 Z" fill="#7ad3c8"/><path d="M92 50 L86 28 M92 50 L92 27 M92 50 L98 28" stroke="#fff" stroke-width="1.2"/></g></g>'
+  +   '<g class="acc icecream"><path d="M4 50 L10 66 L16 50Z" fill="#e3a857"/><path d="M5 52 l9 0 M7 57 l6 0" stroke="#c98a3c" stroke-width="1"/><circle cx="10" cy="46" r="6.5" fill="#ffc3d8"/><circle cx="10" cy="39" r="5" fill="#bfe6c9"/></g>'
+  +   '<g class="acc coffee"><rect x="0" y="56" width="13" height="13" rx="3" fill="#fff" stroke="#c7b8a8" stroke-width="1.2"/><path d="M13 59 q5 0 5 3.5 q0 3.5 -5 3.5" fill="none" stroke="#c7b8a8" stroke-width="1.6"/><path class="steam" d="M4 52 q-2 -3 0 -6 M9 52 q-2 -3 0 -6" stroke="#c9cbd6" stroke-width="1.3" fill="none" stroke-linecap="round"/></g>'
+  +   '<g class="acc lunch"><path d="M-2 62 H20 Q19 74 9 74 Q-1 74 -2 62Z" fill="#7aa0d6"/><ellipse cx="9" cy="62" rx="11" ry="3" fill="#fff"/><path d="M15 50 L20 66" stroke="#b9bccb" stroke-width="2" stroke-linecap="round"/></g>'
+  +   '<g class="acc pumpkin"><ellipse cx="92" cy="80" rx="10" ry="8" fill="#ff9b3d"/><path d="M86 74 q-2 6 0 12 M98 74 q2 6 0 12 M92 72 v16" stroke="#e07b1c" stroke-width="1.2" fill="none"/><path d="M92 72 q1 -5 4 -6" stroke="#5c8a3a" stroke-width="2" fill="none" stroke-linecap="round"/></g>'
+  +   '<g class="acc luckybag"><path d="M0 70 Q-2 84 10 86 Q22 84 20 70 Q14 66 10 66 Q6 66 0 70Z" fill="#e5383b"/><path d="M3 68 Q10 72 17 68" stroke="#ffd36e" stroke-width="2" fill="none"/><circle cx="10" cy="78" r="3" fill="#ffd36e"/></g>'
   +   '<path class="acc bolt" d="M90 12 l-7 11 h5.5 l-3 10 l9 -13 h-5.5 l3.5 -8z" fill="#ffd34d" stroke="#e0a800" stroke-width=".8" stroke-linejoin="round"/>'
   +   '<path class="acc sweat" d="M84 26 q5 7 0 10.5 q-5 -3.5 0 -10.5z" fill="#8fd3ff"/>'
   +   '<g class="acc notes"><text class="note n1" x="88" y="22">♪</text><text class="note n2" x="2" y="30">♫</text></g>'
   +   '<text class="acc q" x="82" y="14">?</text>'
   +   '<g class="acc cookie"><circle cx="50" cy="75" r="7" fill="#d9a066"/><circle cx="47.5" cy="73" r="1.2" fill="#6b4226"/><circle cx="52.5" cy="76.5" r="1.2" fill="#6b4226"/><circle cx="51.5" cy="72" r="1" fill="#6b4226"/></g>'
+  // a face's effects outside the face
+  +   '<g class="fx fx-anger"><path d="M78 18 q3 3 6 0 M86 20 q-3 3 0 6 M84 28 q-3 -3 -6 0 M76 26 q3 -3 0 -6" stroke="#ff4d5e" stroke-width="2.2" fill="none" stroke-linecap="round"/></g>'
+  +   '<path class="fx fx-sweat2" d="M18 28 q5 7 0 10.5 q-5 -3.5 0 -10.5z" fill="#8fd3ff"/>'
+  +   '<text class="fx fx-bang" x="80" y="16">!</text><text class="fx fx-q2" x="80" y="16">?</text>'
+  +   '<g class="fx fx-steam"><circle cx="8" cy="22" r="5" fill="#fff" opacity=".75"/><circle cx="3" cy="16" r="3.5" fill="#fff" opacity=".6"/><circle cx="92" cy="22" r="5" fill="#fff" opacity=".75"/><circle cx="97" cy="16" r="3.5" fill="#fff" opacity=".6"/></g>'
+  +   '<g class="fx fx-notes"><text x="74" y="62">♪</text><text x="84" y="50">♫</text></g>'
   + '</g></svg>';
 
 function makeBoard(slot) {
@@ -211,11 +255,12 @@ const OWN = {
 function ownLines() {
   const h = new Date().getHours();
   const part = h < 5 ? "dawn" : h < 11 ? "morning" : h < 14 ? "lunch" : h < 18 ? "afternoon" : h < 22 ? "evening" : "night";
-  return OWN[part].concat(["두 번 톡 치면 저랑 대화해요"]);
+  // No how-to lines (준: "두 번 톡 치면 저랑 대화해요 같은 공지성 메세지 안 띄우기", "작동기능은 이미 내가 알고 있는데 굳이").
+  return OWN[part].slice();
 }
 function say(b) {
   const k = info || {}, theirs = Array.isArray(k.lines) && k.lines.length ? k.lines.slice() : null;
-  const lines = theirs ? theirs.concat(["두 번 톡 치면 저랑 대화해요"]) : ownLines();
+  const lines = theirs || ownLines();
   b._used = b._used && b._usedFor === lines.join("|") ? b._used : new Set(); b._usedFor = lines.join("|");
   let left = lines.filter(l => !b._used.has(l)); if (!left.length) { b._used.clear(); left = lines.slice(); }
   const pick = left[Math.floor(Math.random() * left.length)]; b._used.add(pick);
@@ -367,7 +412,7 @@ function nextLine(k, prev, opened) {
     if (min >= 0 && min <= 15) lines.push({key: "soon15:" + n.title + n.begin, text: (min <= 1 ? "곧" : min + "분 뒤") + " ‘" + n.title + "’예요" + (n.place ? " · " + n.place : ""), go: "calendar", feel: "surprised"});
   }
   if (opened) {
-    const own = Array.isArray(k.lines) && k.lines.length ? k.lines : ownLines().slice(0, -1);
+    const own = Array.isArray(k.lines) && k.lines.length ? k.lines : ownLines();
     for (const t of own) lines.push({key: "line:" + today() + ":" + t, text: t, go: "", feel: "happy"});
   }
   return lines.find(l => !said(l.key)) || null;
@@ -406,11 +451,50 @@ setTimeout(() => talk(true), 2200);
   then a small act of its own (a tilt, a stretch, a wiggle of the antenna, a look around). Its mood follows the day:
   thinking while 퍼레 works, surprised at a new notice, asleep late at night; a feeling (happy, love) wins for a moment.
 */
-const FEELS = ["happy", "love", "surprised", "sleepy", "thinking", "sad", "dizzy", "yum", "yawn", "wink", "laugh", "shy", "full", "blow"];
+/*
+  퍼레's faces (준: "표정 움직임 너무 부족", "3배로 늘려줘"): each an eye, a mouth, brows and effects ("eye mouth brow fx …"),
+  shown by data attributes on the svg (board.css). The old names stay (happy, love, sleepy …) and many more join them.
+*/
+const FACES = {
+  happy: "arc smile none cheeks", laugh: "arc big none cheeks", wink: "wink smile", love: "heart smile none cheeks", surprised: "o osm",
+  shock: "wide open none bang", sad: "small frown sad", teary: "small wave sad tears glint", cry: "shut open sad stream", dizzy: "dz wave",
+  yum: "arc chew none cheeks", full: "arc wave", yawn: "shut yawn", drowsy: "half flat", sleepy: "shut none", shy: "small smile none blush cheeks",
+  thinking: "pill flat", blow: "pill osm none cheeks", angry: "pill teeth angry anger", fume: "sq flat angry steam", proud: "u smile none cheeks",
+  relief: "u smile none sweat2", content: "u cat none cheeks", cheeky: "wink tongue", kiss: "shut kiss none kiss blush", excited: "wide osm none glint",
+  curious: "wide flat none q2", suspicious: "line smirk", blank: "dot flat", dazed: "dot osm", meh: "line flat", annoyed: "line teeth angry",
+  nervous: "small teeth none sweat2", flustered: "wide wave none sweat2 blush", moved: "pill wave sad tears glint", determined: "pill flat angry",
+  thrilled: "sq grin none cheeks", smug: "half smirk", sorry: "u frown sad sweat2", ko: "x wave", ouch: "sq teeth", smitten: "heart cat none blush",
+  sneaky: "half smirk none sweat2", gloomy: "small flat sad gloom", idea: "wide osm none bang glow", sing: "u osm none notes", joyful: "arc big none tears cheeks",
+  pout: "small pout angry", giggle: "arc cat none cheeks", amazed: "wide big none glint", sparkly: "pill smile none glint cheeks", grumpy: "line frown angry"
+};
+const FEELS = Object.keys(FACES);
+/** Motions 퍼레 makes on its own (a class on .buddy for ms, with a face): see board.css "motions, more". */
+const MOTIONS = [
+  ["bounce", 1000, "happy"], ["jumpturn", 1100, "thrilled"], ["backflip", 1100, "excited"], ["frontflip", 1100, "excited"], ["hula", 3100, "sing"],
+  ["moonwalk", 2100, "smug"], ["robot", 1700, "blank"], ["headbang", 2100, "thrilled"], ["clap", 1900, "happy"], ["salute", 1700, "proud"],
+  ["point", 1500, "idea"], ["flex", 1700, "proud"], ["shrug", 1300, "meh"], ["facepalm", 1900, "sorry"], ["thinker", 2100, "curious"],
+  ["cheer", 2100, "laugh"], ["boxing", 2100, "determined"], ["swim", 2500, "content"], ["airplane", 2300, "excited"], ["jelly", 1000, "giggle"],
+  ["sneeze", 1300, "ouch"], ["hiccup", 1700, "dazed"], ["bow", 1700, "content"], ["hide", 2100, "shy"], ["ninja", 1500, "sneaky"],
+  ["tiptoe", 2500, "sneaky"], ["skip", 2300, "happy"], ["roll", 1300, "dizzy"], ["tornado", 1500, "dizzy"], ["float", 3100, "content"],
+  ["melt", 2500, "drowsy"], ["tall", 1700, "proud"], ["yoga", 3100, "relief"], ["jacks", 2600, "determined"], ["chop", 1000, "fume"],
+  ["wavehands", 1500, "happy"], ["twirl", 2100, "giggle"], ["droop", 2300, "gloomy"], ["perk", 800, "surprised"], ["tremble", 1600, "nervous"],
+  ["victory", 1300, "proud"], ["slide", 1700, "cheeky"], ["zoom", 1000, "amazed"], ["boing", 600, "sparkly"], ["rock", 3100, "sing"],
+  ["leanin", 1700, "curious"], ["tumble", 1900, "ko"], ["doubletake", 1200, "shock"], ["blinkfast", 900, "flustered"]
+];
+/** Faces it pulls on its own now and then: [face, motion, gaze]. */
+const IDLE_FACES = [["curious", "tilt", [5, -3]], ["smug"], ["giggle", "jelly"], ["sing", "rock"], ["content"], ["sparkly", "boing"], ["thinking", "", [4, -4.5]],
+  ["cheeky", "wiggle"], ["meh"], ["proud", "tall"], ["dazed"], ["excited", "bounce"], ["suspicious", "", [-6, 0]], ["idea", "perk"], ["blank"], ["pout"]];
+/** The face named (or the plain one): its eye, mouth, brows and effects on the svg. */
+function applyFace(svg, name) {
+  const f = (FACES[name] || "").split(" ");
+  const set = (k, v) => { if (v && v !== "none" && v !== "pill") svg.dataset[k] = v; else delete svg.dataset[k]; };
+  set("eye", f[0]); set("mouth", f[1]); set("brow", f[2]);
+  const fx = f.slice(3).join(" "); if (fx) svg.dataset.fx = fx; else delete svg.dataset.fx;
+}
 function alive(b) {
   const svg = $(b, ".bot"), look = $(b, ".b-look"), buddy = $(b, ".buddy"), rnd = (a, z) => a + Math.random() * (z - a);
   let mood = "", feeling = "", feelTimer = 0;
-  const show = () => { svg.classList.remove(...FEELS); const m = feeling || mood; if (m) svg.classList.add(m); buddy.classList.toggle("asleep", m === "sleepy"); };
+  const show = () => { svg.classList.remove(...FEELS); const m = feeling || mood; if (m) svg.classList.add(m); applyFace(svg, m); buddy.classList.toggle("asleep", m === "sleepy"); };
   const gaze = (x, y, ms) => { look.style.transition = "transform " + (ms || 320) + "ms cubic-bezier(.3,.7,.3,1)"; look.style.transform = "translate(" + x.toFixed(1) + "px," + y.toFixed(1) + "px)"; };
   b._feel = (what, ms) => { feeling = what; show(); clearTimeout(feelTimer); feelTimer = setTimeout(() => { feeling = ""; show(); }, ms || 1500); };
   b._mood = what => { if (what !== mood) { mood = what; show(); if (what === "thinking") gaze(4.5, -4.5, 500); else if (what === "sleepy") gaze(0, 1.5, 900); else gaze(0, 0, 500); } };
@@ -437,7 +521,7 @@ function alive(b) {
   */
   const act = () => {
     if (!document.hidden && !feeling && mood !== "sleepy" && !buddy.classList.contains("hop") && !buddy.classList.contains("dance")) {
-      const e = b._env || {}, h = new Date().getHours(), opts = ["tilt", "stretch", "wiggle", "around", "wave", "nod"];
+      const e = b._env || {}, h = new Date().getHours(), opts = ["tilt", "stretch", "wiggle", "around", "wave", "nod", "face", "face", "face", "motion", "motion", "motion", "motion"];
       if (e.music) opts.push("dance", "dance", "dance", "dance");
       if (e.hungry) opts.push("rumble", "rumble");
       if (e.charging) opts.push("munch", "munch");
@@ -449,7 +533,9 @@ function alive(b) {
       if (e.heart != null && e.heart < 35) opts.push("sulk", "sulk");
       if (h >= 22 || h < 7) opts.push("yawn", "yawn");
       const kind = opts[Math.floor(Math.random() * opts.length)];
-      if (kind === "around") { gaze(-6.5, 0, 380); setTimeout(() => gaze(6.5, 0, 520), 700); setTimeout(() => gaze(0, 0, 400), 1500); }
+      if (kind === "face") { const f = IDLE_FACES[Math.floor(Math.random() * IDLE_FACES.length)]; b._feel(f[0], 1800); if (f[1]) move(b, f[1], 1400); if (f[2]) gaze(f[2][0], f[2][1], 400); }
+      else if (kind === "motion") { const m = MOTIONS[Math.floor(Math.random() * MOTIONS.length)]; move(b, m[0], m[1]); if (m[2]) b._feel(m[2], m[1]); }
+      else if (kind === "around") { gaze(-6.5, 0, 380); setTimeout(() => gaze(6.5, 0, 520), 700); setTimeout(() => gaze(0, 0, 400), 1500); }
       else if (kind === "dance") { move(b, "dance", 4800); b._feel("happy", 4800); }
       else if (kind === "rumble") { move(b, "rumble", 1100); b._feel("sad", 1900); }
       else if (kind === "munch") b._feel("yum", 1800);
@@ -510,13 +596,29 @@ function envOf(b, k) {
   const sunny = code != null && code <= 1 && w.day !== false && temp != null && temp >= 24;
   const hungry = e.battery != null && e.battery <= 20 && !e.charging;
   b._env = {music: !!e.music, phones: !!e.phones, charging: !!e.charging, hungry, cold, hot, heat, rain, snow, offline: !!e.offline, heart: life.heart, night, battery: e.battery, roomFree: e.roomFree, silent: !!e.silent, save: !!e.powerSave, dnd: !!e.dnd, airplane: !!e.airplane};
-  const wear = [];
-  if (night) wear.push("cap");
-  if (rain) wear.push("umbrella");
-  if (e.music && e.phones && wear.length < 2) wear.push("phones");
-  if (cold && wear.length < 2) wear.push("scarf");
-  if (sunny && !night && wear.length < 2) wear.push("shades");
-  ["cap", "umbrella", "phones", "scarf", "shades"].forEach(x => svg.classList.toggle("w-" + x, wear.includes(x)));
+  /*
+    What it wears, one thing per place (head, face, neck, hand, body), from the weather, the hour, the season and the day, and
+    from the phone (준: "3배로 늘려줘" for 차림): a nightcap at night, a Santa hat in late December, a beanie or earmuffs in the cold,
+    a rain hood in drizzle and an umbrella in rain, a straw hat or sunglasses in hot sun, a party hat on Saturdays, a flower in
+    spring, a leaf in autumn, snow on its head when it snows; a sleep mask in do-not-disturb, goggles in airplane mode; a bib
+    while it charges (eats), a scarf in the cold; a coffee in the morning, lunch at noon, an ice cream or a fan in the heat, a
+    book in the evening, a pumpkin at Halloween, a lucky bag at New Year; a blanket in power saving; a heart balloon when it
+    is very fond of the user; a storm cloud in thunder.
+  */
+  const d = new Date(), month = d.getMonth() + 1, date = d.getDate(), day = d.getDay(), minutes = h * 60 + d.getMinutes();
+  const drizzle = code != null && code >= 51 && code <= 57, storm = code != null && code >= 95, freezing = temp != null && temp <= 0, scorching = temp != null && temp >= 30;
+  const head = night ? (month === 12 && date >= 20 ? "santa" : "cap") : e.music && e.phones ? "phones" : month === 12 && date >= 20 ? "santa"
+    : snow ? "snowtop" : freezing ? "beanie" : cold ? "muffs" : drizzle ? "hood" : rain ? "" : hot && sunny ? "straw" : day === 6 ? "party"
+    : month >= 3 && month <= 5 ? "flower" : month >= 9 && month <= 11 ? "leaf" : "";
+  const face = e.dnd ? "mask" : e.airplane ? "goggles" : sunny && !night && head !== "straw" ? "shades" : "";
+  const neck = e.charging ? "bib" : cold ? "scarf" : "";
+  const hand = rain && !drizzle ? "umbrella" : night ? "" : month === 10 && date >= 25 ? "pumpkin" : month === 1 && date <= 3 ? "luckybag"
+    : scorching ? (h >= 12 && h < 17 ? "icecream" : "handfan") : hot ? "handfan" : minutes >= 6 * 60 + 30 && minutes < 10 * 60 ? "coffee"
+    : minutes >= 11 * 60 + 40 && minutes < 13 * 60 + 20 ? "lunch" : h >= 20 && h < 23 ? "book" : (life.heart || 0) >= 90 ? "balloon" : "";
+  const body = e.powerSave ? "blanket" : "";
+  const wear = [head, face, neck, hand, body, storm ? "storm" : ""].filter(Boolean);
+  ["cap", "umbrella", "phones", "scarf", "shades", "santa", "beanie", "muffs", "hood", "straw", "party", "flower", "leaf", "snowtop", "mask", "goggles", "bib",
+   "pumpkin", "luckybag", "icecream", "handfan", "coffee", "lunch", "book", "balloon", "blanket", "storm"].forEach(x => svg.classList.toggle("w-" + x, wear.includes(x)));
   svg.classList.toggle("w-bolt", !!e.charging); svg.classList.toggle("w-sweat", hot && !night);
   svg.classList.toggle("w-notes", !!e.music); svg.classList.toggle("w-q", !!e.offline);
   svg.classList.toggle("w-save", !!e.powerSave); svg.classList.toggle("w-dnd", !!e.dnd);
@@ -685,19 +787,57 @@ function roam(b) {
     jump: end => { move(b, "hop", 760); setTimeout(() => move(b, "hop", 760), 800); feel("happy", 1700); setTimeout(end, 1700); },
     dance: end => { move(b, "dance", 3600); feel("happy", 3600); setTimeout(end, 3700); },
     spin: end => { move(b, "spin", 950); feel("laugh", 1300); setTimeout(end, 1100); },
-    nap: end => { buddy.classList.add("nap"); feel("yawn", 1500); setTimeout(() => { if (b._mood) b._mood("sleepy"); }, 1500); setTimeout(() => { buddy.classList.remove("nap"); if (b._mood) b._mood(""); move(b, "stretch", 1300); end(); }, 6500); }
+    nap: end => { buddy.classList.add("nap"); feel("yawn", 1500); setTimeout(() => { if (b._mood) b._mood("sleepy"); }, 1500); setTimeout(() => { buddy.classList.remove("nap"); if (b._mood) b._mood(""); move(b, "stretch", 1300); end(); }, 6500); },
+    // more plays (준: "혼자놀기도 늘려"): a motion or two with a face, some with a toy or a thing to hold
+    boxing: end => seq(end, [["boxing", 2100, "determined"], ["victory", 1300, "proud"]]),
+    airplane: end => { const r = room(); feel("excited", 2400); buddy.classList.add("airplane"); walk(x - 50 < r.min ? 0 : Math.round(rnd(r.min, x - 30)), Math.round(rnd(r.up, r.down)), () => { buddy.classList.remove("airplane"); end(); }); },
+    swim: end => seq(end, [["swim", 2500, "content"], ["float", 3100, "relief"]]),
+    moonwalk: end => seq(end, [["moonwalk", 2100, "smug"], ["salute", 1700, "proud"]]),
+    robotdance: end => seq(end, [["robot", 1700, "blank"], ["robot", 1700, "blank"], ["boing", 600, "sparkly"]]),
+    karate: end => seq(end, [["chop", 1000, "fume"], ["chop", 1000, "fume"], ["bow", 1700, "content"]]),
+    yoga: end => seq(end, [["yoga", 3100, "relief"], ["float", 3100, "content"]]),
+    jacks: end => seq(end, [["jacks", 2600, "determined"], ["flex", 1700, "proud"]]),
+    cheerleader: end => seq(end, [["cheer", 2100, "laugh"], ["jumpturn", 1100, "thrilled"]]),
+    hula: end => seq(end, [["hula", 3100, "sing"]]),
+    rockstar: end => seq(end, [["headbang", 2100, "thrilled"], ["victory", 1300, "proud"]]),
+    magic: end => seq(end, [["zoom", 1000, "amazed"], ["boing", 600, "sparkly"], ["bow", 1700, "proud"]]),
+    ninja: end => { feel("sneaky", 1600); buddy.classList.add("ninja"); const r = room(); walk(Math.round(rnd(r.min, 0)), y, () => { buddy.classList.remove("ninja"); move(b, "hide", 2100); feel("shy", 2100); setTimeout(end, 2200); }, "tiptoe-walk"); },
+    hideseek: end => seq(end, [["hide", 2100, "shy"], ["doubletake", 1200, "shock"], ["giggle", 0, "giggle"]]),
+    skipping: end => { const r = room(); feel("happy", 2600); walk(Math.round(rnd(r.min, 0)), Math.round(rnd(r.up, r.down)), end, "skipping"); },
+    rolling: end => { const r = room(); feel("dizzy", 1800); walk(x - 40 < r.min ? Math.min(0, x + 50) : x - 50, y, () => { feel("ko", 1000); setTimeout(end, 1000); }, "rolling"); },
+    tornado: end => seq(end, [["tornado", 1500, "dizzy"], ["tremble", 1600, "dazed"]]),
+    balloon: end => { const svg = $(b, ".bot"); svg.classList.add("w-balloon"); move(b, "float", 3100); feel("content", 3100); setTimeout(() => { svg.classList.remove("w-balloon"); envOf(b, info); end(); }, 3200); },
+    juggling: end => { toy("jball b1", "", 3600); toy("jball b2", "", 3600); toy("jball b3", "", 3600); feel("determined", 3600); const t = setInterval(() => gazeTo(rnd(-4, 4), -4), 300); setTimeout(() => { clearInterval(t); gazeTo(0, 0); feel("proud", 1200); move(b, "bow", 1700); end(); }, 3700); },
+    paperplane: end => { move(b, "point", 1500); feel("excited", 2500); setTimeout(() => { toy("plane", "", 2500); gazeTo(-6.5, -3); }, 600); setTimeout(() => { gazeTo(0, 0); end(); }, 3000); },
+    kite: end => { toy("kite", "", 4600); feel("happy", 4600); move(b, "point", 1500); gazeTo(-4, -5); setTimeout(() => { gazeTo(0, 0); end(); }, 4600); },
+    gum: end => { feel("blow", 2300); toy("gum", "", 2500); setTimeout(() => { feel("shock", 900); move(b, "doubletake", 1200); }, 1900); setTimeout(end, 3000); },
+    meditate: end => { feel("relief", 3100); move(b, "float", 3100); setTimeout(() => { feel("content", 1200); end(); }, 3200); },
+    singsong: end => seq(end, [["rock", 3100, "sing"], ["bow", 1700, "content"]]),
+    reading: end => { const svg = $(b, ".bot"); svg.classList.add("w-book"); feel("content", 4000); gazeTo(0, 3.5); setTimeout(() => move(b, "nod", 900), 2000); setTimeout(() => { svg.classList.remove("w-book"); envOf(b, info); gazeTo(0, 0); end(); }, 4200); },
+    coffeebreak: end => { const svg = $(b, ".bot"); svg.classList.add("w-coffee"); feel("relief", 3500); setTimeout(() => feel("content", 1500), 1800); setTimeout(() => { svg.classList.remove("w-coffee"); envOf(b, info); end(); }, 3600); },
+    cloudwatch: end => { gazeTo(-3, -5); feel("curious", 3000); setTimeout(() => gazeTo(4, -5), 1400); setTimeout(() => { gazeTo(0, 0); feel("idea", 1200); move(b, "perk", 800); end(); }, 3000); },
+    tumbling: end => seq(end, [["tumble", 1900, "ko"], ["shake", 800, "dazed"], ["boing", 600, "relief"]]),
+    sneezing: end => seq(end, [["sneeze", 1300, "ouch"], ["hiccup", 1700, "dazed"]]),
+    melting: end => seq(end, [["melt", 2500, "drowsy"], ["tall", 1700, "proud"]]),
+    clapping: end => seq(end, [["clap", 1900, "happy"], ["bounce", 1000, "laugh"]])
+  };
+  // A few motions in a row, each with its face.
+  const seq = (end, steps) => {
+    let at = 0;
+    const next = () => { if (at >= steps.length) { end(); return; } const [m, ms, f] = steps[at++]; if (f) feel(f, Math.max(ms, 900)); if (ms) move(b, m, ms); setTimeout(next, (ms || 900) + 120); };
+    next();
   };
   const play = () => {
     if (playing || busy()) return;
-    const h = new Date().getHours(), e = b._env || {}, kinds = ["ball", "butterfly", "bubbles", "cartwheel", "handstand", "peek", "exercise", "clock", "jump", "dance", "spin"];
+    const h = new Date().getHours(), e = b._env || {}, kinds = Object.keys(PLAYS).filter(k => k !== "nap");
     if (h >= 21 || h < 1 || e.save) kinds.push("nap", "nap");
-    if (e.rain) kinds.splice(kinds.indexOf("butterfly"), 1);
+    if (e.rain) ["butterfly", "kite", "paperplane", "cloudwatch"].forEach(k => kinds.splice(kinds.indexOf(k), 1));
     const kind = kinds[Math.floor(Math.random() * kinds.length)];
     playing = true;
     const r = room(), here = () => { try { PLAYS[kind](() => { playing = false; }); } catch (err) { playing = false; } };
     // Most plays start somewhere new in the room.
-    if (Math.random() < .7 && kind !== "peek" && kind !== "clock" && r.min < -20) walk(Math.round(rnd(r.min, 0)), Math.round(rnd(r.up, r.down)), here); else here();
-    setTimeout(() => { playing = false; }, 12000);
+    if (Math.random() < .7 && !["peek", "clock", "airplane", "ninja", "skipping", "rolling", "cartwheel"].includes(kind) && r.min < -20) walk(Math.round(rnd(r.min, 0)), Math.round(rnd(r.up, r.down)), here); else here();
+    setTimeout(() => { playing = false; }, 16000);
   };
   const tick = () => { play(); setTimeout(tick, rnd(9000, 17000)); };
   setTimeout(tick, rnd(5000, 9000));
@@ -705,6 +845,8 @@ function roam(b) {
   b._home = () => { if (x || y) { x = 0; y = 0; place(400); } };
   // One play by name, now (for a look at it; the home screen never calls it).
   b._play = kind => { if (PLAYS[kind] && !playing) { playing = true; PLAYS[kind](() => { playing = false; }); } };
+  b._playNames = () => Object.keys(PLAYS);
+  b._playNow = (kind, done) => PLAYS[kind](done || (() => {}));
   b._walk = (nx, ny) => walk(nx, ny);
   addEventListener("resize", () => b._home());
 }

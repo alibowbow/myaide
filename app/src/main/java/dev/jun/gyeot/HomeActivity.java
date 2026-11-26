@@ -491,13 +491,23 @@ public final class HomeActivity extends Activity {
             if (question == null || question.isBlank() || question.length() > 4000) return;
             AppStore store = ((GyeotApp) getApplication()).store();
             // 퍼레's brain (BuddyTalk.brain): Groq's Qwen unless the user chose NVIDIA; the other when the chosen one is not connected.
+            boolean custom = BuddyTalk.CUSTOM.equals(BuddyTalk.brain(HomeActivity.this)) && !BuddyTalk.customLabel(store).isEmpty();
             boolean qwen = GroqWork.on() && !BuddyTalk.NIM.equals(BuddyTalk.brain(HomeActivity.this));
-            if (!qwen && !store.nim.connected()) { js("launcher.replyError(" + JSONObject.quote("퍼레의 두뇌가 아직 연결되지 않았어요. 설정 → AI 연결에서 Groq나 NVIDIA 키를 넣으면 여기서 바로 답해요.") + ",\"settings\")"); return; }
+            if (!custom && !qwen && !store.nim.connected()) { js("launcher.replyError(" + JSONObject.quote("퍼레의 두뇌가 아직 연결되지 않았어요. 설정 → AI 연결에서 Groq나 NVIDIA 키를 넣으면 여기서 바로 답해요.") + ",\"settings\")"); return; }
             Runnable old = chatCancel.getAndSet(null); if (old != null) try { old.run(); } catch (RuntimeException ignored) {}
             long ticket = ++chatTicket;
             Thread t = new Thread(() -> {
                 AtomicReference<Runnable> cancel = new AtomicReference<>(); chatCancel.set(() -> { Runnable r = cancel.get(); if (r != null) r.run(); });
                 try {
+                    if (custom) {
+                        // The AI the user chose for 퍼레 (화면 꾸미기 → 퍼레 두뇌); when it cannot answer, Qwen or NVIDIA below.
+                        try {
+                            String text = BuddyTalk.askCustom(store, chatInstructions(store), chatInput(history, question.strip()), cancel);
+                            if (ticket == chatTicket) js("launcher.reply(" + JSONObject.quote(text.replaceAll("(?s)<think>.*?</think>", "").strip()) + ")");
+                            return;
+                        } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
+                        catch (Exception unavailable) { if (ticket != chatTicket) return; if (!qwen && !store.nim.connected()) throw unavailable; }
+                    }
                     if (qwen) {
                         String model = BuddyTalk.qwen(store), in = chatInput(history, question.strip()), text;
                         JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", in));

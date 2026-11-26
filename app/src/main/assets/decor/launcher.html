@@ -366,6 +366,9 @@ body.liquid .clock{margin:6px 0 4px}
   the clock behind a hairline, big enough to read at a glance. On a narrow screen (a foldable's cover) the weather sits under it.
 */
 body.liquid .hero{align-items:flex-start;gap:14px}
+/* 퍼레 a little in from the screen's edge, clear of the edge handle (a touch there started the voice assistant). */
+.launcher .hero{padding-right:12px}
+.launcher .care-btn{right:14px}.launcher .care{right:12px}
 body.liquid .when{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-areas:"date date" "clock weather";align-items:center;column-gap:28px}
 body.liquid .when .date{grid-area:date}
 body.liquid .when .clock{grid-area:clock}
@@ -997,7 +1000,7 @@ function fillFan(held) {
   const most = innerWidth >= 600 ? 6 : 4, cols = Math.max(2, Math.min(most, apps.length + (fanEdit ? 1 : 0)));
   fan.classList.toggle("edit", fanEdit);
   fan.innerHTML = '<div class="fan-head"><h2>' + esc(s.name) + '</h2><button class="fan-edit" data-edit="1">' + (fanEdit ? "완료" : "편집") + '</button></div>'
-    + (held ? '<div class="hint">손가락을 앱 위로 옮기고 떼면 열려요</div>' : fanEdit ? '<div class="hint">−는 이 폴더에서 빼기 · 앱을 누르면 다른 폴더로</div>' : "")
+    // No how-to hints here (준: "작동기능은 이미 내가 알고 있는데 굳이").
     + '<div class="grid-apps" style="grid-template-columns:repeat(' + cols + ',1fr)">' + apps.map(a => appButton(a).replace('<span class="ic">', '<span class="ic"><i class="rm" data-rm="' + esc(a.id) + '" aria-label="이 폴더에서 빼기"></i>')).join("")
     + (fanEdit ? '<button class="add-app" data-add="1"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 6v12M6 12h12"/></svg></span><span class="label">앱 넣기</span></button>' : "") + '</div>';
   fan.style.width = Math.min(innerWidth - 20, cols * (innerWidth >= 600 ? 92 : 86) + 24) + "px";
@@ -1121,7 +1124,7 @@ function drawPad() {
   const shown = filter ? STACKS.filter(s => s.id === filter) : STACKS;
   const into = pickInto && STACKS.find(s => s.id === pickInto);
   const mark = a => into && a.stack === pickInto ? appButton(a).replace('class="app"', 'class="app in"') : appButton(a);
-  body.innerHTML = '<div class="pad-inner">' + (into ? '<div class="pick-note">‘' + esc(into.name) + '’에 넣을 앱을 눌러 주세요 · 다 넣었으면 닫기</div>' : "")
+  body.innerHTML = '<div class="pad-inner">' + (into ? '<div class="pick-note">‘' + esc(into.name) + '’에 넣기</div>' : "")
     + shown.map(s => { const apps = sorted(APPS.filter(a => a.stack === s.id)); return apps.length ? '<h3>' + esc(s.name) + ' · ' + apps.length + '</h3><div class="grid-apps">' + apps.map(mark).join("") + '</div>' : ""; }).join("") + '</div>';
   if (!body.querySelector(".app")) body.innerHTML = '<div class="pad-inner"><div class="empty">앱을 불러오는 중…</div></div>';
 }

@@ -83,6 +83,19 @@ final class ScopedModels {
         }
         return new ScopedModels(store, "", "mytubeModels");
     }
+    /**
+     * 퍼레's own brain when the user picks one of the app's AIs for it (준: "퍼레두뇌 설정 메뉴에서 이 앱의 모든 ai 모델을 다 설정할
+     * 수 있게 해줘"): copied from the main chat's the first time, independent after. Used when BuddyTalk.brain is CUSTOM.
+     */
+    static ScopedModels buddy(AppStore store) {
+        synchronized (store) {
+            if (!store.settings.contains("buddyModels")) {
+                JSONObject value = main(store).snapshot(); value.remove("team");
+                if (!store.settings.edit().putString("buddyModels", value.toString()).commit()) throw new IllegalStateException("퍼레 모델 설정을 저장하지 못했어요.");
+            }
+        }
+        return new ScopedModels(store, "", "buddyModels");
+    }
     /** 이 영상에 대해 물어보세요's own choice: copied from 마이튜브 AI's the first time, independent after. */
     static ScopedModels videoChat(AppStore store) {
         synchronized (store) {
