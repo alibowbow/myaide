@@ -227,6 +227,11 @@ async function open(browser, at) {
     assert.strictEqual(await p.evaluate(() => boards[0]._toys.count()), 0, 'all put away');
     await p.evaluate(() => launcher.self({wear: ['catears', 'scarf']}));
     await p.clock.runFor(30000);
+    // Through a play it keeps them on (the play's things on top) …
+    const during = await p.evaluate(() => Array.from(document.querySelector('.bot').classList).filter(c => c.startsWith('w-')));
+    assert(during.includes('w-catears') && during.includes('w-scarf'), 'kept on: ' + during.join(' '));
+    for (let i = 0; i < 80 && await p.evaluate(() => !!boards[0]._dressed); i++) await p.clock.runFor(500);
+    // … and after the next turn of clothes.
     await p.clock.setSystemTime(new Date('2026-11-26T15:10:00+09:00'));
     const worn = await p.evaluate(() => { launcher.env({battery: 80}); return Array.from(document.querySelector('.bot').classList).filter(c => c.startsWith('w-')).sort().join(' '); });
     assert.strictEqual(worn, 'w-catears w-scarf', 'still worn after a turn of clothes: ' + worn);

@@ -62,7 +62,7 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .bot .b-body{transform-origin:50px 88px;animation:breathe 4.2s ease-in-out infinite}
 .bot .b-antenna{transform-origin:50px 20px}
 .bot .b-bulb{fill:#ffd36e;transition:fill .4s}
-.bot .b-cheek{fill:url(#cheekG);opacity:.85;transition:opacity .3s,transform .3s;transform-box:fill-box;transform-origin:center}
+.bot .b-cheek{fill:url(#cheekG);opacity:.95;transition:opacity .3s,transform .3s;transform-box:fill-box;transform-origin:center}
 .bot.sleepy .b-body{animation-duration:6.5s}.bot.sleepy .b-antenna{transform:rotate(-14deg);transition:transform 1.2s}.bot.sleepy .b-bulb{fill:#b9a6ff}
 .bot.thinking .b-bulb{animation:glow 1.4s ease-in-out infinite}
 .bot .b-look{transition:transform .3s}
@@ -384,14 +384,14 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .bot[data-mouth=big] .tg-open,.bot[data-mouth=grin] .tg-grin,.bot[data-mouth=wide] .tg-wide,.bot[data-mouth=osm] .tg-osm{display:block}
 .bot .m-osm{fill:#5a2134}
 /* small mouths (the sheet): the open smile a little smaller */
-.bot[data-mouth=grin] .m-grin{transform:scale(.8)}.bot[data-mouth=grin] .tg-grin{transform:translateY(-.3px) scale(.8)}
-.bot[data-mouth=big] .tg-open{transform:translateY(.6px) scale(1.25,1.1)}
+.bot[data-mouth=grin] .m-grin{transform:scale(1)}
+.bot[data-mouth=big] .tg-open{transform:translateY(1px) scale(1.4,1.2)}
 .bot.talking .m-tg{display:none}
 .bot .m-frown,.bot .m-wave,.bot .m-flat,.bot .m-cat,.bot .m-pout,.bot .m-kiss,.bot .m-smirk,.bot .m-tongue path:first-child{fill:none;stroke:#2b2b3a;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .bot .m-teeth rect{fill:#fff;stroke:#2b2b3a;stroke-width:1.6}.bot .m-teeth path{fill:none;stroke:#2b2b3a;stroke-width:1}
 .bot[data-mouth=smile] .b-mouth{opacity:1}
 .bot[data-mouth=open] .m-open,.bot[data-mouth=big] .m-open,.bot[data-mouth=yawn] .m-open,.bot[data-mouth=frown] .m-frown,.bot[data-mouth=wave] .m-wave,.bot[data-mouth=chew] .m-chew,.bot[data-mouth=flat] .m-flat,.bot[data-mouth=grin] .m-grin,.bot[data-mouth=tongue] .m-tongue,.bot[data-mouth=osm] .m-osm,.bot[data-mouth=cat] .m-cat,.bot[data-mouth=teeth] .m-teeth,.bot[data-mouth=pout] .m-pout,.bot[data-mouth=kiss] .m-kiss,.bot[data-mouth=smirk] .m-smirk{display:block}
-.bot[data-mouth=big] .m-open{transform:scale(1.3,1.2)}
+.bot[data-mouth=big] .m-open{transform:scale(1.45,1.32)}
 .bot[data-mouth=yawn] .m-open{animation:yawn 1.6s ease-in-out}
 .bot[data-mouth=chew] .m-chew{animation:chew .28s ease-in-out infinite alternate}
 .bot.talking .b-mouth{opacity:1;animation:talk .22s ease-in-out infinite alternate}

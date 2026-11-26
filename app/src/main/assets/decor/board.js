@@ -33,7 +33,7 @@ const EYE = '<path class="pill" d="M-3.9 -2.6 C-3.9 -5.5 -2.2 -7.4 0 -7.4 C2.2 -
   + '<path class="hl-heart" d="M0 2.2 C-3.4 0 -3.1 -3.4 -1.3 -3.4 C-.6 -3.4 -.1 -2.9 0 -2.4 C.1 -2.9 .6 -3.4 1.3 -3.4 C3.1 -3.4 3.4 0 0 2.2Z"/><path class="hl-star" d="M0 -3.8 Q.55 -.55 2.9 0 Q.55 .55 0 3.8 Q-.55 .55 -2.9 0 Q-.55 -.55 0 -3.8Z"/>'
   + '<path class="x" d="M-4.3 -4.3 L4.3 4.3 M4.3 -4.3 L-4.3 4.3"/><circle class="dot" r="2.7"/><path class="line" d="M-5 0 H5"/>'
   + '<g class="wide"><circle r="6.4"/><circle class="w-gl" cx="-2.2" cy="-2.6" r="2"/><circle class="w-gl" cx="2" cy="2.2" r=".9"/></g>'
-  + '<path class="u" d="M-5.5 -1.5 Q0 4.5 5.5 -1.5"/><path class="sq" d="M-4.5 -4.5 L3.5 0 L-4.5 4.5"/><path class="tear" d="M2.5 6 q2.6 4.2 0 6.2 q-2.6 -2 0 -6.2z"/>'
+  + '<path class="u" d="M-5.5 -1.5 Q0 4.5 5.5 -1.5"/><path class="sq" d="M-4.5 -4.5 L3.5 0 L-4.5 4.5"/><path class="tear" d="M0.6 6.2 q3.4 4.8 0 7.2 q-3.4 -2.4 0 -7.2z"/>'
   // more eyes (준: "표정 … 100개"): a sharp caret, a tall oval, a heavy lid, a ring, a wavy line, a plus
   + '<path class="tri" d="M-5.5 2.5 L0 -4 L5.5 2.5"/><g class="oval"><ellipse rx="4.2" ry="7.2"/><circle class="w-gl" cx="-1.4" cy="-3.4" r="1.6"/></g>'
   + '<g class="lid"><path d="M-5.6 -1 A5.6 5.6 0 0 0 5.6 -1Z"/><path class="lid-line" d="M-6.4 -1.4 H6.4"/></g><circle class="ring" r="5"/>'
@@ -49,9 +49,9 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   + '<radialGradient id="botShine" cx=".32" cy=".22" r=".55"><stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>'
   + '<linearGradient id="botPale" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7b8cff" stop-opacity=".45"/><stop offset=".55" stop-color="#7b8cff" stop-opacity="0"/></linearGradient>'
   + '<clipPath id="botClip"><rect x="12" y="18" width="76" height="70" rx="30"/></clipPath><linearGradient id="botLower" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b19bff"/><stop offset="1" stop-color="#8b6ff0"/></linearGradient>'
-  + '<radialGradient id="cheekG"><stop offset=".5" stop-color="#ff8fa3"/><stop offset="1" stop-color="#ff8fa3" stop-opacity="0"/></radialGradient>'
-  + '<radialGradient id="armL" cx=".32" cy=".26" r=".85"><stop offset="0" stop-color="#ffa27c"/><stop offset=".55" stop-color="#ff7a52"/><stop offset="1" stop-color="#f2603c"/></radialGradient>'
-  + '<radialGradient id="armR" cx=".68" cy=".26" r=".85"><stop offset="0" stop-color="#ffa27c"/><stop offset=".55" stop-color="#ff7a52"/><stop offset="1" stop-color="#f2603c"/></radialGradient></defs>'
+  + '<radialGradient id="cheekG"><stop offset=".62" stop-color="#ff8fa3"/><stop offset="1" stop-color="#ff8fa3" stop-opacity="0"/></radialGradient>'
+  + '<linearGradient id="armL" gradientUnits="userSpaceOnUse" x1="0" y1="18" x2="0" y2="88"><stop offset="0" stop-color="#ffb08f"/><stop offset="1" stop-color="#ff7d58"/></linearGradient>'
+  + '<linearGradient id="armR" gradientUnits="userSpaceOnUse" x1="0" y1="18" x2="0" y2="88"><stop offset="0" stop-color="#ffb08f"/><stop offset="1" stop-color="#ff7d58"/></linearGradient></defs>'
   + '<g class="b-all">'
   // behind 퍼레: what it holds high or that floats over it
   +   '<g class="acc umbrella"><path d="M86 66 L60 -6" stroke="#5b6470" stroke-width="2.4" stroke-linecap="round"/><path d="M86 66 q3 5 -2 6" fill="none" stroke="#5b6470" stroke-width="2.4" stroke-linecap="round"/>'
@@ -69,7 +69,7 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   // rounded mitts widest where they join the body, not the same above and below (준: "왜 베이스가 더 넓어야하는데 베이스가 더
   // 좁아?", "우리는 팔시작부가 뭉툭하자나", "곡선을 좀 더 예쁘게 와들디처럼", "대칭반원이 아니야", "와들디를 잘봐 위아래 대칭이
   // 아냐", "D는 너무 말려들어갔어", "G가 나은듯"): the top flows out of the body's side in one long gentle curve, the fullest part is low and
-  // outside, the bottom rounds off and runs back into the body without curling up; lit from the upper outside and softly
+  // outside, the bottom rounds off and runs back into the body without curling up; the body's own colour at each height (준: "팔색깔이 몸통과 다른것 같아"), softly
   // darker below; turning where they join it.
   +   '<g class="b-arm l"><clipPath id="armClipL"><path d="M12.4 44 C9.2 46.8 3.8 52 3 59 C2.4 64.6 4.4 70 8.8 72.4 C11.8 74 15.2 74 18.4 73.2 L20 45Z"/></clipPath><path d="M12.4 44 C9.2 46.8 3.8 52 3 59 C2.4 64.6 4.4 70 8.8 72.4 C11.8 74 15.2 74 18.4 73.2 L20 45Z" fill="url(#armL)"/><ellipse cx="6.6" cy="55" rx="3" ry="1.8" transform="rotate(-40 6.6 55)" fill="#fff" opacity=".4"/><g class="acc mittens" clip-path="url(#armClipL)"><path d="M12.4 44 C9.2 46.8 3.8 52 3 59 C2.4 64.6 4.4 70 8.8 72.4 C11.8 74 15.2 74 18.4 73.2 L20 45Z" fill="#6f9fe8"/><path d="M13.8 47 Q10.4 58 14.4 70" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></g></g>'
   +   '<g class="b-arm r"><clipPath id="armClipR"><path d="M87.6 44 C90.8 46.8 96.2 52 97 59 C97.6 64.6 95.6 70 91.2 72.4 C88.2 74 84.8 74 81.6 73.2 L80 45Z"/></clipPath><path d="M87.6 44 C90.8 46.8 96.2 52 97 59 C97.6 64.6 95.6 70 91.2 72.4 C88.2 74 84.8 74 81.6 73.2 L80 45Z" fill="url(#armR)"/><ellipse cx="93.4" cy="55" rx="3" ry="1.8" transform="rotate(40 93.4 55)" fill="#fff" opacity=".4"/><g class="acc mittens" clip-path="url(#armClipR)"><path d="M87.6 44 C90.8 46.8 96.2 52 97 59 C97.6 64.6 95.6 70 91.2 72.4 C88.2 74 84.8 74 81.6 73.2 L80 45Z" fill="#6f9fe8"/><path d="M86.2 47 Q89.6 58 85.6 70" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></g></g>'
@@ -86,7 +86,7 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +     '<rect x="22" y="31" width="56" height="37" rx="18" fill="#fff" opacity=".97"/>'
   +     '<rect class="fx fx-pale" x="22" y="31" width="56" height="37" rx="18" fill="url(#botPale)"/><rect class="fx fx-red" x="22" y="31" width="56" height="37" rx="18" fill="#ff6b6b" opacity=".16"/>'
   +     '<g class="fx fx-gloom"><path d="M32 33 v7 M40 33 v9 M48 33 v6 M56 33 v9 M64 33 v7" stroke="#8f8fd6" stroke-width="1.6" stroke-linecap="round" opacity=".7"/></g>'
-  +     '<g class="b-look"><g class="b-eye l" transform="translate(39 48)">' + EYE + '</g><g class="b-eye r" transform="translate(61 48) scale(-1 1)">' + EYE + '</g>'
+  +     '<g class="b-look"><g class="b-eye l" transform="translate(39 49.2)">' + EYE + '</g><g class="b-eye r" transform="translate(61 49.2) scale(-1 1)">' + EYE + '</g>'
   +       '<path class="b-mouth" d="M46.6 60.4 Q50 63.8 53.4 60.4"/><ellipse class="m-open" cx="50" cy="61.5" rx="3.6" ry="3.2"/><path class="m-frown" d="M45.5 63 Q50 58.5 54.5 63"/>'
   +       '<path class="m-wave" d="M43.5 61 q1.6 -2 3.2 0 t3.2 0 t3.2 0 t3.2 0"/><path class="m-chew" d="M46 60.5 Q50 63.5 54 60.5 Q50 61.8 46 60.5Z"/>'
   +       '<path class="m-flat" d="M46 61 H54"/><path class="m-grin" d="M43.5 59 H56.5 Q56 66 50 66 Q44 66 43.5 59Z"/>'
@@ -112,7 +112,7 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +       '<g class="acc eyepatch"><path d="M24 37 L76 57" stroke="#26283a" stroke-width="1.8"/><ellipse cx="61" cy="48" rx="8" ry="7" fill="#26283a"/></g>'
   +       '<circle class="acc clownnose" cx="50" cy="55" r="4.2" fill="#ff3b3b"/>'
   +       '<g class="acc nerdglasses"><rect x="30" y="41" width="18" height="14" rx="3"/><rect x="52" y="41" width="18" height="14" rx="3"/><path d="M48 46 H52"/></g>'
-  +     '<ellipse class="b-cheek" cx="30.6" cy="58.2" rx="4.6" ry="3.2"/><ellipse class="b-cheek" cx="69.4" cy="58.2" rx="4.6" ry="3.2"/>'
+  +     '<circle class="b-cheek" cx="28.6" cy="60" r="4.9"/><circle class="b-cheek" cx="71.4" cy="60" r="4.9"/>'
   +     '<g class="fx fx-blush"><path d="M24 58 l-2 4 M28 58 l-2 4 M32 58 l-2 4 M68 58 l-2 4 M72 58 l-2 4 M76 58 l-2 4" stroke="#ff7c93" stroke-width="1.5" stroke-linecap="round"/></g>'
   +     '<g class="fx fx-stream"><rect x="36.5" y="54" width="5" height="16" rx="2.5" fill="#8fd3ff" opacity=".85"/><rect x="58.5" y="54" width="5" height="16" rx="2.5" fill="#8fd3ff" opacity=".85"/></g>'
   +     '<path class="fx fx-kiss" d="M64 58 c-3 -2 -3 -5 -1 -5 c.8 0 1 .6 1 1 c0 -.4 .2 -1 1 -1 c2 0 2 3 -1 5z" fill="#ff6f91"/>'
@@ -711,16 +711,16 @@ setTimeout(() => { if (sleepHours()) boards.forEach(b => { if (b._mood) b._mood(
 // Cute, not odd (준: "표정도 너무 이상한것보다 귀엽게"): no gritted teeth, zigzag or triangle mouths, X or ring eyes, fire, anger
 // marks or a pale or red face; pouts with puffed cheeks, little round mouths, closed-eye wobbles and a drop of sweat instead.
 const FACES = {
-  happy: "arc grin none cheeks", laugh: "arc big none cheeks", wink: "wink smile", love: "heart smile none cheeks", surprised: "o osm",
-  shock: "wide osm none glint", sad: "small frown sad", teary: "small wave sad tears glint", cry: "small wave sad tears", dizzy: "dz osm none cheeks",
-  yum: "arc chew none cheeks", full: "arc wave", yawn: "shut yawn", drowsy: "half flat", sleepy: "shut none", shy: "small smile none blush cheeks",
-  thinking: "pill flat", blow: "pill osm none cheeks", angry: "pill frown angry", fume: "pill pout angry cheeks", proud: "u smile none cheeks",
+  happy: "arc grin none cheeks", laugh: "arc grin none cheeks", wink: "wink smile", love: "heart smile none cheeks", surprised: "o osm",
+  shock: "wide osm none glint", sad: "small frown sad", teary: "small wave sad tears glint", cry: "pill big sad tears", dizzy: "dz osm none cheeks",
+  yum: "arc chew none cheeks", full: "arc wave", yawn: "shut yawn", drowsy: "half flat", sleepy: "shut osm", shy: "small smile none blush cheeks",
+  thinking: "pill flat", blow: "pill osm none cheeks", angry: "pill frown angry", fume: "pill frown angry cheeks", proud: "u smile none cheeks",
   relief: "u smile none sweat2", content: "u cat none cheeks", cheeky: "wink tongue", kiss: "shut kiss none kiss blush", excited: "wide grin none glint",
   curious: "wide osm none q2", suspicious: "half smirk none", blank: "pill osm", dazed: "dz osm", meh: "pill tiny none", annoyed: "pill pout angry",
   nervous: "small wave none sweat2", flustered: "wide wave none sweat2 blush", moved: "pill wave sad tears glint", determined: "pill flat angry",
   thrilled: "sq grin none cheeks", smug: "half smirk", sorry: "u frown sad sweat2", ko: "shut wave none", ouch: "shut pout none sweat2", smitten: "heart cat none blush",
-  sneaky: "half smirk none sweat2", gloomy: "small tiny sad", idea: "wide osm none bang glow", sing: "u osm none notes", joyful: "arc big none tears cheeks",
-  pout: "small pout angry", giggle: "arc cat none cheeks", amazed: "wide big none glint", sparkly: "pill smile none glint cheeks", grumpy: "small pout angry",
+  sneaky: "half smirk none sweat2", gloomy: "small tiny sad", idea: "wide osm none bang glow", sing: "u osm none notes", joyful: "arc wide none tears cheeks",
+  pout: "pill frown angry cheeks", giggle: "arc cat none cheeks", amazed: "wide big none glint", sparkly: "pill smile none glint cheeks", grumpy: "pill frown angry cheeks",
   // more faces (준: "모션 종류 4가지도 각각 100개씩"): new eyes (tri, oval, lid, ring, wavy, plus), mouths (drool, tri, zig, bite, wide,
   // whistle, hat, tiny) and effects (zzz, hearts, flower, fire, bubble, swirl, lines, cloud, pale, red)
   snooze: "shut none none zzz bubble", dreamy: "lid smile none hearts", awed: "oval big none glint", shout: "pill big angry",
@@ -732,7 +732,7 @@ const FACES = {
   skeptical: "half smirk none", sulky: "small pout sad", heartbroken: "small wave sad tears", stunned: "wide osm none glint",
   speechless: "pill tiny none sweat2", eek: "wide osm sad sweat2", yikes: "wide wave sad sweat2", sly: "half cat none", sweetdream: "shut cat none zzz",
   nosy: "oval osm none q2", focused: "pill flat none", anxious: "small wave sad sweat2", cringe: "shut wave sad sweat2", triumphant: "arc big none cheeks flower",
-  delighted: "wide wide none glint", lol: "arc big none cheeks", grateful: "u smile sad flower", zen: "lid tiny none", horrified: "wide osm sad sweat2",
+  delighted: "wide wide none glint", lol: "arc wide none cheeks", grateful: "u smile sad flower", zen: "lid tiny none", horrified: "wide osm sad sweat2",
   playful: "wink wide none cheeks", hopeful: "oval smile sad glint", lonely: "small tiny sad", awkward: "pill wave none sweat2", chuckle: "arc hat none cheeks",
   pleading: "wide frown sad glint tears"
 };
@@ -1339,7 +1339,9 @@ function roam(b) {
   const dress = kind => {
     const props = PROPS[kind]; if (!props || !props.length) return;
     const svg = $(b, ".bot"); if (!svg) return;
-    WEAR.forEach(x => svg.classList.remove("w-" + x)); props.forEach(x => svg.classList.add("w-" + x)); dressed = true; b._dressed = true;
+    // What the user asked it to wear stays on through a play; the play's things go on top.
+    const keep = chosen && chosen.until > Date.now() ? chosen.wear : [];
+    WEAR.forEach(x => svg.classList.toggle("w-" + x, keep.includes(x))); props.forEach(x => svg.classList.add("w-" + x)); dressed = true; b._dressed = true;
   };
   const undress = () => { if (dressed) { dressed = false; b._dressed = false; envOf(b, info); } };
   // A few motions in a row, each with its face.
