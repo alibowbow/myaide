@@ -87,7 +87,7 @@ body.launcher{position:fixed;inset:0}
 .stack{display:flex;flex-direction:column;align-items:center;gap:7px;border:0;background:none;padding:0;font:inherit;color:var(--ink);min-width:0}
 .pile{position:relative;width:100%;aspect-ratio:1;max-width:var(--folder,72px);border-radius:23%;background:var(--tile);border:1px solid var(--glass-line);box-shadow:var(--shadow);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);display:grid;grid-template-columns:repeat(2,1fr);grid-auto-rows:1fr;gap:9%;padding:14%;transition:transform .5s var(--spring)}
 /* Four apps a folder, not nine (준: "폴더 미리보기 동그라미가 너무 많이보여서 어지러워"): fewer, bigger, calmer. */
-.pile img{width:100%;height:100%;object-fit:contain;border-radius:26%}
+.pile img{width:100%;height:100%;object-fit:contain;border-radius:26%;filter:drop-shadow(0 1px 2px rgba(0,0,0,.18))}
 .stack .name{font-size:12px;font-weight:700;letter-spacing:-.3px;text-shadow:var(--halo);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .stack.down .pile,.app.down .ic{transform:scale(.9);transition:transform .1s ease}
 .badge{position:absolute;right:-4px;top:-4px;min-width:19px;height:19px;padding:0 5px;border-radius:999px;background:var(--accent);color:#fff;font-size:11px;font-weight:750;display:grid;place-items:center;box-shadow:0 1px 4px rgba(20,30,60,.18)}
@@ -95,9 +95,10 @@ body.launcher{position:fixed;inset:0}
 /* an app: its icon and name */
 .app{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;border:0;background:none;padding:0;font:inherit;color:var(--ink);min-width:0}
 .app .ic{position:relative;width:var(--icon);height:var(--icon);transition:transform .45s var(--spring)}
-/* Icons as they are: no filter on them (준: "All app에서 이상한 필터처리해서 색감 흐리멍텅해지는거 없애줘"): a drop-shadow made the web
-   view draw each icon again through a filter layer, softer and duller. */
-.app .ic img{width:100%;height:100%;object-fit:contain;image-rendering:auto}
+.app .ic img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 3px 6px rgba(30,40,70,.18))}
+/* In All Apps the icons as they are, no filter (준: "All app에서 이상한 필터처리해서 색감 흐리멍텅해지는거 없애줘", "올앱에서만 빼줘"):
+   a drop-shadow made the web view draw each icon again through a filter layer, softer and duller. */
+.pad .app .ic img{filter:none !important}
 .app .label{font-size:11.5px;font-weight:650;letter-spacing:-.3px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:var(--halo)}
 .app .badge{right:-6px;top:-6px}
 
@@ -105,7 +106,7 @@ body.launcher{position:fixed;inset:0}
 .dock{position:fixed;left:0;right:0;bottom:calc(var(--bottom) + 8px);display:flex;justify-content:center;pointer-events:none;z-index:5}
 .shelf{pointer-events:auto;display:flex;align-items:flex-end;gap:10px;padding:9px 12px;border-radius:28px;background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--shadow);-webkit-backdrop-filter:blur(26px) saturate(1.7);backdrop-filter:blur(26px) saturate(1.7);max-width:calc(100vw - 20px);touch-action:none}
 .dk{position:relative;width:var(--dockIcon);height:var(--dockIcon);flex:none;transform-origin:50% 100%;transition:transform .35s var(--spring)}
-.dk img{width:100%;height:100%;object-fit:contain}
+.dk img{width:100%;height:100%;object-fit:contain;filter:drop-shadow(0 4px 8px rgba(30,40,70,.2))}
 .dk .badge{right:-4px;top:-4px}
 .dk.open::after{content:"";position:absolute;left:50%;bottom:-6px;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:var(--ink2)}
 .shelf.scrub .dk{transition:transform .08s linear}
@@ -127,6 +128,7 @@ body.launcher{position:fixed;inset:0}
 .fan.shown{opacity:1;transform:none}
 .fan{transform:scale(.97);transition:opacity .1s ease,transform .12s ease}
 .fan .label{font-size:12px;text-shadow:var(--halo)}
+.fan .app .ic img{filter:drop-shadow(0 8px 16px rgba(10,14,30,.28))}
 .fan .app.hot .ic{transform:scale(1.24) translateY(-5px)}
 .lifted{position:relative;z-index:40;transition:none !important;filter:drop-shadow(0 14px 22px rgba(0,0,0,.45))}
 .dk.lifted.leaving{opacity:.4}
