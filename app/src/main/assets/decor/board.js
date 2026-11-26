@@ -59,10 +59,11 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +   '<g class="acc rainbow" fill="none" stroke-width="3"><path d="M8 34 A42 42 0 0 1 92 34" stroke="#ff6f6f"/><path d="M12 34 A38 38 0 0 1 88 34" stroke="#ffd36e"/><path d="M16 34 A34 34 0 0 1 84 34" stroke="#7cc576"/><path d="M20 34 A30 30 0 0 1 80 34" stroke="#5bc0eb"/></g>'
   +   '<path class="acc moon" d="M88 -6 a9 9 0 1 0 8 13 a7 7 0 1 1 -8 -13z" fill="#ffe07a"/>'
   // Short round arms at its sides (준: "팔이 움직일 때 너무 덜렁덜렁 달린 느낌이야", "귀엽게", "팔이 약간 삼각모양인데 둥근형태"):
-  // "와들디 팔을 참고", "팔이너무 귀같아", "닌텐도 커비처럼"): small soft ovals low on its sides, tipped down like arms at rest (at
-  // mid-height they read as ears), half tucked behind the body, turning where they join it.
-  +   '<g class="b-arm l"><g transform="rotate(-32 12 70)"><ellipse cx="9.5" cy="70" rx="9" ry="7" fill="#ff7a55"/><ellipse cx="10" cy="73.4" rx="6.8" ry="3" fill="#e5532f" opacity=".32"/><ellipse cx="6.8" cy="67.4" rx="3" ry="1.9" fill="#fff" opacity=".3"/><g class="acc mittens"><ellipse cx="9.5" cy="70" rx="9.2" ry="7.2" fill="#6f9fe8"/><rect x="13.2" y="63" width="3.4" height="14" rx="1.7" fill="#fff"/></g></g></g>'
-  +   '<g class="b-arm r"><g transform="rotate(32 88 70)"><ellipse cx="90.5" cy="70" rx="9" ry="7" fill="#ff7a55"/><ellipse cx="90" cy="73.4" rx="6.8" ry="3" fill="#e5532f" opacity=".32"/><ellipse cx="93.2" cy="67.4" rx="3" ry="1.9" fill="#fff" opacity=".3"/><g class="acc mittens"><ellipse cx="90.5" cy="70" rx="9.2" ry="7.2" fill="#6f9fe8"/><rect x="83.4" y="63" width="3.4" height="14" rx="1.7" fill="#fff"/></g></g></g>'
+  // "와들디 팔을 참고", "팔이너무 귀같아", "닌텐도 커비처럼", "팔참고", "퍼레 기본디자인에 충실해줘 거기서 팔을 바꾸고"): round arms,
+  // a little taller than wide, pressed to the lower middle of its sides and tipped a touch down, half tucked behind the body,
+  // turning where they join it. The rest of 퍼레 is as it was.
+  +   '<g class="b-arm l"><g transform="rotate(-16 12 64)"><ellipse cx="10.5" cy="64" rx="9.6" ry="10.4" fill="#ff7a55"/><ellipse cx="11" cy="68.5" rx="7.4" ry="4.4" fill="#e5532f" opacity=".3"/><ellipse cx="7" cy="59.6" rx="3.2" ry="2.3" fill="#fff" opacity=".32"/><g class="acc mittens"><ellipse cx="10.5" cy="64" rx="9.8" ry="10.6" fill="#6f9fe8"/><rect x="14.6" y="55" width="3.4" height="18" rx="1.7" fill="#fff"/></g></g></g>'
+  +   '<g class="b-arm r"><g transform="rotate(16 88 64)"><ellipse cx="89.5" cy="64" rx="9.6" ry="10.4" fill="#ff7a55"/><ellipse cx="89" cy="68.5" rx="7.4" ry="4.4" fill="#e5532f" opacity=".3"/><ellipse cx="93" cy="59.6" rx="3.2" ry="2.3" fill="#fff" opacity=".32"/><g class="acc mittens"><ellipse cx="89.5" cy="64" rx="9.8" ry="10.6" fill="#6f9fe8"/><rect x="82" y="55" width="3.4" height="18" rx="1.7" fill="#fff"/></g></g></g>'
   +   '<g class="b-antenna"><line x1="50" y1="20" x2="50" y2="8.5" stroke="#ff6640" stroke-width="4" stroke-linecap="round"/><circle class="b-bulb" cx="50" cy="7" r="5.2"/>'
   +     '<g class="acc flower"><circle cx="50" cy="1.5" r="3.4" fill="#ffb3c8"/><circle cx="55" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="53" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="47" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="45" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="50" cy="7" r="2.6" fill="#ffd36e"/></g></g>'
   +   '<g class="b-body"><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botBody)"/><rect x="12" y="18" width="76" height="70" rx="30" fill="url(#botShine)"/>'
@@ -711,6 +712,14 @@ const FACES = {
   playful: "wink wide none cheeks", hopeful: "oval smile sad glint", lonely: "small tiny sad", awkward: "pill wave none sweat2", chuckle: "arc hat none cheeks",
   pleading: "wide frown sad glint tears"
 };
+/*
+  퍼레's eyes stay its eyes (준: "표정 지을 때 퍼레의 눈 정체성이 너무 벗어나는 경향이 있어", "퍼레 기본디자인에 충실해줘"): its tall
+  eyes, smaller or larger, half-lidded, closed to arcs or lines, winking or hearts for love; no round dots, rings, spirals,
+  crosses or triangles. A feeling shows in the lids, the brows, the mouth, the blush, tears and sweat (dizziness as a swirl
+  over it).
+*/
+const OWN_EYES = {wide: "pill", o: "pill", oval: "pill", ring: "pill", dot: "small", plus: "small", x: "shut", dz: "shut", wavy: "shut", tri: "arc", sq: "arc", lid: "half", line: "half"};
+for (const k in FACES) { const p = FACES[k].split(" "); if (OWN_EYES[p[0]]) p[0] = OWN_EYES[p[0]]; if ((k === "dizzy" || k === "dazed" || k === "woozy") && !p.includes("swirl")) p.push("swirl"); FACES[k] = p.join(" "); }
 const FEELS = Object.keys(FACES);
 /** Motions 퍼레 makes on its own (a class on .buddy for ms, with a face): see board.css "motions, more". */
 const MOTIONS = [
@@ -910,8 +919,8 @@ function envOf(b, k) {
   const face = e.dnd ? "mask" : e.airplane ? "goggles" : april1 ? "clownnose"
     : sunny && !night && head !== "straw" && head !== "visor" ? "shades" : "";
   const neck = e.charging ? "bib" : cold ? "scarf" : head === "tophat" || head === "beret" ? "bowtie" : hot && summer ? "lei"
-    : head === "bandana" ? "neckbandana" : head === "tiara" ? "pearls" : head === "bow" ? "ribbon"
-    : pickDay(["medal", "whistle", "pearls", "ribbon", "neckbandana", "bell"], 3, 20);
+    : head === "bandana" ? "neckbandana" : head === "bow" ? "ribbon"
+    : pickDay(["medal", "whistle", "ribbon", "neckbandana", "bell"], 3, 12);
   const hand = rain && !drizzle ? "umbrella" : night ? "teddy"
     : month === 10 && date >= 25 ? "pumpkin" : month === 1 && date <= 3 ? "luckybag" : month === 12 && (date === 24 || date === 25) ? "gift"
     : snow ? "snowball" : scorching ? (h >= 12 && h < 17 ? "icecream" : "handfan") : hot ? (summer && doy % 2 ? "popsicle" : "handfan")
