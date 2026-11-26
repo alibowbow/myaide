@@ -126,6 +126,22 @@ public final class PhoneService extends AccessibilityService {
      * button with one of these labels is pressed once it shows, within withinMs; only in that app's window, only a button
      * whose whole text is the label. Quietly nothing when the service is off or the button never shows.
      */
+    /** Whether pkg's window comes to the front within withinMs (퍼레 checks that what it opened opened); false when not connected. */
+    static void whenShown(String pkg, long withinMs, java.util.function.Consumer<Boolean> shown) {
+        if (instance == null || pkg == null || pkg.isBlank()) { shown.accept(false); return; }
+        android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        long until = SystemClock.uptimeMillis() + withinMs;
+        Runnable[] tick = new Runnable[1];
+        tick[0] = () -> {
+            PhoneService service = instance;
+            if (service == null) { shown.accept(false); return; }
+            try { AccessibilityNodeInfo root = service.getRootInActiveWindow(); if (root != null && root.getPackageName() != null && pkg.contentEquals(root.getPackageName())) { shown.accept(true); return; } }
+            catch (RuntimeException gone) { /* again */ }
+            if (SystemClock.uptimeMillis() > until) { shown.accept(false); return; }
+            main.postDelayed(tick[0], 350);
+        };
+        main.postDelayed(tick[0], 500);
+    }
     static void pressWhenShown(String pkg, java.util.List<String> labels, long withinMs, java.util.function.Consumer<String> pressed) {
         if (instance == null) return;
         android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());

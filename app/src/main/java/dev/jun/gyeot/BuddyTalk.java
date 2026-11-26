@@ -218,8 +218,8 @@ final class BuddyTalk {
         + "{\"tool\":\"alarm\",\"hour\":7,\"minute\":30} · {\"tool\":\"timer\",\"seconds\":180} · {\"tool\":\"media\",\"command\":\"play\"}(play·pause·next·previous, 지금 나오는 것) · {\"tool\":\"play\",\"query\":\"노래·영상 검색어\",\"app\":\"YouTube\"}(유튜브·유튜브 뮤직·멜론·스포티파이에서 찾아 틀기, 앱을 말하지 않으면 app 빼기) · {\"tool\":\"torch\",\"on\":true} · "
         + "{\"tool\":\"rotation\",\"mode\":\"landscape\"}(landscape=가로 고정·portrait=세로 고정·auto=자동 회전·toggle=반대로) · {\"tool\":\"volume\",\"direction\":\"up\"}(up·down·mute·unmute, 또는 \"level\":0~100) · "
         + "{\"tool\":\"brightness\",\"direction\":\"up\"}(up·down, 또는 \"level\":0~100) · {\"tool\":\"show_alarms\"} · "
-        + "{\"tool\":\"settings\",\"panel\":\"wifi\"}(internet·wifi·bluetooth·volume·nfc·display·location·battery) · {\"tool\":\"search\",\"query\":\"검색어\"}. "
-        + "문자·전화·결제처럼 못 하는 일은 할일 줄 없이 아직 못 한다고 말해. 주소(URL)와 이모지는 절대 쓰지 마.\n";
+        + "{\"tool\":\"settings\",\"panel\":\"wifi\"}(internet·wifi·bluetooth·volume·nfc·display·location·battery) · {\"tool\":\"search\",\"query\":\"검색어\"} · {\"tool\":\"map_search\",\"query\":\"근처 카페\"} · {\"tool\":\"share\",\"text\":\"보낼 글\",\"app\":\"카카오톡\"} · {\"tool\":\"message\",\"who\":\"이름\",\"text\":\"글\"} · {\"tool\":\"call\",\"who\":\"이름\"} · {\"tool\":\"camera\",\"mode\":\"photo\"}(photo·selfie·video) · {\"tool\":\"calendar_add\",\"title\":\"일정\",\"date\":\"내일\",\"hour\":15,\"minute\":0} · {\"tool\":\"open_url\",\"url\":\"naver.com\"}. "
+        + "결제·송금처럼 못 하는 일은 할일 줄 없이 아직 못 한다고 말해. 대답에 주소(URL)와 이모지는 절대 쓰지 마.\n";
     /** The saved places (내비게이션 → 자주 가는 곳): their words go as the destination as said, "집으로 가자" → {"tool":"navigate","destination":"집"}. */
     static String places(AppStore store) {
         java.util.List<dev.jun.gyeot.core.SavedPlaces.Saved> saved = store.savedPlaces(); if (saved.isEmpty()) return "";
@@ -238,7 +238,11 @@ final class BuddyTalk {
         java.util.Map.entry("setalarm", "alarm"), java.util.Map.entry("settimer", "timer"), java.util.Map.entry("flashlight", "torch"), java.util.Map.entry("light", "torch"),
         java.util.Map.entry("setting", "settings"), java.util.Map.entry("showalarms", "show_alarms"), java.util.Map.entry("websearch", "search"), java.util.Map.entry("google", "search"),
         java.util.Map.entry("playmusic", "play"), java.util.Map.entry("music", "play"), java.util.Map.entry("youtube", "play"), java.util.Map.entry("playvideo", "play"), java.util.Map.entry("재생", "play"),
-        java.util.Map.entry("mediacontrol", "media"), java.util.Map.entry("rotate", "rotation"), java.util.Map.entry("sound", "volume"));
+        java.util.Map.entry("mediacontrol", "media"), java.util.Map.entry("rotate", "rotation"), java.util.Map.entry("sound", "volume"),
+        java.util.Map.entry("send", "share"), java.util.Map.entry("kakao", "share"), java.util.Map.entry("sms", "message"), java.util.Map.entry("text", "message"), java.util.Map.entry("sendmessage", "message"),
+        java.util.Map.entry("dial", "call"), java.util.Map.entry("phone", "call"), java.util.Map.entry("photo", "camera"), java.util.Map.entry("selfie", "camera"),
+        java.util.Map.entry("calendar", "calendar_add"), java.util.Map.entry("calendaradd", "calendar_add"), java.util.Map.entry("addevent", "calendar_add"), java.util.Map.entry("schedule", "calendar_add"),
+        java.util.Map.entry("openurl", "open_url"), java.util.Map.entry("url", "open_url"), java.util.Map.entry("web", "open_url"), java.util.Map.entry("mapsearch", "map_search"), java.util.Map.entry("nearby", "map_search"));
     /** The thing to do the answer names ("할일: {…}", or a bare {…} with a tool), its tool one of ACTS', or null. */
     static JSONObject act(String text) {
         if (text == null) return null;
@@ -259,6 +263,7 @@ final class BuddyTalk {
         String key = tool.replaceAll("[\\s_-]", "");
         String known = TOOLS.getOrDefault(key, TOOLS.getOrDefault(tool, tool));
         if (known.equals("showalarms")) known = "show_alarms";
+        if (known.equals("calendaradd")) known = "calendar_add"; if (known.equals("openurl")) known = "open_url"; if (known.equals("mapsearch")) known = "map_search";
         // "music" with a command is the one playing now (pause, next), not a search.
         if (known.equals("play") && !a.optString("command").isBlank() && a.optString("query").isBlank() && a.optString("song").isBlank()) known = "media";
         try {
@@ -302,7 +307,7 @@ final class BuddyTalk {
             ;
         String withText = instructions + (guest || doIt == null ? "" : ACTS + places(store)), withTools = instructions + BuddyTools.RULE + places(store);
         long now = System.currentTimeMillis();
-        String when = new SimpleDateFormat("M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date(now));
+        String when = new SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date(now));
         String note = ""; if (!guest) try { note = Briefing.profile(store); } catch (RuntimeException ignored) {}
         StringBuilder talk = new StringBuilder();
         String who = guest ? "상대" : "사용자";

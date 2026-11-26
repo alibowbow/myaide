@@ -33,6 +33,8 @@
     <!-- 캘린더: the phone's calendar provider, Google Calendar included; asked at first use. Writes add
          an event the user asked for, or undo the one the app just added. -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- 퍼레's "엄마한테 전화해 줘": the number from the contacts, put in the dialer (the user presses call). -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- 들퍼레 홈 화면's weather: roughly where the phone is (Weather), asked once on the home screen. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
@@ -69,6 +71,14 @@
         <!-- 퍼레's 찾아 틀기: music and video apps that play or search what is asked. -->
         <intent><action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" /></intent>
         <intent><action android:name="android.intent.action.SEARCH" /></intent>
+        <!-- 퍼레 using apps their own way: share, a text, the dialer, the camera, a new event, a page. -->
+        <intent><action android:name="android.intent.action.SEND" /><data android:mimeType="text/plain" /></intent>
+        <intent><action android:name="android.intent.action.SENDTO" /><data android:scheme="smsto" /></intent>
+        <intent><action android:name="android.intent.action.DIAL" /></intent>
+        <intent><action android:name="android.media.action.STILL_IMAGE_CAMERA" /></intent>
+        <intent><action android:name="android.media.action.VIDEO_CAMERA" /></intent>
+        <intent><action android:name="android.intent.action.INSERT" /><data android:mimeType="vnd.android.cursor.dir/event" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="https" /></intent>
         <package android:name="com.android.vending" />
         <package android:name="com.android.settings" />
     </queries>

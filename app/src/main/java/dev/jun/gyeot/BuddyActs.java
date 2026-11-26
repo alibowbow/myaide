@@ -26,8 +26,22 @@ final class BuddyActs {
     private static final ThreadLocal<String[]> MISS = new ThreadLocal<>();
     /** A failed act's words, with the tap that clears the way ("" none, BuddyMisses). */
     private static BuddyVoice.Outcome fail(String say, String fix) { MISS.set(new String[]{say, fix == null ? "" : fix}); return new BuddyVoice.Outcome(say, false, null); }
+    private static final ThreadLocal<String> HEARD = new ThreadLocal<>();
+    /** A thing done its way that may still go wrong later (no number found …): kept, while the act goes on. */
+    private static void note(String why, String fix) { MISS.set(new String[]{why, fix == null ? "" : fix}); }
+    /**
+     * With 폰 조작 connected, whether the app it opened came to the front (준: "4번" — 됐는지 확인까지); one that did not is kept
+     * in BuddyMisses with the words that asked for it.
+     */
+    private static void verify(Context context, String pkg, String what) {
+        if (!PhoneService.connected() || pkg == null) return;
+        String heard = HEARD.get();
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> PhoneService.whenShown(pkg, 4000, shown -> {
+            if (!shown) { BuddyMisses.add(context, heard, what, "열었는데 화면에 안 떴어요", ""); ((GyeotApp) context.getApplicationContext()).store().phoneLog("  · 퍼레 · " + what + " 열었는데 안 보여요"); }
+        }));
+    }
     static BuddyVoice.Outcome run(Context context, JSONObject act, String heard, boolean overlay) {
-        MISS.remove();
+        MISS.remove(); HEARD.set(heard);
         BuddyVoice.Outcome o = runOnce(context, act, heard, overlay);
         String[] m = MISS.get(); MISS.remove();
         if (m != null) {
@@ -45,7 +59,9 @@ final class BuddyActs {
                     String name = act.optString("app").strip();
                     LauncherActivityInfo info = findApp(context, name);
                     if (info == null) return fail("'" + name + "' 앱은 이 휴대폰에서 못 찾았어.", "store:" + name);
-                    return started(context, open(context, info, overlay), info.getLabel() + " 열었어", true);
+                    String route = open(context, info, overlay);
+                    if (DeviceActionRunner.started(route)) verify(context, info.getComponentName().getPackageName(), "open_app " + name);
+                    return started(context, route, info.getLabel() + " 열었어", true);
                 }
                 case "search" -> {
                     String q = act.optString("query").strip(); if (q.isEmpty()) return null;
@@ -56,6 +72,13 @@ final class BuddyActs {
                 }
                 case "navigate" -> { return navigate(context, act, overlay); }
                 case "play" -> { return play(context, act, overlay); }
+                case "share" -> { return share(context, act, overlay); }
+                case "message" -> { return message(context, act, overlay); }
+                case "call" -> { return call(context, act, overlay); }
+                case "camera" -> { return camera(context, act, overlay); }
+                case "calendar_add" -> { return calendarAdd(context, act, overlay); }
+                case "open_url" -> { return openUrl(context, act, overlay); }
+                case "map_search" -> { String q = act.optString("query").strip(); if (q.isEmpty()) return fail("뭘 찾을지 알려 줘.", ""); JSONObject r = DeviceActionRunner.run(context, DeviceActions.search(q, true), overlay); return r.optBoolean("ok") ? new BuddyVoice.Outcome("", DeviceActionRunner.started(r.optString("route")), null) : fail(r.optString("say", "지도를 못 열었어."), ""); }
                 case "volume" -> { return volume(context, act); }
                 case "brightness" -> { return brightness(context, act, overlay); }
                 default -> { /* the phone's own actions, below */ }
@@ -126,6 +149,103 @@ final class BuddyActs {
         if ("notification".equals(r.optString("outcome"))) return new BuddyVoice.Outcome(r.optString("say"), false, null);
         return new BuddyVoice.Outcome("", DeviceActionRunner.started(r.optString("route")), null);
     }
+    // ── apps their own way (준: "4번" — 앱이 열어 둔 공식 길로): share, a text, the dialer, the camera, a new event, a page ──
+    private static final String[][] SENDERS = {{"com.kakao.talk", "카카오톡", "카톡", "kakaotalk", "kakao"}, {"jp.naver.line.android", "라인", "line"},
+        {"org.telegram.messenger", "텔레그램", "telegram"}, {"com.instagram.android", "인스타그램", "인스타", "instagram"}, {"com.facebook.orca", "메신저", "messenger"}};
+    /** The package for an app as said (the common messengers by their names, else any app on the phone); null when none. */
+    private static String packageFor(Context context, String app) {
+        String k = appKey(app).replaceAll("(으로|로|에서|에게|한테)$", "");
+        if (k.isEmpty()) return null;
+        for (String[] s : SENDERS) for (int i = 1; i < s.length; i++) if (k.equals(s[i]) || k.contains(s[i])) return s[0];
+        LauncherActivityInfo info = findApp(context, app); return info == null ? null : info.getComponentName().getPackageName();
+    }
+    private static Intent task(Intent i) { return i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); }
+    /** Text to someone through an app (KakaoTalk's own share: the user picks the friend), or Android's share sheet. */
+    private static BuddyVoice.Outcome share(Context context, JSONObject act, boolean overlay) {
+        String text = act.optString("text").strip(), app = act.optString("app").strip();
+        if (text.isEmpty()) return fail("보낼 말을 같이 알려 줘.", "");
+        Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text);
+        String pkg = app.isEmpty() ? null : packageFor(context, app);
+        if (!app.isEmpty() && pkg == null) return fail("'" + app + "' 앱이 이 휴대폰에 없어.", "store:" + app);
+        if (pkg != null) { send.setPackage(pkg); if (send.resolveActivity(context.getPackageManager()) == null) return fail("그 앱으로는 보낼 수가 없어.", ""); }
+        Intent go = task(pkg != null ? send : Intent.createChooser(send, "보낼 곳"));
+        String route = DeviceActionRunner.start(context, go, overlay);
+        if (DeviceActionRunner.started(route)) verify(context, pkg, "share " + app);
+        return started(context, route, "", true);
+    }
+    /** The number for a name in the user's contacts (with the contacts permission), or null. Off the main thread. */
+    static String numberOf(Context context, String who) {
+        if (who == null || who.isBlank() || context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) != android.content.pm.PackageManager.PERMISSION_GRANTED) return null;
+        android.net.Uri uri = android.net.Uri.withAppendedPath(android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_FILTER_URI, android.net.Uri.encode(who.strip().replaceAll("(한테|에게|께)$", "")));
+        try (android.database.Cursor c = context.getContentResolver().query(uri, new String[]{android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER}, null, null,
+                android.provider.ContactsContract.CommonDataKinds.Phone.IS_SUPER_PRIMARY + " DESC")) {
+            if (c != null && c.moveToFirst()) return c.getString(0);
+        } catch (RuntimeException unreadable) { /* none */ }
+        return null;
+    }
+    private static String number(Context context, JSONObject act) {
+        String n = act.optString("number").replaceAll("[^0-9+]", "");
+        return n.length() >= 3 ? n : numberOf(context, act.optString("who"));
+    }
+    /** A text message written in the phone's messages app (the user presses send). */
+    private static BuddyVoice.Outcome message(Context context, JSONObject act, boolean overlay) {
+        String who = act.optString("who").strip(), n = number(context, act), text = act.optString("text").strip();
+        Intent sms = task(new Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("smsto:" + (n == null ? "" : n))).putExtra("sms_body", text));
+        if (sms.resolveActivity(context.getPackageManager()) == null) return fail("문자 앱을 못 찾았어.", "");
+        if (n == null && !who.isEmpty()) note("‘" + who + "’ 번호를 몰라서 받는 사람은 비워 뒀어요", context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) == android.content.pm.PackageManager.PERMISSION_GRANTED ? "" : "contacts");
+        BuddyVoice.Outcome o = started(context, DeviceActionRunner.start(context, sms, overlay), "", true);
+        return n == null && !who.isEmpty() && o.say().isEmpty() ? new BuddyVoice.Outcome("‘" + who + "’ 번호를 몰라서 받는 사람은 비워 뒀어. 골라 줘!", o.leaves(), null) : o;
+    }
+    /** The dialer with the number in (퍼레 never calls by itself: the user presses call). */
+    private static BuddyVoice.Outcome call(Context context, JSONObject act, boolean overlay) {
+        String who = act.optString("who").strip(), n = number(context, act);
+        Intent dial = task(new Intent(Intent.ACTION_DIAL, android.net.Uri.parse("tel:" + (n == null ? "" : android.net.Uri.encode(n)))));
+        if (dial.resolveActivity(context.getPackageManager()) == null) return fail("전화 앱을 못 찾았어.", "");
+        boolean allowed = context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        if (n == null && !who.isEmpty()) note("‘" + who + "’ 번호를 몰라서 전화 앱만 열었어요", allowed ? "" : "contacts");
+        BuddyVoice.Outcome o = started(context, DeviceActionRunner.start(context, dial, overlay), "", true);
+        if (!o.say().isEmpty()) return o;
+        return new BuddyVoice.Outcome(n != null ? (who.isEmpty() ? "" : who + " 번호 눌러 놨어, 통화만 눌러 줘!") : who.isEmpty() ? "" : "‘" + who + "’ 번호를 몰라서 전화 앱만 열었어." + (allowed ? "" : " 연락처를 허용해 주면 바로 찾아 줄게."), o.leaves(), null);
+    }
+    /** The camera: a photo, a selfie (front camera) or a video. */
+    private static BuddyVoice.Outcome camera(Context context, JSONObject act, boolean overlay) {
+        String mode = act.optString("mode", "photo");
+        Intent cam = task(new Intent("video".equals(mode) ? android.provider.MediaStore.INTENT_ACTION_VIDEO_CAMERA : android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA));
+        if ("selfie".equals(mode)) cam.putExtra("android.intent.extras.CAMERA_FACING", 1).putExtra("android.intent.extras.LENS_FACING_FRONT", 1).putExtra("android.intent.extra.USE_FRONT_CAMERA", true);
+        if (cam.resolveActivity(context.getPackageManager()) == null) return fail("카메라 앱을 못 찾았어.", "");
+        return started(context, DeviceActionRunner.start(context, cam, overlay), "", true);
+    }
+    /** A new event in the calendar app, filled in (the user saves it): its name, day, time, length and place. */
+    private static BuddyVoice.Outcome calendarAdd(Context context, JSONObject act, boolean overlay) {
+        String title = act.optString("title").strip();
+        if (title.isEmpty()) return fail("일정 이름을 알려 줘.", "");
+        java.time.ZoneId zone = java.time.ZoneId.systemDefault(); java.time.LocalDate today = java.time.LocalDate.now(zone);
+        String d = act.optString("date").strip().toLowerCase(Locale.ROOT);
+        java.time.LocalDate day = d.isEmpty() || d.equals("today") || d.equals("오늘") ? today : d.equals("tomorrow") || d.equals("내일") ? today.plusDays(1) : d.equals("모레") ? today.plusDays(2) : null;
+        if (day == null) try { day = java.time.LocalDate.parse(d); } catch (RuntimeException unclear) { day = today; }
+        // A year the brain guessed wrong (2024-11-27 said "tomorrow" in 2026): the same day this year, or next year once past.
+        if (day.isBefore(today)) { day = day.withYear(today.getYear()); if (day.isBefore(today)) day = day.plusYears(1); }
+        boolean timed = act.has("hour");
+        java.time.ZonedDateTime begin = timed ? java.time.ZonedDateTime.of(day, java.time.LocalTime.of(Math.max(0, Math.min(23, act.optInt("hour"))), Math.max(0, Math.min(59, act.optInt("minute")))), zone) : day.atStartOfDay(zone);
+        if (timed && d.isEmpty() && begin.isBefore(java.time.ZonedDateTime.now(zone))) begin = begin.plusDays(1);
+        long start = begin.toInstant().toEpochMilli(), end = timed ? start + Math.max(10, act.optInt("minutes", 60)) * 60_000L : begin.plusDays(1).toInstant().toEpochMilli();
+        Intent add = task(new Intent(Intent.ACTION_INSERT).setDataAndType(android.provider.CalendarContract.Events.CONTENT_URI, "vnd.android.cursor.dir/event")
+            .putExtra(android.provider.CalendarContract.Events.TITLE, title).putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, start)
+            .putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME, end).putExtra(android.provider.CalendarContract.EXTRA_EVENT_ALL_DAY, !timed));
+        if (!act.optString("place").isBlank()) add.putExtra(android.provider.CalendarContract.Events.EVENT_LOCATION, act.optString("place").strip());
+        if (add.resolveActivity(context.getPackageManager()) == null) return fail("캘린더 앱을 못 찾았어.", "");
+        BuddyVoice.Outcome o = started(context, DeviceActionRunner.start(context, add, overlay), "", true);
+        return o.say().isEmpty() ? new BuddyVoice.Outcome("‘" + title + "’ 일정 채워 놨어, 저장만 눌러 줘!", o.leaves(), null) : o;
+    }
+    /** A web page (https), as said ("네이버", "naver.com" …). */
+    private static BuddyVoice.Outcome openUrl(Context context, JSONObject act, boolean overlay) {
+        String url = act.optString("url").strip();
+        if (url.matches("(?i)^[a-z0-9.-]+\\.[a-z]{2,}(/.*)?$")) url = "https://" + url;
+        if (!url.matches("(?i)^https://\\S+$")) return fail("그 주소는 열 수가 없어.", "");
+        Intent view = task(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)));
+        if (view.resolveActivity(context.getPackageManager()) == null) return fail("브라우저를 못 찾았어.", "");
+        return started(context, DeviceActionRunner.start(context, view, overlay), "", true);
+    }
     /** The apps a song or a video is found and played in, by the words for them. */
     private static final String[][] PLAYERS = {
         {"com.google.android.apps.youtube.music", "유튜브뮤직", "youtubemusic", "ytmusic", "유튜브음악"},
@@ -164,6 +284,7 @@ final class BuddyActs {
             if (t.resolveActivity(pm) == null) continue;
             String route = DeviceActionRunner.start(context, t, overlay);
             ((GyeotApp) context.getApplicationContext()).store().phoneLog("  · 퍼레 · " + pkg + " · ‘" + q + "’ " + (t.getAction() != null && t.getAction().contains("PLAY_FROM_SEARCH") ? "찾아 틀기" : "검색") + " · " + route);
+            if (DeviceActionRunner.started(route)) verify(context, pkg, "play " + q);
             return started(context, route, "", true);
         }
         return fail("거기서 찾아 틀 수가 없어. 그 앱이 깔려 있는지 봐 줘.", act.optString("app").isBlank() ? "" : "store:" + act.optString("app"));

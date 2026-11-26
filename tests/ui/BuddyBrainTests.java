@@ -123,13 +123,70 @@ public class BuddyBrainTests {
 
         // An app that is not here, and a thing it cannot do: kept, with the tap that clears the way where there is one.
         BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"open_app\",\"app\":\"없는앱\"}"), "없는앱 열어 줘", false);
-        BuddyVoice.Outcome call = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"call\",\"who\":\"엄마\"}"), "엄마한테 전화해 줘", false);
-        assertEquals("그건 아직 내가 못 해.", call.say());
+        BuddyVoice.Outcome pay = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"pay\",\"who\":\"엄마\"}"), "엄마한테 만 원 보내 줘", false);
+        assertEquals("그건 아직 내가 못 해.", pay.say());
         java.util.List<BuddyMisses.Miss> misses = BuddyMisses.list(app);
         assertEquals(3, misses.size());
-        assertEquals("엄마한테 전화해 줘", misses.get(0).said());
+        assertEquals("엄마한테 만 원 보내 줘", misses.get(0).said());
         assertEquals("store:없는앱", misses.get(1).fix()); assertEquals("앱 찾기", BuddyMisses.fixLabel(misses.get(1).fix()));
         assertEquals("place:회사", misses.get(2).fix()); assertNotNull(BuddyMisses.fixIntent(app, misses.get(2).fix()));
+    }
+    /** 준: "4번" — apps their own way: KakaoTalk's share, a text, the dialer (never a call by itself), the camera, a new event, a page. */
+    @Test public void usesAppsTheirOwnWay() throws Exception {
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        app.store().appVisible = true;
+        org.robolectric.shadows.ShadowPackageManager pm = shadowOf(app.getPackageManager());
+        java.util.function.BiConsumer<String, android.content.IntentFilter> handles = (component, filter) -> {
+            android.content.ComponentName c = android.content.ComponentName.unflattenFromString(component); pm.addActivityIfNotPresent(c);
+            filter.addCategory(android.content.Intent.CATEGORY_DEFAULT); pm.addIntentFilterForActivity(c, filter);
+        };
+        android.content.IntentFilter send = new android.content.IntentFilter(android.content.Intent.ACTION_SEND); send.addDataType("text/plain");
+        handles.accept("com.kakao.talk/.Share", send);
+        android.content.IntentFilter sms = new android.content.IntentFilter(android.content.Intent.ACTION_SENDTO); sms.addDataScheme("smsto");
+        handles.accept("com.sms/.Compose", sms);
+        android.content.IntentFilter dial = new android.content.IntentFilter(android.content.Intent.ACTION_DIAL); dial.addDataScheme("tel");
+        handles.accept("com.dialer/.Dial", dial);
+        handles.accept("com.camera/.Shoot", new android.content.IntentFilter(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA));
+        android.content.IntentFilter insert = new android.content.IntentFilter(android.content.Intent.ACTION_INSERT); insert.addDataType("vnd.android.cursor.dir/event");
+        handles.accept("com.calendar/.Edit", insert);
+        org.robolectric.shadows.ShadowApplication shadow = shadowOf(app);
+        BuddyMisses.clear(app);
+
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"share\",\"text\":\"내일 7시에 만나\",\"app\":\"카톡\"}"), "카톡으로 내일 7시에 만나자고 보내 줘", false);
+        android.content.Intent shared = shadow.getNextStartedActivity();
+        assertEquals("com.kakao.talk", shared.getPackage()); assertEquals("내일 7시에 만나", shared.getStringExtra(android.content.Intent.EXTRA_TEXT));
+
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"message\",\"number\":\"010-1234-5678\",\"text\":\"곧 도착\"}"), "문자 보내 줘", false);
+        android.content.Intent text = shadow.getNextStartedActivity();
+        assertEquals("smsto:01012345678", String.valueOf(text.getData())); assertEquals("곧 도착", text.getStringExtra("sms_body"));
+
+        // No contacts permission: the dialer opens empty, and the way to allow it is kept.
+        BuddyVoice.Outcome mom = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"call\",\"who\":\"엄마\"}"), "엄마한테 전화해 줘", false);
+        android.content.Intent dialed = shadow.getNextStartedActivity();
+        assertEquals(android.content.Intent.ACTION_DIAL, dialed.getAction()); assertTrue(mom.say(), mom.say().contains("연락처"));
+        assertEquals("contacts", BuddyMisses.list(app).get(0).fix()); assertEquals("연락처 허용", BuddyMisses.fixLabel("contacts"));
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"call\",\"number\":\"01012345678\"}"), "전화 걸어 줘", false);
+        assertEquals("tel:01012345678", String.valueOf(shadow.getNextStartedActivity().getData()));
+
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"camera\",\"mode\":\"selfie\"}"), "셀카 찍자", false);
+        android.content.Intent cam = shadow.getNextStartedActivity();
+        assertEquals(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA, cam.getAction()); assertTrue(cam.getBooleanExtra("android.intent.extra.USE_FRONT_CAMERA", false));
+
+        BuddyVoice.Outcome event = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"calendar_add\",\"title\":\"치과\",\"date\":\"내일\",\"hour\":15,\"minute\":30}"), "내일 세 시 반 치과 일정 넣어 줘", false);
+        android.content.Intent added = shadow.getNextStartedActivity();
+        assertEquals("치과", added.getStringExtra(android.provider.CalendarContract.Events.TITLE));
+        java.time.ZonedDateTime begin = java.time.Instant.ofEpochMilli(added.getLongExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, 0)).atZone(java.time.ZoneId.systemDefault());
+        assertEquals(java.time.LocalDate.now().plusDays(1), begin.toLocalDate()); assertEquals(15, begin.getHour()); assertEquals(30, begin.getMinute());
+        assertTrue(event.say(), event.say().contains("저장"));
+        java.time.LocalDate tomorrow = java.time.LocalDate.now().plusDays(1);
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"calendar_add\",\"title\":\"치과\",\"date\":\"" + tomorrow.withYear(tomorrow.getYear() - 2) + "\",\"hour\":15}"), "내일 치과", false);
+        assertEquals("a guessed year", tomorrow, java.time.Instant.ofEpochMilli(shadow.getNextStartedActivity().getLongExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, 0)).atZone(java.time.ZoneId.systemDefault()).toLocalDate());
+        assertTrue(BuddyTools.promised("내일 3시에 치과 일정 넣어줘", "캘린더에 넣어둘게")); assertTrue(BuddyTools.promised("셀카 찍을래", "셀카 모드로 열게"));
+
+        // A page: https only.
+        assertEquals("그 주소는 열 수가 없어.", BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"open_url\",\"url\":\"javascript:alert(1)\"}"), "열어 줘", false).say());
+        assertEquals("call", BuddyTalk.loose("{\"tool\":\"dial\",\"who\":\"아빠\"}").optString("tool"));
+        assertEquals("calendar_add", BuddyTalk.loose("{\"tool\":\"add_event\",\"title\":\"회의\"}").optString("tool"));
     }
     @Test public void doesThingsWithToolsAndSpeaksAsItWrites() throws Exception {
         // 준: "2번" — a tool the brain calls is the act, with a short line when it said none.
@@ -139,7 +196,7 @@ public class BuddyBrainTests {
         assertEquals("navigate", home.optString("tool")); assertEquals("walk", home.optString("mode")); assertEquals("집으로 안내할게!", BuddyTools.say(home));
         assertEquals("show_alarms", BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "show_alarms").put("arguments", "{}"))).optString("tool"));
         assertNull(BuddyTools.act(new org.json.JSONArray()));
-        assertEquals(13, BuddyTools.TOOLS.length());
+        assertEquals(20, BuddyTools.TOOLS.length());
         assertTrue(BuddyTools.promised("3분 타이머 맞춰 줘", "3분 타이머 시작할게!"));
         assertFalse("small talk is never forced into a tool", BuddyTools.promised("오늘 기분 어때", "나 오늘 완전 좋아!"));
         assertFalse(BuddyTools.promised("유튜브 틀어 줘", "어떤 노래가 좋아?"));

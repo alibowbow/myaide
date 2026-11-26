@@ -13,13 +13,13 @@ import org.json.JSONObject;
 /**
  * What 퍼레 was asked to do and could not (준: "1번 진행" — 실패한 동작을 앱이 스스로 모아 보여 주기): when, the words, what it
  * tried, why not, and the one tap that clears the way when there is one (the overlay permission, a place to save, the app
- * to install, the system-settings permission). The last thirty, on this phone only; shown in 화면 꾸미기 → 퍼레가 못 한 일.
+ * to install, the system-settings permission, the contacts permission). The last thirty, on this phone only; shown in 화면 꾸미기 → 퍼레가 못 한 일.
  */
 final class BuddyMisses {
     private BuddyMisses() {}
     private static final String PREFS = "buddyTalk", KEY = "misses";
     static final int MOST = 30;
-    /** fix: "overlay", "writeSettings", "place:<words>", "store:<app>", or "" for none. */
+    /** fix: "overlay", "writeSettings", "place:<words>", "store:<app>", "contacts", or "" for none. */
     record Miss(long at, String said, String what, String why, String fix) {}
 
     static synchronized void add(Context c, String said, String what, String why, String fix) {
@@ -49,6 +49,7 @@ final class BuddyMisses {
         if (fix.equals("writeSettings")) return "설정 변경 허용";
         if (fix.startsWith("place:")) return "장소 저장";
         if (fix.startsWith("store:")) return "앱 찾기";
+        if (fix.equals("contacts")) return "연락처 허용";
         return "";
     }
     /** That tap's screen, or null. */
@@ -58,6 +59,7 @@ final class BuddyMisses {
         if (fix.equals("writeSettings")) return new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:" + c.getPackageName()));
         if (fix.startsWith("place:")) return new Intent(c, NavigationActivity.class).putExtra(NavigationActivity.ADD, fix.substring(6));
         if (fix.startsWith("store:")) return new Intent(Intent.ACTION_VIEW, Uri.parse("market://search?q=" + Uri.encode(fix.substring(6))));
+        if (fix.equals("contacts")) return new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + c.getPackageName()));
         return null;
     }
 }

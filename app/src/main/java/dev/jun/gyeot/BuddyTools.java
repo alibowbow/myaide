@@ -49,12 +49,21 @@ final class BuddyTools {
         .put(fn("brightness", "화면 밝기를 바꾼다.", props("direction", new String[]{"up", "down"}, "밝게·어둡게", "level", "integer", "0~100으로 정할 때")))
         .put(fn("show_alarms", "맞춰 둔 알람 목록을 보여 준다.", null))
         .put(fn("settings", "설정 화면을 연다.", props("panel", new String[]{"internet", "wifi", "bluetooth", "volume", "nfc", "display", "location", "battery"}, "어느 설정"), "panel"))
-        .put(fn("search", "인터넷에서 검색한다.", props("query", "string", "검색어"), "query"));
+        .put(fn("search", "인터넷에서 검색한다.", props("query", "string", "검색어"), "query"))
+        // 앱이 열어 둔 공식 길 (준: "4번")
+        .put(fn("share", "카카오톡 같은 앱으로 글을 보낸다(받는 친구는 사용자가 고른다).", props("text", "string", "보낼 글", "app", "string", "앱 이름 (예: 카카오톡), 말하지 않았으면 빼기"), "text"))
+        .put(fn("message", "문자 메시지를 써 둔다(보내기는 사용자가 누른다).", props("who", "string", "받는 사람 이름", "number", "string", "전화번호를 말했으면", "text", "string", "보낼 글"), "text"))
+        .put(fn("call", "전화 앱에 번호를 눌러 둔다(통화는 사용자가 누른다).", props("who", "string", "받는 사람 이름", "number", "string", "전화번호를 말했으면")))
+        .put(fn("camera", "카메라를 연다.", props("mode", new String[]{"photo", "selfie", "video"}, "사진·셀카·동영상")))
+        .put(fn("calendar_add", "캘린더에 새 일정을 채워 둔다(저장은 사용자가 누른다).",
+            props("title", "string", "일정 이름", "date", "string", "오늘·내일·모레 또는 YYYY-MM-DD", "hour", "integer", "시 (0~23), 시간을 말했으면", "minute", "integer", "분", "minutes", "integer", "길이(분)", "place", "string", "장소"), "title"))
+        .put(fn("open_url", "웹 페이지를 연다.", props("url", "string", "주소 (예: naver.com)"), "url"))
+        .put(fn("map_search", "지도에서 장소를 찾는다(근처 카페, 맛집 …).", props("query", "string", "찾을 것"), "query"));
 
     /** The rule for the brain with tools (in place of BuddyTalk.ACTS). */
-    static final String RULE = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 안내, 노래·영상 찾아 틀기, 음악 멈춤·다음 곡, 알람, 타이머, 손전등, 화면 방향, 소리 크기, 밝기, 설정 화면, 검색) 도구를 불러서 너가 직접 해. "
+    static final String RULE = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 안내, 지도에서 찾기, 노래·영상 찾아 틀기, 음악 멈춤·다음 곡, 알람, 타이머, 손전등, 화면 방향, 소리 크기, 밝기, 설정 화면, 검색, 카톡으로 보내기, 문자 쓰기, 전화 걸 준비, 카메라, 일정 넣기, 웹 페이지 열기) 도구를 불러서 너가 직접 해. "
         + "도구를 부를 때도 무엇을 하는지 짧은 대답 한 문장을 같이 말해(예: 네이버 지도 열게!). 할 일을 글로 적거나 JSON을 말하지 마. "
-        + "문자·전화·결제처럼 도구가 없는 일은 아직 못 한다고 말해. 주소(URL)와 이모지는 절대 쓰지 마.\n";
+        + "결제·송금처럼 도구가 없는 일은 아직 못 한다고 말해. 대답에 주소(URL)와 이모지는 절대 쓰지 마.\n";
 
     /** The first call as a BuddyActs act ({"tool": name, …arguments}), its name made one of ours; null when there is none. */
     static JSONObject act(JSONArray calls) {
@@ -68,8 +77,8 @@ final class BuddyTools {
         return null;
     }
 
-    private static final java.util.regex.Pattern ASKED = java.util.regex.Pattern.compile("열어|켜 ?줘|켜$|꺼 ?줘|꺼$|틀어|재생|알람|타이머|가자|안내|길 ?찾|찾아 ?줘|검색|소리|볼륨|밝기|화면|손전등|플래시|와이파이|블루투스|설정|멈춰|다음 ?곡|이전 ?곡|가로|세로|회전"),
-        PROMISE = java.util.regex.Pattern.compile("할게|줄게|열게|틀게|켤게|끌게|맞출게|찾아볼게|바꿀게|멈출게|시작");
+    private static final java.util.regex.Pattern ASKED = java.util.regex.Pattern.compile("열어|켜 ?줘|켜$|꺼 ?줘|꺼$|틀어|재생|알람|타이머|가자|안내|길 ?찾|찾아 ?줘|검색|소리|볼륨|밝기|화면|손전등|플래시|와이파이|블루투스|설정|멈춰|다음 ?곡|이전 ?곡|가로|세로|회전|일정|캘린더|넣어|셀카|카메라|사진 ?찍|동영상|문자|보내|전화|카톡|카카오톡|공유|사이트|홈페이지|근처|맛집"),
+        PROMISE = java.util.regex.Pattern.compile("할게|줄게|열게|틀게|켤게|끌게|맞출게|찾아볼게|바꿀게|멈출게|둘게|보낼게|걸게|찍게|넣을게|시작");
     /** The user asked for a thing on the phone and the answer says it will be done (the brain then called no tool). */
     static boolean promised(String said, String answer) {
         return said != null && answer != null && ASKED.matcher(said).find() && PROMISE.matcher(answer).find();
@@ -88,7 +97,11 @@ final class BuddyTools {
             case "brightness" -> "밝기 바꿀게!";
             case "show_alarms" -> "알람 보여 줄게!";
             case "settings" -> "설정 열게!";
-            case "search" -> a.optString("query").isBlank() ? "찾아볼게!" : "‘" + a.optString("query").strip() + "’ 찾아볼게!";
+            case "search", "map_search" -> a.optString("query").isBlank() ? "찾아볼게!" : "‘" + a.optString("query").strip() + "’ 찾아볼게!";
+            case "share" -> (a.optString("app").isBlank() ? "" : a.optString("app").strip() + "으로 ") + "보낼 준비 할게!";
+            case "message" -> "문자 써 둘게!";
+            case "camera" -> "selfie".equals(a.optString("mode")) ? "셀카 모드!" : "video".equals(a.optString("mode")) ? "동영상 찍자!" : "카메라 열게!";
+            case "open_url" -> "열게!";
             default -> "";
         };
     }
