@@ -261,7 +261,13 @@ public final class HomeActivity extends Activity {
         JSONArray stacks = new JSONArray(), order = read("stackOrder", new JSONArray()); List<String> placed = new ArrayList<>();
         for (int i = 0; i < order.length(); i++) { AppStacks.Stack s = AppStacks.stack(order.optString(i)); if (s.id().equals(order.optString(i)) && !placed.contains(s.id())) { placed.add(s.id()); stacks.put(Jsons.obj("id", s.id(), "name", s.name(), "color", s.color())); } }
         for (AppStacks.Stack s : AppStacks.STACKS) if (!placed.contains(s.id())) stacks.put(Jsons.obj("id", s.id(), "name", s.name(), "color", s.color()));
-        return Jsons.obj("apps", list, "dock", dock, "recent", read(RECENT, new JSONArray()), "stacks", stacks, "badges", new JSONObject(badges), "order", read(ORDER, new JSONObject()));
+        // The dock counts only for messages and calls (준: "독에서 메세지와 전화 제외하고는 우측상단 숫자 안 뜨게"): the phone's own
+        // messaging and phone apps, and the usual ones besides.
+        JSONArray counted = new JSONArray();
+        try { String sms = android.provider.Telephony.Sms.getDefaultSmsPackage(this); if (sms != null) counted.put(sms); } catch (RuntimeException ignored) {}
+        try { android.telecom.TelecomManager tm = getSystemService(android.telecom.TelecomManager.class); String dial = tm == null ? null : tm.getDefaultDialerPackage(); if (dial != null) counted.put(dial); } catch (RuntimeException ignored) {}
+        for (String pkg : new String[]{"com.samsung.android.messaging", "com.google.android.apps.messaging", "com.android.mms", "com.samsung.android.dialer", "com.google.android.dialer", "com.android.dialer"}) counted.put(pkg);
+        return Jsons.obj("apps", list, "dock", dock, "recent", read(RECENT, new JSONArray()), "stacks", stacks, "badges", new JSONObject(badges), "order", read(ORDER, new JSONObject()), "dockCounts", counted);
     }
     /** An app's id here and in the side dock: its activity and its profile. */
     static String id(LauncherActivityInfo info, UserManager users) {

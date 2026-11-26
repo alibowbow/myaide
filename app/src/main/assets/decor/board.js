@@ -56,7 +56,12 @@ function makeBoard(slot) {
   // Cards pop in one after another, like a console's home screen waking up.
   b.querySelectorAll(".hero,.grid>.card").forEach((c, i) => { c.classList.add("pop"); c.style.animationDelay = (60 + i * 55) + "ms"; });
   const buddy = $(b, ".buddy");
-  buddy.addEventListener("click", () => cheer(b));
+  // A tap: it hops and says something. Two taps in a moment: the talk with it (준: "퍼레대화는 퍼레를 더블터치하면 열리는걸로").
+  buddy.addEventListener("click", () => {
+    const now = Date.now();
+    if (now - (b._lastTap || 0) < 380) { b._lastTap = 0; if (window.boardChat) window.boardChat(); else (window.boardGo || (w => { location.href = "/do/" + encodeURIComponent(w); }))("chat"); return; }
+    b._lastTap = now; cheer(b);
+  });
   const bubble = $(b, ".bubble");
   bubble.addEventListener("click", e => {
     e.stopPropagation();
@@ -154,7 +159,7 @@ function show(b) {
   if (s) { $(idea, ".t").textContent = s.title; $(idea, ".s").textContent = s.body; }
   // 일하는 중: a thought bubble over 퍼레 (its count, or 실험 for the lab)
   const think = $(b, ".think"), busy = (k.working || 0) > 0 || k.lab;
-  think.classList.toggle("on", busy);
+  think.classList.toggle("on", !!busy);
   $(think, ".n").textContent = k.working > 0 ? k.working : "실험";
   fit(b);
 }
@@ -178,7 +183,7 @@ function say(b) {
   if (!k.locked && k.lab) lines.push("연구실에서 실험을 돌리고 있어요");
   for (const q of k.quotes || []) lines.push((q.symbol === "BTC" ? "비트코인" : q.symbol) + " · 하루 사이 " + Math.abs(q.change).toFixed(1) + "% " + (q.change >= 0 ? "올랐어요" : "내렸어요"));
   if (!k.locked && k.noticeCount > 0) lines.push("새 알림이 " + k.noticeCount + "개 있어요");
-  lines.push("부를 땐 오른쪽 바를 당겨 주세요", hello(new Date().getHours()) + "!", "오늘도 같이 힘내요");
+  lines.push("두 번 톡 치면 저랑 대화해요", "부를 땐 오른쪽 바를 당겨 주세요", hello(new Date().getHours()) + "!", "오늘도 같이 힘내요");
   b._said = ((b._said || 0) + 1) % lines.length;
   return lines[b._said];
 }
