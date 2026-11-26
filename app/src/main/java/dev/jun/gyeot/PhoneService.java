@@ -112,17 +112,11 @@ public final class PhoneService extends AccessibilityService {
     private final ExecutorService imaging = Executors.newSingleThreadExecutor();
     private long lastLook;
     private EdgeButton edge;
-    /** 사이드 독: the Mac-like dock that slides out from the other edge (SideDock), drawn here like the edge button. */
-    private SideDock dock;
-    private final Runnable edgeRefresh = () -> {
-        try { if (edge != null) edge.refresh(); } catch (RuntimeException ignored) {}
-        try { if (dock != null) dock.refresh(); } catch (RuntimeException ignored) {}
-    };
+    private final Runnable edgeRefresh = () -> { try { if (edge != null) edge.refresh(); } catch (RuntimeException ignored) {} };
     private final BroadcastReceiver screen = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
-            boolean off = Intent.ACTION_SCREEN_OFF.equals(intent.getAction());
-            if (edge != null) { if (off) edge.screenOff(); else edge.refresh(); }
-            if (dock != null) try { if (off) dock.screenOff(); else dock.refresh(); } catch (RuntimeException ignored) {}
+            if (edge == null) return;
+            if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) edge.screenOff(); else edge.refresh();
         }
     };
 
@@ -491,8 +485,6 @@ public final class PhoneService extends AccessibilityService {
             } catch (RuntimeException failure) {
                 app.store().unobserve(edgeRefresh); if (edge != null) edge.close(); edge = null;
             }
-            // The side dock apart: if it cannot be drawn, the edge button and phone control go on.
-            if (edge != null) try { dock = new SideDock(this, app.store()); dock.refresh(); } catch (RuntimeException failure) { if (dock != null) dock.close(); dock = null; }
         }
         changed();
     }
@@ -513,7 +505,6 @@ public final class PhoneService extends AccessibilityService {
             try { unregisterReceiver(screen); } catch (IllegalArgumentException ignored) {}
             edge.close(); edge = null;
         }
-        if (dock != null) { dock.close(); dock = null; }
         changed();
     }
     private void changed() { if (getApplication() instanceof GyeotApp app && app.store() != null) app.store().changed(); }
