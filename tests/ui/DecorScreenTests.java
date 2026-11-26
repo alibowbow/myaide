@@ -52,4 +52,51 @@ public class DecorScreenTests {
         File dir = new File(System.getProperty("ui.output", "build/ui-verification")); dir.mkdirs();
         try (FileOutputStream out = new FileOutputStream(new File(dir, "decor.png"))) { b.compress(Bitmap.CompressFormat.PNG, 100, out); }
     }
+
+    /** 퍼레 홈's pages: photo, board and a piece listed by page; a foldable's opened screen keeps them at reading width. */
+    @Test @Config(qualifiers="w714dp-h831dp-xxhdpi") public void listsPagesOnAnOpenedFoldable() throws Exception {
+        Application app = RuntimeEnvironment.getApplication();
+        File kept = new File(new File(app.getFilesDir(), "decor"), "opus.js"); kept.getParentFile().mkdirs();
+        java.nio.file.Files.writeString(kept.toPath(), DATA);
+        app.getSharedPreferences(HtmlWallpaper.PREFS, android.content.Context.MODE_PRIVATE).edit().putString(HtmlWallpaper.LAYOUT,
+            "[{\"src\":\"photo\",\"title\":\"원래 사진\"},{\"src\":\"home\",\"title\":\"퍼레 홈\"},{\"src\":\"https://miaai-lab.github.io/Claude-Opus-5.5-100-HTML-Files/011-victorian-herbarium.html\",\"title\":\"상상 속 식물 표본함\"}]").commit();
+        Activity a = Robolectric.buildActivity(DecorActivity.class).setup().get();
+        View decor = a.getWindow().getDecorView();
+        for (int i = 0; i < 40; i++) { Thread.sleep(50); shadowOf(Looper.getMainLooper()).idle(); }
+        layout(decor); shadowOf(Looper.getMainLooper()).idle(); layout(decor);
+        assertNotNull("page 1 is the photo", find(decor, v -> v instanceof TextView t && t.getText().toString().equals("1페이지 · 원래 사진")));
+        assertNotNull("page 2 is the board", find(decor, v -> v instanceof TextView t && t.getText().toString().equals("2페이지 · 퍼레 홈")));
+        assertNotNull("page 3 is the piece", find(decor, v -> v instanceof TextView t && t.getText().toString().equals("3페이지 · 상상 속 식물 표본함")));
+        View row = find(decor, v -> v instanceof TextView t && t.getText().toString().equals("1페이지 · 원래 사진"));
+        int[] at = new int[2]; row.getLocationOnScreen(at);
+        float density = a.getResources().getDisplayMetrics().density;
+        assertTrue("kept at a phone's reading width in the middle", at[0] / density > 40);
+        Bitmap b = Bitmap.createBitmap(decor.getWidth(), decor.getHeight(), Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b); c.drawColor(Ui.BG); decor.draw(c);
+        File dir = new File(System.getProperty("ui.output", "build/ui-verification")); dir.mkdirs();
+        try (FileOutputStream out = new FileOutputStream(new File(dir, "decor-pages-fold.png"))) { b.compress(Bitmap.CompressFormat.PNG, 100, out); }
+    }
+    /** The board's rules: pages from offsets, the old single wallpaper still read, nothing private while locked. */
+    @Test public void boardRules() {
+        assertEquals(-1, dev.jun.gyeot.core.HomeBoard.page(0.5f, 0f), 0.0);
+        assertEquals(2.0, dev.jun.gyeot.core.HomeBoard.page(0.5f, 0.25f), 1e-6);
+        assertEquals(5, dev.jun.gyeot.core.HomeBoard.pages(0.25f));
+        var single = dev.jun.gyeot.core.HomeBoard.slots("", "https://miaai-lab.github.io/x.html", "식물");
+        assertEquals(1, single.size()); assertTrue(dev.jun.gyeot.core.HomeBoard.direct(single));
+        var two = dev.jun.gyeot.core.HomeBoard.slots("[{\"src\":\"photo\"},{\"src\":\"home\"},{\"src\":\"javascript:x\"}]", "", "");
+        assertEquals("unknown kinds are dropped", 2, two.size());
+        assertEquals("before the launcher says, the first page that is not the photo", 1, dev.jun.gyeot.core.HomeBoard.start(two, false));
+        assertEquals(0, dev.jun.gyeot.core.HomeBoard.start(two, true));
+        long now = 1_800_000_000_000L;
+        var known = new dev.jun.gyeot.core.HomeBoard.Known(now, true, true, new dev.jun.gyeot.core.HomeBoard.Event("병원", now + 3_600_000, now + 7_200_000, false, ""), 1,
+            java.util.List.of(new dev.jun.gyeot.core.HomeBoard.Notice("카카오톡", "엄마", "밥 먹었니", now)), 1, java.util.List.of(), 0, false, "들퍼레", java.util.List.of());
+        var locked = dev.jun.gyeot.core.HomeBoard.json(known);
+        assertFalse("locked: no event", locked.has("next")); assertFalse("locked: no notices", locked.has("notices"));
+        var open = dev.jun.gyeot.core.HomeBoard.json(new dev.jun.gyeot.core.HomeBoard.Known(now, false, true, known.next(), 1, known.notices(), 1, java.util.List.of(), 0, false, "들퍼레", java.util.List.of()));
+        assertEquals("병원", open.optJSONObject("next").optString("title"));
+        var quotes = dev.jun.gyeot.core.HomeBoard.quotes("[{\"symbol\":\"KORUUSDT\",\"lastPrice\":\"21.07\",\"priceChangePercent\":\"2.4\"},{\"symbol\":\"BTCUSDT\",\"lastPrice\":\"97412.5\",\"priceChangePercent\":\"1.84\"},{\"symbol\":\"SOXLUSDT\",\"lastPrice\":\"32.48\",\"priceChangePercent\":\"-3.12\"}]", dev.jun.gyeot.core.HomeBoard.WATCH);
+        assertEquals("in the order watched", java.util.List.of("BTC", "SOXL", "KORU"), quotes.stream().map(dev.jun.gyeot.core.HomeBoard.Quote::symbol).toList());
+        assertEquals(-3.12, quotes.get(1).change(), 1e-9);
+        assertTrue("locked still shows the quotes", locked.has("quotes")); assertFalse("no battery", locked.has("battery"));
+    }
 }
