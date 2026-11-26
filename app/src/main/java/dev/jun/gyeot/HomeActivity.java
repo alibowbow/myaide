@@ -376,6 +376,7 @@ public final class HomeActivity extends Activity {
                 case "ask" -> b.ask(a.optString(0, null));
                 case "web" -> b.web(a.optString(0, null));
                 case "settings" -> b.settings(a.optString(0, ""));
+                case "bars" -> b.bars(a.optBoolean(0));
                 default -> {}
             }
         }
@@ -464,6 +465,14 @@ public final class HomeActivity extends Activity {
                     if (open != null) { try { startActivity(open); return; } catch (RuntimeException ignored) {} }
                 }
                 try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=" + Uri.encode("날씨")))); } catch (RuntimeException ignored) {}
+            });
+        }
+        /** Over something light (Launchpad in pastel) the bars' icons turn dark; back on the home screen, light again. */
+        public void bars(boolean light) {
+            main.post(() -> {
+                WindowInsetsController c = getWindow().getInsetsController(); if (c == null) return;
+                int both = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                c.setSystemBarsAppearance(light ? both : 0, both);
             });
         }
         /** The background: "aurora" (the home screen's own night sky) or "photo" (the user's wallpaper under a dark veil). */

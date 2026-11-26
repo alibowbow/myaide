@@ -299,6 +299,31 @@ body.liquid .menu hr{background:var(--hair2)}
 .typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
 .ask.resume{margin:4px 0 6px}
 @media (min-width:600px){body.liquid .clock{font-size:74px}}
+/* Launchpad (every app, the search, the talk with 퍼레) in soft pastel, not near-black (준: "All app 표시란 바탕이 너무 새까매서 눈이
+   피로해 보기편한 파스텔톤으로"): dark words on light glass. */
+body.liquid .pad{background:#f4f2fb;--ink:#22232f;--ink2:#575869;--ink3:#8b8c9e;--glass:rgba(255,255,255,.72);--glass-line:rgba(255,255,255,.95);--hair:rgba(40,40,80,.08);--hair2:rgba(40,40,80,.12);color:var(--ink)}
+body.liquid .pad::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:
+  radial-gradient(60% 45% at 12% 8%,#e4dcff 0%,rgba(228,220,255,0) 70%),
+  radial-gradient(55% 40% at 92% 22%,#ffe3d8 0%,rgba(255,227,216,0) 70%),
+  radial-gradient(60% 45% at 18% 78%,#d8f3ea 0%,rgba(216,243,234,0) 70%),
+  radial-gradient(55% 45% at 88% 92%,#dceaff 0%,rgba(220,234,255,0) 70%)}
+body.liquid .pad{isolation:isolate}
+body.liquid .pad-top .field{background:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.98);box-shadow:0 4px 14px rgba(90,80,150,.08)}
+body.liquid .pad .field input{color:var(--ink)}
+body.liquid .pad .close{color:#6d5dd3}
+body.liquid .pad .chip{background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.95);color:#4a4b5e}
+body.liquid .pad .chip.on{background:#8b7cf6;color:#fff;border-color:transparent}
+body.liquid .pad .pad-body h3{color:#8b8c9e}
+body.liquid .pad .app .label{color:#2a2b38;text-shadow:none}
+body.liquid .pad .app .ic img{filter:drop-shadow(0 3px 8px rgba(70,60,120,.16))}
+body.liquid .pad .ask{background:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.95);color:var(--ink)}
+body.liquid .pad .ask b{color:var(--ink)}
+body.liquid .pad .mini{background:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.95);color:#575869}
+body.liquid .pad .msg.ai{background:#fff;border:1px solid rgba(40,40,80,.06);color:#22232f;box-shadow:0 2px 8px rgba(70,60,120,.06)}
+body.liquid .pad .msg.ai.err{color:#c0392b}
+body.liquid .pad .typing i{background:#a9aabb}
+body.liquid .pad .chat-head b{color:#22232f}
+body.liquid .pad .empty{color:#6a6b7d}
 /* On the home screen the board is the day's two things (the next event, the prices): notices and 퍼레's ideas come in its bubble. */
 .launcher .grid>.notices,.launcher .grid>.idea-card{display:none !important}
 body.liquid .board .wrap{gap:10px;padding-top:calc(var(--top) + 48px)}
@@ -871,9 +896,10 @@ function openPad(typing) {
   chatting = false; el("q").placeholder = SEARCH_HINT;
   const pad = el("pad"); filter = ""; el("q").value = ""; drawChips(); drawPad();
   pad.classList.add("on"); document.body.classList.add("covered"); requestAnimationFrame(() => pad.classList.add("shown"));
+  if (B) B.bars(true);
   if (typing) setTimeout(() => el("q").focus(), 60);
 }
-function closePad() { const pad = el("pad"); if (!pad.classList.contains("on")) return; el("q").blur(); pad.classList.remove("shown"); document.body.classList.remove("covered"); setTimeout(() => pad.classList.remove("on"), 230); }
+function closePad() { const pad = el("pad"); if (!pad.classList.contains("on")) return; el("q").blur(); pad.classList.remove("shown"); document.body.classList.remove("covered"); if (B) B.bars(false); setTimeout(() => pad.classList.remove("on"), 230); }
 el("padClose").addEventListener("click", closePad);
 function drawChips() {
   const have = STACKS.filter(s => APPS.some(a => a.stack === s.id));
