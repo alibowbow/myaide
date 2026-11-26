@@ -393,7 +393,7 @@ final class BuddyTalk {
         String instructions = "사용자와 AI 친구 퍼레가 나눈 대화 한 토막이야. 기억해 둘 것이 있으면 한 줄에 하나씩, 아래 형식으로만 써(최대 2줄):\n"
             + "사용자: 사용자는 …(친구가 오래 기억할 사용자의 이야기: 계획, 좋아하거나 싫어하는 것, 기분과 그 이유, 일상의 일, 소중한 사람·동물. 45자 안쪽, ~대요/~래요 말투)\n"
             + "약속: 퍼레가 …(퍼레가 사용자에게 해 주기로 한 것이 있을 때만)\n"
-            + "건강·돈·연애·가족 문제처럼 민감한 이야기면 그 줄 앞에 '민감 '을 붙여. 인사·잡담·질문·부탁·명령·앱 사용법·날씨·지금 잠깐의 일뿐이면 '없음'이라고만 써. 비밀번호·주소·전화번호·계좌·돈 액수는 절대 쓰지 마.";
+            + "비밀번호·로그인·계정, 사이트나 앱의 권한 요청, 사용자가 털어놓은 고민·걱정처럼 남이 알면 곤란한 이야기면 그 줄 앞에 '민감 '을 붙여. 병원·건강·연애·가족 같은 일상 이야기는 민감하지 않아. 인사·잡담·질문·부탁·명령·앱 사용법·날씨·지금 잠깐의 일뿐이면 '없음'이라고만 써. 비밀번호·주소·전화번호·계좌 같은 번호나 값 자체는 절대 쓰지 마.";
         String input = "사용자: " + said.strip() + "\n퍼레: " + (answer == null ? "" : answer.strip());
         java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> before = memories(c);
         new Thread(() -> quick(c, store, nim, groq, QWEN, instructions, input, 0.2, 12_000, text -> text == null ? "" : text.replaceAll("(?s)<think>.*?</think>", "").strip(), all -> {
@@ -413,7 +413,20 @@ final class BuddyTalk {
     static synchronized java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> memories(Context c) {
         // The storage memories of 0.4.560 are left out (준: "자꾸 파일 정리하라는 엉뚱한 이야기를 하는데"): 퍼레 does not talk about storage.
         // Only what is worth remembering; the routine records of 0.4.559–0.4.567 (apps opened, charging, play …) are left out.
-        try { java.io.File f = memoryFile(c); java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = dev.jun.gyeot.core.BuddyMemory.read(f.isFile() ? java.nio.file.Files.readString(f.toPath()) : "[]"); all.removeIf(m -> !KEPT.contains(m.kind())); return all; }
+        try {
+            java.io.File f = memoryFile(c); java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = dev.jun.gyeot.core.BuddyMemory.read(f.isFile() ? java.nio.file.Files.readString(f.toPath()) : "[]"); all.removeIf(m -> !KEPT.contains(m.kind()));
+            // Kept private before 0.4.572 for health, love or family (준: "병원에 간대요 정도는 민감한 기억이 아닌 듯"): open again,
+            // unless it is a password, an access or a worry; once.
+            SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            if (p.getInt("secretRules", 1) < 2) {
+                java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> open = new java.util.ArrayList<>();
+                for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) open.add(e.secret() && !dev.jun.gyeot.core.BuddyMind.secret(e.text()) ? new dev.jun.gyeot.core.BuddyMemory.Entry(e.at(), e.kind(), e.text(), e.weight(), false) : e);
+                if (f.isFile()) keepMemories(c, open);
+                p.edit().putInt("secretRules", 2).apply();
+                all = open;
+            }
+            return all;
+        }
         catch (Exception unreadable) { return new java.util.ArrayList<>(); }
     }
     private static synchronized void keepMemories(Context c, java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> list) {
@@ -450,7 +463,7 @@ final class BuddyTalk {
         String instructions = "너는 AI 친구 퍼레의 기억을 밤에 정리하는 역할이야. 아래를 읽고 다음 형식으로만 써.\n"
             + "프로필: (사용자에 대해 지금 알고 있는 사실 하나. 여러 줄 가능, 최대 12줄. 겹치는 건 합치고, 오래돼 틀린 건 빼고, 추측이면 끝에 '(추측)'.)\n"
             + "추억: (오늘 하루를 친구 시점에서 한 줄로. 특별한 게 없으면 '없음')\n"
-            + "건강·돈·연애·주소·비밀번호 같은 민감한 건 쓰지 마. 숫자 계좌·번호는 절대 쓰지 마.";
+            + "비밀번호·계정·권한 요청, 털어놓은 고민 같은 민감한 건 쓰지 마. 숫자 계좌·번호는 절대 쓰지 마.";
         new Thread(() -> quick(c, store, nim, groq, QWEN, instructions, in.toString(), 0.3, 20_000, text -> text == null ? "" : text, text -> {
             dev.jun.gyeot.core.BuddyMind.Dream d = dev.jun.gyeot.core.BuddyMind.dream(text);
             synchronized (BuddyTalk.class) {

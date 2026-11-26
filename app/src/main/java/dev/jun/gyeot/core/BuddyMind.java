@@ -94,10 +94,15 @@ public final class BuddyMind {
     }
 
     // ── what is private ──
-    private static final Pattern SECRET = Pattern.compile("(비밀번호|비번|암호|계좌|카드\\s*번호|주민|여권|주소|집\\s*위치|전화\\s*번호|연락처|월급|연봉|급여|빚|대출|돈\\s*문제|병원|진단|질병|아프|우울|약\\s*먹|수술|임신|건강\\s*검진|이혼|이별|헤어|연애|사귀|애인|가족\\s*문제|싸웠|비밀)");
-    /** Whether a memory is private (health, money, address, love, family troubles …): kept, but said only after the fingerprint. */
+    /*
+     * Private (준: "병원에 간대요 정도는 민감한 기억이 아닌 듯", "비번이나 사이트 권한요청 고민거리 뭐 그런거 있자나"): passwords and
+     * logins, a site's or an app's access, numbers that open an account, the home address, and the worries the user confided.
+     * A hospital visit, health, love and family are everyday news, not private.
+     */
+    private static final Pattern SECRET = Pattern.compile("(비밀번호|비번|패스워드|암호|핀\\s*번호|PIN|인증\\s*번호|인증\\s*코드|OTP|보안\\s*코드|아이디|계정|로그인|권한|접근\\s*허용|계좌|카드\\s*번호|주민\\s*(등록\\s*)?번호|여권\\s*번호|집\\s*주소|집\\s*위치|전화\\s*번호|연락처|고민|걱정|스트레스|털어놓|속상|우울|불안|빚|대출|비밀)", Pattern.CASE_INSENSITIVE);
+    /** Whether a memory is private (a password, a login or a site's access, a worry confided …): kept, but said only after the fingerprint. */
     public static boolean secret(String text) { return text != null && SECRET.matcher(text).find(); }
-    private static final Pattern ASKS = Pattern.compile("(내|나의|제)\\s*(비밀|정보|건강|주소|계좌|카드|번호|돈|월급|연봉|가족|애인|연애|병원|약)|기억나|기억해\\?|뭐라고\\s*했|뭐라 했|알고\\s*있|알려\\s*줘.*(나|내)|(나|내)에\\s*대해");
+    private static final Pattern ASKS = Pattern.compile("(내|나의|제)\\s*(비밀|비번|비밀번호|암호|아이디|계정|로그인|권한|계좌|카드|번호|주소|고민|걱정)|기억나|기억해\\?|뭐라고\\s*했|뭐라 했|알고\\s*있|알려\\s*줘.*(나|내)|(나|내)에\\s*대해");
     /** Whether what the user asked may need what is private (then the fingerprint first). */
     public static boolean asksPersonal(String said) { return said != null && ASKS.matcher(said).find(); }
 

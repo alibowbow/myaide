@@ -236,13 +236,26 @@ public final class HomeActivity extends Activity {
     // ── what the page shows ─────────────────────────────────────
     private void js(String call) { main.post(() -> { if (web != null && ready) web.evaluateJavascript(call, null); }); }
     private void pushApps() { try { io.execute(() -> js("launcher.apps(" + apps() + ")")); } catch (RuntimeException stopped) {} }
+    /**
+     * The board, locked or not. Resumed while the lock screen is still going away (a fingerprint unlock), the phone may still
+     * say locked: then it is asked again shortly, until unlocked (준: "가끔 화면이 안 뜨는 이런 표시 오류가..").
+     */
     private void pushBoard() {
         try {
             io.execute(() -> {
                 KeyguardManager k = getSystemService(KeyguardManager.class);
-                js("launcher.board(" + HtmlWallpaper.known(this, k != null && k.isKeyguardLocked()) + ")");
+                boolean locked = k != null && k.isKeyguardLocked();
+                js("launcher.board(" + HtmlWallpaper.known(this, locked) + ")");
+                pushedLocked = locked; main.removeCallbacks(unlocked);
+                if (locked && shown && lockedTries++ < 20) main.postDelayed(unlocked, 700); else if (!locked) lockedTries = 0;
             });
         } catch (RuntimeException stopped) {}
+    }
+    private volatile int lockedTries; private volatile boolean pushedLocked;
+    private final Runnable unlocked = () -> { if (shown && ready) pushBoard(); };
+    @Override public void onWindowFocusChanged(boolean focus) {
+        super.onWindowFocusChanged(focus);
+        if (focus && ready && pushedLocked) { lockedTries = 0; pushBoard(); }
     }
     private void pushBadges() { try { io.execute(() -> js("launcher.badges(" + new JSONObject(NoticeListener.badges()) + ")")); } catch (RuntimeException stopped) {} }
 

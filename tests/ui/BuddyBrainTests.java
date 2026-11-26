@@ -94,6 +94,16 @@ public class BuddyBrainTests {
         assertTrue(BuddyTalk.persona(a).contains("'주인공님'"));
     }
 
+    /** What is private (준: "병원에 간대요 정도는 민감한 기억이 아닌 듯", "비번이나 사이트 권한요청 고민거리"). */
+    @Test public void knowsWhatIsPrivate() {
+        for (String open : new String[]{"사용자는 다음 주에 병원에 간대요", "사용자는 감기약을 먹고 있대요", "사용자는 여자친구와 영화를 봤대요", "사용자는 주민센터에 다녀왔대요"})
+            assertFalse(open, dev.jun.gyeot.core.BuddyMind.secret(open));
+        for (String secret : new String[]{"사용자는 은행 비밀번호를 자주 잊는대요", "사용자는 사이트 권한 요청이 너무 많아 귀찮대요", "사용자는 요즘 이직 고민이 많대요", "사용자는 새 계정 로그인이 안 된대요"})
+            assertTrue(secret, dev.jun.gyeot.core.BuddyMind.secret(secret));
+        assertFalse(dev.jun.gyeot.core.BuddyMind.asksPersonal("나 병원 가는 날이 언제였지"));
+        assertTrue(dev.jun.gyeot.core.BuddyMind.asksPersonal("내 고민 기억나?"));
+    }
+
     /** 퍼레의 기억 (opened after the fingerprint): 오늘, 발견 노트, 약속, 추억; private ones marked 🔒. */
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void showsTheMemoryBook() throws Exception {
         Activity a = Robolectric.buildActivity(DecorActivity.class).setup().get();
@@ -101,7 +111,7 @@ public class BuddyBrainTests {
         long now = System.currentTimeMillis();
         java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> list = new java.util.ArrayList<>();
         list.add(new dev.jun.gyeot.core.BuddyMemory.Entry(now - 86_400_000L * 3, "fact", "사용자는 고양이를 좋아한대요", 2, false));
-        list.add(new dev.jun.gyeot.core.BuddyMemory.Entry(now - 86_400_000L, "fact", "사용자는 다음 주에 병원에 간대요", 2, true));
+        list.add(new dev.jun.gyeot.core.BuddyMemory.Entry(now - 86_400_000L, "fact", "사용자는 요즘 이직 고민이 많대요", 2, true));
         list.add(new dev.jun.gyeot.core.BuddyMemory.Entry(now - 3_600_000L, "promise", "퍼레가 내일 아침 날씨를 알려 주기로 했어요", 2, false));
         list.add(new dev.jun.gyeot.core.BuddyMemory.Entry(now - 7_200_000L, "profile", "평일 아침 8시쯤 지도 앱을 열어요", 3, false));
         BuddyTalk.today(a, "app", "지도·이동");
@@ -109,7 +119,7 @@ public class BuddyBrainTests {
         book.invoke(a, list); shadowOf(Looper.getMainLooper()).idle();
         View d = ShadowDialog.getLatestDialog().getWindow().getDecorView();
         for (String part : new String[]{"오늘", "발견 노트 · 나에 대해", "우리 약속", "추억"}) assertNotNull(part, text(d, part));
-        assertNotNull("a private memory marked", text(d, "🔒 사용자는 다음 주에 병원에"));
+        assertNotNull("a private memory marked", text(d, "🔒 사용자는 요즘 이직 고민이"));
         shot(d, "buddy_memory_book");
     }
 }

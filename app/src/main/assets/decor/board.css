@@ -46,7 +46,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:#dfeefe;font-family:va
 .clock{font-size:62px;line-height:1;font-weight:750;letter-spacing:-2.5px;margin:4px 0 6px;font-variant-numeric:tabular-nums}
 .clock small{font-size:22px;font-weight:700;letter-spacing:-.5px;margin-right:6px;color:var(--ink2)}
 .hello{font-size:16px;font-weight:650;color:var(--ink)}
-.locked .when .date,.locked .when .clock{display:none}
+/* The lock screen (the wallpaper) shows its own clock; the home screen always shows its own (준: "가끔 화면이 안 뜨는 이런 표시 오류"). */
+body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock{display:none}
 
 .buddy{position:relative;width:104px;height:118px;border:0;padding:0;background:none;flex:none}
 .buddy .body{position:absolute;left:8px;right:8px;bottom:14px;height:88px;animation:bob 3.2s ease-in-out infinite;transform-origin:50% 100%}
