@@ -232,7 +232,7 @@ function makeBoard(slot) {
     const go = bubble.dataset.go; bubble.classList.remove("on", "act");
     if (go && !lockedNow) (window.boardGo || (w => { location.href = "/do/" + encodeURIComponent(w); }))(go);
   });
-  alive(b); roam(b);
+  alive(b); toys(b); roam(b);
   wireTaps(b); tick(b);
   boards.push(b); if (info) show(b);
   return b;
@@ -974,6 +974,8 @@ function boardVoiceState(state, text) {
   exercises, looks over at the clock, jumps for joy, dances, naps late in the evening. Not while it talks, listens, thinks,
   is held, sleeps at night or its card is open; a tap, its card or the voice talk bring it home first.
 */
+/** What stands on the board, as far as its words go (준: "움직임이 제약돼"): the clock's box is as wide as its row, its digits are not. */
+function reachRect(el) { const box = el.getBoundingClientRect(); try { const r = document.createRange(); r.selectNodeContents(el); const c = r.getBoundingClientRect(); if (c.width > 0 && c.right < box.right) return {left: box.left, top: box.top, right: c.right, bottom: box.bottom}; } catch (e) {} return box; }
 function roam(b) {
   const buddy = $(b, ".buddy"), hero = $(b, ".hero"), rnd = (a, z) => a + Math.random() * (z - a);
   let x = 0, y = 0, playing = false;
@@ -983,8 +985,7 @@ function roam(b) {
     Library, and at each height left to whatever stands there (the clock widget, the prices, the small buttons), never over them.
   */
   const home = () => { const r = buddy.getBoundingClientRect(); return {left: r.left - x, top: r.top - y, w: r.width, h: r.height}; };
-  // What stands there, as far as its words go (준: "움직임이 제약돼"): the clock's box is as wide as its row, its digits are not.
-  const reach = el => { const box = el.getBoundingClientRect(); try { const r = document.createRange(); r.selectNodeContents(el); const c = r.getBoundingClientRect(); if (c.width > 0 && c.right < box.right) return {left: box.left, top: box.top, right: c.right, bottom: box.bottom}; } catch (e) {} return box; };
+  const reach = reachRect;
   const obstacles = () => Array.from(document.querySelectorAll(".when > *, .grid > .card, .mini-pill"))
     .filter(el => el.offsetParent && el.offsetWidth > 0 && !buddy.contains(el)).map(reach);
   const floorOf = hm => { const lib = document.querySelector(".lib-head"); return lib && lib.offsetParent ? lib.getBoundingClientRect().top - hm.h - 2 : hm.top + 40; };
@@ -1144,7 +1145,20 @@ function roam(b) {
     frisbee: end => { move(b, "point", 1500); feel("excited", 2600); setTimeout(() => { toy("frisbee", "", 2400); gazeTo(-6, -3); }, 500); setTimeout(() => { gazeTo(5, -2); move(b, "hop", 760); }, 1800); setTimeout(() => { gazeTo(0, 0); feel("gleeful", 1000); end(); }, 3000); },
     pinwheel: end => { toy("pinwheel", "<b></b>", 3400); feel("blow", 1800); setTimeout(() => feel("delighted", 1500), 1800); setTimeout(end, 3400); },
     fireflies: end => { for (let i = 0; i < 5; i++) { const t = toy("firefly", "", 3600); t.style.left = rnd(0, 100).toFixed(0) + "%"; t.style.top = rnd(-10, 40).toFixed(0) + "%"; t.style.animationDelay = (i * 300) + "ms"; } feel("awed", 3500); gazeTo(-4, -4); setTimeout(() => gazeTo(4, -3), 1200); setTimeout(() => gazeTo(0, -5), 2400); setTimeout(() => { gazeTo(0, 0); end(); }, 3600); },
-    dice: end => { toy("dice", "", 1800); feel("curious", 1600); setTimeout(() => { feel("gleeful", 1200); move(b, "bounce", 1000); }, 1700); setTimeout(end, 2900); }
+    dice: end => { toy("dice", "", 1800); feel("curious", 1600); setTimeout(() => { feel("gleeful", 1200); move(b, "bounce", 1000); }, 1700); setTimeout(end, 2900); },
+    // Its real toys (toys(): they stay out a while, bounce off the board, and the user can touch them too)
+    kickball: end => { const T = b._toys; if (!T) return end(); const ball = T.out("ball"); feel("excited", 1600);
+      setTimeout(() => T.kick(ball, -1), 600);
+      setTimeout(() => b._goNear(T.sx(ball), () => { T.kick(ball); move(b, "hop", 760); feel("laugh", 1200); }), 2500);
+      setTimeout(end, 5800); },
+    rolldice: end => { const T = b._toys; if (!T) return end(); const d = T.out("dice"); feel("curious", 1400); setTimeout(() => T.throwDice(d), 500); setTimeout(() => T.throwDice(d), 3800); setTimeout(end, 6400); },
+    puzzlecube: end => { const T = b._toys; if (!T) return end(); const c = T.out("cube"); feel("focused", 3200); setTimeout(() => c.el.classList.add("twist"), 400); gazeTo(-3, 3);
+      setTimeout(() => { c.el.classList.remove("twist"); gazeTo(0, 0); if (Math.random() < .5) { feel("triumphant", 1500); move(b, "victory", 1300); } else { feel("confused", 1500); move(b, "scratch", 1900); } }, 3600); setTimeout(end, 5600); },
+    spintop: end => { const T = b._toys; if (!T) return end(); const t = T.out("top"); feel("excited", 1500); setTimeout(() => T.spin(t), 700); gazeTo(-4, 3); setTimeout(() => { gazeTo(0, 0); end(); }, 8800); },
+    balloonbat: end => { const T = b._toys; if (!T) return end(); const bl = T.out("balloon"); feel("gleeful", 1500);
+      [900, 2700, 4500].forEach(t => setTimeout(() => { bl.vy = -rnd(300, 420); bl.vx = rnd(-120, 120); bl.rest = 0; T.wake(); move(b, "hop", 760); }, t)); setTimeout(end, 6200); },
+    flutter: end => { const T = b._toys; if (!T) return end(); T.flies(2 + Math.floor(Math.random() * 2)); feel("awed", 2000); gazeTo(-3, -5); setTimeout(() => { gazeTo(0, 0); end(); }, 3200); },
+    meteors: end => { const T = b._toys; if (!T) return end(); T.shower(); feel("awed", 4000); setTimeout(end, 9500); }
   };
   /** What it puts on for a play, off again when the play ends (its lasting clothes come back, envOf). */
   const PROPS = {reading: ["book", "roundglasses"], magic: ["wand", "tophat"], explorer: ["magnifier", "backpack", "map"], radar: ["magnifier"],
@@ -1171,7 +1185,13 @@ function roam(b) {
     if (playing || busy()) return;
     const h = new Date().getHours(), e = b._env || {}, kinds = Object.keys(PLAYS).filter(k => k !== "nap");
     if (h >= 21 || h < 1 || e.save) kinds.push("nap", "nap");
-    if (e.rain) ["butterfly", "kite", "paperplane", "cloudwatch"].forEach(k => kinds.splice(kinds.indexOf(k), 1));
+    const drop = k => { const i = kinds.indexOf(k); if (i >= 0) kinds.splice(i, 1); };
+    if (e.rain) ["butterfly", "kite", "paperplane", "cloudwatch", "flutter", "meteors"].forEach(drop);
+    const dark = h >= 19 || h < 5;
+    drop(dark ? "flutter" : "meteors");
+    // Its own toys come out often (준: "심심하지 않게"); the shower now and then on a dark evening.
+    if (b._toys) ["kickball", "rolldice", "puzzlecube", "spintop", "balloonbat"].concat(dark ? [] : ["flutter"]).forEach(k => { if (kinds.includes(k)) kinds.push(k, k, k); });
+    else ["kickball", "rolldice", "puzzlecube", "spintop", "balloonbat", "flutter", "meteors"].forEach(k => { const i = kinds.indexOf(k); if (i >= 0) kinds.splice(i, 1); });
     const kind = kinds[Math.floor(Math.random() * kinds.length)];
     playing = true;
     const here = () => {
@@ -1207,6 +1227,258 @@ function roam(b) {
   b._playNames = () => Object.keys(PLAYS);
   b._playNow = (kind, done) => PLAYS[kind](done || (() => {}));
   b._walk = (nx, ny) => walk(nx, ny);
+  // For the toys: a small word now (not counted as 퍼레 speaking), its eyes, and a walk to a spot on the board.
+  // over: a word that matters more (the dice's number) may take the place of a sound ("아야!"), never of real words.
+  b._sfx = (text, ms, over) => { const bub = $(b, ".bubble"); if (!text || (over && bub.classList.contains("sfx") ? (b._env && b._env.dnd) || lockedNow || document.hidden || voiceOn || b._careOn : quietNow())) return false; const before = b._spoke; speak(b, {text, sfx: true}, ms || 1800); b._spoke = before; saidAt = Date.now(); return true; };
+  b._gazeTo = gazeTo;
+  b._goNear = (vx, done) => { const hm = home(), r = room(), target = Math.round(vx - (hm.left + hm.w / 2)); walk(Math.max(r.min, Math.min(0, target)), y, done); };
   b._spot = () => spot();
   addEventListener("resize", () => b._home());
+}
+
+/*
+  퍼레's toys (준: "퍼레가 가지고 놀 다양한 오브젝트 토이들을 만들어줘 심심하지 않게", "반응성이 구현된 물리적인 오브젝트도 좋고 큐브같이
+  두뇌를 써야하는 장난감도 좋고 주사위 같은 단순 기구도 되고 공같은 것도 되고", "나비 같이 날아다니는 것 유성우 등등"): things on the
+  board that fall, bounce and roll off the clock, the cards and 퍼레 itself, and that the user can touch too:
+    ball      flicked or tapped, it flies and bounces; 퍼레 kicks it and says ouch when it is hit
+    dice      tapped, it is thrown and lands on a number 퍼레 reads out
+    cube      a puzzle cube: tapped, a small 불 끄기 puzzle (3×3, a tap turns a light and its neighbours) to solve
+    top       tapped, it spins, wobbles as it slows and falls over
+    balloon   floats up; batted, it flies; tapped twice quickly, it pops
+    flies     butterflies wander the board, rest on 퍼레's head and flee from a finger
+    meteors   at night a shower crosses the sky, and 퍼레 asks whether a wish was made
+  A few at a time; each goes after a while. The loop runs only while something moves (nothing at rest costs a frame).
+*/
+function toys(b) {
+  if (matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches) { b._toys = null; return; }
+  const wrap = $(b, ".wrap"), buddy = $(b, ".buddy");
+  const layer = document.createElement("div"); layer.className = "toybox"; wrap.appendChild(layer);
+  const items = []; let raf = 0, last = 0, solidsAt = 0, solidsCache = [];
+  const G = 1500, now = () => performance.now(), rnd = (a, z) => a + Math.random() * (z - a);
+  const W = () => wrap.getBoundingClientRect();
+  const local = (r, w) => ({l: r.left - w.left, t: r.top - w.top, r: r.right - w.left, b: r.bottom - w.top});
+  /** The floor: just above App Library (or the board's bottom). */
+  const floor = w => { const lib = document.querySelector(".lib-head"); return lib && lib.offsetParent ? Math.min(w.height + 60, lib.getBoundingClientRect().top - w.top - 2) : w.height - 2; };
+  const solids = w => {
+    if (now() - solidsAt > 500) { solidsAt = now(); solidsCache = Array.from(document.querySelectorAll(".when > *, .grid > .card, .mini-pill")).filter(e => e.offsetParent && e.offsetWidth > 0).map(e => local(reachRect(e), w)); }
+    return solidsCache;
+  };
+  const say = (t, ms, over) => { if (b._sfx) b._sfx(t, ms, over); };
+  const pick = moment => typeof TALK === "undefined" ? "" : preset(moment);
+
+  // ── the body of a toy: where it is, how it moves ──
+  const make = (kind, html, o) => {
+    const el = document.createElement("div"); el.className = "tb " + kind; if (html) el.innerHTML = html; layer.appendChild(el);
+    const it = Object.assign({kind, el, x: 0, y: 0, vx: 0, vy: 0, a: 0, va: 0, r: 9, bounce: .6, friction: .98, grav: 1, drag: 0, held: false, born: now(), life: 90000, rest: 0, solid: true}, o || {});
+    items.push(it); wire(it); draw(it); wake(); return it;
+  };
+  const gone = it => { const i = items.indexOf(it); if (i >= 0) items.splice(i, 1); it.el.classList.add("bye"); setTimeout(() => it.el.remove(), 400); if (it.panel) it.panel.remove(); };
+  const draw = it => { it.el.style.transform = "translate3d(" + (it.x - it.r).toFixed(1) + "px," + (it.y - it.r).toFixed(1) + "px,0) rotate(" + it.a.toFixed(3) + "rad)"; };
+  /** Where 퍼레 holds a thing: by its hand, on the board. */
+  const hand = () => { const w = W(), bb = buddyBox(w); return {x: Math.max(16, bb.l - 14 - Math.random() * 16), y: (bb.t + bb.b) / 2}; };
+  const buddyBox = w => { const r = buddy.getBoundingClientRect(); return {l: r.left - w.left + 14, t: r.top - w.top + 22, r: r.right - w.left - 14, b: r.bottom - w.top - 6}; };
+  const bump = (it, o) => {
+    const cx = Math.max(o.l, Math.min(it.x, o.r)), cy = Math.max(o.t, Math.min(it.y, o.b));
+    let dx = it.x - cx, dy = it.y - cy, d2 = dx * dx + dy * dy;
+    if (d2 >= it.r * it.r) return 0;
+    let d = Math.sqrt(d2);
+    if (d < .01) { dx = 0; dy = -1; d = 1; it.y = o.t - it.r; } // inside: out the top
+    const nx = dx / d, ny = dy / d; it.x = cx + nx * it.r; it.y = cy + ny * it.r;
+    const vn = it.vx * nx + it.vy * ny;
+    if (vn < 0) { it.vx -= (1 + it.bounce) * vn * nx; it.vy -= (1 + it.bounce) * vn * ny; if (ny < -.6 && Math.abs(it.vy) < 50) it.vy = 0; }
+    return -vn;
+  };
+  const step = dt => {
+    const w = W(), F = floor(w), R = w.width - 4, L = 4, T = 8, s = solids(w), bb = buddyBox(w);
+    for (const it of items.slice()) {
+      if (it.tick) it.tick(it, dt, w, F);
+      if (now() - it.born > it.life && !it.held && !it.panel) { gone(it); continue; }
+      if (it.held || it.free) { draw(it); continue; }
+      it.vy += G * it.grav * dt;
+      if (it.drag) { const k = Math.max(0, 1 - it.drag * dt); it.vx *= k; it.vy *= k; }
+      it.x += it.vx * dt; it.y += it.vy * dt; it.a += it.va * dt;
+      if (it.x - it.r < L) { it.x = L + it.r; it.vx = Math.abs(it.vx) * it.bounce; }
+      if (it.x + it.r > R) { it.x = R - it.r; it.vx = -Math.abs(it.vx) * it.bounce; }
+      if (it.y - it.r < T) { it.y = T + it.r; it.vy = Math.abs(it.vy) * it.bounce; }
+      let ground = false;
+      if (it.y + it.r > F) { const hit = it.vy; it.y = F - it.r; it.vy = Math.abs(it.vy) > 70 ? -Math.abs(it.vy) * it.bounce : 0; it.vx *= it.friction; ground = true; if (hit > 300 && it.onBounce) it.onBounce(it, hit); }
+      if (it.solid) for (const o of s) { const hit = bump(it, o); if (hit > 0 && o.b > it.y) { ground = ground || (it.y < o.t); if (hit > 300 && it.onBounce) it.onBounce(it, hit); } }
+      if (it.solid) { const hit = bump(it, bb); if (hit > 260 && now() - (it.ouch || 0) > 1500) { it.ouch = now(); ouch(it); } }
+      if (ground && it.roll) it.va = it.vx / it.r;
+      if (ground && Math.abs(it.vx) < 8) it.vx = 0;
+      const still = it.vx === 0 && Math.abs(it.vy) < 1 && !it.spin;
+      it.rest = still ? it.rest + dt : 0;
+      if (it.rest > .25 && it.onRest && !it.rested) { it.rested = true; it.onRest(it); }
+      if (!still) it.rested = false;
+      draw(it);
+    }
+    // Two toys knock into each other.
+    for (let i = 0; i < items.length; i++) for (let j = i + 1; j < items.length; j++) {
+      const p = items[i], q = items[j]; if (!p.solid || !q.solid || p.free || q.free) continue;
+      const dx = q.x - p.x, dy = q.y - p.y, d = Math.hypot(dx, dy), min = p.r + q.r;
+      if (d > 0 && d < min) { const nx = dx / d, ny = dy / d, push = (min - d) / 2; p.x -= nx * push; p.y -= ny * push; q.x += nx * push; q.y += ny * push;
+        const rv = (q.vx - p.vx) * nx + (q.vy - p.vy) * ny; if (rv < 0) { const k = -rv * .9; p.vx -= k * nx; p.vy -= k * ny; q.vx += k * nx; q.vy += k * ny; } }
+    }
+  };
+  const busy = () => items.some(it => it.held || it.free || it.spin || it.panel || it.rest < .3);
+  const loop = t => { const dt = Math.min(.033, (t - last) / 1000 || .016); last = t; step(dt); raf = busy() || items.some(it => now() - it.born > it.life) ? requestAnimationFrame(loop) : 0; };
+  const wake = () => { if (!raf && !document.hidden) { last = performance.now(); raf = requestAnimationFrame(loop); } };
+  setInterval(() => { if (items.some(it => now() - it.born > it.life)) wake(); }, 5000);
+  // Its toys wait while the screen is away, and go on when it is back.
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) wake(); });
+  /** A toy hit 퍼레 hard. */
+  const ouch = it => {
+    move(b, "wobble", 900); if (b._feel) b._feel(Math.random() < .5 ? "surprised" : "ouch", 1100);
+    say(["아야!", "앗!", "으앗!", "헤딩!", "깜짝이야!"][Math.floor(Math.random() * 5)], 1300);
+  };
+
+  // ── touch: drag and throw, or tap ──
+  const wire = it => {
+    let down = null, path = [];
+    it.el.addEventListener("pointerdown", e => {
+      e.stopPropagation(); try { it.el.setPointerCapture(e.pointerId); } catch (x) {}
+      const w = W(); down = {x: e.clientX, y: e.clientY, t: now(), moved: false}; path = [{x: e.clientX - w.left, y: e.clientY - w.top, t: now()}];
+      if (it.grab) { it.held = true; it.vx = it.vy = 0; wake(); }
+    });
+    it.el.addEventListener("pointermove", e => {
+      if (!down) return; const w = W();
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) down.moved = true;
+      if (it.held) { it.x = e.clientX - w.left; it.y = e.clientY - w.top; path.push({x: it.x, y: it.y, t: now()}); if (path.length > 6) path.shift(); }
+    });
+    const up = e => {
+      if (!down) return; const was = down; down = null;
+      if (it.held) {
+        it.held = false;
+        const a = path[0], z = path[path.length - 1], dt = Math.max(16, z.t - a.t) / 1000;
+        it.vx = Math.max(-1800, Math.min(1800, (z.x - a.x) / dt)); it.vy = Math.max(-1800, Math.min(1800, (z.y - a.y) / dt)); it.va = it.vx / 30;
+      }
+      if (!was.moved && it.tap) it.tap(it, e);
+      it.born = Math.max(it.born, now() - it.life + 30000); // touched: it stays a while longer
+      wake();
+    };
+    it.el.addEventListener("pointerup", up); it.el.addEventListener("pointercancel", up);
+    it.el.addEventListener("click", e => e.stopPropagation());
+  };
+
+  // ── the toys ──
+  const find = kind => items.find(it => it.kind === kind);
+  const at = (it, p) => { it.x = p.x; it.y = p.y; draw(it); return it; };
+  const KIND = {
+    ball: () => at(make("ball", "", {r: 9, bounce: .74, friction: .985, roll: true, grab: true,
+      tap: it => { it.vy = -rnd(520, 760); it.vx = rnd(-260, 260); },
+      onBounce: (it, v) => { it.el.classList.remove("squash"); void it.el.offsetWidth; it.el.classList.add("squash"); }}), hand()),
+    dice: () => at(make("dice", '<i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>', {r: 8, bounce: .38, friction: .86, grab: true,
+      tap: it => throwDice(it), onRest: it => { if (it.rolling) { it.rolling = false; land(it); } }}), hand()) && faced(find("dice")),
+    cube: () => at(make("cube", '<i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>', {r: 10, bounce: .3, friction: .85, grab: true,
+      tap: it => puzzle(it)}), hand()),
+    top: () => at(make("top", "<b></b>", {r: 9, bounce: .2, friction: .9, grab: true, spin: 0,
+      tap: it => { it.spin = 1; it.a = 0; it.el.classList.remove("fallen"); wake(); },
+      tick: (it, dt) => {
+        if (!it.spin) return;
+        it.spin = Math.max(0, it.spin - dt / 7);
+        it.el.style.setProperty("--spin", (it.spin * 22).toFixed(1));
+        const wob = (1 - it.spin) * .35 * Math.sin(now() / 90);
+        it.a = wob;
+        if (it.spin < .12) { it.spin = 0; it.a = (Math.random() < .5 ? -1 : 1) * 1.3; it.el.classList.add("fallen"); it.vx = it.a * 40; if (b._feel) b._feel("surprised", 900); say(["쓰러졌다!", "빙글빙글… 쿵!", "오래 돌았다!"][Math.floor(Math.random() * 3)], 1500); }
+        it.el.classList.toggle("spinning", it.spin > 0);
+      }}), hand()),
+    balloon: () => at(make("balloon", "<b></b>", {r: 11, bounce: .5, friction: .95, grav: -.05, drag: .9, grab: true,
+      tap: it => { if (now() - (it.tapped || 0) < 400) { pop(it); return; } it.tapped = now(); it.vy = -rnd(260, 380); it.vx = rnd(-120, 120); }}), hand())
+  };
+  const throwDice = it => {
+    it.rolling = true; it.rested = false; it.vy = -rnd(520, 700); it.vx = rnd(-220, 220); it.va = rnd(-18, 18);
+    it.el.classList.add("rolling"); wake();
+  };
+  const PIPS = [[4], [0, 8], [0, 4, 8], [0, 2, 6, 8], [0, 2, 4, 6, 8], [0, 2, 3, 5, 6, 8]];
+  const land = it => {
+    const n = 1 + Math.floor(Math.random() * 6); it.face = n; it.va = 0; it.a = 0; it.el.classList.remove("rolling");
+    Array.from(it.el.children).forEach((p, i) => p.classList.toggle("on", PIPS[n - 1].includes(i))); draw(it);
+    if (b._feel) b._feel(n === 6 ? "thrilled" : n === 1 ? "pout" : "happy", 1200);
+    say(n === 6 ? "6이다! 대박!" : n === 1 ? "1… 에이~" : n + "!" + (n >= 4 ? " 좋아!" : ""), 1500, true);
+  };
+  const faced = it => { const n = 1 + Math.floor(Math.random() * 6); Array.from(it.el.children).forEach((p, i) => p.classList.toggle("on", PIPS[n - 1].includes(i))); return it; };
+  const pop = it => {
+    it.el.classList.add("popped"); say("펑!", 1100); if (b._feel) b._feel("shock", 900); move(b, "doubletake", 1200);
+    const i = items.indexOf(it); if (i >= 0) items.splice(i, 1); setTimeout(() => it.el.remove(), 350);
+  };
+
+  // ── 퍼즐 큐브: 불 끄기 (3×3), a tap turns a light and the ones beside it; all off is solved ──
+  const puzzle = it => {
+    if (it.panel) { it.panel.remove(); it.panel = null; return; }
+    const lights = Array(9).fill(false);
+    const press = i => { const r = Math.floor(i / 3), c = i % 3; [[r, c], [r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]].forEach(([y, x]) => { if (y >= 0 && y < 3 && x >= 0 && x < 3) lights[y * 3 + x] = !lights[y * 3 + x]; }); };
+    for (let k = 0; k < 4 || lights.every(v => !v); k++) press(Math.floor(Math.random() * 9));
+    const p = document.createElement("div"); p.className = "tpanel"; it.panel = p;
+    p.innerHTML = '<div class="th"><b>불 끄기</b><button class="tx" aria-label="닫기">✕</button></div><div class="tg">' + lights.map((_, i) => '<button data-i="' + i + '"></button>').join("") + '</div><div class="tn"></div>';
+    layer.appendChild(p);
+    // Beside the cube, on the side away from 퍼레, so its face shows how it goes.
+    const w = W(), bb = buddyBox(w), left = it.x - 128 - 18 >= 4 && it.x < bb.r ? it.x - 128 - 18 : it.x + 18;
+    p.style.left = Math.max(4, Math.min(w.width - 132, left)) + "px"; p.style.top = Math.max(8, Math.min(floor(w) - 160, it.y - 80)) + "px";
+    let moves = 0;
+    const show = () => { p.querySelectorAll(".tg button").forEach((x, i) => x.classList.toggle("on", lights[i])); const left = lights.filter(Boolean).length; p.querySelector(".tn").textContent = left ? "켜진 불 " + left + " · " + moves + "번" : moves + "번 만에 다 껐다!"; };
+    show();
+    p.addEventListener("pointerdown", e => e.stopPropagation());
+    p.addEventListener("click", e => {
+      e.stopPropagation();
+      if (e.target.closest(".tx")) { p.remove(); it.panel = null; return; }
+      const cell = e.target.closest(".tg button"); if (!cell || lights.every(v => !v)) return;
+      press(+cell.dataset.i); moves++; show();
+      if (lights.every(v => !v)) {
+        it.el.classList.add("solved"); move(b, "jumpturn", 1100); if (b._feel) b._feel("triumphant", 1800); say(moves <= 5 ? "천재다! 풀었어!" : "풀었다! 짝짝짝!", 1800, true);
+        for (let i = 0; i < 8; i++) { const c = document.createElement("i"); c.className = "toy confetti c" + (i % 4); c.style.left = (20 + Math.random() * 60).toFixed(0) + "%"; buddy.appendChild(c); setTimeout(() => c.remove(), 2400); }
+        setTimeout(() => { if (it.panel === p) { p.remove(); it.panel = null; } it.el.classList.remove("solved"); }, 2200);
+      }
+    });
+  };
+
+  // ── butterflies: they wander, rest on 퍼레's head, flee from a finger ──
+  const flies = n => {
+    const w0 = W(), hd = hand();
+    for (let i = 0; i < n; i++) {
+      const it = make("fly", "<b></b><b></b>", {r: 8, free: true, solid: false, life: rnd(32000, 46000), tx: 0, ty: 0, next: 0, sit: 0, speed: rnd(55, 85),
+        tick: (it, dt, w, F) => {
+          if (now() > it.next) {
+            it.next = now() + rnd(1400, 3200);
+            const head = buddyBox(w);
+            if (Math.random() < .22) { it.tx = (head.l + head.r) / 2 + rnd(-10, 10); it.ty = head.t - 4; it.sit = now() + rnd(1500, 2600); }
+            else { it.tx = rnd(w.width * .35, w.width - 14); it.ty = rnd(20, Math.max(40, F - 30)); it.sit = 0; }
+          }
+          const dx = it.tx - it.x, dy = it.ty - it.y, d = Math.hypot(dx, dy);
+          if (it.sit && d < 4) { it.el.classList.add("sitting"); return; }
+          it.el.classList.remove("sitting");
+          const sp = it.flee ? 260 : it.speed;
+          if (d > 1) { it.x += dx / d * sp * dt + Math.sin(now() / 160 + it.born) * .6; it.y += dy / d * sp * dt + Math.cos(now() / 120 + it.born) * .8; }
+          it.el.style.setProperty("--face", dx < 0 ? -1 : 1);
+          if (it.flee && d < 6) it.flee = false;
+        },
+        tap: it => { it.flee = true; it.tx = rnd(0, W().width); it.ty = 6; it.next = now() + 1800; it.sit = 0; if (b._feel) b._feel("surprised", 800); }});
+      it.x = hd.x + rnd(-20, 20); it.y = hd.y - 30 - i * 8; draw(it);
+    }
+  };
+
+  // ── 유성우: streaks across the sky; afterwards 퍼레 asks about the wish (its choices) ──
+  const shower = () => {
+    const w = W(); let k = 0;
+    const one = () => {
+      if (k++ >= 12) { setTimeout(() => { if (!$(b, ".bubble").classList.contains("on")) speak(b, {text: "별똥별에 소원 빌었어?"}, 9000); }, 1200); return; }
+      const it = make("meteor", "", {r: 6, free: true, solid: false, life: 1600, vx: -rnd(380, 560), vy: rnd(160, 260),
+        tick: (it, dt) => { it.x += it.vx * dt; it.y += it.vy * dt; it.a = Math.atan2(it.vy, it.vx); if (it.x < -30 || it.y > W().height) gone(it); },
+        tap: it => { it.el.classList.add("caught"); say("소원 빌었다!", 1400); if (b._feel) b._feel("awed", 1400); }});
+      it.x = rnd(w.width * .45, w.width + 20); it.y = rnd(-10, 50); draw(it);
+      setTimeout(one, rnd(450, 1300));
+    };
+    if (b._gazeTo) b._gazeTo(4, -5);
+    one();
+  };
+
+  b._toys = {
+    /** Out comes a toy (or the one already out); null on a reduced-motion phone. */
+    out(kind) { const had = find(kind); if (had) { had.born = now(); return had; } if (items.filter(it => !it.free).length >= 5) gone(items.find(it => !it.free)); return KIND[kind] ? KIND[kind]() : null; },
+    find, throwDice, flies, shower, wake, hand,
+    /** A toy's place across the screen (for 퍼레 to walk to it). */
+    sx: it => W().left + it.x,
+    kick(it, dir) { it.vx = (dir || (Math.random() < .5 ? -1 : 1)) * rnd(380, 640); it.vy = -rnd(380, 600); it.rest = 0; wake(); },
+    spin(it) { it.tap(it); },
+    count: () => items.length
+  };
 }

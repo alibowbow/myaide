@@ -661,3 +661,42 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .bot .halo{animation:k2halo 2s ease-in-out infinite}.bot .lantern .flame{animation:glow 1.2s ease-in-out infinite}.bot .flag .cloth{transform-box:fill-box;transform-origin:0 50%;animation:k2flag .7s ease-in-out infinite alternate}
 .bot .moon{animation:qbob 3s ease-in-out infinite}.bot .bubblewand .pop1,.bot .bubblewand .pop2{animation:k2rise 2.4s ease-out infinite}.bot .bubblewand .pop2{animation-delay:1.2s}
 @keyframes k2halo{50%{transform:translateY(-2px);opacity:.75}}@keyframes k2flag{to{transform:scaleX(.82) skewY(4deg)}}
+
+/* 퍼레's toys (board.js toys()): over the board, each one a thing to touch (a larger invisible area around it). */
+.toybox{position:absolute;inset:0;pointer-events:none;z-index:3}
+.tb{position:absolute;left:0;top:0;pointer-events:auto;touch-action:none;will-change:transform;transition:opacity .35s}
+.tb::before{content:"";position:absolute;inset:-12px}
+.tb.bye{opacity:0}
+.tb.ball{width:18px;height:18px;border-radius:50%;background:radial-gradient(circle at 34% 30%,#fff 0 14%,#ffc14d 17%,#ff7a45 100%);box-shadow:0 2px 4px rgba(0,0,0,.25)}
+.tb.ball.squash{animation:tbSquash .18s ease-out}
+@keyframes tbSquash{40%{scale:1.25 .78}}
+.tb.dice{width:16px;height:16px;border-radius:4px;background:#fff;box-shadow:inset 0 0 0 1px #d6d8e4,0 2px 3px rgba(0,0,0,.2);display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);padding:2px;box-sizing:border-box}
+.tb.dice i{border-radius:50%;margin:.6px}.tb.dice i.on{background:#2b2b3a}.tb.dice.rolling i.on{background:#9a9aa6}
+.tb.cube{width:20px;height:20px;border-radius:4px;background:#22232f;display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);gap:1.5px;padding:2px;box-sizing:border-box;box-shadow:0 2px 4px rgba(0,0,0,.25)}
+.tb.cube i{border-radius:1.5px;background:#ff6f91}
+.tb.cube i:nth-child(3n+2){background:#ffd36e}.tb.cube i:nth-child(4n){background:#7ad3c8}.tb.cube i:nth-child(5){background:#5b8def}.tb.cube i:nth-child(7){background:#fff}.tb.cube i:nth-child(9){background:#c4b5fd}
+.tb.cube.twist i{animation:tbTwist .45s steps(3) infinite}
+.tb.cube.solved{box-shadow:0 0 0 2px #ffd36e,0 0 12px #ffd36e}
+@keyframes tbTwist{to{filter:hue-rotate(360deg)}}
+.tb.top{width:18px;height:18px}
+.tb.top b{position:absolute;inset:0;border-radius:50% 50% 50% 50%/60% 60% 40% 40%;background:conic-gradient(#ff6f91 0 25%,#ffd36e 0 50%,#7ad3c8 0 75%,#c4b5fd 0);box-shadow:0 2px 3px rgba(0,0,0,.25)}
+.tb.top::after{content:"";position:absolute;left:8px;top:-5px;width:2px;height:7px;border-radius:1px;background:#8a6b4a}
+.tb.top.spinning b{animation:whirl calc(1s / var(--spin, 1)) linear infinite}
+.tb.balloon{width:20px;height:24px}
+.tb.balloon b{position:absolute;inset:0 0 4px;border-radius:50% 50% 48% 48%;background:radial-gradient(circle at 34% 28%,#fff8 0 12%,#ff6f91 16%,#e5484d 100%)}
+.tb.balloon::after{content:"";position:absolute;left:9.5px;top:20px;width:1px;height:16px;background:rgba(255,255,255,.7)}
+.tb.balloon.popped{animation:tbPop .3s ease-out forwards}
+@keyframes tbPop{to{scale:1.8;opacity:0}}
+.tb.fly{width:18px;height:13px}
+.tb.fly b{position:absolute;top:0;width:9px;height:12px;border-radius:60% 40% 50% 50%;animation:flap .16s ease-in-out infinite alternate}
+.tb.fly b:first-child{left:0;background:#ffb3d1;transform-origin:100% 50%}.tb.fly b:last-child{right:0;background:#c3b5ff;transform-origin:0 50%}
+.tb.fly.sitting b{animation-duration:.9s}
+.tb.meteor{width:52px;height:2px;border-radius:2px;background:linear-gradient(90deg,#fff,rgba(255,255,255,0));box-shadow:0 0 6px rgba(255,255,255,.8);transform-origin:0 50%}
+.tb.meteor.caught{background:linear-gradient(90deg,#ffd36e,rgba(255,211,110,0))}
+.tpanel{position:absolute;width:128px;padding:7px;border-radius:14px;background:#fff;color:#22232f;box-shadow:0 8px 24px rgba(20,20,40,.28);pointer-events:auto;z-index:6;font-size:12px}
+.tpanel .th{display:flex;align-items:center;justify-content:space-between;margin:0 2px 6px}.tpanel .th b{font-weight:800}
+.tpanel .tx{border:0;background:#f1f2f6;border-radius:50%;width:20px;height:20px;font-size:11px;color:#6a6b7d;padding:0}
+.tpanel .tg{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+.tpanel .tg button{height:34px;border:0;border-radius:8px;background:#3a3b4a;transition:background .15s}
+.tpanel .tg button.on{background:#ffd36e;box-shadow:0 0 10px #ffd36e99}
+.tpanel .tn{margin:6px 2px 0;font-size:11.5px;color:#6a6b7d}

@@ -24,6 +24,11 @@ async function open(browser, at) {
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.clock.install({ time: new Date(at) });
+  // The same run every time: chance from a fixed seed, and no CSS easing (it runs on real time, not the test's clock).
+  await ctx.addInitScript(() => {
+    let seed = 20261126; Math.random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    addEventListener('DOMContentLoaded', () => { const st = document.createElement('style'); st.textContent = '*,*::before,*::after{transition:none!important}'; document.head.appendChild(st); });
+  });
   await page.route('**/*', route => {
     const u = new URL(route.request().url());
     if (u.host === 'gyeot.local') {
@@ -115,6 +120,33 @@ async function open(browser, at) {
     await p.evaluate(() => { launcher.thought('오잉?'); });
     await p.clock.runFor(1500);
     assert.strictEqual(await p.evaluate(() => document.querySelectorAll('.bubble .pick').length), 0);
+  });
+  await check('퍼레\'s toys fall and rest on the board; the dice says its number; the puzzle cube can be solved', async () => {
+    const p = day.page;
+    await p.evaluate(() => { document.querySelector('.bubble').classList.remove('on', 'ask'); ['ball', 'dice', 'cube'].forEach(k => boards[0]._toys.out(k)); });
+    for (let i = 0; i < 20; i++) await p.clock.runFor(100);
+    const rest = await p.evaluate(() => { const f = document.querySelector('.lib-head').getBoundingClientRect().top; return Array.from(document.querySelectorAll('.tb')).map(e => ({k: e.className, gap: Math.round(f - e.getBoundingClientRect().bottom)})); });
+    assert.strictEqual(rest.length, 3);
+    for (const t of rest) assert(t.gap >= -2 && t.gap < 120, t.k + ' rests above App Library: ' + t.gap);
+    const dice = await p.evaluate(() => { const r = document.querySelector('.tb.dice').getBoundingClientRect(); return {x: r.left + 8, y: r.top + 8}; });
+    await p.touchscreen.tap(dice.x, dice.y);
+    for (let i = 0; i < 30; i++) await p.clock.runFor(100);
+    const pips = await p.evaluate(() => document.querySelectorAll('.tb.dice i.on').length), said = await p.evaluate(() => document.querySelector('.bubble').textContent);
+    assert(pips >= 1 && pips <= 6, 'pips ' + pips);
+    assert(said.startsWith(String(pips)), 'said ' + said + ' for ' + pips);
+    const cube = await p.evaluate(() => { const r = document.querySelector('.tb.cube').getBoundingClientRect(); return {x: r.left + 10, y: r.top + 10}; });
+    await p.touchscreen.tap(cube.x, cube.y);
+    await p.clock.runFor(200);
+    const lights = await p.evaluate(() => Array.from(document.querySelectorAll('.tpanel .tg button')).map(b => b.classList.contains('on')));
+    assert.strictEqual(lights.length, 9); assert(lights.some(Boolean));
+    let solution = -1;
+    for (let m = 0; m < 512 && solution < 0; m++) { const L = lights.slice(); for (let i = 0; i < 9; i++) if (m >> i & 1) { const r = Math.floor(i / 3), c = i % 3; [[r, c], [r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]].forEach(([y, x]) => { if (y >= 0 && y < 3 && x >= 0 && x < 3) L[y * 3 + x] = !L[y * 3 + x]; }); } if (L.every(v => !v)) solution = m; }
+    assert(solution >= 0, 'solvable');
+    for (let i = 0; i < 9; i++) if (solution >> i & 1) await p.evaluate(i => document.querySelector('.tpanel .tg button[data-i="' + i + '"]').click(), i);
+    await p.clock.runFor(300);
+    assert(/다 껐다/.test(await p.evaluate(() => document.querySelector('.tpanel .tn').textContent)));
+    assert(/풀었/.test(await p.evaluate(() => document.querySelector('.bubble').textContent)));
+    assert.deepStrictEqual(day.errors, []);
   });
   await day.ctx.close();
 
