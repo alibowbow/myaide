@@ -226,6 +226,9 @@ public final class DecorActivity extends Activity {
         ScopedModels scope; try { scope = ScopedModels.buddy(store); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); return; }
         String usedEngine = BuddyTalk.CUSTOM.equals(now) ? scope.engine() : "";
         TeamRoster roster = new TeamRoster(store, scope);
+        // Groq's list read again when a day old (준: "kimi k2는 선택안돼": Groq retired it in April 2026; a list kept from before
+        // still named it). It shows from the next opening on; nothing here waits for the network.
+        if (store.groq.connected() && System.currentTimeMillis() - store.groq.modelsAt() > 24 * 3_600_000L) store.groq.check();
         Ui.Sheet menu = ui.selectionSheet("퍼레 두뇌", "한마디 · 퍼레 대화 · 음성 대화에 써요");
         menu.primary.setVisibility(View.GONE);
         menu.body.addView(ui.sectionHeader("빠른 두뇌"));
