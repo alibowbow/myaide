@@ -603,7 +603,10 @@ window.launcher = {
     if (el("pad").classList.contains("on")) { closePad(); return true; }
     return false;
   },
-  resized() { drawDock(); boards.forEach(fit); }
+  resized() { drawDock(); boards.forEach(fit); },
+  /** The home screen in front again, or left: 퍼레 may speak first when it comes back after a while. */
+  shown() { boardSeen(true); },
+  hidden() { boardSeen(false); }
 };
 addEventListener("resize", () => launcher.resized());
 if (B) { B.ready(); } else {

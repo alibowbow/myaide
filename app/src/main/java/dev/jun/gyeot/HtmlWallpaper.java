@@ -181,6 +181,7 @@ public final class HtmlWallpaper extends WallpaperService {
             super.onVisibilityChanged(visible);
             sleep(!visible);
             main.removeCallbacks(refresh);
+            if (board && ready && web != null) web.evaluateJavascript("window.boardSeen&&boardSeen(" + visible + ")", null);
             if (!visible) return;
             // Shown again after a failed load (offline before), or with 퍼레's look changed since: loaded once more.
             if (failed || (board && mascotAt >= 0 && mascotSource(HtmlWallpaper.this) > mascotAt)) { loaded = ""; load(); return; }

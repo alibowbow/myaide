@@ -170,9 +170,13 @@ public final class HomeActivity extends Activity {
     @Override protected void onResume() {
         super.onResume(); shown = true;
         NoticeListener.changed = badgesChanged;
-        main.removeCallbacks(refresh); if (ready) { refresh.run(); pushBadges(); }
+        main.removeCallbacks(refresh); if (ready) { refresh.run(); pushBadges(); if (web != null) web.evaluateJavascript("launcher.shown&&launcher.shown()", null); }
     }
-    @Override protected void onPause() { shown = false; NoticeListener.changed = null; main.removeCallbacks(refresh); super.onPause(); }
+    @Override protected void onPause() {
+        shown = false; NoticeListener.changed = null; main.removeCallbacks(refresh);
+        if (ready && web != null) web.evaluateJavascript("launcher.hidden&&launcher.hidden()", null);
+        super.onPause();
+    }
     /** Home pressed while the home screen is in front: back to its top with everything closed. */
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);

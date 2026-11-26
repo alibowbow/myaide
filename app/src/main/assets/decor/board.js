@@ -57,6 +57,12 @@ function makeBoard(slot) {
   b.querySelectorAll(".hero,.grid>.card").forEach((c, i) => { c.classList.add("pop"); c.style.animationDelay = (60 + i * 55) + "ms"; });
   const buddy = $(b, ".buddy");
   buddy.addEventListener("click", () => cheer(b));
+  const bubble = $(b, ".bubble");
+  bubble.addEventListener("click", e => {
+    e.stopPropagation();
+    const go = bubble.dataset.go; bubble.classList.remove("on", "act");
+    if (go && !lockedNow) (window.boardGo || (w => { location.href = "/do/" + encodeURIComponent(w); }))(go);
+  });
   alive(b);
   wireTaps(b); tick(b);
   boards.push(b); if (info) show(b);
@@ -182,9 +188,84 @@ function cheer(b) {
   // Tapped: happy eyes; three taps in a moment, hearts.
   const now = Date.now(); b._taps = (b._taps || []).filter(t => now - t < 1800).concat(now);
   if (b._feel) b._feel(b._taps.length >= 3 ? "love" : "happy", b._taps.length >= 3 ? 2600 : 1500);
-  bubble.textContent = say(b); bubble.classList.add("on");
-  clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on"), 3400);
+  speak(b, {text: say(b)}, 3400);
 }
+/** The bubble over the friend: words, and what a tap on it opens (if anything). */
+function speak(b, line, ms) {
+  const bubble = $(b, ".bubble");
+  bubble.textContent = line.text; bubble.dataset.go = line.go || "";
+  if (line.go) { const more = document.createElement("b"); more.className = "more"; more.textContent = " ›"; bubble.appendChild(more); }
+  bubble.classList.toggle("act", !!line.go); bubble.classList.add("on");
+  clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on", "act"), ms || 6500);
+}
+
+/*
+  퍼레 speaks first (준: "들퍼레가 먼저 말 거는 것도 구현해줘", "말풍선으로"): when the screen is seen again after a while, or
+  when something new happens while it is seen. The most useful thing first: work done, an event close, a new notice, a
+  big move in the prices, the hour's greeting, 퍼레's suggestion. At most one in 45 s, never the same thing twice (what was
+  said is kept a few days on this screen), nothing of the user's day while locked. A tap on the bubble opens its screen.
+*/
+let seenNow = true, hiddenAt = 0, lastSpoke = 0, before = null;
+const SAID = (() => { try { return JSON.parse(localStorage.getItem("gyeotSaid") || "{}"); } catch (e) { return {}; } })();
+function said(key) { return !!SAID[key]; }
+function keep(key) {
+  const now = Date.now(); SAID[key] = now;
+  for (const k of Object.keys(SAID)) if (now - SAID[k] > 3 * 86400000) delete SAID[k];
+  try { localStorage.setItem("gyeotSaid", JSON.stringify(SAID)); } catch (e) {}
+}
+function today() { const d = new Date(); return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate(); }
+function period(h) { return h >= 5 && h < 11 ? "morning" : h >= 11 && h < 14 ? "lunch" : h >= 17 && h < 22 ? "evening" : ""; }
+/** What to say now, or null: news first (on any update), the quieter things only when the screen has just been opened. */
+function nextLine(k, prev, opened) {
+  if (!k) return null;
+  const now = Date.now(), lines = [];
+  if (!k.locked) {
+    if (prev && (prev.working || 0) > 0 && !(k.working > 0)) lines.push({key: "done:" + now, text: "맡긴 일 다 끝냈어요! 결과 볼래요?", go: "chat", feel: "happy"});
+    const n = k.next;
+    if (n && !n.allDay) {
+      const min = Math.round((n.begin - now) / 60000);
+      if (min >= 0 && min <= 15) lines.push({key: "soon15:" + n.title + n.begin, text: (min <= 1 ? "곧" : min + "분 뒤") + " ‘" + n.title + "’예요" + (n.place ? " · " + n.place : ""), go: "calendar", feel: "surprised"});
+      else if (opened && min > 15 && min <= 60) lines.push({key: "soon60:" + n.title + n.begin, text: "1시간 안에 ‘" + n.title + "’ 있어요 · " + clockOf(n.begin), go: "calendar", feel: ""});
+    }
+    const top = (k.notices || [])[0];
+    if (top && prev && (k.noticeCount || 0) > (prev.noticeCount || 0)) lines.push({key: "notice:" + top.at + top.title, text: (top.app ? top.app + " · " : "") + (top.title || "") + (top.text ? ": " + top.text : ""), go: "notices", feel: "surprised"});
+  }
+  for (const q of k.quotes || []) {
+    const big = Math.floor(Math.abs(q.change) / 5);
+    if (big >= 1) lines.push({key: "q:" + q.symbol + today() + (q.change >= 0 ? "+" : "-") + big, text: (q.symbol === "BTC" ? "비트코인" : q.symbol) + " 하루 사이 " + (q.change >= 0 ? "▲" : "▼") + Math.abs(q.change).toFixed(1) + "%예요" + (q.change >= 0 ? "!" : ""), go: "trading", feel: q.change >= 0 ? "happy" : "surprised"});
+  }
+  if (opened) {
+    const h = new Date().getHours(), p = period(h);
+    if (p) {
+      const left = !k.locked && k.eventsLeft > 0 ? " 오늘 일정이 " + k.eventsLeft + "개 남았어요" : "";
+      const words = {morning: "좋은 아침이에요!", lunch: "점심 맛있게 드세요!", evening: "오늘도 수고했어요!"}[p];
+      lines.push({key: "greet:" + today() + p, text: words + left, go: left ? "calendar" : "", feel: "happy"});
+    }
+    const idea = !k.locked && (k.suggestions || [])[0];
+    if (idea) lines.push({key: "idea:" + today() + idea.title, text: "이건 어때요? " + idea.title, go: "home", feel: "happy"});
+  }
+  return lines.find(l => !said(l.key)) || null;
+}
+function talk(opened) {
+  if (!seenNow || !info) return;
+  const now = Date.now();
+  if (now - lastSpoke < 45000) return;
+  const line = nextLine(info, before, opened);
+  if (!line) return;
+  lastSpoke = now; keep(line.key);
+  boards.forEach(b => {
+    const buddy = $(b, ".buddy"); buddy.classList.remove("hop"); void buddy.offsetWidth; buddy.classList.add("hop"); setTimeout(() => buddy.classList.remove("hop"), 760);
+    if (line.feel && b._feel) b._feel(line.feel, 1800);
+    speak(b, line, 6500);
+  });
+}
+/** The host says when the screen is seen (the home screen app's resume, the wallpaper shown) and when it is not. */
+function boardSeen(on) {
+  if (!on) { if (seenNow) hiddenAt = Date.now(); seenNow = false; return; }
+  const away = hiddenAt ? Date.now() - hiddenAt : 0; seenNow = true;
+  if (away > 90000) setTimeout(() => talk(true), 900);
+}
+setTimeout(() => talk(true), 2200);
 
 /*
   What keeps the friend alive, per board, only while the screen is seen: breathing and a slow sway (CSS), blinks at
@@ -241,5 +322,12 @@ function moodOf(b, k) {
   b._mood(!k.locked && ((k.working || 0) > 0 || k.lab) ? "thinking" : night ? "sleepy" : "");
 }
 /** The app's data for every board drawn. */
-function setBoardData(k) { info = k || {}; lockedNow = !!info.locked; boards.forEach(show); boards.forEach(b => moodOf(b, info)); }
+function setBoardData(k) {
+  const prev = info, first = !prev; info = k || {}; lockedNow = !!info.locked;
+  boards.forEach(show); boards.forEach(b => moodOf(b, info));
+  // While it may not speak yet, the older picture is kept, so the news is still news when it may.
+  if (first) { before = null; setTimeout(() => talk(true), 900); }
+  else if (Date.now() - lastSpoke >= 45000) { before = prev; talk(false); }
+  else if (!before) before = prev;
+}
 addEventListener("resize", () => boards.forEach(fit));

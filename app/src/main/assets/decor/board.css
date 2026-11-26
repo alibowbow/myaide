@@ -97,11 +97,14 @@ html,body{margin:0;height:100%;overflow:hidden;background:#dfeefe;font-family:va
 .zz{position:absolute;right:10px;top:12px;font-size:15px;font-weight:800;color:var(--ink2);opacity:0;display:none}
 .buddy.asleep .zz{display:block;animation:zz 3.6s ease-in-out infinite}
 @keyframes zz{0%{opacity:0;transform:translate(0,8px) scale(.7)}40%{opacity:.9}100%{opacity:0;transform:translate(10px,-14px) scale(1.1)}}
-.bubble{position:absolute;right:66px;bottom:84px;max-width:230px;width:max-content;padding:10px 14px;border-radius:18px 18px 4px 18px;background:#fff;color:#1c1c1e;font-size:14px;font-weight:650;line-height:1.35;box-shadow:var(--shade);opacity:0;transform:translateY(8px) scale(.85);transform-origin:100% 100%;transition:opacity .25s,transform .45s var(--spring);pointer-events:none;text-align:left}
+.bubble{position:absolute;right:92px;bottom:30px;max-width:230px;width:max-content;white-space:normal;padding:10px 14px;border-radius:18px 18px 4px 18px;background:#fff;color:#1c1c1e;font-size:14px;font-weight:650;line-height:1.35;box-shadow:var(--shade);opacity:0;transform:translateY(8px) scale(.85);transform-origin:100% 100%;transition:opacity .25s,transform .45s var(--spring);pointer-events:none;text-align:left}
 .bubble.on{opacity:1;transform:none}
+.bubble{max-width:min(250px,calc(100vw - 150px))}
+.bubble.act{pointer-events:auto}
+.bubble .more{font-weight:800;opacity:.55}
 
-.think{position:absolute;left:-6px;top:-2px;display:none;align-items:center;gap:5px;padding:6px 10px 6px 8px;border-radius:999px;background:#fff;color:#1c1c1e;box-shadow:var(--shade);font-size:12.5px;font-weight:800;z-index:2}
-.think::after{content:"";position:absolute;right:6px;bottom:-7px;width:9px;height:9px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(40,52,90,.12)}
+.think{position:absolute;right:-8px;top:-6px;display:none;align-items:center;gap:5px;padding:6px 10px 6px 8px;border-radius:999px;background:#fff;color:#1c1c1e;box-shadow:var(--shade);font-size:12.5px;font-weight:800;z-index:2}
+.think::after{content:"";position:absolute;left:8px;bottom:-7px;width:9px;height:9px;border-radius:50%;background:#fff;box-shadow:0 2px 4px rgba(40,52,90,.12)}
 .think.on{display:inline-flex;animation:pop .6s var(--spring) both}
 .dots{display:inline-flex;gap:3px}.dots i{width:6px;height:6px;border-radius:50%;background:#7c5cff;animation:dot 1.2s ease-in-out infinite}
 .dots i:nth-child(2){animation-delay:.15s;background:#ff6b4a}.dots i:nth-child(3){animation-delay:.3s;background:#12b5a6}
