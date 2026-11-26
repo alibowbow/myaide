@@ -435,7 +435,6 @@ function boardSeen(on) {
   if (!on) { if (seenNow) hiddenAt = Date.now(); seenNow = false; return; }
   const away = hiddenAt ? Date.now() - hiddenAt : 0; seenNow = true;
   if (away > 90000 && window.boardCare) window.boardCare("back");
-  if (away > 20000) boards.forEach(b => { if (b._home) b._home(); });
   // Back from a short while in an app: now and then a word about it (the app knows which one).
   if (away > 20000 && away <= 90000 && Math.random() < .35 && Date.now() - (window._appTalkAt || 0) > 600000) { window._appTalkAt = Date.now(); setTimeout(() => boards.forEach(b => askThink(b, "app", "")), 900); }
   if (away > 90000) setTimeout(() => {
@@ -750,13 +749,26 @@ function roam(b) {
   const buddy = $(b, ".buddy"), hero = $(b, ".hero"), cb = $(b, ".care-btn"), rnd = (a, z) => a + Math.random() * (z - a);
   let x = 0, y = 0, playing = false;
   // How far it may go: left to just past the widget's words, a little up and down.
-  const room = () => {
-    const br = buddy.getBoundingClientRect(), when = $(b, ".when");
-    let right = when.getBoundingClientRect().left;
-    for (const c of when.children) if (c.offsetParent) right = Math.max(right, c.getBoundingClientRect().right);
-    const homeLeft = br.left - x;
-    return {min: Math.min(0, Math.round(right + 14 - homeLeft)), up: -10, down: 12};
+  /*
+    Its playground (준: "너무 오른쪽 구석에만 있어", "노란테두리영역을 활용해줘"): from the top of its corner down to just above App
+    Library, and at each height left to whatever stands there (the clock widget, the prices, the small buttons), never over them.
+  */
+  const home = () => { const r = buddy.getBoundingClientRect(); return {left: r.left - x, top: r.top - y, w: r.width, h: r.height}; };
+  const obstacles = () => Array.from(document.querySelectorAll(".when > *, .grid > .card, .mini-pill"))
+    .filter(el => el.offsetParent && el.offsetWidth > 0 && !buddy.contains(el)).map(el => el.getBoundingClientRect());
+  const floorOf = hm => { const lib = document.querySelector(".lib-head"); return lib && lib.offsetParent ? lib.getBoundingClientRect().top - hm.h - 2 : hm.top + 40; };
+  const leftAt = (ty, hm, obs) => { let left = 14; for (const o of obs) if (o.bottom > ty + 10 && o.top < ty + hm.h - 10) left = Math.max(left, o.right + 10); return left; };
+  /** A free spot in the playground, relative to its corner. */
+  const spot = () => {
+    const hm = home(), obs = obstacles(), lo = hm.top - 10, hi = Math.max(lo, floorOf(hm));
+    for (let i = 0; i < 8; i++) {
+      const ty = rnd(lo, hi), left = leftAt(ty, hm, obs);
+      if (left < hm.left - 20) return {x: Math.round(rnd(left, hm.left) - hm.left), y: Math.round(ty - hm.top)};
+    }
+    return {x: 0, y: 0};
   };
+  /** How far left it may go at its height now, and how far up and down. */
+  const room = () => { const hm = home(), obs = obstacles(); return {min: Math.min(0, Math.round(leftAt(hm.top + y, hm, obs) - hm.left)), up: -10, down: Math.max(0, Math.round(floorOf(hm) - hm.top))}; };
   const busy = () => document.hidden || voiceOn || b._careOn || lockedNow || buddy.classList.contains("squish") || buddy.classList.contains("asleep")
     || $(b, ".bubble").classList.contains("on") || $(b, ".bot").classList.contains("thinking");
   const place = ms => {
@@ -783,14 +795,14 @@ function roam(b) {
     handstand: end => { move(b, "handstand", 2600); feel("laugh", 2600); setTimeout(end, 2700); },
     peek: end => walk(0, 0, () => { move(b, "peek", 2600); setTimeout(() => feel("surprised", 700), 1500); setTimeout(() => feel("laugh", 900), 2200); setTimeout(end, 2700); }),
     exercise: end => { move(b, "exercise", 2500); feel("happy", 2500); setTimeout(end, 2600); },
-    clock: end => { const r = room(); walk(r.min, Math.max(r.up, Math.min(r.down, y)), () => { buddy.style.setProperty("--face", "-1"); move(b, "tilt", 1300); gazeTo(-6.5, -2); setTimeout(() => { move(b, "nod", 900); }, 1300); setTimeout(() => { gazeTo(0, 0); end(); }, 2400); }); },
+    clock: end => { const hm = home(), left = leftAt(hm.top - 4, hm, obstacles()); walk(Math.min(0, Math.round(left - hm.left)), -4, () => { buddy.style.setProperty("--face", "-1"); move(b, "tilt", 1300); gazeTo(-6.5, -2); setTimeout(() => { move(b, "nod", 900); }, 1300); setTimeout(() => { gazeTo(0, 0); end(); }, 2400); }); },
     jump: end => { move(b, "hop", 760); setTimeout(() => move(b, "hop", 760), 800); feel("happy", 1700); setTimeout(end, 1700); },
     dance: end => { move(b, "dance", 3600); feel("happy", 3600); setTimeout(end, 3700); },
     spin: end => { move(b, "spin", 950); feel("laugh", 1300); setTimeout(end, 1100); },
     nap: end => { buddy.classList.add("nap"); feel("yawn", 1500); setTimeout(() => { if (b._mood) b._mood("sleepy"); }, 1500); setTimeout(() => { buddy.classList.remove("nap"); if (b._mood) b._mood(""); move(b, "stretch", 1300); end(); }, 6500); },
     // more plays (준: "혼자놀기도 늘려"): a motion or two with a face, some with a toy or a thing to hold
     boxing: end => seq(end, [["boxing", 2100, "determined"], ["victory", 1300, "proud"]]),
-    airplane: end => { const r = room(); feel("excited", 2400); buddy.classList.add("airplane"); walk(x - 50 < r.min ? 0 : Math.round(rnd(r.min, x - 30)), Math.round(rnd(r.up, r.down)), () => { buddy.classList.remove("airplane"); end(); }); },
+    airplane: end => { const r = room(); feel("excited", 2400); buddy.classList.add("airplane"); const t = spot(); walk(t.x, t.y, () => { buddy.classList.remove("airplane"); end(); }); },
     swim: end => seq(end, [["swim", 2500, "content"], ["float", 3100, "relief"]]),
     moonwalk: end => seq(end, [["moonwalk", 2100, "smug"], ["salute", 1700, "proud"]]),
     robotdance: end => seq(end, [["robot", 1700, "blank"], ["robot", 1700, "blank"], ["boing", 600, "sparkly"]]),
@@ -801,9 +813,9 @@ function roam(b) {
     hula: end => seq(end, [["hula", 3100, "sing"]]),
     rockstar: end => seq(end, [["headbang", 2100, "thrilled"], ["victory", 1300, "proud"]]),
     magic: end => seq(end, [["zoom", 1000, "amazed"], ["boing", 600, "sparkly"], ["bow", 1700, "proud"]]),
-    ninja: end => { feel("sneaky", 1600); buddy.classList.add("ninja"); const r = room(); walk(Math.round(rnd(r.min, 0)), y, () => { buddy.classList.remove("ninja"); move(b, "hide", 2100); feel("shy", 2100); setTimeout(end, 2200); }, "tiptoe-walk"); },
+    ninja: end => { feel("sneaky", 1600); buddy.classList.add("ninja"); const t = spot(); walk(t.x, t.y, () => { buddy.classList.remove("ninja"); move(b, "hide", 2100); feel("shy", 2100); setTimeout(end, 2200); }, "tiptoe-walk"); },
     hideseek: end => seq(end, [["hide", 2100, "shy"], ["doubletake", 1200, "shock"], ["giggle", 0, "giggle"]]),
-    skipping: end => { const r = room(); feel("happy", 2600); walk(Math.round(rnd(r.min, 0)), Math.round(rnd(r.up, r.down)), end, "skipping"); },
+    skipping: end => { const t = spot(); feel("happy", 2600); walk(t.x, t.y, end, "skipping"); },
     rolling: end => { const r = room(); feel("dizzy", 1800); walk(x - 40 < r.min ? Math.min(0, x + 50) : x - 50, y, () => { feel("ko", 1000); setTimeout(end, 1000); }, "rolling"); },
     tornado: end => seq(end, [["tornado", 1500, "dizzy"], ["tremble", 1600, "dazed"]]),
     balloon: end => { const svg = $(b, ".bot"); svg.classList.add("w-balloon"); move(b, "float", 3100); feel("content", 3100); setTimeout(() => { svg.classList.remove("w-balloon"); envOf(b, info); end(); }, 3200); },
@@ -834,13 +846,17 @@ function roam(b) {
     if (e.rain) ["butterfly", "kite", "paperplane", "cloudwatch"].forEach(k => kinds.splice(kinds.indexOf(k), 1));
     const kind = kinds[Math.floor(Math.random() * kinds.length)];
     playing = true;
-    const r = room(), here = () => { try { PLAYS[kind](() => { playing = false; }); } catch (err) { playing = false; } };
-    // Most plays start somewhere new in the room.
-    if (Math.random() < .7 && !["peek", "clock", "airplane", "ninja", "skipping", "rolling", "cartwheel"].includes(kind) && r.min < -20) walk(Math.round(rnd(r.min, 0)), Math.round(rnd(r.up, r.down)), here); else here();
+    const here = () => { try { PLAYS[kind](() => { playing = false; }); } catch (err) { playing = false; } };
+    // Most plays start somewhere new in the playground.
+    if (Math.random() < .85 && !["peek", "clock", "airplane", "ninja", "skipping", "rolling", "cartwheel"].includes(kind)) { const t = spot(); walk(t.x, t.y, here); } else here();
     setTimeout(() => { playing = false; }, 16000);
   };
   const tick = () => { play(); setTimeout(tick, rnd(9000, 17000)); };
   setTimeout(tick, rnd(5000, 9000));
+  // Out of its corner soon after the screen opens, and now and then a stroll between plays.
+  setTimeout(() => { if (!busy() && !playing) { const t = spot(); walk(t.x, t.y); } }, 2200);
+  const stroll = () => { if (!busy() && !playing && Math.random() < .6) { const t = spot(); walk(t.x, t.y); } setTimeout(stroll, rnd(14000, 26000)); };
+  setTimeout(stroll, rnd(12000, 20000));
   // Home: back to its place (a tap, its card, the voice talk, the screen opened again).
   b._home = () => { if (x || y) { x = 0; y = 0; place(400); } };
   // One play by name, now (for a look at it; the home screen never calls it).
@@ -848,5 +864,6 @@ function roam(b) {
   b._playNames = () => Object.keys(PLAYS);
   b._playNow = (kind, done) => PLAYS[kind](done || (() => {}));
   b._walk = (nx, ny) => walk(nx, ny);
+  b._spot = () => spot();
   addEventListener("resize", () => b._home());
 }
