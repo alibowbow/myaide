@@ -83,6 +83,33 @@ public class BuddyBrainTests {
         assertFalse("flat", dev.jun.gyeot.core.Intonation.rising(glide(160, 160, 160)));
         assertTrue(BuddyTalk.ACTS.length() > 0);
     }
+    @Test public void doesThingsWithToolsAndSpeaksAsItWrites() throws Exception {
+        // 준: "2번" — a tool the brain calls is the act, with a short line when it said none.
+        org.json.JSONObject a = BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "open_app").put("arguments", "{\"app\":\"YouTube\"}")));
+        assertEquals("open_app", a.optString("tool")); assertEquals("YouTube", a.optString("app")); assertEquals("YouTube 열게!", BuddyTools.say(a));
+        org.json.JSONObject home = BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "navigate").put("arguments", "{\"destination\":\"집\",\"mode\":\"walk\"}")));
+        assertEquals("navigate", home.optString("tool")); assertEquals("walk", home.optString("mode")); assertEquals("집으로 안내할게!", BuddyTools.say(home));
+        assertEquals("show_alarms", BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "show_alarms").put("arguments", "{}"))).optString("tool"));
+        assertNull(BuddyTools.act(new org.json.JSONArray()));
+        assertEquals(13, BuddyTools.TOOLS.length());
+        assertTrue(BuddyTools.promised("3분 타이머 맞춰 줘", "3분 타이머 시작할게!"));
+        assertFalse("small talk is never forced into a tool", BuddyTools.promised("오늘 기분 어때", "나 오늘 완전 좋아!"));
+        assertFalse(BuddyTools.promised("유튜브 틀어 줘", "어떤 노래가 좋아?"));
+        for (int i = 0; i < BuddyTools.TOOLS.length(); i++) assertEquals("function", BuddyTools.TOOLS.getJSONObject(i).getString("type"));
+        // 준: "3번" — each sentence said as soon as it is written; a word or two waits for the next; no act text, digits kept.
+        java.util.List<String> said = new java.util.ArrayList<>();
+        BuddyTalk.Sentences s = new BuddyTalk.Sentences(said::add);
+        for (String piece : new String[]{"응! 지금", " 바로 틀어 줄게. 아이유", " 신곡 좋더라~ 7시에", " 또 듣자\n할일: {\"tool\":\"play\"}"}) s.add(piece);
+        s.end();
+        assertEquals(java.util.List.of("응! 지금 바로 틀어 줄게.", "아이유 신곡 좋더라~", "7시에 또 듣자"), said);
+        // Talking over 퍼레: its own echo and a short "응" do not stop it; half a second of the user's voice does.
+        dev.jun.gyeot.core.TalkOver over = new dev.jun.gyeot.core.TalkOver(); short[] f = new short[dev.jun.gyeot.core.TalkOver.FRAME];
+        java.util.Arrays.fill(f, (short) 600); for (int i = 0; i < 50; i++) assertFalse("echo", over.add(f, f.length));
+        java.util.Arrays.fill(f, (short) 5000); for (int i = 0; i < 10; i++) assertFalse("응", over.add(f, f.length));
+        java.util.Arrays.fill(f, (short) 600); for (int i = 0; i < 10; i++) assertFalse(over.add(f, f.length));
+        java.util.Arrays.fill(f, (short) 5000); boolean stopped = false; for (int i = 0; i < 30 && !stopped; i++) stopped = over.add(f, f.length);
+        assertTrue("talked over", stopped);
+    }
     @Test public void hearsItsName() {
         // 준: "퍼레가 자기 이름을 못알아듣고 자꾸 벌레 버려 이런걸로 알아들어"
         assertEquals("퍼레야", dev.jun.gyeot.core.BuddyMind.nameHeard("벌레야"));

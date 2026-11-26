@@ -105,6 +105,7 @@ final class BuddyVoice {
 
     private void listen() {
         if (!on) return;
+        stopOver();
         closeEar(); listenAt = android.os.SystemClock.uptimeMillis();
         int mine = generation;
         show("listening", "");
@@ -237,8 +238,10 @@ final class BuddyVoice {
         int mine = generation;
         List<String[]> before = new ArrayList<>(turns);
         try {
+            streaming = true; partsUsed = false; parts.clear(); answeredAt = 0;
             io.execute(() -> BuddyTalk.reply(context, said, before, guest, guest || act == null ? null : a -> main.post(() -> { if (on && mine == generation) { todo = a; todoHeard = said; } }),
-                line -> main.post(() -> { if (on && mine == generation) { answeredAt = android.os.SystemClock.uptimeMillis(); turns.add(new String[]{"user", said}); turns.add(new String[]{"assistant", line}); say(line); } }),
+                part -> main.post(() -> { if (on && mine == generation) sayPart(part); }),
+                line -> main.post(() -> { if (on && mine == generation) { if (answeredAt == 0) answeredAt = android.os.SystemClock.uptimeMillis(); turns.add(new String[]{"user", said}); turns.add(new String[]{"assistant", line}); finish(line); } }),
                 () -> main.post(() -> { if (on && mine == generation) end("error", "지금은 대답이 안 떠올라. 조금 있다 다시 불러 줘"); })));
         } catch (RuntimeException stopped) { end("error", ""); }
     }
@@ -246,11 +249,27 @@ final class BuddyVoice {
      * The answer, said: Typecast streamed (it starts as the first sound arrives, 준: "라이브가 아니라 딜레이가 있긴하겠네"), else
      * Typecast whole, else the phone's voice. Then it listens again.
      */
+    // ── the answer as it is written (준: "음성대화 너무 느려"): each sentence said as it comes, the next waiting its turn ──
+    private final java.util.ArrayDeque<String> parts = new java.util.ArrayDeque<>();
+    private boolean streaming, partsUsed, saying;
+    /** A sentence of the answer, written: said now, or after the one being said. */
+    private void sayPart(String part) {
+        partsUsed = true; if (answeredAt == 0) answeredAt = android.os.SystemClock.uptimeMillis();
+        if (saying) parts.add(part); else say(part);
+    }
+    /** The whole answer: said when no sentence came on its own, else the talk goes on once the last one is said. */
+    private void finish(String line) {
+        streaming = false;
+        if (!partsUsed) { say(line); return; }
+        if (!saying && parts.isEmpty()) spoken();
+    }
     private void say(String line) {
+        saying = true;
         // The short sound first, the answer right after it.
         long wait = cueEnds - android.os.SystemClock.uptimeMillis();
         if (wait > 0) { int mine = generation; main.postDelayed(() -> { if (on && mine == generation) say(line); }, Math.min(wait, 2500) + 60); return; }
         show("speaking", line);
+        listenOver();
         int mine = generation;
         TypecastAccount t = store.typecast;
         JSONObject voice = t.voice();
@@ -368,6 +387,52 @@ final class BuddyVoice {
             focus(true); player.start(); timing("타입캐스트(통째로)");
         } catch (Exception failed) { releasePlayer(); spoken(); }
     }
+    // ── talking over 퍼레 (barge-in, core/TalkOver): it stops, does what it promised, and listens ──
+    private java.util.concurrent.atomic.AtomicBoolean overRun;
+    /** While 퍼레 speaks, the microphone (with the phone's echo canceller) waits for the user's voice over it. */
+    private void listenOver() {
+        if (overRun != null || !on) return;
+        java.util.concurrent.atomic.AtomicBoolean run = new java.util.concurrent.atomic.AtomicBoolean(true); overRun = run;
+        int mine = generation;
+        Thread t = new Thread(() -> {
+            android.media.AudioRecord mic = null; android.media.audiofx.AcousticEchoCanceler echo = null; android.media.audiofx.NoiseSuppressor noise = null;
+            try {
+                int min = android.media.AudioRecord.getMinBufferSize(16000, android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT);
+                mic = new android.media.AudioRecord(android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION, 16000, android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT, Math.max(min * 2, 6400));
+                if (mic.getState() != android.media.AudioRecord.STATE_INITIALIZED) return;
+                if (android.media.audiofx.AcousticEchoCanceler.isAvailable()) { echo = android.media.audiofx.AcousticEchoCanceler.create(mic.getAudioSessionId()); if (echo != null) echo.setEnabled(true); }
+                if (android.media.audiofx.NoiseSuppressor.isAvailable()) { noise = android.media.audiofx.NoiseSuppressor.create(mic.getAudioSessionId()); if (noise != null) noise.setEnabled(true); }
+                mic.startRecording();
+                dev.jun.gyeot.core.TalkOver over = new dev.jun.gyeot.core.TalkOver(); short[] frame = new short[dev.jun.gyeot.core.TalkOver.FRAME];
+                while (run.get()) {
+                    int n = mic.read(frame, 0, frame.length); if (n <= 0) return;
+                    if (over.add(frame, n)) { run.set(false); main.post(() -> { if (on && mine == generation) talkedOver(); }); return; }
+                }
+            } catch (RuntimeException unavailable) { /* no barge-in this time */ }
+            finally {
+                if (echo != null) try { echo.release(); } catch (RuntimeException ignored) {}
+                if (noise != null) try { noise.release(); } catch (RuntimeException ignored) {}
+                if (mic != null) { try { mic.stop(); } catch (RuntimeException ignored) {} mic.release(); }
+            }
+        }, "gyeot-buddy-over");
+        t.setDaemon(true); t.start();
+    }
+    private void stopOver() { java.util.concurrent.atomic.AtomicBoolean run = overRun; overRun = null; if (run != null) run.set(false); }
+    /** The user spoke over 퍼레: what it was saying stops (the rest of the answer too), a thing already promised is done, then it listens. */
+    private void talkedOver() {
+        if (!on || !saying) return;
+        stopOver(); generation++;
+        Runnable cut = download.getAndSet(null); if (cut != null) try { cut.run(); } catch (RuntimeException ignored) {}
+        android.media.AudioTrack playing = track; if (playing != null) try { playing.pause(); playing.flush(); } catch (RuntimeException ignored) {}
+        releasePlayer(); stopCue();
+        if (phone != null) try { phone.stop(); } catch (RuntimeException ignored) {}
+        saying = false; streaming = false; parts.clear(); focus(false);
+        lastTalk = android.os.SystemClock.uptimeMillis(); silences = 0;
+        store.phoneLog("● 퍼레 음성: 말하는 중에 사용자가 말해서 멈추고 들어요");
+        org.json.JSONObject promised = todo; todo = null;
+        if (promised != null && act != null) { doNow(promised, todoHeard); return; }
+        main.postDelayed(this::listen, 150); // the microphone let go first
+    }
     /** The phone's own voice, a little higher and quicker, for 퍼레. */
     private void speakPhone(String line) {
         int mine = generation;
@@ -391,7 +456,11 @@ final class BuddyVoice {
     }
     /** Said: what was promised is done now, then it listens again (the loop goes on until silence or a tap). */
     private void spoken() {
-        focus(false); releasePlayer();
+        saying = false;
+        String next = on ? parts.poll() : null;
+        if (next != null) { say(next); return; }
+        if (on && streaming) return; // more of the answer on its way
+        stopOver(); focus(false); releasePlayer();
         if (!on) return;
         lastTalk = android.os.SystemClock.uptimeMillis();
         org.json.JSONObject now = todo; todo = null;
@@ -415,7 +484,7 @@ final class BuddyVoice {
         main.postDelayed(this::listen, 350);
     }
     private void end(String state, String words) {
-        on = false; generation++; todo = null; confirming = null;
+        on = false; generation++; todo = null; confirming = null; stopOver(); parts.clear(); streaming = false; saying = false;
         if (store.buddyTalking) { store.buddyTalking = false; store.changed(); }
         Runnable cut = download.getAndSet(null); if (cut != null) try { cut.run(); } catch (RuntimeException ignored) {}
         Runnable listening = whisper.getAndSet(null); if (listening != null) try { listening.run(); } catch (RuntimeException ignored) {}

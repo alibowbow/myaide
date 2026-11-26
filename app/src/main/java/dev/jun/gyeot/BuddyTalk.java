@@ -276,6 +276,14 @@ final class BuddyTalk {
         return name == null || name.isBlank() || name.contains("퍼레") ? dev.jun.gyeot.core.BuddyMind.nameHeard(said) : said;
     }
     static void reply(Context c, String said, java.util.List<String[]> turns, boolean guest, Consumer<JSONObject> doIt, Consumer<String> done, Runnable failed) {
+        reply(c, said, turns, guest, doIt, null, done, failed);
+    }
+    /**
+     * As above, with part: each sentence as soon as it is written (준: "음성대화 너무 느려", the brain with tools streams), so 퍼레
+     * starts speaking before the answer is done; done still gets the whole. With Groq, the things to do are tools it calls
+     * (BuddyTools, 준: "{tool:openapp…}를 외쳤다"); without, or when that fails before a word was said, the "할일:" text form.
+     */
+    static void reply(Context c, String said, java.util.List<String[]> turns, boolean guest, Consumer<JSONObject> doIt, Consumer<String> part, Consumer<String> done, Runnable failed) {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
         String instructions = persona(c) + "\n지금 " + (guest ? "누군가와" : "사용자와") + " 목소리로 대화하고 있어.\n"
             + (guest ? "- 지금 들리는 목소리는 '" + title(c) + "'(휴대폰 주인) 목소리가 아니야. 처음 듣는 목소리라고 반갑게 대하되, 주인의 기억·일정·하루·개인적인 이야기는 절대 꺼내지 말고, 주인에 대해 물어도 알려 주지 마. 상대를 '" + title(c) + "'(이)라고 부르지 마.\n" : "")
@@ -285,7 +293,8 @@ final class BuddyTalk {
             + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 반말(~야, ~해). 이모지·기호·목록·괄호·영어 약어 없이.\n"
             + "- 귀엽고 밝게, 가끔 너의 기억을 자연스럽게 꺼내도 좋아.\n"
             + "- 사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 '휴대폰 상태'의 숫자로 정확히 답해. 묻지 않으면 저장공간 이야기는 꺼내지 말고, 정리·삭제를 권하지 마.\n"
-            + (guest || doIt == null ? "" : ACTS + places(store));
+            ;
+        String withText = instructions + (guest || doIt == null ? "" : ACTS + places(store)), withTools = instructions + BuddyTools.RULE + places(store);
         long now = System.currentTimeMillis();
         String when = new SimpleDateFormat("M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date(now));
         String note = ""; if (!guest) try { note = Briefing.profile(store); } catch (RuntimeException ignored) {}
@@ -298,11 +307,78 @@ final class BuddyTalk {
                 + "사용자에 대해 아는 것:\n" + (note.isBlank() ? "(아직 잘 몰라)" : note) + "\n") + "\n";
         String input = context + (talk.length() == 0 ? "" : "지금까지 대화:\n" + talk) + who + ": " + said + "\n퍼레:";
         AtomicReference<JSONObject> todo = new AtomicReference<>();
-        speedy(c, instructions, input, 0.7, text -> { todo.set(guest ? null : act(text)); return spoken(text); }, line -> {
+        Runnable asText = () -> speedy(c, withText, input, 0.7, text -> { todo.set(guest ? null : act(text)); return spoken(text); }, line -> {
             if (!guest && todo.get() == null) learnLater(c, said, line);
             if (doIt != null && todo.get() != null) doIt.accept(todo.get());
             done.accept(line);
         }, failed);
+        boolean nimOn = store.nim.connected();
+        if (guest || doIt == null || !GroqWork.on() && !nimOn) { asText.run(); return; }
+        new Thread(() -> {
+            Sentences sentences = new Sentences(part);
+            try {
+                // The ways to ask, quickest first: Groq (the chosen model or GPT OSS at its lightest), then NVIDIA's quick model.
+                java.util.List<String[]> ways = new java.util.ArrayList<>();
+                if (GroqWork.on()) {
+                    ScopedModels m = ScopedModels.buddy(store);
+                    boolean mine = CUSTOM.equals(brain(c)) && dev.jun.gyeot.core.WorkBook.GROQ.equals(m.engine());
+                    String model = mine ? m.model(m.engine()) : GroqWork.CHORES, effort = mine ? m.effort(m.engine(), model) : "low";
+                    ways.add(new String[]{GroqAccount.API + "chat/completions", GroqWork.key(), model, store.groqModels.profile(model).normalize(effort).isEmpty() ? null : effort});
+                }
+                if (nimOn) ways.add(new String[]{dev.jun.gyeot.core.NimProtocol.ENDPOINT, dev.jun.gyeot.core.NimProtocol.key(store.secrets.get(SecretStore.NIM)), NIM_MODEL, null});
+                JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", input));
+                GroqWork.Turn t = null; String[] used = null;
+                for (String[] w : ways) {
+                    try { t = GroqWork.stream(w[0], w[1], w[2], withTools, messages, w[3], 0.7, BuddyTools.TOOLS, "auto", 9_000, sentences::add, null); used = w; break; }
+                    catch (Exception next) { if (!sentences.said().isEmpty()) break; }
+                }
+                if (t == null) throw new IllegalStateException("답이 없어요");
+                sentences.end();
+                JSONObject a = BuddyTools.act(t.calls()); if (a == null) a = act(t.text());
+                // It said it would do a thing but called no tool ("3분 타이머 시작할게!"): asked once more, a tool this time.
+                if (a == null && BuddyTools.promised(said, t.text())) {
+                    try { a = BuddyTools.act(GroqWork.stream(used[0], used[1], used[2], withTools, messages, used[3], 0.3, BuddyTools.TOOLS, "required", 6_000, null, null).calls()); }
+                    catch (Exception refused) { /* the words alone */ }
+                }
+                String line = spoken(t.text());
+                if ((line == null || line.isBlank()) && a != null) line = BuddyTools.say(a);
+                if ((line == null || line.isBlank()) && a == null) throw new IllegalStateException("빈 답");
+                if (a == null) learnLater(c, said, line);
+                else doIt.accept(a);
+                done.accept(line == null ? "" : line);
+            } catch (Exception failedWithTools) {
+                // Words already said: those are the answer; else the text form.
+                if (sentences.said().isEmpty()) asText.run(); else done.accept(sentences.said());
+            }
+        }, "gyeot-buddy-tools").start();
+    }
+    /** An answer cut into sentences as it streams, each said (spoken: no marks, links or act text) when it is whole. */
+    static final class Sentences {
+        private final Consumer<String> out; private final StringBuilder buf = new StringBuilder(), all = new StringBuilder();
+        Sentences(Consumer<String> out) { this.out = out; }
+        void add(String piece) { if (out == null || piece == null) return; buf.append(piece); emit(false); }
+        void end() { if (out != null) emit(true); }
+        /** What was said so far. */
+        String said() { return all.toString().strip(); }
+        private void emit(boolean last) {
+            for (int from = 0; ; ) {
+                int cut = -1;
+                for (int i = from; i < buf.length(); i++) {
+                    char ch = buf.charAt(i);
+                    if (ch == '\n' || ".!?~…".indexOf(ch) >= 0 && i + 1 < buf.length() && Character.isWhitespace(buf.charAt(i + 1))) { cut = i + 1; break; }
+                }
+                if (cut < 0) { if (last && buf.length() > 0) { give(buf.toString()); buf.setLength(0); } return; }
+                // A sentence of a word or two waits for the next (one sound request, not two tiny ones).
+                if (buf.substring(0, cut).strip().codePointCount(0, buf.substring(0, cut).strip().length()) < 6 && !last) { from = cut; continue; }
+                String s = buf.substring(0, cut); buf.delete(0, cut); from = 0; give(s);
+            }
+        }
+        private void give(String s) {
+            if (s.contains("{") || s.strip().startsWith("할일") || s.strip().startsWith("할 일")) return;
+            String clean = spoken(s); if (clean == null || clean.isBlank()) return;
+            if (all.length() > 0) all.append(' ');
+            all.append(clean); out.accept(clean);
+        }
     }
     /**
      * The voice talk's brain, quick above all (준: "음성대화 너무 느려"): the AI chosen for 퍼레 when it is Groq's (it answers in
@@ -333,7 +409,7 @@ final class BuddyTalk {
         StringBuilder out = new StringBuilder();
         for (String line : t.split("\\n")) {
             if (ACT_LINE.matcher(line).find() || line.strip().startsWith("할일") || line.strip().startsWith("할 일")) continue;
-            String l = line.replaceAll("\\{[^{}]*\\}", " ").replaceAll("\\{[^}]*$", "").replaceAll("https?://\\S+", "").replaceAll("[\\p{So}\\p{Cs}\\x{FE0F}\\x{200D}]", "").replaceAll("^[-•*#\\d.\\s]+", "").replaceAll("[\"“”*_`#]", "").strip();
+            String l = line.replaceAll("\\{[^{}]*\\}", " ").replaceAll("\\{[^}]*$", "").replaceAll("https?://\\S+", "").replaceAll("[\\p{So}\\p{Cs}\\x{FE0F}\\x{200D}]", "").replaceAll("^\\s*(?:[-•*#]+\\s*|\\d+[.)]\\s+)", "").replaceAll("[\"“”*_`#]", "").strip();
             if (l.isEmpty()) continue;
             if (out.length() > 0) out.append(' ');
             out.append(l);

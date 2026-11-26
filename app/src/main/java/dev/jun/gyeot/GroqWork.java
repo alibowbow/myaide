@@ -21,7 +21,7 @@ final class GroqWork {
     static final long WHISPER_BYTES = 24L * 1024 * 1024;
 
     static boolean on() { AppStore s = GeminiQuotas.store(); return s != null && s.groq.connected(); }
-    private static String key() throws Exception {
+    static String key() throws Exception {
         AppStore s = GeminiQuotas.store(); String key = s == null ? "" : s.secrets.get(SecretStore.GROQ);
         if (key == null || key.isBlank()) throw new IllegalStateException("Groq 키가 없어요.");
         return key;
@@ -49,6 +49,66 @@ final class GroqWork {
         JSONObject usage = answer.optJSONObject("usage");
         GeminiQuotas.used(model, usage == null ? 0 : usage.optInt("total_tokens"));
         return text;
+    }
+    /** A streamed answer: its words, and the tools it called ({"name", "arguments"} each, arguments as the model wrote them). */
+    record Turn(String text, JSONArray calls) {}
+    /**
+     * A conversation answered as it is written (퍼레's voice talk, 준: "음성대화 너무 느려"): each piece of its words to onText as
+     * it comes, and the tools it called (OpenAI function calling, tools may be null) at the end. Throws as converse does,
+     * and when Groq refuses a tool call it made badly (the caller then asks without tools).
+     */
+    static Turn stream(String model, String instructions, JSONArray turns, String reasoning, double temperature, JSONArray tools, int timeoutMs,
+            java.util.function.Consumer<String> onText, AtomicReference<Runnable> cancel) throws Exception {
+        return stream(GroqAccount.API + "chat/completions", key(), model, instructions, turns, reasoning, temperature, tools, "auto", timeoutMs, onText, cancel);
+    }
+    /**
+     * The same on any OpenAI-style chat endpoint (NVIDIA NIM too) with its key; toolChoice "auto", or "required" when the
+     * answer must be a tool (it said it would do a thing and called none).
+     */
+    static Turn stream(String url, String key, String model, String instructions, JSONArray turns, String reasoning, double temperature, JSONArray tools, String toolChoice, int timeoutMs,
+            java.util.function.Consumer<String> onText, AtomicReference<Runnable> cancel) throws Exception {
+        JSONArray messages = new JSONArray().put(new JSONObject().put("role", "system").put("content", instructions));
+        for (int i = 0; i < turns.length(); i++) messages.put(turns.get(i));
+        JSONObject body = new JSONObject().put("model", model).put("temperature", temperature).put("messages", messages).put("stream", true);
+        if (tools != null && tools.length() > 0) body.put("tools", tools).put("tool_choice", toolChoice == null ? "auto" : toolChoice);
+        if (reasoning != null && (model.startsWith("openai/gpt-oss") || model.toLowerCase(java.util.Locale.ROOT).contains("qwen"))) body.put("reasoning_effort", reasoning);
+        try (OpenAiAccount.Http.Exchange response = OpenAiAccount.Http.open("POST", url,
+                Map.of("Authorization", "Bearer " + key, "Content-Type", "application/json", "Accept", "text/event-stream"), body.toString().getBytes(StandardCharsets.UTF_8), timeoutMs, cancel)) {
+            if (response.status != 200) {
+                String text = OpenAiAccount.Http.read(response.body, 256 * 1024);
+                if (url.startsWith(GroqAccount.API)) GeminiQuotas.refusedGroq(model, response.status, text);
+                throw new IllegalStateException("HTTP " + response.status);
+            }
+            java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(response.body, StandardCharsets.UTF_8));
+            StringBuilder text = new StringBuilder(); java.util.TreeMap<Integer, String[]> calls = new java.util.TreeMap<>(); int tokens = 0;
+            for (String line; (line = in.readLine()) != null; ) {
+                if (!line.startsWith("data:")) continue;
+                String data = line.substring(5).strip();
+                if (data.equals("[DONE]")) break;
+                JSONObject chunk; try { chunk = new JSONObject(data); } catch (Exception notJson) { continue; }
+                JSONObject groq = chunk.optJSONObject("x_groq"), usage = groq == null ? chunk.optJSONObject("usage") : groq.optJSONObject("usage");
+                if (usage != null) tokens = usage.optInt("total_tokens", tokens);
+                JSONArray choices = chunk.optJSONArray("choices");
+                JSONObject delta = choices == null || choices.length() == 0 ? null : choices.optJSONObject(0).optJSONObject("delta");
+                if (delta == null) continue;
+                if (delta.has("content") && !delta.isNull("content")) {
+                    String piece = delta.optString("content");
+                    if (!piece.isEmpty()) { text.append(piece); if (onText != null) onText.accept(piece); }
+                }
+                JSONArray tc = delta.optJSONArray("tool_calls");
+                for (int i = 0; tc != null && i < tc.length(); i++) {
+                    JSONObject call = tc.optJSONObject(i); if (call == null) continue;
+                    String[] got = calls.computeIfAbsent(call.optInt("index", i), k -> new String[]{"", ""});
+                    JSONObject f = call.optJSONObject("function"); if (f == null) continue;
+                    if (f.has("name") && !f.isNull("name")) got[0] += f.optString("name");
+                    if (f.has("arguments") && !f.isNull("arguments")) got[1] += f.optString("arguments");
+                }
+            }
+            if (url.startsWith(GroqAccount.API)) GeminiQuotas.used(model, tokens);
+            JSONArray out = new JSONArray();
+            for (String[] c : calls.values()) if (!c[0].isBlank()) out.put(new JSONObject().put("name", c[0].strip()).put("arguments", c[1]));
+            return new Turn(text.toString(), out);
+        }
     }
     /** 잡일 on GPT OSS 120B: quick, low reasoning. */
     static String chores(String instructions, String input) throws Exception {
