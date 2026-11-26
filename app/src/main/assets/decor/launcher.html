@@ -21,8 +21,8 @@ body.launcher{position:fixed;inset:0}
 /* Icons are never dragged or long-pressed as pictures (that ends a held folder's gesture): the button under them is what is touched. */
 .launcher img{-webkit-user-drag:none;user-drag:none;pointer-events:none;-webkit-touch-callout:none}
 /* the wallpaper decides the ink: dark words on a light picture, white on a dark one */
-.launcher.light{--ink:#1c1c1e;--ink2:#4a4a52;--ink3:#7a7a84;--glass:rgba(255,255,255,.62);--glass-line:rgba(255,255,255,.7);--tile:rgba(255,255,255,.55);--shadow:0 10px 30px rgba(30,40,70,.16),0 2px 6px rgba(30,40,70,.08);--halo:0 1px 2px rgba(255,255,255,.7)}
-.launcher.dark{--ink:#fff;--ink2:rgba(255,255,255,.82);--ink3:rgba(255,255,255,.6);--glass:rgba(30,30,40,.38);--glass-line:rgba(255,255,255,.18);--tile:rgba(255,255,255,.16);--shadow:0 10px 30px rgba(0,0,10,.32);--halo:0 1px 3px rgba(0,0,0,.45)}
+.launcher.light{--ink:#1c1c1e;--ink2:#4a4a52;--ink3:#7a7a84;--glass:rgba(255,255,255,.84);--glass-line:rgba(255,255,255,.9);--tile:rgba(255,255,255,.72);--shadow:0 6px 18px rgba(30,40,70,.10),0 1px 3px rgba(30,40,70,.06);--halo:0 1px 2px rgba(255,255,255,.75);--cover:rgba(243,244,248,.96)}
+.launcher.dark{--ink:#fff;--ink2:rgba(255,255,255,.82);--ink3:rgba(255,255,255,.6);--glass:rgba(32,33,42,.78);--glass-line:rgba(255,255,255,.12);--tile:rgba(255,255,255,.16);--shadow:0 6px 18px rgba(0,0,10,.28);--halo:0 1px 3px rgba(0,0,0,.45);--cover:rgba(20,21,28,.95)}
 .launcher.light .board,.launcher.dark .board{--card:var(--glass);--card-line:var(--glass-line);--shade:var(--shadow);color:var(--ink)}
 .launcher .board{position:relative;inset:auto;background:none !important}
 .launcher .board .sky{display:none}
@@ -43,7 +43,7 @@ body.launcher{position:fixed;inset:0}
 .pile img{width:100%;height:100%;object-fit:contain}
 .stack .name{font-size:12px;font-weight:700;letter-spacing:-.3px;text-shadow:var(--halo);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .stack.down .pile,.app.down .ic{transform:scale(.9);transition:transform .1s ease}
-.badge{position:absolute;right:-5px;top:-5px;min-width:21px;height:21px;padding:0 6px;border-radius:999px;background:#ff3b30;color:#fff;font-size:11.5px;font-weight:800;display:grid;place-items:center;box-shadow:0 2px 6px rgba(255,59,48,.4);border:2px solid rgba(255,255,255,.9)}
+.badge{position:absolute;right:-4px;top:-4px;min-width:19px;height:19px;padding:0 5px;border-radius:999px;background:var(--accent);color:#fff;font-size:11px;font-weight:750;display:grid;place-items:center;box-shadow:0 1px 4px rgba(20,30,60,.18)}
 
 /* an app: its icon and name */
 .app{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;border:0;background:none;padding:0;font:inherit;color:var(--ink);min-width:0}
@@ -61,15 +61,13 @@ body.launcher{position:fixed;inset:0}
 .dk.open::after{content:"";position:absolute;left:50%;bottom:-6px;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:var(--ink2)}
 .shelf.scrub .dk{transition:transform .08s linear}
 .sep{width:1px;align-self:stretch;margin:4px 2px;background:var(--ink3);opacity:.4;flex:none}
-.pad-btn{display:grid;place-items:center;border-radius:28%;background:linear-gradient(145deg,#f4f4f8,#d9dae3)}
-.launcher.dark .pad-btn{background:linear-gradient(145deg,#4a4a5a,#2c2c38)}
+.pad-btn{display:grid;place-items:center;border-radius:28%;background:var(--glass);border:1px solid var(--glass-line);color:var(--accent)}
 .pad-btn svg{width:58%;height:58%}
 .tip{position:fixed;z-index:9;padding:6px 11px;border-radius:10px;background:rgba(30,30,36,.86);color:#fff;font-size:13px;font-weight:700;white-space:nowrap;transform:translate(-50%,-100%);pointer-events:none;opacity:0;transition:opacity .12s}
 .tip.on{opacity:1}
 
 /* a stack opened in place (a Mac's stack as a grid) */
-.veil{position:fixed;inset:0;z-index:20;background:rgba(12,14,24,.22);-webkit-backdrop-filter:blur(26px) saturate(1.5);backdrop-filter:blur(26px) saturate(1.5);opacity:0;transition:opacity .28s ease;display:none}
-.launcher.light .veil{background:rgba(240,242,248,.28)}
+.veil{position:fixed;inset:0;z-index:20;background:var(--cover);opacity:0;transition:opacity .28s ease;display:none}
 .veil.on{display:block;opacity:1}
 .fan{position:fixed;z-index:21;width:min(92vw,560px);max-height:min(72vh,620px);overflow-y:auto;overflow-x:hidden;padding:10px 12px 22px;background:none;border:0;box-shadow:none;opacity:0;transition:opacity .18s ease;display:none;scrollbar-width:none}
 .fan::-webkit-scrollbar{display:none}
@@ -86,8 +84,7 @@ body.launcher{position:fixed;inset:0}
 .fan .grid-apps{display:grid;grid-template-columns:repeat(4,1fr);gap:18px 8px}
 
 /* Launchpad: every app, by stack; the search on top */
-.pad{position:fixed;inset:0;z-index:30;display:none;flex-direction:column;background:rgba(18,20,30,.28);-webkit-backdrop-filter:blur(34px) saturate(1.5);backdrop-filter:blur(34px) saturate(1.5);opacity:0;transition:opacity .25s ease}
-.launcher.light .pad{background:rgba(245,246,250,.42)}
+.pad{position:fixed;inset:0;z-index:30;display:none;flex-direction:column;background:var(--cover);opacity:0;transition:opacity .25s ease}
 .pad.on{display:flex}
 .pad.shown{opacity:1}
 .pad-top{display:flex;align-items:center;gap:10px;padding:calc(var(--top) + 14px) 18px 10px}
@@ -99,8 +96,10 @@ body.launcher{position:fixed;inset:0}
 .chips{display:flex;gap:7px;overflow-x:auto;padding:2px 18px 10px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
 .chip{flex:none;border:0;padding:7px 13px;border-radius:999px;background:var(--glass);color:var(--ink);font:inherit;font-size:13px;font-weight:700}
-.chip.on{background:var(--ink);color:var(--inkInv,#fff)}
-.launcher.dark .chip.on{--inkInv:#1c1c1e}
+.chip{border:1px solid var(--glass-line)}
+.chip.on{background:var(--accent);color:#fff;border-color:transparent}
+#home,.dock{transition:opacity .25s ease}
+body.covered #home,body.covered .dock{opacity:0;pointer-events:none}
 .pad-body{flex:1;overflow-y:auto;padding:4px 18px calc(var(--bottom) + 30px);scrollbar-width:none}
 .pad-body::-webkit-scrollbar{display:none}
 .pad-body h3{margin:18px 4px 12px;font-size:13px;font-weight:800;color:var(--ink2);letter-spacing:-.2px}
@@ -145,7 +144,7 @@ body.launcher{position:fixed;inset:0}
 <script>
 "use strict";
 const B = window.Gyeot || null;
-const PAD_ICON = '<svg viewBox="0 0 24 24"><g fill="#ff6b4a"><circle cx="6" cy="6" r="2.3"/></g><g fill="#ffcd00"><circle cx="12" cy="6" r="2.3"/></g><g fill="#2dbe60"><circle cx="18" cy="6" r="2.3"/></g><g fill="#12b5a6"><circle cx="6" cy="12" r="2.3"/></g><g fill="#3182f6"><circle cx="12" cy="12" r="2.3"/></g><g fill="#7c5cff"><circle cx="18" cy="12" r="2.3"/></g><g fill="#af52de"><circle cx="6" cy="18" r="2.3"/></g><g fill="#ff3b5c"><circle cx="12" cy="18" r="2.3"/></g><g fill="#ff9f0a"><circle cx="18" cy="18" r="2.3"/></g></svg>';
+const PAD_ICON = '<svg viewBox="0 0 24 24" fill="currentColor">' + [6, 12, 18].map(y => [6, 12, 18].map(x => '<circle cx="' + x + '" cy="' + y + '" r="2.2"/>').join("")).join("") + '</svg>';
 const el = id => document.getElementById(id);
 let APPS = [], BY = new Map(), DOCK = [], RECENT = [], STACKS = [], BADGES = {}, filter = "";
 const iconOf = a => "/icon/" + encodeURIComponent(a.id) + ".png?v=" + a.v;
@@ -290,7 +289,7 @@ function elastic(box, inner, done) {
 })();
 
 /* ── a stack opened in place: its icons fly out of the folder, and back in when it closes ── */
-let fanFrom = null, holding = false, holdEnded = 0;
+let fanFrom = null, holding = false, holdEnded = 0, fanOpened = 0;
 function openFan(id, from, held) {
   const s = STACKS.find(x => x.id === id); if (!s) return;
   const apps = sorted(APPS.filter(a => a.stack === id)), fan = el("fan"), r = from.getBoundingClientRect();
@@ -303,7 +302,7 @@ function openFan(id, from, held) {
   const left = Math.max(10, Math.min(innerWidth - w - 10, cx - w / 2));
   const top = r.top - h - 14 >= topMost ? r.top - h - 14 : r.bottom + 14 + h <= floor ? r.bottom + 14 : Math.max(topMost, (innerHeight - h) / 2);
   fan.style.left = left + "px"; fan.style.top = top + "px"; fan.style.transformOrigin = (cx - left) + "px " + (cy - top) + "px";
-  fanFrom = {cx, cy, left, top};
+  fanFrom = {cx, cy, left, top}; fanOpened = Date.now();
   el("veil").classList.add("on");
   requestAnimationFrame(() => { fan.classList.add("shown"); fly(fan, false); });
 }
@@ -354,17 +353,17 @@ function hold(tile, x, y) {
   };
   addEventListener("pointermove", move); addEventListener("pointerup", up); addEventListener("pointercancel", up);
 }
-el("veil").addEventListener("click", () => { if (Date.now() - holdEnded < 400) return; closeFan(); closeMenu(); });
+el("veil").addEventListener("click", () => { if (Date.now() - holdEnded < 450 || Date.now() - fanOpened < 450) return; closeFan(); closeMenu(); });
 elastic(el("fan"), () => el("fan").querySelector(".grid-apps"));
 
 /* ── Launchpad and search ──────────────────────────────────── */
 function openPad(typing) {
   closeFan(); closeMenu();
   const pad = el("pad"); filter = ""; el("q").value = ""; drawChips(); drawPad();
-  pad.classList.add("on"); requestAnimationFrame(() => pad.classList.add("shown"));
+  pad.classList.add("on"); document.body.classList.add("covered"); requestAnimationFrame(() => pad.classList.add("shown"));
   if (typing) setTimeout(() => el("q").focus(), 60);
 }
-function closePad() { const pad = el("pad"); if (!pad.classList.contains("on")) return; el("q").blur(); pad.classList.remove("shown"); setTimeout(() => pad.classList.remove("on"), 230); }
+function closePad() { const pad = el("pad"); if (!pad.classList.contains("on")) return; el("q").blur(); pad.classList.remove("shown"); document.body.classList.remove("covered"); setTimeout(() => pad.classList.remove("on"), 230); }
 el("padClose").addEventListener("click", closePad);
 function drawChips() {
   const have = STACKS.filter(s => APPS.some(a => a.stack === s.id));

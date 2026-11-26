@@ -285,7 +285,7 @@ public final class HtmlWallpaper extends WallpaperService {
                     case "/board.css", "/board.js": return asset(HtmlWallpaper.this, path);
                     case "/photo.jpg": { File f = photo(HtmlWallpaper.this); return f.isFile() ? new WebResourceResponse("image/jpeg", null, new FileInputStream(f)) : missing(); }
                     case "/mascot.png": { File f = mascot(HtmlWallpaper.this); return f.isFile() ? new WebResourceResponse("image/png", null, new FileInputStream(f)) : missing(); }
-                    default: return missing();
+                    default: return path.startsWith("/appicon/") ? appIcon(HtmlWallpaper.this, path) : missing();
                 }
             } catch (Exception unreadable) { return missing(); }
         }
@@ -303,6 +303,21 @@ public final class HtmlWallpaper extends WallpaperService {
         }
     }
 
+    private static final android.util.LruCache<String, byte[]> APP_ICONS = new android.util.LruCache<>(1024 * 1024) { @Override protected int sizeOf(String k, byte[] v) { return v.length; } };
+    /** An app's own icon by its package (/appicon/<package>.png), for a notice on the board; kept once drawn. */
+    static WebResourceResponse appIcon(Context c, String path) {
+        String pkg = path.substring(path.lastIndexOf('/') + 1).replaceAll("\\.png$", "");
+        if (!pkg.matches("[A-Za-z0-9_.]{2,200}")) return missing();
+        byte[] png = APP_ICONS.get(pkg);
+        if (png == null) {
+            try {
+                Drawable d = c.getPackageManager().getApplicationIcon(pkg);
+                int size = 96; Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888); d.setBounds(0, 0, size, size); d.draw(new Canvas(b));
+                java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(); b.compress(Bitmap.CompressFormat.PNG, 100, out); png = out.toByteArray(); APP_ICONS.put(pkg, png);
+            } catch (Exception | OutOfMemoryError gone) { return missing(); }
+        }
+        return new WebResourceResponse("image/png", null, new ByteArrayInputStream(png));
+    }
     /** One of the board's shared files (assets/decor/board.css · board.js), for this wallpaper and the home screen app. */
     static WebResourceResponse asset(Context c, String path) {
         String name = path.substring(path.lastIndexOf('/') + 1);
@@ -339,7 +354,7 @@ public final class HtmlWallpaper extends WallpaperService {
                 try {
                     List<Notices.Notice> worth = Notices.worth(NoticeListener.list(c)), recent = Notices.recent(worth, now, 6, 50);
                     notices = new ArrayList<>(); noticeCount = recent.size();
-                    for (Notices.Notice n : recent) if (Notices.keep(n) && notices.size() < 3) notices.add(new HomeBoard.Notice(n.label().isBlank() ? n.app() : n.label(), n.title(), n.text(), n.at()));
+                    for (Notices.Notice n : recent) if (Notices.keep(n) && notices.size() < 3) notices.add(new HomeBoard.Notice(n.label().isBlank() ? n.app() : n.label(), n.app(), n.title(), n.text(), n.at()));
                 } catch (RuntimeException unreadable) { notices = null; }
             }
             try { for (dev.jun.gyeot.core.Proactive.Card card : Briefing.cards(store)) ideas.add(new HomeBoard.Suggestion(card.title(), card.body())); } catch (RuntimeException ignored) {}

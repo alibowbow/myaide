@@ -6,13 +6,18 @@
 */
 const G = window.GYEOT || {slots:[{src:"home",title:"퍼레 홈"}], photo:false, photoAt:0, mascot:false, start:0};
 const $ = (root, sel) => root.querySelector(sel);
+if (G.accent && /^#[0-9a-f]{6}$/i.test(G.accent)) {
+  const r = parseInt(G.accent.slice(1, 3), 16), g = parseInt(G.accent.slice(3, 5), 16), b = parseInt(G.accent.slice(5, 7), 16);
+  document.documentElement.style.setProperty("--accent", G.accent);
+  document.documentElement.style.setProperty("--accent-soft", "rgba(" + r + "," + g + "," + b + ",.15)");
+}
 const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 let info = null, lockedNow = false;
 const boards = [];
 
 /* ── icons (simple rounded strokes) ───────────────────────── */
 const ICON = {
-  chart:'<svg viewBox="0 0 24 24" fill="none" stroke="#2dbe60" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16"/><path d="M5 15l4-4 3.5 3L19 7.5"/><path d="M15 7.5h4v4"/></svg>',
+  chart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19h16"/><path d="M5 15l4-4 3.5 3L19 7.5"/><path d="M15 7.5h4v4"/></svg>',
   bell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/></svg>',
   spark:'<svg viewBox="0 0 24 24" fill="#fff"><path d="M12 2.5l2.1 6.2 6.4 2.3-6.4 2.3L12 19.5l-2.1-6.2L3.5 11l6.4-2.3z"/><circle cx="19" cy="4.5" r="1.6"/><circle cx="5" cy="19" r="1.3"/></svg>'
 };
@@ -95,8 +100,14 @@ function until(ms, end) {
 }
 function ago(ms) { const min = Math.max(0, Math.round((Date.now() - ms) / 60000)); return min < 1 ? "방금" : min < 60 ? min + "분 전" : Math.round(min / 60) + "시간 전"; }
 function money(v) { return "$" + (v >= 1000 ? Math.round(v).toLocaleString("en-US") : v >= 1 ? v.toFixed(2) : v.toPrecision(3)); }
-const APP_COLORS = ["#ff6b4a","#7c5cff","#12b5a6","#ff9f0a","#3182f6","#ff3b5c","#2dbe60","#af52de"];
-function hue(s) { let n = 0; for (const c of String(s)) n = (n * 31 + c.codePointAt(0)) >>> 0; return APP_COLORS[n % APP_COLORS.length]; }
+/* A notice's app: its own icon (the app serves /appicon/…), else its first letter on the accent. */
+function appMark(n) {
+  const letter = esc(Array.from(n.app || "?")[0]);
+  // No icon after all: the accent square comes back under it.
+  return n.pkg && /^[A-Za-z0-9_.]+$/.test(n.pkg)
+    ? '<div class="app icon" data-letter="' + letter + '"><img alt="" src="/appicon/' + n.pkg + '.png" onerror="this.parentNode.className=\'app\';this.parentNode.textContent=this.parentNode.dataset.letter"></div>'
+    : '<div class="app">' + letter + '</div>';
+}
 
 /* ── what the app says ────────────────────────────────────── */
 function show(b) {
@@ -106,7 +117,7 @@ function show(b) {
   const coins = k.quotes || [];
   $(b, ".coin-list").innerHTML = coins.length === 0 ? '<div class="muted">시세를 받지 못했어요</div>' : coins.map(c => {
     const dir = c.change >= 0 ? "up" : "down", sign = c.change >= 0 ? "+" : "";
-    return '<div class="coin"><b>' + esc(c.symbol) + '</b><span class="px">' + money(c.price) + '</span><span class="pct ' + dir + '">' + sign + c.change.toFixed(2) + '%</span></div>';
+    return '<div class="coin"><b>' + esc(c.symbol) + '</b><span class="px">' + money(c.price) + '</span><span class="pct ' + dir + '">' + (c.change >= 0 ? "▲ " : "▼ ") + Math.abs(c.change).toFixed(2) + '%</span></div>';
   }).join("");
   if (k.locked) { fit(b); return; }
   // 다음 일정
@@ -123,7 +134,7 @@ function show(b) {
   const nc = $(b, ".notices"), list = k.notices || [];
   nc.classList.toggle("hidden", !Array.isArray(k.notices) || list.length === 0);
   $(nc, ".count").textContent = k.noticeCount > 0 ? k.noticeCount : "";
-  $(nc, ".list").innerHTML = list.slice(0, 2).map(n => '<div class="note"><div class="app" style="background:' + hue(n.app) + '">' + esc(Array.from(n.app || "?")[0]) + '</div><div class="words"><div class="t">' + esc(n.title || n.app) + '</div><div class="s">' + esc(n.text) + '</div></div><div class="ago">' + ago(n.at) + '</div></div>').join("");
+  $(nc, ".list").innerHTML = list.slice(0, 2).map(n => '<div class="note">' + appMark(n) + '<div class="words"><div class="t">' + esc(n.title || n.app) + '</div><div class="s">' + esc(n.text) + '</div></div><div class="ago">' + ago(n.at) + '</div></div>').join("");
   // 퍼레의 제안
   const idea = $(b, ".idea-card"), s = (k.suggestions || [])[0];
   idea.classList.toggle("hidden", !s);

@@ -134,6 +134,32 @@ public final class HomeActivity extends Activity {
         int light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
         c.setSystemBarsAppearance(darkWallpaper() ? 0 : light, light);
     }
+    /**
+     * The one accent of the home screen, from the wallpaper's own main color (준: "전체적인 색감과 디자인이 좀 조화롭지 않다"):
+     * its hue kept, made calm (not loud, not grey) and dark enough for white words on it. A quiet slate blue without one.
+     */
+    String accent() {
+        int color = 0xff5e7a99;
+        try {
+            WallpaperColors colors = WallpaperManager.getInstance(this).getWallpaperColors(WallpaperManager.FLAG_SYSTEM);
+            if (colors != null) color = colors.getPrimaryColor().toArgb();
+        } catch (RuntimeException unknown) { /* the slate blue */ }
+        float[] hsl = new float[3]; androidx_hsl(color, hsl);
+        hsl[1] = Math.max(0.22f, Math.min(0.42f, hsl[1])); hsl[2] = 0.46f;
+        return String.format(java.util.Locale.ROOT, "#%06x", hslColor(hsl) & 0xffffff);
+    }
+    private static void androidx_hsl(int c, float[] out) {
+        float r = ((c >> 16) & 255) / 255f, g = ((c >> 8) & 255) / 255f, b = (c & 255) / 255f, max = Math.max(r, Math.max(g, b)), min = Math.min(r, Math.min(g, b)), d = max - min;
+        float l = (max + min) / 2, h = 0, s = d == 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+        if (d != 0) h = max == r ? ((g - b) / d) % 6 : max == g ? (b - r) / d + 2 : (r - g) / d + 4;
+        h *= 60; if (h < 0) h += 360; out[0] = h; out[1] = s; out[2] = l;
+    }
+    private static int hslColor(float[] hsl) {
+        float h = hsl[0], s = hsl[1], l = hsl[2], c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2, r, g, b;
+        if (h < 60) { r = c; g = x; b = 0; } else if (h < 120) { r = x; g = c; b = 0; } else if (h < 180) { r = 0; g = c; b = x; }
+        else if (h < 240) { r = 0; g = x; b = c; } else if (h < 300) { r = x; g = 0; b = c; } else { r = c; g = 0; b = x; }
+        return 0xff000000 | (Math.round((r + m) * 255) << 16) | (Math.round((g + m) * 255) << 8) | Math.round((b + m) * 255);
+    }
     private boolean darkWallpaper() {
         try {
             WallpaperColors colors = WallpaperManager.getInstance(this).getWallpaperColors(WallpaperManager.FLAG_SYSTEM);
@@ -223,6 +249,7 @@ public final class HomeActivity extends Activity {
         try {
             if (path.equals("/launcher.html") || path.equals("/")) return HtmlWallpaper.html(page());
             if (path.equals("/board.css") || path.equals("/board.js")) return HtmlWallpaper.asset(this, path);
+            if (path.startsWith("/appicon/")) return HtmlWallpaper.appIcon(this, path);
             if (path.equals("/mascot.png")) { File f = HtmlWallpaper.mascot(this); return f.isFile() ? new WebResourceResponse("image/png", null, new java.io.FileInputStream(f)) : HtmlWallpaper.missing(); }
             if (path.startsWith("/icon/")) {
                 String id = Uri.decode(path.substring(6)).replaceAll("\\.png$", "");
@@ -236,7 +263,7 @@ public final class HomeActivity extends Activity {
         String html;
         try (InputStream in = getAssets().open("decor/launcher.html")) { html = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
         String kind = HtmlWallpaper.mascotReady(this);
-        JSONObject config = Jsons.obj("launcher", true, "dark", darkWallpaper(), "mascot", !kind.isEmpty(), "mascotKind", kind, "mascotAt", HtmlWallpaper.mascot(this).lastModified());
+        JSONObject config = Jsons.obj("launcher", true, "dark", darkWallpaper(), "accent", accent(), "mascot", !kind.isEmpty(), "mascotKind", kind, "mascotAt", HtmlWallpaper.mascot(this).lastModified());
         return html.replace("/*GYEOT*/", "window.GYEOT=" + config.toString().replace("</", "<\\/") + ";");
     }
     /** An app's icon as the phone draws it (its shape, a work badge), once: kept in memory and in the cache folder. */

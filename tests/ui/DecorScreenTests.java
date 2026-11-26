@@ -89,7 +89,7 @@ public class DecorScreenTests {
         assertEquals(0, dev.jun.gyeot.core.HomeBoard.start(two, true));
         long now = 1_800_000_000_000L;
         var known = new dev.jun.gyeot.core.HomeBoard.Known(now, true, true, new dev.jun.gyeot.core.HomeBoard.Event("병원", now + 3_600_000, now + 7_200_000, false, ""), 1,
-            java.util.List.of(new dev.jun.gyeot.core.HomeBoard.Notice("카카오톡", "엄마", "밥 먹었니", now)), 1, java.util.List.of(), 0, false, "들퍼레", java.util.List.of());
+            java.util.List.of(new dev.jun.gyeot.core.HomeBoard.Notice("카카오톡", "com.kakao.talk", "엄마", "밥 먹었니", now)), 1, java.util.List.of(), 0, false, "들퍼레", java.util.List.of());
         var locked = dev.jun.gyeot.core.HomeBoard.json(known);
         assertFalse("locked: no event", locked.has("next")); assertFalse("locked: no notices", locked.has("notices"));
         var open = dev.jun.gyeot.core.HomeBoard.json(new dev.jun.gyeot.core.HomeBoard.Known(now, false, true, known.next(), 1, known.notices(), 1, java.util.List.of(), 0, false, "들퍼레", java.util.List.of()));

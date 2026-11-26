@@ -82,7 +82,8 @@ public final class HomeBoard {
         CalendarQuery.Event e = timed != null ? timed : allDay;
         return e == null ? null : new Event(e.title() == null || e.title().isBlank() ? "제목 없는 일정" : e.title().strip(), e.begin(), e.end(), e.allDay(), e.location() == null ? "" : e.location().strip());
     }
-    public record Notice(String app, String title, String text, long at) {}
+    /** app: the app's name as shown; pkg: its package (for its icon). */
+    public record Notice(String app, String pkg, String title, String text, long at) {}
     public record Suggestion(String title, String body) {}
     /** What the app knows for the board now. calendar/notices: null when that is off (the board then leaves its card out). */
     public record Known(long now, boolean locked, boolean calendarOn, Event next, int eventsLeft,
@@ -105,7 +106,7 @@ public final class HomeBoard {
         Jsons.put(o, "eventsLeft", Math.max(0, k.eventsLeft()));
         if (k.notices() != null) {
             JSONArray n = new JSONArray();
-            for (Notice x : k.notices()) if (n.length() < 3) n.put(Jsons.obj("app", clip(x.app(), 20), "title", clip(x.title(), 50), "text", clip(x.text(), 80), "at", x.at()));
+            for (Notice x : k.notices()) if (n.length() < 3) n.put(Jsons.obj("app", clip(x.app(), 20), "pkg", x.pkg() == null ? "" : x.pkg(), "title", clip(x.title(), 50), "text", clip(x.text(), 80), "at", x.at()));
             Jsons.put(o, "notices", n); Jsons.put(o, "noticeCount", Math.max(n.length(), k.noticeCount()));
         }
         JSONArray s = new JSONArray();
