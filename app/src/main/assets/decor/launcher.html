@@ -79,7 +79,7 @@ body.launcher{position:fixed;inset:0}
 /* The home page never scrolls or stretches (준: "이런 스크롤이 있으니 안정적이지 않아 없애줘"): it is one screen; the board gives way
    first (board.js fit), and only App Library scrolls, quietly, when there are more folders than fit. */
 #home{overflow:hidden !important;touch-action:manipulation !important;padding-bottom:0 !important}
-#home>.inner{display:flex;flex-direction:column;height:100%;padding-bottom:calc(var(--bottom) + var(--dockTop, 80px) + 38px);box-sizing:border-box}
+#home>.inner{display:flex;flex-direction:column;height:100%;padding-bottom:calc(var(--bottom) + var(--dockTop, 80px) + 28px);box-sizing:border-box}
 #home>.inner>*{flex:none}
 /* A sideways swipe anywhere on 홈, App Library included, turns the page (준: "왼쪽 페이지와 우측 페이지가 안 열려"). */
 #home .stacks{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:none;align-content:start;touch-action:manipulation;scrollbar-width:none}
@@ -309,11 +309,10 @@ body.liquid .menu hr{background:var(--hair2)}
 @media (min-width:600px){body.liquid .clock{font-size:74px}}
 /* Launchpad (every app, the search, the talk with 퍼레) in soft pastel, not near-black (준: "All app 표시란 바탕이 너무 새까매서 눈이
    피로해 보기편한 파스텔톤으로"): dark words on light glass. */
-body.liquid .pad{background:#edf0ee;--ink:#263238;--ink2:#53616a;--ink3:#89949a;--glass:rgba(255,255,255,.72);--glass-line:rgba(255,255,255,.95);--hair:rgba(30,50,60,.08);--hair2:rgba(30,50,60,.12);color:var(--ink)}
-/* the watercolour behind it: paper, an aqua wash, sea grass, coral, stones, bubbles (no whale), all faint */
-.pad-art{position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;display:none;will-change:transform}
-body.liquid .pad-art{display:block}
-body.liquid .pad{isolation:isolate}
+body.liquid .pad{--ink:#263238;--ink2:#53616a;--ink3:#89949a;--glass:rgba(255,255,255,.72);--glass-line:rgba(255,255,255,.95);--hair:rgba(30,50,60,.08);--hair2:rgba(30,50,60,.12);color:var(--ink)}
+/* Behind it, a watercolour wash on paper painted for it (GPT Image, from the user's whale wallpaper's paper and colours, no whale):
+   pale and even so the icons and names read everywhere (준: "너무 기괴하고 이상해" for the drawn one, "gpt로 배경 만드는게 나을듯"). */
+body.liquid .pad{background:#eceeec url(pad-bg.webp) center / cover no-repeat}
 body.liquid .pad-top .field{background:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.98);box-shadow:0 4px 14px rgba(40,70,80,.08)}
 body.liquid .pad .field input{color:var(--ink)}
 body.liquid .pad .close{color:#4f8587}
@@ -321,7 +320,7 @@ body.liquid .pad .chip{background:rgba(255,255,255,.72);border:1px solid rgba(25
 body.liquid .pad .chip.on{background:#5f9596;color:#fff;border-color:transparent}
 body.liquid .pad .msg.me{background:linear-gradient(135deg,#7fb0ae,#5a8f8f)}
 body.liquid .pad .ask .dot{background:#5f9596 !important}
-body.liquid .pad .pad-body h3{color:#8b8c9e}
+body.liquid .pad .pad-body h3{font-family:inherit;font-size:13.5px;font-weight:750;letter-spacing:-.01em;text-transform:none;color:#4f6066;margin:22px 4px 12px}
 body.liquid .pad .app .label{color:#2a2b38;text-shadow:none}
 body.liquid .pad .app .ic img{filter:drop-shadow(0 3px 8px rgba(40,60,70,.16))}
 body.liquid .pad .ask{background:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.95);color:var(--ink)}
@@ -368,8 +367,8 @@ body.liquid .when .w-line #wRange{grid-area:range;font-size:12px}
 #stacks.big .stack{gap:9px}
 #stacks.big .stack .name{font-size:13.5px}
 @media (min-width:600px) and (min-height:640px){
-  body.liquid .board .wrap{gap:16px;padding-top:calc(var(--top) + 30px)}
-  body.liquid .clock{font-size:96px}
+  body.liquid .board .wrap{gap:13px;padding-top:calc(var(--top) + 18px)}
+  body.liquid .clock{font-size:90px}
   body.liquid .when .date{font-size:12.5px}
 }
 /* The prices, small (준: "시세창이 너무 메인처럼 커"): one slim strip as wide as its words, no title, under the clock. */
@@ -382,7 +381,7 @@ body.liquid .coins .coin .px{font-size:14.5px;font-weight:650;letter-spacing:-.0
 body.liquid .coins .pct{font-size:10.5px}
 /* 퍼레's bubble hangs under it on every screen, clear of the weather beside the clock. */
 body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18px 4px 18px 18px;transform-origin:100% 0;z-index:5;max-width:min(220px,calc(100vw - 40px))}
-.lib-head{padding-top:10px}
+.lib-head{padding-top:22px}
 /* the search, with 알림 · 제안 at its end: one line, the same edges as the cards (준: "알림과 제안 버튼 위치가 정렬이 이상해") */
 .search-row{display:flex;align-items:stretch;gap:8px;margin:12px 18px 2px}
 .search-row:not(.has-minis){display:none}
@@ -439,36 +438,6 @@ body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18p
 <div class="veil" id="veil"></div>
 <div class="fan" id="fan"></div>
 <section class="pad" id="pad">
-  <svg class="pad-art" viewBox="0 0 400 860" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-    <defs>
-      <filter id="paper" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="3" seed="4" result="n"/><feDiffuseLighting in="n" lighting-color="#f6f7f5" surfaceScale="1.15"><feDistantLight azimuth="235" elevation="62"/></feDiffuseLighting></filter>
-      <filter id="wash" x="-40%" y="-40%" width="180%" height="180%"><feTurbulence type="fractalNoise" baseFrequency=".013" numOctaves="3" seed="9" result="t"/><feDisplacementMap in="SourceGraphic" in2="t" scale="46" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="7"/></filter>
-      <filter id="ink" x="-20%" y="-20%" width="140%" height="140%"><feTurbulence type="fractalNoise" baseFrequency=".05" numOctaves="2" seed="2" result="t"/><feDisplacementMap in="SourceGraphic" in2="t" scale="4" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation=".7"/></filter>
-    </defs>
-    <rect width="400" height="860" fill="#edf0ee"/>
-    <rect width="400" height="860" filter="url(#paper)" opacity=".5" style="mix-blend-mode:multiply"/>
-    <g filter="url(#wash)" opacity=".5">
-      <ellipse cx="205" cy="470" rx="165" ry="230" fill="#b9d8d4"/>
-      <ellipse cx="135" cy="300" rx="95" ry="80" fill="#cbe4df"/>
-      <ellipse cx="290" cy="640" rx="105" ry="95" fill="#c2ddd9"/>
-      <ellipse cx="190" cy="700" rx="150" ry="40" fill="#d3e3e0"/>
-    </g>
-    <g filter="url(#ink)" opacity=".42">
-      <!-- sea grass, bottom left -->
-      <path d="M58 760 C64 700 48 650 60 590 C70 540 58 500 66 460" fill="none" stroke="#6e9a7a" stroke-width="2.4" stroke-linecap="round"/>
-      <g fill="#86ad8f"><ellipse cx="50" cy="700" rx="5" ry="16" transform="rotate(-30 50 700)"/><ellipse cx="70" cy="660" rx="5" ry="15" transform="rotate(30 70 660)"/><ellipse cx="52" cy="615" rx="5" ry="15" transform="rotate(-28 52 615)"/><ellipse cx="72" cy="570" rx="5" ry="14" transform="rotate(28 72 570)"/><ellipse cx="56" cy="525" rx="4.5" ry="13" transform="rotate(-25 56 525)"/><ellipse cx="72" cy="488" rx="4.5" ry="12" transform="rotate(25 72 488)"/></g>
-      <!-- sea grass, bottom right -->
-      <path d="M350 790 C344 740 360 700 348 650 C340 610 352 580 346 548" fill="none" stroke="#6e9a7a" stroke-width="2.2" stroke-linecap="round"/>
-      <g fill="#86ad8f"><ellipse cx="360" cy="745" rx="5" ry="15" transform="rotate(30 360 745)"/><ellipse cx="338" cy="705" rx="5" ry="14" transform="rotate(-30 338 705)"/><ellipse cx="358" cy="662" rx="4.5" ry="14" transform="rotate(28 358 662)"/><ellipse cx="338" cy="622" rx="4.5" ry="13" transform="rotate(-26 338 622)"/><ellipse cx="354" cy="584" rx="4" ry="12" transform="rotate(24 354 584)"/></g>
-      <!-- coral and stones -->
-      <g fill="none" stroke="#df8f7c" stroke-width="5" stroke-linecap="round"><path d="M96 800 C92 780 88 768 82 756"/><path d="M104 800 C104 778 106 764 110 750"/><path d="M112 802 C118 786 126 776 134 768"/></g>
-      <g fill="#e2c77a"><ellipse cx="300" cy="790" rx="4" ry="12" transform="rotate(-25 300 790)"/><ellipse cx="310" cy="786" rx="4" ry="13"/><ellipse cx="320" cy="790" rx="4" ry="12" transform="rotate(25 320 790)"/></g>
-      <ellipse cx="112" cy="812" rx="34" ry="14" fill="#b4aaa0"/><ellipse cx="146" cy="822" rx="20" ry="9" fill="#a99f95"/><ellipse cx="312" cy="808" rx="24" ry="10" fill="#b4aaa0"/>
-    </g>
-    <g fill="#ffffff" fill-opacity=".28" stroke="#ffffff" stroke-opacity=".75" stroke-width="1.2">
-      <circle cx="292" cy="330" r="16"/><circle cx="318" cy="290" r="8"/><circle cx="248" cy="560" r="22"/><circle cx="118" cy="420" r="10"/>
-    </g>
-  </svg>
   <div class="pad-top"><label class="field"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg><input id="q" type="search" placeholder="앱 · 초성(ㅋㅋㅇ) · 퍼레에게 묻기" autocomplete="off" enterkeyhint="go"></label><button class="close" id="padClose">닫기</button></div>
   <div class="chips" id="chips"></div>
   <div class="pad-body" id="padBody"></div>
@@ -541,10 +510,10 @@ function drawStacks() {
 }
 /*
   App Library's folders as big as its room allows (준: "상단영역은 공간이 부족하고 하단은 빈공간이 넘쳐"): when all the rows fit with
-  space to spare (two rows on an opened foldable), the folders grow into it, up to 112px; with more rows than room they keep their
+  space to spare (two rows on an opened foldable), the folders grow into part of it, up to 92px (준: "폴더 크기 약간만 줄여줘"); with more rows than room they keep their
   size and the library scrolls. The board's room is reckoned at the usual size (boardRoom), so bigger folders never push it out.
 */
-function FOLDER() { return Math.min(72, folderCol()); }
+function FOLDER() { return Math.min(66, folderCol()); }
 function folderCol() {
   const box = el("stacks"), st = getComputedStyle(box), cols = Math.max(1, st.gridTemplateColumns.split(" ").length), gx = parseFloat(st.columnGap) || 14;
   return (box.clientWidth - (parseFloat(st.paddingLeft) || 0) - (parseFloat(st.paddingRight) || 0) - gx * (cols - 1)) / cols;
@@ -554,9 +523,9 @@ function sizeFolders() {
   const st = getComputedStyle(box), cols = Math.max(1, st.gridTemplateColumns.split(" ").length), rows = Math.ceil(box.children.length / cols);
   const pile = first.querySelector(".pile"), name = first.offsetHeight - (pile ? pile.offsetHeight : 0), gy = parseFloat(st.rowGap) || 18;
   const tall = (box.clientHeight - (parseFloat(st.paddingTop) || 0) - (parseFloat(st.paddingBottom) || 0) - gy * (rows - 1)) / rows - name - 6;
-  const size = Math.max(FOLDER(), Math.min(folderCol(), 112, tall));
+  const size = Math.max(FOLDER(), Math.min(folderCol() * 0.82, 92, tall * 0.85));
   box.style.setProperty("--folder", Math.floor(size) + "px");
-  box.classList.toggle("big", size >= 90);
+  box.classList.toggle("big", size >= 84);
 }
 if (window.ResizeObserver) new ResizeObserver(() => sizeFolders()).observe(el("stacks"));
 function drawDock() {
@@ -571,6 +540,9 @@ function drawDock() {
   let size = base, rows = Math.ceil(cells / per(base));
   if (rows > 2) { size = Math.max(34, Math.min(base, Math.floor((width + gap) / Math.ceil(cells / 2) - gap))); rows = Math.ceil(cells / per(size)); }
   const cols = Math.ceil(cells / rows), shelf = el("shelf");
+  // Room to spare across: the icons a little bigger (준: "독바 공간 여유 있을땐 약간만 더 아이콘 크기 키워줘"), less in two rows
+  // (they take the height App Library and the board need).
+  if (size === base) size = Math.min(Math.round(base * (rows > 1 ? 1.08 : 1.15)), Math.floor((width + gap) / cols - gap));
   shelf.classList.toggle("rows", rows > 1); shelf.classList.remove("overflow");
   shelf.style.setProperty("--cols", cols);
   const room = rows > 1 ? 0 : per(size) - cells - 1;

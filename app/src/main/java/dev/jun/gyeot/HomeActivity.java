@@ -311,6 +311,7 @@ public final class HomeActivity extends Activity {
             if (path.equals("/launcher.html") || path.equals("/")) return HtmlWallpaper.html(page());
             if (path.equals("/board.css") || path.equals("/board.js")) return HtmlWallpaper.asset(this, path);
             if (path.startsWith("/appicon/")) return HtmlWallpaper.appIcon(this, path);
+            if (path.equals("/pad-bg.webp")) return new WebResourceResponse("image/webp", null, getAssets().open("decor/pad-bg.webp"));
             if (path.equals("/mascot.png")) { File f = HtmlWallpaper.mascot(this); return f.isFile() ? new WebResourceResponse("image/png", null, new java.io.FileInputStream(f)) : HtmlWallpaper.missing(); }
             if (path.startsWith("/icon/")) {
                 String id = Uri.decode(path.substring(6)).replaceAll("\\.png$", "");
