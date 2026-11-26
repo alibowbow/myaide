@@ -50,6 +50,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -248,6 +249,33 @@ public final class HomeActivity extends Activity {
     private JSONArray read(String key, JSONArray none) { try { return new JSONArray(prefs.getString(key, "")); } catch (Exception e) { return none; } }
     private JSONObject read(String key, JSONObject none) { try { return new JSONObject(prefs.getString(key, "")); } catch (Exception e) { return none; } }
 
+    // ── 퍼레 on the home screen ─────────────────────────────────
+    private final AtomicReference<Runnable> chatCancel = new AtomicReference<>();
+    private volatile long chatTicket;
+    private String chatInstructions(AppStore store) {
+        String name = "들퍼레"; try { name = AssistantProfile.readName(this); } catch (RuntimeException ignored) {}
+        String about = ""; try { about = Briefing.profile(store); } catch (RuntimeException ignored) {}
+        String now = new java.text.SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", java.util.Locale.KOREA).format(new java.util.Date());
+        return "너는 사용자의 휴대폰 홈 화면에 사는 AI 비서 '" + name + "'이야. 지금은 " + now + ".\n"
+            + "한국어로, 친구처럼 상냥하고 짧게 답해. 핵심부터 2~6문장. 표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써.\n"
+            + "모르는 것은 지어내지 말고 모른다고 말해. 휴대폰을 직접 조작하거나 앱을 열 수는 없으니, 그런 부탁이면 앱에서 이어가자고 말해."
+            + (about.isBlank() ? "" : "\n사용자에 대해 알고 있는 것:\n" + about);
+    }
+    /** The question with the turns before it (at most six, each cut short), as the model reads them. */
+    private static String chatInput(String history, String question) {
+        StringBuilder in = new StringBuilder();
+        try {
+            JSONArray turns = new JSONArray(history == null || history.isBlank() ? "[]" : history);
+            int from = Math.max(0, turns.length() - 6);
+            for (int i = from; i < turns.length(); i++) {
+                JSONObject t = turns.optJSONObject(i); if (t == null) continue;
+                String text = t.optString("text"); if (text.length() > 1200) text = text.substring(0, 1200) + "…";
+                in.append("me".equals(t.optString("who")) ? "사용자: " : "퍼레: ").append(text).append("\n");
+            }
+        } catch (Exception ignored) {}
+        return in.length() == 0 ? question : "지금까지의 대화:\n" + in + "\n사용자의 새 질문: " + question;
+    }
+
     // ── the page's own files ────────────────────────────────────
     private WebResourceResponse own(String path) {
         try {
@@ -312,6 +340,33 @@ public final class HomeActivity extends Activity {
                 prefs.edit().putString(RECENT, recent.toString()).apply();
             });
         }
+        /**
+         * 퍼레 answers right on the home screen (준: "퍼레대화의 경우 그 자리에서 바로 되게 해줘", "기본 엔비디아 모델"): the
+         * question, with the few turns before it, to the NVIDIA model the app is connected to (NimClient, the user's own key),
+         * the answer streamed into the page as it comes. Not connected: the page says so and how to connect.
+         */
+        @JavascriptInterface public void chat(String question, String history) {
+            if (question == null || question.isBlank() || question.length() > 4000) return;
+            AppStore store = ((GyeotApp) getApplication()).store();
+            if (!store.nim.connected()) { js("launcher.replyError(" + JSONObject.quote("NVIDIA 모델이 아직 연결되지 않았어요. 설정 → AI 연결에서 NVIDIA 키를 넣으면 여기서 바로 답해요.") + ",\"settings\")"); return; }
+            Runnable old = chatCancel.getAndSet(null); if (old != null) try { old.run(); } catch (RuntimeException ignored) {}
+            long ticket = ++chatTicket;
+            Thread t = new Thread(() -> {
+                AtomicReference<Runnable> cancel = new AtomicReference<>(); chatCancel.set(() -> { Runnable r = cancel.get(); if (r != null) r.run(); });
+                try {
+                    WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), store.nim.model(), chatInstructions(store), chatInput(history, question.strip()),
+                        () -> { if (ticket != chatTicket) throw new java.util.concurrent.CancellationException(); }, cancel,
+                        delta -> { if (ticket == chatTicket && !delta.isEmpty()) js("launcher.stream(" + JSONObject.quote(delta) + ")"); });
+                    if (ticket == chatTicket) js("launcher.reply(" + JSONObject.quote(answer.text == null ? "" : answer.text.strip()) + ")");
+                } catch (java.util.concurrent.CancellationException stopped) { /* a newer question, or stopped */ }
+                catch (Exception e) {
+                    String why = e instanceof java.io.IOException ? "인터넷이 끊겼거나 NVIDIA가 답하지 않았어요. 잠시 뒤 다시 물어봐 주세요." : e.getMessage() == null ? "답을 받지 못했어요." : e.getMessage();
+                    if (ticket == chatTicket) js("launcher.replyError(" + JSONObject.quote(why) + ",\"\")");
+                }
+            }, "gyeot-home-chat");
+            t.setDaemon(true); t.start();
+        }
+        @JavascriptInterface public void stopChat() { chatTicket++; Runnable r = chatCancel.getAndSet(null); if (r != null) try { r.run(); } catch (RuntimeException ignored) {} }
         /** The background: "aurora" (the home screen's own night sky) or "photo" (the user's wallpaper under a dark veil). */
         @JavascriptInterface public void look(String bg) { prefs.edit().putString("bg", "photo".equals(bg) ? "photo" : "aurora").apply(); }
         @JavascriptInterface public void dock(String ids) {

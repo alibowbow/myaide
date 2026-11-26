@@ -403,6 +403,7 @@ public final class HtmlWallpaper extends WallpaperService {
         switch (what) {
             case "chat": open = new Intent(c, MainActivity.class).putExtra(MainNavigation.TARGET, "chat"); break;
             case "home": open = new Intent(c, MainActivity.class); break;
+            case "settings": open = new Intent(c, MainActivity.class).putExtra(MainNavigation.TARGET, "settings"); break;
             case "lab": open = new Intent(c, LabActivity.class); break;
             case "mytube": open = new Intent(c, MyTubeActivity.class); break;
             case "pages": open = new Intent(c, PagesActivity.class); break;

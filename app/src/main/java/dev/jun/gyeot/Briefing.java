@@ -144,7 +144,7 @@ final class Briefing {
     static String remake(Context context, AppStore store) throws Exception { return remake(context, store, false); }
     /** waiting: the user pressed 지금 다시 정리 (Groq first, Chores). */
     static String remake(Context context, AppStore store, boolean waiting) throws Exception {
-        String input = Proactive.profileInput(note(store), store.settings.getBoolean("aboutAiEdited", false), store.persona(), memories(store), chat(store, 80), works(store, 12, false), records(store));
+        String input = Proactive.profileInput(System.currentTimeMillis(), ZoneId.systemDefault(), note(store), store.settings.getBoolean("aboutAiEdited", false), store.persona(), memories(store), chat(store, 80), works(store, 12, false), records(store));
         String made = Proactive.profile(Chores.run(store, Proactive.PROFILE, input, waiting));
         if (made.isEmpty()) throw new IllegalStateException("노트를 만들지 못했어요.");
         store.settings.edit().putString("aboutAi", made).putLong("aboutAiAt", System.currentTimeMillis()).apply(); store.changed();
@@ -163,7 +163,8 @@ final class Briefing {
         List<Card> made = Proactive.cards(Chores.run(store, Proactive.BRIEF, input, !tell));
         if (made.isEmpty()) throw new IllegalStateException("오늘은 드릴 제안을 만들지 못했어요.");
         // What the user put away in the last 30 days, or like it, never comes back however the model words it.
-        List<Card> cards = new ArrayList<>(); JSONArray reacted = feedback(store); for (Card card : made) if (!Proactive.putAway(reacted, card, now)) cards.add(card);
+        // Nothing about a day already over, however the model got there (the note can still hold a past trip).
+        List<Card> cards = new ArrayList<>(); JSONArray reacted = feedback(store); for (Card card : made) if (!Proactive.putAway(reacted, card, now) && !Proactive.stale(card, now, zone)) cards.add(card);
         JSONArray saved = new JSONArray(); for (Card card : cards) saved.put(card.json());
         store.settings.edit().putString("briefCards", saved.toString()).putString("briefDay", Proactive.day(now, zone)).apply(); store.changed();
         if (tell) tell(context, cards);
@@ -177,7 +178,7 @@ final class Briefing {
             JSONArray saved = new JSONArray(store.settings.getString("briefCards", "[]"));
             JSONArray reacted = feedback(store); long now = System.currentTimeMillis();
             // A card put away (✕) stays away, also when a later list (or one being made while it was put away) brings it back.
-            for (int i = 0; i < saved.length(); i++) { Card card = Card.of(saved.optJSONObject(i)); if (card != null && !card.title().isEmpty() && !Proactive.putAway(reacted, card, now)) out.add(card); }
+            for (int i = 0; i < saved.length(); i++) { Card card = Card.of(saved.optJSONObject(i)); if (card != null && !card.title().isEmpty() && !Proactive.putAway(reacted, card, now) && !Proactive.stale(card, now, ZoneId.systemDefault())) out.add(card); }
         } catch (Exception broken) { /* None. */ }
         return out;
     }

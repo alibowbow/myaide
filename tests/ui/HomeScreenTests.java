@@ -62,4 +62,18 @@ public class HomeScreenTests {
         a.onBackPressed(); shadowOf(Looper.getMainLooper()).idle();
         assertFalse(a.isFinishing());
     }
+
+    /** A suggestion about a day already over is left out (the 11-14~15 trip suggested on the 26th); prices and follow-ups are not dates gone. */
+    @Test public void dropsSuggestionsAboutPastDays() {
+        java.time.ZoneId zone = java.time.ZoneId.of("Asia/Seoul");
+        long now = java.time.ZonedDateTime.of(2026, 11, 26, 9, 0, 0, 0, zone).toInstant().toEpochMilli();
+        java.util.function.Function<String, dev.jun.gyeot.core.Proactive.Card> card = t -> new dev.jun.gyeot.core.Proactive.Card("진주 통치모임 예산 검토", t, "예산 다시 봐 줘", "");
+        assertTrue(dev.jun.gyeot.core.Proactive.stale(card.apply("마이아카이브에 기록된 11-14~15 일정·예산을 최종 확인하고, 출발 전 체크하면 좋겠어요."), now, zone));
+        assertTrue(dev.jun.gyeot.core.Proactive.stale(card.apply("11월 20일 발표 준비"), now, zone));
+        assertFalse("tomorrow is ahead", dev.jun.gyeot.core.Proactive.stale(card.apply("11월 27일 발표 준비"), now, zone));
+        assertFalse("yesterday may still be followed up", dev.jun.gyeot.core.Proactive.stale(card.apply("11/25 회의 내용 확인"), now, zone));
+        assertFalse("an after-the-fact follow-up", dev.jun.gyeot.core.Proactive.stale(card.apply("11-14~15 여행 후기 정리"), now, zone));
+        assertFalse("percentages are not dates", dev.jun.gyeot.core.Proactive.stale(card.apply("SOXL 3.12% 하락, 1.5배 레버리지 점검"), now, zone));
+        assertFalse("no date at all", dev.jun.gyeot.core.Proactive.stale(card.apply("AI 모델 카탈로그 업데이트"), now, zone));
+    }
 }
