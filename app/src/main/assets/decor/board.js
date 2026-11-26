@@ -927,6 +927,7 @@ function selfAct(o) {
     let wear = o.wear.filter(x => WEAR.includes(x)).slice(0, 4);
     if (o.any && !wear.length) { const was = chosen ? chosen.wear : []; const left = CUTE.filter(x => !was.includes(x)); wear = [left[Math.floor(Math.random() * left.length)]]; }
     chosen = {wear, until: Date.now() + 2 * 3600000};
+    wear.forEach(w => lived("wear", w, 1.2, "사용자가 골라 줘서"));
     try { localStorage.setItem("gyeotWear", JSON.stringify(chosen)); } catch (e) { /* this time only */ }
     boards.forEach(x => { const svg = $(x, ".bot"); if (svg) WEAR.forEach(w => svg.classList.toggle("w-" + w, wear.includes(w))); if (x._feel) x._feel(wear.length ? "proud" : "content", 1800); move(x, "hop", 760); });
     return true;
@@ -1096,18 +1097,15 @@ function drawCare(b) {
 }
 
 /*
-  The phone moved (준: "퍼레가 내 휴대폰 환경에서 살아있는 ai 봇처럼 행동, 환경을 이해하고 반응"): tilted, 퍼레 leans with it;
-  shaken, it gets dizzy and says so. Only the accelerometer (the cheapest sensor), smoothed; nothing while the page is hidden.
+  The phone moved (준: "퍼레가 내 휴대폰 환경에서 살아있는 ai 봇처럼 행동, 환경을 이해하고 반응"): shaken, it gets dizzy and
+  says so. It no longer leans with the phone's tilt (준: "퍼레가 자꾸 한쪽으로 기울어져 있어": a phone in the hand is always a
+  little tilted, so it always leaned). Only the accelerometer (the cheapest sensor), smoothed; nothing while the page is hidden.
 */
 (function motion() {
-  let lean = 0, shown = 0, jolts = [], shakenAt = 0, raf = 0;
+  let jolts = [], shakenAt = 0;
   addEventListener("devicemotion", e => {
     const a = e.accelerationIncludingGravity; if (!a || document.hidden || a.x == null) return;
     const now = Date.now(), m = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
-    // Tilt: the right side down reads as x below zero (the push against gravity points to the left edge).
-    const want = Math.abs(a.x) < 1.2 ? 0 : -Math.asin(Math.max(-1, Math.min(1, a.x / 9.81))) * 57.3 * .4;
-    lean += (Math.max(-14, Math.min(14, want)) - lean) * .12;
-    if (!raf && Math.abs(lean - shown) > .4) raf = requestAnimationFrame(() => { raf = 0; shown = lean; boards.forEach(b => { const svg = $(b, ".bot"); if (svg) svg.style.transform = Math.abs(shown) < .6 ? "" : "rotate(" + shown.toFixed(1) + "deg)"; }); });
     if (m > 23) {
       jolts = jolts.filter(t => now - t < 900).concat(now);
       if (jolts.length >= 3 && now - shakenAt > 6000) {
@@ -1384,7 +1382,10 @@ function roam(b) {
     playing = true;
     const here = () => {
       saidInPlay = 0; inPlay = true; dress(kind);
-      const ended = () => { playing = false; inPlay = false; undress(); if (Math.random() < .22) { saidInPlay = Math.min(saidInPlay, 1); setTimeout(() => blurt("done", 1800), 200); } };
+      const ended = () => {
+        playing = false; inPlay = false; undress(); if (Math.random() < .22) { saidInPlay = Math.min(saidInPlay, 1); setTimeout(() => blurt("done", 1800), 200); }
+        const joy = Math.random() * 1.6 - .2; lived("play", kind, joy); if (TOY_OF[kind]) lived("toy", TOY_OF[kind], joy);
+      };
       try { PLAYS[kind](ended); } catch (err) { playing = false; inPlay = false; undress(); }
       // The AI, now and then: something of its own about this play and the moment.
       const ai = window.boardThink && !quietNow() && Date.now() - soloAiAt > 480000 && Date.now() - (b._spoke || 0) > 60000 && Date.now() - thinkAt > 12000;
@@ -1418,7 +1419,7 @@ function roam(b) {
     if (!PLAYS[kind]) return;
     if (playing && (tries || 0) < 20) { setTimeout(() => b._ask(kind, (tries || 0) + 1), 400); return; }
     playing = true; inPlay = true; saidInPlay = 2; dress(kind);
-    const ended = () => { playing = false; inPlay = false; undress(); };
+    const ended = () => { playing = false; inPlay = false; undress(); lived("play", kind, 1, "사용자가 하자고 해서"); if (TOY_OF[kind]) lived("toy", TOY_OF[kind], 1, "사용자가 꺼내 줘서"); };
     try { PLAYS[kind](ended); } catch (err) { ended(); }
     setTimeout(() => { if (inPlay) ended(); }, 16000);
   };
@@ -1433,6 +1434,19 @@ function roam(b) {
   addEventListener("resize", () => b._home());
 }
 
+/*
+  What 퍼레 lives on the board, told to the app for its world and heart (BuddyWorld.java, 준: "최애 장난감은 변할 수 있어",
+  "그건 퍼레의 감정에 의해 결정되는거라", "생명력을 가지게 해줘"): each play and how it went, each toy, clothes the user chose.
+*/
+const TOY_OF = {kickball: "ball", rolldice: "dice", puzzlecube: "cube", spintop: "top", balloonbat: "balloon", balloonpop: "balloon", flutter: "butterfly",
+  meteors: "meteors", bubbles: "bubbles", kite: "kite", yoyo: "yoyo", frisbee: "frisbee", pinwheel: "pinwheel", paperplane: "paperplane",
+  ball: "ball", dice: "dice", cube: "cube", top: "top", balloon: "balloon", fly: "butterfly"};
+const livedAt = {};
+function lived(kind, key, joy, why) {
+  if (!window.boardLived || !key) return;
+  const at = kind + ":" + key; if (Date.now() - (livedAt[at] || 0) < 15000) return; livedAt[at] = Date.now();
+  window.boardLived(kind, key, Math.round(joy * 10) / 10, why || "");
+}
 /*
   퍼레's toys (준: "퍼레가 가지고 놀 다양한 오브젝트 토이들을 만들어줘 심심하지 않게", "반응성이 구현된 물리적인 오브젝트도 좋고 큐브같이
   두뇌를 써야하는 장난감도 좋고 주사위 같은 단순 기구도 되고 공같은 것도 되고", "나비 같이 날아다니는 것 유성우 등등"): things on the
@@ -1550,6 +1564,7 @@ function toys(b) {
         it.vx = Math.max(-1800, Math.min(1800, (z.x - a.x) / dt)); it.vy = Math.max(-1800, Math.min(1800, (z.y - a.y) / dt)); it.va = it.vx / 30;
       }
       if (!was.moved && it.tap) it.tap(it, e);
+      lived("toy", TOY_OF[it.kind], .6, "사용자가 같이 갖고 놀아 줘서");
       it.born = Math.max(it.born, now() - it.life + 30000); // touched: it stays a while longer
       wake();
     };
@@ -1591,6 +1606,7 @@ function toys(b) {
     const n = 1 + Math.floor(Math.random() * 6); it.face = n; it.va = 0; it.a = 0; it.el.classList.remove("rolling");
     Array.from(it.el.children).forEach((p, i) => p.classList.toggle("on", PIPS[n - 1].includes(i))); draw(it);
     if (b._feel) b._feel(n === 6 ? "thrilled" : n === 1 ? "pout" : "happy", 1200);
+    lived("toy", "dice", n === 6 ? 1.6 : n === 1 ? -1 : .3, n === 6 ? "6이 나와서" : n === 1 ? "1이 나와서" : "");
     say(n === 6 ? "6이다! 대박!" : n === 1 ? "1… 에이~" : n + "!" + (n >= 4 ? " 좋아!" : ""), 1500, true);
   };
   const faced = it => { const n = 1 + Math.floor(Math.random() * 6); Array.from(it.el.children).forEach((p, i) => p.classList.toggle("on", PIPS[n - 1].includes(i))); return it; };

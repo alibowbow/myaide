@@ -196,7 +196,7 @@ public class BuddyBrainTests {
         assertEquals("navigate", home.optString("tool")); assertEquals("walk", home.optString("mode")); assertEquals("집으로 안내할게!", BuddyTools.say(home));
         assertEquals("show_alarms", BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "show_alarms").put("arguments", "{}"))).optString("tool"));
         assertNull(BuddyTools.act(new org.json.JSONArray()));
-        assertEquals(23, BuddyTools.TOOLS.length());
+        assertEquals(24, BuddyTools.TOOLS.length());
         assertTrue(BuddyTools.promised("3분 타이머 맞춰 줘", "3분 타이머 시작할게!"));
         assertFalse("small talk is never forced into a tool", BuddyTools.promised("오늘 기분 어때", "나 오늘 완전 좋아!"));
         assertFalse(BuddyTools.promised("유튜브 틀어 줘", "어떤 노래가 좋아?"));
@@ -260,6 +260,33 @@ public class BuddyBrainTests {
         org.json.JSONObject asked = new org.json.JSONObject().put(q, now);
         assertEquals("not again within twenty minutes", "", dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 60_000, new java.util.Random(3)));
         for (int i = 0; i < 20; i++) assertNotEquals("not the same one within three days", q, dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 3_600_000L, new java.util.Random(i)));
+    }
+    /**
+     * 퍼레's own world and heart (준: "최애 장난감은 변할 수 있어", "그건 퍼레의 감정에 의해 결정되는거라", "자유도가 무한인 상호작용"):
+     * its favorite comes from what it lived, moves when another becomes dearer (not within the hour), fades with time; what it
+     * wants and does not have becomes a wish; the brain gets all of it.
+     */
+    @Test public void hasAWorldAndAHeartOfItsOwn() throws Exception {
+        dev.jun.gyeot.core.BuddyWorld.know(BuddyBoard.CLOTHES, BuddyBoard.PLAYS);
+        org.json.JSONObject w = new org.json.JSONObject(); long t = 1_800_000_000_000L;
+        for (int i = 0; i < 4; i++) dev.jun.gyeot.core.BuddyWorld.lived(w, "toy", "dice", 1.6, "6이 나와서", t + i * 60_000);
+        assertEquals("dice", dev.jun.gyeot.core.BuddyWorld.favorite(w, "toy", t + 300_000));
+        // The ball becomes dearer: not within the hour, then yes.
+        for (int i = 0; i < 6; i++) dev.jun.gyeot.core.BuddyWorld.lived(w, "toy", "ball", 2, "사용자가 같이 놀아 줘서", t + 400_000 + i * 1000);
+        assertEquals("kept within the hour", "dice", dev.jun.gyeot.core.BuddyWorld.favorite(w, "toy", t + 600_000));
+        assertEquals("ball", dev.jun.gyeot.core.BuddyWorld.favorite(w, "toy", t + 2 * 3_600_000L));
+        // Things that went badly are the ones it likes least; owned things are no wish; a new one is.
+        dev.jun.gyeot.core.BuddyWorld.lived(w, "play", "yoga", -1.5, "넘어져서", t);
+        assertEquals("yoga", dev.jun.gyeot.core.BuddyWorld.least(w, "play", t + 1000));
+        assertFalse(dev.jun.gyeot.core.BuddyWorld.wish(w, "주사위", t));
+        assertTrue(dev.jun.gyeot.core.BuddyWorld.wish(w, "트램펄린", t));
+        assertFalse("not twice", dev.jun.gyeot.core.BuddyWorld.wish(w, "트램펄린", t));
+        String words = dev.jun.gyeot.core.BuddyWorld.words(w, t + 2 * 3_600_000L);
+        assertTrue(words, words.contains("가진 장난감") && words.contains("장난감 공") && words.contains("트램펄린") && words.contains("요가"));
+        // A week later the fondness has faded: today's whims decide more.
+        assertTrue(dev.jun.gyeot.core.BuddyWorld.wishes(w).contains("트램펄린"));
+        org.json.JSONObject wish = BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "buddy_wish").put("arguments", "{\"thing\":\"썰매\"}")));
+        assertEquals("buddy_wish", wish.optString("tool")); assertEquals("썰매, 소원 목록에 적어 둘게!", BuddyTools.say(wish));
     }
     @Test public void hearsItsName() {
         // 준: "퍼레가 자기 이름을 못알아듣고 자꾸 벌레 버려 이런걸로 알아들어"

@@ -82,6 +82,7 @@ final class BuddyActs {
                 case "volume" -> { return volume(context, act); }
                 case "brightness" -> { return brightness(context, act, overlay); }
                 // 퍼레 itself on the home screen (BuddyBoard): at once while it is in front, else when it is shown again.
+                case "buddy_wish" -> { BuddyTalk.wish(context, act.optString("thing", act.optString("toy"))); return new BuddyVoice.Outcome("", false, null); }
                 case "buddy_toy", "buddy_outfit", "buddy_move" -> {
                     String call = BuddyBoard.call(act);
                     if (call == null) return fail("그건 나한테 없어.", "");

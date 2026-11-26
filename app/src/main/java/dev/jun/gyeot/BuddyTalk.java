@@ -79,6 +79,39 @@ final class BuddyTalk {
         out.addAll(dev.jun.gyeot.core.BuddyMind.overused(said, 8));
         return new java.util.ArrayList<>(out).subList(0, Math.min(14, out.size()));
     }
+    // ── 퍼레's own world and heart (core/BuddyWorld): what it has, what it lived, what it likes and wants ──
+    private static final String WORLD = "world";
+    private static JSONObject worldState(SharedPreferences p) {
+        dev.jun.gyeot.core.BuddyWorld.know(BuddyBoard.CLOTHES, BuddyBoard.PLAYS);
+        try { return new JSONObject(p.getString(WORLD, "{}")); } catch (Exception e) { return new JSONObject(); }
+    }
+    /** Something it lived on the home screen (board.js: a play, a toy, clothes), and how it went. */
+    static synchronized void lived(Context c, String kind, String key, double joy, String why) {
+        SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        JSONObject w = dev.jun.gyeot.core.BuddyWorld.lived(worldState(p), kind, key, joy, why, System.currentTimeMillis());
+        p.edit().putString(WORLD, w.toString()).apply();
+    }
+    /** Its world and heart in words, for the brain (its favorites may move as it is asked: kept). */
+    static synchronized String worldWords(Context c) {
+        SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        JSONObject w = worldState(p);
+        String words = dev.jun.gyeot.core.BuddyWorld.words(w, System.currentTimeMillis());
+        p.edit().putString(WORLD, w.toString()).apply();
+        return words;
+    }
+    /** Something it wants and does not have (buddy_wish); false when it has it or wished it already. */
+    static synchronized boolean wish(Context c, String thing) {
+        SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        JSONObject w = worldState(p);
+        boolean added = dev.jun.gyeot.core.BuddyWorld.wish(w, thing, System.currentTimeMillis());
+        if (added) p.edit().putString(WORLD, w.toString()).apply();
+        return added;
+    }
+    static synchronized java.util.List<String> wishes(Context c) { return dev.jun.gyeot.core.BuddyWorld.wishes(worldState(c.getSharedPreferences(PREFS, Context.MODE_PRIVATE))); }
+    static synchronized void unwish(Context c, String thing) {
+        SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        JSONObject w = worldState(p); dev.jun.gyeot.core.BuddyWorld.forget(w, thing); p.edit().putString(WORLD, w.toString()).apply();
+    }
     /** Everything 퍼레 knows about the user, as words (the night's profile and its memories), for what it may still ask. */
     static String knownWords(Context c, AppStore store) {
         StringBuilder out = new StringBuilder();
@@ -248,7 +281,8 @@ final class BuddyTalk {
         + "{\"tool\":\"settings\",\"panel\":\"wifi\"}(internet·wifi·bluetooth·volume·nfc·display·location·battery) · {\"tool\":\"search\",\"query\":\"검색어\"} · {\"tool\":\"map_search\",\"query\":\"근처 카페\"} · {\"tool\":\"share\",\"text\":\"보낼 글\",\"app\":\"카카오톡\"} · {\"tool\":\"message\",\"who\":\"이름\",\"text\":\"글\"} · {\"tool\":\"call\",\"who\":\"이름\"} · {\"tool\":\"camera\",\"mode\":\"photo\"}(photo·selfie·video) · {\"tool\":\"calendar_add\",\"title\":\"일정\",\"date\":\"내일\",\"hour\":15,\"minute\":0} · {\"tool\":\"open_url\",\"url\":\"naver.com\"}. "
         + "너(퍼레) 자신에게 하는 부탁도 직접 해: {\"tool\":\"buddy_toy\",\"toy\":\"주사위\"}(" + String.join("·", BuddyBoard.words(BuddyBoard.TOYS)) + ") · "
         + "{\"tool\":\"buddy_outfit\",\"items\":[\"고양이 귀\"]}(" + String.join("·", BuddyBoard.words(BuddyBoard.CLOTHES)) + ") · "
-        + "{\"tool\":\"buddy_move\",\"play\":\"춤\"}(" + String.join("·", BuddyBoard.words(BuddyBoard.PLAYS)) + "). "
+        + "{\"tool\":\"buddy_move\",\"play\":\"춤\"}(" + String.join("·", BuddyBoard.words(BuddyBoard.PLAYS)) + ") · "
+        + "{\"tool\":\"buddy_wish\",\"thing\":\"트램펄린\"}(갖고 싶은데 없는 것, 소원 목록에). "
         + "결제·송금처럼 못 하는 일은 할일 줄 없이 아직 못 한다고 말해. 대답에 주소(URL)는 절대 쓰지 마.\n";
     /** The saved places (내비게이션 → 자주 가는 곳): their words go as the destination as said, "집으로 가자" → {"tool":"navigate","destination":"집"}. */
     static String places(AppStore store) {
@@ -274,7 +308,8 @@ final class BuddyTalk {
         java.util.Map.entry("calendar", "calendar_add"), java.util.Map.entry("calendaradd", "calendar_add"), java.util.Map.entry("addevent", "calendar_add"), java.util.Map.entry("schedule", "calendar_add"),
         java.util.Map.entry("openurl", "open_url"), java.util.Map.entry("url", "open_url"), java.util.Map.entry("web", "open_url"), java.util.Map.entry("mapsearch", "map_search"), java.util.Map.entry("nearby", "map_search"),
         java.util.Map.entry("toy", "buddy_toy"), java.util.Map.entry("buddytoy", "buddy_toy"), java.util.Map.entry("outfit", "buddy_outfit"), java.util.Map.entry("buddyoutfit", "buddy_outfit"),
-        java.util.Map.entry("dress", "buddy_outfit"), java.util.Map.entry("wear", "buddy_outfit"), java.util.Map.entry("move", "buddy_move"), java.util.Map.entry("buddymove", "buddy_move"), java.util.Map.entry("dance", "buddy_move"));
+        java.util.Map.entry("dress", "buddy_outfit"), java.util.Map.entry("wear", "buddy_outfit"), java.util.Map.entry("move", "buddy_move"), java.util.Map.entry("buddymove", "buddy_move"), java.util.Map.entry("dance", "buddy_move"),
+        java.util.Map.entry("wish", "buddy_wish"), java.util.Map.entry("buddywish", "buddy_wish"));
     /** The thing to do the answer names ("할일: {…}", or a bare {…} with a tool), its tool one of ACTS', or null. */
     static JSONObject act(String text) {
         if (text == null) return null;
@@ -296,7 +331,7 @@ final class BuddyTalk {
         String known = TOOLS.getOrDefault(key, TOOLS.getOrDefault(tool, tool));
         if (known.equals("showalarms")) known = "show_alarms";
         if (known.equals("calendaradd")) known = "calendar_add"; if (known.equals("openurl")) known = "open_url"; if (known.equals("mapsearch")) known = "map_search";
-        if (known.equals("buddytoy")) known = "buddy_toy"; if (known.equals("buddyoutfit")) known = "buddy_outfit"; if (known.equals("buddymove")) known = "buddy_move";
+        if (known.equals("buddytoy")) known = "buddy_toy"; if (known.equals("buddyoutfit")) known = "buddy_outfit"; if (known.equals("buddymove")) known = "buddy_move"; if (known.equals("buddywish")) known = "buddy_wish";
         // "music" with a command is the one playing now (pause, next), not a search.
         if (known.equals("play") && !a.optString("command").isBlank() && a.optString("query").isBlank() && a.optString("song").isBlank()) known = "media";
         try {
@@ -337,7 +372,7 @@ final class BuddyTalk {
             + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 반말(~야, ~해). 기호·목록·괄호·영어 약어 없이(이모지는 어울리면 하나까지, 반짝이·별은 빼고).\n"
             + "- 귀엽고 밝게, 가끔 너의 기억을 자연스럽게 꺼내도 좋아.\n"
             + "- 사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 '휴대폰 상태'의 숫자로 정확히 답해. 묻지 않으면 저장공간 이야기는 꺼내지 말고, 정리·삭제를 권하지 마.\n"
-            ;
+            + worldWords(c);
         String withText = instructions + (guest || doIt == null ? "" : ACTS + places(store)), withTools = instructions + BuddyTools.RULE + places(store);
         long now = System.currentTimeMillis();
         String when = new SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date(now));
@@ -477,7 +512,7 @@ final class BuddyTalk {
         if (reason.startsWith("answer:")) {
             String[] qa = reason.substring(7).split("\u0001", 2);
             return persona(c) + "\n지금: 네가 말풍선으로 ‘" + qa[0] + "’라고 물었고, 사용자가 ‘" + (qa.length > 1 ? qa[1] : "") + "’를 골라 답했어. 그 답에 반갑게, 그 답에 맞게 반응해.\n"
-                + "- 또 묻지 말고, 잔소리·조언·힘내·쉬어 같은 말은 하지 마.\n- 한 문장, 40자 안쪽, 친근한 반말. 따옴표 없이 그 문장만 답해. 어울리면 이모지 하나를 붙여도 좋아(반짝이·별 이모지는 빼고).";
+                + "- 또 묻지 말고, 잔소리·조언·힘내·쉬어 같은 말은 하지 마.\n- 한 문장, 40자 안쪽, 친근한 반말. 따옴표 없이 그 문장만 답해. 어울리면 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘 하나를 붙여도 좋아(반짝이·별은 빼고).";
         }
         if (reason.startsWith("solo:")) {
             String play = reason.substring(5).replaceAll("[^A-Za-z]", "");
@@ -485,7 +520,7 @@ final class BuddyTalk {
                 + "- 그 놀이와 지금 상황(시간·날씨·계절)을 엮어서 귀엽게. 의성어·감탄사(얍, 히힛, 우와)를 섞어도 좋아.\n"
                 + (avoid.isEmpty() ? "" : "- 최근에 이미 꺼낸 소재와 표현이니 이번엔 다루지 마: " + String.join(", ", avoid) + "\n")
                 + "- 사용자에게 뭘 하라고 하거나 묻지 말고, 일·돈·배터리·잔소리 이야기는 하지 마. 힘내·쉬어 같은 말도 하지 마.\n"
-                + "- 한 문장, 25자 안쪽, 친근한 반말. 따옴표 없이 그 문장만 답해. 어울리면 이모지 하나를 붙여도 좋아(반짝이·별 이모지는 빼고).";
+                + "- 한 문장, 25자 안쪽, 친근한 반말. 따옴표 없이 그 문장만 답해. 어울리면 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘 하나를 붙여도 좋아(반짝이·별은 빼고).";
         }
         String moment = switch (reason) {
             case "back" -> "사용자가 방금 홈 화면으로 돌아왔어. 반갑게 먼저 말을 걸어.";
@@ -515,7 +550,7 @@ final class BuddyTalk {
             + "- '이미 했던 말'과 같거나 비슷한 뜻·소재·문장 틀은 절대 쓰지 마. 뻔한 인사말도 피해.\n"
             + "- 일, 업무, 일정, 할 일, 주식, 코인, 시세, 숫자, 돈 이야기와 조언·잔소리는 하지 마. 파일·사진 정리, 청소, 삭제, 백업, 용량, 업데이트 같은 할 일을 권하지 마.\n"
             + "- 비밀번호·계정·권한 요청, 털어놓은 고민 같은 사적인 내용은 말하지 마.\n"
-            + "- 한 문장, 45자 안쪽. 따옴표 없이 그 문장만 답해. 어울리면 이모지 하나를 붙여도 좋아(반짝이·별 이모지는 빼고).\n"
+            + "- 한 문장, 45자 안쪽. 따옴표 없이 그 문장만 답해. 어울리면 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘 하나를 붙여도 좋아(반짝이·별은 빼고).\n"
             + "- 사용자에게 묻는 말로 끝낼 때만, 둘째 줄에 사용자가 눌러서 고를 짧은 답 2~3개를 '고르기: 답 / 답 / 답'(각 8자 안쪽)으로 써.";
     }
     /**
@@ -529,6 +564,7 @@ final class BuddyTalk {
         String weather = "";
         try { JSONObject w = Weather.now(c); if (w != null) weather = (w.optString("place").isBlank() ? "" : w.optString("place") + " ") + w.optInt("temp") + "도, " + sky(w.optInt("code"), w.optBoolean("day", true)); } catch (RuntimeException ignored) {}
         boolean aboutUser = topic.startsWith("사용자에 대해") || topic.startsWith("너의 기억");
+        boolean aboutSelf = topic.startsWith("너의 취향") || topic.startsWith("너 자신의") || reason.startsWith("solo:");
         java.util.Set<String> stale = dev.jun.gyeot.core.BuddyMind.staleSubjects(said);
         String note = ""; if (aboutUser) try { note = dev.jun.gyeot.core.BuddyMind.freshLines(Briefing.profile(store), stale).strip(); } catch (RuntimeException ignored) {}
         SharedPreferences home = c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE);
@@ -545,6 +581,7 @@ final class BuddyTalk {
             + todayWords(c)
             + memoryWords(c, when + " " + weather + " " + recent, false, aboutUser, stale)
             + (aboutUser && !note.isBlank() ? "사용자에 대해 아는 것:\n" + note + "\n" : "")
+            + (aboutSelf ? worldWords(c) : "")
             + "이미 했던 말(다시 쓰지 말 것): " + p.getString("memory", "[]");
     }
     /**

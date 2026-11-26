@@ -496,7 +496,7 @@ final class BuddyVoice {
     }
     /** What is said aloud of a line: its words without emoji or symbols. */
     static String voiced(String line) {
-        return line == null ? "" : line.replaceAll("[\\p{So}\\p{Cs}\\x{FE0F}\\x{200D}\\x{20E3}]", "").replaceAll("\\s+", " ").strip();
+        return line == null ? "" : dev.jun.gyeot.core.BuddyMind.withoutEmoticons(line).replaceAll("[\\p{So}\\p{Cs}\\x{FE0F}\\x{200D}\\x{20E3}]", "").replaceAll("\\s+", " ").strip();
     }
     /** The phone's own voice, a little higher and quicker, for 퍼레. */
     private void speakPhone(String line) {

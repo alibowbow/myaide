@@ -202,6 +202,15 @@ public final class BuddyMind {
         return w.codePointCount(0, w.length()) <= 2 ? w : w.substring(0, w.offsetByCodePoints(0, 2));
     }
 
+    /**
+     * Text emoticons (준: "퍼레가 그래픽이모지 외에 텍스트 이모지도 사용할 수 있게해"): a face in brackets with no words in it
+     * ((๑˃ᴗ˂)ﻭ, (◍•ᴗ•◍)), with what hangs off it, and ^^, ^_^, ㅎㅎ, ㅋㅋ, ㅠㅠ, ㅜㅜ, :), ;), >_<, T_T, -_-.
+     */
+    public static final Pattern KAOMOJI = Pattern.compile("[^\\s가-힣A-Za-z0-9]{0,3}\\([^()가-힣A-Za-z0-9]{1,16}\\)[^\\s가-힣A-Za-z0-9.,!?~]{0,3}"
+        + "|\\^[_\\-.~]?\\^|[ㅎㅋ]{2,}|[ㅠㅜ]{2,}|(?<![A-Za-z0-9]):[)D(P]|;\\)|>[_.]<|T[_.]T|-[_.]-");
+    /** A line with its text emoticons taken out (for the voice, and for reading the rest). */
+    public static String withoutEmoticons(String line) { return line == null ? "" : KAOMOJI.matcher(line).replaceAll(" ").replaceAll("\\s+", " ").strip(); }
+
     // ── Korean that reads ──
     private static final Pattern CUT = Pattern.compile("^(도|는|은|을|를|에|의|과|로|으로|에서|랑)(\\s|[,.!?~])");
     private static final Pattern FOREIGN = Pattern.compile("[\\u4e00-\\u9fff\\u3040-\\u30ff\\u0400-\\u04ff\\u0e00-\\u0e7f]");
@@ -211,7 +220,8 @@ public final class BuddyMind {
      */
     public static boolean readable(String line) {
         if (line == null || line.isBlank()) return false;
-        String t = line.strip();
+        String t = withoutEmoticons(line);
+        if (t.isEmpty()) return false;
         if (CUT.matcher(t).find() || FOREIGN.matcher(t).find()) return false;
         int hangul = 0, letters = 0;
         for (int i = 0; i < t.length(); i++) { char ch = t.charAt(i); if (Character.isLetter(ch)) { letters++; if (ch >= '\uac00' && ch <= '\ud7a3') hangul++; } }

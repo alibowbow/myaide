@@ -333,15 +333,20 @@ body.liquid .menu hr{background:var(--hair2)}
 .pad.chat-mode .pad-top{order:3;padding:8px 12px calc(max(var(--bottom), var(--kb, 0px)) + 8px)}
 .pad.chat-mode .pad-body{order:2;padding:0 14px 6px}
 .pad.chat-mode .chips,.pad.chat-mode #padClose{display:none!important}
-.pad-top .send{display:none}
+.pad-top .send,.pad-top .mic{display:none}
+.pad.chat-mode .pad-top .mic{display:grid;place-items:center;flex:none;width:38px;height:38px;border-radius:50%;border:0;background:rgba(255,255,255,.85);color:var(--accent);box-shadow:0 2px 8px rgba(40,50,80,.1)}
+.pad.chat-mode .pad-top .mic.on{background:#ff6f91;color:#fff;animation:micon 1.4s ease-in-out infinite}
+@keyframes micon{50%{box-shadow:0 0 0 7px rgba(255,111,145,.18)}}
 .pad.chat-mode .pad-top .send{display:grid;place-items:center;flex:none;width:38px;height:38px;border-radius:50%;border:0;background:var(--accent);color:#fff}
 .chat-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:40px}
 .chat-bar b{font-size:16px;font-weight:800;letter-spacing:-.3px;color:var(--ink)}
 .chat-acts{display:flex;align-items:center;gap:4px}
 .chat-acts .ca{width:34px;height:34px;border-radius:50%;border:0;padding:0;display:grid;place-items:center;background:rgba(255,255,255,.5);color:var(--ink)}
-.stage{position:relative;height:92px;margin:0 -14px;touch-action:none;overflow:visible}
-.chatpal{position:absolute;left:8px;bottom:0;zoom:.72;z-index:2}
-.chatpal .buddy{touch-action:none}
+/* 퍼레 over the whole talk (준: "윗공간을 퍼레영역으로 한정짓지말고 그 영역도 채팅공간으로해", "퍼레는 이 채팅창 전체를 자유롭게
+   이동가능하게 해"): the room between the bar and the box, letting touches through but on 퍼레 itself. */
+.stage{position:fixed;left:0;right:0;top:calc(var(--top) + 54px);bottom:calc(max(var(--bottom), var(--kb, 0px)) + 62px);pointer-events:none;overflow:visible;z-index:6}
+.chatpal{position:absolute;left:0;top:0;zoom:.72;z-index:2}
+.chatpal .buddy{touch-action:none;pointer-events:auto}
 .pad .chatpal .buddy .bubble{right:auto;left:100%;bottom:auto;top:8px;margin-left:4px;max-width:240px;border-radius:18px 18px 18px 4px;transform-origin:0 50%}
 .chatpal .buddy.held .body{animation:none;transform:rotate(-6deg)}
 .kchat{display:flex;flex-direction:column;gap:3px;padding-bottom:4px}
@@ -514,7 +519,7 @@ body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18p
 <div class="veil" id="veil"></div>
 <div class="fan" id="fan"></div>
 <section class="pad" id="pad">
-  <div class="pad-top"><label class="field"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg><input id="q" type="search" placeholder="앱 · 초성(ㅋㅋㅇ) · 퍼레에게 묻기" autocomplete="off" enterkeyhint="go"></label><button class="send" id="padSend" aria-label="보내기"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg></button><button class="close" id="padClose">닫기</button></div>
+  <div class="pad-top"><label class="field"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg><input id="q" type="search" placeholder="앱 · 초성(ㅋㅋㅇ) · 퍼레에게 묻기" autocomplete="off" enterkeyhint="go"></label><button class="send" id="padSend" aria-label="보내기"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg></button><button class="mic" id="padMic" aria-label="음성 대화"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button><button class="close" id="padClose">닫기</button></div>
   <div class="chat-top" id="chatTop"><div class="chat-bar" id="chatBar"></div><div class="stage" id="stage"></div></div>
   <div class="chips" id="chips"></div>
   <div class="pad-body" id="padBody"></div>
@@ -1321,12 +1326,42 @@ window.boardThink = why => { if (B) B.think(why); };
 // 퍼레's life (core/BuddyLife): what the user did for it; the app answers with launcher.life. Its home (the battery, music …)
 // is asked every quarter minute while the home screen is seen, so a charger or a song is noticed soon.
 window.boardCare = kind => { if (B && B.care) B.care(kind); };
+window.boardLived = (kind, key, joy, why) => { if (B) B.lived(kind, key, joy, why); };
 window.boardMemory = () => { if (B) B.settings("memory"); };
 // 퍼레's voice talk (held 퍼레): the app listens, answers and speaks in 퍼레's Typecast voice (BuddyVoice).
 window.boardVoice = () => { if (B) B.voice(); };
 window.boardVoiceStop = () => { if (B) B.voiceStop(); };
 setInterval(() => { if (B && B.home && document.visibilityState === "visible" && !document.body.classList.contains("covered")) B.home(); }, 15000);
 el("padSend").addEventListener("click", e => { e.preventDefault(); if (chatting) ask(); });
+/*
+  Talking by voice in 퍼레와 대화 (준: "퍼레와 대화에서 음성대화 모드 만들어줘 아래 입력창 우측에 버튼으로"): the mic beside the box
+  starts 퍼레's voice talk (BuddyVoice) and stops it; what it heard comes into the talk as the user's words, what it says as
+  퍼레's, kept with the rest; what it hears so far shows in the box.
+*/
+let voiceChat = false, voiceTurn = null;
+el("padMic").addEventListener("click", e => {
+  e.preventDefault();
+  if (voiceChat) { voiceChat = false; el("padMic").classList.remove("on"); if (window.boardVoiceStop) window.boardVoiceStop(); return; }
+  voiceChat = true; voiceTurn = null; el("padMic").classList.add("on"); el("q").blur();
+  if (window.boardVoice) window.boardVoice();
+});
+function chatVoice(state, text) {
+  if (!voiceChat || !chatting) return;
+  const q = el("q"), t = String(text || "").trim();
+  if (state === "listening") { q.value = t && t !== "…" ? t : ""; q.placeholder = "듣고 있어…"; return; }
+  q.value = ""; q.placeholder = CHAT_HINT;
+  if (state === "thinking" && t) {
+    const last = thread[thread.length - 1];
+    if (!(last && last.who === "me" && last.text === t)) { thread.push({who: "me", text: t, at: Date.now()}); voiceTurn = null; saveChats(); drawChat(); }
+    pal.thinking(); return;
+  }
+  if (state === "speaking" && t) {
+    if (voiceTurn && thread[thread.length - 1] === voiceTurn) voiceTurn.text += " " + t;
+    else { voiceTurn = {who: "ai", text: t, at: Date.now()}; thread.push(voiceTurn); }
+    saveChats(); drawChat(); pal.talking(); return;
+  }
+  if (state === "idle" || state === "done" || state === "error" || state === "off") { voiceChat = false; voiceTurn = null; el("padMic").classList.remove("on"); pal.done(true); }
+}
 el("chatTop").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
   if (b.dataset.close) closePad();
@@ -1372,19 +1407,21 @@ const pal = (() => {
     p = {b, buddy: $(b, ".buddy"), x: 0, y: 0, busy: false, talking: false};
     wire(); setTimeout(loop, 2500); return p;
   }
-  const room = () => Math.max(40, el("stage").clientWidth - 84);
+  // 퍼레 is drawn at .72 (its zoom): the room in its own pixels.
+  const Z = .72, room = () => Math.max(40, el("stage").clientWidth / Z - 112), roomY = () => Math.max(20, el("stage").clientHeight / Z - 136);
   const place = (ms, lift) => { p.b.style.transition = "transform " + ms + "ms " + (lift ? "cubic-bezier(.3,1.6,.5,1)" : "cubic-bezier(.45,.1,.55,.9)"); p.b.style.transform = "translate(" + p.x.toFixed(0) + "px," + p.y.toFixed(0) + "px)"; };
-  function walk(nx, done) {
-    const dist = Math.abs(nx - p.x); if (dist < 4) { if (done) done(); return; }
+  function walk(nx, done, ny) {
+    if (ny == null) ny = p.y;
+    const dist = Math.hypot(nx - p.x, ny - p.y); if (dist < 4) { if (done) done(); return; }
     const ms = Math.round(Math.max(500, dist / 70 * 1000));
-    p.buddy.style.setProperty("--face", nx < p.x ? "-1" : "1"); p.buddy.classList.add("walking"); p.x = nx; place(ms);
+    p.buddy.style.setProperty("--face", nx < p.x ? "-1" : "1"); p.buddy.classList.add("walking"); p.x = nx; p.y = ny; place(ms);
     setTimeout(() => { p.buddy.classList.remove("walking"); if (done) done(); }, ms);
   }
   const sfx = (w, ms) => { if (w && !$(p.b, ".bubble").classList.contains("on")) speak(p.b, {text: w, sfx: true}, ms || 1700); };
   function loop() {
-    if (p && chatting && !document.hidden && !p.busy && !p.talking && !p.held) {
+    if (p && chatting && !document.hidden && !p.busy && !p.talking && !p.held && !p.finger) {
       const r = Math.random();
-      if (r < .5) walk(Math.round(rnd(4, room())));
+      if (r < .5) walk(Math.round(rnd(4, room())), null, Math.round(rnd(0, roomY())));
       else if (r < .85 && typeof MOTIONS !== "undefined") { const m = MOTIONS[Math.floor(Math.random() * MOTIONS.length)]; move(p.b, m[0], m[1]); if (m[2] && p.b._feel) p.b._feel(m[2], m[1]); if (Math.random() < .4) sfx(preset("solo")); }
       else sfx(preset(Math.random() < .5 ? "roam" : "solo"));
     }
@@ -1394,8 +1431,10 @@ const pal = (() => {
   function wire() {
     const buddy = p.buddy, b = p.b; let down = null, taps = [], tapTimer = 0;
     const spin = circler(() => { const r = buddy.getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; }, dizzy);
-    const stage = el("stage");
-    stage.addEventListener("pointerdown", e => spin.down(e), {capture: true});
+    const stage = el("pad");
+    // A finger on the talk: 퍼레 stays where it is (it is being circled, stroked or watched).
+    stage.addEventListener("pointerdown", e => { p.finger = true; spin.down(e); }, {capture: true});
+    ["pointerup", "pointercancel"].forEach(k => stage.addEventListener(k, () => { p.finger = false; }, {capture: true}));
     stage.addEventListener("pointermove", e => spin.move(e), {capture: true});
     ["pointerup", "pointercancel"].forEach(k => stage.addEventListener(k, () => spin.up(), {capture: true}));
     buddy.addEventListener("pointerdown", e => {
@@ -1403,7 +1442,7 @@ const pal = (() => {
       down = {x: e.clientX, y: e.clientY, lx: e.clientX, path: 0, dir: 0, turns: 0, moved: false, pet: false, carry: false, long: false, vx: 0, t: Date.now(), minX: e.clientX, maxX: e.clientX, minY: e.clientY, maxY: e.clientY};
       clearTimeout(p.longT);
       // Held still a moment: it is picked up (then carried with the finger), or squeezed if let go there.
-      p.longT = setTimeout(() => { if (down && !down.moved) { down.long = true; down.carry = true; p.held = true; buddy.classList.add("held", "squish"); b._feel("surprised", 1200); p.y = -10; place(160, true); } }, 450);
+      p.longT = setTimeout(() => { if (down && !down.moved) { down.long = true; down.carry = true; p.held = true; down.y0 = p.y; buddy.classList.add("held", "squish"); b._feel("surprised", 1200); p.y -= 10; place(160, true); } }, 450);
     });
     buddy.addEventListener("pointermove", e => {
       if (!down) return;
@@ -1413,7 +1452,7 @@ const pal = (() => {
       if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) { down.moved = true; clearTimeout(p.longT); }
       if (down.carry) {
         buddy.classList.remove("squish"); down.long = false;
-        const s = el("stage").getBoundingClientRect(); p.x = Math.max(0, Math.min(room(), e.clientX - s.left - 38)); p.y = Math.min(0, e.clientY - down.y - 10); place(0);
+        const s = el("stage").getBoundingClientRect(); p.x = Math.max(0, Math.min(room(), (e.clientX - s.left) / Z - 52)); p.y = Math.max(-10, Math.min(roomY(), (e.clientY - s.top) / Z - 70)); place(0);
         return;
       }
       // Stroked side to side (not round and round: that is circling, below): petted.
@@ -1422,9 +1461,9 @@ const pal = (() => {
     });
     const up = () => {
       if (!down) return; const d = down; down = null; clearTimeout(p.longT); buddy.classList.remove("squish");
-      if (d.carry && d.long) { p.held = false; buddy.classList.remove("held"); p.y = 0; place(300, true); b._feel("blissful", 1600); hearts(b, 3); sfx("꾸욱~ 히히", 1500); return; }
+      if (d.carry && d.long) { p.held = false; buddy.classList.remove("held"); p.y = d.y0 != null ? d.y0 : p.y; place(300, true); b._feel("blissful", 1600); hearts(b, 3); sfx("꾸욱~ 히히", 1500); return; }
       if (d.carry) {
-        p.held = false; buddy.classList.remove("held"); p.y = 0; place(520, true);
+        p.held = false; buddy.classList.remove("held"); p.y = Math.max(0, p.y); place(520, true);
         if (Math.abs(d.vx) > 14) { move(b, "spin", 950); b._feel("dizzy", 1500); sfx("으아아~ 빙글!", 1500); } else { b._feel("ouch", 1200); sfx(["쿵!", "으앗!", "사뿐~", "내려 줘서 고마워"][Math.floor(Math.random() * 4)], 1400); }
         return;
       }
@@ -1441,7 +1480,7 @@ const pal = (() => {
     buddy.addEventListener("click", e => e.stopPropagation());
   }
   return {
-    show() { make(); if (p) { p.b._env = boards[0] && boards[0]._env; if (p.x === 0) { p.x = Math.round(room() * .6); place(0); } } },
+    show() { make(); if (p) { p.b._env = boards[0] && boards[0]._env; if (p.x === 0) { p.x = Math.round(room() * .6); p.y = Math.round(roomY() * .15); place(0); } } },
     thinking() { if (!p) return; p.talking = false; p.b._mood("thinking"); },
     talking() { if (!p || p.talking) return; p.talking = true; p.b._mood(""); $(p.b, ".bot").classList.add("talking"); },
     done(ok) { if (!p) return; p.talking = false; $(p.b, ".bot").classList.remove("talking"); p.b._mood(""); if (ok === false) p.b._feel("sorry", 1600); else { p.b._feel("happy", 1600); move(p.b, "hop", 760); } }
@@ -1545,7 +1584,7 @@ window.launcher = {
   thought(line) { thought(line); },
   thoughtFail() { thoughtFail(); },
   life(k) { boardLife(k); },
-  voice(state, text) { boardVoiceState(state, text); },
+  voice(state, text) { boardVoiceState(state, text); chatVoice(state, text); },
   env(k) { boardEnv(k); },
   /** The pages to the right changed (화면 꾸미기). */
   pages(list) { drawPages(list); },

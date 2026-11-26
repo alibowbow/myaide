@@ -136,9 +136,10 @@ async function open(browser, at) {
     const p = day.page;
     await p.evaluate(() => { document.querySelector('.bubble').classList.remove('on', 'asking'); const T = boards[0]._toys; ['ball', 'dice', 'cube'].forEach((k, i) => { const it = T.out(k); it.x = 80 + i * 110; it.vx = 0; }); T.wake(); });
     for (let i = 0; i < 20; i++) await p.clock.runFor(100);
-    const rest = await p.evaluate(() => { const f = document.querySelector('.lib-head').getBoundingClientRect().top; return Array.from(document.querySelectorAll('.tb.ball, .tb.dice, .tb.cube')).map(e => ({k: e.className, gap: Math.round(f - e.getBoundingClientRect().bottom)})); });
+    // Each rests on something: App Library's heading, or a widget it fell on (the clock).
+    const rest = await p.evaluate(() => { const f = document.querySelector('.lib-head').getBoundingClientRect().top; return Array.from(document.querySelectorAll('.tb.ball, .tb.dice, .tb.cube')).map(e => { const r = e.getBoundingClientRect(), on = document.elementsFromPoint(r.left + r.width / 2, r.bottom + 3).find(x => x.closest && (x.closest('.when') || x.closest('.card') || x.closest('.lib-head'))); return {k: e.className, gap: Math.round(f - r.bottom), on: !!on}; }); });
     assert.strictEqual(rest.length, 3);
-    for (const t of rest) assert(t.gap >= -2 && t.gap < 120, t.k + ' rests above App Library: ' + t.gap);
+    for (const t of rest) assert((t.gap >= -2 && t.gap < 120) || t.on, t.k + ' rests on something: ' + JSON.stringify(t));
     const dice = await p.evaluate(() => { const r = document.querySelector('.tb.dice').getBoundingClientRect(); return {x: r.left + 8, y: r.top + 8}; });
     await p.evaluate(() => { window._said = []; const b = document.querySelector('.bubble'); new MutationObserver(() => window._said.push(b.textContent)).observe(b, {childList: true, characterData: true, subtree: true}); });
     await p.touchscreen.tap(dice.x, dice.y);
@@ -214,6 +215,23 @@ async function open(browser, at) {
     for (let i = 1; i <= 64; i++) { const a = i / 64 * Math.PI * 2 * 2.4; await p.mouse.move(c.x + 34 * Math.cos(a), c.y + 34 * Math.sin(a)); }
     await p.mouse.up(); await p.clock.runFor(200);
     assert(/dizzy/.test(await p.evaluate(() => document.querySelector('.chatpal .bot').getAttribute('class'))), 'dizzy after two turns round it');
+    // The whole talk is 퍼레's room (준: "윗공간을 퍼레영역으로 한정짓지말고", "채팅창 전체를 자유롭게"): no strip on top, and it
+    // goes up and down as well as across.
+    const room = await p.evaluate(() => { const s = el("stage").getBoundingClientRect(), b = el("padBody").getBoundingClientRect(); return {stageH: s.height, bodyTop: b.top, stageTop: s.top}; });
+    assert(room.stageH > 300, 'the room is the whole talk: ' + room.stageH);
+    assert(room.bodyTop <= room.stageTop + 2, 'the talk starts right under the bar');
+    let ys = new Set();
+    for (let i = 0; i < 40; i++) { await p.clock.runFor(1000); ys.add(await p.evaluate(() => Math.round(document.querySelector('.chatpal').getBoundingClientRect().top / 20))); }
+    assert(ys.size >= 2, '퍼레 goes up and down');
+    // The voice talk from the box (준: "아래 입력창 우측에 버튼으로"): heard and said come into the talk.
+    const mic = await p.evaluate(() => { const r = el("padMic").getBoundingClientRect(), s = el("padSend").getBoundingClientRect(); return {w: r.width, beside: Math.abs(r.top - s.top) < 4}; });
+    assert(mic.w > 0 && mic.beside, 'the mic beside the send button');
+    await p.evaluate(() => { el("padMic").click(); launcher.voice("listening", "오늘 날"); });
+    assert.strictEqual(await p.evaluate(() => el("q").value), '오늘 날', 'what it hears so far shows in the box');
+    await p.evaluate(() => { launcher.voice("thinking", "오늘 날씨 어때"); launcher.voice("speaking", "맑고 따뜻해!"); launcher.voice("speaking", "산책하기 딱 좋아 ☀️"); launcher.voice("done", ""); });
+    const said = await p.evaluate(() => thread.slice(-2).map(t => t.who + ':' + t.text));
+    assert.deepStrictEqual(said, ['me:오늘 날씨 어때', 'ai:맑고 따뜻해! 산책하기 딱 좋아 ☀️']);
+    assert.strictEqual(await p.evaluate(() => el("padMic").classList.contains("on")), false, 'the mic is off when the talk ends');
     await p.evaluate(() => closePad()); await p.clock.runFor(400);
     assert.deepStrictEqual(talk.errors, []);
   });

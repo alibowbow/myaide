@@ -322,10 +322,11 @@ public final class HomeActivity extends Activity {
         String about = ""; try { about = Briefing.profile(store); } catch (RuntimeException ignored) {}
         String now = new java.text.SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", java.util.Locale.KOREA).format(new java.util.Date());
         return BuddyTalk.persona(this) + "\n지금은 " + now + ". 사용자가 홈 화면에서 너에게 글로 말을 걸었어.\n"
-            + "한국어로, 너답게 친근한 반말(~야, ~해)로 밝고 상냥하게 답해. 존댓말은 쓰지 마. 핵심부터 2~6문장. 표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써. 어울리면 이모지 하나까지(반짝이·별은 빼고).\n"
+            + "한국어로, 너답게 친근한 반말(~야, ~해)로 밝고 상냥하게 답해. 존댓말은 쓰지 마. 핵심부터 2~6문장. 표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써. 어울리면 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘 하나까지(반짝이·별은 빼고).\n"
             + "모르는 것은 지어내지 말고 모른다고 말해.\n" + BuddyTalk.ACTS + BuddyTalk.places(store)
             + "사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 아래 '휴대폰 상태'의 숫자로 답해. 묻지 않으면 꺼내지 말고 정리·삭제를 권하지 마.\n"
             + "휴대폰 상태: " + BuddyTalk.facts(this) + "\n" + BuddyTalk.todayWords(this) + BuddyTalk.memoryWords(this, question, true)
+            + BuddyTalk.worldWords(this)
             + (about.isBlank() ? "" : "사용자에 대해 알고 있는 것:\n" + about);
     }
     /** A written answer shown, and the thing it names done (BuddyTalk.ACTS; typed, so an alarm needs no spoken yes). */
@@ -475,6 +476,7 @@ public final class HomeActivity extends Activity {
                 case "bars" -> b.bars(a.optBoolean(0));
                 case "voice" -> main.post(HomeActivity.this::voice);
                 case "voiceStop" -> main.post(() -> { BuddyVoice talk = BuddyVoice.current(); if (talk != null) talk.stop(); });
+                case "lived" -> { String kind = a.optString(0, ""), key = a.optString(1, ""), why = a.optString(3, ""); double joy = a.optDouble(2, 0); try { io.execute(() -> BuddyTalk.lived(HomeActivity.this, kind, key, joy, why)); } catch (RuntimeException ignored) {} }
                 case "care" -> { String kind = a.optString(0, ""); try { io.execute(() -> js("launcher.life(" + BuddyTalk.care(HomeActivity.this, kind) + ")")); } catch (RuntimeException ignored) {} }
                 case "home" -> { try { io.execute(() -> js("launcher.env(" + BuddyTalk.env(HomeActivity.this) + ")")); } catch (RuntimeException ignored) {} }
                 case "think" -> { String why = a.optString(0, "tap"); try { io.execute(() -> BuddyTalk.think(HomeActivity.this, why, line -> js("launcher.thought(" + JSONObject.quote(line) + ")"), () -> js("launcher.thoughtFail()"))); } catch (RuntimeException ignored) {} }

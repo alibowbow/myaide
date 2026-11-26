@@ -104,6 +104,9 @@ public final class DecorActivity extends Activity {
         // What 퍼레 could not do (준: "1번 진행"): each with why, and the tap that clears the way.
         List<BuddyMisses.Miss> misses = BuddyMisses.list(this);
         if (!misses.isEmpty()) ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_info, Ui.ORANGE, "퍼레가 못 한 일 " + misses.size(), misses.get(0).why(), ui.chevron(), this::missesSheet), true);
+        // What 퍼레 wishes it had (준: "그 장난감이 없다면 내가 클로드를 이용해 만들어서 줄 수도 있는거고"): for the user to make and give.
+        List<String> wished = BuddyTalk.wishes(this);
+        if (!wished.isEmpty()) ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_sparkle, Ui.ACCENT, "퍼레의 소원 " + wished.size(), wished.get(wished.size() - 1) + " 갖고 싶대요", ui.chevron(), this::wishSheet), true);
         LinearLayout.LayoutParams bg = new LinearLayout.LayoutParams(-1, -2); bg.bottomMargin = ui.dp(14);
         body.addView(buddyGroup, bg);
 
@@ -431,6 +434,18 @@ public final class DecorActivity extends Activity {
      * promises, its 추억 (what it was told and lived through) and today so far; private ones marked. Each can be deleted.
      */
     /** What 퍼레 could not do, newest first: the words, why, when, and a tap that clears the way where there is one. */
+    private void wishSheet() {
+        List<String> list = BuddyTalk.wishes(this);
+        Ui.Sheet sheet = ui.selectionSheet("퍼레의 소원", "퍼레가 갖고 싶은데 아직 없는 것 · 만들어 주면 지워요");
+        sheet.primary.setVisibility(View.GONE);
+        LinearLayout group = ui.group();
+        for (int i = list.size() - 1; i >= 0; i--) {
+            String thing = list.get(i);
+            ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, Ui.ACCENT, thing, "", ui.smallChip("지우기", () -> { sheet.dismiss(); BuddyTalk.unwish(this, thing); draw(); }), null), true);
+        }
+        sheet.body.addView(group);
+        sheet.show();
+    }
     private void missesSheet() {
         List<BuddyMisses.Miss> list = BuddyMisses.list(this);
         Ui.Sheet sheet = ui.selectionSheet("퍼레가 못 한 일", list.isEmpty() ? "없어요" : "최근 " + list.size() + "개 · 이 휴대폰에만 있어요");

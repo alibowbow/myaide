@@ -62,7 +62,8 @@ final class BuddyTools {
         // 퍼레 itself (준: "음성대화로 퍼레의 상호작용이 안돼"): its toys, its clothes, its plays on the home screen
         .put(fn("buddy_toy", "너(퍼레)의 장난감을 홈 화면에 꺼내서 갖고 논다. 다 치우려면 치우기.", props("toy", BuddyBoard.words(BuddyBoard.TOYS).toArray(new String[0]), "장난감"), "toy"))
         .put(outfit())
-        .put(fn("buddy_move", "너(퍼레)가 홈 화면에서 놀이·동작을 한다(춤, 점프, 요가 …).", props("play", BuddyBoard.words(BuddyBoard.PLAYS).toArray(new String[0]), "놀이"), "play"));
+        .put(fn("buddy_move", "너(퍼레)가 홈 화면에서 놀이·동작을 한다(춤, 점프, 요가 …).", props("play", BuddyBoard.words(BuddyBoard.PLAYS).toArray(new String[0]), "놀이"), "play"))
+        .put(fn("buddy_wish", "너(퍼레)가 갖고 싶은데 아직 없는 것을 소원 목록에 적는다(사용자가 만들어 줄 수도 있어).", props("thing", "string", "갖고 싶은 것 (예: 트램펄린)"), "thing"));
     /** buddy_outfit: one or more things to wear (an array the props helper does not make). */
     private static JSONObject outfit() {
         try {
@@ -76,7 +77,7 @@ final class BuddyTools {
     static final String RULE = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 안내, 지도에서 찾기, 노래·영상 찾아 틀기, 음악 멈춤·다음 곡, 알람, 타이머, 손전등, 화면 방향, 소리 크기, 밝기, 설정 화면, 검색, 카톡으로 보내기, 문자 쓰기, 전화 걸 준비, 카메라, 일정 넣기, 웹 페이지 열기) 도구를 불러서 너가 직접 해. "
         + "너(퍼레) 자신에게 하는 부탁(장난감 꺼내기, 옷 갈아입기·벗기, 춤·점프 같은 놀이)도 buddy_toy·buddy_outfit·buddy_move 도구로 직접 해. 못 한다고 하지 마. "
         + "도구를 부를 때도 무엇을 하는지 짧은 대답 한 문장을 같이 말해(예: 네이버 지도 열게!). 할 일을 글로 적거나 JSON을 말하지 마. "
-        + "결제·송금처럼 도구가 없는 일은 아직 못 한다고 말해. 대답에 주소(URL)는 절대 쓰지 마. 이모지는 어울리면 하나까지(반짝이·별은 빼고).\n";
+        + "결제·송금처럼 도구가 없는 일은 아직 못 한다고 말해. 대답에 주소(URL)는 절대 쓰지 마. 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘는 어울리면 하나까지(반짝이·별은 빼고).\n";
 
     /** The first call as a BuddyActs act ({"tool": name, …arguments}), its name made one of ours; null when there is none. */
     static JSONObject act(JSONArray calls) {
@@ -124,6 +125,7 @@ final class BuddyTools {
             case "buddy_toy" -> "치우기".equals(a.optString("toy")) ? "다 치울게!" : a.optString("toy").isBlank() ? "장난감 꺼낼게!" : a.optString("toy").strip() + " 꺼낼게!";
             case "buddy_outfit" -> outfitSay(a);
             case "buddy_move" -> a.optString("play").isBlank() ? "볼래? 짠!" : a.optString("play").strip() + " 보여 줄게!";
+            case "buddy_wish" -> a.optString("thing").isBlank() ? "" : a.optString("thing").strip() + ", 소원 목록에 적어 둘게!";
             default -> "";
         };
     }
