@@ -99,4 +99,26 @@ public class DecorScreenTests {
         assertEquals(-3.12, quotes.get(1).change(), 1e-9);
         assertTrue("locked still shows the quotes", locked.has("quotes")); assertFalse("no battery", locked.has("battery"));
     }
+
+    /** With 들퍼레 홈 화면 as the home app, the section is its own pages: 오늘, 홈, then the user's pages on the right. */
+    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void listsTheHomeScreensRightPages() throws Exception {
+        Application app = RuntimeEnvironment.getApplication();
+        File kept = new File(new File(app.getFilesDir(), "decor"), "opus.js"); kept.getParentFile().mkdirs();
+        java.nio.file.Files.writeString(kept.toPath(), DATA);
+        app.getSharedPreferences(HomeActivity.PREFS, android.content.Context.MODE_PRIVATE).edit().putString(HomeActivity.PAGES,
+            "[{\"src\":\"https://miaai-lab.github.io/Claude-Opus-5.5-100-HTML-Files/011-victorian-herbarium.html\",\"title\":\"상상 속 식물 표본함\"},{\"src\":\"photo\",\"title\":\"사진\"}]").commit();
+        android.app.role.RoleManager roles = app.getSystemService(android.app.role.RoleManager.class);
+        org.robolectric.shadows.ShadowRoleManager shadowRoles = (org.robolectric.shadows.ShadowRoleManager) org.robolectric.shadow.api.Shadow.extract(roles);
+        shadowRoles.addHeldRole(android.app.role.RoleManager.ROLE_HOME);
+        Activity a = Robolectric.buildActivity(DecorActivity.class).setup().get();
+        View decor = a.getWindow().getDecorView();
+        for (int i = 0; i < 30; i++) { Thread.sleep(40); shadowOf(Looper.getMainLooper()).idle(); }
+        layout(decor);
+        assertNotNull(find(decor, v -> v instanceof TextView t && t.getText().toString().equals("들퍼레 홈 화면 페이지")));
+        assertNotNull(find(decor, v -> v instanceof TextView t && t.getText().toString().equals("왼쪽 · 오늘")));
+        assertNotNull(find(decor, v -> v instanceof TextView t && t.getText().toString().equals("가운데 · 홈")));
+        assertNotNull("the piece on the right", find(decor, v -> v instanceof TextView t && t.getText().toString().equals("오른쪽 1 · 상상 속 식물 표본함")));
+        assertNull("only web pages on the right (no photo)", find(decor, v -> v instanceof TextView t && t.getText().toString().startsWith("오른쪽 2")));
+        assertNull("not the live wallpaper's pages", find(decor, v -> v instanceof TextView t && t.getText().toString().equals("홈 화면 페이지")));
+    }
 }

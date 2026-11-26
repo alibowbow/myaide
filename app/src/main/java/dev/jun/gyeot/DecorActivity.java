@@ -74,7 +74,8 @@ public final class DecorActivity extends Activity {
         setContentView(scroll); scroll.requestApplyInsets();
         View back = ui.backButton("내 휴대폰", this::finish); back.setMinimumHeight(ui.dp(48)); body.addView(back, new LinearLayout.LayoutParams(-2, -2));
         TextView title = ui.title("화면 꾸미기", 26); title.setAccessibilityHeading(true); ui.add(body, title, 4);
-        ui.add(body, ui.label("움직이고 손으로 만질 수 있는 화면을 바탕화면으로 깔아요. 다른 앱을 쓰는 동안에는 멈춰서 배터리를 아껴요.", 13, Ui.MUTED), 8);
+        ui.add(body, ui.label(homeHeld() ? "들퍼레 홈 화면의 오른쪽 페이지에 움직이는 작품, 내 페이지, 웹 페이지를 넣어요. 보이지 않는 페이지는 멈춰서 배터리를 아껴요."
+            : "움직이고 손으로 만질 수 있는 화면을 바탕화면으로 깔아요. 다른 앱을 쓰는 동안에는 멈춰서 배터리를 아껴요.", 13, Ui.MUTED), 8);
 
         // 홈 화면 앱 (준: "이 아이콘들을 혁신적으로 편리하게 사용, 정리할 수 있게(애플 맥북like)"): 들퍼레 as the phone's home screen,
         // only when the user picks it; tapping the row tries it first.
@@ -87,6 +88,10 @@ public final class DecorActivity extends Activity {
         LinearLayout.LayoutParams lg = new LinearLayout.LayoutParams(-1, -2); lg.bottomMargin = ui.dp(14);
         body.addView(launcherGroup, lg);
 
+        // 들퍼레 홈 화면 in use: its own pages (준: "현재 화면 구성이랑 이게 달라", "들퍼레 홈 화면 우측 페이지들을 커스터마이징"):
+        // 오늘 and 홈 as they are, then the user's pages to the right, each changed or taken out here.
+        launcherMode = homeApp;
+        if (launcherMode) { drawLauncherPages(); drawPieces(); return; }
         // 홈 화면 페이지 (준: "1페이지는 기존 배경화면 2페이지 3페이지...에만 앱에서 넣은화면"): each page's slot, changed in place.
         List<HomeBoard.Slot> slots = HtmlWallpaper.slots(prefs()); boolean ours = ours();
         LinearLayout pagesHead = ui.row(); pagesHead.setGravity(Gravity.CENTER_VERTICAL); pagesHead.setPadding(ui.dp(4), ui.dp(6), 0, ui.dp(8));
@@ -122,6 +127,10 @@ public final class DecorActivity extends Activity {
             }
         }
 
+        drawPieces();
+    }
+    /** 작품 (by collection and kind) and the other kinds of screen: what a page or the wallpaper can show. */
+    private void drawPieces() {
         // 작품: the collection switch at the end of the heading line.
         LinearLayout head = ui.row(); head.setGravity(Gravity.CENTER_VERTICAL); head.setPadding(ui.dp(4), ui.dp(22), 0, ui.dp(8));
         TextView h = ui.text("작품", 15, 700, Ui.TEXT); head.addView(h, new LinearLayout.LayoutParams(0, -2, 1));
@@ -154,9 +163,32 @@ public final class DecorActivity extends Activity {
         // 다른 화면
         body.addView(ui.sectionHeader("다른 화면으로"));
         LinearLayout other = ui.group();
-        ui.addRow(other, ui.listRow(R.drawable.ic_pages, Ui.BLUE, "내 페이지에서", "페이지에 저장한 HTML(논문, 시각화, 트레이딩 …)을 배경화면으로", ui.chevron(), this::fromPages), true);
+        ui.addRow(other, ui.listRow(R.drawable.ic_pages, Ui.BLUE, "내 페이지에서", "페이지에 저장한 HTML(논문, 시각화, 트레이딩 …)을 " + (launcherMode ? "홈 화면 오른쪽 페이지로" : "배경화면으로"), ui.chevron(), () -> { if (launcherMode) target = -1; fromPages(); }), true);
         ui.addRow(other, ui.listRow(R.drawable.ic_globe, Ui.TEAL, "주소로 넣기", "https:// 로 시작하는 웹 페이지", ui.chevron(), this::fromAddress), true);
         body.addView(other);
+    }
+    /**
+     * 들퍼레 홈 화면's pages (준: "들퍼레 홈 화면 우측 페이지들을 커스터마이징 할 수 있게 해줘"): 오늘 and 홈 as they are, then the
+     * user's own pages to the right of 홈 (a piece, one of their pages, an address), each changed or taken out; + adds one.
+     */
+    private void drawLauncherPages() {
+        List<HomeBoard.Slot> slots = slots();
+        LinearLayout head = ui.row(); head.setGravity(Gravity.CENTER_VERTICAL); head.setPadding(ui.dp(4), ui.dp(6), 0, ui.dp(8));
+        TextView ph = ui.text("들퍼레 홈 화면 페이지", 15, 700, Ui.TEXT); ph.setAccessibilityHeading(true); head.addView(ph, new LinearLayout.LayoutParams(0, -2, 1));
+        if (slots.size() < HomeBoard.MOST_SLOTS) head.addView(ui.smallChip("+ 페이지", () -> choose(slots.size())));
+        body.addView(head);
+        LinearLayout pages = ui.group();
+        ui.addRow(pages, ui.listRow(R.drawable.ic_bulb, Ui.TEAL, "왼쪽 · 오늘", "오늘 일정 · 알림 · 이건 어때요? · 퍼레에게 묻기", null, null), true);
+        ui.addRow(pages, ui.listRow(R.drawable.ic_home, Ui.ACCENT, "가운데 · 홈", "시계 · 시세 · 날씨 · App Library · 독", null, null), true);
+        for (int i = 0; i < slots.size(); i++) {
+            HomeBoard.Slot slot = slots.get(i); int at = i;
+            String sub = slot.src().startsWith(HtmlWallpaper.PAGE) ? "내 페이지" : String.valueOf(android.net.Uri.parse(slot.src()).getHost());
+            ui.addRow(pages, ui.listRow(R.drawable.ic_layers, Ui.PURPLE, "오른쪽 " + (i + 1) + " · " + slot.title(), sub, ui.smallChip("바꾸기", () -> choose(at)), () -> choose(at)), true);
+        }
+        if (slots.isEmpty()) ui.addRow(pages, ui.listRow(R.drawable.ic_add, Ui.BLUE, "오른쪽에 페이지 더하기", "아래 작품, 내 페이지, 웹 주소 중에서 골라요", ui.chevron(), () -> choose(0)), true);
+        body.addView(pages);
+        TextView note = ui.label("홈에서 오른쪽으로 넘기면 나와요. 페이지 양쪽 가장자리를 밀면 언제든 옆 페이지로 넘어가요.", 12, Ui.MUTED);
+        note.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0); body.addView(note);
     }
     private View kind(String name, String id) {
         android.widget.Button chip = ui.smallChip(name, () -> { category = id; shown = 20; draw(); });
@@ -211,33 +243,44 @@ public final class DecorActivity extends Activity {
     /** The page the next choice goes to: an index, the one after the last (a new page), or -1 for the whole wallpaper. */
     private int target = -1;
     private static final int PICK = 7521;
-    private List<HomeBoard.Slot> slots() { return new ArrayList<>(HtmlWallpaper.slots(prefs())); }
+    /** Which pages this screen edits: 들퍼레 홈 화면's right pages while it is the home screen, else the live wallpaper's. */
+    private boolean launcherMode;
+    private SharedPreferences homePrefs() { return getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE); }
+    private List<HomeBoard.Slot> slots() {
+        if (!launcherMode) return new ArrayList<>(HtmlWallpaper.slots(prefs()));
+        List<HomeBoard.Slot> out = new ArrayList<>();
+        for (HomeBoard.Slot s : HomeBoard.slots(homePrefs().getString(HomeActivity.PAGES, ""), "", "")) if (s.web()) out.add(s);
+        return out;
+    }
     /** The default page for a piece: the page last asked for, else the last page that is not the photo or the board. */
     private int pageFor(List<HomeBoard.Slot> slots) {
         if (target >= 0 && target <= slots.size()) return target;
+        if (launcherMode) return Math.min(slots.size(), HomeBoard.MOST_SLOTS - 1);
         if (slots.size() < 2) return -1;
         for (int i = slots.size() - 1; i >= 0; i--) if (slots.get(i).web()) return i;
         return slots.size() < HomeBoard.MOST_SLOTS ? slots.size() : slots.size() - 1;
     }
     private String pageWord(String whole) {
         int at = pageFor(slots());
+        if (launcherMode) return "오른쪽 " + (at + 1) + "페이지에 넣기";
         return at < 0 ? whole : (at + 1) + "페이지에 넣기";
     }
     /** With pages: which page, as a small switch at the end of one line (the pages, then + for a new one). */
     private void pageSwitch(Ui.Sheet sheet) {
         List<HomeBoard.Slot> slots = slots();
-        if (slots.size() < 2 && target < 0) return;
+        if (launcherMode ? slots.isEmpty() : slots.size() < 2 && target < 0) return;
         int count = Math.min(HomeBoard.MOST_SLOTS, slots.size() + 1);
         String[] names = new String[count]; for (int i = 0; i < count; i++) names[i] = i < slots.size() ? String.valueOf(i + 1) : "+";
         LinearLayout line = ui.row(); line.setGravity(Gravity.CENTER_VERTICAL); line.setPadding(0, ui.dp(10), 0, 0);
         line.addView(ui.text("넣을 페이지", 13.5f, 600, Ui.TEXT), new LinearLayout.LayoutParams(0, -2, 1));
         int now = Math.max(0, Math.min(count - 1, pageFor(slots)));
-        line.addView(ui.switcher(names, now, i -> { target = i; sheet.primary.setText((i + 1) + "페이지에 넣기"); }));
+        line.addView(ui.switcher(names, now, i -> { target = i; sheet.primary.setText((launcherMode ? "오른쪽 " : "") + (i + 1) + "페이지에 넣기"); }));
         target = now;
         sheet.body.addView(line);
     }
     /** What a page shows: one of the five, or the page taken out. */
     private void choose(int page) {
+        if (launcherMode) { chooseRight(page); return; }
         List<HomeBoard.Slot> slots = slots();
         Ui.Sheet menu = ui.selectionSheet(page < slots.size() ? (page + 1) + "페이지에 넣을 화면" : "새 페이지에 넣을 화면", page < slots.size() ? "지금: " + slots.get(page).title() : (page + 1) + "페이지가 돼요");
         menu.primary.setVisibility(View.GONE);
@@ -255,6 +298,21 @@ public final class DecorActivity extends Activity {
         menu.body.addView(group);
         menu.show();
     }
+    /** A right page of 들퍼레 홈 화면: a piece, one of the user's pages or an address, or taken out. */
+    private void chooseRight(int page) {
+        List<HomeBoard.Slot> slots = slots();
+        Ui.Sheet menu = ui.selectionSheet(page < slots.size() ? "오른쪽 " + (page + 1) + "페이지에 넣을 화면" : "오른쪽에 새 페이지", page < slots.size() ? "지금: " + slots.get(page).title() : "홈 오른쪽 " + (page + 1) + "번째 페이지가 돼요");
+        menu.primary.setVisibility(View.GONE);
+        LinearLayout group = ui.group();
+        ui.addRow(group, ui.listRow(R.drawable.ic_layers, Ui.PURPLE, "작품에서 고르기", "아래 목록의 움직이는 화면", ui.chevron(), () -> { menu.dismiss(); target = page; Toast.makeText(this, "오른쪽 " + (page + 1) + "페이지에 넣을 작품을 아래에서 골라 주세요", Toast.LENGTH_SHORT).show(); }), true);
+        ui.addRow(group, ui.listRow(R.drawable.ic_pages, Ui.BLUE, "내 페이지에서", "페이지에 저장한 HTML (트레이딩, 논문, 시각화 …)", ui.chevron(), () -> { menu.dismiss(); target = page; fromPages(); }), true);
+        ui.addRow(group, ui.listRow(R.drawable.ic_globe, Ui.TEAL, "주소로 넣기", "https:// 로 시작하는 웹 페이지", ui.chevron(), () -> { menu.dismiss(); target = page; fromAddress(); }), true);
+        if (page < slots.size()) ui.addRow(group, ui.listRow(R.drawable.ic_close, Ui.ERROR, "이 페이지 빼기", "뒤 페이지가 한 칸씩 당겨져요", null, () -> {
+            menu.dismiss(); List<HomeBoard.Slot> now = slots(); if (page < now.size()) now.remove(page); save(now); draw();
+        }), true);
+        menu.body.addView(group);
+        menu.show();
+    }
     /** The choice goes to the page asked for (a new page after the last), else it becomes the whole wallpaper; then it is applied. */
     private void put(String src, String title) {
         List<HomeBoard.Slot> slots = slots(); int at = pageFor(slots);
@@ -265,10 +323,12 @@ public final class DecorActivity extends Activity {
         // 퍼레 홈 once: chosen for another page, it moves there.
         if (HomeBoard.HOME.equals(src)) for (int i = slots.size() - 1; i >= 0; i--) if (slots.get(i) != slot && HomeBoard.HOME.equals(slots.get(i).src())) slots.remove(i);
         target = -1; save(slots);
+        if (launcherMode) { Toast.makeText(this, "들퍼레 홈 화면 오른쪽 " + (slots.indexOf(slot) + 1) + "페이지에 ‘" + slot.title() + "’을(를) 넣었어요", Toast.LENGTH_SHORT).show(); draw(); return; }
         if (ours()) { Toast.makeText(this, "‘" + slot.title() + "’(으)로 바꿨어요", Toast.LENGTH_SHORT).show(); draw(); }
         else ensureOurs();
     }
     private void save(List<HomeBoard.Slot> slots) {
+        if (launcherMode) { homePrefs().edit().putString(HomeActivity.PAGES, HomeBoard.save(slots)).apply(); return; }
         prefs().edit().putString(HtmlWallpaper.LAYOUT, HomeBoard.save(slots)).putString(HtmlWallpaper.URL, "").putString(HtmlWallpaper.TITLE, "").apply();
     }
     /** 퍼레 홈 from the start: the photo on the first page (the wallpaper there now), the board on the second. */
@@ -384,7 +444,7 @@ public final class DecorActivity extends Activity {
         for (dev.jun.gyeot.core.PageBook.Page p : PageStore.book(this).pages()) if (p.html()) pages.add(p);
         if (pages.isEmpty()) { Toast.makeText(this, "HTML 페이지가 아직 없어요. 연구실 논문이나 마이튜브 시각화를 페이지로 저장하면 여기에 나와요.", Toast.LENGTH_LONG).show(); return; }
         String[] names = new String[Math.min(30, pages.size())]; for (int i = 0; i < names.length; i++) names[i] = pages.get(i).title();
-        new android.app.AlertDialog.Builder(this).setTitle("배경화면으로 쓸 페이지").setItems(names, (d, i) -> put(HtmlWallpaper.PAGE + pages.get(i).id(), pages.get(i).title())).show();
+        new android.app.AlertDialog.Builder(this).setTitle(launcherMode ? "홈 화면 오른쪽에 넣을 페이지" : "배경화면으로 쓸 페이지").setItems(names, (d, i) -> put(HtmlWallpaper.PAGE + pages.get(i).id(), pages.get(i).title())).show();
     }
     private void fromAddress() {
         Ui.Sheet sheet = ui.selectionSheet("주소로 넣기", "움직이는 웹 페이지의 주소를 붙여 주세요. 그 페이지 밖으로 나가는 링크는 열지 않아요.");

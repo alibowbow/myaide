@@ -41,6 +41,15 @@ html,body{background:transparent !important;overflow:hidden;touch-action:manipul
 .today .row .ago{font-size:11.5px;color:var(--ink3)}
 .today .empty-line{font-size:13.5px;color:var(--ink3);padding:6px 0}
 .all-apps{padding:10px 18px}
+.page.custom{position:relative;overflow:hidden;padding:0}
+.page.custom iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#0b0c12}
+.page.custom .edge{position:absolute;top:0;bottom:0;width:22px;z-index:2;touch-action:pan-x}
+.page.custom .edge.l{left:0}.page.custom .edge.r{right:0}
+.page.custom .page-name{position:absolute;left:50%;top:calc(var(--top) + 6px);transform:translateX(-50%);z-index:2;padding:4px 12px;border-radius:999px;background:rgba(0,0,0,.35);color:rgba(255,255,255,.85);font-size:11.5px;font-weight:650;pointer-events:none;opacity:0;transition:opacity .4s}
+.page.custom.named .page-name{opacity:1}
+/* The day's schedule lives on 오늘 (the page to the left): on 홈 only the prices (준: "오늘의 일정은 왼쪽 페이지에 뜨니까 홈화면에서는 없애줘"). */
+.launcher .grid>.event{display:none !important}
+.launcher .grid>.coins{grid-column:1 / -1}
 .all-h{display:flex;align-items:center;gap:7px;margin:18px 4px 12px;font-size:13px;font-weight:750;color:var(--ink2)}
 .all-h i{width:7px;height:7px;border-radius:50%}
 .all-apps .grid-apps{grid-template-columns:repeat(4,1fr);gap:18px 8px}
@@ -359,7 +368,11 @@ body.liquid .clock{margin:6px 0 4px}
 <div class="ideas" id="ideas"></div>
 <script>
 "use strict";
-const B = window.Gyeot || null;
+/*
+  The app's bridge, through its one door with this page's secret (other sites run in frames here now, and the bridge object
+  reaches every frame: a call without the secret does nothing). B.name(...) as before.
+*/
+const B = window.Gyeot && G.token ? new Proxy({}, {get: (_, name) => (...args) => window.Gyeot.call(G.token, String(name), JSON.stringify(args))}) : null;
 const PAD_ICON = '<svg viewBox="0 0 24 24" fill="currentColor">' + [6, 12, 18].map(y => [6, 12, 18].map(x => '<circle cx="' + x + '" cy="' + y + '" r="2.2"/>').join("")).join("") + '</svg>';
 const el = id => document.getElementById(id);
 let APPS = [], BY = new Map(), DOCK = [], RECENT = [], STACKS = [], BADGES = {}, ORDER = {}, filter = "";
@@ -499,11 +512,42 @@ weather(null);
 /* ── the pages: 오늘 ← 홈 ── */
 const pagesBox = el("pages");
 let pageAt = 1;
-function toPage(i, smooth) { pageAt = i; pagesBox.scrollTo({left: i * pagesBox.clientWidth, behavior: smooth ? "smooth" : "instant"}); dotsAt(i); }
+function toPage(i, smooth) { pageAt = i; pagesBox.scrollTo({left: i * pagesBox.clientWidth, behavior: smooth ? "smooth" : "instant"}); dotsAt(i); if (typeof frames === "function") frames(); }
 function dotsAt(i) { Array.from(el("dots").children).forEach((d, k) => d.classList.toggle("on", k === i)); }
-pagesBox.addEventListener("scroll", () => { const i = Math.round(pagesBox.scrollLeft / Math.max(1, pagesBox.clientWidth)); if (i !== pageAt) { pageAt = i; dotsAt(i); } }, {passive: true});
+pagesBox.addEventListener("scroll", () => { const i = Math.round(pagesBox.scrollLeft / Math.max(1, pagesBox.clientWidth)); if (i !== pageAt) { pageAt = i; dotsAt(i); frames(); } }, {passive: true});
+/*
+  The user's own pages to the right of 홈 (준: "들퍼레 홈 화면 우측 페이지들을 커스터마이징 할 수 있게"): a piece or one of their
+  pages in a sandboxed frame, full screen under the dock. A thin strip at each edge always swipes the pages (a page that takes
+  every touch cannot trap the finger). A frame runs only while its page is near.
+*/
+let PAGES = [];
+function drawPages(list) {
+  PAGES = (list || []).filter(p => p && typeof p.src === "string" && (p.src.startsWith("https://") || p.src.startsWith("page:")));
+  pagesBox.querySelectorAll(".page.custom").forEach(n => n.remove());
+  PAGES.forEach((p, i) => {
+    const sec = document.createElement("section"); sec.className = "page custom";
+    const f = document.createElement("iframe");
+    f.setAttribute("sandbox", "allow-scripts allow-same-origin allow-pointer-lock allow-forms");
+    f.setAttribute("allow", "autoplay; accelerometer; gyroscope; fullscreen");
+    f.setAttribute("title", p.title || ""); f.dataset.src = p.src.startsWith("page:") ? "https://pages.gyeot.local/" + encodeURIComponent(p.src.slice(5)) : p.src;
+    sec.appendChild(f);
+    sec.insertAdjacentHTML("beforeend", '<div class="edge l"></div><div class="edge r"></div><div class="page-name">' + esc(p.title || "") + '</div>');
+    pagesBox.appendChild(sec);
+  });
+  el("dots").innerHTML = Array.from({length: 2 + PAGES.length}, () => "<i></i>").join("");
+  if (pageAt > 1 + PAGES.length) toPage(1, false); else dotsAt(pageAt);
+  frames();
+}
+function frames() {
+  pagesBox.querySelectorAll(".page.custom").forEach((sec, i) => {
+    const f = sec.querySelector("iframe"), d = Math.abs(2 + i - pageAt);
+    if (d <= 1 && !f.getAttribute("src")) f.setAttribute("src", f.dataset.src);
+    if (d >= 2 && f.getAttribute("src")) f.removeAttribute("src");
+  });
+}
 addEventListener("resize", () => toPage(pageAt, false));
 requestAnimationFrame(() => toPage(1, false));
+drawPages(G.pages || []);
 /** 오늘: the day in one place (notices, 퍼레's ideas, the schedule, a question for 퍼레). */
 function drawToday(k) {
   const d = new Date(); el("todayDate").textContent = (d.getMonth() + 1) + "월 " + d.getDate() + "일 " + DOW[d.getDay()];
@@ -986,6 +1030,8 @@ window.launcher = {
     return false;
   },
   resized() { drawDock(); boards.forEach(fit); },
+  /** The pages to the right changed (화면 꾸미기). */
+  pages(list) { drawPages(list); },
   /** 퍼레's answer on the home screen: a piece as it streams, the whole when done, or why not. */
   stream(piece) {
     const last = thread[thread.length - 1]; if (!last || !last.pending) return;

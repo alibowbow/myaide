@@ -101,6 +101,7 @@ public final class HomeActivity extends Activity {
         });
         root.requestApplyInsets();
         try { launcher.registerCallback(changed, main); } catch (RuntimeException ignored) {}
+        prefs.registerOnSharedPreferenceChangeListener(pagesChanged);
         systemBars();
     }
     private void build(FrameLayout root) {
@@ -111,14 +112,21 @@ public final class HomeActivity extends Activity {
         s.setSupportMultipleWindows(false); s.setJavaScriptCanOpenWindowsAutomatically(false); s.setGeolocationEnabled(false);
         s.setMediaPlaybackRequiresUserGesture(true); s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         web.setVerticalScrollBarEnabled(false); web.setHorizontalScrollBarEnabled(false); web.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        web.addJavascriptInterface(new Bridge(), "Gyeot");
+        web.addJavascriptInterface(new Gate(), "Gyeot");
         web.setWebViewClient(new WebViewClient() {
             // The home screen is this one page: nothing navigates it.
-            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return true; }
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return request.isForMainFrame(); }
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                Uri u = request.getUrl();
-                if (!"gyeot.local".equalsIgnoreCase(u.getHost())) return null;
-                return own(u.getPath() == null ? "/" : u.getPath());
+                Uri u = request.getUrl(); String host = u.getHost() == null ? "" : u.getHost().toLowerCase(java.util.Locale.ROOT);
+                if (HtmlWallpaper.PAGES_HOST.equals(host)) {
+                    try { return HtmlWallpaper.html(PageStore.book(HomeActivity.this).body(Uri.decode(u.getLastPathSegment() == null ? "" : u.getLastPathSegment()))); }
+                    catch (Exception gone) { return HtmlWallpaper.html("<body style='background:#111;color:#bbb;font:16px sans-serif;display:grid;place-items:center;height:100vh'>이 페이지를 찾지 못했어요</body>"); }
+                }
+                if (!"gyeot.local".equalsIgnoreCase(host)) return null;
+                String path = u.getPath() == null ? "/" : u.getPath();
+                // The home screen page (and its secret) only as the page itself, never inside a frame.
+                if ((path.equals("/") || path.equals("/launcher.html")) && !request.isForMainFrame()) return HtmlWallpaper.missing();
+                return own(path);
             }
             @Override public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
                 // Drawn again rather than left blank (a home screen must never stay empty).
@@ -204,6 +212,7 @@ public final class HomeActivity extends Activity {
     }
     @Override protected void onDestroy() {
         try { launcher.unregisterCallback(changed); } catch (RuntimeException ignored) {}
+        prefs.unregisterOnSharedPreferenceChangeListener(pagesChanged);
         if (NoticeListener.changed == badgesChanged) NoticeListener.changed = null;
         main.removeCallbacksAndMessages(null); io.shutdownNow();
         if (web != null) { try { web.destroy(); } catch (RuntimeException ignored) {} web = null; }
@@ -308,9 +317,17 @@ public final class HomeActivity extends Activity {
         String html;
         try (InputStream in = getAssets().open("decor/launcher.html")) { html = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
         String kind = HtmlWallpaper.mascotReady(this);
-        JSONObject config = Jsons.obj("launcher", true, "dark", darkWallpaper(), "accent", accent(), "bg", prefs.getString("bg", "aurora"), "mascot", !kind.isEmpty(), "mascotKind", kind, "mascotAt", HtmlWallpaper.mascot(this).lastModified());
+        JSONObject config = Jsons.obj("launcher", true, "token", secret, "pages", pagesJson(), "dark", darkWallpaper(), "accent", accent(), "bg", prefs.getString("bg", "aurora"), "mascot", !kind.isEmpty(), "mascotKind", kind, "mascotAt", HtmlWallpaper.mascot(this).lastModified());
         return html.replace("/*GYEOT*/", "window.GYEOT=" + config.toString().replace("</", "<\\/") + ";");
     }
+    /** The pages to the right of 홈 the user put there (화면 꾸미기 → 들퍼레 홈 화면 페이지): web pieces and their own pages. */
+    static final String PAGES = "pages";
+    JSONArray pagesJson() {
+        JSONArray out = new JSONArray();
+        for (dev.jun.gyeot.core.HomeBoard.Slot s : dev.jun.gyeot.core.HomeBoard.slots(prefs.getString(PAGES, ""), "", "")) if (s.web()) out.put(s.json());
+        return out;
+    }
+    private final SharedPreferences.OnSharedPreferenceChangeListener pagesChanged = (p, key) -> { if (PAGES.equals(key)) js("launcher.pages(" + pagesJson() + ")"); };
     /** An app's icon as the phone draws it (its shape, a work badge), once: kept in memory and in the cache folder. */
     private byte[] icon(String id) {
         byte[] got = ICONS.get(id); if (got != null) return got;
@@ -330,8 +347,42 @@ public final class HomeActivity extends Activity {
     }
 
     // ── what the page asks ──────────────────────────────────────
+    /**
+     * The page's one way in (준: "들퍼레 홈 화면 우측 페이지들을 커스터마이징": other sites now run in frames on it, and Android
+     * gives a WebView's bridge to every frame): a call counts only with the secret this page was given (window.GYEOT.token),
+     * which no other frame can read.
+     */
+    private final String secret = java.util.UUID.randomUUID().toString() + java.util.UUID.randomUUID();
+    private final class Gate {
+        @JavascriptInterface public void call(String token, String name, String args) {
+            if (token == null || !java.security.MessageDigest.isEqual(token.getBytes(StandardCharsets.UTF_8), secret.getBytes(StandardCharsets.UTF_8))) return;
+            JSONArray a; try { a = new JSONArray(args == null ? "[]" : args); } catch (Exception bad) { return; }
+            Bridge b = bridge;
+            switch (name == null ? "" : name) {
+                case "ready" -> b.ready();
+                case "launch" -> b.launch(a.optString(0, null), (float) a.optDouble(1), (float) a.optDouble(2), (float) a.optDouble(3), (float) a.optDouble(4));
+                case "chat" -> b.chat(a.optString(0, null), a.optString(1, "[]"));
+                case "stopChat" -> b.stopChat();
+                case "idea" -> b.idea(a.optString(0, null), a.optBoolean(1));
+                case "weather" -> b.weather();
+                case "look" -> b.look(a.optString(0));
+                case "order" -> b.order(a.optString(0, null), a.optString(1, "[]"));
+                case "stackOrder" -> b.stackOrder(a.optString(0, "[]"));
+                case "dock" -> b.dock(a.optString(0, "[]"));
+                case "move" -> b.move(a.optString(0, null), a.optString(1, ""));
+                case "info" -> b.info(a.optString(0, null));
+                case "uninstall" -> b.uninstall(a.optString(0, null));
+                case "open" -> b.open(a.optString(0, ""));
+                case "ask" -> b.ask(a.optString(0, null));
+                case "web" -> b.web(a.optString(0, null));
+                case "settings" -> b.settings(a.optString(0, ""));
+                default -> {}
+            }
+        }
+    }
+    private final Bridge bridge = new Bridge();
     private final class Bridge {
-        @JavascriptInterface public void ready() {
+        public void ready() {
             main.post(() -> {
                 ready = true;
                 if (web != null) web.evaluateJavascript("launcher.insets(" + top + "," + bottom + ")", null);
@@ -344,7 +395,7 @@ public final class HomeActivity extends Activity {
             });
         }
         /** Opens the app, growing from its icon (x, y, w, h in the page's pixels). */
-        @JavascriptInterface public void launch(String id, float x, float y, float w, float h) {
+        public void launch(String id, float x, float y, float w, float h) {
             main.post(() -> {
                 LauncherActivityInfo info = id == null ? null : known.get(id); if (info == null) return;
                 float d = getResources().getDisplayMetrics().density;
@@ -363,7 +414,7 @@ public final class HomeActivity extends Activity {
          * question, with the few turns before it, to the NVIDIA model the app is connected to (NimClient, the user's own key),
          * the answer streamed into the page as it comes. Not connected: the page says so and how to connect.
          */
-        @JavascriptInterface public void chat(String question, String history) {
+        public void chat(String question, String history) {
             if (question == null || question.isBlank() || question.length() > 4000) return;
             AppStore store = ((GyeotApp) getApplication()).store();
             if (!store.nim.connected()) { js("launcher.replyError(" + JSONObject.quote("NVIDIA 모델이 아직 연결되지 않았어요. 설정 → AI 연결에서 NVIDIA 키를 넣으면 여기서 바로 답해요.") + ",\"settings\")"); return; }
@@ -384,12 +435,12 @@ public final class HomeActivity extends Activity {
             }, "gyeot-home-chat");
             t.setDaemon(true); t.start();
         }
-        @JavascriptInterface public void stopChat() { chatTicket++; Runnable r = chatCancel.getAndSet(null); if (r != null) try { r.run(); } catch (RuntimeException ignored) {} }
+        public void stopChat() { chatTicket++; Runnable r = chatCancel.getAndSet(null); if (r != null) try { r.run(); } catch (RuntimeException ignored) {} }
         /**
          * 퍼레's suggestion, from the home screen (준: "제안 눌렀는데 단순히 퍼레앱이 켜지기만 해"): 맡기기 opens 메인 대화 with
          * its request in the box (or the work room it continues), 넘기기 puts it away; either way the next mornings learn.
          */
-        @JavascriptInterface public void idea(String title, boolean use) {
+        public void idea(String title, boolean use) {
             if (title == null) return;
             main.post(() -> {
                 AppStore store = ((GyeotApp) getApplication()).store();
@@ -406,7 +457,7 @@ public final class HomeActivity extends Activity {
             });
         }
         /** The weather widget: the phone's own weather app, else the weather on the web. */
-        @JavascriptInterface public void weather() {
+        public void weather() {
             main.post(() -> {
                 for (String pkg : new String[]{"com.sec.android.daemonapp", "com.samsung.android.weather", "com.google.android.apps.weather"}) {
                     Intent open = getPackageManager().getLaunchIntentForPackage(pkg);
@@ -416,32 +467,32 @@ public final class HomeActivity extends Activity {
             });
         }
         /** The background: "aurora" (the home screen's own night sky) or "photo" (the user's wallpaper under a dark veil). */
-        @JavascriptInterface public void look(String bg) { prefs.edit().putString("bg", "photo".equals(bg) ? "photo" : "aurora").apply(); }
+        public void look(String bg) { prefs.edit().putString("bg", "photo".equals(bg) ? "photo" : "aurora").apply(); }
         /** A folder's icons in the order the user dragged them into (준: "폴더 내에서 아이콘 위치 이동이 안돼"). */
-        @JavascriptInterface public void order(String stack, String ids) {
+        public void order(String stack, String ids) {
             try {
                 JSONArray a = new JSONArray(ids); if (a.length() > 300 || stack == null || stack.length() > 20) return;
                 JSONObject all = read(ORDER, new JSONObject()); Jsons.put(all, AppStacks.stack(stack).id(), a);
                 prefs.edit().putString(ORDER, all.toString()).apply();
             } catch (Exception ignored) {}
         }
-        @JavascriptInterface public void stackOrder(String ids) {
+        public void stackOrder(String ids) {
             try { JSONArray a = new JSONArray(ids); if (a.length() <= 40) prefs.edit().putString("stackOrder", a.toString()).apply(); } catch (Exception ignored) {}
         }
-        @JavascriptInterface public void dock(String ids) {
+        public void dock(String ids) {
             try { JSONArray a = new JSONArray(ids); if (a.length() <= 24) prefs.edit().putString(DOCK, a.toString()).apply(); } catch (Exception ignored) {}
         }
         /** The app goes to another stack ("" to sort it by itself again). */
-        @JavascriptInterface public void move(String id, String stack) {
+        public void move(String id, String stack) {
             JSONObject moved = read(MOVED, new JSONObject());
             if (stack == null || stack.isEmpty()) moved.remove(id); else Jsons.put(moved, id, AppStacks.stack(stack).id());
             prefs.edit().putString(MOVED, moved.toString()).apply();
             pushApps();
         }
-        @JavascriptInterface public void info(String id) {
+        public void info(String id) {
             main.post(() -> { LauncherActivityInfo i = (id == null ? null : known.get(id)); if (i != null) try { launcher.startAppDetailsActivity(i.getComponentName(), i.getUser(), null, null); } catch (RuntimeException ignored) {} });
         }
-        @JavascriptInterface public void uninstall(String id) {
+        public void uninstall(String id) {
             main.post(() -> {
                 LauncherActivityInfo i = (id == null ? null : known.get(id)); if (i == null) return;
                 try { startActivity(new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + i.getApplicationInfo().packageName)).putExtra(Intent.EXTRA_USER, i.getUser())); }
@@ -449,17 +500,17 @@ public final class HomeActivity extends Activity {
             });
         }
         /** 퍼레 홈's cards: the app's own screens. */
-        @JavascriptInterface public void open(String what) {
+        public void open(String what) {
             Intent t = HtmlWallpaper.target(HomeActivity.this, what == null ? "" : what);
             if (t != null) main.post(() -> { try { startActivity(t); } catch (RuntimeException none) { Toast.makeText(HomeActivity.this, "열 수 있는 앱이 없어요.", Toast.LENGTH_SHORT).show(); } });
         }
         /** The search's words, into 퍼레's message box (the user reads and sends them). */
-        @JavascriptInterface public void ask(String text) {
+        public void ask(String text) {
             if (text == null || text.isBlank()) return;
             main.post(() -> startActivity(new Intent(HomeActivity.this, MainActivity.class).putExtra(MainNavigation.TARGET, "chat").putExtra(MainActivity.ASK, text.strip())
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP)));
         }
-        @JavascriptInterface public void web(String text) {
+        public void web(String text) {
             if (text == null || text.isBlank()) return;
             main.post(() -> {
                 try { startActivity(new Intent(Intent.ACTION_WEB_SEARCH).putExtra(SearchManager.QUERY, text.strip())); }
@@ -469,7 +520,7 @@ public final class HomeActivity extends Activity {
             });
         }
         /** The home screen's own menu: the wallpaper, 화면 꾸미기, or back to the phone's own home screen. */
-        @JavascriptInterface public void settings(String what) {
+        public void settings(String what) {
             main.post(() -> {
                 try {
                     if ("wallpaper".equals(what)) startActivity(Intent.createChooser(new Intent(Intent.ACTION_SET_WALLPAPER), "배경화면"));
