@@ -364,6 +364,8 @@ public final class HtmlWallpaper extends WallpaperService {
         }
         JSONObject out = HomeBoard.json(new HomeBoard.Known(now, locked, calendarOn, next, left, notices, noticeCount, ideas, working, lab, name, quotes()));
         try { JSONObject w = Weather.now(c); if (w != null) Jsons.put(out, "weather", w); } catch (RuntimeException ignored) {}
+        // 퍼레's everyday lines (BuddyTalk): written from its note about the user, so never on the lock screen.
+        if (!locked) try { Jsons.put(out, "lines", BuddyTalk.lines(c)); } catch (RuntimeException ignored) {}
         return out;
     }
 

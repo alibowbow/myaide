@@ -176,16 +176,31 @@ function fit(b) {
   const wides = Array.from(b.querySelectorAll(".grid>.notices,.grid>.idea-card")).filter(c => c.style.display !== "none" && getComputedStyle(c).display !== "none");
   b.querySelectorAll(".grid>.notices,.grid>.idea-card").forEach(c => c.style.gridColumn = innerWidth >= 600 && wides.length === 1 && wides[0] === c ? "1 / -1" : "");
 }
+/*
+  What 퍼레 says when tapped (준: "의미없이 자꾸 코인시세를 반복해서 말해", "생각을 하고 말하게", "감성적인 이야기", "나를 이해한 바탕으로
+  일상적인 말걸기, 업무적인 것 말고", "유우머도"): the everyday lines the model wrote from what it knows of the user (k.lines),
+  one after another and none twice until all are said; without them, gentle lines for the hour. No prices, no work.
+*/
+const OWN = {
+  dawn: ["이 시간까지 깨어 있는 건 비밀로 해 둘게요", "별들도 슬슬 졸린가 봐요, 깜빡깜빡", "새벽 공기는 생각을 정리하기 딱 좋죠"],
+  morning: ["좋은 아침이에요! 오늘 첫 웃음은 제가 맡을게요", "커피 향 나는 하루 되길 바라요", "아침 햇살 충전 완료, 저는 100%예요"],
+  lunch: ["점심은 맛있게! 행복은 위장에서 시작된대요", "배꼽시계가 정확한 시간이네요", "오늘 메뉴가 기분을 정해요, 신중하게요"],
+  afternoon: ["오후엔 살짝 기지개 한 번 어때요?", "졸릴 땐 저를 보세요, 눈 깜빡 응원 중", "오늘 하늘 한 번 올려다봤어요?"],
+  evening: ["오늘도 수고 많았어요, 진심이에요", "저녁 바람이 오늘 이야기를 들어 줄 거예요", "하루를 무사히 보낸 당신, 칭찬해요"],
+  night: ["오늘 하루도 잘 버텼어요, 푹 쉬어요", "밤하늘 보며 한숨 돌려요, 저도 옆에 있을게요", "내일의 나에게 맡기고 이제 쉬어요"]
+};
+function ownLines() {
+  const h = new Date().getHours();
+  const part = h < 5 ? "dawn" : h < 11 ? "morning" : h < 14 ? "lunch" : h < 18 ? "afternoon" : h < 22 ? "evening" : "night";
+  return OWN[part].concat(["두 번 톡 치면 저랑 대화해요"]);
+}
 function say(b) {
-  const k = info || {}, lines = [];
-  if (!k.locked && k.next) lines.push("다음은 ‘" + k.next.title + "’" + (k.next.allDay ? ", 오늘 하루 종일이에요" : ", " + clockOf(k.next.begin) + "이에요!"));
-  if (!k.locked && k.working > 0) lines.push("맡긴 일 " + k.working + "개를 열심히 하고 있어요");
-  if (!k.locked && k.lab) lines.push("연구실에서 실험을 돌리고 있어요");
-  for (const q of k.quotes || []) lines.push((q.symbol === "BTC" ? "비트코인" : q.symbol) + " · 하루 사이 " + Math.abs(q.change).toFixed(1) + "% " + (q.change >= 0 ? "올랐어요" : "내렸어요"));
-  if (!k.locked && k.noticeCount > 0) lines.push("새 알림이 " + k.noticeCount + "개 있어요");
-  lines.push("두 번 톡 치면 저랑 대화해요", "부를 땐 오른쪽 바를 당겨 주세요", hello(new Date().getHours()) + "!", "오늘도 같이 힘내요");
-  b._said = ((b._said || 0) + 1) % lines.length;
-  return lines[b._said];
+  const k = info || {}, theirs = Array.isArray(k.lines) && k.lines.length ? k.lines.slice() : null;
+  const lines = theirs ? theirs.concat(["두 번 톡 치면 저랑 대화해요"]) : ownLines();
+  b._used = b._used && b._usedFor === lines.join("|") ? b._used : new Set(); b._usedFor = lines.join("|");
+  let left = lines.filter(l => !b._used.has(l)); if (!left.length) { b._used.clear(); left = lines.slice(); }
+  const pick = left[Math.floor(Math.random() * left.length)]; b._used.add(pick);
+  return pick;
 }
 function cheer(b) {
   const buddy = $(b, ".buddy"), bubble = $(b, ".bubble");
@@ -222,33 +237,18 @@ function keep(key) {
 function today() { const d = new Date(); return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate(); }
 function period(h) { return h >= 5 && h < 11 ? "morning" : h >= 11 && h < 14 ? "lunch" : h >= 17 && h < 22 ? "evening" : ""; }
 /** What to say now, or null: news first (on any update), the quieter things only when the screen has just been opened. */
+/** What to say first, or null: an event about to start, else (when the screen has just been opened) one of 퍼레's everyday lines. */
 function nextLine(k, prev, opened) {
   if (!k) return null;
   const now = Date.now(), lines = [];
-  if (!k.locked) {
-    if (prev && (prev.working || 0) > 0 && !(k.working > 0)) lines.push({key: "done:" + now, text: "맡긴 일 다 끝냈어요! 결과 볼래요?", go: "chat", feel: "happy"});
-    const n = k.next;
-    if (n && !n.allDay) {
-      const min = Math.round((n.begin - now) / 60000);
-      if (min >= 0 && min <= 15) lines.push({key: "soon15:" + n.title + n.begin, text: (min <= 1 ? "곧" : min + "분 뒤") + " ‘" + n.title + "’예요" + (n.place ? " · " + n.place : ""), go: "calendar", feel: "surprised"});
-      else if (opened && min > 15 && min <= 60) lines.push({key: "soon60:" + n.title + n.begin, text: "1시간 안에 ‘" + n.title + "’ 있어요 · " + clockOf(n.begin), go: "calendar", feel: ""});
-    }
-    const top = (k.notices || [])[0];
-    if (top && prev && (k.noticeCount || 0) > (prev.noticeCount || 0)) lines.push({key: "notice:" + top.at + top.title, text: (top.app ? top.app + " · " : "") + (top.title || "") + (top.text ? ": " + top.text : ""), go: "notices", feel: "surprised"});
-  }
-  for (const q of k.quotes || []) {
-    const big = Math.floor(Math.abs(q.change) / 5);
-    if (big >= 1) lines.push({key: "q:" + q.symbol + today() + (q.change >= 0 ? "+" : "-") + big, text: (q.symbol === "BTC" ? "비트코인" : q.symbol) + " 하루 사이 " + (q.change >= 0 ? "▲" : "▼") + Math.abs(q.change).toFixed(1) + "%예요" + (q.change >= 0 ? "!" : ""), go: "trading", feel: q.change >= 0 ? "happy" : "surprised"});
+  const n = !k.locked && k.next;
+  if (n && !n.allDay) {
+    const min = Math.round((n.begin - now) / 60000);
+    if (min >= 0 && min <= 15) lines.push({key: "soon15:" + n.title + n.begin, text: (min <= 1 ? "곧" : min + "분 뒤") + " ‘" + n.title + "’예요" + (n.place ? " · " + n.place : ""), go: "calendar", feel: "surprised"});
   }
   if (opened) {
-    const h = new Date().getHours(), p = period(h);
-    if (p) {
-      const left = !k.locked && k.eventsLeft > 0 ? " 오늘 일정이 " + k.eventsLeft + "개 남았어요" : "";
-      const words = {morning: "좋은 아침이에요!", lunch: "점심 맛있게 드세요!", evening: "오늘도 수고했어요!"}[p];
-      lines.push({key: "greet:" + today() + p, text: words + left, go: left ? "calendar" : "", feel: "happy"});
-    }
-    const idea = !k.locked && (k.suggestions || [])[0];
-    if (idea) lines.push({key: "idea:" + today() + idea.title, text: "이건 어때요? " + idea.title, go: "ideas", feel: "happy"});
+    const own = Array.isArray(k.lines) && k.lines.length ? k.lines : ownLines().slice(0, -1);
+    for (const t of own) lines.push({key: "line:" + today() + ":" + t, text: t, go: "", feel: "happy"});
   }
   return lines.find(l => !said(l.key)) || null;
 }

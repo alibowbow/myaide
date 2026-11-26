@@ -78,10 +78,11 @@ body.launcher{position:fixed;inset:0}
 .stacks{display:grid;grid-template-columns:repeat(4,1fr);gap:18px 14px;padding:16px 20px 8px}
 /* The home page never scrolls or stretches (준: "이런 스크롤이 있으니 안정적이지 않아 없애줘"): it is one screen; the board gives way
    first (board.js fit), and only App Library scrolls, quietly, when there are more folders than fit. */
-#home{overflow:hidden !important;touch-action:pan-x !important;padding-bottom:0 !important}
+#home{overflow:hidden !important;touch-action:manipulation !important;padding-bottom:0 !important}
 #home>.inner{display:flex;flex-direction:column;height:100%;padding-bottom:calc(var(--bottom) + 118px);box-sizing:border-box}
 #home>.inner>*{flex:none}
-#home .stacks{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:none;align-content:start;touch-action:pan-y;scrollbar-width:none}
+/* A sideways swipe anywhere on 홈, App Library included, turns the page (준: "왼쪽 페이지와 우측 페이지가 안 열려"). */
+#home .stacks{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior-y:none;align-content:start;touch-action:manipulation;scrollbar-width:none}
 #home .stacks::-webkit-scrollbar{display:none}
 .stack{display:flex;flex-direction:column;align-items:center;gap:7px;border:0;background:none;padding:0;font:inherit;color:var(--ink);min-width:0}
 .pile{position:relative;width:100%;aspect-ratio:1;max-width:var(--folder,72px);border-radius:23%;background:var(--tile);border:1px solid var(--glass-line);box-shadow:var(--shadow);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:5%;padding:12%;transition:transform .5s var(--spring)}
@@ -301,21 +302,21 @@ body.liquid .menu hr{background:var(--hair2)}
 @media (min-width:600px){body.liquid .clock{font-size:74px}}
 /* Launchpad (every app, the search, the talk with 퍼레) in soft pastel, not near-black (준: "All app 표시란 바탕이 너무 새까매서 눈이
    피로해 보기편한 파스텔톤으로"): dark words on light glass. */
-body.liquid .pad{background:#f4f2fb;--ink:#22232f;--ink2:#575869;--ink3:#8b8c9e;--glass:rgba(255,255,255,.72);--glass-line:rgba(255,255,255,.95);--hair:rgba(40,40,80,.08);--hair2:rgba(40,40,80,.12);color:var(--ink)}
+body.liquid .pad{background:#eef2e6;--ink:#26302a;--ink2:#56625a;--ink3:#8a958c;--glass:rgba(255,255,255,.7);--glass-line:rgba(255,255,255,.95);--hair:rgba(40,60,40,.08);--hair2:rgba(40,60,40,.12);color:var(--ink)}
 body.liquid .pad::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:
-  radial-gradient(60% 45% at 12% 8%,#e4dcff 0%,rgba(228,220,255,0) 70%),
-  radial-gradient(55% 40% at 92% 22%,#ffe3d8 0%,rgba(255,227,216,0) 70%),
-  radial-gradient(60% 45% at 18% 78%,#d8f3ea 0%,rgba(216,243,234,0) 70%),
-  radial-gradient(55% 45% at 88% 92%,#dceaff 0%,rgba(220,234,255,0) 70%)}
+  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .32  0 0 0 0 .38  0 0 0 0 .3  0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E"),
+  linear-gradient(170deg,#f3f6ec 0%,#e9f0e1 45%,#e4ecdb 100%)}
 body.liquid .pad{isolation:isolate}
-body.liquid .pad-top .field{background:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.98);box-shadow:0 4px 14px rgba(90,80,150,.08)}
+body.liquid .pad-top .field{background:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.98);box-shadow:0 4px 14px rgba(60,80,60,.08)}
 body.liquid .pad .field input{color:var(--ink)}
-body.liquid .pad .close{color:#6d5dd3}
+body.liquid .pad .close{color:#4f7a58}
 body.liquid .pad .chip{background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.95);color:#4a4b5e}
-body.liquid .pad .chip.on{background:#8b7cf6;color:#fff;border-color:transparent}
+body.liquid .pad .chip.on{background:#6f9a76;color:#fff;border-color:transparent}
+body.liquid .pad .msg.me{background:linear-gradient(135deg,#86ad89,#5f8f69)}
+body.liquid .pad .ask .dot{background:#6f9a76 !important}
 body.liquid .pad .pad-body h3{color:#8b8c9e}
 body.liquid .pad .app .label{color:#2a2b38;text-shadow:none}
-body.liquid .pad .app .ic img{filter:drop-shadow(0 3px 8px rgba(70,60,120,.16))}
+body.liquid .pad .app .ic img{filter:drop-shadow(0 3px 8px rgba(50,70,50,.16))}
 body.liquid .pad .ask{background:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.95);color:var(--ink)}
 body.liquid .pad .ask b{color:var(--ink)}
 body.liquid .pad .mini{background:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.95);color:#575869}
@@ -326,7 +327,14 @@ body.liquid .pad .chat-head b{color:#22232f}
 body.liquid .pad .empty{color:#6a6b7d}
 /* On the home screen the board is the day's two things (the next event, the prices): notices and 퍼레's ideas come in its bubble. */
 .launcher .grid>.notices,.launcher .grid>.idea-card{display:none !important}
-body.liquid .board .wrap{gap:10px;padding-top:calc(var(--top) + 48px)}
+body.liquid .board .wrap{gap:10px;padding-top:calc(var(--top) + 16px)}
+.launcher .hello{display:none}
+.w-line{display:inline-flex;align-items:center;gap:7px;border:0;background:none;padding:2px 0 0;margin:0;color:var(--ink);font:inherit;text-align:left;max-width:100%;white-space:nowrap;overflow:hidden}
+.w-line .w-ic{width:26px;height:26px;flex:none;display:grid;place-items:center}.w-line .w-ic svg{width:26px;height:26px}
+.w-line b{font-size:19px;font-weight:650;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.w-line #wPlace{font-size:13px;font-weight:600;color:var(--ink2);overflow:hidden;text-overflow:ellipsis}
+.w-line #wRange{font-family:var(--mono,monospace);font-size:11px;color:var(--ink3);letter-spacing:.02em}
+.w-line:active{opacity:.7}
 body.liquid .hero{min-height:0}
 body.liquid .clock{margin:6px 0 4px}
 .lib-head{padding-top:10px}
@@ -364,7 +372,7 @@ body.liquid .clock{margin:6px 0 4px}
 </head>
 <body class="launcher light liquid aurora">
 <div class="aurora-bg"><i></i><i></i><i></i></div>
-<button class="weather" id="weather" aria-label="날씨"><span class="w-ic" id="wIcon"></span><b id="wTemp">–°</b><span class="w-words"><span id="wPlace">날씨</span><span id="wRange"></span></span></button>
+
 <script>/*GYEOT*/</script>
 <script src="/board.js"></script>
 <div id="pages">
@@ -428,6 +436,8 @@ window.boardRoom = () => {
   return Math.max(170, innerHeight - pad - rest - 6);
 };
 makeBoard(el("boardHost"));
+// Top left, one widget: the date, the clock, the weather. Top right: 퍼레.
+document.querySelector("#boardHost .when").insertAdjacentHTML("beforeend", '<button class="w-line" id="weather" aria-label="날씨"><span class="w-ic" id="wIcon"></span><b id="wTemp">–°</b><span id="wPlace">날씨</span><span id="wRange"></span></button>');
 if (G.dark) document.body.classList.replace("light", "dark");
 
 /* ── drawing ──────────────────────────────────────────────── */

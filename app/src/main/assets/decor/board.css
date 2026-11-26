@@ -99,6 +99,9 @@ html,body{margin:0;height:100%;overflow:hidden;background:#dfeefe;font-family:va
 @keyframes zz{0%{opacity:0;transform:translate(0,8px) scale(.7)}40%{opacity:.9}100%{opacity:0;transform:translate(10px,-14px) scale(1.1)}}
 .bubble{position:absolute;right:92px;bottom:30px;max-width:230px;width:max-content;white-space:normal;padding:10px 14px;border-radius:18px 18px 4px 18px;background:#fff;color:#1c1c1e;font-size:14px;font-weight:650;line-height:1.35;box-shadow:var(--shade);opacity:0;transform:translateY(8px) scale(.85);transform-origin:100% 100%;transition:opacity .25s,transform .45s var(--spring);pointer-events:none;text-align:left}
 .bubble.on{opacity:1;transform:none}
+/* A narrow screen (a foldable's cover) has no room beside 퍼레: the bubble hangs below it, the clock stays in sight. */
+@media (max-width:420px){.bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18px 4px 18px 18px;transform-origin:100% 0;z-index:5}}
+.hero{position:relative;z-index:3}
 .bubble{max-width:min(250px,calc(100vw - 150px))}
 .bubble.act{pointer-events:auto}
 .bubble .more{font-weight:800;opacity:.55}
