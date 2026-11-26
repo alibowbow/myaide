@@ -327,6 +327,11 @@ public final class HomeActivity extends Activity {
             if (path.startsWith("/appicon/")) return HtmlWallpaper.appIcon(this, path);
             if (path.equals("/pad-bg.webp")) return new WebResourceResponse("image/webp", null, getAssets().open("decor/pad-bg.webp"));
             if (path.equals("/mascot.png")) { File f = HtmlWallpaper.mascot(this); return f.isFile() ? new WebResourceResponse("image/png", null, new java.io.FileInputStream(f)) : HtmlWallpaper.missing(); }
+            if (path.startsWith("/sq/")) {
+                String id = Uri.decode(path.substring(4)).replaceAll("\\.png$", "");
+                byte[] png = square(id);
+                return png == null ? HtmlWallpaper.missing() : new WebResourceResponse("image/png", null, new ByteArrayInputStream(png));
+            }
             if (path.startsWith("/icon/")) {
                 String id = Uri.decode(path.substring(6)).replaceAll("\\.png$", "");
                 byte[] png = icon(id);
@@ -351,6 +356,42 @@ public final class HomeActivity extends Activity {
     }
     private final SharedPreferences.OnSharedPreferenceChangeListener pagesChanged = (p, key) -> { if (PAGES.equals(key)) js("launcher.pages(" + pagesJson() + ")"); };
     /** An app's icon as the phone draws it (its shape, a work badge), once: kept in memory and in the cache folder. */
+    /**
+     * An app's icon as a rounded square, for the folder previews (준: "폴더 미리보기 아이콘 감싸는 테두리를 둥근 사각형으로 해줘"): the
+     * app's own adaptive layers, read from its resources rather than through the phone theme's round frame, clipped to a
+     * rounded square; an icon without layers sits on white in the same shape. Kept in memory and the cache folder like icon().
+     */
+    private byte[] square(String id) {
+        byte[] got = ICONS.get("sq:" + id); if (got != null) return got;
+        LauncherActivityInfo info = known.get(id); if (info == null) return null;
+        long version = 0; try { version = getPackageManager().getPackageInfo(info.getApplicationInfo().packageName, 0).lastUpdateTime; } catch (Exception ignored) {}
+        File kept = new File(new File(getCacheDir(), "home-icons"), "sq-" + Integer.toHexString(id.hashCode()) + "-" + version + ".png");
+        try {
+            if (kept.isFile()) { got = Files.readAllBytes(kept.toPath()); ICONS.put("sq:" + id, got); return got; }
+            int dpi = getResources().getDisplayMetrics().densityDpi; Drawable d = null;
+            try {
+                int res = info.getActivityInfo().getIconResource(); if (res == 0) res = info.getApplicationInfo().icon;
+                if (res != 0) d = getPackageManager().getResourcesForApplication(info.getApplicationInfo()).getDrawableForDensity(res, dpi, null);
+            } catch (Exception | OutOfMemoryError own) { d = null; }
+            if (d == null) d = info.getIcon(dpi);
+            int size = 144; Bitmap b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888); Canvas c = new Canvas(b);
+            android.graphics.Path shape = new android.graphics.Path(); shape.addRoundRect(new android.graphics.RectF(0, 0, size, size), size * .26f, size * .26f, android.graphics.Path.Direction.CW);
+            c.clipPath(shape);
+            if (d instanceof android.graphics.drawable.AdaptiveIconDrawable a) {
+                int pad = size / 4; android.graphics.Rect layer = new android.graphics.Rect(-pad, -pad, size + pad, size + pad);
+                Drawable back = a.getBackground(), front = a.getForeground();
+                if (back != null) { back.setBounds(layer); back.draw(c); } else c.drawColor(android.graphics.Color.WHITE);
+                if (front != null) { front.setBounds(layer); front.draw(c); }
+            } else {
+                c.drawColor(android.graphics.Color.WHITE);
+                int inset = size / 9; d.setBounds(inset, inset, size - inset, size - inset); d.draw(c);
+            }
+            ByteArrayOutputStream out = new ByteArrayOutputStream(); b.compress(Bitmap.CompressFormat.PNG, 100, out); got = out.toByteArray();
+            ICONS.put("sq:" + id, got);
+            kept.getParentFile().mkdirs(); Files.write(kept.toPath(), got);
+            return got;
+        } catch (Exception | OutOfMemoryError unreadable) { return got != null ? got : icon(id); }
+    }
     private byte[] icon(String id) {
         byte[] got = ICONS.get(id); if (got != null) return got;
         LauncherActivityInfo info = known.get(id); if (info == null) return null;

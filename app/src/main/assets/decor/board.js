@@ -87,7 +87,7 @@ function makeBoard(slot) {
     const go = bubble.dataset.go; bubble.classList.remove("on", "act");
     if (go && !lockedNow) (window.boardGo || (w => { location.href = "/do/" + encodeURIComponent(w); }))(go);
   });
-  alive(b);
+  alive(b); roam(b);
   wireTaps(b); tick(b);
   boards.push(b); if (info) show(b);
   return b;
@@ -260,7 +260,7 @@ function touchBuddy(b) {
     b._longT = setTimeout(() => {
       if (!down || down.path > 16 || lockedNow) return;
       quiet = Date.now(); buddy.classList.add("squish"); if (navigator.vibrate) try { navigator.vibrate(12); } catch (x) {}
-      if (window.boardVoice) { closeCare(b); window.boardVoice(); } else openCare(b);
+      if (window.boardVoice) { closeCare(b); if (b._home) b._home(); window.boardVoice(); } else openCare(b);
     }, 520);
   });
   buddy.addEventListener("pointermove", e => {
@@ -390,6 +390,7 @@ function boardSeen(on) {
   if (!on) { if (seenNow) hiddenAt = Date.now(); seenNow = false; return; }
   const away = hiddenAt ? Date.now() - hiddenAt : 0; seenNow = true;
   if (away > 90000 && window.boardCare) window.boardCare("back");
+  if (away > 20000) boards.forEach(b => { if (b._home) b._home(); });
   // Back from a short while in an app: now and then a word about it (the app knows which one).
   if (away > 20000 && away <= 90000 && Math.random() < .35 && Date.now() - (window._appTalkAt || 0) > 600000) { window._appTalkAt = Date.now(); setTimeout(() => boards.forEach(b => askThink(b, "app", "")), 900); }
   if (away > 90000) setTimeout(() => {
@@ -405,7 +406,7 @@ setTimeout(() => talk(true), 2200);
   then a small act of its own (a tilt, a stretch, a wiggle of the antenna, a look around). Its mood follows the day:
   thinking while 퍼레 works, surprised at a new notice, asleep late at night; a feeling (happy, love) wins for a moment.
 */
-const FEELS = ["happy", "love", "surprised", "sleepy", "thinking", "sad", "dizzy", "yum", "yawn", "wink", "laugh", "shy", "full"];
+const FEELS = ["happy", "love", "surprised", "sleepy", "thinking", "sad", "dizzy", "yum", "yawn", "wink", "laugh", "shy", "full", "blow"];
 function alive(b) {
   const svg = $(b, ".bot"), look = $(b, ".b-look"), buddy = $(b, ".buddy"), rnd = (a, z) => a + Math.random() * (z - a);
   let mood = "", feeling = "", feelTimer = 0;
@@ -550,6 +551,7 @@ function boardEnv(env) { if (!env) return; info = info || {}; info.env = env; bo
 */
 function openCare(b) {
   if (lockedNow) return;
+  if (b._home) b._home();
   const card = $(b, ".care"); $(b, ".bubble").classList.remove("on", "act");
   b._careOn = true; drawCare(b); card.classList.add("on");
   clearTimeout(b._careT); b._careT = setTimeout(() => closeCare(b), 12000);
@@ -633,4 +635,76 @@ function boardVoiceState(state, text) {
       else bubble.classList.remove("on");
     }
   });
+}
+
+/*
+  퍼레 plays on its own in the top right (준: "퍼레가 우상단 공간을 돌아다니면서 혼자 놀 수 있게해줘", "모션 갯수도 추가하고"): now
+  and then it hops to another spot in the room between the clock widget and the screen's edge and plays there: bounces a ball
+  and kicks it, chases a butterfly, blows soap bubbles, cartwheels, stands on its hands, peeks in from the edge, does its
+  exercises, looks over at the clock, jumps for joy, dances, naps late in the evening. Not while it talks, listens, thinks,
+  is held, sleeps at night or its card is open; a tap, its card or the voice talk bring it home first.
+*/
+function roam(b) {
+  const buddy = $(b, ".buddy"), hero = $(b, ".hero"), cb = $(b, ".care-btn"), rnd = (a, z) => a + Math.random() * (z - a);
+  let x = 0, y = 0, playing = false;
+  // How far it may go: left to just past the widget's words, a little up and down.
+  const room = () => {
+    const br = buddy.getBoundingClientRect(), when = $(b, ".when");
+    let right = when.getBoundingClientRect().left;
+    for (const c of when.children) if (c.offsetParent) right = Math.max(right, c.getBoundingClientRect().right);
+    const homeLeft = br.left - x;
+    return {min: Math.min(0, Math.round(right + 14 - homeLeft)), up: -10, down: 12};
+  };
+  const busy = () => document.hidden || voiceOn || b._careOn || lockedNow || buddy.classList.contains("squish") || buddy.classList.contains("asleep")
+    || $(b, ".bubble").classList.contains("on") || $(b, ".bot").classList.contains("thinking");
+  const place = ms => {
+    const t = "translate(" + x.toFixed(0) + "px," + y.toFixed(0) + "px)";
+    buddy.style.transition = cb.style.transition = "transform " + ms + "ms cubic-bezier(.45,.1,.55,.9)";
+    buddy.style.transform = cb.style.transform = t;
+  };
+  const walk = (nx, ny, done, how) => {
+    const dist = Math.hypot(nx - x, ny - y);
+    if (dist < 4) { if (done) done(); return; }
+    const ms = Math.round(Math.max(450, dist / 75 * 1000));
+    buddy.style.setProperty("--face", nx < x ? "-1" : "1");
+    buddy.classList.add(how || "walking"); x = nx; y = ny; place(ms);
+    setTimeout(() => { buddy.classList.remove(how || "walking"); if (done) done(); }, ms);
+  };
+  const toy = (cls, html, ms) => { const t = document.createElement("i"); t.className = "toy " + cls; if (html) t.innerHTML = html; buddy.appendChild(t); setTimeout(() => t.remove(), ms); return t; };
+  const feel = (f, ms) => { if (b._feel) b._feel(f, ms); };
+  const gazeTo = (gx, gy) => { const look = $(b, ".b-look"); look.style.transition = "transform 260ms ease"; look.style.transform = "translate(" + gx + "px," + gy + "px)"; };
+  const PLAYS = {
+    ball: end => { toy("ball", "", 2900); [0, 600, 1200].forEach((t, i) => setTimeout(() => { gazeTo(0, -4.5); setTimeout(() => gazeTo(0, 1.5), 300); }, t)); setTimeout(() => { move(b, "hop", 760); feel("laugh", 1200); }, 1900); setTimeout(() => { gazeTo(0, 0); end(); }, 2900); },
+    butterfly: end => { toy("fly", '<b></b><b></b>', 4200); const path = [[-6, -4], [5, -5], [-4, -2], [6, -4.5], [0, -6]]; path.forEach((g, i) => setTimeout(() => gazeTo(g[0], g[1]), i * 800)); setTimeout(() => move(b, "hop", 760), 1600); setTimeout(() => move(b, "hop", 760), 3000); setTimeout(() => { feel("surprised", 900); }, 3600); setTimeout(() => { gazeTo(0, 0); end(); }, 4300); },
+    bubbles: end => { feel("blow", 2600); for (let i = 0; i < 4; i++) setTimeout(() => { const t = toy("soap", "", 2600); t.style.setProperty("--dx", rnd(-26, 26).toFixed(0) + "px"); t.style.left = rnd(30, 60).toFixed(0) + "%"; }, 300 + i * 420); setTimeout(() => { feel("happy", 1200); end(); }, 3200); },
+    cartwheel: end => { const r = room(), nx = x - 40 < r.min ? Math.min(0, x + 50) : x - 50; walk(nx, y, () => { feel("laugh", 1100); end(); }, "cartwheel"); },
+    handstand: end => { move(b, "handstand", 2600); feel("laugh", 2600); setTimeout(end, 2700); },
+    peek: end => walk(0, 0, () => { move(b, "peek", 2600); setTimeout(() => feel("surprised", 700), 1500); setTimeout(() => feel("laugh", 900), 2200); setTimeout(end, 2700); }),
+    exercise: end => { move(b, "exercise", 2500); feel("happy", 2500); setTimeout(end, 2600); },
+    clock: end => { const r = room(); walk(r.min, Math.max(r.up, Math.min(r.down, y)), () => { buddy.style.setProperty("--face", "-1"); move(b, "tilt", 1300); gazeTo(-6.5, -2); setTimeout(() => { move(b, "nod", 900); }, 1300); setTimeout(() => { gazeTo(0, 0); end(); }, 2400); }); },
+    jump: end => { move(b, "hop", 760); setTimeout(() => move(b, "hop", 760), 800); feel("happy", 1700); setTimeout(end, 1700); },
+    dance: end => { move(b, "dance", 3600); feel("happy", 3600); setTimeout(end, 3700); },
+    spin: end => { move(b, "spin", 950); feel("laugh", 1300); setTimeout(end, 1100); },
+    nap: end => { buddy.classList.add("nap"); feel("yawn", 1500); setTimeout(() => { if (b._mood) b._mood("sleepy"); }, 1500); setTimeout(() => { buddy.classList.remove("nap"); if (b._mood) b._mood(""); move(b, "stretch", 1300); end(); }, 6500); }
+  };
+  const play = () => {
+    if (playing || busy()) return;
+    const h = new Date().getHours(), e = b._env || {}, kinds = ["ball", "butterfly", "bubbles", "cartwheel", "handstand", "peek", "exercise", "clock", "jump", "dance", "spin"];
+    if (h >= 21 || h < 1 || e.save) kinds.push("nap", "nap");
+    if (e.rain) kinds.splice(kinds.indexOf("butterfly"), 1);
+    const kind = kinds[Math.floor(Math.random() * kinds.length)];
+    playing = true;
+    const r = room(), here = () => { try { PLAYS[kind](() => { playing = false; }); } catch (err) { playing = false; } };
+    // Most plays start somewhere new in the room.
+    if (Math.random() < .7 && kind !== "peek" && kind !== "clock" && r.min < -20) walk(Math.round(rnd(r.min, 0)), Math.round(rnd(r.up, r.down)), here); else here();
+    setTimeout(() => { playing = false; }, 12000);
+  };
+  const tick = () => { play(); setTimeout(tick, rnd(9000, 17000)); };
+  setTimeout(tick, rnd(5000, 9000));
+  // Home: back to its place (a tap, its card, the voice talk, the screen opened again).
+  b._home = () => { if (x || y) { x = 0; y = 0; place(400); } };
+  // One play by name, now (for a look at it; the home screen never calls it).
+  b._play = kind => { if (PLAYS[kind] && !playing) { playing = true; PLAYS[kind](() => { playing = false; }); } };
+  b._walk = (nx, ny) => walk(nx, ny);
+  addEventListener("resize", () => b._home());
 }

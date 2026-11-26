@@ -87,7 +87,7 @@ body.launcher{position:fixed;inset:0}
 .stack{display:flex;flex-direction:column;align-items:center;gap:7px;border:0;background:none;padding:0;font:inherit;color:var(--ink);min-width:0}
 .pile{position:relative;width:100%;aspect-ratio:1;max-width:var(--folder,72px);border-radius:23%;background:var(--tile);border:1px solid var(--glass-line);box-shadow:var(--shadow);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);display:grid;grid-template-columns:repeat(2,1fr);grid-auto-rows:1fr;gap:9%;padding:14%;transition:transform .5s var(--spring)}
 /* Four apps a folder, not nine (준: "폴더 미리보기 동그라미가 너무 많이보여서 어지러워"): fewer, bigger, calmer. */
-.pile img{width:100%;height:100%;object-fit:contain}
+.pile img{width:100%;height:100%;object-fit:contain;border-radius:26%;filter:drop-shadow(0 1px 2px rgba(0,0,0,.18))}
 .stack .name{font-size:12px;font-weight:700;letter-spacing:-.3px;text-shadow:var(--halo);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .stack.down .pile,.app.down .ic{transform:scale(.9);transition:transform .1s ease}
 .badge{position:absolute;right:-4px;top:-4px;min-width:19px;height:19px;padding:0 5px;border-radius:999px;background:var(--accent);color:#fff;font-size:11px;font-weight:750;display:grid;place-items:center;box-shadow:0 1px 4px rgba(20,30,60,.18)}
@@ -399,7 +399,7 @@ body.liquid .coins .coin .px{font-size:14.5px;font-weight:650;letter-spacing:-.0
 body.liquid .coins .pct{font-size:10.5px}
 /* 퍼레's bubble hangs under it on every screen, clear of the weather beside the clock. */
 body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18px 4px 18px 18px;transform-origin:100% 0;z-index:5;max-width:min(220px,calc(100vw - 40px))}
-.lib-head{padding-top:22px}
+.lib-head{padding-top:32px}
 /* the search, with 알림 · 제안 at its end: one line, the same edges as the cards (준: "알림과 제안 버튼 위치가 정렬이 이상해") */
 .search-row{display:flex;align-items:stretch;gap:8px;margin:12px 18px 2px}
 .search-row:not(.has-minis){display:none}
@@ -473,6 +473,8 @@ const PAD_ICON = '<svg viewBox="0 0 24 24" fill="currentColor">' + [6, 12, 18].m
 const el = id => document.getElementById(id);
 let DOCK_COUNTS = new Set(), APPS = [], BY = new Map(), DOCK = [], RECENT = [], STACKS = [], BADGES = {}, ORDER = {}, filter = "";
 const iconOf = a => "/icon/" + encodeURIComponent(a.id) + ".png?v=" + a.v;
+// The folder previews: the app's own icon as a rounded square, not the theme's round frame (준: "폴더 미리보기 아이콘 감싸는 테두리를 둥근 사각형으로").
+const squareOf = a => "/sq/" + encodeURIComponent(a.id) + ".png?v=" + a.v;
 const badgeOf = a => BADGES[a.pkg] || 0;
 const badgeHtml = n => n > 0 ? '<span class="badge">' + (n > 99 ? "99+" : n) + '</span>' : "";
 
@@ -520,7 +522,7 @@ function drawStacks() {
   for (const s of STACKS) {
     const apps = inStack(s.id); if (!apps.length) continue;
     // No count on a folder's corner (준: "폴더의 우상단 엣지에 숫자띄우지 말아줘"): the apps inside keep theirs.
-    out.push('<button class="stack" data-stack="' + s.id + '"><span class="pile">' + apps.slice(0, 4).map(a => '<img alt="" decoding="async" src="' + iconOf(a) + '">').join("") + '</span><span class="name"><i style="background:' + (DOT[s.id] || "#a1a1aa") + '"></i>' + esc(s.name) + ' <small>' + apps.length + '</small></span></button>');
+    out.push('<button class="stack" data-stack="' + s.id + '"><span class="pile">' + apps.slice(0, 4).map(a => '<img alt="" decoding="async" src="' + squareOf(a) + '">').join("") + '</span><span class="name"><i style="background:' + (DOT[s.id] || "#a1a1aa") + '"></i>' + esc(s.name) + ' <small>' + apps.length + '</small></span></button>');
   }
   el("stacks").innerHTML = out.join("");
   el("libCount").textContent = APPS.length ? APPS.length + "개의 앱" : "";
