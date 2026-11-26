@@ -209,8 +209,32 @@ function cheer(b) {
   // Tapped: happy eyes; three taps in a moment, hearts.
   const now = Date.now(); b._taps = (b._taps || []).filter(t => now - t < 1800).concat(now);
   if (b._feel) b._feel(b._taps.length >= 3 ? "love" : "happy", b._taps.length >= 3 ? 2600 : 1500);
+  if (window.boardThink) { thinking(b); window.boardThink("tap"); return; }
   speak(b, {text: say(b)}, 3400);
 }
+/** 퍼레 is thinking (the AI writes its line): the thinking face, dots in the bubble, until the line arrives. */
+function thinking(b) {
+  const bubble = $(b, ".bubble");
+  bubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>'; bubble.dataset.go = ""; bubble.classList.remove("act"); bubble.classList.add("on");
+  if (b._mood) b._mood("thinking");
+  clearTimeout(b._bubble); b._bubble = setTimeout(() => { if (!b._spoken) bubble.classList.remove("on"); }, 15000);
+  b._spoken = false;
+}
+/** The line the AI wrote, typed into the bubble as it is said (the mouth moves while it types). */
+function thought(line) {
+  boards.forEach(b => {
+    const bubble = $(b, ".bubble"), svg = $(b, ".bot"); b._spoken = true;
+    if (b._mood) b._mood(""); if (b._feel) b._feel("happy", 1600);
+    bubble.textContent = ""; bubble.classList.add("on"); if (svg) svg.classList.add("talking");
+    let i = 0; const chars = Array.from(line);
+    clearInterval(b._typing);
+    b._typing = setInterval(() => {
+      i++; bubble.textContent = chars.slice(0, i).join("");
+      if (i >= chars.length) { clearInterval(b._typing); if (svg) svg.classList.remove("talking"); clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on"), 6500); }
+    }, 38);
+  });
+}
+function thoughtFail() { boards.forEach(b => { if (b._mood) b._mood(""); speak(b, {text: say(b)}, 3400); }); }
 /** The bubble over the friend: words, and what a tap on it opens (if anything). */
 function speak(b, line, ms) {
   const bubble = $(b, ".bubble");
@@ -269,7 +293,10 @@ function talk(opened) {
 function boardSeen(on) {
   if (!on) { if (seenNow) hiddenAt = Date.now(); seenNow = false; return; }
   const away = hiddenAt ? Date.now() - hiddenAt : 0; seenNow = true;
-  if (away > 90000) setTimeout(() => talk(true), 900);
+  if (away > 90000) setTimeout(() => {
+    if (window.boardThink && Date.now() - (window._thoughtAt || 0) > 300000 && !nextLine(info, before, false)) { window._thoughtAt = Date.now(); boards.forEach(thinking); window.boardThink("back"); }
+    else talk(true);
+  }, 900);
 }
 setTimeout(() => talk(true), 2200);
 

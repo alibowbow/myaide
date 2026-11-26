@@ -122,7 +122,7 @@ public final class HomeActivity extends Activity {
                     try { return HtmlWallpaper.html(PageStore.book(HomeActivity.this).body(Uri.decode(u.getLastPathSegment() == null ? "" : u.getLastPathSegment()))); }
                     catch (Exception gone) { return HtmlWallpaper.html("<body style='background:#111;color:#bbb;font:16px sans-serif;display:grid;place-items:center;height:100vh'>이 페이지를 찾지 못했어요</body>"); }
                 }
-                if (!"gyeot.local".equalsIgnoreCase(host)) return null;
+                if (!"gyeot.local".equalsIgnoreCase(host)) return HtmlWallpaper.tuned(request);
                 String path = u.getPath() == null ? "/" : u.getPath();
                 // The home screen page (and its secret) only as the page itself, never inside a frame.
                 if ((path.equals("/") || path.equals("/launcher.html")) && !request.isForMainFrame()) return HtmlWallpaper.missing();
@@ -188,6 +188,7 @@ public final class HomeActivity extends Activity {
     }
     @Override protected void onPause() {
         shown = false; pausedAt = android.os.SystemClock.uptimeMillis(); NoticeListener.changed = null; main.removeCallbacks(refresh);
+        prefs.edit().putLong("awaySince", System.currentTimeMillis()).apply();
         if (ready && web != null) web.evaluateJavascript("launcher.hidden&&launcher.hidden()", null);
         super.onPause();
     }
@@ -383,6 +384,7 @@ public final class HomeActivity extends Activity {
                 case "web" -> b.web(a.optString(0, null));
                 case "settings" -> b.settings(a.optString(0, ""));
                 case "bars" -> b.bars(a.optBoolean(0));
+                case "think" -> { String why = a.optString(0, "tap"); try { io.execute(() -> BuddyTalk.think(HomeActivity.this, why, line -> js("launcher.thought(" + JSONObject.quote(line) + ")"), () -> js("launcher.thoughtFail()"))); } catch (RuntimeException ignored) {} }
                 default -> {}
             }
         }
@@ -410,6 +412,9 @@ public final class HomeActivity extends Activity {
                 Bundle opts = web == null ? null : ActivityOptions.makeScaleUpAnimation(web, from.left, from.top, from.width(), from.height()).toBundle();
                 try { launcher.startMainActivity(info.getComponentName(), info.getUser(), from, opts); }
                 catch (RuntimeException gone) { Toast.makeText(HomeActivity.this, "이 앱을 열지 못했어요.", Toast.LENGTH_SHORT).show(); pushApps(); return; }
+                JSONArray names = new JSONArray(); names.put(String.valueOf(info.getLabel()));
+                try { JSONArray was = new JSONArray(prefs.getString("recentLabels", "[]")); for (int i = 0; i < was.length() && names.length() < 6; i++) if (!names.optString(0).equals(was.optString(i))) names.put(was.optString(i)); } catch (Exception ignored) {}
+                prefs.edit().putString("recentLabels", names.toString()).apply();
                 JSONArray recent = new JSONArray(); recent.put(id);
                 JSONArray old = read(RECENT, new JSONArray());
                 for (int i = 0; i < old.length() && recent.length() < 6; i++) if (!id.equals(old.optString(i))) recent.put(old.optString(i));

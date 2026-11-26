@@ -99,6 +99,11 @@ html,body{margin:0;height:100%;overflow:hidden;background:#dfeefe;font-family:va
 @keyframes zz{0%{opacity:0;transform:translate(0,8px) scale(.7)}40%{opacity:.9}100%{opacity:0;transform:translate(10px,-14px) scale(1.1)}}
 .bubble{position:absolute;right:92px;bottom:30px;max-width:230px;width:max-content;white-space:normal;padding:10px 14px;border-radius:18px 18px 4px 18px;background:#fff;color:#1c1c1e;font-size:14px;font-weight:650;line-height:1.35;box-shadow:var(--shade);opacity:0;transform:translateY(8px) scale(.85);transform-origin:100% 100%;transition:opacity .25s,transform .45s var(--spring);pointer-events:none;text-align:left}
 .bubble.on{opacity:1;transform:none}
+.bubble .typing{display:inline-flex;gap:4px;padding:3px 2px}.bubble .typing i{width:6px;height:6px;border-radius:50%;background:#9a9aa6;animation:dot 1.1s ease-in-out infinite}
+.bubble .typing i:nth-child(2){animation-delay:.15s}.bubble .typing i:nth-child(3){animation-delay:.3s}
+.bot.talking .b-mouth{opacity:1;animation:talk .22s ease-in-out infinite alternate}
+@keyframes talk{from{transform:scaleY(.4)}to{transform:scaleY(1.4)}}
+.bot .b-mouth{transform-box:fill-box;transform-origin:center}
 /* A narrow screen (a foldable's cover) has no room beside 퍼레: the bubble hangs below it, the clock stays in sight. */
 @media (max-width:420px){.bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18px 4px 18px 18px;transform-origin:100% 0;z-index:5}}
 .hero{position:relative;z-index:3}

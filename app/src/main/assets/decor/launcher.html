@@ -22,9 +22,9 @@ html,body{background:transparent !important;overflow:hidden;touch-action:manipul
 /* the pages, side by side; a swipe moves one page (준: "홈화면에서 좌우로 페이지 넘기기가 안돼") */
 #pages{position:absolute;inset:0;display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;overscroll-behavior:none;scrollbar-width:none}
 #pages::-webkit-scrollbar{display:none}
-.page{flex:0 0 100%;height:100%;overflow-y:auto;overflow-x:hidden;scroll-snap-align:start;scroll-snap-stop:always;overscroll-behavior-y:none;scrollbar-width:none;padding-bottom:calc(var(--bottom) + 118px)}
+.page{flex:0 0 100%;height:100%;overflow-y:auto;overflow-x:hidden;scroll-snap-align:start;scroll-snap-stop:always;overscroll-behavior-y:none;scrollbar-width:none;padding-bottom:calc(var(--bottom) + var(--dockTop, 80px) + 38px)}
 .page::-webkit-scrollbar{display:none}
-.pager{position:fixed;left:0;right:0;bottom:calc(var(--bottom) + 94px);display:flex;justify-content:center;gap:7px;z-index:5;pointer-events:none;transition:opacity .25s}
+.pager{position:fixed;left:0;right:0;bottom:calc(var(--bottom) + var(--dockTop, 80px) + 14px);display:flex;justify-content:center;gap:7px;z-index:5;pointer-events:none;transition:opacity .25s}
 .pager i{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.28);transition:background .25s,transform .25s}
 .pager i.on{background:#f5f5f7;transform:scale(1.15)}
 .launcher:not(.liquid) .pager i{background:rgba(0,0,0,.2)}.launcher:not(.liquid) .pager i.on{background:var(--ink)}
@@ -79,10 +79,10 @@ body.launcher{position:fixed;inset:0}
 /* The home page never scrolls or stretches (준: "이런 스크롤이 있으니 안정적이지 않아 없애줘"): it is one screen; the board gives way
    first (board.js fit), and only App Library scrolls, quietly, when there are more folders than fit. */
 #home{overflow:hidden !important;touch-action:manipulation !important;padding-bottom:0 !important}
-#home>.inner{display:flex;flex-direction:column;height:100%;padding-bottom:calc(var(--bottom) + 118px);box-sizing:border-box}
+#home>.inner{display:flex;flex-direction:column;height:100%;padding-bottom:calc(var(--bottom) + var(--dockTop, 80px) + 38px);box-sizing:border-box}
 #home>.inner>*{flex:none}
 /* A sideways swipe anywhere on 홈, App Library included, turns the page (준: "왼쪽 페이지와 우측 페이지가 안 열려"). */
-#home .stacks{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior-y:none;align-content:start;touch-action:manipulation;scrollbar-width:none}
+#home .stacks{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:none;align-content:start;touch-action:manipulation;scrollbar-width:none}
 #home .stacks::-webkit-scrollbar{display:none}
 .stack{display:flex;flex-direction:column;align-items:center;gap:7px;border:0;background:none;padding:0;font:inherit;color:var(--ink);min-width:0}
 .pile{position:relative;width:100%;aspect-ratio:1;max-width:var(--folder,72px);border-radius:23%;background:var(--tile);border:1px solid var(--glass-line);box-shadow:var(--shadow);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:5%;padding:12%;transition:transform .5s var(--spring)}
@@ -106,6 +106,9 @@ body.launcher{position:fixed;inset:0}
 .dk .badge{right:-4px;top:-4px}
 .dk.open::after{content:"";position:absolute;left:50%;bottom:-6px;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:var(--ink2)}
 .shelf.scrub .dk{transition:transform .08s linear}
+.shelf.rows{display:grid;grid-template-columns:repeat(var(--cols),var(--dockIcon));grid-auto-rows:var(--dockIcon);align-items:end;justify-content:center}
+.shelf.rows .sep{display:none}
+.shelf.rows .find-btn{grid-column:-2 / -1}
 .sep{width:1px;align-self:stretch;margin:4px 2px;background:var(--ink3);opacity:.4;flex:none}
 .pad-btn{display:grid;place-items:center;border-radius:28%;background:var(--glass);border:1px solid var(--glass-line);color:var(--accent)}
 .pad-btn svg{width:58%;height:58%}
@@ -150,6 +153,10 @@ body.launcher{position:fixed;inset:0}
 .chip.on{background:var(--accent);color:#fff;border-color:transparent}
 #home,.dock{transition:opacity .25s ease}
 body.covered #pages,body.covered .dock,body.covered .island,body.covered .pager{opacity:0;pointer-events:none}
+/* The user's own pages (right of 홈) are whole screens: no dock over them (준: "우측페이지에 독이 나타나는것 없애줘"), the dots low. */
+.dock{transition:opacity .2s ease}
+body.on-custom .dock{opacity:0;pointer-events:none}
+body.on-custom .pager{bottom:calc(var(--bottom) + 10px)}
 #pages,.dock{transition:opacity .25s ease}
 .field{min-width:0}.close{flex:none}
 .pad-body{flex:1;overflow-y:auto;padding:4px 18px calc(var(--bottom) + 30px);scrollbar-width:none}
@@ -267,8 +274,8 @@ body.liquid .sep{background:var(--hair2);opacity:1}
 body.liquid .tip{background:rgba(0,0,0,.82);border:1px solid var(--hair2)}
 /* covers, Launchpad, menus */
 body.liquid .pad{background:var(--cover)}
-body.liquid .veil{background:rgba(5,6,11,.5);-webkit-backdrop-filter:blur(34px) saturate(1.25);backdrop-filter:blur(34px) saturate(1.25);transition:opacity .1s ease}
-body.liquid.photo .veil{background:rgba(5,6,11,.72)}
+body.liquid .veil{background:rgba(5,6,11,.42);-webkit-backdrop-filter:blur(6px) saturate(1.1);backdrop-filter:blur(6px) saturate(1.1);transition:opacity .1s ease}
+body.liquid.photo .veil{background:rgba(5,6,11,.55)}
 body.liquid .pad-top .field{background:rgba(255,255,255,.07);border:1px solid var(--hair2)}
 body.liquid .close{color:#c4b5fd}
 body.liquid .chip{background:rgba(255,255,255,.06);border:1px solid var(--hair);color:var(--ink2);display:inline-flex;align-items:center;gap:6px}
@@ -302,21 +309,21 @@ body.liquid .menu hr{background:var(--hair2)}
 @media (min-width:600px){body.liquid .clock{font-size:74px}}
 /* Launchpad (every app, the search, the talk with 퍼레) in soft pastel, not near-black (준: "All app 표시란 바탕이 너무 새까매서 눈이
    피로해 보기편한 파스텔톤으로"): dark words on light glass. */
-body.liquid .pad{background:#eef2e6;--ink:#26302a;--ink2:#56625a;--ink3:#8a958c;--glass:rgba(255,255,255,.7);--glass-line:rgba(255,255,255,.95);--hair:rgba(40,60,40,.08);--hair2:rgba(40,60,40,.12);color:var(--ink)}
-body.liquid .pad::before{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;background:
-  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .32  0 0 0 0 .38  0 0 0 0 .3  0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23p)'/%3E%3C/svg%3E"),
-  linear-gradient(170deg,#f3f6ec 0%,#e9f0e1 45%,#e4ecdb 100%)}
+body.liquid .pad{background:#edf0ee;--ink:#263238;--ink2:#53616a;--ink3:#89949a;--glass:rgba(255,255,255,.72);--glass-line:rgba(255,255,255,.95);--hair:rgba(30,50,60,.08);--hair2:rgba(30,50,60,.12);color:var(--ink)}
+/* the watercolour behind it: paper, an aqua wash, sea grass, coral, stones, bubbles (no whale), all faint */
+.pad-art{position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none;display:none;will-change:transform}
+body.liquid .pad-art{display:block}
 body.liquid .pad{isolation:isolate}
-body.liquid .pad-top .field{background:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.98);box-shadow:0 4px 14px rgba(60,80,60,.08)}
+body.liquid .pad-top .field{background:rgba(255,255,255,.8);border:1px solid rgba(255,255,255,.98);box-shadow:0 4px 14px rgba(40,70,80,.08)}
 body.liquid .pad .field input{color:var(--ink)}
-body.liquid .pad .close{color:#4f7a58}
+body.liquid .pad .close{color:#4f8587}
 body.liquid .pad .chip{background:rgba(255,255,255,.72);border:1px solid rgba(255,255,255,.95);color:#4a4b5e}
-body.liquid .pad .chip.on{background:#6f9a76;color:#fff;border-color:transparent}
-body.liquid .pad .msg.me{background:linear-gradient(135deg,#86ad89,#5f8f69)}
-body.liquid .pad .ask .dot{background:#6f9a76 !important}
+body.liquid .pad .chip.on{background:#5f9596;color:#fff;border-color:transparent}
+body.liquid .pad .msg.me{background:linear-gradient(135deg,#7fb0ae,#5a8f8f)}
+body.liquid .pad .ask .dot{background:#5f9596 !important}
 body.liquid .pad .pad-body h3{color:#8b8c9e}
 body.liquid .pad .app .label{color:#2a2b38;text-shadow:none}
-body.liquid .pad .app .ic img{filter:drop-shadow(0 3px 8px rgba(50,70,50,.16))}
+body.liquid .pad .app .ic img{filter:drop-shadow(0 3px 8px rgba(40,60,70,.16))}
 body.liquid .pad .ask{background:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.95);color:var(--ink)}
 body.liquid .pad .ask b{color:var(--ink)}
 body.liquid .pad .mini{background:rgba(255,255,255,.75);border:1px solid rgba(255,255,255,.95);color:#575869}
@@ -337,6 +344,44 @@ body.liquid .board .wrap{gap:10px;padding-top:calc(var(--top) + 16px)}
 .w-line:active{opacity:.7}
 body.liquid .hero{min-height:0}
 body.liquid .clock{margin:6px 0 4px}
+/*
+  The top-left widget as wide as its room (준: "왼쪽위 날씨날짜 위젯이 너무 좁아"): the date over the clock, and the weather beside
+  the clock behind a hairline, big enough to read at a glance. On a narrow screen (a foldable's cover) the weather sits under it.
+*/
+body.liquid .hero{align-items:flex-start;gap:14px}
+body.liquid .when{flex:1 1 auto;min-width:0;display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-areas:"date date" "clock weather";align-items:center;column-gap:28px}
+body.liquid .when .date{grid-area:date}
+body.liquid .when .clock{grid-area:clock}
+body.liquid .when .w-line{grid-area:weather;justify-self:start;display:grid;grid-template-columns:auto auto;grid-template-areas:"ic temp" "place place" "range range";align-items:center;column-gap:10px;row-gap:2px;padding:6px 0 6px 26px;border-left:1px solid var(--glass-line);white-space:nowrap;min-width:0}
+body.liquid .when .w-line .w-ic{grid-area:ic;width:46px;height:46px}
+body.liquid .when .w-line .w-ic svg{width:46px;height:46px}
+body.liquid .when .w-line b{grid-area:temp;font-size:40px;font-weight:300;letter-spacing:-.04em;line-height:1}
+body.liquid .when .w-line #wPlace{grid-area:place;font-size:15px;margin-top:4px;min-width:0}
+body.liquid .when .w-line #wRange{grid-area:range;font-size:12px}
+@media (max-width:599px){
+  body.liquid .when{grid-template-columns:minmax(0,1fr);grid-template-areas:"date" "clock" "weather"}
+  body.liquid .when .w-line{display:inline-flex;gap:8px;padding:0;border-left:0}
+  body.liquid .when .w-line .w-ic,body.liquid .when .w-line .w-ic svg{width:30px;height:30px}
+  body.liquid .when .w-line b{font-size:22px;font-weight:600}
+  body.liquid .when .w-line #wPlace{font-size:14px;margin-top:0}
+}
+#stacks.big .stack{gap:9px}
+#stacks.big .stack .name{font-size:13.5px}
+@media (min-width:600px) and (min-height:640px){
+  body.liquid .board .wrap{gap:16px;padding-top:calc(var(--top) + 30px)}
+  body.liquid .clock{font-size:96px}
+  body.liquid .when .date{font-size:12.5px}
+}
+/* The prices, small (준: "시세창이 너무 메인처럼 커"): one slim strip as wide as its words, no title, under the clock. */
+body.liquid .grid>.coins{justify-self:start;max-width:100%;padding:8px 15px;border-radius:15px;gap:0}
+body.liquid .coins .eyebrow{display:none}
+body.liquid .coins .coin-list{display:flex;flex-wrap:wrap;column-gap:18px;row-gap:3px}
+body.liquid .coins .coin{flex-direction:row;align-items:baseline;gap:6px}
+body.liquid .coins .coin b{font-size:10.5px}
+body.liquid .coins .coin .px{font-size:14.5px;font-weight:650;letter-spacing:-.02em}
+body.liquid .coins .pct{font-size:10.5px}
+/* 퍼레's bubble hangs under it on every screen, clear of the weather beside the clock. */
+body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18px 4px 18px 18px;transform-origin:100% 0;z-index:5;max-width:min(220px,calc(100vw - 40px))}
 .lib-head{padding-top:10px}
 /* the search, with 알림 · 제안 at its end: one line, the same edges as the cards (준: "알림과 제안 버튼 위치가 정렬이 이상해") */
 .search-row{display:flex;align-items:stretch;gap:8px;margin:12px 18px 2px}
@@ -394,6 +439,36 @@ body.liquid .clock{margin:6px 0 4px}
 <div class="veil" id="veil"></div>
 <div class="fan" id="fan"></div>
 <section class="pad" id="pad">
+  <svg class="pad-art" viewBox="0 0 400 860" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <defs>
+      <filter id="paper" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="3" seed="4" result="n"/><feDiffuseLighting in="n" lighting-color="#f6f7f5" surfaceScale="1.15"><feDistantLight azimuth="235" elevation="62"/></feDiffuseLighting></filter>
+      <filter id="wash" x="-40%" y="-40%" width="180%" height="180%"><feTurbulence type="fractalNoise" baseFrequency=".013" numOctaves="3" seed="9" result="t"/><feDisplacementMap in="SourceGraphic" in2="t" scale="46" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="7"/></filter>
+      <filter id="ink" x="-20%" y="-20%" width="140%" height="140%"><feTurbulence type="fractalNoise" baseFrequency=".05" numOctaves="2" seed="2" result="t"/><feDisplacementMap in="SourceGraphic" in2="t" scale="4" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation=".7"/></filter>
+    </defs>
+    <rect width="400" height="860" fill="#edf0ee"/>
+    <rect width="400" height="860" filter="url(#paper)" opacity=".5" style="mix-blend-mode:multiply"/>
+    <g filter="url(#wash)" opacity=".5">
+      <ellipse cx="205" cy="470" rx="165" ry="230" fill="#b9d8d4"/>
+      <ellipse cx="135" cy="300" rx="95" ry="80" fill="#cbe4df"/>
+      <ellipse cx="290" cy="640" rx="105" ry="95" fill="#c2ddd9"/>
+      <ellipse cx="190" cy="700" rx="150" ry="40" fill="#d3e3e0"/>
+    </g>
+    <g filter="url(#ink)" opacity=".42">
+      <!-- sea grass, bottom left -->
+      <path d="M58 760 C64 700 48 650 60 590 C70 540 58 500 66 460" fill="none" stroke="#6e9a7a" stroke-width="2.4" stroke-linecap="round"/>
+      <g fill="#86ad8f"><ellipse cx="50" cy="700" rx="5" ry="16" transform="rotate(-30 50 700)"/><ellipse cx="70" cy="660" rx="5" ry="15" transform="rotate(30 70 660)"/><ellipse cx="52" cy="615" rx="5" ry="15" transform="rotate(-28 52 615)"/><ellipse cx="72" cy="570" rx="5" ry="14" transform="rotate(28 72 570)"/><ellipse cx="56" cy="525" rx="4.5" ry="13" transform="rotate(-25 56 525)"/><ellipse cx="72" cy="488" rx="4.5" ry="12" transform="rotate(25 72 488)"/></g>
+      <!-- sea grass, bottom right -->
+      <path d="M350 790 C344 740 360 700 348 650 C340 610 352 580 346 548" fill="none" stroke="#6e9a7a" stroke-width="2.2" stroke-linecap="round"/>
+      <g fill="#86ad8f"><ellipse cx="360" cy="745" rx="5" ry="15" transform="rotate(30 360 745)"/><ellipse cx="338" cy="705" rx="5" ry="14" transform="rotate(-30 338 705)"/><ellipse cx="358" cy="662" rx="4.5" ry="14" transform="rotate(28 358 662)"/><ellipse cx="338" cy="622" rx="4.5" ry="13" transform="rotate(-26 338 622)"/><ellipse cx="354" cy="584" rx="4" ry="12" transform="rotate(24 354 584)"/></g>
+      <!-- coral and stones -->
+      <g fill="none" stroke="#df8f7c" stroke-width="5" stroke-linecap="round"><path d="M96 800 C92 780 88 768 82 756"/><path d="M104 800 C104 778 106 764 110 750"/><path d="M112 802 C118 786 126 776 134 768"/></g>
+      <g fill="#e2c77a"><ellipse cx="300" cy="790" rx="4" ry="12" transform="rotate(-25 300 790)"/><ellipse cx="310" cy="786" rx="4" ry="13"/><ellipse cx="320" cy="790" rx="4" ry="12" transform="rotate(25 320 790)"/></g>
+      <ellipse cx="112" cy="812" rx="34" ry="14" fill="#b4aaa0"/><ellipse cx="146" cy="822" rx="20" ry="9" fill="#a99f95"/><ellipse cx="312" cy="808" rx="24" ry="10" fill="#b4aaa0"/>
+    </g>
+    <g fill="#ffffff" fill-opacity=".28" stroke="#ffffff" stroke-opacity=".75" stroke-width="1.2">
+      <circle cx="292" cy="330" r="16"/><circle cx="318" cy="290" r="8"/><circle cx="248" cy="560" r="22"/><circle cx="118" cy="420" r="10"/>
+    </g>
+  </svg>
   <div class="pad-top"><label class="field"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg><input id="q" type="search" placeholder="앱 · 초성(ㅋㅋㅇ) · 퍼레에게 묻기" autocomplete="off" enterkeyhint="go"></label><button class="close" id="padClose">닫기</button></div>
   <div class="chips" id="chips"></div>
   <div class="pad-body" id="padBody"></div>
@@ -427,11 +502,12 @@ window.boardRoom = () => {
     if (c.id === "boardHost") continue;
     const st = getComputedStyle(c), m = (parseFloat(st.marginTop) || 0) + (parseFloat(st.marginBottom) || 0);
     if (c.id !== "stacks") { rest += c.offsetHeight + m; continue; }
-    const tiles = Array.from(c.children), top = c.getBoundingClientRect().top;
-    const rows = [...new Set(tiles.map(t => Math.round(t.offsetTop)))].sort((a, b) => a - b);
-    const second = rows[1] != null ? rows[1] : rows[0];
-    const lastOfTwo = tiles.filter(t => Math.round(t.offsetTop) <= second).reduce((b, t) => Math.max(b, t.offsetTop + t.offsetHeight), 0);
-    rest += (tiles.length ? Math.min(c.scrollHeight, lastOfTwo - c.offsetTop + (parseFloat(st.paddingBottom) || 0) + 2) : 0) + m;
+    // Two rows at the usual folder size (grown folders fill what is left over, they do not take the board's room).
+    const tiles = Array.from(c.children), first = tiles[0];
+    if (!first) continue;
+    const cols = Math.max(1, st.gridTemplateColumns.split(" ").length), rows = Math.min(2, Math.ceil(tiles.length / cols));
+    const pile = first.querySelector(".pile"), name = first.offsetHeight - (pile ? pile.offsetHeight : 0);
+    rest += (parseFloat(st.paddingTop) || 0) + rows * (FOLDER() + name) + (rows - 1) * (parseFloat(st.rowGap) || 18) + (parseFloat(st.paddingBottom) || 0) + 2 + m;
   }
   return Math.max(170, innerHeight - pad - rest - 6);
 };
@@ -461,24 +537,51 @@ function drawStacks() {
   }
   el("stacks").innerHTML = out.join("");
   el("libCount").textContent = APPS.length ? APPS.length + "개의 앱" : "";
-  requestAnimationFrame(() => boards.forEach(fit));
+  requestAnimationFrame(() => { boards.forEach(fit); sizeFolders(); });
 }
+/*
+  App Library's folders as big as its room allows (준: "상단영역은 공간이 부족하고 하단은 빈공간이 넘쳐"): when all the rows fit with
+  space to spare (two rows on an opened foldable), the folders grow into it, up to 112px; with more rows than room they keep their
+  size and the library scrolls. The board's room is reckoned at the usual size (boardRoom), so bigger folders never push it out.
+*/
+function FOLDER() { return Math.min(72, folderCol()); }
+function folderCol() {
+  const box = el("stacks"), st = getComputedStyle(box), cols = Math.max(1, st.gridTemplateColumns.split(" ").length), gx = parseFloat(st.columnGap) || 14;
+  return (box.clientWidth - (parseFloat(st.paddingLeft) || 0) - (parseFloat(st.paddingRight) || 0) - gx * (cols - 1)) / cols;
+}
+function sizeFolders() {
+  const box = el("stacks"), first = box.firstElementChild; if (!first) return;
+  const st = getComputedStyle(box), cols = Math.max(1, st.gridTemplateColumns.split(" ").length), rows = Math.ceil(box.children.length / cols);
+  const pile = first.querySelector(".pile"), name = first.offsetHeight - (pile ? pile.offsetHeight : 0), gy = parseFloat(st.rowGap) || 18;
+  const tall = (box.clientHeight - (parseFloat(st.paddingTop) || 0) - (parseFloat(st.paddingBottom) || 0) - gy * (rows - 1)) / rows - name - 6;
+  const size = Math.max(FOLDER(), Math.min(folderCol(), 112, tall));
+  box.style.setProperty("--folder", Math.floor(size) + "px");
+  box.classList.toggle("big", size >= 90);
+}
+if (window.ResizeObserver) new ResizeObserver(() => sizeFolders()).observe(el("stacks"));
 function drawDock() {
   const ids = DOCK.filter(id => BY.has(id)), base = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--dockIcon")) || 52, gap = innerWidth <= 420 ? 8 : 10;
-  const width = Math.min(innerWidth, 900) - 44, extras = 2;
-  // Every app in the dock is shown: the icons shrink to fit (not below 34px); recent ones only where there is room left over.
-  let size = base;
-  const fit = n => Math.floor(width / n - gap);
-  if ((ids.length + extras) * (size + gap) > width) size = Math.max(30, Math.min(base, fit(ids.length + extras)));
-  // Still more than fits (a narrow cover screen): the dock slides sideways instead of hiding any.
-  const tight = size < base ? Math.max(4, gap - 4) : gap, over = (ids.length + extras) * (size + tight) > width;
-  el("shelf").classList.toggle("overflow", over);
-  const room = Math.floor(width / (size + gap)) - ids.length - extras - 1;
-  const recent = RECENT.filter(id => BY.has(id) && !ids.includes(id)).slice(0, Math.max(0, Math.min(innerWidth >= 600 ? 3 : 2, room - 1)));
-  el("shelf").style.setProperty("--dockIcon", size + "px"); el("shelf").style.gap = tight + "px";
+  const width = Math.min(innerWidth, 900) - 44, extras = 2, cells = ids.length + extras;
+  /*
+    Every app in the dock is shown at its size. More than one row holds: two rows (준: "독을 두 줄로 해도 될듯"), the rows even;
+    only when even two rows are full do the icons shrink (not below 34px) to keep it at two. One row: recent apps where there is
+    room left over, after a hairline.
+  */
+  const per = s => Math.max(1, Math.floor((width + gap) / (s + gap)));
+  let size = base, rows = Math.ceil(cells / per(base));
+  if (rows > 2) { size = Math.max(34, Math.min(base, Math.floor((width + gap) / Math.ceil(cells / 2) - gap))); rows = Math.ceil(cells / per(size)); }
+  const cols = Math.ceil(cells / rows), shelf = el("shelf");
+  shelf.classList.toggle("rows", rows > 1); shelf.classList.remove("overflow");
+  shelf.style.setProperty("--cols", cols);
+  const room = rows > 1 ? 0 : per(size) - cells - 1;
+  const recent = RECENT.filter(id => BY.has(id) && !ids.includes(id)).slice(0, Math.max(0, Math.min(innerWidth >= 600 ? 3 : 2, room)));
+  shelf.style.setProperty("--dockIcon", size + "px"); shelf.style.gap = gap + "px";
   const one = (id, mine) => { const a = BY.get(id); return '<div class="dk"' + (mine ? ' data-dock="1"' : "") + ' data-id="' + esc(id) + '" aria-label="' + esc(a.label) + '"><img alt="" decoding="async" src="' + iconOf(a) + '">' + (DOCK_COUNTS.has(a.pkg) ? badgeHtml(badgeOf(a)) : "") + '</div>'; };
-  el("shelf").innerHTML = '<div class="dk pad-btn" data-pad="1" aria-label="모든 앱">' + PAD_ICON + '</div>' + ids.map(id => one(id, true)).join("") + (recent.length ? '<span class="sep"></span>' + recent.map(id => one(id, false)).join("") : "")
+  shelf.innerHTML = '<div class="dk pad-btn" data-pad="1" aria-label="모든 앱">' + PAD_ICON + '</div>' + ids.map(id => one(id, true)).join("") + (recent.length ? '<span class="sep"></span>' + recent.map(id => one(id, false)).join("") : "")
     + ('<span class="sep"></span><div class="dk find-btn" data-find="1" aria-label="앱 검색"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg></div>');
+  // The pages keep clear of the dock, whatever its height.
+  const h = shelf.offsetHeight;
+  if (h) { document.documentElement.style.setProperty("--dockTop", (8 + h) + "px"); requestAnimationFrame(() => { boards.forEach(fit); sizeFolders(); }); }
 }
 function drawAll() { drawStacks(); drawDock(); drawAllApps(); if (el("pad").classList.contains("on")) drawPad(); }
 
@@ -549,8 +652,29 @@ weather(null);
 const pagesBox = el("pages");
 let pageAt = 1;
 function toPage(i, smooth) { pageAt = i; pagesBox.scrollTo({left: i * pagesBox.clientWidth, behavior: smooth ? "smooth" : "instant"}); dotsAt(i); if (typeof frames === "function") frames(); }
-function dotsAt(i) { Array.from(el("dots").children).forEach((d, k) => d.classList.toggle("on", k === i)); }
+function dotsAt(i) { Array.from(el("dots").children).forEach((d, k) => d.classList.toggle("on", k === i)); document.body.classList.toggle("on-custom", i >= 2); }
 pagesBox.addEventListener("scroll", () => { const i = Math.round(pagesBox.scrollLeft / Math.max(1, pagesBox.clientWidth)); if (i !== pageAt) { pageAt = i; dotsAt(i); frames(); } }, {passive: true});
+/*
+  A clear sideways swipe turns the page wherever it starts (준: "좌우페이지 넘기기가 잘안돼 아래영역에서는 넘기기가 안되고 특정영역에서
+  드래그해야만 넘겨져"): the phone's own scroll does it; when it did not (the finger started on something that kept the touch), the
+  page is turned here on lifting. Not while an icon is carried or a folder held.
+*/
+(function swipes() {
+  let x0 = null, y0 = 0, t0 = 0, left0 = 0;
+  pagesBox.addEventListener("touchstart", e => {
+    if (e.touches.length !== 1 || e.target.closest(".chips,.page.custom")) { x0 = null; return; }
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now(); left0 = pagesBox.scrollLeft;
+  }, {passive: true});
+  pagesBox.addEventListener("touchend", e => {
+    if (x0 == null) return; const t = e.changedTouches[0], dx = t.clientX - x0, dy = t.clientY - y0; x0 = null;
+    if (dragging || holding || document.body.classList.contains("covered")) return;
+    if (Math.abs(dx) < 50 || Math.abs(dx) < Math.abs(dy) * 1.6 || Date.now() - t0 > 900) return;
+    if (Math.abs(pagesBox.scrollLeft - left0) > 6) return; // the phone turned it already
+    const to = Math.max(0, Math.min(1 + PAGES.length, pageAt + (dx < 0 ? 1 : -1)));
+    if (to !== pageAt) toPage(to, true);
+  }, {passive: true});
+  pagesBox.addEventListener("touchcancel", () => { x0 = null; }, {passive: true});
+})();
 /*
   The user's own pages to the right of 홈 (준: "들퍼레 홈 화면 우측 페이지들을 커스터마이징 할 수 있게"): a piece or one of their
   pages in a sandboxed frame, full screen under the dock. A thin strip at each edge always swipes the pages (a page that takes
@@ -655,9 +779,18 @@ backdrop(G.bg || "aurora");
 (function dock() {
   const shelf = el("shelf"), tip = el("tip");
   let active = false, startX = 0, startY = 0, moved = false, over = null, longTimer = 0, longDone = false, pointedAt = null;
-  const swell = x => {
+  const swell = (x, y) => {
     // A dock that slides sideways does not swell: the icon under the finger is the one.
     if (shelf.classList.contains("overflow")) { over = pointedAt; return; }
+    // Two rows: the icon under the finger rises a little and says its name; the others stay.
+    if (shelf.classList.contains("rows")) {
+      const at = document.elementFromPoint(x, y), hit = at && at.closest ? at.closest("#shelf .dk") : null;
+      over = hit || (y == null ? pointedAt : null);
+      for (const d of shelf.querySelectorAll(".dk")) d.style.transform = d === over ? "translateY(-6px) scale(1.12)" : "";
+      if (over) { const r = over.getBoundingClientRect(); tip.textContent = over.getAttribute("aria-label") || ""; tip.style.left = (r.left + r.width / 2) + "px"; tip.style.top = (r.top - 10) + "px"; tip.classList.toggle("on", !!tip.textContent); }
+      else tip.classList.remove("on");
+      return;
+    }
     let best = null, bestD = 1e9;
     for (const d of shelf.querySelectorAll(".dk")) {
       const r = d.getBoundingClientRect(), cx = r.left + r.width / 2, dist = Math.abs(cx - x);
@@ -672,7 +805,7 @@ backdrop(G.bg || "aurora");
   shelf.addEventListener("pointerdown", e => {
     pointedAt = e.target.closest ? e.target.closest(".dk") : null;
     active = true; moved = false; longDone = false; startX = e.clientX; startY = e.clientY; shelf.setPointerCapture(e.pointerId);
-    shelf.classList.add("scrub"); swell(e.clientX);
+    shelf.classList.add("scrub"); swell(e.clientX, e.clientY);
     clearTimeout(longTimer);
     longTimer = setTimeout(() => {
       if (moved || !over || !over.dataset.id) return;
@@ -683,7 +816,7 @@ backdrop(G.bg || "aurora");
   shelf.addEventListener("pointermove", e => {
     if (!active || dragging) return;
     if (Math.abs(e.clientX - startX) > 8 || Math.abs(e.clientY - startY) > 8) { moved = true; clearTimeout(longTimer); }
-    swell(e.clientX);
+    swell(e.clientX, e.clientY);
   });
   const end = e => {
     if (!active) return; active = false; clearTimeout(longTimer);
@@ -707,7 +840,9 @@ let dragging = null;
   scroll. It only stops the scroll while something is held.
 */
 const stillTouch = () => {};
-document.addEventListener("touchmove", e => { if ((dragging || holding) && e.cancelable) e.preventDefault(); }, {passive: false});
+// Only where an icon can be lifted or a folder held: elsewhere the phone scrolls and turns pages without waiting on this page.
+const keepStill = e => { if ((dragging || holding) && e.cancelable) e.preventDefault(); };
+["stacks", "fan", "shelf"].forEach(id => el(id).addEventListener("touchmove", keepStill, {passive: false}));
 /** Where an element sits without any transform on it (the slot it holds, not where an animation shows it). */
 function slotOf(n) {
   const p = n.offsetParent || document.body, pr = p.getBoundingClientRect();
@@ -841,9 +976,9 @@ function elastic(box, inner, done) {
 /* ── a stack opened in place: its icons fly out of the folder, and back in when it closes ── */
 let fanFrom = null, holding = false, holdEnded = 0, fanOpened = 0, fanStack = "";
 /*
-  A folder opens at once, where it is (준: "폴더 눌렀을때 바로 즉각적으로 뜨게", "위치도 너무 동떨어지지 않게", "배경을 완전 흐리게하고
-  그 자리에서 뜨게"): its icons in a grid as wide as they need, centred on the folder itself (kept on the screen), over the
-  home screen blurred right through; a short fade only.
+  A folder opens at once, in the middle of the screen whichever folder it is (준: "폴더 클릭할때 너무 화면전환이 심하니 아이콘 박스
+  팝업위치를 폴더마다 다른데로 뜨게하지말고 중앙정렬로", earlier "바로 즉각적으로 뜨게"): its icons in a grid as wide as they need,
+  over the home screen lightly blurred ("바탕 흐림정도를 덜 흐리게"); a short fade only.
 */
 function openFan(id, from, held) {
   const s = STACKS.find(x => x.id === id); if (!s) return;
@@ -856,8 +991,8 @@ function openFan(id, from, held) {
   fan.style.maxHeight = Math.max(200, floor - topMost) + "px";
   fan.classList.add("on"); fan.scrollTop = 0;
   const w = fan.offsetWidth, h = fan.offsetHeight, cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-  const left = Math.max(10, Math.min(innerWidth - w - 10, cx - w / 2)), top = Math.max(topMost, Math.min(floor - h, cy - h / 2));
-  fan.style.left = left + "px"; fan.style.top = top + "px"; fan.style.transformOrigin = (cx - left) + "px " + (cy - top) + "px";
+  const left = Math.max(10, Math.round((innerWidth - w) / 2)), top = Math.max(topMost, Math.round((topMost + floor - h) / 2));
+  fan.style.left = left + "px"; fan.style.top = top + "px"; fan.style.transformOrigin = "50% 50%";
   fanFrom = {cx, cy, left, top}; fanOpened = Date.now();
   el("veil").classList.add("on"); fan.classList.add("shown");
 }
@@ -983,6 +1118,7 @@ function openChat() {
   drawChat(); setTimeout(() => el("q").focus(), 80);
 }
 window.boardChat = openChat;
+window.boardThink = why => { if (B) B.think(why); };
 function ask() {
   const q = el("q").value.trim(); if (!q) return;
   if (!B || !B.chat) { if (B) { B.ask(q); closePad(); } return; }
@@ -1078,6 +1214,9 @@ window.launcher = {
     return false;
   },
   resized() { drawDock(); boards.forEach(fit); },
+  /** 퍼레's line from the AI (NVIDIA, Groq when NVIDIA is slow), or none (its own lines then). */
+  thought(line) { thought(line); },
+  thoughtFail() { thoughtFail(); },
   /** The pages to the right changed (화면 꾸미기). */
   pages(list) { drawPages(list); },
   /** 퍼레's answer on the home screen: a piece as it streams, the whole when done, or why not. */

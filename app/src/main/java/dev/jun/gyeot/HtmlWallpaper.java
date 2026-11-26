@@ -35,6 +35,7 @@ import dev.jun.gyeot.core.HomeBoard;
 import dev.jun.gyeot.core.HtmlShowcase;
 import dev.jun.gyeot.core.Jsons;
 import dev.jun.gyeot.core.Notices;
+import dev.jun.gyeot.core.PieceTune;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -146,7 +147,7 @@ public final class HtmlWallpaper extends WallpaperService {
                     try { return html(PageStore.book(HtmlWallpaper.this).body(Uri.decode(u.getLastPathSegment() == null ? "" : u.getLastPathSegment()))); }
                     catch (Exception gone) { return html(waiting("이 페이지를 찾지 못했어요")); }
                 }
-                return null;
+                return tuned(request);
             }
             @Override public void onPageFinished(WebView view, String url) {
                 if (!board || url == null || !url.startsWith(HOME)) return;
@@ -329,6 +330,24 @@ public final class HtmlWallpaper extends WallpaperService {
     static WebResourceResponse html(String body) {
         return new WebResourceResponse("text/html", "utf-8", new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)));
     }
+    /** Showcase pieces fixed (PieceTune: the turntables' record noise), by path; "" when a piece's fixes no longer match. */
+    private static final Map<String, String> TUNED = new java.util.concurrent.ConcurrentHashMap<>();
+    /**
+     * A piece with fixes, fetched once and kept while the app runs; null to let the web view load the piece as it is (not one
+     * with fixes, offline, or changed so a fix no longer matches). Called on the web view's own request thread.
+     */
+    static WebResourceResponse tuned(WebResourceRequest request) {
+        Uri u = request.getUrl(); String path = u.getPath();
+        if (!"GET".equalsIgnoreCase(request.getMethod()) || !PieceTune.knows(u.getHost(), path)) return null;
+        String page = TUNED.get(path);
+        if (page == null) {
+            String body = get("https://" + HtmlShowcase.HOST + path, 2_000_000);
+            if (body == null) return null;
+            String fixed = PieceTune.tune(path, body);
+            page = fixed == null ? "" : fixed; TUNED.put(path, page);
+        }
+        return page.isEmpty() ? null : html(page);
+    }
     static WebResourceResponse missing() {
         return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found", Map.of(), new ByteArrayInputStream(new byte[0]));
     }
@@ -364,8 +383,8 @@ public final class HtmlWallpaper extends WallpaperService {
         }
         JSONObject out = HomeBoard.json(new HomeBoard.Known(now, locked, calendarOn, next, left, notices, noticeCount, ideas, working, lab, name, quotes()));
         try { JSONObject w = Weather.now(c); if (w != null) Jsons.put(out, "weather", w); } catch (RuntimeException ignored) {}
-        // 퍼레's everyday lines (BuddyTalk): written from its note about the user, so never on the lock screen.
-        if (!locked) try { Jsons.put(out, "lines", BuddyTalk.lines(c)); } catch (RuntimeException ignored) {}
+        // The apps just opened (퍼레 dances after music, and so on); never on the lock screen.
+        if (!locked) try { Jsons.put(out, "recent", new JSONArray(c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).getString("recentLabels", "[]"))); } catch (Exception ignored) {}
         return out;
     }
 
@@ -390,13 +409,14 @@ public final class HtmlWallpaper extends WallpaperService {
         if (!read.isEmpty()) quotes = read; else quotesAt = now - 30_000; // asked again in half a minute
         return quotes;
     }
-    private static String get(String url) {
+    private static String get(String url) { return get(url, 100_000); }
+    private static String get(String url, int most) {
         HttpURLConnection c = null;
         try {
             c = (HttpURLConnection) new java.net.URL(url).openConnection();
             c.setConnectTimeout(8_000); c.setReadTimeout(8_000); c.setRequestProperty("User-Agent", "Gyeot/1.0");
             if (c.getResponseCode() != 200) return null;
-            try (InputStream in = c.getInputStream()) { return new String(in.readNBytes(100_000), StandardCharsets.UTF_8); }
+            try (InputStream in = c.getInputStream()) { return new String(in.readNBytes(most), StandardCharsets.UTF_8); }
         } catch (Exception offline) { return null; }
         finally { if (c != null) c.disconnect(); }
     }
