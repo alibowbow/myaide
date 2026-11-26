@@ -76,6 +76,25 @@ public class BuddyBrainTests {
         shot(l, "buddy_brain_models");
     }
 
+    /** 퍼레 over other apps while it talks (준: "퍼레 대화모드일때는 다른 앱 위에 그려지게 해줘"): a small card, its face, its words, ✕. */
+    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void talksOverOtherApps() throws Exception {
+        org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(true);
+        android.content.Context c = org.robolectric.RuntimeEnvironment.getApplication();
+        boolean[] stopped = {false};
+        BuddyOverlay o = new BuddyOverlay(c, () -> stopped[0] = true);
+        o.show(); o.state("speaking", "네이버 지도 열었어! 길 찾아 줄 곳 있으면 말해 줘.");
+        assertTrue(o.shown());
+        android.view.WindowManager wm = c.getSystemService(android.view.WindowManager.class);
+        java.util.List<View> views = ((org.robolectric.shadows.ShadowWindowManagerImpl) org.robolectric.shadow.api.Shadow.extract(wm)).getViews();
+        View card = views.get(views.size() - 1);
+        shot(card, "buddy_overlay");
+        float d = c.getResources().getDisplayMetrics().density;
+        assertTrue("compact: " + card.getHeight() / d + "dp tall", card.getHeight() / d <= 72);
+        assertNotNull(text(card, "네이버 지도 열었어"));
+        View close = text(card, "✕"); assertTrue(close.performClick()); assertTrue(stopped[0]);
+        o.hide(); assertFalse(o.shown());
+    }
+
     /** The fingerprint can be asked for at all (준: "지문확인을 열지못했어요 뜨면서 메뉴가 안열려"): USE_BIOMETRIC is declared. */
     @Test public void mayAskForTheFingerprint() throws Exception {
         android.content.Context c = org.robolectric.RuntimeEnvironment.getApplication();
@@ -96,12 +115,12 @@ public class BuddyBrainTests {
         apps.put("map", new String[]{"네이버 지도", "com.nhn.android.nmap"}); apps.put("gmap", new String[]{"지도", "com.google.android.apps.maps"});
         apps.put("yt", new String[]{"YouTube", "com.google.android.youtube"}); apps.put("talk", new String[]{"카카오톡", "com.kakao.talk"});
         apps.put("music", new String[]{"YouTube Music", "com.google.android.apps.youtube.music"});
-        assertEquals("map", HomeActivity.bestApp(apps, "네이버 지도"));
-        assertEquals("map", HomeActivity.bestApp(apps, "네이버지도 앱"));
-        assertEquals("yt", HomeActivity.bestApp(apps, "유튜브"));
-        assertEquals("talk", HomeActivity.bestApp(apps, "카톡"));
-        assertEquals("gmap", HomeActivity.bestApp(apps, "구글맵"));
-        assertNull(HomeActivity.bestApp(apps, "당근마켓"));
+        assertEquals("map", BuddyActs.bestApp(apps, "네이버 지도"));
+        assertEquals("map", BuddyActs.bestApp(apps, "네이버지도 앱"));
+        assertEquals("yt", BuddyActs.bestApp(apps, "유튜브"));
+        assertEquals("talk", BuddyActs.bestApp(apps, "카톡"));
+        assertEquals("gmap", BuddyActs.bestApp(apps, "구글맵"));
+        assertNull(BuddyActs.bestApp(apps, "당근마켓"));
     }
 
     /** 생각 깊이 (준: "낮음에 가장깊이생각이라고 되어있어"): shallow to deep after the default, "빨라요"/"깊게" by the level, not its place. */

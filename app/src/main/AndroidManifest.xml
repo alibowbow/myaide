@@ -170,6 +170,7 @@
         <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone" />
         <!-- The main chat's spoken conversation: started from the chat screen, so it keeps hearing with the screen off. -->
         <service android:name=".VoiceChatService" android:exported="false" android:foregroundServiceType="microphone" />
+        <service android:name=".BuddyVoiceService" android:exported="false" android:foregroundServiceType="microphone" />
         <service android:name=".MyTubeService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".LyriaService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".AssistantService" android:exported="false"

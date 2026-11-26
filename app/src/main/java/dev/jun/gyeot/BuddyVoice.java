@@ -22,8 +22,10 @@ import org.json.JSONObject;
 /**
  * 퍼레's voice talk on the home screen (준: "퍼레 음성대화는 퍼레를 꾹 누르고 있으면 실행되게 해줘", "우측 바를 당겨서 버블이 뜨는
  * 음성비서 모드와는 별도야"): held, 퍼레 listens (the phone's speech recognizer, in Korean), answers as itself (BuddyTalk.reply)
- * and says it in its Typecast voice (TypecastAccount), then listens again. Two silences in a row, a tap on 퍼레 or leaving the
- * home screen end it. Without a Typecast key, past the month's free characters or when Typecast fails, it speaks with the
+ * and says it in its Typecast voice (TypecastAccount), then listens again. Two silences in a row, a tap on 퍼레, its ✕ or
+ * the notification's 끝내기 end it; another app in front does not (준: "퍼레가 말할때 브라우저라도 켜면 바로 꺼져버려"): the talk
+ * lives on its own (one at a time, current()) with a microphone service (BuddyVoiceService), shown on the home screen while it
+ * is in front (attach) and over the other apps otherwise (BuddyOverlay). Without a Typecast key, past the month's free characters or when Typecast fails, it speaks with the
  * phone's own voice, a little higher. Everything but the network on the main thread.
  */
 final class BuddyVoice {
@@ -33,12 +35,15 @@ final class BuddyVoice {
     interface Unlock { void ask(Runnable then); }
     /**
      * Something done on the phone (준: "퍼레는 폰조작이 안되네"): an app opened, a route, an alarm … ("할일" from the answer). Its
-     * outcome: what 퍼레 says after (may be empty), whether another app is now in front (the talk ends), and the thing again
+     * outcome: what 퍼레 says after (may be empty), whether another app is now in front (the talk goes on over it), and the thing again
      * when it waits for a yes (an alarm or a timer).
      */
     record Outcome(String say, boolean leaves, org.json.JSONObject confirm) {}
     interface Act { Outcome run(org.json.JSONObject act, String heard); }
-    private final Context context; private final AppStore store; private final ExecutorService io; private final Show show;
+    private final Context context; private final AppStore store; private final ExecutorService io = java.util.concurrent.Executors.newCachedThreadPool();
+    /** The home screen while it is in front (its page shows 퍼레's state; its fingerprint); null when another app is. */
+    private volatile Show screen; private volatile Unlock unlock;
+    private final BuddyOverlay overlay; private String lastState = "", lastText = "";
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<String[]> turns = new ArrayList<>();
     private SpeechInput.Ear ear; private MediaPlayer player; private TextToSpeech phone; private boolean phoneReady;
@@ -47,22 +52,48 @@ final class BuddyVoice {
     /** The speech playing as it streams in, and how to stop its download (end()). */
     private volatile android.media.AudioTrack track; private final java.util.concurrent.atomic.AtomicReference<Runnable> download = new java.util.concurrent.atomic.AtomicReference<>();
 
-    private final Unlock unlock; private final Act act;
+    private final Act act;
     /** The thing to do once 퍼레 has said its words, and the one waiting for a yes. */
     private org.json.JSONObject todo, confirming; private String todoHeard = "";
-    BuddyVoice(Context context, AppStore store, ExecutorService io, Show show, Unlock unlock, Act act) { this.context = context.getApplicationContext(); this.store = store; this.io = io; this.show = show; this.unlock = unlock; this.act = act; }
+    private static volatile BuddyVoice current;
+    /** The one voice talk (made the first time). */
+    static synchronized BuddyVoice of(Context context, AppStore store) { if (current == null) current = new BuddyVoice(context, store); return current; }
+    static BuddyVoice current() { return current; }
+    private BuddyVoice(Context context, AppStore store) {
+        this.context = context.getApplicationContext(); this.store = store;
+        this.overlay = new BuddyOverlay(this.context, this::stop);
+        this.act = (a, heard) -> BuddyActs.run(this.context, a, heard, screen == null && overlay.shown());
+    }
     boolean on() { return on; }
+    /** The home screen came to the front: it shows the talk (and asks for the fingerprint); the overlay goes. */
+    void attach(Show screen, Unlock unlock) {
+        this.screen = screen; this.unlock = unlock; overlay.hide();
+        if (on) screen.state(lastState, lastText);
+    }
+    /** The home screen went behind another app: while the talk is on, 퍼레 shows over it. */
+    void detach() {
+        screen = null; unlock = null;
+        if (on) { overlay.show(); overlay.state(lastState, lastText); }
+    }
+    /** What 퍼레 shows now, on the home screen or over the app in front. */
+    private void show(String state, String text) {
+        lastState = state; lastText = text == null ? "" : text;
+        Show s = screen;
+        if (s != null) s.state(state, lastText); else overlay.state(state, lastText);
+    }
 
     void start() {
         if (on) return;
         on = true; silences = 0; turns.clear(); generation++;
         store.buddyTalking = true; store.changed();
+        BuddyVoiceService.start(context);
+        if (screen == null) overlay.show();
         // The user's voice known and Whisper at hand: 퍼레 listens itself, to know whose voice it is (준: "내 목소리를 알아볼 수 있게해줘").
-        voice = BuddyTalk.voice(context); ownEar = voice.ready() && GroqWork.on();
+        voice = BuddyTalk.voice(context); ownEar = voice.ready() && GroqWork.on(); ownBroken = false;
         if (!ownEar && !SpeechInput.DEVICE.available(context)) { end("error", "이 휴대폰에서는 음성 인식을 쓸 수 없어요"); return; }
         listen();
     }
-    private volatile dev.jun.gyeot.core.VoicePrint.Profile voice; private boolean ownEar; private VoiceCapture capture;
+    private volatile dev.jun.gyeot.core.VoicePrint.Profile voice; private boolean ownEar, ownBroken; private VoiceCapture capture;
     private final java.util.concurrent.atomic.AtomicReference<Runnable> whisper = new java.util.concurrent.atomic.AtomicReference<>();
     void stop() { if (on) end("done", ""); }
 
@@ -70,12 +101,13 @@ final class BuddyVoice {
         if (!on) return;
         closeEar();
         int mine = generation;
-        show.state("listening", "");
-        if (ownEar) { listenOwn(mine); return; }
+        show("listening", "");
+        // Over another app the phone's recognizer may not get the microphone; 퍼레's own ear (this app's microphone service) does.
+        if (ownEar || screen == null && !ownBroken && GroqWork.on()) { listenOwn(mine); return; }
         ear = SpeechInput.DEVICE.open(context);
         ear.start(new SpeechInput.Listener() {
             @Override public void ready() {}
-            @Override public void partial(String words) { if (on && mine == generation) show.state("listening", words); }
+            @Override public void partial(String words) { if (on && mine == generation) show("listening", words); }
             @Override public void ended() {}
             @Override public void heard(String words) {
                 if (!on || mine != generation) return;
@@ -97,12 +129,12 @@ final class BuddyVoice {
         capture = VoiceCapture.start(7000, new VoiceCapture.Heard() {
             @Override public void speech(short[] pcm) { if (on && mine == generation) { capture = null; heardAt = android.os.SystemClock.uptimeMillis(); hear(pcm, mine); } }
             @Override public void silent() { if (on && mine == generation) { capture = null; quiet(); } }
-            @Override public void failed(String why) { if (on && mine == generation) { capture = null; ownEar = false; listen(); } }
-            @Override public void began() { if (on && mine == generation) show.state("listening", "…"); }
+            @Override public void failed(String why) { if (on && mine == generation) { capture = null; ownEar = false; ownBroken = true; listen(); } }
+            @Override public void began() { if (on && mine == generation) show("listening", "…"); }
         });
     }
     private void hear(short[] pcm, int mine) {
-        show.state("thinking", "");
+        show("thinking", "");
         dev.jun.gyeot.core.VoicePrint.Profile known = voice;
         try {
             io.execute(() -> {
@@ -114,7 +146,7 @@ final class BuddyVoice {
                 String got = words;
                 main.post(() -> {
                     if (!on || mine != generation) return;
-                    if (got == null) { ownEar = false; listen(); return; }
+                    if (got == null) { ownEar = false; ownBroken = true; listen(); return; }
                     if (got.isBlank()) { quiet(); return; }
                     wordsAt = android.os.SystemClock.uptimeMillis();
                     silences = 0; think(got, who == dev.jun.gyeot.core.VoicePrint.Who.STRANGER);
@@ -133,17 +165,17 @@ final class BuddyVoice {
         // An alarm or a timer waiting for a yes: this was the answer.
         if (confirming != null) {
             org.json.JSONObject waiting = confirming; confirming = null;
-            if (!guest && act != null && dev.jun.gyeot.core.DeviceActions.affirmative(said)) { show.state("thinking", said); done(act.run(waiting, said)); return; }
+            if (!guest && act != null && dev.jun.gyeot.core.DeviceActions.affirmative(said)) { show("thinking", said); done(act.run(waiting, said)); return; }
         }
         if (unlock != null && BuddyTalk.needsUnlock(context, said)) {
-            show.state("thinking", said); int mine = generation;
+            show("thinking", said); int mine = generation;
             unlock.ask(() -> { if (on && mine == generation) answer(said, guest && !BuddyTalk.unlocked()); });
             return;
         }
         answer(said, guest);
     }
     private void answer(String said, boolean guest) {
-        show.state("thinking", said);
+        show("thinking", said);
         int mine = generation;
         List<String[]> before = new ArrayList<>(turns);
         try {
@@ -157,7 +189,7 @@ final class BuddyVoice {
      * Typecast whole, else the phone's voice. Then it listens again.
      */
     private void say(String line) {
-        show.state("speaking", line);
+        show("speaking", line);
         int mine = generation;
         TypecastAccount t = store.typecast;
         JSONObject voice = t.voice();
@@ -308,7 +340,8 @@ final class BuddyVoice {
     private void done(Outcome o) {
         if (o == null) { main.postDelayed(this::listen, 350); return; }
         if (o.confirm() != null) confirming = o.confirm();
-        if (o.leaves()) { end("done", o.say() == null ? "" : o.say()); return; }
+        // Another app came up: the talk goes on over it (BuddyOverlay), 퍼레 listening again.
+        if (o.leaves()) { if (o.say() != null && !o.say().isBlank()) { say(o.say()); return; } main.postDelayed(this::listen, 900); return; }
         if (o.say() != null && !o.say().isBlank()) { turns.add(new String[]{"assistant", o.say()}); say(o.say()); return; }
         main.postDelayed(this::listen, 350);
     }
@@ -320,7 +353,10 @@ final class BuddyVoice {
         android.media.AudioTrack playing = track; if (playing != null) try { playing.pause(); playing.flush(); } catch (RuntimeException ignored) {}
         closeEar(); releasePlayer(); focus(false);
         if (phone != null) { try { phone.stop(); phone.shutdown(); } catch (RuntimeException ignored) {} phone = null; phoneReady = false; }
-        show.state(state, words == null ? "" : words);
+        show(state, words == null ? "" : words);
+        BuddyVoiceService.stop(context);
+        // The last word stays a moment over the other app, then 퍼레 goes.
+        int ended = generation; main.postDelayed(() -> { if (!on && generation == ended) overlay.hide(); }, words == null || words.isBlank() ? 0 : 1800);
     }
     private void closeEar() {
         if (ear != null) { try { ear.close(); } catch (RuntimeException ignored) {} ear = null; }
