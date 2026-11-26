@@ -136,8 +136,8 @@ async function open(browser, at) {
     const p = day.page;
     await p.evaluate(() => { document.querySelector('.bubble').classList.remove('on', 'asking'); const T = boards[0]._toys; ['ball', 'dice', 'cube'].forEach((k, i) => { const it = T.out(k); it.x = 80 + i * 110; it.vx = 0; }); T.wake(); });
     for (let i = 0; i < 20; i++) await p.clock.runFor(100);
-    // Each rests on something: App Library's heading, or a widget it fell on (the clock).
-    const rest = await p.evaluate(() => { const f = document.querySelector('.lib-head').getBoundingClientRect().top; return Array.from(document.querySelectorAll('.tb.ball, .tb.dice, .tb.cube')).map(e => { const r = e.getBoundingClientRect(), on = document.elementsFromPoint(r.left + r.width / 2, r.bottom + 3).find(x => x.closest && (x.closest('.when') || x.closest('.card') || x.closest('.lib-head'))); return {k: e.className, gap: Math.round(f - r.bottom), on: !!on}; }); });
+    // Each rests on something: App Library's heading, or a widget, 퍼레 or another toy it fell on.
+    const rest = await p.evaluate(() => { const f = document.querySelector('.lib-head').getBoundingClientRect().top; return Array.from(document.querySelectorAll('.tb.ball, .tb.dice, .tb.cube')).map(e => { const r = e.getBoundingClientRect(), on = document.elementsFromPoint(r.left + r.width / 2, r.bottom + 3).find(x => x !== e && x.closest && (x.closest('.when') || x.closest('.card') || x.closest('.lib-head') || x.closest('.buddy') || x.closest('.tb'))), it = boards[0]._toys.find(e.className.split(' ')[1]); return {k: e.className, gap: Math.round(f - r.bottom), on: !!on && !!it && it.rest > 0}; }); });
     assert.strictEqual(rest.length, 3);
     for (const t of rest) assert((t.gap >= -2 && t.gap < 120) || t.on, t.k + ' rests on something: ' + JSON.stringify(t));
     const dice = await p.evaluate(() => { const r = document.querySelector('.tb.dice').getBoundingClientRect(); return {x: r.left + 8, y: r.top + 8}; });
@@ -287,6 +287,29 @@ async function open(browser, at) {
     assert.deepStrictEqual(dawn.errors, []);
   });
   await dawn.ctx.close();
+
+  // December (준: "크리스마스 트리도 만들어줘 퍼레가 장식하거나 감상하면서 놀게", "루돌프랑 루돌프 썰매도", "장난감 … 아직 부족").
+  const xmas = await open(browser, '2026-12-10T15:00:00+09:00');
+  await check('in December the tree stands on the board; 퍼레 hangs ornaments then the star, rides Rudolph\'s sleigh; the new toys come out', async () => {
+    const p = xmas.page;
+    for (let i = 0; i < 6; i++) await p.clock.runFor(500);
+    assert(await p.evaluate(() => !!document.querySelector('.xtree')), 'a tree in December');
+    const hung = await p.evaluate(() => { const T = boards[0]._toys, got = []; for (let i = 0; i < 10; i++) got.push(T.treeHang()); return got; });
+    assert.strictEqual(hung[8], '별', 'the star after eight ornaments: ' + hung.join(','));
+    assert.strictEqual(hung[9], '', 'then nothing more');
+    assert.strictEqual(await p.evaluate(() => document.querySelectorAll('.xtree .orn.on').length), 8);
+    await p.evaluate(() => boards[0]._toys.sleigh());
+    await p.clock.runFor(1000);
+    assert(await p.evaluate(() => !!document.querySelector('.sleighride .rider .bot')), '퍼레 rides the sleigh');
+    for (let i = 0; i < 12; i++) await p.clock.runFor(500);
+    assert.strictEqual(await p.evaluate(() => !!document.querySelector('.sleighride')), false, 'and is back');
+    const out = await p.evaluate(() => ['duck', 'car', 'rocket', 'drum', 'musicbox', 'beachball', 'marbles', 'blocks'].map(k => !!boards[0]._toys.out(k)));
+    assert(out.every(Boolean), 'every new toy: ' + out);
+    await p.evaluate(() => launcher.self({toy: 'tree'}));
+    for (let i = 0; i < 8; i++) await p.clock.runFor(500);
+    assert.deepStrictEqual(xmas.errors, []);
+  });
+  await xmas.ctx.close();
 
   const evening = await open(browser, '2026-11-26T20:30:00+09:00');
   await check('in the evening 퍼레 wears nothing that looks like doing something for hours', async () => {

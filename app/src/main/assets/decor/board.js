@@ -916,7 +916,8 @@ addEventListener("pointerdown", () => { if (!sleepHours()) return; boards.forEac
   안되고", "음성대화로 퍼레의 상호작용이 안돼"): a toy out (a play with it), clothes (kept two hours; none: plain; any: a cute
   one of its own), a play by name. Awake for it at dawn. o: {toy} | {wear: [..], any} | {play}.
 */
-const ASK_TOY = {ball: "kickball", dice: "rolldice", cube: "puzzlecube", top: "spintop", balloon: "balloonbat", butterfly: "flutter", meteors: "meteors", bubbles: "bubbles"};
+const ASK_TOY = {ball: "kickball", dice: "rolldice", cube: "puzzlecube", top: "spintop", balloon: "balloonbat", butterfly: "flutter", meteors: "meteors", bubbles: "bubbles",
+  tree: "decorate", sleigh: "sleighride", duck: "rubberduck", car: "toycar", rocket: "rocket", drum: "drumroll", musicbox: "musicbox", beachball: "beachball", marbles: "marbles", blocks: "blocks"};
 function selfAct(o) {
   const b = boards[0]; if (!b || !o) return false;
   if (sleepHours()) { b._awakeAt = Date.now(); if (b._mood) b._mood(""); }
@@ -1342,7 +1343,21 @@ function roam(b) {
     balloonbat: end => { const T = b._toys; if (!T) return end(); const bl = T.out("balloon"); feel("gleeful", 1500);
       [900, 2700, 4500].forEach(t => setTimeout(() => { bl.vy = -rnd(300, 420); bl.vx = rnd(-120, 120); bl.rest = 0; T.wake(); move(b, "hop", 760); }, t)); setTimeout(end, 6200); },
     flutter: end => { const T = b._toys; if (!T) return end(); T.flies(2 + Math.floor(Math.random() * 2)); feel("awed", 2000); gazeTo(-3, -5); setTimeout(() => { gazeTo(0, 0); end(); }, 3200); },
-    meteors: end => { const T = b._toys; if (!T) return end(); T.shower(); feel("awed", 4000); setTimeout(end, 9500); }
+    meteors: end => { const T = b._toys; if (!T) return end(); T.shower(); feel("awed", 4000); setTimeout(end, 9500); },
+    // the tree, Rudolph's sleigh and the new toys
+    decorate: end => { const T = b._toys; if (!T) return end(); T.tree(); feel("excited", 1400);
+      b._goNear(T.treeX(), () => { move(b, "stretchup", 1300); setTimeout(() => { const what = T.treeHang(); feel(what ? "proud" : "content", 1600); if (what && b._sfx) b._sfx(what + " 달았다!", 1600, true); move(b, "hop", 760); }, 900); setTimeout(end, 3200); }); },
+    admire: end => { const T = b._toys; if (!T) return end(); T.tree();
+      b._goNear(T.treeX(), () => { T.treeGlow(4400); feel("awed", 2200); gazeTo(4, -5); setTimeout(() => feel("blissful", 2000), 2200); setTimeout(() => { gazeTo(0, 0); end(); }, 4600); }); },
+    sleighride: end => { const T = b._toys; if (!T) return end(); feel("excited", 1200); setTimeout(() => T.sleigh(() => { move(b, "hop", 760); feel("gleeful", 1600); setTimeout(end, 900); }), 500); },
+    rubberduck: end => { const T = b._toys; if (!T) return end(); const d = T.out("duck"); feel("giggle", 1400); setTimeout(() => d.tap(d), 700); setTimeout(() => { d.tap(d); feel("laugh", 1200); }, 2000); setTimeout(end, 3600); },
+    toycar: end => { const T = b._toys; if (!T) return end(); const c = T.out("car"); feel("excited", 1400); setTimeout(() => c.tap(c), 700); setTimeout(() => b._goNear(T.sx(c), () => { c.tap(c); feel("gleeful", 1200); }), 2400); setTimeout(end, 5200); },
+    rocket: end => { const T = b._toys; if (!T) return end(); const r = T.out("rocket"); feel("determined", 1400); gazeTo(0, 3); setTimeout(() => { r.tap(r); gazeTo(0, -6); feel("amazed", 1800); }, 1200); setTimeout(() => { gazeTo(0, 0); end(); }, 4200); },
+    drumroll: end => { const T = b._toys; if (!T) return end(); const d = T.out("drum"); feel("firedup", 3000); [500, 900, 1300, 1600, 1900].forEach(t => setTimeout(() => { d.tap(d); move(b, "headbang", 400); }, t)); setTimeout(end, 3000); },
+    musicbox: end => { const T = b._toys; if (!T) return end(); const m = T.out("musicbox"); setTimeout(() => m.tap(m), 600); feel("dreamy", 3600); move(b, "swaying", 3100); setTimeout(() => { if (m.el.classList.contains("playing")) m.el.classList.remove("playing"); end(); }, 4200); },
+    beachball: end => { const T = b._toys; if (!T) return end(); const ball = T.out("beachball"); feel("gleeful", 1600); setTimeout(() => ball.tap(ball), 600); setTimeout(() => b._goNear(T.sx(ball), () => { T.kick(ball); move(b, "jumpturn", 1100); }), 2400); setTimeout(end, 5400); },
+    marbles: end => { const T = b._toys; if (!T) return end(); const m = T.out("marbles"); feel("curious", 1400); gazeTo(-3, 4); setTimeout(() => m.tap(m), 700); setTimeout(() => { gazeTo(3, 4); m.tap(m); }, 2200); setTimeout(() => { gazeTo(0, 0); end(); }, 3800); },
+    blocks: end => { const T = b._toys; if (!T) return end(); const k = T.out("blocks"); feel("focused", 2000); setTimeout(() => k.tap(k), 800); setTimeout(() => { k.tap(k); feel("proud", 1400); }, 2200); setTimeout(end, 3800); }
   };
   /** What it puts on for a play, off again when the play ends (its lasting clothes come back, envOf). */
   const PROPS = {reading: ["book", "roundglasses"], magic: ["wand", "tophat"], explorer: ["magnifier", "backpack", "map"], radar: ["magnifier"],
@@ -1376,8 +1391,13 @@ function roam(b) {
     const dark = h >= 19 || h < 5;
     drop(dark ? "flutter" : "meteors");
     // Its own toys come out often (준: "심심하지 않게"); the shower now and then on a dark evening.
-    if (b._toys) ["kickball", "rolldice", "puzzlecube", "spintop", "balloonbat"].concat(dark ? [] : ["flutter"]).forEach(k => { if (kinds.includes(k)) kinds.push(k, k, k); });
-    else ["kickball", "rolldice", "puzzlecube", "spintop", "balloonbat", "flutter", "meteors"].forEach(k => { const i = kinds.indexOf(k); if (i >= 0) kinds.splice(i, 1); });
+    if (b._toys) {
+      ["kickball", "rolldice", "puzzlecube", "spintop", "balloonbat"].concat(dark ? [] : ["flutter"]).forEach(k => { if (kinds.includes(k)) kinds.push(k, k, k); });
+      ["rubberduck", "toycar", "rocket", "drumroll", "musicbox", "beachball", "marbles", "blocks"].forEach(k => { if (kinds.includes(k)) kinds.push(k); });
+      // The tree and Rudolph's sleigh in December (준: "다음달은 크리스마스니깐"); other months only when asked.
+      if (new Date().getMonth() === 11) ["decorate", "decorate", "admire", "admire", "sleighride"].forEach(k => kinds.push(k, k));
+      else ["decorate", "admire", "sleighride"].forEach(k => { while (kinds.includes(k)) kinds.splice(kinds.indexOf(k), 1); });
+    } else ["kickball", "rolldice", "puzzlecube", "spintop", "balloonbat", "flutter", "meteors", "decorate", "admire", "sleighride", "rubberduck", "toycar", "rocket", "drumroll", "musicbox", "beachball", "marbles", "blocks"].forEach(k => { while (kinds.includes(k)) kinds.splice(kinds.indexOf(k), 1); });
     const kind = kinds[Math.floor(Math.random() * kinds.length)];
     playing = true;
     const here = () => {
@@ -1440,7 +1460,9 @@ function roam(b) {
 */
 const TOY_OF = {kickball: "ball", rolldice: "dice", puzzlecube: "cube", spintop: "top", balloonbat: "balloon", balloonpop: "balloon", flutter: "butterfly",
   meteors: "meteors", bubbles: "bubbles", kite: "kite", yoyo: "yoyo", frisbee: "frisbee", pinwheel: "pinwheel", paperplane: "paperplane",
-  ball: "ball", dice: "dice", cube: "cube", top: "top", balloon: "balloon", fly: "butterfly"};
+  ball: "ball", dice: "dice", cube: "cube", top: "top", balloon: "balloon", fly: "butterfly",
+  decorate: "tree", admire: "tree", sleighride: "sleigh", rubberduck: "duck", toycar: "car", rocket: "rocket", drumroll: "drum", musicbox: "musicbox",
+  beachball: "beachball", marbles: "marbles", blocks: "blocks", duck: "duck", car: "car", drum: "drum"};
 const livedAt = {};
 function lived(kind, key, joy, why) {
   if (!window.boardLived || !key) return;
@@ -1595,8 +1617,81 @@ function toys(b) {
         it.el.classList.toggle("spinning", it.spin > 0);
       }}), hand()),
     balloon: () => at(make("balloon", "<b></b>", {r: 11, bounce: .5, friction: .95, grav: -.05, drag: .9, grab: true,
-      tap: it => { if (now() - (it.tapped || 0) < 400) { pop(it); return; } it.tapped = now(); it.vy = -rnd(260, 380); it.vx = rnd(-120, 120); }}), hand())
+      tap: it => { if (now() - (it.tapped || 0) < 400) { pop(it); return; } it.tapped = now(); it.vy = -rnd(260, 380); it.vx = rnd(-120, 120); }}), hand()),
+    // more to play with (준: "장난감 … 아직 부족"): each answers a tap its own way
+    duck: () => at(make("duck", "<b></b><i></i>", {r: 9, bounce: .45, friction: .9, grab: true,
+      tap: it => { it.vy = -rnd(220, 320); it.el.classList.remove("squeak"); void it.el.offsetWidth; it.el.classList.add("squeak"); say("삑!", 900, true); }}), hand()),
+    car: () => at(make("car", "<b></b><i></i><i></i>", {r: 8, bounce: .2, friction: .995, grab: true,
+      tap: it => { it.vx = (it.vx > 0 ? -1 : 1) * rnd(380, 540); it.vy = -60; say("부릉부릉~", 1200, true); wake(); }}), hand()),
+    rocket: () => at(make("rocket", "<b></b><i></i>", {r: 8, bounce: .3, friction: .9, grab: true,
+      tap: it => { it.vy = -rnd(950, 1150); it.vx = rnd(-60, 60); it.a = 0; it.va = 0; it.el.classList.add("fire"); setTimeout(() => it.el.classList.remove("fire"), 900); say("3, 2, 1… 발사!", 1400, true); wake(); }}), hand()),
+    drum: () => at(make("drum", "<b></b>", {r: 10, bounce: .1, friction: .8, grab: true,
+      tap: it => { it.el.classList.remove("boom"); void it.el.offsetWidth; it.el.classList.add("boom"); say(["둥!", "둥둥!", "쿵짝!"][Math.floor(Math.random() * 3)], 800, true); }}), hand()),
+    musicbox: () => at(make("musicbox", "<b></b><i></i>", {r: 9, bounce: .1, friction: .8, grab: true,
+      tap: it => { it.el.classList.toggle("playing"); if (it.el.classList.contains("playing")) say("띠링 띠링~ ♪", 1500, true); }}), hand()),
+    beachball: () => at(make("beachball", "", {r: 13, bounce: .82, friction: .99, roll: true, grab: true,
+      tap: it => { it.vy = -rnd(560, 780); it.vx = rnd(-200, 200); }}), hand()),
+    marbles: () => at(make("marbles", "", {r: 5, bounce: .62, friction: .995, roll: true, grab: true,
+      tap: it => { it.vx = (Math.random() < .5 ? -1 : 1) * rnd(300, 500); it.vy = -rnd(120, 220); say("데구르르~", 1100, true); }}), hand()),
+    blocks: () => at(make("blocks", "<b>가</b>", {r: 9, bounce: .25, friction: .85, grab: true,
+      tap: it => { it.vy = -rnd(300, 420); it.va = rnd(-14, 14); const L = "가나다라마바사ABC"; it.el.firstChild.textContent = L[Math.floor(Math.random() * L.length)]; }}), hand())
   };
+  /*
+    The Christmas tree (준: "크리스마스 트리도 만들어줘 퍼레가 장식하거나 감상하면서 놀게"): it stands on the floor at the right in
+    December (or when asked), its lights twinkle, a tap turns them up; 퍼레 hangs one ornament at a time and the star last
+    (kept for the year), or sits and looks at it. And Rudolph (준: "루돌프랑 루돌프 썰매도"): the sleigh flies across with 퍼레 in it.
+  */
+  let tree = null;
+  const TREE_KEY = "gyeotTree", year = () => new Date().getFullYear();
+  const treeState = () => { try { const t = JSON.parse(localStorage.getItem(TREE_KEY) || "{}"); if (t.year === year()) return t; } catch (e) { /* new */ } return {year: year(), hung: 0, star: false}; };
+  const ORN = [["#e23a3a", "빨간 방울"], ["#ffc928", "금빛 방울"], ["#4a90d9", "파란 방울"], ["#ff8fb8", "분홍 방울"], ["#e23a3a", "지팡이 사탕"], ["#ffc928", "작은 종"], ["#7cc576", "초록 방울"], ["#c4b5fd", "보라 방울"]];
+  const SLOTS = [[38, 78], [63, 74], [49, 60], [30, 96], [71, 94], [44, 88], [58, 100], [51, 44]];
+  const TREE_SVG = '<svg viewBox="0 0 100 130" aria-hidden="true"><path class="tstar" d="M50 0 L53.4 8.4 L62.4 8.8 L55.4 14.4 L57.8 23 L50 18.2 L42.2 23 L44.6 14.4 L37.6 8.8 L46.6 8.4Z" fill="#ffc928" stroke="#f0a800" stroke-width="1"/>'
+    + '<rect x="44" y="106" width="12" height="14" rx="2" fill="#8a5531"/>'
+    + '<path d="M50 14 C44 24 36 34 26 44 C34 44 38 43 41 42 C34 54 24 64 14 74 C24 75 32 73 38 71 C30 84 18 96 6 106 C30 110 70 110 94 106 C82 96 70 84 62 71 C68 73 76 75 86 74 C76 64 66 54 59 42 C62 43 66 44 74 44 C64 34 56 24 50 14Z" fill="#2f8f4e"/>'
+    + '<path d="M50 14 C44 24 36 34 26 44 C34 44 38 43 41 42 C34 54 24 64 14 74 C24 75 32 73 38 71 C30 84 18 96 6 106 C18 108 30 109 40 109 C36 90 42 50 50 14Z" fill="#3aa35a" opacity=".55"/>'
+    + '<path d="M32 46 Q50 54 68 44 M24 76 Q50 86 78 74 M16 104 Q50 114 86 104" fill="none" stroke="#f3e6c4" stroke-width="2" stroke-linecap="round"/>'
+    + [[38, 40, "#ff5c5c"], [60, 38, "#ffd23f"], [30, 66, "#6ec3ff"], [52, 70, "#ff8fb8"], [72, 66, "#ffd23f"], [20, 94, "#ff5c5c"], [40, 98, "#6ec3ff"], [62, 96, "#ffd23f"], [82, 96, "#ff8fb8"], [50, 28, "#ffd23f"]]
+      .map(([x, y, c], i) => '<circle class="lt" cx="' + x + '" cy="' + y + '" r="2.4" fill="' + c + '" style="animation-delay:' + (i * 0.17).toFixed(2) + 's"/>').join("")
+    + SLOTS.map(([x, y], i) => '<g class="orn"><circle cx="' + x + '" cy="' + y + '" r="5" fill="' + ORN[i][0] + '"/><circle cx="' + (x - 1.6) + '" cy="' + (y - 1.6) + '" r="1.4" fill="#fff" opacity=".7"/></g>').join("")
+    + '<rect x="10" y="112" width="18" height="14" rx="2" fill="#e23a3a"/><rect x="18" y="112" width="2.6" height="14" fill="#ffc928"/><rect x="70" y="114" width="20" height="12" rx="2" fill="#4a90d9"/><rect x="79" y="114" width="2.6" height="12" fill="#fff"/></svg>';
+  const drawTree = () => { if (!tree) return; const t = treeState(); tree.querySelectorAll(".orn").forEach((o, i) => o.classList.toggle("on", i < t.hung)); tree.classList.toggle("starred", !!t.star); };
+  const placeTree = () => { if (!tree) return; const w = W(); tree.style.left = Math.round(w.width - 76) + "px"; tree.style.top = Math.round(floor(w) - 84) + "px"; };
+  const treeOut = () => {
+    if (tree) { placeTree(); return tree; }
+    tree = document.createElement("div"); tree.className = "xtree"; tree.innerHTML = TREE_SVG; layer.appendChild(tree);
+    placeTree(); drawTree();
+    tree.addEventListener("pointerdown", e => { e.stopPropagation(); tree.classList.toggle("lit"); say(tree.classList.contains("lit") ? "반짝반짝!" : "은은하게~", 1000, true); if (b._feel) b._feel("awed", 1400); lived("toy", "tree", .6, "사용자가 트리 불을 켜 줘서"); });
+    addEventListener("resize", placeTree);
+    return tree;
+  };
+  /** One more ornament (the star last); what was hung, or "" when it is all done. */
+  const treeHang = () => {
+    const t = treeState(); let what = "";
+    if (t.hung < SLOTS.length) { what = ORN[t.hung][1]; t.hung++; } else if (!t.star) { what = "별"; t.star = true; }
+    try { localStorage.setItem(TREE_KEY, JSON.stringify(t)); } catch (e) { /* this time only */ }
+    drawTree(); if (tree && what) { tree.classList.remove("hung"); void tree.offsetWidth; tree.classList.add("hung"); }
+    return what;
+  };
+  const SLEIGH_SVG = '<svg viewBox="0 0 220 90" aria-hidden="true">'
+    + '<path d="M78 58 C96 50 108 52 118 58" fill="none" stroke="#8a5531" stroke-width="1.6"/>'
+    + '<g class="deer"><ellipse cx="40" cy="52" rx="20" ry="11" fill="#a86b3c"/><path d="M26 60 l-4 16 M34 62 l-1 15 M48 62 l2 15 M56 60 l4 15" stroke="#8a5531" stroke-width="3.4" stroke-linecap="round"/>'
+    + '<path d="M22 46 C16 40 16 32 20 28" fill="none" stroke="#a86b3c" stroke-width="7" stroke-linecap="round"/><ellipse cx="17" cy="27" rx="9" ry="7.4" fill="#b87a48"/>'
+    + '<path d="M18 21 C16 12 12 8 8 4 M15 13 C12 12 9 11 6 12 M22 20 C24 12 28 8 33 5 M26 12 C29 12 32 13 34 15" fill="none" stroke="#7a4a2b" stroke-width="2" stroke-linecap="round"/>'
+    + '<circle cx="14.6" cy="25" r="1.2" fill="#2b2b3a"/><circle class="nose" cx="8.6" cy="29" r="3.4" fill="#ff3b30"/><path d="M28 42 C34 48 44 48 52 44" fill="none" stroke="#e23a3a" stroke-width="3"/><circle cx="40" cy="47.6" r="2.4" fill="#ffc928"/></g>'
+    + '<path d="M112 44 C112 36 120 34 128 36 L186 36 C198 36 204 44 202 54 C200 64 190 68 176 68 L124 68 C116 68 112 62 112 44Z" fill="#e23a3a"/><path d="M116 50 L198 50" stroke="#ffc928" stroke-width="2.4"/>'
+    + '<path d="M110 76 L200 76 C210 76 214 70 212 64" fill="none" stroke="#ffc928" stroke-width="3" stroke-linecap="round"/><path d="M126 68 v8 M186 68 v8" stroke="#ffc928" stroke-width="2.4"/>'
+    + '<g class="rider" transform="translate(132 0) scale(.5)"></g><rect x="176" y="24" width="20" height="16" rx="2" fill="#4a90d9"/><rect x="184.6" y="24" width="2.6" height="16" fill="#fff"/></svg>';
+  /** Rudolph's sleigh across the sky with 퍼레 in it (퍼레 itself waits unseen); done when it is back. */
+  const sleighRide = done => {
+    const w = W(), sl = document.createElement("div"); sl.className = "sleighride"; sl.innerHTML = SLEIGH_SVG;
+    const bot = $(b, ".bot"); if (bot) { const me = bot.cloneNode(true); me.removeAttribute("style"); me.setAttribute("width", "100"); me.setAttribute("height", "100"); sl.querySelector(".rider").appendChild(me); }
+    sl.style.setProperty("--from", Math.round(w.width + 30) + "px"); sl.style.top = Math.round(Math.max(4, floor(w) * .18)) + "px";
+    layer.appendChild(sl); buddy.style.opacity = "0";
+    say("딸랑딸랑~ 루돌프 출발!", 1800, true); lived("toy", "sleigh", 1.2, "루돌프 썰매를 타서");
+    setTimeout(() => { sl.remove(); buddy.style.opacity = ""; if (done) done(); }, 6200);
+  };
+  if (new Date().getMonth() === 11) setTimeout(treeOut, 2400);
   const throwDice = it => {
     it.rolling = true; it.rested = false; it.vy = -rnd(520, 700); it.vx = rnd(-220, 220); it.va = rnd(-18, 18);
     it.el.classList.add("rolling"); wake();
@@ -1694,6 +1789,9 @@ function toys(b) {
     spin(it) { it.tap(it); },
     count: () => items.length,
     /** All put away (the user asked). */
-    clear() { items.slice().forEach(gone); }
+    clear() { items.slice().forEach(gone); },
+    tree: treeOut, treeHang, treeX: () => { treeOut(); const r = tree.getBoundingClientRect(); return r.left + r.width / 2; },
+    treeGlow(ms) { treeOut(); tree.classList.add("lit"); setTimeout(() => { if (tree) tree.classList.remove("lit"); }, ms || 4000); },
+    sleigh: sleighRide
   };
 }

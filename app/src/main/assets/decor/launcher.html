@@ -1176,6 +1176,9 @@ function score(q, a) {
   return 0;
 }
 function drawPad() {
+  // In 퍼레와 대화 the pad is the talk (준: "퍼레대화에 올앱이 뜨는 오류"): an app list arriving while it is open (an app installed,
+  // the screen shown again) redraws the talk, never the search's apps.
+  if (chatting) { if (chatView === "list") drawList(); else drawChat(); return; }
   const q = el("q").value.trim(), body = el("padBody");
   el("chips").style.display = q ? "none" : "";
   if (q) {
