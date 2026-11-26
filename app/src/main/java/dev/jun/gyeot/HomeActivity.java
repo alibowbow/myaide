@@ -179,15 +179,21 @@ public final class HomeActivity extends Activity {
         main.removeCallbacks(refresh); if (ready) { refresh.run(); pushBadges(); if (web != null) web.evaluateJavascript("launcher.shown&&launcher.shown()", null); }
     }
     @Override protected void onPause() {
-        shown = false; NoticeListener.changed = null; main.removeCallbacks(refresh);
+        shown = false; pausedAt = android.os.SystemClock.uptimeMillis(); NoticeListener.changed = null; main.removeCallbacks(refresh);
         if (ready && web != null) web.evaluateJavascript("launcher.hidden&&launcher.hidden()", null);
         super.onPause();
     }
-    /** Home pressed while the home screen is in front: back to its top with everything closed. */
+    /**
+     * Home pressed while the home screen is in front (Android pauses it just before, so "just paused" counts as in front:
+     * 준: "폴더화면에서 홈버튼을 눌러서 돌아가기가 안돼"): everything open closes and the home page comes back, at its top.
+     * Back from another app: only what was left open closes.
+     */
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        if (ready && web != null && shown) web.evaluateJavascript("launcher.home()", null);
+        boolean front = shown || android.os.SystemClock.uptimeMillis() - pausedAt < 700;
+        if (ready && web != null) web.evaluateJavascript(front ? "launcher.home()" : "launcher.closeAll&&launcher.closeAll()", null);
     }
+    private long pausedAt;
     @Override public void onBackPressed() {
         // A home screen does not close: back only closes what is open on it.
         if (ready && web != null) web.evaluateJavascript("launcher.back()", null);

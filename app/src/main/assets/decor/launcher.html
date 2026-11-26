@@ -659,10 +659,12 @@ function openFan(id, from, held) {
   const most = innerWidth >= 600 ? 6 : 4, cols = Math.max(2, Math.min(most, apps.length));
   fan.innerHTML = '<h2>' + esc(s.name) + '</h2>' + (held ? '<div class="hint">손가락을 앱 위로 옮기고 떼면 열려요</div>' : "") + '<div class="grid-apps" style="grid-template-columns:repeat(' + cols + ',1fr)">' + apps.map(appButton).join("") + '</div>';
   fan.style.width = Math.min(innerWidth - 20, cols * (innerWidth >= 600 ? 92 : 86) + 24) + "px";
+  // Kept between the status bar and the navigation bar (준: "홈버튼에랑 겹치게 표시가돼"): taller than that, it scrolls inside.
+  const css = getComputedStyle(document.documentElement), topMost = parseFloat(css.getPropertyValue("--top")) + 8, floor = innerHeight - parseFloat(css.getPropertyValue("--bottom")) - 14;
+  fan.style.maxHeight = Math.max(200, floor - topMost) + "px";
   fan.classList.add("on"); fan.scrollTop = 0;
   const w = fan.offsetWidth, h = fan.offsetHeight, cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-  const topMost = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--top")) + 8;
-  const left = Math.max(10, Math.min(innerWidth - w - 10, cx - w / 2)), top = Math.max(topMost, Math.min(innerHeight - h - 16, cy - h / 2));
+  const left = Math.max(10, Math.min(innerWidth - w - 10, cx - w / 2)), top = Math.max(topMost, Math.min(floor - h, cy - h / 2));
   fan.style.left = left + "px"; fan.style.top = top + "px"; fan.style.transformOrigin = (cx - left) + "px " + (cy - top) + "px";
   fanFrom = {cx, cy, left, top}; fanOpened = Date.now();
   el("veil").classList.add("on"); fan.classList.add("shown");
@@ -861,6 +863,8 @@ window.launcher = {
   insets(top, bottom) { document.documentElement.style.setProperty("--top", top + "px"); document.documentElement.style.setProperty("--bottom", bottom + "px"); boards.forEach(fit); },
   /** Home pressed while the home screen is in front: back to its top, everything closed (a Mac's desktop). */
   home() { closeMenu(); closeFan(); closePad(); toPage(1, true); el("home").scrollTo({top: 0, behavior: "smooth"}); },
+  /** Back from another app: what was left open closes; the page stays. */
+  closeAll() { closeMenu(); closeFan(); closePad(); },
   /** Back: the open thing closes; true when something did. */
   back() {
     if (el("menu").classList.contains("on")) { closeMenu(); return true; }
