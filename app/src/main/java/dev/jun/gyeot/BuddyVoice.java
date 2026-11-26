@@ -154,6 +154,8 @@ final class BuddyVoice {
                 if (who == dev.jun.gyeot.core.VoicePrint.Who.OWNER) { dev.jun.gyeot.core.VoicePrint.Profile learned = known.learn(mark); voice = learned; BuddyTalk.voice(context, learned); }
                 String words;
                 try { words = GroqWork.words(dev.jun.gyeot.core.Utterance.wav(pcm, dev.jun.gyeot.core.WakeWord.RATE), whisper); } catch (Exception failed) { words = null; }
+                // The voice went up at the end: a question, though the words carry no "?" (준: "음악소리들려? 라고 말하면 음악소리들려로 알아들어").
+                if (words != null && !words.isBlank() && !words.strip().endsWith("?") && dev.jun.gyeot.core.Intonation.rising(pcm)) words = words.strip().replaceAll("[.!。]+$", "") + "?";
                 String got = words;
                 main.post(() -> {
                     if (!on || mine != generation) return;

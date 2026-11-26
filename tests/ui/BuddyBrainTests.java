@@ -76,6 +76,25 @@ public class BuddyBrainTests {
         shot(l, "buddy_brain_models");
     }
 
+    /** A voice that ends going up is a question (준: "음악소리들려? 라고 말하면 음악소리들려로 알아들어"); one going down is not. */
+    @Test public void hearsAQuestionInTheVoice() {
+        assertTrue("rising", dev.jun.gyeot.core.Intonation.rising(glide(150, 150, 230)));
+        assertFalse("falling", dev.jun.gyeot.core.Intonation.rising(glide(170, 170, 120)));
+        assertFalse("flat", dev.jun.gyeot.core.Intonation.rising(glide(160, 160, 160)));
+        assertTrue(BuddyTalk.ACTS.length() > 0);
+    }
+    /** 1.6 s of a voiced sound at one pitch, then 0.4 s gliding from b to c (Hz), with a little noise. */
+    private static short[] glide(double a, double b, double c) {
+        java.util.Random r = new java.util.Random(5); int n = 16000 * 2; short[] out = new short[n]; double phase = 0;
+        for (int i = 0; i < n; i++) {
+            double t = i / 16000.0, f = t < 1.6 ? a + (b - a) * t / 1.6 : b + (c - b) * (t - 1.6) / 0.4;
+            phase += 2 * Math.PI * f / 16000; double v = 0;
+            for (int h = 1; h <= 6; h++) v += Math.sin(phase * h) / h;
+            out[i] = (short) (v * 6000 + r.nextGaussian() * 40);
+        }
+        return out;
+    }
+
     /** 퍼레 knows the saved places (준: "우리앱에 네비게이션 설정해놓은것을 퍼레가 모르고 있어"): their words in its brief, "집" goes there. */
     @Test public void knowsTheSavedPlaces() throws Exception {
         GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();

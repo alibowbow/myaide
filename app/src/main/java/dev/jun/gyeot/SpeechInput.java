@@ -60,7 +60,9 @@ final class SpeechInput {
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, LANGUAGE)
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
+            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+            // Punctuation where the recognizer can (a "?" for a question; 준: "퍼레가 의문문을 못 알아 들어").
+            .putExtra(RecognizerIntent.EXTRA_ENABLE_FORMATTING, RecognizerIntent.FORMATTING_OPTIMIZE_LATENCY);
     }
     /** What the user is told when a recognizer error ends a listening. */
     static String reason(int error) {
