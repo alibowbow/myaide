@@ -112,15 +112,16 @@ final class BuddyVoice {
         // ear when the user's voice is known (it needs the sound) or when the recognizer could not hear there.
         if (ownEar || deviceOff && !ownBroken && GroqWork.on()) { listenOwn(mine); return; }
         ear = SpeechInput.DEVICE.open(context);
+        boolean[] some = {false};
         ear.start(new SpeechInput.Listener() {
             @Override public void ready() {}
-            @Override public void partial(String words) { if (on && mine == generation) show("listening", BuddyTalk.heard(context, words)); }
+            @Override public void partial(String words) { if (on && mine == generation) { if (words != null && !words.isBlank()) some[0] = true; show("listening", BuddyTalk.heard(context, words)); } }
             @Override public void ended() {}
             @Override public void heard(String words) {
                 if (!on || mine != generation) return;
                 heardAt = android.os.SystemClock.uptimeMillis(); wordsAt = heardAt;
                 closeEar();
-                if (words == null || words.isBlank()) { quiet(); return; }
+                if (words == null || words.isBlank()) { quiet(some[0]); return; }
                 heardSome = true; silences = 0; filler(); think(BuddyTalk.heard(context, words.strip()), false);
             }
             @Override public void failed(String reason) {
@@ -128,7 +129,7 @@ final class BuddyVoice {
                 if (ownEarCanTakeOver()) { closeEar(); deviceOff = true; listen(); return; }
                 end("error", reason);
             }
-            @Override public void silent(String reason) { if (on && mine == generation) quiet(); }
+            @Override public void silent(String reason) { if (on && mine == generation) quiet(some[0]); }
         });
     }
     /**
@@ -139,7 +140,7 @@ final class BuddyVoice {
     private void listenOwn(int mine) {
         capture = VoiceCapture.start(7000, new VoiceCapture.Heard() {
             @Override public void speech(short[] pcm) { if (on && mine == generation) { capture = null; heardAt = android.os.SystemClock.uptimeMillis(); filler(); hear(pcm, mine); } }
-            @Override public void silent() { if (on && mine == generation) { capture = null; quiet(); } }
+            @Override public void silent() { if (on && mine == generation) { capture = null; quiet(false); } }
             @Override public void failed(String why) { if (on && mine == generation) { capture = null; ownEar = false; ownBroken = true; listen(); } }
             @Override public void began() { if (on && mine == generation) show("listening", "…"); }
         });
@@ -160,7 +161,7 @@ final class BuddyVoice {
                 main.post(() -> {
                     if (!on || mine != generation) return;
                     if (got == null) { ownEar = false; ownBroken = true; listen(); return; }
-                    if (got.isBlank()) { quiet(); return; }
+                    if (got.isBlank()) { quiet(false); return; }
                     wordsAt = android.os.SystemClock.uptimeMillis();
                     heardSome = true; silences = 0; think(got, who == dev.jun.gyeot.core.VoicePrint.Who.STRANGER);
                 });
@@ -173,8 +174,11 @@ final class BuddyVoice {
      */
     static final long QUIET_HOME = 15_000, QUIET_OVER = 180_000;
     private long lastTalk, listenAt;
-    /** Nothing heard: it listens again until the talk has been quiet for QUIET_HOME (QUIET_OVER over another app). */
-    private void quiet() {
+    /**
+     * Nothing heard: it listens again until the talk has been quiet for QUIET_HOME (QUIET_OVER over another app). misheard:
+     * words began to come but none were made out; only then it asks to hear them again (준: "아무 소리도 안했는데 다시말해줄래는 뭐임").
+     */
+    private void quiet(boolean misheard) {
         closeEar();
         // Over another app the recognizer may get only silence: before ending, 퍼레's own ear gets one more try.
         if (silences + 1 >= 2 && !heardSome && ownEarCanTakeOver()) { deviceOff = true; main.postDelayed(this::listen, 150); return; }
@@ -183,9 +187,9 @@ final class BuddyVoice {
         if (now - lastTalk >= (screen == null ? QUIET_OVER : QUIET_HOME)) { end("done", "또 불러 줘!"); return; }
         int mine = generation;
         Runnable again = () -> { if (on && mine == generation) listen(); };
-        // Once on the home screen, in its own voice: "응? 다시 말해 줄래?" (after the sound, so it does not hear itself); over
-        // another app it waits quietly. A recognizer that gave up at once is not asked again at once.
-        if (silences == 1 && screen != null) { String said = cue("again", () -> main.postDelayed(again, 150)); if (said != null) show("speaking", said); return; }
+        // Words that were not made out: "응? 다시 말해 줄래?" in its own voice (after the sound, so it does not hear itself).
+        // Silence: it waits quietly. A recognizer that gave up at once is not asked again at once.
+        if (misheard) { String said = cue("again", () -> main.postDelayed(again, 150)); if (said != null) show("speaking", said); return; }
         main.postDelayed(again, now - listenAt < 1500 ? 1200 : 250);
     }
 
