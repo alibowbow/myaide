@@ -211,21 +211,102 @@ public final class DecorActivity extends Activity {
             default -> "Qwen · Groq (빠름) · 늦으면 NVIDIA";
         };
     }
-    /** 퍼레 두뇌: the quick ones, or any of the app's AIs with its model and depth (the same picker the other screens use). */
+    /**
+     * 퍼레 두뇌 (준: "우리앱이 수십가지 모델을 사용가능한데 세부모델 고를 수가 없어", "메뉴도 너무 허접해 그냥 텍스트 성의없이 나열"):
+     * the quick brains, then each of the app's AIs with its icon and state; an AI opens its own models (every one its
+     * connection lists), a model with thinking levels asks for one. What is in use is marked.
+     */
     private void chooseBrain() {
         AppStore store = ((GyeotApp) getApplication()).store(); String now = BuddyTalk.brain(this);
+        ScopedModels scope; try { scope = ScopedModels.buddy(store); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); return; }
+        String usedEngine = BuddyTalk.CUSTOM.equals(now) ? scope.engine() : "";
+        TeamRoster roster = new TeamRoster(store, scope);
         Ui.Sheet menu = ui.selectionSheet("퍼레 두뇌", "한마디 · 퍼레 대화 · 음성 대화에 써요");
         menu.primary.setVisibility(View.GONE);
-        LinearLayout group = ui.group();
-        String[][] quick = {{BuddyTalk.QWEN, "Qwen · Groq", "가장 빨라요 · 늦으면 NVIDIA가 답해요"}, {BuddyTalk.NIM, "NVIDIA 빠른 모델", "늦으면 Qwen이 답해요"}, {BuddyTalk.BOTH, "Qwen과 NVIDIA 함께", "둘에게 묻고 먼저 온 답"}};
-        for (String[] q : quick) ui.addRow(group, ui.listRow(R.drawable.ic_bolt, Ui.ORANGE, (q[0].equals(now) ? "✓ " : "") + q[1], q[2], null, () -> { menu.dismiss(); BuddyTalk.brain(this, q[0]); draw(); }), true);
-        String custom = BuddyTalk.customLabel(store);
-        ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, Ui.PURPLE, (BuddyTalk.CUSTOM.equals(now) ? "✓ " : "") + "앱의 AI에서 고르기", custom.isEmpty() ? "ChatGPT · Claude · Gemini · Grok · NVIDIA · Groq · Antigravity의 모델과 생각 깊이" : "지금: " + custom, ui.chevron(), () -> {
-            menu.dismiss();
-            FileExplorerModelUi.show(this, store, () -> ScopedModels.buddy(store), "퍼레 두뇌", "퍼레에 적용", () -> !isDestroyed(), dialog -> dialog.show(), () -> { BuddyTalk.brain(this, BuddyTalk.CUSTOM); draw(); });
-        }), true);
-        menu.body.addView(group);
+        menu.body.addView(ui.sectionHeader("빠른 두뇌"));
+        LinearLayout quick = ui.group();
+        String[][] fast = {{BuddyTalk.QWEN, "Qwen · Groq", "가장 빨라요 · 늦으면 NVIDIA가 답해요"}, {BuddyTalk.NIM, "NVIDIA 빠른 모델", "늦으면 Qwen이 답해요"}, {BuddyTalk.BOTH, "Qwen과 NVIDIA 함께", "둘에게 묻고 먼저 온 답"}};
+        for (String[] q : fast) ui.addRow(quick, ui.listRow(R.drawable.ic_bolt, Ui.ORANGE, q[1], q[2], q[0].equals(now) ? inUse() : null, () -> { menu.dismiss(); BuddyTalk.brain(this, q[0]); draw(); }), true);
+        menu.body.addView(quick);
+        menu.body.addView(ui.sectionHeader("앱의 AI · 모델 직접 고르기"));
+        LinearLayout engines = ui.group();
+        for (String engine : dev.jun.gyeot.core.TeamPlan.ENGINES) {
+            boolean ready = store.ready(engine); int count = ready ? roster.catalog(engine).length() : 0;
+            int[] look = engineLook(engine);
+            String sub = !ready ? "연결 안 됨 · 설정 → AI 연결에서 연결해요" : engine.equals(usedEngine) ? roster.label(engine, scope.model(engine)) + " · 모델 " + count + "개" : "모델 " + count + "개";
+            ui.addRow(engines, ui.listRow(look[0], look[1], dev.jun.gyeot.core.WorkBook.author(engine), sub, engine.equals(usedEngine) ? inUse() : ui.chevron(), () -> {
+                if (!ready) { Toast.makeText(this, dev.jun.gyeot.core.WorkBook.author(engine) + "은(는) 설정 → AI 연결에서 먼저 연결해 주세요", Toast.LENGTH_LONG).show(); return; }
+                menu.dismiss(); brainModels(engine);
+            }), true);
+        }
+        menu.body.addView(engines);
         menu.show();
+    }
+    /** An AI's models, every one its connection lists; the one in use marked. */
+    private void brainModels(String engine) {
+        AppStore store = ((GyeotApp) getApplication()).store();
+        ScopedModels scope; try { scope = ScopedModels.buddy(store); } catch (Exception e) { return; }
+        TeamRoster roster = new TeamRoster(store, scope); org.json.JSONArray catalog = roster.catalog(engine);
+        boolean inUse = BuddyTalk.CUSTOM.equals(BuddyTalk.brain(this)) && engine.equals(scope.engine()); String usedModel = inUse ? scope.model(engine) : "";
+        int[] look = engineLook(engine);
+        Ui.Sheet sheet = ui.selectionSheet(dev.jun.gyeot.core.WorkBook.author(engine), catalog.length() == 0 ? "모델 목록이 없어요 · 설정 → AI 연결에서 새로고침해요" : "모델 " + catalog.length() + "개 · 고르면 퍼레가 이 모델로 생각해요");
+        sheet.primary.setVisibility(View.GONE);
+        LinearLayout list = ui.group(); java.util.Set<String> seen = new java.util.HashSet<>();
+        for (int i = 0; i < catalog.length(); i++) {
+            org.json.JSONObject item = catalog.optJSONObject(i); if (item == null) continue;
+            String id = item.optString("id"); if (id.isBlank() || !seen.add(id)) continue;
+            dev.jun.gyeot.core.Reasoning.Profile profile = roster.profile(engine, id);
+            int levels = profile.values().length;
+            String sub = (levels > 1 ? "생각 깊이 " + levels + "단계" : "") + (id.equals(roster.label(engine, id)) ? "" : (levels > 1 ? " · " : "") + id);
+            ui.addRow(list, ui.listRow(look[0], look[1], roster.label(engine, id), sub, id.equals(usedModel) ? inUse() : levels > 1 ? ui.chevron() : null, () -> {
+                sheet.dismiss();
+                if (levels > 1) brainDepth(engine, id); else applyBrain(engine, id, "");
+            }), true);
+        }
+        sheet.body.addView(list);
+        sheet.show();
+    }
+    /** A model's thinking levels; the current one marked. */
+    private void brainDepth(String engine, String model) {
+        AppStore store = ((GyeotApp) getApplication()).store();
+        ScopedModels scope; try { scope = ScopedModels.buddy(store); } catch (Exception e) { return; }
+        TeamRoster roster = new TeamRoster(store, scope);
+        dev.jun.gyeot.core.Reasoning.Profile profile = roster.profile(engine, model);
+        String[] values = profile.values(), labels = dev.jun.gyeot.core.WorkBook.CHATGPT.equals(engine) ? profile.gptLabels() : profile.labels();
+        String current = scope.effort(engine, model);
+        Ui.Sheet sheet = ui.selectionSheet("생각 깊이", roster.label(engine, model) + " · 얕을수록 빨리 답해요");
+        sheet.primary.setVisibility(View.GONE);
+        LinearLayout list = ui.group();
+        for (int i = 0; i < values.length; i++) {
+            String value = values[i], label = i < labels.length ? labels[i] : value;
+            ui.addRow(list, ui.listRow(R.drawable.ic_tune, Ui.INDIGO, label, i == 0 ? "가장 빨라요" : i == values.length - 1 ? "가장 깊게 생각해요" : "", value.equals(current) ? inUse() : null, () -> { sheet.dismiss(); applyBrain(engine, model, value); }), true);
+        }
+        sheet.body.addView(list);
+        sheet.show();
+    }
+    private void applyBrain(String engine, String model, String effort) {
+        AppStore store = ((GyeotApp) getApplication()).store();
+        try {
+            ScopedModels.buddy(store).chooseProfile(engine, model, effort);
+            BuddyTalk.brain(this, BuddyTalk.CUSTOM);
+            Toast.makeText(this, "퍼레 두뇌 · " + dev.jun.gyeot.core.WorkBook.author(engine) + " " + new TeamRoster(store).label(engine, model), Toast.LENGTH_SHORT).show();
+            draw();
+        } catch (Exception e) { Toast.makeText(this, e.getMessage() == null ? "바꾸지 못했어요" : e.getMessage(), Toast.LENGTH_LONG).show(); }
+    }
+    /** A small "사용 중" mark at a row's end. */
+    private View inUse() { TextView t = ui.label("사용 중", 12, Ui.ACCENT); t.setPadding(ui.dp(8), 0, ui.dp(4), 0); return t; }
+    /** Each AI's icon and hue, as the settings show them. */
+    private static int[] engineLook(String engine) {
+        return switch (engine) {
+            case dev.jun.gyeot.core.WorkBook.CHATGPT -> new int[]{R.drawable.ic_sparkle, Ui.MINT};
+            case dev.jun.gyeot.core.WorkBook.CLAUDE -> new int[]{R.drawable.ic_sparkle, Ui.ORANGE};
+            case dev.jun.gyeot.core.WorkBook.GEMINI -> new int[]{R.drawable.ic_sparkle, Ui.BLUE};
+            case dev.jun.gyeot.core.WorkBook.GROK -> new int[]{R.drawable.ic_sparkle, Ui.GRAY};
+            case dev.jun.gyeot.core.WorkBook.NIM -> new int[]{R.drawable.ic_sparkle, Ui.GREEN};
+            case dev.jun.gyeot.core.WorkBook.ANTIGRAVITY -> new int[]{R.drawable.ic_sparkle, Ui.PURPLE};
+            case dev.jun.gyeot.core.WorkBook.GROQ -> new int[]{R.drawable.ic_bolt, Ui.ORANGE};
+            default -> new int[]{R.drawable.ic_sparkle, Ui.ACCENT};
+        };
     }
     /** 퍼레's memories, newest first: each can be deleted, or all at once (read off the main thread). */
     private void showMemory() {
