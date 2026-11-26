@@ -198,7 +198,7 @@ final class BuddyTalk {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
         String instructions = persona(c) + "\n지금 사용자와 목소리로 대화하고 있어.\n"
             + "- 사용자의 마지막 말에 바로, 친구처럼 답해. 물으면 핵심만 짧게 알려 주고, 모르면 솔직하게 말해.\n"
-            + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 존댓말(~요). 이모지·기호·목록·괄호·영어 약어 없이.\n"
+            + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 반말(~야, ~해). 이모지·기호·목록·괄호·영어 약어 없이.\n"
             + "- 귀엽고 밝게, 가끔 너의 기억을 자연스럽게 꺼내도 좋아.\n"
             + "- 사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 '휴대폰 상태'의 숫자로 정확히 답해. 묻지 않으면 저장공간 이야기는 꺼내지 말고, 정리·삭제를 권하지 마.";
         long now = System.currentTimeMillis();
@@ -375,9 +375,9 @@ final class BuddyTalk {
     /** The user came home: after hours away it is a memory, and so is being up in the small hours. */
     private static void back(Context c, long now) {
         long since = c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).getLong("awaySince", 0);
-        if (since > 0 && now - since >= 8 * 3_600_000L) remember(c, "away", (now - since) / 3_600_000L + "시간 만에 사용자가 돌아왔어요. 기다렸어요", 0);
+        if (since > 0 && now - since >= 8 * 3_600_000L) remember(c, "away", (now - since) / 3_600_000L + "시간 만에 사용자가 돌아왔어. 기다렸어", 0);
         int h = java.time.LocalTime.now().getHour();
-        if (h >= 1 && h < 5) remember(c, "late", "새벽 " + h + "시에도 사용자가 깨어 있었어요", 6 * 3_600_000L);
+        if (h >= 1 && h < 5) remember(c, "late", "새벽 " + h + "시에도 사용자가 깨어 있었어", 6 * 3_600_000L);
     }
 
     // ── 퍼레's own memory (core/BuddyMemory), in the app's files apart from the assistant's memory ──
@@ -393,7 +393,7 @@ final class BuddyTalk {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
         boolean nim = store.nim.connected(), groq = GroqWork.on(); if (!nim && !groq) return;
         String instructions = "사용자와 AI 친구 퍼레가 나눈 대화 한 토막이야. 기억해 둘 것이 있으면 한 줄에 하나씩, 아래 형식으로만 써(최대 2줄):\n"
-            + "사용자: 사용자는 …(친구가 오래 기억할 사용자의 이야기: 계획, 좋아하거나 싫어하는 것, 기분과 그 이유, 일상의 일, 소중한 사람·동물. 45자 안쪽, ~대요/~래요 말투)\n"
+            + "사용자: 사용자는 …(친구가 오래 기억할 사용자의 이야기: 계획, 좋아하거나 싫어하는 것, 기분과 그 이유, 일상의 일, 소중한 사람·동물. 45자 안쪽, ~대/~래 말투)\n"
             + "약속: 퍼레가 …(퍼레가 사용자에게 해 주기로 한 것이 있을 때만)\n"
             + "비밀번호·로그인·계정, 사이트나 앱의 권한 요청, 사용자가 털어놓은 고민·걱정처럼 남이 알면 곤란한 이야기면 그 줄 앞에 '민감 '을 붙여. 병원·건강·연애·가족 같은 일상 이야기는 민감하지 않아. 인사·잡담·질문·부탁·명령·앱 사용법·날씨·지금 잠깐의 일뿐이면 '없음'이라고만 써. 비밀번호·주소·전화번호·계좌 같은 번호나 값 자체는 절대 쓰지 마.";
         String input = "사용자: " + said.strip() + "\n퍼레: " + (answer == null ? "" : answer.strip());
@@ -482,9 +482,9 @@ final class BuddyTalk {
     static void weatherMemory(Context c, JSONObject w) {
         if (w == null) return;
         int code = w.optInt("code", -1), t = w.optInt("temp", 15); String place = w.optString("place").isBlank() ? "" : w.optString("place") + "에 ";
-        if ((code >= 71 && code <= 77) || code == 85 || code == 86) remember(c, "snow", place + "눈이 내렸어요", 12 * 3_600_000L);
-        if (t <= -5) remember(c, "cold", "영하로 꽁꽁 추운 날이라 목도리를 했어요", 12 * 3_600_000L);
-        else if (t >= 33) remember(c, "hot", "푹푹 찌게 더운 날이었어요", 12 * 3_600_000L);
+        if ((code >= 71 && code <= 77) || code == 85 || code == 86) remember(c, "snow", place + "눈이 내렸어", 12 * 3_600_000L);
+        if (t <= -5) remember(c, "cold", "영하로 꽁꽁 추운 날이라 목도리를 했어", 12 * 3_600_000L);
+        else if (t >= 33) remember(c, "hot", "푹푹 찌게 더운 날이었어", 12 * 3_600_000L);
     }
     /** An app the user opened from the home screen, once in six hours each. */
     /**

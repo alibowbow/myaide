@@ -76,7 +76,7 @@ final class BuddyVoice {
     /** Nothing heard: once, it listens again; twice in a row, the talk ends. */
     private void quiet() {
         closeEar();
-        if (++silences >= 2) { end("done", "또 불러 주세요!"); return; }
+        if (++silences >= 2) { end("done", "또 불러 줘!"); return; }
         main.postDelayed(this::listen, 250);
     }
     private void think(String said) {
@@ -94,7 +94,7 @@ final class BuddyVoice {
         try {
             io.execute(() -> BuddyTalk.reply(context, said, before,
                 line -> main.post(() -> { if (on && mine == generation) { turns.add(new String[]{"user", said}); turns.add(new String[]{"assistant", line}); say(line); } }),
-                () -> main.post(() -> { if (on && mine == generation) end("error", "지금은 대답이 떠오르지 않아요. 조금 뒤에 다시 불러 주세요"); })));
+                () -> main.post(() -> { if (on && mine == generation) end("error", "지금은 대답이 안 떠올라. 조금 있다 다시 불러 줘"); })));
         } catch (RuntimeException stopped) { end("error", ""); }
     }
     /**

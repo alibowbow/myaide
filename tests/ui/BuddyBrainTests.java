@@ -92,6 +92,8 @@ public class BuddyBrainTests {
         assertTrue(save.performClick()); shadowOf(Looper.getMainLooper()).idle();
         assertEquals("주인공님", BuddyTalk.title(a));
         assertTrue(BuddyTalk.persona(a).contains("'주인공님'"));
+        // A friend's casual words (준: "존댓말 대신 친근한 어투로 하자").
+        assertTrue(BuddyTalk.persona(a).contains("반말")); assertFalse(BuddyTalk.persona(a).contains("경쾌한 존댓말"));
     }
 
     /** What is private (준: "병원에 간대요 정도는 민감한 기억이 아닌 듯", "비번이나 사이트 권한요청 고민거리"). */
@@ -108,7 +110,7 @@ public class BuddyBrainTests {
     @Test public void saysReadableKorean() {
         for (String bad : new String[]{"도 구름 낀 사천, 배터리도 살포시 충전 중이네요.", "는 오늘 기분이 좋아요", "今天 날씨 좋네요", "Battery is full today, yay"})
             assertFalse(bad, dev.jun.gyeot.core.BuddyMind.readable(bad));
-        for (String good : new String[]{"오늘도 구름 낀 사천, 충전기 앞에서 냠냠 중이에요.", "유튜브 영화관 거리 다녀오셨어요?", "YouTube 보고 오셨군요, 재밌었어요?"})
+        for (String good : new String[]{"오늘도 구름 낀 사천, 충전기 앞에서 냠냠 중이야.", "이 노래 좋다, 같이 들썩이자!", "와, 유튜브 영화관 거리 다녀왔어?", "YouTube 보고 왔구나, 재밌었어?"})
             assertTrue(good, dev.jun.gyeot.core.BuddyMind.readable(good));
     }
 

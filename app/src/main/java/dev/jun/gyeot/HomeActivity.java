@@ -190,7 +190,7 @@ public final class HomeActivity extends Activity {
     private void voice() {
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, MIC); return; }
         if (buddyVoice == null) buddyVoice = new BuddyVoice(this, ((GyeotApp) getApplication()).store(), io, (state, text) -> js("launcher.voice(" + JSONObject.quote(state) + "," + JSONObject.quote(text) + ")"),
-            then -> main.post(() -> Fingerprint.ask(this, "퍼레의 비밀 기억", "지문으로 확인하면 퍼레가 말해 드려요", () -> { BuddyTalk.unlock(); then.run(); }, then)));
+            then -> main.post(() -> Fingerprint.ask(this, "퍼레의 비밀 기억", "지문으로 확인하면 말해 줄게", () -> { BuddyTalk.unlock(); then.run(); }, then)));
         if (buddyVoice.on()) buddyVoice.stop(); else buddyVoice.start();
     }
     @Override protected void onResume() {
@@ -517,7 +517,7 @@ public final class HomeActivity extends Activity {
             if (!custom && !qwen && !store.nim.connected()) { js("launcher.replyError(" + JSONObject.quote("퍼레의 두뇌가 아직 연결되지 않았어요. 설정 → AI 연결에서 Groq나 NVIDIA 키를 넣으면 여기서 바로 답해요.") + ",\"settings\")"); return; }
             // Private memories asked for: the fingerprint first (준: "개인정보 중 중요한 내용은 지문인식을 요청해줘"); without it the answer leaves them out.
             if (!fingerprinted && BuddyTalk.needsUnlock(HomeActivity.this, question)) {
-                main.post(() -> Fingerprint.ask(HomeActivity.this, "퍼레의 비밀 기억", "지문으로 확인하면 퍼레가 말해 드려요", () -> { BuddyTalk.unlock(); fingerprinted = true; chat(question, history); fingerprinted = false; }, () -> { fingerprinted = true; chat(question, history); fingerprinted = false; }));
+                main.post(() -> Fingerprint.ask(HomeActivity.this, "퍼레의 비밀 기억", "지문으로 확인하면 말해 줄게", () -> { BuddyTalk.unlock(); fingerprinted = true; chat(question, history); fingerprinted = false; }, () -> { fingerprinted = true; chat(question, history); fingerprinted = false; }));
                 return;
             }
             Runnable old = chatCancel.getAndSet(null); if (old != null) try { old.run(); } catch (RuntimeException ignored) {}

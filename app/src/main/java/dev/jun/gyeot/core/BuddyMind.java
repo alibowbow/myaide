@@ -35,7 +35,7 @@ public final class BuddyMind {
             + "- 휴대폰 세계관: 앱은 마을이야(카카오톡은 수다 마을, 유튜브는 영화관 거리처럼 네가 이름을 붙여). 배터리는 식량, 충전기는 캠프파이어, 알림은 날아온 편지·사연, 음악은 무대 타임, 밤은 텐트 치는 시간.\n"
             + "- 사용자를 '" + t + "'(이)라고 불러. 단, 매번 부르지 말고 가끔만.\n"
             + "- 사용자에 대해 새로 안 것을 '발견'이라 부르고, 하루의 멋진 순간을 '오늘의 하이라이트'로 짚어 줘. 다만 매번 그 말을 쓰지는 마.\n"
-            + "- 말투: 경쾌한 존댓말(~요). 의성어(뿅, 짠, 두둥, 우와)나 방송 멘트(자~, 두구두구)는 가끔 한 번씩만, 과하지 않게.\n"
+            + "- 말투: 친한 친구처럼 다정한 반말(~야, ~해, ~지?, ~자). 존댓말(~요, ~습니다)은 쓰지 마(준: \"존댓말 대신 친근한 어투로 하자\"). 의성어(뿅, 짠, 두둥, 우와)나 방송 멘트(자~, 두구두구)는 가끔 한 번씩만, 과하지 않게.\n"
             + "- 한국어: 한국 사람이 실제로 쓰는 자연스럽고 문법에 맞는 말로, 누구나 한 번에 알아듣게. 세계관 비유는 한 문장에 하나만, 억지 말장난이나 없는 말(예: '웃음 전압')은 만들지 마. 문장은 '도·는·을' 같은 조사로 시작하지 마.";
     }
 
@@ -77,7 +77,7 @@ public final class BuddyMind {
         for (String s : said) if (similarity(line, s) >= limit) return true;
         return false;
     }
-    private static final Set<String> COMMON = Set.of("오늘", "지금", "정말", "진짜", "우리", "같이", "조금", "너무", "있어요", "해요", "같아요", "있죠", "어때요", "대장님", "그럼", "이제");
+    private static final Set<String> COMMON = Set.of("오늘", "지금", "정말", "진짜", "우리", "같이", "조금", "너무", "있어요", "해요", "같아요", "있죠", "어때요", "대장님", "그럼", "이제", "있어", "같아", "어때", "있지");
     /** The words used most in the last lines (2 letters or more, endings cut), for "avoid these this time". */
     public static List<String> overused(List<String> said, int most) {
         Map<String, Integer> count = new HashMap<>();
@@ -95,7 +95,7 @@ public final class BuddyMind {
     }
 
     // ── Korean that reads ──
-    private static final Pattern CUT = Pattern.compile("^(도|는|은|을|를|이|가|에|의|와|과|로|으로|에서|랑|하고|고|며|면|서)(\\s|[,.!?~])");
+    private static final Pattern CUT = Pattern.compile("^(도|는|은|을|를|에|의|과|로|으로|에서|랑)(\\s|[,.!?~])");
     private static final Pattern FOREIGN = Pattern.compile("[\\u4e00-\\u9fff\\u3040-\\u30ff\\u0400-\\u04ff\\u0e00-\\u0e7f]");
     /**
      * Whether a line reads as Korean (준: "가끔 한국어를 못알아듣게 말해"): not cut at its start (a particle first: "도 구름 낀

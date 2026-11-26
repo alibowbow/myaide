@@ -246,12 +246,12 @@ function fit(b) {
 */
 // 퍼레's own lines when no AI answers: the little explorer and MC (준: "1+2인데 호칭은 내가 설정할 수 있게해줘"), {t} the title.
 const OWN = {
-  dawn: ["쉿, 새벽 탐험대 출동 중이에요. {t}도 몰래 합류?", "새벽의 휴대폰 마을은 고요해요… 발소리 살금살금", "별빛 BGM 깔고 오늘의 마지막 방송 갑니다"],
-  morning: ["좋은 아침이에요 {t}! 오늘의 탐험 장비 점검 완료!", "두구두구… 오늘의 첫 하이라이트는 {t}의 기지개!", "아침 햇살로 식량 충전, 출발 준비 끝이에요"],
-  lunch: ["점심 시간 속보! 배꼽시계가 정각을 알렸어요", "{t}, 오늘 점심 마을은 어디로 탐험할까요?", "짠! 오늘의 메뉴 추천 코너… 는 {t} 마음대로!"],
-  afternoon: ["오후의 휴대폰 마을 날씨, 맑고 조금 졸림이에요", "{t}! 기지개 한 번이면 오후 탐험 체력 회복!", "뿅! 오후의 하이라이트 찾으러 순찰 중이에요"],
-  evening: ["오늘 탐험 수고 많았어요 {t}, 진심 박수 짝짝!", "저녁 방송 시작합니다~ 오늘 어땠는지 사연 받아요", "노을 지는 마을 탐험 중… 오늘도 멋진 하루였어요"],
-  night: ["텐트 칠 시간이에요. 오늘 탐험 일지 마감!", "오늘의 방송은 여기까지! 내일 신작으로 만나요", "{t}, 푹 쉬어요. 저는 불침번 설게요"]
+  dawn: ["쉿, 새벽 탐험대 출동 중이야. {t}도 몰래 합류할래?", "새벽의 휴대폰 마을은 조용해… 발소리 살금살금", "별빛 BGM 깔고 오늘 마지막 방송 간다"],
+  morning: ["좋은 아침, {t}! 오늘 탐험 장비 점검 끝!", "두구두구… 오늘 첫 하이라이트는 {t}의 기지개!", "아침 햇살로 든든하게 충전, 출발 준비 끝"],
+  lunch: ["점심 시간 속보! 배꼽시계가 딱 정각을 알렸어", "{t}, 오늘 점심은 어디로 탐험 갈까?", "짠! 오늘의 메뉴 추천은… {t} 마음대로!"],
+  afternoon: ["오후의 휴대폰 마을은 맑음, 그리고 살짝 졸림", "{t}! 기지개 한 번 켜면 오후 체력 회복!", "뿅! 오후 하이라이트 찾으러 순찰 중이야"],
+  evening: ["오늘 탐험 수고 많았어 {t}, 박수 짝짝!", "저녁 방송 시작~ 오늘 하루 어땠는지 들려줘", "노을 지는 마을 산책 중… 오늘도 멋진 하루였어"],
+  night: ["텐트 칠 시간이야. 오늘 탐험 일지 마감!", "오늘 방송은 여기까지! 내일 또 만나", "{t}, 푹 쉬어. 나는 불침번 설게"]
 };
 function ownLines() {
   const h = new Date().getHours();
@@ -338,13 +338,13 @@ function touchBuddy(b) {
 /** Poked again and again: spiral eyes, a wobble, and a word about it. */
 function dizzy(b) {
   move(b, "wobble", 1700); if (b._feel) b._feel("dizzy", 2400);
-  askThink(b, "poke", ["어지러워요… 빙글빙글", "콕콕은 그만, 별이 보여요", "으앗, 머리가 핑 돌아요"][Math.floor(Math.random() * 3)]);
+  askThink(b, "poke", ["어지러워… 빙글빙글", "콕콕은 그만, 별이 보여", "으앗, 머리가 핑 돌아"][Math.floor(Math.random() * 3)]);
 }
 /** Stroked: hearts float up, it leans into the hand, its heart grows. */
 function pet(b) {
   hearts(b, 5); move(b, "nuzzle", 1900); if (b._feel) b._feel("love", 2400);
   if (window.boardCare) window.boardCare("pet");
-  askThink(b, "pet", ["헤헤, 간지러워요", "쓰다듬어 줘서 좋아요", "기분이 몽글몽글해요"][Math.floor(Math.random() * 3)]);
+  askThink(b, "pet", ["헤헤, 간지러워", "쓰다듬어 줘서 좋아", "기분이 몽글몽글해"][Math.floor(Math.random() * 3)]);
 }
 function hearts(b, n) {
   const buddy = $(b, ".buddy");
@@ -411,7 +411,7 @@ function nextLine(k, prev, opened) {
   const n = !k.locked && k.next;
   if (n && !n.allDay) {
     const min = Math.round((n.begin - now) / 60000);
-    if (min >= 0 && min <= 15) lines.push({key: "soon15:" + n.title + n.begin, text: (min <= 1 ? "곧" : min + "분 뒤") + " ‘" + n.title + "’예요" + (n.place ? " · " + n.place : ""), go: "calendar", feel: "surprised"});
+    if (min >= 0 && min <= 15) lines.push({key: "soon15:" + n.title + n.begin, text: (min <= 1 ? "곧" : min + "분 뒤") + " ‘" + n.title + "’ 시작이야" + (n.place ? " · " + n.place : ""), go: "calendar", feel: "surprised"});
   }
   if (opened) {
     const own = Array.isArray(k.lines) && k.lines.length ? k.lines : ownLines();
@@ -627,11 +627,11 @@ function envOf(b, k) {
   $(b, ".buddy").classList.toggle("lowpower", !!e.powerSave);
   const was = b._was; b._was = {charging: !!e.charging, music: !!e.music, heat, save: !!e.powerSave};
   if (!was || lockedNow) return;
-  if (heat && !was.heat) { move(b, "wave", 1400); if (b._feel) b._feel("full", 1800); askThink(b, "heat", "휴대폰이 후끈해요, 저 땀나요"); return; }
-  if (e.powerSave && !was.save) { if (b._feel) b._feel("yawn", 1700); askThink(b, "save", "절전 모드네요, 저도 살살 움직일게요"); return; }
-  if (e.charging && !was.charging) { if (b._feel) b._feel("yum", 2200); move(b, "hop", 760); askThink(b, "charge", "냠냠, 충전이 제일 맛있어요"); }
-  else if (e.music && !was.music) { move(b, "dance", 5200); if (b._feel) b._feel("happy", 5200); askThink(b, "music", "음악이다! 몸이 저절로 들썩여요"); }
-  else if (hungry && seenNow && Date.now() - (b._hungryAt || 0) > 1800000) { b._hungryAt = Date.now(); move(b, "rumble", 1100); if (b._feel) b._feel("sad", 2000); askThink(b, "hungry", "꼬르륵… 충전해 주시면 힘이 날 것 같아요"); }
+  if (heat && !was.heat) { move(b, "wave", 1400); if (b._feel) b._feel("full", 1800); askThink(b, "heat", "휴대폰이 후끈해, 나 땀나"); return; }
+  if (e.powerSave && !was.save) { if (b._feel) b._feel("yawn", 1700); askThink(b, "save", "절전 모드네, 나도 살살 움직일게"); return; }
+  if (e.charging && !was.charging) { if (b._feel) b._feel("yum", 2200); move(b, "hop", 760); askThink(b, "charge", "냠냠, 충전이 제일 맛있어"); }
+  else if (e.music && !was.music) { move(b, "dance", 5200); if (b._feel) b._feel("happy", 5200); askThink(b, "music", "음악이다! 몸이 저절로 들썩여"); }
+  else if (hungry && seenNow && Date.now() - (b._hungryAt || 0) > 1800000) { b._hungryAt = Date.now(); move(b, "rumble", 1100); if (b._feel) b._feel("sad", 2000); askThink(b, "hungry", "꼬르륵… 충전해 주면 힘이 날 것 같아"); }
 }
 /** The app's word on 퍼레's life after a care act (launcher.life): its heart and memories, and how it took it. */
 function boardLife(life) {
@@ -640,8 +640,8 @@ function boardLife(life) {
   boards.forEach(b => {
     envOf(b, info); if (b._careOn) drawCare(b);
     if (felt === "yum") { const svg = $(b, ".bot"); svg.classList.remove("eating"); void svg.getBoundingClientRect(); svg.classList.add("eating"); setTimeout(() => svg.classList.remove("eating"), 1700); if (b._feel) b._feel("yum", 1800); setTimeout(() => askThink(b, "snack", "냠냠, 정말 맛있어요!", true), 900); }
-    else if (felt === "full") { move(b, "shake", 800); if (b._feel) b._feel("full", 1600); askThink(b, "full", "아까 먹어서 배불러요, 나중에 주세요", true); }
-    else if (felt === "fun") { move(b, "spin", 950); setTimeout(() => move(b, "hop", 760), 950); if (b._feel) b._feel("laugh", 2000); askThink(b, "play", "와아, 한 번 더 놀아요!", true); }
+    else if (felt === "full") { move(b, "shake", 800); if (b._feel) b._feel("full", 1600); askThink(b, "full", "아까 먹어서 배불러, 나중에 줘", true); }
+    else if (felt === "fun") { move(b, "spin", 950); setTimeout(() => move(b, "hop", 760), 950); if (b._feel) b._feel("laugh", 2000); askThink(b, "play", "와아, 한 번 더 놀자!", true); }
   });
 }
 /** The phone as it is now (launcher.env, asked every quarter minute while seen), so music and charging are noticed soon. */
@@ -672,8 +672,8 @@ function closeCare(b) { b._careOn = false; clearTimeout(b._careT); $(b, ".care")
 function drawCare(b) {
   const k = info || {}, life = k.life || {}, e = b._env || {}, heart = life.heart == null ? 55 : life.heart;
   const full = Math.round(heart / 20), hearts = "♥".repeat(full) + '<s>' + "♥".repeat(5 - full) + '</s>';
-  const food = e.battery == null ? "" : '<div class="care-row"><span class="k">밥</span><span class="meter' + (e.battery <= 20 && !e.charging ? " low" : "") + '"><i style="width:' + e.battery + '%"></i></span><span class="v">' + (e.charging ? "충전하며 냠냠" : e.battery <= 20 ? "배고파요" : e.battery >= 80 ? "배불러요" : "든든해요") + '</span></div>';
-  const now = e.night ? "자는 시간이라 졸려요" : e.heat ? "휴대폰이 뜨거워서 땀이 나요" : e.music ? "음악에 맞춰 들썩이는 중" : e.charging ? "충전기에서 밥 먹는 중" : e.hungry ? "배터리가 적어서 배고파요" : e.dnd ? "방해 금지라 조용히 곁에 있어요" : e.save ? "절전 모드라 기운을 아끼는 중" : e.airplane ? "비행기 모드, 어디 가세요?" : e.rain ? "비가 와서 우산 썼어요" : e.cold ? "추워서 목도리 했어요" : e.hot ? "더워서 땀이 송골송골" : e.offline ? "인터넷이 끊겨서 갸우뚱" : heart >= 80 ? "기분 최고예요" : heart < 35 ? "조금 심심해요" : "편안하게 쉬는 중";
+  const food = e.battery == null ? "" : '<div class="care-row"><span class="k">밥</span><span class="meter' + (e.battery <= 20 && !e.charging ? " low" : "") + '"><i style="width:' + e.battery + '%"></i></span><span class="v">' + (e.charging ? "충전하며 냠냠" : e.battery <= 20 ? "배고파" : e.battery >= 80 ? "배불러" : "든든해") + '</span></div>';
+  const now = e.night ? "자는 시간이라 졸려" : e.heat ? "휴대폰이 뜨거워서 땀이 나" : e.music ? "음악에 맞춰 들썩이는 중" : e.charging ? "충전기에서 밥 먹는 중" : e.hungry ? "배터리가 적어서 배고파" : e.dnd ? "방해 금지라 조용히 곁에 있어" : e.save ? "절전 모드라 기운을 아끼는 중" : e.airplane ? "비행기 모드, 어디 가?" : e.rain ? "비가 와서 우산 썼어" : e.cold ? "추워서 목도리 했어" : e.hot ? "더워서 땀이 송골송골" : e.offline ? "인터넷이 끊겨서 갸우뚱" : heart >= 80 ? "기분 최고야" : heart < 35 ? "조금 심심해" : "편안하게 쉬는 중";
   $(b, ".care").innerHTML = '<div class="care-head"><b>' + esc(k.name || "퍼레") + '</b><span>내 휴대폰에 사는 친구</span><button class="care-x" data-care="close" aria-label="닫기">✕</button></div>'
     + '<div class="care-row"><span class="k">마음</span><span class="hearts">' + hearts + '</span></div>' + food
     + '<div class="care-row"><span class="k">지금</span><span class="v now">' + now + '</span></div>';
@@ -696,7 +696,7 @@ function drawCare(b) {
       jolts = jolts.filter(t => now - t < 900).concat(now);
       if (jolts.length >= 3 && now - shakenAt > 6000) {
         shakenAt = now; jolts = [];
-        boards.forEach(b => { move(b, "wobble", 1700); if (b._feel) b._feel("dizzy", 2400); askThink(b, "shake", "으앗, 지진인 줄 알았어요… 어질어질"); });
+        boards.forEach(b => { move(b, "wobble", 1700); if (b._feel) b._feel("dizzy", 2400); askThink(b, "shake", "으앗, 지진인 줄 알았어… 어질어질"); });
         if (window.boardCare) window.boardCare("shake");
       }
     }
@@ -717,7 +717,7 @@ function boardVoiceState(state, text) {
     if (state === "listening") {
       voiceOn = true; if (b._mood) b._mood(""); if (b._feel) b._feel("", 1);
       bubble.classList.remove("act"); bubble.dataset.go = "";
-      bubble.innerHTML = text ? '<span class="heard">' + esc(text) + '</span>' : '<span class="heard muted">듣고 있어요…</span>';
+      bubble.innerHTML = text ? '<span class="heard">' + esc(text) + '</span>' : '<span class="heard muted">듣고 있어…</span>';
       bubble.classList.add("on");
     } else if (state === "thinking") {
       voiceOn = true; thinking(b); clearTimeout(b._bubble);
