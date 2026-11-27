@@ -100,16 +100,22 @@ body.launcher{position:fixed;inset:0}
    a drop-shadow made the web view draw each icon again through a filter layer, softer and duller. */
 .pad .app .ic img{filter:none !important}
 /* 들퍼레's own places as home icons in the empty space above the dots (준: "이 둘 중에 바로가기도 만들어줘", "일단 마이튜브 바로가기",
-   "앱내 아이콘처럼 축약된 것 말고 좀더 홈 아이콘처럼"): a rounded tile like an app's, its name under it. */
-.shorts{display:flex;justify-content:center;gap:22px;padding:6px 22px 4px}
+   "앱내 아이콘처럼 축약된 것 말고 좀더 홈 아이콘처럼"): a rounded tile like an app's. */
+/* Small and without names (준: "마이튜브 아이콘이 너무 커", "둘다 이름은 적지말고 아이콘으로만"): 42 px tiles, their names only for
+   the screen reader. */
+.shorts{display:flex;justify-content:center;gap:16px;padding:6px 22px 6px}
 .shorts:empty{display:none}
-.shorts .app{width:calc(var(--icon) + 18px)}
+.shorts .app{width:42px}
+.shorts .app .ic{width:42px;height:42px}
 .own-ic{display:grid;place-items:center;width:100%;height:100%;border-radius:23%;box-shadow:0 3px 8px rgba(20,24,50,.28),inset 0 1px 0 rgba(255,255,255,.35)}
 .own-ic svg{width:58%;height:58%;display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,.18))}
 /* 마이튜브: not YouTube's red and white play button (준: "마이튜브가 너무 유튜브 같다"): a little TV with two antennae, no feet and no
    tips on them (준: "아래 발은 없애줘 노란 동그라미도 없애줘"), on lavender to violet. */
 .own-ic.mytube{background:linear-gradient(155deg,#c4b5fd 0%,#8b6cf6 48%,#5a3fd8 100%)}
 .own-ic.mytube svg{width:64%;height:64%;transform:translateY(-3%)}
+/* 화면 꾸미기: a palette on teal, beside 마이튜브's violet. */
+.own-ic.decor{background:linear-gradient(155deg,#7ff0dc 0%,#19b3a3 50%,#0b7466 100%)}
+.own-ic.decor svg{width:60%;height:60%}
 .app .label{font-size:11.5px;font-weight:650;letter-spacing:-.3px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:var(--halo)}
 .app .badge{right:-6px;top:-6px}
 
@@ -883,16 +889,22 @@ function delivPill(k) {
   const words = d.when && (d.stage === "onway" || d.stage === "ready" || d.stage === "cooking" || d.stage === "ordered") ? d.when + " 도착" : DELIV[d.stage];
   return '<button class="mini-pill deliv" data-mini="delivery" data-app="' + esc(d.app || "") + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="17" r="2.5"/><circle cx="18" cy="17" r="2.5"/><path d="M8.5 17h7M14 17l-2-7h-3M17 8h-3l3 9M4 11h5"/></svg>' + esc(d.name || "배달") + ' <b>' + esc(words) + '</b></button>';
 }
-/** 들퍼레's own places as home icons (only 마이튜브 for now; add more here): a tap opens it. */
+/** 들퍼레's own places as small home icons, without names (마이튜브, 화면 꾸미기; add more here): a tap opens it. */
 const SHORTS = [{id: "mytube", label: "마이튜브",
   icon: '<svg viewBox="0 0 24 24"><path d="M9 3.6 12 7.2 15.2 3.4" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
     + '<rect x="3.2" y="7.4" width="17.6" height="12.6" rx="4.2" fill="#fff"/>'
-    + '<path d="M10.4 11.1c0-.55.6-.88 1.06-.58l3.5 2.3c.42.28.42.88 0 1.16l-3.5 2.3c-.46.3-1.06-.03-1.06-.58z" fill="#7a5cf0"/>' + '</svg>'}];
+    + '<path d="M10.4 11.1c0-.55.6-.88 1.06-.58l3.5 2.3c.42.28.42.88 0 1.16l-3.5 2.3c-.46.3-1.06-.03-1.06-.58z" fill="#7a5cf0"/></svg>'},
+  {id: "decor", label: "화면 꾸미기", settings: true,
+  icon: '<svg viewBox="0 0 24 24"><path fill="#fff" fill-rule="evenodd" d="M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>'}];
 function drawShorts() {
   const box = el("shorts"); if (!box) return;
-  box.innerHTML = SHORTS.map(x => '<button class="app short" data-short="' + x.id + '" aria-label="' + esc(x.label) + ' 열기"><span class="ic"><span class="own-ic ' + x.id + '">' + x.icon + '</span></span><span class="label">' + esc(x.label) + '</span></button>').join("");
+  box.innerHTML = SHORTS.map(x => '<button class="app short" data-short="' + x.id + '" aria-label="' + esc(x.label) + ' 열기"><span class="ic"><span class="own-ic ' + x.id + '">' + x.icon + '</span></span></button>').join("");
 }
-el("shorts").addEventListener("click", e => { const b = e.target.closest("[data-short]"); if (b && B) B.open(b.dataset.short); });
+el("shorts").addEventListener("click", e => {
+  const b = e.target.closest("[data-short]"); if (!b || !B) return;
+  const x = SHORTS.find(s => s.id === b.dataset.short); if (!x) return;
+  if (x.settings) B.settings(x.id); else B.open(x.id);
+});
 drawShorts();
 function minis(k) {
   const box = el("minis"), n = k.locked ? 0 : (k.noticeCount || 0), ideas = k.locked ? [] : (k.suggestions || []);

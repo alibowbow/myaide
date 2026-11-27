@@ -396,20 +396,21 @@ async function open(browser, at, bridge, pages) {
   // 준: "퍼레의 판단력 … 강화해줘" — an app 퍼레 opened that did not come up is said once, and those words open the way through.
   // 준, 2026-11-27: "이 둘 중에 바로가기도 만들어줘", "일단 마이튜브 바로가기", "앱내 아이콘처럼 축약된 것 말고 좀더 홈 아이콘처럼".
   const shortsPage = await open(browser, '2026-11-27T22:33:00+09:00', true);
-  await check('마이튜브 as a home icon in the empty space above the dots: an app-sized tile with its name, a tap opens 마이튜브', async () => {
+  await check('마이튜브 and 화면 꾸미기 as small home icons without names in the empty space above the dots; a tap opens each', async () => {
     const p = shortsPage.page;
-    const s = await p.evaluate(() => {
-      const b = document.querySelector('#shorts [data-short="mytube"]'); if (!b) return null;
-      const ic = b.querySelector('.ic').getBoundingClientRect(), lb = b.querySelector('.label').getBoundingClientRect(), dots = el('dots').getBoundingClientRect(), dock = document.querySelector('.dock').getBoundingClientRect();
-      const lib = el('stacks').getBoundingClientRect(), icon = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--icon'));
-      return { w: ic.width, h: ic.height, icon, label: lb.top >= ic.bottom - 1 ? b.querySelector('.label').textContent : '', bottom: lb.bottom, dots: dots.top, dock: dock.top, below: ic.top >= lib.bottom - 1 };
-    });
-    assert(s, 'the icon is there');
-    assert(Math.abs(s.w - s.icon) <= 1 && Math.abs(s.h - s.icon) <= 1, 'as big as an app icon: ' + JSON.stringify(s));
-    assert.strictEqual(s.label, '마이튜브', 'its name under it');
-    assert(s.below && s.bottom <= s.dots && s.bottom <= s.dock, 'under App Library, above the dots and the dock: ' + JSON.stringify(s));
-    await p.evaluate(() => { window._calls.length = 0; document.querySelector('#shorts [data-short="mytube"]').click(); });
-    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open').map(c => JSON.parse(c[1])[0])), ['mytube']);
+    const s = await p.evaluate(() => [...document.querySelectorAll('#shorts [data-short]')].map(b => {
+      const ic = b.querySelector('.ic').getBoundingClientRect(), dots = el('dots').getBoundingClientRect(), lib = el('stacks').getBoundingClientRect();
+      return { id: b.dataset.short, w: ic.width, h: ic.height, text: b.textContent.trim(), name: b.getAttribute('aria-label'), bottom: b.getBoundingClientRect().bottom, dots: dots.top, below: ic.top >= lib.bottom - 1 };
+    }));
+    assert.deepStrictEqual(s.map(x => x.id), ['mytube', 'decor']);
+    for (const x of s) {
+      assert(x.w <= 44 && x.h <= 44 && x.w >= 36, 'small, smaller than an app icon: ' + JSON.stringify(x));
+      assert.strictEqual(x.text, '', 'no name under it');
+      assert(/마이튜브|화면 꾸미기/.test(x.name), 'its name for the screen reader: ' + x.name);
+      assert(x.below && x.bottom <= x.dots, 'under App Library, above the dots: ' + JSON.stringify(x));
+    }
+    await p.evaluate(() => { window._calls.length = 0; document.querySelector('#shorts [data-short="mytube"]').click(); document.querySelector('#shorts [data-short="decor"]').click(); });
+    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open' || c[0] === 'settings').map(c => c[0] + ':' + JSON.parse(c[1])[0])), ['open:mytube', 'settings:decor']);
     assert.deepStrictEqual(shortsPage.errors, []);
     await p.screenshot({ path: '/tmp/claude-0/-home-user/138b3987-18a5-5339-9471-114de8ffce30/scratchpad/shorts_home.png' });
     await shortsPage.ctx.close();
