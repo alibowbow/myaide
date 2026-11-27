@@ -56,6 +56,8 @@ public final class DecorActivity extends Activity {
     static final String MEMORY = "memory";
     /** Opened when 퍼레 was asked to check itself ("자가 점검해 줘"): 퍼레 자동 점검 at once. */
     static final String CHECK = "buddyCheck";
+    /** Opened from 퍼레's answer that 하루 기록 is off (BuddyMisses "daylog"): its sheet at once. */
+    static final String DAYLOG = "dayLog";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -64,6 +66,7 @@ public final class DecorActivity extends Activity {
         draw(); load();
         if (getIntent().getBooleanExtra(MEMORY, false)) main.post(() -> Fingerprint.ask(this, "퍼레의 기억", "지문으로 확인하면 열려요", this::showMemory, () -> {}));
         if (getIntent().getBooleanExtra(CHECK, false)) main.post(() -> { if (!destroyed) BuddyCheckUi.show(this, this::draw); });
+        if (getIntent().getBooleanExtra(DAYLOG, false)) main.post(() -> { if (!destroyed) dayLogSheet(); });
     }
     @Override protected void onDestroy() { destroyed = true; work.shutdownNow(); super.onDestroy(); }
     private SharedPreferences prefs() { return getSharedPreferences(HtmlWallpaper.PREFS, Context.MODE_PRIVATE); }
@@ -101,6 +104,8 @@ public final class DecorActivity extends Activity {
         // What 퍼레 calls the user (준: "호칭은 내가 설정할 수 있게해줘").
         ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_sparkle, Ui.PURPLE, "부르는 호칭", "퍼레가 나를 ‘" + BuddyTalk.title(this) + "’(이)라고 불러요", ui.chevron(), this::chooseTitle), true);
         ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_book, Ui.ACCENT, "퍼레의 기억", "발견 노트 · 약속 · 추억 · 오늘 · 지문으로 열어요", ui.chevron(), () -> Fingerprint.ask(this, "퍼레의 기억", "지문으로 확인하면 열려요", this::showMemory, () -> {})), true);
+        // 하루 기록 (하루 타임라인, 준이 승인한 계획 2단계): one row, its switch at the end; a tap opens how long it keeps and 모두 지우기.
+        ui.addRow(buddyGroup, dayLogRow(), true);
         // The user's voice (준: "내 목소리를 알아볼 수 있게해줘"): read three sentences once; in the voice talk 퍼레 then knows it.
         boolean known = BuddyTalk.voice(this).ready();
         ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_mic, Ui.TEAL, "내 목소리", known ? "등록했어요 · 음성 대화에서 내 목소리를 알아봐요" : "등록하면 다른 사람 목소리엔 내 기억을 말하지 않아요", ui.chevron(), this::voiceSheet), true);
@@ -342,6 +347,49 @@ public final class DecorActivity extends Activity {
             List<dev.jun.gyeot.core.BuddyMemory.Entry> list = BuddyTalk.memories(this);
             main.post(() -> { if (!destroyed) memorySheet(list); });
         });
+    }
+    /**
+     * 하루 기록's row: on or off at its end, how long it keeps and how many lines today under its name (counted on the day
+     * log's own thread, never read here); a tap opens dayLogSheet.
+     */
+    private View dayLogRow() {
+        AppStore store = ((GyeotApp) getApplication()).store();
+        boolean on = DayLogs.on(store);
+        android.widget.Switch toggle = ui.toggle("", on, value -> { DayLogs.turn(store, value); draw(); });
+        toggle.setContentDescription("하루 기록 " + (on ? "켜짐" : "꺼짐")); toggle.setPadding(0, 0, 0, 0); toggle.setMinHeight(0); toggle.setMinimumHeight(0); toggle.setSwitchPadding(0);
+        String keep = keepLabel(DayLogs.keep(store));
+        LinearLayout row = ui.listRow(R.drawable.ic_history, Ui.BLUE, "하루 기록", on ? "켜짐 · " + keep + " 보관" : "꺼짐 · 아무것도 적지 않아요", toggle, this::dayLogSheet);
+        TextView sub = ((Ui.ListRow) row).parts.subtitle();
+        if (on && sub != null) DayLogs.state(s -> main.post(() -> { if (!destroyed) sub.setText("켜짐 · " + keep + " 보관 · 오늘 " + s[0] + "개"); }));
+        return row;
+    }
+    private static String keepLabel(int days) { return days >= 365 ? "1년" : days + "일"; }
+    /**
+     * 하루 기록: what it keeps and never keeps, how long (7일 · 30일 · 90일 · 1년, a switch at the end of its line), and
+     * 모두 지우기 behind a question. Turning it off (the row's switch) keeps nothing more.
+     */
+    void dayLogSheet() {
+        AppStore store = ((GyeotApp) getApplication()).store();
+        Ui.Sheet sheet = ui.selectionSheet("하루 기록", "알림·쓴 앱·다녀온 곳·주문·예약·대화를 날마다 짧게 적어 두고, 퍼레가 지난 일을 이 기록으로 답해요. 이 휴대폰에만 있어요.");
+        LinearLayout group = ui.group();
+        View use = ui.switchRow("하루 기록 쓰기", null, DayLogs.on(store), value -> { DayLogs.turn(store, value); draw(); });
+        ui.addRow(group, use, true);
+        LinearLayout keepRow = ui.row(); keepRow.setGravity(Gravity.CENTER_VERTICAL); keepRow.setPadding(ui.dp(16), ui.dp(10), ui.dp(14), ui.dp(10));
+        TextView keepName = ui.text("보관 기간", 15, 520, Ui.TEXT); keepRow.addView(keepName, new LinearLayout.LayoutParams(0, -2, 1));
+        int[] keeps = dev.jun.gyeot.core.DayLog.KEEPS; String[] labels = new String[keeps.length]; int at = 2;
+        for (int i = 0; i < keeps.length; i++) { labels[i] = keepLabel(keeps[i]); if (keeps[i] == DayLogs.keep(store)) at = i; }
+        keepRow.addView(ui.switcher(labels, at, i -> { DayLogs.keep(store, keeps[i]); draw(); }));
+        ui.addRow(group, keepRow, true);
+        TextView[] count = new TextView[1];
+        LinearLayout wipe = ui.dangerRow("모두 지우기", "지금까지 적은 하루 기록 · 되돌릴 수 없어요", () -> ui.confirm("하루 기록을 모두 지울까요? 되돌릴 수 없어요.", "모두 지우기",
+            () -> DayLogs.clear(() -> main.post(() -> { if (destroyed) return; sheet.dismiss(); Toast.makeText(this, "하루 기록을 모두 지웠어요", Toast.LENGTH_SHORT).show(); draw(); }))).show());
+        count[0] = ((Ui.ListRow) wipe).parts.subtitle();
+        ui.addRow(group, wipe, false);
+        sheet.body.addView(group);
+        TextView note = ui.text("인증번호·비밀번호는 적지 않고, 은행·카드·증권 앱 알림은 ‘알림’이라고만 적어요. 메시지는 앞부분만, 캘린더 일정은 물어볼 때 캘린더에서 바로 읽어요.", 12.5f, 450, Ui.MUTED);
+        note.setPadding(ui.dp(4), ui.dp(10), ui.dp(4), 0); sheet.body.addView(note);
+        DayLogs.state(s -> main.post(() -> { if (!destroyed && count[0] != null) count[0].setText(s[1] + "일치 · " + Math.max(1, s[2] / 1024) + "KB · 되돌릴 수 없어요"); }));
+        sheet.show();
     }
     /** The sentences the user reads to enroll their voice: about three seconds each, many different sounds. */
     static final String[] VOICE_LINES = {"퍼레야, 오늘 날씨가 참 맑아서 기분이 좋아.", "나는 따뜻한 커피를 마시면서 음악 듣는 걸 좋아해.", "내일은 일찍 일어나서 공원을 천천히 걸어 볼 거야."};

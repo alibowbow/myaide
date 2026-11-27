@@ -4416,6 +4416,7 @@ public final class AssistantService extends Service {
     /** note: why it fell back to a search; with the waypoints it goes through (said in its answer) and a note about any left out. */
     private void finishNavigation(LiveVoiceSession session, String id, DeviceActions.Action action, dev.jun.gyeot.core.NaverPlaces.Place place, String note, String viaNote, java.util.List<dev.jun.gyeot.core.NaverPlaces.Place> via) {
         JSONObject result;
+        DayLogs.placeHint(place);
         try { result = DeviceActionRunner.run(this, action, bubble != null && bubble.visible()); }
         catch (RuntimeException refused) { result = DeviceActions.failed(action, "지도 앱을 열지 못했어요."); }
         if (place != null) put(result, "place", obj("name", place.name(), "address", place.address()));

@@ -71,6 +71,10 @@ public final class NoticeActions {
     private static final Pattern MONEY_APP = Pattern.compile("(?i)card|bank|뱅크|은행|카드|증권|securities|invest|upbit|업비트|bithumb|빗썸|binance|toss|토스|kakaopay|카카오페이|payco|페이코|samsungpay|삼성\\s*페이|pay\\b|kbstar|shinhan|hanabank|hanacard|kebhana|woori|nhbank|nonghyup|ibk|kiwoom|키움|mpop|mirae|stock|coin");
     /** A card payment, a transfer or a balance in the words. */
     private static final Pattern MONEY_TEXT = Pattern.compile("승인\\s*(?:완료|취소|거절)|결제\\s*승인|일시불|할부|체크카드|신용카드|입금|출금|이체|잔액|누적|체결|매수|매도|계좌");
+    /** A bank's, a card's, securities' or a pay app (하루 기록 keeps of its notices only that one came: core/DayLog.notice). */
+    public static boolean moneyApp(String pkg, String label) { return MONEY_APP.matcher((pkg == null ? "" : pkg) + " " + (label == null ? "" : label)).find(); }
+    /** A card payment, a transfer or a balance in the words. */
+    public static boolean moneyText(String words) { return words != null && MONEY_TEXT.matcher(words).find(); }
 
     // ── reading ───────────────────────────────────────────────────
     /** One line of words: every space run made one, the SMS sender's tag ([Web발신]) gone. */

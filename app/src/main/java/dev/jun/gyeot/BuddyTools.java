@@ -105,6 +105,11 @@ final class BuddyTools {
         .put(fn("world_time", "다른 도시·나라의 지금 시각과 시차를 알려 준다.", props("place", "string", "도시나 나라 (예: 뉴욕, 파리)", "zone", "string", "IANA 시간대를 알면 (예: America/New_York)"), "place"))
         .put(fn("count_days", "그날까지 며칠 남았는지, 그날부터 며칠 지났는지, 며칠 뒤·전이 언제인지 센다.",
             props("date", "string", "YYYY-MM-DD, 오늘, 또는 크리스마스 같은 날 이름", "label", "string", "그날의 이름 (예: 여행, 시험), 말했으면", "add_days", "integer", "며칠 뒤(전이면 음수)가 언제냐고 물을 때 그 날 수"), "date"))
+        // 하루 타임라인 (2단계): the past from the day's own lines (core/DayLog); the tool says the answer, so nothing is made up.
+        // Light (it goes every turn): the days come from the user's own words (DayLog.period); "from"/"to" (YYYY-MM-DD) are read
+        // when a brain adds them (BuddyPrompt.loose, the text form) but not asked for here.
+        .put(fn("day_recall", "지난 일을 하루 기록에서 찾아 답한다.",
+            props("query", "string", "말한 대로"), "query"))
         // 퍼레 itself (준: "음성대화로 퍼레의 상호작용이 안돼"): its toys, its clothes, its plays on the home screen
         // Hundreds of names (준: "시킬 수 있는 목록 … 아직 부족"): the brain says it in its own words, the phone finds the name (BuddyBoard.find).
         .put(fn("buddy_toy", "너(퍼레)의 장난감을 홈 화면에 꺼내서 갖고 논다(꺼내 줘, 갖고 놀아 봐: 묻지 말고 바로). 다 치우려면 치우기.", props("toy", "string", "장난감 이름 (예: " + BuddyBoard.sample(BuddyBoard.TOYS, 14) + ")"), "toy"))
@@ -188,12 +193,18 @@ final class BuddyTools {
         + "웹사이트에서 하는 일(유튜브 스튜디오에 영상 올리기, 파일 받기, 신청서 채우기, 로그인한 페이지 읽기)은 web_job, 길게 쓰거나 조사·분석·코딩할 일(보고서 쓰기, 앱 코드 짜기)은 work_job, "
         + "정한 때마다 저절로 할 일(매일 아침 7시에 …)은 schedule_job, 연구해 달라는 일은 research_job. 한 번에 끝나는 일(앱 열기, 알람, 길 안내, 노래 틀기, 검색)은 원래 도구로 해. "
         + "이런 일도 못 한다고 하거나 사용자에게 직접 하라고 하지 말고 그 도구를 바로 불러. ";
+    /**
+     * The past asked about (하루 타임라인): never answered from what the brain thinks it remembers; day_recall finds it in the
+     * day's own lines and says it (the same words go with the text form, BuddyPrompt.ACTS).
+     */
+    static final String RECALL_RULE = "사용자가 지난 일(지난주 그 집, 어제 한 일, 그저께 주문한 것, 저번에 간 곳)을 물으면 짐작해서 답하지 말고 꼭 day_recall을 불러: 하루 기록에서 찾아 시각·앱과 함께 말해 주니 너는 '찾아볼게!'처럼 짧게만 말해. ";
     /** The rule for the brain with tools (in place of BuddyTalk.ACTS). */
     static final String RULE = rule(true);
     /** The rule for the brain with the tools sent: 퍼레's own named only when they are (else it might call one not there). */
     static String rule(boolean self) {
         return "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 안내, 지도에서 찾기, 노래·영상 찾아 틀기, 음악 멈춤·다음 곡, 알람, 타이머, 타이머 화면, 스톱워치, 손전등, 화면 방향, 소리 크기, 밝기, 방해 금지·절전 같은 설정 화면, 앱 정보 화면, 검색, 카톡으로 보내기, 문자 쓰기, 메일 쓰기, 전화 걸 준비, 카메라, 갤러리, 연락처, 녹음, 메모, 다운로드, 일정 넣기·보기, 웹 페이지 열기, 번역) 도구를 불러서 너가 직접 해. "
         + "동전 던지기, 주사위, 골라 주기, 계산, 다른 나라 시각, 며칠 남았는지 세기는 답을 지어내지 말고 꼭 coin·dice·pick·calculator·world_time·count_days 도구를 불러. 답은 도구가 말해 주니 너는 '던져 볼게!'처럼 짧게만 말해. "
+        + RECALL_RULE
         + JOBS_RULE
         + (self ? "너(퍼레) 자신에게 하는 부탁(장난감 꺼내기, 옷 갈아입기·벗기, 춤·점프 같은 놀이)도 buddy_toy·buddy_outfit·buddy_move 도구로 직접 해. 사용자가 '기억해 둬', '잊어 줘', '그건 틀렸어 지워'라고 하면 remember·forget을 불러(방금 잊은 걸 되돌려 달라면 forget에 undo). 이렇게 불러 달라·조용히 있어 달라는 부탁은 call_me·quiet 도구로 해. 못 한다고 하지 마. " : "")
         + "도구를 부를 때도 무엇을 하는지 짧은 대답 한 문장을 같이 말해(예: 네이버 지도 열게!). 도구는 꼭 함수 호출(tool call)로 불러: 도구 이름이나 인자를 말로 쓰지 마(예: 'settings panel=dnd', 'alarm 7 30', 'mapsearch'라고 쓰지 마). 할 일을 글로 적거나 JSON을 말하지 마. "
@@ -240,6 +251,8 @@ final class BuddyTools {
     static boolean promised(String said, String answer) {
         if (said == null || answer == null) return false;
         for (String line : answer.split("\n")) if (BuddyPrompt.toolWritten(line) >= 0) return true;
+        // 하루 타임라인: the past asked about and answered without day_recall (a guess, or "기억이 안 나"): asked again with a tool.
+        if (dev.jun.gyeot.core.DayLog.asksPast(said)) return true;
         return ASKED.matcher(said).find() && (PROMISE.matcher(answer).find() || ELSEWHERE.matcher(answer).find());
     }
     /**
@@ -307,6 +320,7 @@ final class BuddyTools {
             case "dice" -> "주사위 굴린다!";
             case "pick" -> "음… 골라 볼게!";
             case "world_time", "count_days" -> "";
+            case "day_recall" -> "";
             case "remember" -> "기억해 둘게!";
             case "forget" -> "";
             case "call_me" -> called(dev.jun.gyeot.core.BuddyTricks.title(a.optString("title")));

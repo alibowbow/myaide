@@ -777,6 +777,8 @@ final class AppStore {
     synchronized void nameSession(String id, String title, String summary) {
         JSONObject session = session(id); if (session == null || title == null || title.isBlank()) return;
         put(session, "title", title.strip()); put(session, "summary", summary == null ? "" : summary.strip()); saveSessionsSoon(0); sessionsVersion++; changed();
+        // 하루 기록: the voice assistant's call, by its title, when it began.
+        dev.jun.gyeot.core.DayLog.add(dev.jun.gyeot.core.DayLog.titled(dev.jun.gyeot.core.DayLog.TALK, "음성 비서", title, "", Math.max(1, session.optLong("startedAt", System.currentTimeMillis()))));
     }
     /** 자동 정리: unpinned sessions older than this many days are cleared (0 keeps them all, up to the limit). */
     static final int[] KEEP_DAYS = {0, 30, 90, 365};

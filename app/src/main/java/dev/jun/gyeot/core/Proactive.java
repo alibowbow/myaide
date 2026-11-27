@@ -43,7 +43,7 @@ public final class Proactive {
         + "earlier suggestions), make 3 to 5 cards they would really want today: a follow-up on something they said they would do or check, getting "
         + "ready for today's events, unfinished work to continue, or something useful for what they are into now. A work room marked [끝남] is "
         + "finished, and a request the main chat already answered is done: never suggest doing, writing, updating or continuing that again, nor "
-        + "the same topic in other words; only [실패] or [멈춤] work may be continued. Each card must come from the "
+        + "the same topic in other words; only [실패] or [멈춤] work may be continued. Yesterday's 하루 기록 (where they went, what they ordered or booked, which apps) may give a follow-up (a review of a place they visited, a booking coming up), never a judgment of their app time or anything about money. Each card must come from the "
         + "material, be specific (names, dates, topics) and be something you can then do in a chat. Never suggest again anything they dismissed "
         + "(넘겼어요) or about the same work, topic or project, even worded differently: they may have done it elsewhere. Compare every date in the "
         + "material with 지금: never suggest preparing for, checking before or getting ready for a trip, event or deadline whose date has already "
@@ -92,8 +92,14 @@ public final class Proactive {
         out.append("\n\n최근 메인 대화:\n").append(blank(chat) ? "(없어요)" : tail(chat, MATERIAL_LIMIT - out.length() - 200));
         return out.toString();
     }
+    /** The most characters of yesterday's 하루 기록 (core/DayLog.digest) in the morning's material. */
+    public static final int DAY_LIMIT = 900;
     /** The morning's material in one input. */
     public static String briefInput(long now, ZoneId zone, String profile, String schedule, String chat, List<String> works, List<String> records, JSONArray feedback) {
+        return briefInput(now, zone, profile, schedule, chat, works, records, feedback, "");
+    }
+    /** The same, with yesterday's 하루 기록 (the phone's day log: places, orders, plans, apps; "" none), cut to DAY_LIMIT. */
+    public static String briefInput(long now, ZoneId zone, String profile, String schedule, String chat, List<String> works, List<String> records, JSONArray feedback, String yesterday) {
         ZonedDateTime at = Instant.ofEpochMilli(now).atZone(zone);
         StringBuilder out = new StringBuilder("지금: ").append(at.toLocalDate()).append(' ').append(at.getDayOfWeek().getDisplayName(TextStyle.FULL, Locale.KOREAN))
             .append(' ').append(String.format(Locale.ROOT, "%02d:%02d", at.getHour(), at.getMinute()));
@@ -102,6 +108,7 @@ public final class Proactive {
         out.append("\n\n전에 드린 제안에 대한 반응:\n").append(feedback(feedback));
         out.append("\n\n최근 작업창 (id · 제목 · 마지막 요청):\n").append(lines(works, 2_500));
         out.append("\n\n최근 기록:\n").append(lines(records, 1_200));
+        if (!blank(yesterday)) out.append("\n\n어제 하루 (휴대폰의 하루 기록):\n").append(cut(yesterday, DAY_LIMIT));
         out.append("\n\n최근 메인 대화:\n").append(blank(chat) ? "(없어요)" : tail(chat, MATERIAL_LIMIT - out.length() - 200));
         return out.toString();
     }

@@ -28,6 +28,8 @@ final class BuddyPrompt {
         + "{\"tool\":\"email\",\"who\":\"이름\",\"subject\":\"제목\",\"text\":\"내용\"}(말한 것만으로 채워 둬, 주소·제목을 묻지 마) ·{\"tool\":\"translate\",\"text\":\"번역할 글\",\"to\":\"en\"} · {\"tool\":\"coin\"} · {\"tool\":\"dice\",\"count\":1} · {\"tool\":\"pick\",\"options\":[\"짜장면\",\"짬뽕\"]} · "
         + "음악을 새로 만들어 달라고 하면(찾아 틀기 말고) {\"tool\":\"make_music\",\"mood\":\"calm piano, warm\"} · 앱을 꺼 달라고 하면(유튜브 꺼 줘) {\"tool\":\"close_app\",\"app\":\"유튜브\"}(앱 이름을 말하지 않았으면 app 없이: 지금 앞의 앱을 끔, 묻지 마) ·홈 화면 페이지를 넘겨 달라면 {\"tool\":\"home_page\",\"page\":\"LP\"}(홈·오늘·LP·오른쪽·왼쪽) · "
         + "{\"tool\":\"world_time\",\"place\":\"뉴욕\"} · {\"tool\":\"count_days\",\"date\":\"2026-12-25\",\"label\":\"크리스마스\"}(며칠 뒤가 언제냐면 \"add_days\":100). "
+        // 하루 타임라인 (2단계): the past from the day's lines (BuddyTools.RECALL_RULE), never what the brain thinks it remembers.
+        + "지난 일을 물으면(지난주 그 집 어디였지, 어제 뭐 했더라, 그저께 주문한 거 뭐였지) 짐작하지 말고 {\"tool\":\"day_recall\",\"query\":\"그 집\"}(날짜를 알면 \"from\":\"YYYY-MM-DD\",\"to\":\"YYYY-MM-DD\", 답은 할일이 하루 기록에서 찾아 말해 주니 첫 줄은 '찾아볼게!'처럼 짧게). "
         + "여러 단계가 필요한 일은 맡아서 해: {\"tool\":\"phone_job\",\"request\":\"배민에서 지난번 메뉴 다시 담기\",\"app\":\"배민\"}(앱 화면에서 여러 단계로) · {\"tool\":\"web_job\",\"request\":\"유튜브 스튜디오에 영상 올리기\",\"url\":\"studio.youtube.com\"}(웹사이트에서: 받기·올리기·양식·로그인한 페이지) · "
         + "{\"tool\":\"work_job\",\"request\":\"이번 달 지출 분석 보고서 쓰기\"}(작업창에 길게: 글·조사·분석·코딩) · {\"tool\":\"schedule_job\",\"request\":\"새 채용 공고 찾아 정리\",\"repeat\":\"daily\",\"time\":\"07:00\"}(정한 때마다 저절로: once·daily·weekdays·weekly·monthly·interval, 한 번이면 \"date\", 몇 시간마다면 \"every\":3,\"unit\":\"hour\") · "
         + "{\"tool\":\"research_job\",\"question\":\"연구할 질문\"}(연구실 자율 연구). " + BuddyTools.JOBS_RULE
@@ -133,6 +135,9 @@ final class BuddyPrompt {
         java.util.Map.entry("pickone", "pick"), java.util.Map.entry("choose", "pick"), java.util.Map.entry("decide", "pick"), java.util.Map.entry("choice", "pick"), java.util.Map.entry("골라", "pick"),
         java.util.Map.entry("worldtime", "world_time"), java.util.Map.entry("worldclock", "world_time"), java.util.Map.entry("timezone", "world_time"), java.util.Map.entry("timein", "world_time"),
         java.util.Map.entry("countdays", "count_days"), java.util.Map.entry("dday", "count_days"), java.util.Map.entry("daysuntil", "count_days"), java.util.Map.entry("days", "count_days"),
+        // 하루 타임라인: the names the quick brains give a look into the day's lines.
+        java.util.Map.entry("dayrecall", "day_recall"), java.util.Map.entry("recall", "day_recall"), java.util.Map.entry("daylog", "day_recall"), java.util.Map.entry("timeline", "day_recall"),
+        java.util.Map.entry("dayhistory", "day_recall"), java.util.Map.entry("recallday", "day_recall"), java.util.Map.entry("pastday", "day_recall"), java.util.Map.entry("하루기록", "day_recall"), java.util.Map.entry("타임라인", "day_recall"),
         java.util.Map.entry("memorize", "remember"), java.util.Map.entry("keep", "remember"), java.util.Map.entry("기억", "remember"), java.util.Map.entry("기억해", "remember"),
         java.util.Map.entry("buddyremember", "remember"), java.util.Map.entry("remembermemory", "remember"),
         java.util.Map.entry("forgetmemory", "forget"), java.util.Map.entry("잊기", "forget"), java.util.Map.entry("잊어", "forget"), java.util.Map.entry("지워", "forget"), java.util.Map.entry("지우기", "forget"),
@@ -282,6 +287,13 @@ final class BuddyPrompt {
             if (known.equals("phone_job") && a.optString("app").isBlank()) a.put("app", a.optString("app_name", a.optString("target", a.optString("name"))));
             if (known.equals("web_job") && a.optString("url").isBlank()) a.put("url", a.optString("start_url", a.optString("site", a.optString("address", a.optString("link")))));
             if (known.equals("research_job") && a.optString("question").isBlank()) a.put("question", a.optString("topic", a.optString("request", a.optString("text", a.optString("query", a.optString("subject"))))));
+            // 하루 타임라인: what to find, and the days, as the brains name them.
+            if (known.equals("day_recall")) {
+                if (a.optString("query").isBlank()) a.put("query", a.optString("what", a.optString("text", a.optString("question", a.optString("about", a.optString("keyword"))))));
+                if (a.optString("from").isBlank() && !a.optString("date").isBlank()) a.put("from", a.optString("date"));
+                if (a.optString("from").isBlank() && !a.optString("start").isBlank()) a.put("from", a.optString("start"));
+                if (a.optString("to").isBlank() && !a.optString("end").isBlank()) a.put("to", a.optString("end"));
+            }
         } catch (Exception ignored) {}
         return a;
     }

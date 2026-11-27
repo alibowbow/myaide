@@ -141,6 +141,8 @@ public final class NoticeListener extends NotificationListenerService {
         lastDelivery = Deliveries.newer(before, d);
         getSharedPreferences(DELIVERY_PREFS, MODE_PRIVATE).edit().putString("last", lastDelivery.json().toString()).apply();
         if (before == null || before.stage() != d.stage()) {
+            // 하루 기록: the order once, and when it came (DayLog.delivery).
+            DayLogs.delivery(before, d);
             store.phoneLog("● 배달: " + Deliveries.words(d, d.at(), java.time.ZoneId.systemDefault()));
             Runnable r = deliveryChanged; if (r != null) try { r.run(); } catch (RuntimeException ignored) {}
         }
@@ -223,6 +225,8 @@ public final class NoticeListener extends NotificationListenerService {
         }
         getSharedPreferences(ACTS_PREFS, MODE_PRIVATE).edit().putString("acts", json).apply();
         if (news) {
+            // 하루 기록: the parcel, the booking (with its place) or the plan.
+            DayLogs.noticeAct(a);
             store.phoneLog("● " + NoticeActions.logLine(a, System.currentTimeMillis(), java.time.ZoneId.systemDefault()));
             Runnable r = deliveryChanged; if (r != null) try { r.run(); } catch (RuntimeException ignored) {}
         }
@@ -290,6 +294,8 @@ public final class NoticeListener extends NotificationListenerService {
             Notices.Notice notice = new Notices.Notice(posted.getPackageName(), label, title == null ? "" : title.toString().strip(),
                 (big != null ? big : text == null ? "" : text).toString().strip(), System.currentTimeMillis());
             if (!Notices.keep(notice)) return;
+            // 하루 기록: the notice as a short line (a chat's sender and the start of it; a bank's only "알림"), off this thread.
+            DayLogs.notice(notice.app(), notice.label(), notice.title(), notice.text(), notice.at());
             String json;
             synchronized (LOCK) { list(this); kept = Notices.add(kept, notice, notice.at()); json = Notices.save(kept); }
             File f = file(this), next = new File(f.getPath() + ".new");

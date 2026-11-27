@@ -159,7 +159,9 @@ final class Briefing {
         // 알림 비서, when on: what came in overnight (the last 12 hours), so a card can say what needs an answer.
         if (NoticeListener.on(context)) for (String line : dev.jun.gyeot.core.Notices.lines(dev.jun.gyeot.core.Notices.recent(NoticeListener.list(context), now, 12, 15), now)) records.add("알림: " + line);
         String chat = chat(store, 60);
-        String input = Proactive.briefInput(now, zone, note(store), schedule, chat, works(store, 10, true), records, feedback(store));
+        // 하루 기록: yesterday in short lines (places, orders, plans, apps), so a card can follow up on it.
+        String yesterday = DayLogs.digest(context, java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate().minusDays(1), Proactive.DAY_LIMIT);
+        String input = Proactive.briefInput(now, zone, note(store), schedule, chat, works(store, 10, true), records, feedback(store), yesterday);
         // Made by the job (tell) nobody waits; from 지금 제안 받아 보기 the user does (Chores' order).
         List<Card> made = Proactive.cards(Chores.run(store, Proactive.BRIEF, input, !tell));
         if (made.isEmpty()) throw new IllegalStateException("오늘은 드릴 제안을 만들지 못했어요.");

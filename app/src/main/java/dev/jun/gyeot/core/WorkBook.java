@@ -70,6 +70,8 @@ public final class WorkBook {
             kept.remove(drop);
         }
         replace(threads, kept);
+        // 하루 기록: a 작업창 room begun, by its title.
+        DayLog.add(DayLog.titled(DayLog.WORK, "작업창", thread.optString("title"), "work:" + thread.optString("id"), now));
         return thread;
     }
     public static JSONObject find(JSONArray threads, String id) {

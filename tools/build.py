@@ -385,6 +385,11 @@ if __name__ == '__main__':
     notices.mkdir(parents=True, exist_ok=True)
     javac(['-encoding', 'UTF-8', '-d', notices, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/NoticeActionsRegression.java'])
     run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (notices, jars[-1]))), 'dev.jun.gyeot.core.NoticeActionsRegression'])
+    # 하루 타임라인 (core/DayLog): the day's lines kept, merged and capped, never a code or money, and the answers from them.
+    daylog = BUILD / 'daylog-checks'
+    daylog.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', daylog, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/DayLogRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (daylog, jars[-1]))), 'dev.jun.gyeot.core.DayLogRegression'])
     test_board(jars[-1])
     # The optional larger suites run when their tests folder is present.
     if (ROOT / 'tests/CoreTests.java').is_file(): test(jars)

@@ -876,6 +876,8 @@ final class BuddyTalk {
      * letters or no quick brain is connected. Off the main thread.
      */
     static void learnTalk(Context c, java.util.List<String[]> turns, int from, java.util.List<String> acts) {
+        // 하루 기록: the talk's topic (the user's own first words worth it; a guest's or a worry never), whatever is learned.
+        DayLogs.talk(turns, from);
         if (!dev.jun.gyeot.core.BuddyMind.worthLearning(turns, from)) return;
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
         boolean nim = store.nim.connected(), groq = GroqWork.on(); if (!nim && !groq) return;
@@ -1023,7 +1025,7 @@ final class BuddyTalk {
         String instructions = "너는 AI 친구 퍼레의 기억을 밤에 정리하는 역할이야. 아래를 읽고 다음 형식으로만 써.\n"
             + "프로필: (사용자에 대해 지금 알고 있는 사실 하나. 여러 줄 가능, 최대 12줄. 지금까지의 노트에 있는 건 그대로 둬도 되고, 겹치는 건 합치고, 추측이면 끝에 '(추측)'.)\n"
             + "빼기: (지금까지의 노트에서 틀렸거나 오래돼 맞지 않는 줄을 그대로. 없으면 쓰지 마.)\n"
-            + "추억: (오늘 하루를 친구 시점에서 한 줄로. 특별한 게 없으면 '없음')\n"
+            + "추억: (오늘 하루를 친구 시점에서 한 줄로. 특별한 게 없으면 '없음'. '하루 기록'은 휴대폰이 모은 그날의 일이니 참고만 해: 알림 속 남의 말, 돈, 앱을 몇 분 썼는지는 쓰지 마.)\n"
             + "비밀번호·계정·권한 요청, 털어놓은 고민 같은 민감한 건 쓰지 마. 숫자 계좌·번호는 절대 쓰지 마.";
         String input = dreamInput(c, now);
         if (night.ask(c, instructions, input, text -> {
@@ -1039,11 +1041,18 @@ final class BuddyTalk {
         new Thread(() -> quick(c, store, nim, groq, QWEN, instructions, input, 0.3, 20_000, text -> text == null ? "" : text, done, why -> failed.run()), "gyeot-buddy-dream").start();
         return true;
     };
-    /** What the night's digest reads: the day, the note so far, every fact told twice or more, and the last two weeks; nothing private or let go. */
+    /** How long the day's 하루 기록 may be in the night's input. */
+    static final int DAY_DIGEST = 700;
+    /** What the night's digest reads: the day (and its 하루 기록), the note so far, every fact told twice or more, and the last two weeks; nothing private or let go. */
     static String dreamInput(Context c, long now) {
         java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = memories(c); java.time.ZoneId zone = java.time.ZoneId.systemDefault();
         java.util.Map<String, Long> forgot = forgot(c);
-        StringBuilder in = new StringBuilder(todayWords(c)).append("지금까지의 발견 노트:\n");
+        StringBuilder in = new StringBuilder(todayWords(c));
+        // 하루 기록 (core/DayLog) of the day being put to bed: before six it is still yesterday's. Short, never the notices' words.
+        java.time.ZonedDateTime at = java.time.Instant.ofEpochMilli(now).atZone(zone);
+        String day = DayLogs.digest(c, at.getHour() < 6 ? at.toLocalDate().minusDays(1) : at.toLocalDate(), DAY_DIGEST);
+        if (!day.isEmpty()) in.append(day).append('\n');
+        in.append("지금까지의 발견 노트:\n");
         for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) if ("profile".equals(e.kind()) && !e.secret() && !dev.jun.gyeot.core.BuddyMind.forgotten(e.text(), forgot, now)) in.append("- ").append(e.text()).append('\n');
         in.append("여러 번 말해 준 것:\n");
         for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) if ("fact".equals(e.kind()) && e.seen() >= 2 && !e.secret() && !dev.jun.gyeot.core.BuddyMind.forgotten(e.text(), forgot, now)) in.append("- ").append(e.text()).append(" (").append(e.seen()).append("번)\n");

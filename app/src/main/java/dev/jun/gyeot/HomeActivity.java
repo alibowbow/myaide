@@ -412,7 +412,8 @@ public final class HomeActivity extends Activity {
         }
         if (shown.isEmpty()) shown = BuddyTools.say(a);
         // A job handed over has the user's own words as its authority (BuddyHands); typed, an alarm needs no spoken yes.
-        BuddyVoice.Outcome o = BuddyActs.run(this, a, BuddyHands.TOOLS.contains(a.optString("tool")) ? question : "네", false);
+        // The past asked about (day_recall) is found by the user's own words too ("지난주 그 집").
+        BuddyVoice.Outcome o = BuddyActs.run(this, a, BuddyHands.TOOLS.contains(a.optString("tool")) || "day_recall".equals(a.optString("tool")) ? question : "네", false);
         String more = o == null || o.say() == null ? "" : o.say().strip();
         js("launcher.reply(" + JSONObject.quote(more.isEmpty() ? shown : shown + "\n" + more) + ")");
     }

@@ -510,6 +510,7 @@ public final class PhoneService extends AccessibilityService {
 
     @Override protected void onServiceConnected() {
         instance = this; gate.stop();
+        if (!dayWatched) try { registerReceiver(dayScreen, new IntentFilter(Intent.ACTION_SCREEN_OFF), Context.RECEIVER_NOT_EXPORTED); dayWatched = true; } catch (RuntimeException ignored) {}
         // The optional edge button lives here because accessibility overlays need no running service or microphone.
         // An extra must never take phone control down with it: Android stops reconnecting a service that crashed.
         if (getApplication() instanceof GyeotApp app && app.store() != null) {
@@ -542,7 +543,12 @@ public final class PhoneService extends AccessibilityService {
         // The taskbar follows windows coming and going, and which app came to the front (its package only, in memory).
         if (taskbar != null && (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED))
             try { taskbar.windowsChanged(event); } catch (RuntimeException ignored) {}
+        // 하루 기록: which app came to the front (its package and class only), for "네이버 지도 12분" (DayLogs.front).
+        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) try { DayLogs.front(this, event.getPackageName(), event.getClassName()); } catch (RuntimeException ignored) {}
     }
+    /** The screen going off ends the app in front's session (하루 기록). */
+    private final BroadcastReceiver dayScreen = new BroadcastReceiver() { @Override public void onReceive(Context context, Intent intent) { DayLogs.screenOff(); } };
+    private boolean dayWatched;
     @Override public void onConfigurationChanged(android.content.res.Configuration config) {
         super.onConfigurationChanged(config);
         // Folded or unfolded, turned, light or dark: the taskbar lays itself out again.
@@ -563,6 +569,8 @@ public final class PhoneService extends AccessibilityService {
             taskbar = null;
         }
         if (screenWatched) { try { unregisterReceiver(screen); } catch (IllegalArgumentException ignored) {} screenWatched = false; }
+        if (dayWatched) { try { unregisterReceiver(dayScreen); } catch (IllegalArgumentException ignored) {} dayWatched = false; }
+        DayLogs.screenOff();
         changed();
     }
     private void changed() { if (getApplication() instanceof GyeotApp app && app.store() != null) app.store().changed(); }

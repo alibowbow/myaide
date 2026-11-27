@@ -50,6 +50,8 @@ final class Weather {
                 out.put("hi", Math.round(daily.getJSONArray("temperature_2m_max").optDouble(0))).put("lo", Math.round(daily.getJSONArray("temperature_2m_min").optDouble(0)));
             }
             out.put("place", place(c, at));
+            // 하루 기록: the neighbourhood, from the place the phone already knew (no new location asked for).
+            DayLogs.area(out.optString("place"));
             kept = out; keptAt = t;
             return out;
         } catch (Exception offline) { return kept; }

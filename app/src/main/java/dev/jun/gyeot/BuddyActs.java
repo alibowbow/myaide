@@ -81,6 +81,8 @@ final class BuddyActs {
             ((GyeotApp) context.getApplicationContext()).store().phoneLog("  · 퍼레 · 못 함: " + what.strip() + " · " + m[0]);
             if (o != null) o = new BuddyVoice.Outcome(o.say(), o.leaves(), o.confirm(), true);
         }
+        // 하루 기록: what 퍼레 did when asked, done or not (DayLog.buddy: none for a torch, a coin, a route or the asking itself).
+        DayLogs.buddyAct(act, o, m != null);
         return o;
     }
     /**
@@ -195,6 +197,8 @@ final class BuddyActs {
                 case "pick" -> { return pick(act); }
                 case "world_time" -> { return worldTime(act); }
                 case "count_days" -> { return countDays(act); }
+                // 하루 타임라인: the past from the day's own lines (DayLogs.recall), with their time and app; off: how to turn it on.
+                case "day_recall" -> { DayLogs.Recall r = DayLogs.recall(context, act, heard); return r.off() ? fail(r.say(), "daylog") : said(r.say()); }
                 case "remember" -> { return remember(context, act); }
                 case "forget" -> { return forget(context, act); }
                 case "call_me" -> {
@@ -280,6 +284,7 @@ final class BuddyActs {
             place = dev.jun.gyeot.core.NaverPlaces.sure(destination, found);
             action = place != null ? DeviceActions.navigateTo(place, mode) : DeviceActions.search(destination, true);
         }
+        DayLogs.placeHint(place);
         JSONObject r = DeviceActionRunner.run(context, action, overlay);
         if (!r.optBoolean("ok")) return fail(r.optString("say", "지도를 못 열었어."), "");
         if ("navigation".equals(r.optString("outcome")) && "네이버 지도".equals(r.optString("app")) && store.phoneControl() && store.pressNavigationStart() && PhoneService.connected())

@@ -432,6 +432,8 @@ final class MainChatEngine implements AutoCloseable {
         String identity=app.usageIdentity(engine),cacheKey=history.cacheKey();
         // A schedule question's events, read once for the turn and sent with this request only.
         long asked=System.currentTimeMillis();String events=MainChatCalendar.context(context,app,query,asked);
+        // 하루 기록: a question about the past ("어제 뭐 했더라") carries the day log's lines for it, this request only.
+        String past=DayLogs.mainChat(context,query,asked);if(!past.isEmpty())events=events.isEmpty()?past:events+"\n\n"+past;
         // A YouTube address in the question: the video's transcript, read once, goes with this request only.
         String video=video(turn,query,guard,abort);guard.run();
         // The photos and PDFs attached to the question go with it as the provider's file parts, every time it is answered;

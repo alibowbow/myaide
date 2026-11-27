@@ -34,6 +34,8 @@ public final class GyeotApp extends Application {
             });
             DiagnosticsExport.installCrashRecorder(this);
             store = new AppStore(this);
+            // 하루 기록 (core/DayLog): the book is only opened here; nothing is read until a line is kept or asked for.
+            DayLogs.start(this, store);
             // Gemini 무료 한도, shared by every Gemini call the app makes on its own.
             GeminiQuotas.use(store);
             if (SecurityWatch.enabled(this)) SecurityWatch.restore(this);

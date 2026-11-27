@@ -61,6 +61,8 @@ final class DeviceActionRunner {
         String route;
         try { route = start(context, intent, overlayVisible); }
         catch (ActivityNotFoundException gone) { return DeviceActions.noApp(action); }
+        // 하루 기록: a route, a place or a map search that opened (퍼레's and the voice assistant's alike).
+        if (started(route) && DeviceActions.NAVIGATE.equals(action.tool)) DayLogs.navigated(action, chosen);
         return started(route) ? DeviceActions.result(action, chosen, route) : notify(context, action, chosen, route);
     }
     /**

@@ -179,6 +179,8 @@ public final class LabBook {
         String name = clean(title, 60).isBlank() ? clean(question, 40) : title;
         Project p = new Project(UUID.randomUUID().toString().substring(0, 12), name, question, field, now, now, 30, true, List.of(THEORIST.id(), CRITIC.id(), EXPERIMENTER.id()), 2, PI.id());
         save(p);
+        // 하루 기록: a research begun, by its title.
+        DayLog.add(DayLog.titled(DayLog.LAB, "연구실", name, "lab:" + p.id(), now));
         return p;
     }
     public synchronized void save(Project p) throws IOException {
