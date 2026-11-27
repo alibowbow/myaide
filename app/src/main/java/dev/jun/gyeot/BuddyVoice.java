@@ -163,6 +163,8 @@ final class BuddyVoice {
     private volatile dev.jun.gyeot.core.VoicePrint.Profile voice; private boolean ownEar, ownBroken; private VoiceCapture capture;
     /** The phone's recognizer could not hear over another app (an error, or only silence before anything was heard): 퍼레's own ear from then on. */
     private boolean deviceOff, heardSome;
+    /** When 퍼레's ear last had to take over from the phone's recognizer over another app (uptime ms), for the next talks. */
+    private static long earTookOver = -600_000;
     /** Over another app, the phone's recognizer cannot hear: 퍼레's own ear (Groq) takes over when it can. */
     private boolean ownEarCanTakeOver() { return screen == null && !ownEar && !deviceOff && !ownBroken && GroqWork.on(); }
     private final java.util.concurrent.atomic.AtomicReference<Runnable> whisper = new java.util.concurrent.atomic.AtomicReference<>();
@@ -179,6 +181,13 @@ final class BuddyVoice {
         // The phone's own recognizer first, also over another app (준: "다른 앱 위에서도 휴대폰 기본 음성인식 먼저 쓰기"); 퍼레's own
         // ear when the user's voice is known (it needs the sound) or when the recognizer could not hear there.
         if (ownEar || deviceOff && !ownBroken && GroqWork.on()) { show("listening", idle()); listenOwn(mine); return; }
+        // Over another app that keeps the microphone (a navigation app: 준 "네이버지도 앱 위에서 음성대화 시 반응이 느리고"), the
+        // phone's recognizer hears only silence for seconds before 퍼레's ear takes over: its ear at once when that app records
+        // now, or when the ear had to take over in the last ten minutes.
+        if (screen == null && !ownBroken && GroqWork.on() && (micTaken() || android.os.SystemClock.uptimeMillis() - earTookOver < 600_000)) {
+            deviceOff = true; store.phoneLog("● 퍼레 음성: 다른 앱이 마이크를 쓰는 중이라 바로 퍼레의 귀로 들어요");
+            show("listening", idle()); listenOwn(mine); return;
+        }
         // The recognizer shows it listens once it is ready to hear (ready()), so words said before that are not lost; until then
         // what 퍼레 said stays with its mouth at rest.
         if ("speaking".equals(lastState)) show("gap", ""); else if (!"gap".equals(lastState) && !"listening".equals(lastState)) show("thinking", "");
@@ -207,7 +216,7 @@ final class BuddyVoice {
             }
             @Override public void failed(String reason) {
                 if (!on || mine != generation) return;
-                if (ownEarCanTakeOver()) { closeEar(); deviceOff = true; listen(); return; }
+                if (ownEarCanTakeOver()) { closeEar(); deviceOff = true; earTookOver = android.os.SystemClock.uptimeMillis(); listen(); return; }
                 // Over another app the recognizer fails while that app has the microphone: it waits and tries again.
                 if (screen == null && waitForMicrophone(reason)) return;
                 end("error", reason);
@@ -282,7 +291,7 @@ final class BuddyVoice {
      */
     private boolean switchEar() {
         if (ownEar || deviceOff || ownBroken || !GroqWork.on()) return false;
-        deviceOff = true; store.phoneLog("● 퍼레 음성: 다른 앱이 마이크를 써서 퍼레의 귀로 들어요");
+        deviceOff = true; earTookOver = android.os.SystemClock.uptimeMillis(); store.phoneLog("● 퍼레 음성: 다른 앱이 마이크를 써서 퍼레의 귀로 들어요");
         show("listening", "다른 앱이 마이크를 쓰는 중이라 내 귀로 들을게");
         main.postDelayed(this::listen, 300); return true;
     }

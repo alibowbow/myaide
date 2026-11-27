@@ -335,9 +335,10 @@ public final class BuddyMind {
 
     // ── its name, misheard ──
     /** How the phone's recognizer and Whisper hear 퍼레 (준: "퍼레가 자기 이름을 못알아듣고 자꾸 벌레 버려 이런걸로 알아들어"). */
-    private static final String LIKE = "벌레|벌래|버레|버래|버려|퍼래|퍼려|펄레|펄래|뻐레|빠레|페레|파레|퍼리|프레|포레|허레";
+    // More of how the recognizers mishear it (준: "퍼레가 자기 이름 잘 못알아듣는것"): 펠레, 포래, 필레, 퍼렐, 프래, 버리, 헐레 …
+    private static final String LIKE = "벌레|벌래|버레|버래|버려|퍼래|퍼려|펄레|펄래|뻐레|빠레|페레|파레|퍼리|프레|포레|허레|펠레|펠래|포래|필레|필래|퍼렐|프래|헐레|헐래|퍼라|퍼러|퍼례|퍼레이|버리|보레|뻐래";
     /** Said as a call anywhere (벌레야, 퍼래야): never meant as a bug. 버려야 and 거래야 are words too, so only at the start. */
-    private static final Pattern CALLED = Pattern.compile("(^|[\\s,.!?~])(?:벌레|벌래|버레|버래|퍼래|퍼려|펄레|펄래|뻐레|빠레|페레|파레|퍼리|프레|포레|허레)(야|아)(?=$|[\\s,.!?~])");
+    private static final Pattern CALLED = Pattern.compile("(^|[\\s,.!?~])(?:벌레|벌래|버레|버래|퍼래|퍼려|펄레|펄래|뻐레|빠레|페레|파레|퍼리|프레|포레|허레|펠레|펠래|포래|필레|필래|퍼렐|프래|헐레|헐래|퍼례)(야|아)(?=$|[\\s,.!?~])");
     private static final Pattern FIRST = Pattern.compile("^(?:(?:" + LIKE + ")(?:야|아)?|거래야)(?:$|[\\s,.!?~]+)(.*)$", Pattern.DOTALL);
     /**
      * What was said with 퍼레's name put back where the recognizer heard something like it: the whole thing (벌레, 버려야!),

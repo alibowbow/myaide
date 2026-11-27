@@ -751,6 +751,16 @@ public class BuddyBrainTests {
     @Test public void hearsItsName() {
         // 준: "퍼레가 자기 이름을 못알아듣고 자꾸 벌레 버려 이런걸로 알아들어"
         assertEquals("퍼레야", dev.jun.gyeot.core.BuddyMind.nameHeard("벌레야"));
+        // 준: "퍼레가 자기 이름 잘 못알아듣는것"
+        assertEquals("퍼레야, 지금 몇 시야", dev.jun.gyeot.core.BuddyMind.nameHeard("펠레야 지금 몇 시야"));
+        assertEquals("퍼레야", dev.jun.gyeot.core.BuddyMind.nameHeard("포래야"));
+        assertEquals("오늘 퍼레야 뭐 해", dev.jun.gyeot.core.BuddyMind.nameHeard("오늘 필레야 뭐 해"));
+        // 준: "음성종료, 들어가, 이제 쉬어 등의 말에 엉뚱한 반응을 해", "난 음성종료하란건데": these end the talk, with the name or not
+        for (String bye : new String[]{"음성 종료", "음성종료", "종료", "퍼레야 음성 종료", "들어가", "들어가 있어", "이제 쉬어", "쉬어", "이제 쉬어 퍼레야", "대화 끝", "음성 꺼 줘", "그만해", "잘 가", "나중에 봐"})
+            assertEquals(bye, dev.jun.gyeot.core.VoiceTurns.Kind.BYE, dev.jun.gyeot.core.VoiceTurns.of(bye, false, false, false));
+        for (String talk : new String[]{"회의 종료 언제야?", "들어가는 길에 우유 사야 해", "쉬어야 할 것 같아", "퍼레야 오늘 날씨 어때"})
+            assertEquals(talk, dev.jun.gyeot.core.VoiceTurns.Kind.NONE, dev.jun.gyeot.core.VoiceTurns.of(talk, false, false, false));
+        assertEquals(dev.jun.gyeot.core.VoiceTurns.Kind.CALL, dev.jun.gyeot.core.VoiceTurns.of("퍼레야", false, false, false));
         assertEquals("퍼레야", dev.jun.gyeot.core.BuddyMind.nameHeard("버려!"));
         assertEquals("퍼레야, 지금 몇 시야", dev.jun.gyeot.core.BuddyMind.nameHeard("버려 지금 몇 시야"));
         assertEquals("퍼레야, 음악 틀어 줘", dev.jun.gyeot.core.BuddyMind.nameHeard("거래야 음악 틀어 줘"));

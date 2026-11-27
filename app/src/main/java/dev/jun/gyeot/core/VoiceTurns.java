@@ -13,7 +13,10 @@ public final class VoiceTurns {
     /** Longer than this (without spaces and punctuation), what was said is talk, never one of these words. */
     static final int LONGEST = 12;
     private static final Pattern CALL = Pattern.compile("(?:들)?퍼레(?:야|아)?");
-    private static final Pattern BYE = Pattern.compile("(?:이제)?(?:그만하자|그만할래|그만해|끝|끝내자|됐어고마워|바이바이|잘자|이따봐|이따보자)(?:요)?");
+    private static final Pattern NAMED = Pattern.compile("^(?:들)?퍼레(?:야|아)?|(?:들)?퍼레(?:야|아)?$");
+    // The end of the talk in the user's own words (준: "음성종료, 들어가, 이제 쉬어 등의 말에 엉뚱한 반응을 해", "난 음성종료하란건데").
+    private static final Pattern BYE = Pattern.compile("(?:이제|그럼|오케이|응|알았어|고마워)?(?:그만하자|그만할래|그만해|그만해도돼|끝|끝내|끝내자|끝내줘|끝났어|됐어고마워|이제됐어|바이바이|바이|잘자|잘가|이따봐|이따보자|나중에봐|나중에얘기해"
+        + "|(?:음성|음성대화|대화|퍼레)?종료(?:해|해줘|할게|하자)?|(?:음성|대화|마이크)(?:꺼|꺼줘|끝)|대화끝|들어가(?:봐|있어|도돼|서쉬어)?|(?:이제)?쉬어(?:도돼)?|쉬고있어|가있어|가봐|그만듣고|그만들어|수고했어)(?:요)?");
     /** 그만 alone: music playing, the music stops; else the talk ends. */
     private static final Pattern STOP = Pattern.compile("(?:이제)?그만(?:요)?");
     private static final Pattern REPEAT = Pattern.compile("뭐라고(?:했어|요)?|다시말해줘(?:요)?|다시말해주세요|한번더(?:말해줘|말해주세요)?(?:요)?|잘못들었어(?:요)?");
@@ -47,8 +50,12 @@ public final class VoiceTurns {
         String raw = heard == null ? "" : heard.strip();
         boolean asked = raw.endsWith("?") || raw.endsWith("？");
         String t = bare(raw);
-        if (t.isEmpty() || t.codePointCount(0, t.length()) > LONGEST) return Kind.NONE;
+        if (t.isEmpty() || t.codePointCount(0, t.length()) > LONGEST + 4) return Kind.NONE;
         if (CALL.matcher(t).matches()) return Kind.CALL;
+        // The name before or after the words ("퍼레야 음성 종료", "이제 쉬어 퍼레야") is a call, not part of them.
+        String named = NAMED.matcher(t).replaceAll("");
+        if (!named.isEmpty()) t = named;
+        if (t.codePointCount(0, t.length()) > LONGEST) return Kind.NONE;
         if (confirming && !asked && NO.matcher(t).matches()) return Kind.NO;
         if (justCut && HUSH.matcher(t).matches()) return Kind.HUSH;
         if (REPEAT.matcher(t).matches()) return Kind.REPEAT;
