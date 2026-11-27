@@ -22,10 +22,15 @@ public final class TaskbarPlan {
     /** AccessibilityWindowInfo's window types, as numbers (the same values Android uses). */
     public static final int APPLICATION = 1, INPUT_METHOD = 2, SYSTEM = 3, OVERLAY = 4, DIVIDER = 5;
 
-    /** Why the bar is not shown; NONE: it is. */
-    public enum Hidden { NONE, OFF, NOT_HOME_APP, LOCKED, HOME, SMALL_SCREEN, PHONE_CONTROL, KEYBOARD, FULL_SCREEN, GESTURE_BAR, NO_BOTTOM_BAR }
-    /** Where a dragged icon was let go. */
-    public enum Side { NONE, LEFT, RIGHT }
+    /**
+     * Why the bar is not shown; NONE: it is. RECENTS: the recents screen (or another home screen) is in front. NO_WINDOWS: the
+     * window list could not be read, so the keyboard and full screen cannot be told apart: hidden rather than guessed.
+     */
+    public enum Hidden { NONE, OFF, NOT_HOME_APP, LOCKED, HOME, RECENTS, SMALL_SCREEN, PHONE_CONTROL, NO_WINDOWS, KEYBOARD, FULL_SCREEN, GESTURE_BAR, NO_BOTTOM_BAR }
+    /** Where a dragged icon was let go (LEFT, RIGHT) or which part of the screen an app's window took (also TOP, BOTTOM). */
+    public enum Side { NONE, LEFT, RIGHT, TOP, BOTTOM }
+    /** What is in front: 들퍼레's home screen, the recents screen (or another home), or an app. */
+    public enum Top { HOME, RECENTS, APP }
     /** One step of opening an app beside the one in front. */
     public enum Step { ADJACENT, TOGGLE, PAIR, SPLIT, FULL }
 
@@ -41,11 +46,23 @@ public final class TaskbarPlan {
         public int height() { return bottom - top; }
     }
     /**
-     * What the bar needs to know to show or hide. windowsRead: the window list could be read (it holds at least one app
-     * window); insetBottom: the navigation bar's height from the window metrics, for when it could not.
+     * What the bar needs to know to show or hide. top: what is in front (Top); windowsRead: the window list could be read (it
+     * holds at least one app window).
      */
-    public record State(boolean enabled, boolean defaultHome, boolean locked, boolean homeOnTop, boolean phoneControl,
-                        int screenWidth, int screenHeight, float density, boolean windowsRead, List<Win> windows, int insetBottom) {}
+    public record State(boolean enabled, boolean defaultHome, boolean locked, Top top, boolean phoneControl,
+                        int screenWidth, int screenHeight, float density, boolean windowsRead, List<Win> windows) {}
+
+    /**
+     * What is in front, from when each last came: 들퍼레's home screen (homeAt: its onStart or its own window event, while it
+     * is visible), the recents screen or another home (recentsAt) and an app (appAt: a launchable app's window event). The
+     * newest wins, so the bar shows as soon as an app opened from the home screen is in front (the home's onStop can come
+     * seconds later) and hides on the recents screen, which is no 들퍼레 window and no app.
+     */
+    public static Top top(boolean homeVisible, long homeAt, long recentsAt, long appAt) {
+        if (homeVisible && homeAt >= appAt && homeAt >= recentsAt) return Top.HOME;
+        if (recentsAt > appAt && (!homeVisible || recentsAt > homeAt)) return Top.RECENTS;
+        return Top.APP;
+    }
 
     /** The system's navigation bar among the windows: a system window along the bottom edge, reaching the right edge. */
     public static Win navigationBar(List<Win> windows, int width, int height, float density) {
@@ -63,22 +80,27 @@ public final class TaskbarPlan {
         if (windows != null) for (Win w : windows) if (w.type() == INPUT_METHOD && w.height() > 0) return true;
         return false;
     }
-    /** The bar's height: the navigation bar's own, else the window metrics' bottom inset when the list could not be read. */
+    /** The bar's height: the navigation bar's own (0 when the list could not be read or holds none). */
     public static int barHeight(State s) {
-        if (s.windowsRead()) { Win nav = navigationBar(s.windows(), s.screenWidth(), s.screenHeight(), s.density()); return nav == null ? 0 : nav.height(); }
-        return Math.max(0, s.insetBottom());
+        if (!s.windowsRead()) return 0;
+        Win nav = navigationBar(s.windows(), s.screenWidth(), s.screenHeight(), s.density());
+        return nav == null ? 0 : nav.height();
     }
     /** NONE when the bar shows; else the first reason it does not. */
     public static Hidden hidden(State s) {
         if (!s.enabled()) return Hidden.OFF;
         if (!s.defaultHome()) return Hidden.NOT_HOME_APP;
         if (s.locked()) return Hidden.LOCKED;
-        if (s.homeOnTop()) return Hidden.HOME;
+        if (s.top() == Top.HOME) return Hidden.HOME;
+        if (s.top() == Top.RECENTS) return Hidden.RECENTS;
         if (Math.min(s.screenWidth(), s.screenHeight()) / s.density() < 600) return Hidden.SMALL_SCREEN;
         if (s.phoneControl()) return Hidden.PHONE_CONTROL;
-        if (s.windowsRead() && keyboard(s.windows())) return Hidden.KEYBOARD;
+        // Without the list the keyboard and full screen cannot be seen (the metrics' inset reports a bar a full-screen app
+        // hid): hidden, and said so on the settings row and in the phone log.
+        if (!s.windowsRead()) return Hidden.NO_WINDOWS;
+        if (keyboard(s.windows())) return Hidden.KEYBOARD;
         // The list was read and holds no bar along the bottom: an app in full screen hid it.
-        if (s.windowsRead() && navigationBar(s.windows(), s.screenWidth(), s.screenHeight(), s.density()) == null) return Hidden.FULL_SCREEN;
+        if (navigationBar(s.windows(), s.screenWidth(), s.screenHeight(), s.density()) == null) return Hidden.FULL_SCREEN;
         int h = barHeight(s);
         if (h <= 0) return Hidden.NO_BOTTOM_BAR;
         // Gesture navigation leaves only a thin handle: buttons would steal its swipes.
@@ -144,16 +166,30 @@ public final class TaskbarPlan {
         }
         return false;
     }
-    /** Which half an app's window is on: LEFT when its center is left of the middle. */
-    public static Side sideOf(Win w, int width) { return w == null ? Side.NONE : (w.left() + w.right()) / 2f < width / 2f ? Side.LEFT : Side.RIGHT; }
+    /**
+     * Which part of the screen an app's window took: TOP or BOTTOM when it spans the width (split one above the other, as
+     * AOSP does in portrait), else LEFT or RIGHT by its center.
+     */
+    public static Side sideOf(Win w, int width, int height) {
+        if (w == null || w.width() <= 0 || w.height() <= 0) return Side.NONE;
+        if (w.width() >= width * 0.8f && w.height() < height * 0.75f) return (w.top() + w.bottom()) / 2f < height / 2f ? Side.TOP : Side.BOTTOM;
+        return (w.left() + w.right()) / 2f < width / 2f ? Side.LEFT : Side.RIGHT;
+    }
+    public static String words(Side side) {
+        return switch (side) { case LEFT -> "왼쪽"; case RIGHT -> "오른쪽"; case TOP -> "위"; case BOTTOM -> "아래"; case NONE -> ""; };
+    }
 
     /**
      * Opening an app beside the one in front, step by step (Taskbar runs them and logs each). ADJACENT: the app is started
-     * with FLAG_ACTIVITY_LAUNCH_ADJACENT; on Android 13 to 15 the split-screen side stage takes every such start (Shell's
-     * StageCoordinator sets it as the launch-adjacent root), so this alone splits the screen. When it did not (a phone that
-     * does it another way), TOGGLE asks the system to split the screen (GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN: AOSP 13 to 15 answer
-     * it with false, a maker may handle it), and PAIR brings the app that was in front back beside it. SPLIT: done;
-     * FULL: the app opened in full screen (what happened is logged and the user is told the manual way).
+     * with FLAG_ACTIVITY_LAUNCH_ADJACENT from a live 들퍼레 activity (the home screen, stopped behind the app). Shell's
+     * StageCoordinator makes the split side stage the launch-adjacent root, so such a start enters split screen with the app
+     * in front on the other side. The source activity matters: from Android 14 on, ActivityStarter drops the flag when a
+     * start has no source activity (a start from the accessibility service itself; android14/15/16 computeLaunchingTaskFlags,
+     * Android 16 logs "Launch adjacent ignored due to missing source activity"), so the service is only the fallback when no
+     * home activity is alive. When the screen did not split, TOGGLE asks the system to split it
+     * (GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN: AOSP 13 to 15 answer false, a maker may handle it; never sent while the screen is
+     * split already, see mayToggle) and PAIR brings the app that was in front back beside it. SPLIT: done; FULL: the app
+     * opened in full screen (logged, and the user is offered the recents screen, where One UI splits by hand).
      */
     public static Step next(Step ran, boolean splitShown, boolean toggleAccepted, boolean wasSplit) {
         return switch (ran) {
@@ -164,6 +200,11 @@ public final class TaskbarPlan {
             case SPLIT, FULL -> ran;
         };
     }
+    /**
+     * Checked again right before TOGGLE: a split that showed up late (a cold start whose window came after the wait) must
+     * not be toggled away, nor a split the user had before.
+     */
+    public static boolean mayToggle(boolean splitNow, boolean wasSplit) { return !splitNow && !wasSplit; }
     /** The first step for a drop: nothing when it was let go back on the bar. */
     public static Step first(Side side) { return side == Side.NONE ? null : Step.ADJACENT; }
     /** A second window of the same app (two browsers side by side) needs a task of its own; another app moves its own task. */

@@ -116,7 +116,9 @@ public final class PhoneService extends AccessibilityService {
     private final Runnable edgeRefresh = () -> { try { if (edge != null) edge.refresh(); } catch (RuntimeException ignored) {} };
     /** 들퍼레's own taskbar over the system bar while another app is in front (Taskbar); null when it could not start. */
     private Taskbar taskbar;
-    private final Runnable taskbarRefresh = () -> { try { if (taskbar != null) taskbar.later(); } catch (RuntimeException ignored) {} };
+    /** The store changed (only its switch and phone control matter to the bar); the home screen came or went. */
+    private final Runnable taskbarRefresh = () -> { try { if (taskbar != null) taskbar.storeChanged(); } catch (RuntimeException ignored) {} };
+    private final Runnable taskbarLater = () -> { try { if (taskbar != null) taskbar.later(); } catch (RuntimeException ignored) {} };
     private boolean screenWatched;
     private final BroadcastReceiver screen = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -128,7 +130,12 @@ public final class PhoneService extends AccessibilityService {
     /** The home screen came or went (HomeActivity): the taskbar looks again. */
     static void taskbarChanged() {
         PhoneService service = instance;
-        if (service != null) service.main.post(service.taskbarRefresh);
+        if (service != null) service.main.post(service.taskbarLater);
+    }
+    /** Why the taskbar is hidden right now (NONE: shown), for its settings row; null when it is not running. */
+    static dev.jun.gyeot.core.TaskbarPlan.Hidden taskbarHidden() {
+        PhoneService service = instance; Taskbar bar = service == null ? null : service.taskbar;
+        return bar == null ? null : bar.hidden();
     }
 
     static boolean connected() { return instance != null; }

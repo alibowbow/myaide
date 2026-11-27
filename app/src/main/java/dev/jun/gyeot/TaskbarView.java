@@ -27,7 +27,8 @@ import java.util.List;
  * The 작업 표시줄's look (Taskbar puts it over the system bar): on the bar's own neutral colour (light or dark with the phone),
  * an all-apps button, the dock's apps, a thin divider, the recent apps, then recents · home · back where One UI keeps them
  * (TaskbarPlan). Icons only: no labels, no counts. An app icon dragged up into the screen, or held, opens that app beside the
- * one in front. Its right end fades out before the accessibility button, which stays the system's.
+ * one in front. Its right end fades out before the accessibility button, which stays the system's. Sizes follow the density
+ * each show is given (a display-size change, the Fold's other screen).
  */
 final class TaskbarView extends FrameLayout {
     /** One app on the bar: its id (HomeActivity.id), package, name and icon. */
@@ -48,9 +49,11 @@ final class TaskbarView extends FrameLayout {
     }
     static final int LIGHT = 0xffeceee9, DARK = 0xff1c1d1b, LIGHT_GLYPH = 0xff30312e, DARK_GLYPH = 0xffe8e7e2;
     private final Actions actions;
-    private final float density;
-    private final int slop;
+    private float density;
+    private int slop;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    /** The right end's fade, made again only when its place or colour changes (not on every draw). */
+    private LinearGradient fadeShader; private int fadeFrom = -1, fadeColor;
     private boolean dark;
     private int opaqueEnd, fade, screenWidth, barTop, barHeight;
     private TaskbarPlan.Layout layout;
@@ -79,11 +82,12 @@ final class TaskbarView extends FrameLayout {
     int barColor() { return dark ? DARK : LIGHT; }
 
     /**
-     * Lays the bar out for a screen screenWidth wide whose system bar is barHeight tall and starts at barTop (screen pixels).
-     * What does not fit is left out: recent apps first, then the dock's last ones.
+     * Lays the bar out for a screen screenWidth wide whose system bar is barHeight tall and starts at barTop (screen pixels),
+     * at this density. What does not fit is left out: recent apps first, then the dock's last ones.
      */
-    void show(List<Item> dock, List<Item> recent, int screenWidth, int barHeight, int barTop, boolean dark) {
+    void show(List<Item> dock, List<Item> recent, int screenWidth, int barHeight, int barTop, boolean dark, float density) {
         this.dark = dark; this.screenWidth = screenWidth; this.barTop = barTop; this.barHeight = barHeight;
+        this.density = density; slop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
         layout = TaskbarPlan.layout(screenWidth, barHeight, density, dock.size(), recent.size());
         opaqueEnd = layout.opaqueEnd(); fade = layout.fade();
         removeAllViews();
@@ -171,7 +175,10 @@ final class TaskbarView extends FrameLayout {
         canvas.drawRect(0, 0, solid, h, fill);
         // The right end fades into the system's own bar, where its accessibility button stays.
         if (fade > 0) {
-            fill.setShader(new LinearGradient(solid, 0, solid + fade, 0, color, color & 0x00ffffff, Shader.TileMode.CLAMP));
+            if (fadeShader == null || fadeFrom != solid || fadeColor != color) {
+                fadeShader = new LinearGradient(solid, 0, solid + fade, 0, color, color & 0x00ffffff, Shader.TileMode.CLAMP); fadeFrom = solid; fadeColor = color;
+            }
+            fill.setShader(fadeShader);
             canvas.drawRect(solid, 0, solid + fade, h, fill);
             fill.setShader(null);
         }
@@ -183,6 +190,7 @@ final class TaskbarView extends FrameLayout {
         private final int kind; private final float d;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path path = new Path();
+        private final RectF box = new RectF();
         Glyph(int kind, int color, float density) {
             this.kind = kind; d = density;
             paint.setColor(color); paint.setStrokeWidth(1.9f * density); paint.setStrokeCap(Paint.Cap.ROUND); paint.setStrokeJoin(Paint.Join.ROUND);
@@ -202,7 +210,7 @@ final class TaskbarView extends FrameLayout {
                 }
                 case HOME -> {
                     paint.setStyle(Paint.Style.STROKE);
-                    float r = 7.5f * d; c.drawRoundRect(new RectF(cx - r, cy - r, cx + r, cy + r), 5 * d, 5 * d, paint);
+                    float r = 7.5f * d; box.set(cx - r, cy - r, cx + r, cy + r); c.drawRoundRect(box, 5 * d, 5 * d, paint);
                 }
                 default -> {
                     paint.setStyle(Paint.Style.STROKE);
@@ -217,37 +225,45 @@ final class TaskbarView extends FrameLayout {
     }
 
     /**
-     * While an icon is dragged (a window over the whole screen that takes no touches): the half it would open on, and the
-     * icon under the finger.
+     * While an icon is dragged (a window over the whole screen that takes no touches): once it is lifted into the screen,
+     * one target over the whole screen above the bar, 놓으면 화면 나누기, and the icon under the finger. One target, not a
+     * half: Android puts the app on its split side stage (normally right, or bottom) whatever half it is let go on.
      */
     static final class Drop extends View {
         private static final int ACCENT = 0xffc4643f;
+        private static final String SAY = "놓으면 화면 나누기";
         private final float d;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG), words = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF area = new RectF(), label = new RectF();
+        private final int[] at = new int[2];
         private Drawable icon, source; private float x, y; private TaskbarPlan.Side side = TaskbarPlan.Side.NONE; private int barTop, iconSize;
-        Drop(Context context) {
+        Drop(Context context, float density) {
             super(context);
-            d = context.getResources().getDisplayMetrics().density;
+            d = density;
             words.setColor(0xffffffff); words.setTextSize(15 * d); words.setTextAlign(Paint.Align.CENTER); words.setTypeface(Ui.weight(620));
         }
+        float density() { return d; }
+        @Override protected void onLayout(boolean changed, int l, int t, int r, int b) { super.onLayout(changed, l, t, r, b); getLocationOnScreen(at); }
         void at(Drawable icon, int iconSize, float x, float y, TaskbarPlan.Side side, int barTop) {
             // Its own copy: the bar's icon keeps its bounds and alpha.
             if (icon != source) { source = icon; Drawable.ConstantState state = icon == null ? null : icon.getConstantState(); this.icon = state != null ? state.newDrawable(getResources()).mutate() : icon; }
             this.iconSize = iconSize; this.x = x; this.y = y; this.side = side; this.barTop = barTop; invalidate();
         }
         TaskbarPlan.Side side() { return side; }
+        /** Whether the drop target shows now (the icon is lifted far enough into the screen). */
+        boolean armed() { return side != TaskbarPlan.Side.NONE; }
         @Override protected void onDraw(Canvas c) {
-            int[] at = new int[2]; getLocationOnScreen(at);
             float w = getWidth(), m = 12 * d, top = m, bottom = barTop - at[1] - m;
             if (side != TaskbarPlan.Side.NONE && bottom > top) {
-                RectF half = side == TaskbarPlan.Side.LEFT ? new RectF(m, top, w / 2 - m / 2, bottom) : new RectF(w / 2 + m / 2, top, w - m, bottom);
-                paint.setStyle(Paint.Style.FILL); paint.setColor(0x33c4643f); c.drawRoundRect(half, 22 * d, 22 * d, paint);
-                paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(2 * d); paint.setColor(ACCENT); c.drawRoundRect(half, 22 * d, 22 * d, paint);
+                area.set(m, top, w - m, bottom);
+                paint.setStyle(Paint.Style.FILL); paint.setColor(0x33c4643f); c.drawRoundRect(area, 22 * d, 22 * d, paint);
+                paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(2 * d); paint.setColor(ACCENT); c.drawRoundRect(area, 22 * d, 22 * d, paint);
                 // The words on a small pill, readable over any app.
-                String say = "놓으면 화면 나누기"; float tw = words.measureText(say), cx = half.centerX(), cy = half.centerY();
+                float tw = words.measureText(SAY), cx = area.centerX(), cy = area.centerY();
                 paint.setStyle(Paint.Style.FILL); paint.setColor(0xe6c4643f);
-                c.drawRoundRect(new RectF(cx - tw / 2 - 14 * d, cy - 17 * d, cx + tw / 2 + 14 * d, cy + 17 * d), 17 * d, 17 * d, paint);
-                c.drawText(say, cx, cy + 5.5f * d, words);
+                label.set(cx - tw / 2 - 14 * d, cy - 17 * d, cx + tw / 2 + 14 * d, cy + 17 * d);
+                c.drawRoundRect(label, 17 * d, 17 * d, paint);
+                c.drawText(SAY, cx, cy + 5.5f * d, words);
             }
             if (icon != null) {
                 int s = Math.round(iconSize * 1.2f); float lx = x - at[0], ly = y - at[1];

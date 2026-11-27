@@ -3,7 +3,14 @@ package dev.jun.gyeot;
 import android.accessibilityservice.AccessibilityService;
 import android.app.Activity;
 import android.app.role.RoleManager;
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.ActivityInfo;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.LauncherActivityInfo;
+import android.content.pm.LauncherApps;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -12,9 +19,14 @@ import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Looper;
+import android.os.Process;
+import android.os.SystemClock;
+import android.os.UserHandle;
+import android.os.UserManager;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityWindowInfo;
 import android.widget.ImageView;
 import android.widget.Switch;
@@ -23,6 +35,7 @@ import dev.jun.gyeot.core.TaskbarPlan;
 import dev.jun.gyeot.core.TaskbarPlan.Hidden;
 import dev.jun.gyeot.core.TaskbarPlan.Side;
 import dev.jun.gyeot.core.TaskbarPlan.Step;
+import dev.jun.gyeot.core.TaskbarPlan.Top;
 import dev.jun.gyeot.core.TaskbarPlan.Win;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -36,17 +49,23 @@ import org.robolectric.Robolectric;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.annotation.Config;
+import org.robolectric.android.controller.ActivityController;
+import org.robolectric.android.controller.ServiceController;
 import org.robolectric.annotation.GraphicsMode;
 import org.robolectric.shadow.api.Shadow;
 import org.robolectric.shadows.ShadowAccessibilityWindowInfo;
 import org.robolectric.shadows.ShadowWindowManagerImpl;
+import org.robolectric.util.ReflectionHelpers;
+import org.robolectric.util.ReflectionHelpers.ClassParameter;
 import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
 
 /**
  * 들퍼레 작업 표시줄 (Taskbar): its place over the system bar, the nav buttons at One UI's 72/81/90%, the accessibility button
- * left free, what fits, when it shows and hides, the drop side and the split steps; the bar drawn light and dark over an app,
- * and its switch as one compact row beside the edge button's on 바로 부르기.
+ * left free, what fits, when it shows and hides (the recents screen and an app opened from home included), the split steps
+ * as the controller runs them (started from the home screen activity, the split read from the windows' places alone, no
+ * toggle over a split, the log line, the chip to the recents screen), why it is hidden on its settings row and in the phone
+ * log, and its switch as one compact row beside the edge button's on 바로 부르기.
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk=35, application=GyeotApp.class)
@@ -57,11 +76,12 @@ public class TaskbarTests {
     private static final Win APP = new Win(TaskbarPlan.APPLICATION, 0, 0, W, H - BAR), NAV = new Win(TaskbarPlan.SYSTEM, 0, H - BAR, W, H),
         STATUS = new Win(TaskbarPlan.SYSTEM, 0, 0, W, 90);
 
-    @After public void reset() { HomeActivity.visible = false; }
+    @org.junit.Before public void fresh() { Taskbar.forgetRole(); }
+    @After public void reset() { HomeActivity.visible = false; HomeActivity.shownAt = 0; Taskbar.forgetRole(); }
 
     private static TaskbarPlan.State state(boolean enabled, boolean home, boolean locked, boolean homeOnTop, int w, int h, float d, List<Win> windows) {
         boolean read = windows.stream().anyMatch(x -> x.type() == TaskbarPlan.APPLICATION);
-        return new TaskbarPlan.State(enabled, home, locked, homeOnTop, false, w, h, d, read, windows, 0);
+        return new TaskbarPlan.State(enabled, home, locked, homeOnTop ? Top.HOME : Top.APP, false, w, h, d, read, windows);
     }
     private static TaskbarPlan.State shown(List<Win> windows) { return state(true, true, false, false, W, H, D, windows); }
 
@@ -73,9 +93,9 @@ public class TaskbarTests {
         assertEquals("the system bar's own height", BAR, TaskbarPlan.barHeight(s));
         TaskbarPlan.Bar bar = TaskbarPlan.bar(W, H, TaskbarPlan.barHeight(s));
         assertEquals(0, bar.left()); assertEquals(H - BAR, bar.top()); assertEquals(H, bar.bottom());
-        // The list could not be read: the window metrics' inset gives the height.
-        TaskbarPlan.State blind = new TaskbarPlan.State(true, true, false, false, false, W, H, D, false, List.of(), BAR);
-        assertEquals(Hidden.NONE, TaskbarPlan.hidden(blind)); assertEquals(BAR, TaskbarPlan.barHeight(blind));
+        // The list could not be read: hidden (the metrics' inset still reports a bar a full-screen app or the keyboard hid).
+        TaskbarPlan.State blind = new TaskbarPlan.State(true, true, false, Top.APP, false, W, H, D, false, List.of());
+        assertEquals(Hidden.NO_WINDOWS, TaskbarPlan.hidden(blind)); assertEquals(0, TaskbarPlan.barHeight(blind));
         // Once our bar covers the left 94%, the system bar is listed by its uncovered right end: same top, same height.
         TaskbarPlan.State covered = shown(List.of(APP, new Win(TaskbarPlan.SYSTEM, Math.round(W * 0.94f), H - BAR, W, H)));
         assertEquals(Hidden.NONE, TaskbarPlan.hidden(covered)); assertEquals(BAR, TaskbarPlan.barHeight(covered));
@@ -127,7 +147,8 @@ public class TaskbarTests {
         assertEquals("never on 들퍼레's home screen", Hidden.HOME, TaskbarPlan.hidden(state(true, true, false, true, W, H, D, normal)));
         // A phone (or the Fold's cover screen) in portrait: a wide bar, but a small screen.
         assertEquals(Hidden.SMALL_SCREEN, TaskbarPlan.hidden(state(true, true, false, false, 1080, 2340, 2.625f, List.of(new Win(1, 0, 0, 1080, 2214), new Win(3, 0, 2214, 1080, 2340)))));
-        assertEquals(Hidden.PHONE_CONTROL, TaskbarPlan.hidden(new TaskbarPlan.State(true, true, false, false, true, W, H, D, true, normal, 0)));
+        assertEquals(Hidden.PHONE_CONTROL, TaskbarPlan.hidden(new TaskbarPlan.State(true, true, false, Top.APP, true, W, H, D, true, normal)));
+        assertEquals("the recents screen", Hidden.RECENTS, TaskbarPlan.hidden(new TaskbarPlan.State(true, true, false, Top.RECENTS, false, W, H, D, true, normal)));
         List<Win> typing = new ArrayList<>(normal); typing.add(new Win(TaskbarPlan.INPUT_METHOD, 0, 1300, W, H));
         assertEquals(Hidden.KEYBOARD, TaskbarPlan.hidden(shown(typing)));
         assertEquals("an app in full screen (the system bar went away)", Hidden.FULL_SCREEN, TaskbarPlan.hidden(shown(List.of(new Win(1, 0, 0, W, H)))));
@@ -136,6 +157,16 @@ public class TaskbarTests {
         assertNull(TaskbarPlan.navigationBar(List.of(new Win(3, 0, 0, W, H)), W, H, D));
         // Our own bar's window is never mistaken for the system's (Taskbar leaves overlays out); a floating window is not a bar.
         assertNull(TaskbarPlan.navigationBar(List.of(new Win(3, 1500, 1700, 1800, 2000)), W, H, D));
+    }
+
+    @Test public void whatIsInFrontByWhatCameLast() {
+        assertEquals("the home screen, shown last", Top.HOME, TaskbarPlan.top(true, 100, 0, 50));
+        assertEquals("an app opened from home before the home's onStop", Top.APP, TaskbarPlan.top(true, 100, 0, 150));
+        assertEquals("the recents screen", Top.RECENTS, TaskbarPlan.top(false, 100, 200, 150));
+        assertEquals("the recents screen over the home screen", Top.RECENTS, TaskbarPlan.top(true, 100, 200, 150));
+        assertEquals("back to an app from recents", Top.APP, TaskbarPlan.top(false, 100, 200, 250));
+        assertEquals("the home screen after recents", Top.HOME, TaskbarPlan.top(true, 300, 200, 250));
+        assertEquals("nothing seen yet", Top.APP, TaskbarPlan.top(false, 0, 0, 0));
     }
 
     @Test public void dropSideAndSplitSteps() {
@@ -156,6 +187,10 @@ public class TaskbarTests {
         assertEquals(Step.SPLIT, TaskbarPlan.next(Step.PAIR, true, true, false));
         assertEquals(Step.FULL, TaskbarPlan.next(Step.PAIR, false, true, false));
         assertEquals("already split: no toggle that would undo it", Step.FULL, TaskbarPlan.next(Step.ADJACENT, false, false, true));
+        // Looked at again right before the toggle: a late split is kept, a split the user had is never toggled.
+        assertTrue(TaskbarPlan.mayToggle(false, false));
+        assertFalse("split after the wait", TaskbarPlan.mayToggle(true, false));
+        assertFalse("split before", TaskbarPlan.mayToggle(false, true));
         // The flags: beside the current app; a second window only for the same app.
         int other = Taskbar.splitFlags("com.kakao.talk", "com.android.chrome"), same = Taskbar.splitFlags("com.android.chrome", "com.android.chrome");
         assertTrue((other & Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT) != 0 && (other & Intent.FLAG_ACTIVITY_NEW_TASK) != 0);
@@ -171,7 +206,10 @@ public class TaskbarTests {
         assertFalse("a pop-up window over a full app", TaskbarPlan.split(List.of(APP, new Win(1, 400, 400, 900, 1000)), W, H));
         Win top = new Win(1, 0, 0, W, H / 2), bottom = new Win(1, 0, H / 2, W, H - BAR);
         assertTrue("one above the other", TaskbarPlan.split(List.of(top, bottom), W, H));
-        assertEquals(Side.LEFT, TaskbarPlan.sideOf(left, W)); assertEquals(Side.RIGHT, TaskbarPlan.sideOf(right, W));
+        assertEquals(Side.LEFT, TaskbarPlan.sideOf(left, W, H)); assertEquals(Side.RIGHT, TaskbarPlan.sideOf(right, W, H));
+        // Stacked (AOSP's portrait split): by y, not by x (both halves are centered in x).
+        assertEquals(Side.TOP, TaskbarPlan.sideOf(top, W, H)); assertEquals(Side.BOTTOM, TaskbarPlan.sideOf(bottom, W, H));
+        assertEquals("위", TaskbarPlan.words(Side.TOP)); assertEquals("오른쪽", TaskbarPlan.words(Side.RIGHT));
     }
 
     // ── on the service ───────────────────────────────────────────────
@@ -188,7 +226,7 @@ public class TaskbarTests {
         GyeotApp app = (GyeotApp) RuntimeEnvironment.getApplication(); AppStore store = app.store();
         PhoneService service = Robolectric.buildService(PhoneService.class).create().get();
         RoleManager roles = service.getSystemService(RoleManager.class);
-        shadowOf(roles).addAvailableRole(RoleManager.ROLE_HOME); shadowOf(roles).addHeldRole(RoleManager.ROLE_HOME);
+        shadowOf(roles).addAvailableRole(RoleManager.ROLE_HOME); shadowOf(roles).addHeldRole(RoleManager.ROLE_HOME); Taskbar.forgetRole();
         Rect screen = service.getSystemService(WindowManager.class).getCurrentWindowMetrics().getBounds();
         int w = screen.width(), h = screen.height();
         List<AccessibilityWindowInfo> windows = new ArrayList<>(List.of(window(AccessibilityWindowInfo.TYPE_APPLICATION, new Rect(0, 0, w, h - BAR)),
@@ -233,6 +271,261 @@ public class TaskbarTests {
         } finally { bar.close(); store.settings.edit().remove("taskbar").apply(); }
     }
 
+    // ── the controller: front app, recents, split, why hidden ────────
+
+    private static final String CHROME = "com.android.chrome", KAKAO = "com.kakao.talk", LAUNCHER = "com.sec.android.app.launcher";
+
+    /** A launchable app as LauncherApps lists it (its hidden constructors, as the system builds it). */
+    private static LauncherActivityInfo app(Context context, String pkg, String cls, String label) throws Exception {
+        ActivityInfo ai = new ActivityInfo(); ai.packageName = pkg; ai.name = cls; ai.nonLocalizedLabel = label; ai.exported = true; ai.enabled = true;
+        ai.applicationInfo = new ApplicationInfo(); ai.applicationInfo.packageName = pkg; ai.applicationInfo.nonLocalizedLabel = label; ai.applicationInfo.enabled = true;
+        Class<?> statesClass = Class.forName("android.content.pm.IncrementalStatesInfo"), internalClass = Class.forName("android.content.pm.LauncherActivityInfoInternal");
+        Object states = ReflectionHelpers.callConstructor(statesClass, ClassParameter.from(boolean.class, false), ClassParameter.from(float.class, 1f), ClassParameter.from(long.class, 0L));
+        Object internal = ReflectionHelpers.callConstructor(internalClass, ClassParameter.from(ActivityInfo.class, ai), ClassParameter.from(statesClass, states), ClassParameter.from(UserHandle.class, Process.myUserHandle()));
+        return ReflectionHelpers.callConstructor(LauncherActivityInfo.class, ClassParameter.from(Context.class, context), ClassParameter.from(internalClass, internal));
+    }
+    private static AccessibilityWindowInfo window(int type, Rect bounds, int id, String title) {
+        AccessibilityWindowInfo w = window(type, bounds);
+        ShadowAccessibilityWindowInfo shadow = Shadow.extract(w); shadow.setId(id);
+        if (title != null) shadow.setTitle(title);
+        return w;
+    }
+    /** An app's window came to the front, as Android reports it (package and activity class; the window's id). */
+    private static AccessibilityEvent cameUp(String pkg, String cls, int window) {
+        AccessibilityEvent e = AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED);
+        e.setPackageName(pkg); e.setClassName(cls);
+        ReflectionHelpers.callInstanceMethod(e, "setWindowId", ClassParameter.from(int.class, window));
+        return e;
+    }
+    private static void step(long ms) { shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(ms)); }
+
+    /** The phone as on 준's Fold: 들퍼레 the home app, Chrome in front over the system bar, KakaoTalk on the dock. */
+    private static final class Phone implements AutoCloseable {
+        final GyeotApp app = (GyeotApp) RuntimeEnvironment.getApplication(); final AppStore store = app.store();
+        final ServiceController<PhoneService> controller = Robolectric.buildService(PhoneService.class).create();
+        final PhoneService service = controller.get();
+        final WindowManager manager = service.getSystemService(WindowManager.class);
+        final int w, h;
+        ActivityController<HomeActivity> home;
+        Taskbar bar;
+        Phone(boolean withHome) throws Exception {
+            RoleManager roles = service.getSystemService(RoleManager.class);
+            shadowOf(roles).addAvailableRole(RoleManager.ROLE_HOME); shadowOf(roles).addHeldRole(RoleManager.ROLE_HOME); Taskbar.forgetRole();
+            Rect screen = manager.getCurrentWindowMetrics().getBounds(); w = screen.width(); h = screen.height();
+            LauncherApps launcher = service.getSystemService(LauncherApps.class);
+            LauncherActivityInfo chrome = app(service, CHROME, CHROME + ".Main", "Chrome"), kakao = app(service, KAKAO, KAKAO + ".Main", "카카오톡");
+            shadowOf(launcher).addActivity(Process.myUserHandle(), chrome); shadowOf(launcher).addActivity(Process.myUserHandle(), kakao);
+            // One UI Home: a home screen with no icon of its own, so what it shows while 들퍼레 is home is the recents screen.
+            ComponentName oneUi = new ComponentName(LAUNCHER, LAUNCHER + ".activities.LauncherActivity");
+            shadowOf(app.getPackageManager()).addActivityIfNotPresent(oneUi);
+            IntentFilter homeFilter = new IntentFilter(Intent.ACTION_MAIN); homeFilter.addCategory(Intent.CATEGORY_HOME); homeFilter.addCategory(Intent.CATEGORY_DEFAULT);
+            shadowOf(app.getPackageManager()).addIntentFilterForActivity(oneUi, homeFilter);
+            String kakaoId = HomeActivity.id(kakao, service.getSystemService(UserManager.class));
+            app.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).edit().putString(HomeActivity.DOCK, "[\"" + kakaoId + "\"]").commit();
+            windows(normal());
+            if (withHome) { home = Robolectric.buildActivity(HomeActivity.class).setup(); home.pause().stop(); }
+            else ReflectionHelpers.setStaticField(HomeActivity.class, "alive", new java.lang.ref.WeakReference<HomeActivity>(null));
+            while (shadowOf(app).getNextStartedActivity() != null) { /* drained */ }
+            bar = new Taskbar(service, store);
+            idle(); bar.windowsChanged(cameUp(CHROME, CHROME + ".Main", 3)); idle();
+        }
+        List<AccessibilityWindowInfo> normal() {
+            return new ArrayList<>(List.of(window(AccessibilityWindowInfo.TYPE_APPLICATION, new Rect(0, 0, w, h - BAR), 3, "Chrome"),
+                window(AccessibilityWindowInfo.TYPE_SYSTEM, new Rect(0, h - BAR, w, h), 9, null)));
+        }
+        /** Chrome on the left and title on the right, split. */
+        List<AccessibilityWindowInfo> split(String title) {
+            return new ArrayList<>(List.of(window(AccessibilityWindowInfo.TYPE_APPLICATION, new Rect(0, 0, w / 2 - 8, h - BAR), 3, "Chrome"),
+                window(AccessibilityWindowInfo.TYPE_APPLICATION, new Rect(w / 2 + 8, 0, w, h - BAR), 4, title),
+                window(AccessibilityWindowInfo.TYPE_SYSTEM, new Rect(0, h - BAR, w, h), 9, null)));
+        }
+        void windows(List<AccessibilityWindowInfo> list) { shadowOf(service).setWindows(list); }
+        TaskbarView view() { return (TaskbarView) views(manager).stream().filter(v -> v instanceof TaskbarView).findFirst().orElse(null); }
+        /** A pill over the bar (the menu, the chip) by its words. */
+        TextView pill(String words) {
+            for (View v : views(manager)) { View t = find(v, x -> x instanceof TextView tv && tv.getText().toString().equals(words)); if (t != null) return (TextView) t; }
+            return null;
+        }
+        /** Holds KakaoTalk on the bar and picks 화면 나누기로 열기. */
+        void splitKakao() {
+            View icon = described(view(), "카카오톡"); assertNotNull("KakaoTalk on the dock", icon);
+            assertTrue(icon.performLongClick());
+            TextView item = pill("화면 나누기로 열기"); assertNotNull("the held icon's menu", item);
+            assertTrue(item.performClick());
+        }
+        List<Integer> actions() { return shadowOf(service).getGlobalActionsPerformed(); }
+        @Override public void close() {
+            if (bar != null) bar.close();
+            if (home != null) home.destroy();
+            store.settings.edit().remove("taskbar").apply();
+            app.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).edit().remove(HomeActivity.DOCK).commit();
+            store.clearPhoneLog(); BuddyMisses.clear(app);
+        }
+    }
+
+    @Test @Config(qualifiers="w825dp-h960dp-360dpi") public void splitStartsFromTheHomeScreenAndIsLogged() throws Exception {
+        try (Phone phone = new Phone(true)) {
+            assertEquals(Hidden.NONE, phone.bar.hidden());
+            phone.splitKakao();
+            Intent started = shadowOf(phone.app).getNextStartedActivity();
+            assertNotNull("KakaoTalk started", started);
+            assertEquals(new ComponentName(KAKAO, KAKAO + ".Main"), started.getComponent());
+            assertTrue("beside the app in front", (started.getFlags() & Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT) != 0 && (started.getFlags() & Intent.FLAG_ACTIVITY_NEW_TASK) != 0);
+            assertEquals("another app: no second task", 0, started.getFlags() & Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+            // Android splits the screen and KakaoTalk takes the right half.
+            phone.windows(phone.split("카카오톡")); phone.bar.windowsChanged(cameUp(KAKAO, KAKAO + ".Main", 4));
+            idle();
+            String log = phone.store.phoneLogText();
+            assertTrue(log, log.contains("화면 나누기 · 카카오톡 · 길게 눌러 고르기 · 길: adjacent(홈에서) · 나뉨 · 오른쪽에 열림 · API 35"));
+            assertFalse("no toggle once split", phone.actions().contains(AccessibilityService.GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN));
+            assertTrue("nothing missed", BuddyMisses.list(phone.app).isEmpty());
+        }
+    }
+
+    @Test @Config(qualifiers="w825dp-h960dp-360dpi") public void aColdStartWithNoReadableWindowStillCountsAsSplit() throws Exception {
+        try (Phone phone = new Phone(true)) {
+            phone.splitKakao();
+            // The new half is still its starting window: no title, no event from the app yet; the places alone show the split.
+            step(400); phone.windows(phone.split(null));
+            step(2000); idle();
+            String log = phone.store.phoneLogText();
+            assertTrue(log, log.contains("길: adjacent(홈에서) · 나뉨 · API 35"));
+            assertFalse("no toggle that would undo it", phone.actions().contains(AccessibilityService.GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN));
+        }
+    }
+
+    @Test @Config(qualifiers="w825dp-h960dp-360dpi") public void noSplitTriesTheToggleThenOffersTheRecentsScreen() throws Exception {
+        try (Phone phone = new Phone(true)) {
+            phone.splitKakao();
+            idle(); idle();
+            String log = phone.store.phoneLogText();
+            assertTrue(log, log.contains("화면 나누기 · 카카오톡 · 길게 눌러 고르기 · 길: adjacent(홈에서) → toggle 받음 · 안 나뉨 · API 35"));
+            assertTrue(phone.actions().contains(AccessibilityService.GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN));
+            BuddyMisses.Miss miss = BuddyMisses.list(phone.app).get(0);
+            assertEquals("화면 나누기 · 카카오톡", miss.what()); assertEquals(BuddyMisses.NOT_SHOWN, miss.kind());
+            assertTrue(miss.why(), miss.why().contains("Android ") && miss.why().contains("API 35"));
+            // One tap to the recents screen, where One UI splits by hand.
+            TextView chip = phone.pill("안 나뉘었어요 · 최근 앱에서 나누기"); assertNotNull("the chip over the bar", chip);
+            View pill = chip.getRootView(); WindowManager.LayoutParams at = (WindowManager.LayoutParams) pill.getLayoutParams();
+            float density = phone.service.getResources().getDisplayMetrics().density;
+            assertTrue("a small pill, not a big card: " + pill.getMeasuredHeight() / density + "dp", pill.getMeasuredHeight() <= 52 * density);
+            assertEquals("over the recents button", Math.round(phone.w * TaskbarPlan.RECENTS), at.x + pill.getMeasuredWidth() / 2, 2);
+            assertEquals("just above the bar", BAR + Math.round(6 * density), at.y);
+            // Drawn over a mock app with the bar under it (the preview).
+            int panel = 420; Bitmap shot = Bitmap.createBitmap(phone.w, panel, Bitmap.Config.ARGB_8888); Canvas c = new Canvas(shot);
+            mockApp(c, panel, false);
+            TaskbarView bar = phone.view(); c.save(); c.translate(0, panel - BAR); bar.draw(c); c.restore();
+            pill.layout(0, 0, pill.getMeasuredWidth(), pill.getMeasuredHeight());
+            c.save(); c.translate(at.x, panel - at.y - pill.getMeasuredHeight()); pill.draw(c); c.restore();
+            File dir = new File(System.getProperty("ui.output", "build/ui-verification")); dir.mkdirs();
+            try (FileOutputStream out = new FileOutputStream(new File(dir, "taskbar_chip.png"))) { shot.compress(Bitmap.CompressFormat.PNG, 100, out); }
+            assertTrue(chip.performClick());
+            assertEquals(AccessibilityService.GLOBAL_ACTION_RECENTS, (int) phone.actions().get(phone.actions().size() - 1));
+            assertNull("gone once used", phone.pill("안 나뉘었어요 · 최근 앱에서 나누기"));
+        }
+    }
+
+    @Test @Config(qualifiers="w825dp-h960dp-360dpi") public void onAScreenSplitBeforeItNeedsTheAppAndNeverToggles() throws Exception {
+        try (Phone phone = new Phone(true)) {
+            phone.windows(phone.split("메모")); phone.bar.refresh();
+            phone.splitKakao();
+            idle();
+            String log = phone.store.phoneLogText();
+            assertTrue(log, log.contains("길: 나뉜 화면에 adjacent(홈에서) · 안 나뉨"));
+            assertFalse("the user's split is not toggled away", phone.actions().contains(AccessibilityService.GLOBAL_ACTION_TOGGLE_SPLIT_SCREEN));
+            // Again, and this time KakaoTalk takes the right half.
+            phone.store.clearPhoneLog(); phone.splitKakao();
+            phone.windows(phone.split("카카오톡")); phone.bar.windowsChanged(cameUp(KAKAO, KAKAO + ".Main", 4)); idle();
+            log = phone.store.phoneLogText();
+            assertTrue(log, log.contains("길: 나뉜 화면에 adjacent(홈에서) · 나뉨 · 오른쪽에 열림"));
+        }
+    }
+
+    @Test @Config(qualifiers="w825dp-h960dp-360dpi") public void withNoHomeActivityTheServiceStartsItAndSaysSo() throws Exception {
+        try (Phone phone = new Phone(false)) {
+            phone.splitKakao();
+            Intent started = shadowOf(phone.app).getNextStartedActivity();
+            assertNotNull(started); assertTrue((started.getFlags() & Intent.FLAG_ACTIVITY_LAUNCH_ADJACENT) != 0);
+            phone.windows(phone.split("카카오톡")); idle();
+            String log = phone.store.phoneLogText();
+            assertTrue(log, log.contains("길: adjacent(서비스, 홈 없음: Android 14+는 무시해요) · 나뉨"));
+        }
+    }
+
+    @Test @Config(qualifiers="w825dp-h960dp-360dpi") public void recentsScreenAndAnAppOpenedFromHome() throws Exception {
+        try (Phone phone = new Phone(false)) {
+            assertEquals(Hidden.NONE, phone.bar.hidden());
+            // One UI's recents screen comes up over Chrome: hidden.
+            List<AccessibilityWindowInfo> recents = new ArrayList<>(List.of(window(AccessibilityWindowInfo.TYPE_APPLICATION, new Rect(0, 0, phone.w, phone.h - BAR), 7, null),
+                window(AccessibilityWindowInfo.TYPE_SYSTEM, new Rect(0, phone.h - BAR, phone.w, phone.h), 9, null)));
+            phone.windows(recents); phone.bar.windowsChanged(cameUp(LAUNCHER, "com.android.quickstep.RecentsActivity", 7)); step(200);
+            assertEquals(Hidden.RECENTS, phone.bar.hidden()); assertNull(phone.view());
+            // Back to Chrome with no event from it: the recents window is gone, so the bar is back.
+            phone.windows(phone.normal()); phone.bar.windowsChanged(AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOWS_CHANGED)); step(200);
+            assertEquals(Hidden.NONE, phone.bar.hidden()); assertNotNull(phone.view());
+            // The home screen comes (onStart): hidden; an app opened from it shows the bar before the home's onStop.
+            HomeActivity.visible = true; HomeActivity.shownAt = SystemClock.uptimeMillis(); phone.bar.later(); step(200);
+            assertEquals(Hidden.HOME, phone.bar.hidden());
+            step(50); phone.bar.windowsChanged(cameUp(KAKAO, KAKAO + ".Main", 4)); step(200);
+            assertEquals("in front already, while the home is still visible", Hidden.NONE, phone.bar.hidden());
+        }
+    }
+
+    @Test @Config(qualifiers="w825dp-h960dp-360dpi") public void keepsUpWhileTheStoreKeepsChanging() throws Exception {
+        try (Phone phone = new Phone(false)) {
+            assertEquals(Hidden.NONE, phone.bar.hidden());
+            HomeActivity.visible = true; HomeActivity.shownAt = SystemClock.uptimeMillis() + 1;
+            // A voice reply streams: requests every 50 ms. The first one's look still comes 120 ms later.
+            for (int i = 0; i < 6; i++) { phone.bar.later(); phone.store.changed(); phone.bar.storeChanged(); step(50); }
+            assertEquals(Hidden.HOME, phone.bar.hidden());
+        }
+    }
+
+    @Test @Config(qualifiers="w825dp-h960dp-360dpi") public void nothingComesBackAfterClose() throws Exception {
+        GyeotApp app = (GyeotApp) RuntimeEnvironment.getApplication(); AppStore store = app.store();
+        PhoneService service = Robolectric.buildService(PhoneService.class).create().get();
+        RoleManager roles = service.getSystemService(RoleManager.class);
+        shadowOf(roles).addAvailableRole(RoleManager.ROLE_HOME); shadowOf(roles).addHeldRole(RoleManager.ROLE_HOME); Taskbar.forgetRole();
+        WindowManager manager = service.getSystemService(WindowManager.class);
+        Rect screen = manager.getCurrentWindowMetrics().getBounds();
+        shadowOf(service).setWindows(List.of(window(AccessibilityWindowInfo.TYPE_APPLICATION, new Rect(0, 0, screen.width(), screen.height() - BAR)),
+            window(AccessibilityWindowInfo.TYPE_SYSTEM, new Rect(0, screen.height() - BAR, screen.width(), screen.height()))));
+        // Closed while its apps are still loading: the late answer, a later() and a refresh() put nothing on screen.
+        Taskbar bar = new Taskbar(service, store); bar.close();
+        idle(); bar.later(); bar.refresh(); idle();
+        assertTrue(views(manager).stream().noneMatch(v -> v instanceof TaskbarView));
+    }
+
+    @Test @Config(qualifiers="w825dp-h960dp-360dpi") public void whyItIsHiddenOnTheRowAndInThePhoneLog() throws Exception {
+        GyeotApp app = (GyeotApp) RuntimeEnvironment.getApplication(); AppStore store = app.store();
+        ServiceController<PhoneService> controller = Robolectric.buildService(PhoneService.class).create();
+        PhoneService service = controller.get();
+        RoleManager roles = service.getSystemService(RoleManager.class);
+        shadowOf(roles).addAvailableRole(RoleManager.ROLE_HOME); shadowOf(roles).addHeldRole(RoleManager.ROLE_HOME); Taskbar.forgetRole();
+        Rect screen = service.getSystemService(WindowManager.class).getCurrentWindowMetrics().getBounds(); int w = screen.width(), h = screen.height();
+        try {
+            // One UI lists no bar window (or an app is in full screen): every app reads as full screen. Said, not silent.
+            shadowOf(service).setWindows(List.of(window(AccessibilityWindowInfo.TYPE_APPLICATION, new Rect(0, 0, w, h))));
+            service.onServiceConnected(); idle();
+            assertEquals(Hidden.FULL_SCREEN, PhoneService.taskbarHidden());
+            assertEquals("숨김 · 아래 바 창을 못 찾았어요(전체 화면으로 봄)", Taskbar.status(service, store));
+            String log = store.phoneLogText();
+            assertTrue(log, log.contains("작업 표시줄 · 숨김: 아래 바 창을 못 찾았어요(전체 화면으로 봄) · 화면 " + w + "×" + h + " · 아래 시스템 창 없음 · 창 1개"));
+            // Gesture navigation's thin handle.
+            shadowOf(service).setWindows(List.of(window(AccessibilityWindowInfo.TYPE_APPLICATION, new Rect(0, 0, w, h - 45)), window(AccessibilityWindowInfo.TYPE_SYSTEM, new Rect(0, h - 45, w, h))));
+            service.onAccessibilityEvent(AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOWS_CHANGED)); idle();
+            assertEquals(Hidden.GESTURE_BAR, PhoneService.taskbarHidden());
+            assertTrue(Taskbar.status(service, store), Taskbar.status(service, store).startsWith("숨김 · 제스처 내비게이션"));
+            assertTrue(store.phoneLogText().contains("아래 시스템 창 0," + (h - 45) + "–" + w + "," + h));
+            // The button bar: shown, and its height logged once.
+            shadowOf(service).setWindows(List.of(window(AccessibilityWindowInfo.TYPE_APPLICATION, new Rect(0, 0, w, h - BAR)), window(AccessibilityWindowInfo.TYPE_SYSTEM, new Rect(0, h - BAR, w, h))));
+            service.onAccessibilityEvent(AccessibilityEvent.obtain(AccessibilityEvent.TYPE_WINDOWS_CHANGED)); idle();
+            assertEquals(Hidden.NONE, PhoneService.taskbarHidden());
+            assertEquals("켜짐 · 지금 화면 아래에 나와 있어요", Taskbar.status(service, store));
+            assertTrue(store.phoneLogText().contains("작업 표시줄 · 나타남 · 높이 " + BAR + "px"));
+        } finally { controller.destroy(); store.clearPhoneLog(); }
+    }
+
     // ── the bar's look ───────────────────────────────────────────────
 
     private static View find(View view, Predicate<View> match) {
@@ -263,7 +556,7 @@ public class TaskbarTests {
         List<TaskbarView.Item> dock = new ArrayList<>(), recent = new ArrayList<>();
         for (int i = 0; i < 4; i++) dock.add(new TaskbarView.Item("d" + i, "a.d" + i, "독 앱 " + i, fakeIcon(colors[i])));
         for (int i = 0; i < 3; i++) recent.add(new TaskbarView.Item("r" + i, "a.r" + i, "최근 앱 " + i, fakeIcon(colors[4 + i])));
-        view.show(dock, recent, W, BAR, H - BAR, dark);
+        view.show(dock, recent, W, BAR, H - BAR, dark, D);
         view.measure(View.MeasureSpec.makeMeasureSpec(view.layout().opaqueEnd(), View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(BAR, View.MeasureSpec.EXACTLY));
         view.layout(0, 0, view.getMeasuredWidth(), BAR);
         return view;
@@ -301,6 +594,20 @@ public class TaskbarTests {
         }
         File dir = new File(System.getProperty("ui.output", "build/ui-verification")); dir.mkdirs();
         try (FileOutputStream out = new FileOutputStream(new File(dir, "taskbar_preview.png"))) { shot.compress(Bitmap.CompressFormat.PNG, 100, out); }
+        // An icon dragged up into the screen: one target over everything above the bar (Android picks the side), the icon
+        // under the finger.
+        Bitmap screen = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888); Canvas s = new Canvas(screen);
+        mockApp(s, H, false);
+        s.save(); s.translate(0, H - BAR); light.draw(s); s.restore();
+        TaskbarView.Drop drop = new TaskbarView.Drop(RuntimeEnvironment.getApplication(), D);
+        drop.at(fakeIcon(0xfff2b230), Math.round(34 * D), 560, 1180, TaskbarPlan.side(560, 1180, W, H - BAR, Math.round(24 * D)), H - BAR);
+        assertTrue("lifted into the screen: the target shows", drop.armed());
+        drop.measure(View.MeasureSpec.makeMeasureSpec(W, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(H, View.MeasureSpec.EXACTLY));
+        drop.layout(0, 0, W, H); drop.draw(s);
+        // The target spans both halves (no half promised): let go on the left, the right half is tinted as well.
+        assertEquals(screen.getPixel(Math.round(W * 0.25f), 300), screen.getPixel(Math.round(W * 0.75f), 300));
+        assertNotEquals("the page's own card colour, tinted", 0xfffbfcf7, screen.getPixel(Math.round(W * 0.75f), 300));
+        try (FileOutputStream out = new FileOutputStream(new File(dir, "taskbar_drop.png"))) { screen.compress(Bitmap.CompressFormat.PNG, 100, out); }
     }
     /** A browser-like page with Samsung's plain bar under it: its buttons at the fallback places and the accessibility button. */
     private static void mockApp(Canvas c, int h, boolean dark) {
@@ -333,7 +640,8 @@ public class TaskbarTests {
         assertTrue("one list row, not a big card: " + row.getHeight() / density + "dp", row.getHeight() <= 96 * density);
         assertTrue("on by default", ((Switch) toggle).isChecked());
         TextView state = (TextView) ((ViewGroup) row).getChildAt(1);
-        assertTrue(state.getText().toString(), state.getText().toString().startsWith("켜짐 · "));
+        assertEquals("not the home app here: said first, no accessibility prompt", "켜짐 · " + dev.jun.gyeot.core.Brand.I + " 홈 화면 앱일 때 나와요", state.getText().toString());
+        assertNull("no 폰 조작 prompt where the bar cannot appear", find(decor, x -> x instanceof TextView t && x.isShown() && t.getText().toString().equals("폰 조작 1단계 켜러 가기")));
         assertTrue(row.performClick()); settle(a);
         AppStore store = ((GyeotApp) a.getApplication()).store();
         assertFalse("the row turns it off", store.taskbar());
