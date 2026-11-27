@@ -394,6 +394,26 @@ async function open(browser, at, bridge, pages) {
     assert.deepStrictEqual(bridged.errors, []);
   });
   // 준: "퍼레의 판단력 … 강화해줘" — an app 퍼레 opened that did not come up is said once, and those words open the way through.
+  // 준, 2026-11-27: "이 둘 중에 바로가기도 만들어줘", "일단 마이튜브 바로가기", "앱내 아이콘처럼 축약된 것 말고 좀더 홈 아이콘처럼".
+  const shortsPage = await open(browser, '2026-11-27T22:33:00+09:00', true);
+  await check('마이튜브 as a home icon in the empty space above the dots: an app-sized tile with its name, a tap opens 마이튜브', async () => {
+    const p = shortsPage.page;
+    const s = await p.evaluate(() => {
+      const b = document.querySelector('#shorts [data-short="mytube"]'); if (!b) return null;
+      const ic = b.querySelector('.ic').getBoundingClientRect(), lb = b.querySelector('.label').getBoundingClientRect(), dots = el('dots').getBoundingClientRect(), dock = document.querySelector('.dock').getBoundingClientRect();
+      const lib = el('stacks').getBoundingClientRect(), icon = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--icon'));
+      return { w: ic.width, h: ic.height, icon, label: lb.top >= ic.bottom - 1 ? b.querySelector('.label').textContent : '', bottom: lb.bottom, dots: dots.top, dock: dock.top, below: ic.top >= lib.bottom - 1 };
+    });
+    assert(s, 'the icon is there');
+    assert(Math.abs(s.w - s.icon) <= 1 && Math.abs(s.h - s.icon) <= 1, 'as big as an app icon: ' + JSON.stringify(s));
+    assert.strictEqual(s.label, '마이튜브', 'its name under it');
+    assert(s.below && s.bottom <= s.dots && s.bottom <= s.dock, 'under App Library, above the dots and the dock: ' + JSON.stringify(s));
+    await p.evaluate(() => { window._calls.length = 0; document.querySelector('#shorts [data-short="mytube"]').click(); });
+    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open').map(c => JSON.parse(c[1])[0])), ['mytube']);
+    assert.deepStrictEqual(shortsPage.errors, []);
+    await p.screenshot({ path: '/tmp/claude-0/-home-user/138b3987-18a5-5339-9471-114de8ffce30/scratchpad/shorts_home.png' });
+    await shortsPage.ctx.close();
+  });
   // 준, 2026-11-27: "배민에서 배달한걸 못알아채네" (the status bar said 조리완료, 퍼레 said "휴, 땀 났다").
   const food = await open(browser, '2026-11-27T17:55:00+09:00', true);
   await check('food on its way (배민 조리완료): the small pill says when it comes (a tap opens 배민); 퍼레 says it in passing, once as it sets off and once as it comes, each gone in a few seconds', async () => {
