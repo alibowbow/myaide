@@ -3,6 +3,7 @@
   "scenarios": [
     {"said": "음악 만들어서 틀어 줘", "expect": {"tool": "make_music"}, "why": "준 2026-11-27: 유튜브 찾기로 갔음"},
     {"said": "유튜브 꺼 줘", "expect": {"tool": "close_app", "args": {"app": "유튜브|youtube"}}, "why": "준 2026-11-27: 잠깐 멈춤만 했음"},
+    {"said": "네이버지도 꺼줘", "expect": {"tool": "close_app"}, "why": "준 2026-11-27 네이버 지도 위: '네이버지도 닫을게'라고만 하고 안 껐음"},
     {"said": "LP 페이지로", "expect": {"tool": "home_page", "args": {"page": "lp"}}, "why": "준 2026-11-27: 아무것도 안 했음"},
     {"said": "음성종료", "expect": {"turn": "BYE"}, "why": "준 2026-11-27: AI에게 보냈음"},
     {"said": "들어가", "expect": {"turn": "BYE"}, "why": "준 2026-11-27: AI에게 보냈음"},
