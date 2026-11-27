@@ -227,6 +227,11 @@ public final class HomeActivity extends Activity {
         if (ready && web != null) web.evaluateJavascript("launcher.hidden&&launcher.hidden()", null);
         super.onPause();
     }
+    @Override protected void onStop() {
+        // Left late in the evening: the night's digest now if it was not done today (BuddyTalk.dream), off the main thread.
+        if (java.time.LocalTime.now().getHour() >= 22) try { io.execute(() -> BuddyTalk.dreamTonight(getApplicationContext())); } catch (RuntimeException stopped) {}
+        super.onStop();
+    }
     /**
      * Home pressed while the home screen is in front (Android pauses it just before, so "just paused" counts as in front:
      * 준: "폴더화면에서 홈버튼을 눌러서 돌아가기가 안돼"): everything open closes and the home page comes back, at its top.

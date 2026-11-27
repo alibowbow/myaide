@@ -1491,7 +1491,14 @@ const pal = (() => {
     show() { make(); if (p) { p.b._env = boards[0] && boards[0]._env; if (p.x === 0) { p.x = Math.round(room() * .6); p.y = Math.round(roomY() * .15); place(0); } } },
     thinking() { if (!p) return; p.talking = false; p.b._mood("thinking"); },
     talking() { if (!p || p.talking) return; p.talking = true; p.b._mood(""); $(p.b, ".bot").classList.add("talking"); },
-    done(ok) { if (!p) return; p.talking = false; $(p.b, ".bot").classList.remove("talking"); p.b._mood(""); if (ok === false) p.b._feel("sorry", 1600); else { p.b._feel("happy", 1600); move(p.b, "hop", 760); } }
+    // The answer's face from its words (board.js feelOf), its motion when 퍼레 is free; a hop for one that calls for none.
+    done(ok, text) {
+      if (!p) return; p.talking = false; $(p.b, ".bot").classList.remove("talking"); p.b._mood("");
+      if (ok === false) { p.b._feel("sorry", 1600); return; }
+      const feel = typeof feelOf === "function" ? feelOf(text) : null;
+      p.b._feel(feel ? feel[0] : "happy", 1600);
+      if (!feel) move(p.b, "hop", 760); else if (feel[1] && freeToMove(p.b)) move(p.b, feel[1], motionMs(feel[1]));
+    }
   };
 })();
 
@@ -1604,7 +1611,7 @@ window.launcher = {
     const node = document.querySelector('.kb.ai[data-i="' + (thread.length - 1) + '"]');
     if (node && chatting && chatView === "talk") { node.textContent = last.text; const body = el("padBody"); body.scrollTop = body.scrollHeight; } else if (chatting && chatView === "talk") drawChat();
   },
-  reply(text) { const last = thread[thread.length - 1]; if (!last || !last.pending) return; last.pending = false; if (text) last.text = text; if (!last.text) last.text = "(답이 비어 있어)"; last.at = talkedAt = Date.now(); saveChats(); pal.done(true); if (chatting && chatView === "talk") drawChat(); },
+  reply(text) { const last = thread[thread.length - 1]; if (!last || !last.pending) return; last.pending = false; if (text) last.text = text; if (!last.text) last.text = "(답이 비어 있어)"; last.at = talkedAt = Date.now(); saveChats(); pal.done(true, last.text); if (chatting && chatView === "talk") drawChat(); },
   replyError(why, go) { const last = thread[thread.length - 1]; if (!last || last.who !== "ai") return; last.pending = false; last.error = true; last.text = why; last.go = go || ""; last.at = Date.now(); saveChats(); pal.done(false); if (chatting && chatView === "talk") drawChat(); },
   /** The home screen in front again, or left: 퍼레 may speak first when it comes back after a while. */
   shown() { boardSeen(true); },

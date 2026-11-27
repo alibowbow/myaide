@@ -87,12 +87,19 @@ final class VoicePresets {
         for (int i = 0; i < LINES.length; i++) if (LINES[i][1].equals(words)) { File f = file(c, id, i); return f.isFile() ? f : null; }
         return null;
     }
+    /**
+     * The calm ones of "think", for a user who is down (core/VoiceTone.calm): not "오, 좋아!", "좋은 질문!" or "어머나!" to
+     * "나 오늘 너무 속상해". Words already made, so no Typecast letters are spent on them.
+     */
+    static final java.util.Set<String> CALM = java.util.Set.of("음~", "흐음…", "어디 보자~", "음, 그러니까~", "그거 말이지~", "흠흠.", "잠깐만!");
     /** One of this kind in the chosen voice, not one of the last few played; null when none is made yet. */
-    static synchronized File pick(Context c, AppStore store, String kind) {
+    static synchronized File pick(Context c, AppStore store, String kind) { return pick(c, store, kind, false); }
+    /** The same, only a calm one (CALM) when calm. */
+    static synchronized File pick(Context c, AppStore store, String kind, boolean calm) {
         String id = store.typecast.voice().optString("id"); if (id.isBlank()) return null;
         List<Integer> have = new ArrayList<>();
-        for (int i = 0; i < LINES.length; i++) if (LINES[i][0].equals(kind) && file(c, id, i).isFile() && !recent.contains(i)) have.add(i);
-        if (have.isEmpty()) for (int i = 0; i < LINES.length; i++) if (LINES[i][0].equals(kind) && file(c, id, i).isFile()) have.add(i);
+        for (int i = 0; i < LINES.length; i++) if (LINES[i][0].equals(kind) && (!calm || CALM.contains(LINES[i][1])) && file(c, id, i).isFile() && !recent.contains(i)) have.add(i);
+        if (have.isEmpty()) for (int i = 0; i < LINES.length; i++) if (LINES[i][0].equals(kind) && (!calm || CALM.contains(LINES[i][1])) && file(c, id, i).isFile()) have.add(i);
         if (have.isEmpty()) return null;
         int i = have.get(RANDOM.nextInt(have.size()));
         recent.addLast(i); while (recent.size() > 6) recent.removeFirst();

@@ -553,7 +553,33 @@ function thinking(b) {
   clearTimeout(b._bubble); b._bubble = setTimeout(() => { if (!b._spoken) bubble.classList.remove("on"); }, 15000);
   b._spoken = false;
 }
-/** The line the AI wrote, typed into the bubble as it is said (the mouth moves while it types). */
+/*
+  퍼레's face follows its own words (준: "퍼레의 사용자 상호작용"): a crying face or ㅠㅠ makes it teary, 헉 surprised, 히히
+  giggle, and so on, with a motion that fits; a line that calls for none keeps the plain happy face. Not while it plays on
+  its own, naps or sleeps: then the face only.
+*/
+const FEEL_OF = [
+  [/[\u{1F622}\u{1F972}\u{1F97A}\u{1F62D}]|[ㅠㅜ]{2,}|흐잉|훌쩍|흑흑/u, "teary", "droop"],
+  [/[\u{1F62E}\u{1F632}\u{1F62F}\u{1F631}]|헉|깜짝|세상에|어머나/u, "surprised", "perk"],
+  [/[\u{1F606}\u{1F602}\u{1F923}\u{1F639}]|히히|헤헤|키키|킥킥|ㅋㅋ|ㅎㅎ/u, "giggle", "giggleshake"],
+  [/[\u{2764}\u{1F495}\u{1F496}\u{1F970}\u{1F60D}]|사랑해|좋아해/u, "love", "heartbeat"],
+  [/[\u{1F633}\u{1F648}]|부끄|쑥스/u, "shy", "shrink"],
+  [/[\u{1F634}\u{1F4A4}\u{1F971}]|졸려|하암|잘 ?자|굿나잇/u, "drowsy", "melt"],
+  [/[\u{1F389}\u{1F973}\u{1F929}]|신나|대박|야호|우와|와아/u, "excited", "bounce"],
+  [/[\u{1F4AA}\u{1F60E}]|짜잔|해냈|성공/u, "proud", "flex"],
+  [/[\u{1F914}]|궁금|글쎄|뭘까/u, "curious", "leanin"],
+  [/미안|어쩌지/u, "sorry", "lookdown"],
+  [/[\u{1F61E}\u{1F614}\u{1F61F}]|속상|아쉽|슬퍼/u, "sad", "droop"],
+  [/[\u{1F60B}]|맛있|냠냠/u, "yum", "bobbing"],
+  [/[\u{1F976}]|추워|춥다/u, "chilly", "shiverbig"],
+  [/[\u{1F975}]|더워|덥다/u, "overheated", "pant"]];
+/** The face and the motion 퍼레's words call for, [face, motion]; null when they call for none. */
+function feelOf(text) { const t = String(text || ""); for (const [re, face, motion] of FEEL_OF) if (re.test(t)) return [face, motion]; return null; }
+/** How long a motion of 퍼레's lasts (its MOTIONS entry). */
+function motionMs(m) { const x = typeof MOTIONS === "undefined" ? null : MOTIONS.find(y => y[0] === m); return x ? x[1] : 1200; }
+/** Whether 퍼레 is free to move: not playing on its own, napping or asleep. */
+function freeToMove(b) { const buddy = $(b, ".buddy"); return !(b._inPlay && b._inPlay()) && !buddy.classList.contains("nap") && !buddy.classList.contains("asleep"); }
+/** The line the AI wrote, typed into the bubble as it is said (the mouth moves while it types); the face its words call for, its motion as the last letter is typed. */
 function thought(said) {
   window._soloAsk = 0; window._answerAsk = 0;
   // A question comes with its choices on a second line ("고르기: 응 / 아니 / 글쎄").
@@ -563,13 +589,17 @@ function thought(said) {
   boards.forEach(b => {
     b._spoke = Date.now();
     const bubble = $(b, ".bubble"), svg = $(b, ".bot"); b._spoken = true;
-    if (b._mood) b._mood(""); if (b._feel) b._feel("happy", 1600);
+    let i = 0; const chars = Array.from(line), feel = feelOf(line);
+    if (b._mood) b._mood(""); if (b._feel) b._feel(feel ? feel[0] : "happy", Math.max(1600, chars.length * 38 + 1200));
     bubble.textContent = ""; bubble.classList.remove("sfx", "asking"); bubble.classList.add("on"); if (svg) svg.classList.add("talking");
-    let i = 0; const chars = Array.from(line);
     clearInterval(b._typing);
     b._typing = setInterval(() => {
       i++; bubble.textContent = chars.slice(0, i).join(""); fitBubble(bubble);
-      if (i >= chars.length) { clearInterval(b._typing); if (svg) svg.classList.remove("talking"); clearTimeout(b._bubble); if (picks.length) offer(b, line, picks); else b._bubble = setTimeout(() => bubble.classList.remove("on"), 6500); }
+      if (i >= chars.length) {
+        clearInterval(b._typing); if (svg) svg.classList.remove("talking"); clearTimeout(b._bubble);
+        if (feel && feel[1] && freeToMove(b)) move(b, feel[1], motionMs(feel[1]));
+        if (picks.length) offer(b, line, picks); else b._bubble = setTimeout(() => bubble.classList.remove("on"), 6500);
+      }
     }, 38);
   });
 }
@@ -626,9 +656,11 @@ function fitBubble(bubble) {
   const shift = left < 8 ? 8 - left : right > vw - 8 ? Math.max(8 - left, vw - 8 - right) : 0;
   if (shift) bubble.style.translate = Math.round(shift) + "px 0";
 }
-/** The bubble over the friend: words, and what a tap on it opens (if anything). */
+/** The bubble over the friend: words, and what a tap on it opens (if anything); the face its words call for (feelOf), unless it was given one. */
 function speak(b, line, ms) {
   b._spoke = Date.now();
+  const feel = line.sfx || line.go || line.feel ? null : feelOf(line.text);
+  if (feel) { if (b._feel) b._feel(feel[0], Math.min(ms || 6500, 2600)); if (feel[1] && freeToMove(b)) move(b, feel[1], motionMs(feel[1])); }
   const bubble = $(b, ".bubble");
   bubble.textContent = line.text; bubble.dataset.go = line.go || "";
   if (line.go) { const more = document.createElement("b"); more.className = "more"; more.textContent = " ›"; bubble.appendChild(more); }
@@ -1165,7 +1197,10 @@ function boardVoiceState(state, text, ms, go) {
     } else if (state === "thinking") {
       voiceOn = true; thinking(b); clearTimeout(b._bubble);
     } else if (state === "speaking") {
-      voiceOn = true; if (b._mood) b._mood(""); if (b._feel) b._feel("happy", 1800);
+      // Each sentence with the face its words call for (feelOf), its motion as its sound starts.
+      const feel = feelOf(text);
+      voiceOn = true; if (b._mood) b._mood(""); if (b._feel) b._feel(feel ? feel[0] : "happy", Math.max(1800, ms || 0));
+      if (feel && feel[1] && freeToMove(b)) move(b, feel[1], motionMs(feel[1]));
       b._go = go || ""; bubble.dataset.go = b._go; bubble.classList.toggle("act", !!b._go);
       bubble.textContent = ""; bubble.classList.add("on"); svg.classList.add("talking");
       const chars = Array.from(text || ""); let i = 0; b._saying = text || "";
@@ -1238,6 +1273,7 @@ function roam(b) {
     something of its own about the play and the moment instead (BuddyTalk "solo:"), at most every eight minutes.
   */
   let saidInPlay = 0, saidAt = 0, soloAiAt = 0, inPlay = false;
+  b._inPlay = () => inPlay; // its words' motions wait while it plays (freeToMove)
   const quietNow = () => $(b, ".bubble").classList.contains("on") || (b._env && b._env.dnd) || lockedNow || document.hidden || voiceOn || b._careOn;
   const blurt = (moment, ms) => {
     if (quietNow() || saidInPlay >= 2 || Date.now() - saidAt < 2200) return false;

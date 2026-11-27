@@ -156,7 +156,7 @@ final class BuddyTalk {
     /** What the user said may need private memories, there are some, and the fingerprint has not passed lately. */
     static boolean needsUnlock(Context c, String said) {
         if (unlocked() || !dev.jun.gyeot.core.BuddyMind.asksPersonal(said)) return false;
-        for (dev.jun.gyeot.core.BuddyMemory.Entry e : memories(c)) if (e.secret()) return true;
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : memoryView(c)) if (e.secret()) return true;
         return false;
     }
 
@@ -313,7 +313,7 @@ final class BuddyTalk {
         + "{\"tool\":\"email\",\"who\":\"이름\",\"subject\":\"제목\",\"text\":\"내용\"} · {\"tool\":\"translate\",\"text\":\"번역할 글\",\"to\":\"en\"} · {\"tool\":\"coin\"} · {\"tool\":\"dice\",\"count\":1} · {\"tool\":\"pick\",\"options\":[\"짜장면\",\"짬뽕\"]} · "
         + "{\"tool\":\"world_time\",\"place\":\"뉴욕\"} · {\"tool\":\"count_days\",\"date\":\"2026-12-25\",\"label\":\"크리스마스\"}(며칠 뒤가 언제냐면 \"add_days\":100). "
         + "동전·주사위·골라 주기·계산·다른 나라 시각·날짜 세기는 답을 지어내지 말고 할일 줄을 써(답은 그 할일이 말해 주니 첫 줄은 '던져 볼게!'처럼 짧게). 알람·타이머의 첫 줄은 '알겠어!'만(시각·길이는 할일이 다시 말해 줘). "
-        + "사용자가 기억해 달라, 잊어 달라, 호칭을 바꿔 달라, 조용히 있어 달라고 하면: {\"tool\":\"remember\",\"fact\":\"사용자는 차를 지하 2층에 세웠대\"} · {\"tool\":\"forget\",\"what\":\"고양이\"} · {\"tool\":\"call_me\",\"title\":\"주인공님\"} · {\"tool\":\"quiet\",\"hours\":2}(다시 말 걸어도 되면 0). "
+        + "사용자가 기억해 달라, 잊어 달라, 호칭을 바꿔 달라, 조용히 있어 달라고 하면: {\"tool\":\"remember\",\"fact\":\"사용자는 차를 지하 2층에 세웠대\"}(털어놓은 고민 같은 건 \"private\":true) · {\"tool\":\"forget\",\"what\":\"고양이\"}('그건 틀렸어 지워'도, 방금 잊은 걸 되돌리면 \"undo\":true) · {\"tool\":\"call_me\",\"title\":\"주인공님\"} · {\"tool\":\"quiet\",\"hours\":2}(다시 말 걸어도 되면 0). "
         + "너(퍼레) 자신에게 하는 부탁도 직접 해: {\"tool\":\"buddy_toy\",\"toy\":\"주사위\"}(" + BuddyBoard.sample(BuddyBoard.TOYS, 14) + ") · "
         + "{\"tool\":\"buddy_outfit\",\"items\":[\"고양이 귀\"]}(" + BuddyBoard.sample(BuddyBoard.CLOTHES, 16) + ") · "
         + "{\"tool\":\"buddy_move\",\"play\":\"춤\"}(" + BuddyBoard.sample(BuddyBoard.PLAYS, 16) + ") · "
@@ -362,8 +362,10 @@ final class BuddyTalk {
         java.util.Map.entry("pickone", "pick"), java.util.Map.entry("choose", "pick"), java.util.Map.entry("decide", "pick"), java.util.Map.entry("choice", "pick"), java.util.Map.entry("골라", "pick"),
         java.util.Map.entry("worldtime", "world_time"), java.util.Map.entry("worldclock", "world_time"), java.util.Map.entry("timezone", "world_time"), java.util.Map.entry("timein", "world_time"),
         java.util.Map.entry("countdays", "count_days"), java.util.Map.entry("dday", "count_days"), java.util.Map.entry("daysuntil", "count_days"), java.util.Map.entry("days", "count_days"),
-        java.util.Map.entry("memorize", "remember"), java.util.Map.entry("keep", "remember"), java.util.Map.entry("기억", "remember"),
-        java.util.Map.entry("forgetmemory", "forget"), java.util.Map.entry("잊기", "forget"),
+        java.util.Map.entry("memorize", "remember"), java.util.Map.entry("keep", "remember"), java.util.Map.entry("기억", "remember"), java.util.Map.entry("기억해", "remember"),
+        java.util.Map.entry("buddyremember", "remember"), java.util.Map.entry("remembermemory", "remember"),
+        java.util.Map.entry("forgetmemory", "forget"), java.util.Map.entry("잊기", "forget"), java.util.Map.entry("잊어", "forget"), java.util.Map.entry("지워", "forget"), java.util.Map.entry("지우기", "forget"),
+        java.util.Map.entry("buddyforget", "forget"), java.util.Map.entry("unremember", "forget"),
         java.util.Map.entry("callme", "call_me"), java.util.Map.entry("nickname", "call_me"), java.util.Map.entry("settitle", "call_me"), java.util.Map.entry("호칭", "call_me"),
         java.util.Map.entry("hush", "quiet"), java.util.Map.entry("silence", "quiet"), java.util.Map.entry("quietmode", "quiet"), java.util.Map.entry("조용히", "quiet"));
     /** The thing to do the answer names ("할일: {…}", or a bare {…} with a tool), its tool one of ACTS', or null. */
@@ -403,8 +405,8 @@ final class BuddyTalk {
             if (known.equals("pick") && !a.has("options")) { Object o = a.opt("choices") != null ? a.opt("choices") : a.opt("items") != null ? a.opt("items") : a.opt("list"); if (o != null) a.put("options", o); }
             if (known.equals("world_time") && a.optString("place").isBlank()) a.put("place", a.optString("city", a.optString("country", a.optString("location", a.optString("where")))));
             if (known.equals("count_days") && a.optString("date").isBlank()) a.put("date", a.optString("day", a.optString("target", a.optString("when"))));
-            if (known.equals("remember") && a.optString("fact").isBlank()) a.put("fact", a.optString("text", a.optString("what", a.optString("thing", a.optString("content")))));
-            if (known.equals("forget") && a.optString("what").isBlank()) a.put("what", a.optString("text", a.optString("fact", a.optString("thing", a.optString("query")))));
+            if (known.equals("remember") && a.optString("fact").isBlank()) a.put("fact", a.optString("text", a.optString("what", a.optString("thing", a.optString("content", a.optString("memory"))))));
+            if (known.equals("forget") && a.optString("what").isBlank()) a.put("what", a.optString("about", a.optString("text", a.optString("fact", a.optString("thing", a.optString("query", a.optString("subject")))))));
             if (known.equals("call_me") && a.optString("title").isBlank()) a.put("title", a.optString("name", a.optString("nickname", a.optString("call"))));
             if (known.equals("contacts") && a.optString("who").isBlank() && !a.optString("name").isBlank()) a.put("who", a.optString("name"));
         } catch (Exception ignored) {}
@@ -735,23 +737,32 @@ final class BuddyTalk {
         if (all.isEmpty()) return "";
         boolean open = forSpeech && unlocked();
         StringBuilder out = new StringBuilder(); long now = System.currentTimeMillis(); java.time.ZoneId zone = java.time.ZoneId.systemDefault();
-        java.util.List<String> profile = new java.util.ArrayList<>(), promises = new java.util.ArrayList<>();
-        for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) {
-            if (e.secret() && !open) continue;
-            if ("profile".equals(e.kind())) { if (aboutUser) profile.add(e.text()); } else if ("promise".equals(e.kind()) && now - e.at() < 7 * 86_400_000L) promises.add(e.text());
-        }
-        if (!profile.isEmpty()) out.append("너의 발견 노트(사용자에 대해 알게 된 것):\n- ").append(String.join("\n- ", profile)).append('\n');
-        if (!promises.isEmpty()) out.append("너와 사용자의 약속:\n- ").append(String.join("\n- ", promises)).append('\n');
         SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         java.util.Map<Long, Long> shown = new java.util.HashMap<>();
         try { JSONObject o = new JSONObject(p.getString("shown", "{}")); for (java.util.Iterator<String> k = o.keys(); k.hasNext();) { String key = k.next(); shown.put(Long.parseLong(key), o.optLong(key)); } } catch (Exception ignored) {}
+        java.util.List<String> profile = new java.util.ArrayList<>(), promises = new java.util.ArrayList<>();
+        java.util.List<Long> broughtUp = new java.util.ArrayList<>();
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) {
+            if (e.secret() && !open) continue;
+            if ("profile".equals(e.kind())) { if (aboutUser) profile.add(e.text()); continue; }
+            // A promise not yet kept, of the last week; in 퍼레's own lines once a day at most (else it was in every one).
+            if (!"promise".equals(e.kind()) || e.done() || now - e.at() >= 7 * 86_400_000L) continue;
+            Long last = shown.get(e.at());
+            if (!forSpeech && last != null && now - last < 24 * 3_600_000L) continue;
+            promises.add(e.text()); broughtUp.add(e.at());
+        }
+        if (!profile.isEmpty()) out.append("너의 발견 노트(사용자에 대해 알게 된 것):\n- ").append(String.join("\n- ", profile)).append('\n');
+        if (!promises.isEmpty()) out.append("너와 사용자의 약속:\n- ").append(String.join("\n- ", promises)).append('\n');
         java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> picked = !aboutUser ? java.util.List.of() : dev.jun.gyeot.core.BuddyMind.recall(all, context, now, forSpeech ? new java.util.HashMap<>() : shown, open, forSpeech ? 6 : 3);
         if (!picked.isEmpty()) {
             out.append("너의 추억(지금 떠오르는 것):\n");
+            for (dev.jun.gyeot.core.BuddyMemory.Entry e : picked) { out.append("- ").append(dev.jun.gyeot.core.BuddyMemory.when(e.at(), now, zone)).append(": ").append(e.text()).append('\n'); broughtUp.add(e.at()); }
+        }
+        if (!forSpeech && !broughtUp.isEmpty()) {
             JSONObject o = new JSONObject();
             for (java.util.Map.Entry<Long, Long> en : shown.entrySet()) if (now - en.getValue() < 3 * 86_400_000L) try { o.put(String.valueOf(en.getKey()), en.getValue()); } catch (Exception ignored) {}
-            for (dev.jun.gyeot.core.BuddyMemory.Entry e : picked) { out.append("- ").append(dev.jun.gyeot.core.BuddyMemory.when(e.at(), now, zone)).append(": ").append(e.text()).append('\n'); try { o.put(String.valueOf(e.at()), now); } catch (Exception ignored) {} }
-            if (!forSpeech) p.edit().putString("shown", o.toString()).apply();
+            for (long at : broughtUp) try { o.put(String.valueOf(at), now); } catch (Exception ignored) {}
+            p.edit().putString("shown", o.toString()).apply();
         }
         return out.toString();
     }
@@ -810,7 +821,7 @@ final class BuddyTalk {
         dev.jun.gyeot.core.BuddyLife.State s = dev.jun.gyeot.core.BuddyLife.read(p.getString(LIFE, ""), now);
         p.edit().putString(LIFE, dev.jun.gyeot.core.BuddyLife.save(s)).apply();
         JSONObject out = dev.jun.gyeot.core.BuddyLife.json(s, now);
-        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> m = memories(c);
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> m = memoryView(c); // what is kept in memory, the file read only when it changed
         try { out.put("memories", m.size()); if (!m.isEmpty()) out.put("lastMemory", m.get(m.size() - 1).text()); } catch (Exception ignored) {}
         return out;
     }
@@ -826,12 +837,21 @@ final class BuddyTalk {
         try { out.put("felt", d.felt()); } catch (Exception ignored) {}
         return out;
     }
-    /** The user came home: after hours away it is a memory, and so is being up in the small hours. */
+    /**
+     * The user came home: after hours away it is a memory, and so is being up in the small hours; counted a week to a line
+     * (BuddyMemory.tally), so the routine never pushes out what the user told.
+     */
     private static void back(Context c, long now) {
         long since = c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).getLong("awaySince", 0);
-        if (since > 0 && now - since >= 8 * 3_600_000L) remember(c, "away", (now - since) / 3_600_000L + "시간 만에 사용자가 돌아왔어. 기다렸어", 0);
-        int h = java.time.LocalTime.now().getHour();
-        if (h >= 1 && h < 5) remember(c, "late", "새벽 " + h + "시에도 사용자가 깨어 있었어", 6 * 3_600_000L);
+        long hours = (now - since) / 3_600_000L;
+        if (since > 0 && now - since >= 8 * 3_600_000L) tally(c, now, "away", false, n -> n == 1 ? hours + "시간 만에 사용자가 돌아왔어. 기다렸어" : "한 주 동안 사용자가 오래 비웠다 돌아온 게 " + n + "번이었어. 기다렸어");
+        int h = java.time.Instant.ofEpochMilli(now).atZone(java.time.ZoneId.systemDefault()).getHour();
+        if (h >= 1 && h < 5) tally(c, now, "late", true, n -> n == 1 ? "새벽 " + h + "시에도 사용자가 깨어 있었어" : "한 주 동안 새벽까지 사용자가 깨어 있던 날이 " + n + "번이었어");
+    }
+    /** A routine moment counted in its week's line (BuddyMemory.tally), written only when it changed. */
+    static synchronized void tally(Context c, long now, String kind, boolean oncePerDay, java.util.function.IntFunction<String> line) {
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> was = memoryView(c), after = dev.jun.gyeot.core.BuddyMemory.tally(was, now, java.time.ZoneId.systemDefault(), kind, oncePerDay, line);
+        if (after != was) keepMemories(c, after);
     }
 
     // ── 퍼레's own memory (core/BuddyMemory), in the app's files apart from the assistant's memory ──
@@ -874,6 +894,7 @@ final class BuddyTalk {
         + "지움 N(사용자가 N번이 아니라고 했을 때)\n"
         + "같음 N(사용자가 N번을 또 말했을 때)\n"
         + "약속: 퍼레가 …(퍼레가 사용자에게 해 주기로 한 것이 있을 때만)\n"
+        + "약속 끝 N(퍼레가 N번 약속을 지켰거나 더 필요 없어졌을 때)\n"
         + "'앞의 대화'는 이미 배운 거라 참고만 하고, '대화'와 '한 일'에서만 배워. '한 일'은 취향이 드러날 때만(즐겨 듣는 가수, 자주 찾는 곳) 배워.\n"
         + "비밀번호·로그인·계정, 사이트나 앱의 권한 요청, 사용자가 털어놓은 고민·걱정처럼 남이 알면 곤란한 이야기면 그 줄 앞에 '민감 '을 붙여. 병원·건강·연애·가족 같은 일상 이야기는 민감하지 않아. "
         + "일·작업·돈 이야기는 배우지 마. 인사·잡담·질문·부탁·명령·앱 사용법·날씨·지금 잠깐의 일뿐이면 '없음'이라고만 써. 비밀번호·주소·전화번호·계좌 같은 번호나 값 자체는 절대 쓰지 마.";
@@ -897,14 +918,54 @@ final class BuddyTalk {
                 text -> learned(c, related, text, words), why -> {});
         }, "gyeot-buddy-learn").start();
     }
-    /** A talk's lessons (the learning brain's text) applied to what 퍼레 knows, all at once. */
+    /** A talk's lessons (the learning brain's text) applied to what 퍼레 knows, all at once; none on a subject let go ("잊어 줘"). */
     static void learned(Context c, java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> shown, String text, String talk) {
         java.util.List<dev.jun.gyeot.core.BuddyMind.Op> ops = dev.jun.gyeot.core.BuddyMind.parseOps(text);
         if (ops.isEmpty()) return;
         synchronized (BuddyTalk.class) {
-            java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> now = memories(c), after = dev.jun.gyeot.core.BuddyMind.learned(now, shown, ops, talk, System.currentTimeMillis(), unlocked());
+            long t = System.currentTimeMillis();
+            java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> now = memories(c), after = dev.jun.gyeot.core.BuddyMind.learned(now, shown, ops, talk, t, unlocked(), forgot(c));
             if (!after.equals(now)) keepMemories(c, after);
         }
+    }
+    // ── subjects the user asked 퍼레 to let go ("커피 얘기 잊어 줘"): not learned again by itself for ninety days ──
+    private static final String FORGOT = "forgot";
+    /** The subjects let go, each with when it may be learned again (subject → until); over ones left out. */
+    static synchronized java.util.Map<String, Long> forgot(Context c) {
+        java.util.Map<String, Long> out = new java.util.HashMap<>(); long now = System.currentTimeMillis();
+        try { JSONObject o = new JSONObject(c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(FORGOT, "{}")); for (java.util.Iterator<String> k = o.keys(); k.hasNext();) { String key = k.next(); long until = o.optLong(key); if (until > now) out.put(key, until); } }
+        catch (Exception unreadable) { out.clear(); }
+        return out;
+    }
+    /** These subjects let go from now (ninety days); at most forty kept, the ones over soonest leave first. */
+    static synchronized void forgot(Context c, java.util.Collection<String> subjects) {
+        java.util.Map<String, Long> all = forgot(c); long until = System.currentTimeMillis() + dev.jun.gyeot.core.BuddyMind.FORGOT_MS;
+        for (String s : subjects) if (s != null && !s.isBlank()) all.put(s.strip(), until);
+        keepForgot(c, all);
+    }
+    /** The subjects of this line taken back (the user asked to keep it after all: "기억해 둬", "되돌려 줘"). */
+    static synchronized void unforgot(Context c, String text) {
+        java.util.Map<String, Long> all = forgot(c); if (all.isEmpty()) return;
+        java.util.Map<String, Long> kept = new java.util.HashMap<>();
+        for (java.util.Map.Entry<String, Long> f : all.entrySet()) if (!dev.jun.gyeot.core.BuddyMind.forgotten(text, java.util.Map.of(f.getKey(), f.getValue()), System.currentTimeMillis())) kept.put(f.getKey(), f.getValue());
+        if (kept.size() != all.size()) keepForgot(c, kept);
+    }
+    private static void keepForgot(Context c, java.util.Map<String, Long> all) {
+        java.util.List<java.util.Map.Entry<String, Long>> list = new java.util.ArrayList<>(all.entrySet());
+        list.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
+        JSONObject o = new JSONObject();
+        for (java.util.Map.Entry<String, Long> f : list.subList(0, Math.min(40, list.size()))) try { o.put(f.getKey(), f.getValue()); } catch (Exception ignored) {}
+        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(FORGOT, o.toString()).apply();
+    }
+    /**
+     * Memories let go a moment ago, back where they were (by when they were first kept); ones still there stay once, each
+     * known by all it holds (two kept in the same millisecond are not mistaken for each other).
+     */
+    static synchronized void restore(Context c, java.util.Collection<dev.jun.gyeot.core.BuddyMemory.Entry> back) {
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = memories(c);
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : back) if (!all.contains(e)) all.add(e);
+        all.sort(java.util.Comparator.comparingLong(dev.jun.gyeot.core.BuddyMemory.Entry::at));
+        keepMemories(c, all);
     }
     /**
      * When the user may be correcting what 퍼레 knew ("아니 나 커피 끊었어", BuddyMind.correcting) and it knows something the
@@ -917,69 +978,130 @@ final class BuddyTalk {
         return "- 사용자가 네가 알던 걸 고쳐 줬어(예전: ‘" + known.get(0).text() + "’). 짧게 받아들이고 새 사실로 답해. 사과를 길게 하지 마.\n";
     }
     private static java.io.File memoryFile(Context c) { return new java.io.File(new java.io.File(c.getFilesDir(), "buddy"), "memory.json"); }
-    static synchronized java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> memories(Context c) {
+    /*
+     * The memories as last read or written, with the file's size and time then (CLAUDE.md: 한 번 읽은 파일은 다시 읽지 않는다):
+     * a thought, an answer and every board build each asked for them several times and read the file every time.
+     */
+    private static java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> memoryCache;
+    private static String memoryPath = "";
+    private static long memoryLength = -2, memoryModified = -2;
+    /** How many times memory.json was read (tests). */
+    static int memoryReads;
+    private static void cacheMemories(java.io.File f, java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> list) {
+        memoryCache = java.util.List.copyOf(list); memoryPath = f.getPath();
+        memoryLength = f.isFile() ? f.length() : -1; memoryModified = f.isFile() ? f.lastModified() : -1;
+    }
+    /** The memories as kept now, not to be changed (the file read only when it changed); BuddyTalk.class held. */
+    private static synchronized java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> memoryView(Context c) {
+        java.io.File f = memoryFile(c);
+        long length = f.isFile() ? f.length() : -1, modified = f.isFile() ? f.lastModified() : -1;
+        if (memoryCache != null && f.getPath().equals(memoryPath) && length == memoryLength && modified == memoryModified) return memoryCache;
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> read = readMemories(c, f);
+        return read == null ? java.util.List.of() : memoryCache;
+    }
+    /** The memories, a list of the caller's own to change. Off the main thread (the first time reads a file). */
+    static synchronized java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> memories(Context c) { return new java.util.ArrayList<>(memoryView(c)); }
+    /** How many memories 퍼레 has, and the newest, for the board (from what is kept in memory). */
+    static synchronized int memoryCount(Context c) { return memoryView(c).size(); }
+    private static java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> readMemories(Context c, java.io.File f) {
         // The storage memories of 0.4.560 are left out (준: "자꾸 파일 정리하라는 엉뚱한 이야기를 하는데"): 퍼레 does not talk about storage.
         // Only what is worth remembering; the routine records of 0.4.559–0.4.567 (apps opened, charging, play …) are left out.
         try {
-            java.io.File f = memoryFile(c); java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = dev.jun.gyeot.core.BuddyMemory.read(f.isFile() ? java.nio.file.Files.readString(f.toPath()) : "[]"); all.removeIf(m -> !KEPT.contains(m.kind()));
+            memoryReads++;
+            java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = dev.jun.gyeot.core.BuddyMemory.read(f.isFile() ? java.nio.file.Files.readString(f.toPath()) : "[]"); all.removeIf(m -> !KEPT.contains(m.kind()));
             // Kept private before 0.4.572 for health, love or family (준: "병원에 간대요 정도는 민감한 기억이 아닌 듯"): open again,
             // unless it is a password, an access or a worry; once.
             SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             if (p.getInt("secretRules", 1) < 2) {
                 java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> open = new java.util.ArrayList<>();
-                for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) open.add(e.secret() && !dev.jun.gyeot.core.BuddyMind.secret(e.text()) ? new dev.jun.gyeot.core.BuddyMemory.Entry(e.at(), e.kind(), e.text(), e.weight(), false, e.seen(), e.last()) : e);
+                for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) open.add(e.secret() && !dev.jun.gyeot.core.BuddyMind.secret(e.text()) ? new dev.jun.gyeot.core.BuddyMemory.Entry(e.at(), e.kind(), e.text(), e.weight(), false, e.seen(), e.last(), e.done()) : e);
                 if (f.isFile()) keepMemories(c, open);
                 p.edit().putInt("secretRules", 2).apply();
                 all = open;
             }
+            cacheMemories(f, all);
             return all;
         }
-        catch (Exception unreadable) { return new java.util.ArrayList<>(); }
+        catch (Exception unreadable) { memoryCache = null; return null; }
     }
     private static synchronized void keepMemories(Context c, java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> list) {
-        try { java.io.File f = memoryFile(c); f.getParentFile().mkdirs(); java.io.File tmp = new java.io.File(f.getPath() + ".tmp"); java.nio.file.Files.writeString(tmp.toPath(), dev.jun.gyeot.core.BuddyMemory.save(list)); if (!tmp.renameTo(f)) java.nio.file.Files.writeString(f.toPath(), dev.jun.gyeot.core.BuddyMemory.save(list)); }
-        catch (Exception ignored) {}
-    }
-    /** A memory of 퍼레's, unless one of the same kind was kept within quiet ms. */
-    static synchronized void remember(Context c, String kind, String text, long quiet) {
-        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> now = memories(c), after = dev.jun.gyeot.core.BuddyMemory.add(now, System.currentTimeMillis(), kind, text, quiet);
-        if (after != now) keepMemories(c, after);
+        java.io.File f = memoryFile(c);
+        try { f.getParentFile().mkdirs(); java.io.File tmp = new java.io.File(f.getPath() + ".tmp"); java.nio.file.Files.writeString(tmp.toPath(), dev.jun.gyeot.core.BuddyMemory.save(list)); if (!tmp.renameTo(f)) java.nio.file.Files.writeString(f.toPath(), dev.jun.gyeot.core.BuddyMemory.save(list)); cacheMemories(f, list); }
+        catch (Exception ignored) { memoryCache = null; }
     }
     /** A memory told in a talk: it matters more (weight 2), private when it is. */
-    static synchronized void rememberStrong(Context c, String kind, String text, boolean secret) {
-        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> now = memories(c), after = dev.jun.gyeot.core.BuddyMemory.add(now, System.currentTimeMillis(), kind, text, 0, 2, secret);
+    static synchronized void rememberStrong(Context c, String kind, String text, boolean secret) { rememberStrong(c, kind, text, secret, 2); }
+    /** The same, as much as it matters (3: the user asked for it to be kept, "기억해 둬"). */
+    static synchronized void rememberStrong(Context c, String kind, String text, boolean secret, int weight) {
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> now = memories(c), after = dev.jun.gyeot.core.BuddyMemory.add(now, System.currentTimeMillis(), kind, text, 0, weight, secret);
         if (after != now) keepMemories(c, after);
     }
     /**
-     * The night's digest (꿈꾸기): once a day, in the small hours or while charging after nine at night, the quick brain reads the
-     * day and the latest memories and writes what 퍼레 knows about the user (its 발견 노트, at most twelve lines, merged and
-     * corrected) and the day as one memory. Off the main thread.
+     * The night's digest (꿈꾸기): once a day, in the small hours, while charging after nine at night, or as the home screen is
+     * left after ten (tonight), the quick brain reads the day, the latest memories and what the user told again and again
+     * (whatever its age), and writes what 퍼레 knows about the user (its 발견 노트) and the day as one memory. What it writes is
+     * merged into the note (BuddyMind.mergeProfile: kept unless taken out with 빼기, a guess matters least, twelve lines at
+     * most), nothing on a subject the user let go. The day counts as done only once it answered; a failure is tried again
+     * two hours on. Off the main thread.
      */
-    static void dream(Context c, boolean charging) {
+    static void dream(Context c, boolean charging) { dream(c, charging, false, java.time.ZonedDateTime.now()); }
+    static void dream(Context c, boolean charging, boolean tonight, java.time.ZonedDateTime at) {
         SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        int h = java.time.LocalTime.now().getHour(); String date = java.time.LocalDate.now().toString();
-        if (date.equals(p.getString("dreamt", "")) || !(h >= 2 && h < 6 || charging && h >= 21)) return;
-        AppStore store = ((GyeotApp) c.getApplicationContext()).store();
-        boolean nim = store.nim.connected(), groq = GroqWork.on(); if (!nim && !groq) return;
-        p.edit().putString("dreamt", date).apply();
-        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = memories(c); long now = System.currentTimeMillis(); java.time.ZoneId zone = java.time.ZoneId.systemDefault();
-        StringBuilder in = new StringBuilder(todayWords(c)).append("지금까지의 발견 노트:\n");
-        for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) if ("profile".equals(e.kind()) && !e.secret()) in.append("- ").append(e.text()).append('\n');
-        in.append("최근 기억(2주):\n");
-        for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) if (!"profile".equals(e.kind()) && !e.secret() && now - e.at() < 14 * 86_400_000L) in.append("- ").append(dev.jun.gyeot.core.BuddyMemory.when(e.at(), now, zone)).append(": ").append(e.text()).append('\n');
+        int h = at.getHour(); String date = at.toLocalDate().toString(); long now = at.toInstant().toEpochMilli();
+        if (date.equals(p.getString("dreamt", "")) || !(h >= 2 && h < 6 || charging && h >= 21 || tonight && h >= 22)) return;
+        if (Math.abs(now - p.getLong("dreamTry", 0)) < 2 * 3_600_000L) return;
         String instructions = "너는 AI 친구 퍼레의 기억을 밤에 정리하는 역할이야. 아래를 읽고 다음 형식으로만 써.\n"
-            + "프로필: (사용자에 대해 지금 알고 있는 사실 하나. 여러 줄 가능, 최대 12줄. 겹치는 건 합치고, 오래돼 틀린 건 빼고, 추측이면 끝에 '(추측)'.)\n"
+            + "프로필: (사용자에 대해 지금 알고 있는 사실 하나. 여러 줄 가능, 최대 12줄. 지금까지의 노트에 있는 건 그대로 둬도 되고, 겹치는 건 합치고, 추측이면 끝에 '(추측)'.)\n"
+            + "빼기: (지금까지의 노트에서 틀렸거나 오래돼 맞지 않는 줄을 그대로. 없으면 쓰지 마.)\n"
             + "추억: (오늘 하루를 친구 시점에서 한 줄로. 특별한 게 없으면 '없음')\n"
             + "비밀번호·계정·권한 요청, 털어놓은 고민 같은 민감한 건 쓰지 마. 숫자 계좌·번호는 절대 쓰지 마.";
-        new Thread(() -> quick(c, store, nim, groq, QWEN, instructions, in.toString(), 0.3, 20_000, text -> text == null ? "" : text, text -> {
-            dev.jun.gyeot.core.BuddyMind.Dream d = dev.jun.gyeot.core.BuddyMind.dream(text);
-            synchronized (BuddyTalk.class) {
-                java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> list = memories(c);
-                if (!d.profile().isEmpty()) { list.removeIf(e -> "profile".equals(e.kind()) && !e.secret()); long t = System.currentTimeMillis(); for (String line : d.profile()) list.add(new dev.jun.gyeot.core.BuddyMemory.Entry(t++, "profile", line, 3, false)); }
-                if (!d.episode().isEmpty()) list = dev.jun.gyeot.core.BuddyMemory.add(list, System.currentTimeMillis(), "episode", d.episode(), 12 * 3_600_000L, 2, false);
-                keepMemories(c, list);
-            }
-        }, why -> {}), "gyeot-buddy-dream").start();
+        String input = dreamInput(c, now);
+        if (night.ask(c, instructions, input, text -> {
+            dreamt(c, dev.jun.gyeot.core.BuddyMind.dream(text), now);
+            p.edit().putString("dreamt", date).apply();
+        }, () -> {})) p.edit().putLong("dreamTry", now).apply();
+    }
+    /** How the night's digest asks the brain: false when none is connected (tests put their own). */
+    interface Night { boolean ask(Context c, String instructions, String input, Consumer<String> done, Runnable failed); }
+    static Night night = (c, instructions, input, done, failed) -> {
+        AppStore store = ((GyeotApp) c.getApplicationContext()).store();
+        boolean nim = store.nim.connected(), groq = GroqWork.on(); if (!nim && !groq) return false;
+        new Thread(() -> quick(c, store, nim, groq, QWEN, instructions, input, 0.3, 20_000, text -> text == null ? "" : text, done, why -> failed.run()), "gyeot-buddy-dream").start();
+        return true;
+    };
+    /** What the night's digest reads: the day, the note so far, every fact told twice or more, and the last two weeks; nothing private or let go. */
+    static String dreamInput(Context c, long now) {
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = memories(c); java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+        java.util.Map<String, Long> forgot = forgot(c);
+        StringBuilder in = new StringBuilder(todayWords(c)).append("지금까지의 발견 노트:\n");
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) if ("profile".equals(e.kind()) && !e.secret() && !dev.jun.gyeot.core.BuddyMind.forgotten(e.text(), forgot, now)) in.append("- ").append(e.text()).append('\n');
+        in.append("여러 번 말해 준 것:\n");
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) if ("fact".equals(e.kind()) && e.seen() >= 2 && !e.secret() && !dev.jun.gyeot.core.BuddyMind.forgotten(e.text(), forgot, now)) in.append("- ").append(e.text()).append(" (").append(e.seen()).append("번)\n");
+        in.append("최근 기억(2주):\n");
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) if (!"profile".equals(e.kind()) && !e.secret() && now - e.last() < 14 * 86_400_000L && !(e.done()) && !dev.jun.gyeot.core.BuddyMind.forgotten(e.text(), forgot, now))
+            in.append("- ").append(dev.jun.gyeot.core.BuddyMemory.when(e.at(), now, zone)).append(": ").append(e.text()).append('\n');
+        return in.toString();
+    }
+    /** The night's digest kept: merged into the note (BuddyMind.mergeProfile), the day as one memory unless it is on a subject let go. */
+    static void dreamt(Context c, dev.jun.gyeot.core.BuddyMind.Dream d, long now) {
+        synchronized (BuddyTalk.class) {
+            java.util.Map<String, Long> forgot = forgot(c);
+            java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> was = memories(c), list = dev.jun.gyeot.core.BuddyMind.mergeProfile(was, d, now, forgot);
+            if (!d.episode().isEmpty() && !dev.jun.gyeot.core.BuddyMind.forgotten(d.episode(), forgot, now)) list = dev.jun.gyeot.core.BuddyMemory.add(list, now, "episode", d.episode(), 12 * 3_600_000L, 2, false);
+            if (!list.equals(was)) keepMemories(c, list);
+        }
+    }
+    /** As the home screen is left late in the evening: the night's digest now, if it has not been done today (BuddyTalk.dream). */
+    static void dreamTonight(Context c) { dream(c, false, true, java.time.ZonedDateTime.now()); }
+    /** The memory kept at at told once more (BuddyMemory.confirm). */
+    static synchronized void confirm(Context c, long at) {
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> now = memories(c), after = dev.jun.gyeot.core.BuddyMemory.confirm(now, at, System.currentTimeMillis());
+        if (after != now) keepMemories(c, after);
+    }
+    /** The memory kept at at said anew, as the user set it right (BuddyMemory.replace). */
+    static synchronized void replace(Context c, long at, String text, boolean secret, int weight) {
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> now = memories(c), after = dev.jun.gyeot.core.BuddyMemory.replace(now, at, text, System.currentTimeMillis(), secret, weight);
+        if (after != now) keepMemories(c, after);
     }
     static synchronized void forget(Context c, long at) { keepMemories(c, dev.jun.gyeot.core.BuddyMemory.remove(memories(c), at)); }
     static synchronized void forgetAll(Context c) { keepMemories(c, new java.util.ArrayList<>()); }
@@ -987,13 +1109,17 @@ final class BuddyTalk {
     static synchronized void forget(Context c, java.util.Collection<dev.jun.gyeot.core.BuddyMemory.Entry> gone) {
         java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = memories(c); all.removeAll(gone); keepMemories(c, all);
     }
-    /** The weather, when it is worth remembering (rain, snow, very cold or hot), once a half day. */
-    static void weatherMemory(Context c, JSONObject w) {
+    /**
+     * The weather, when it is worth remembering (snow, very cold or hot): once a day, a week to a line (BuddyMemory.tally);
+     * every board build asks, and only a new day writes.
+     */
+    static void weatherMemory(Context c, JSONObject w) { weatherMemory(c, w, System.currentTimeMillis()); }
+    static void weatherMemory(Context c, JSONObject w, long now) {
         if (w == null) return;
         int code = w.optInt("code", -1), t = w.optInt("temp", 15); String place = w.optString("place").isBlank() ? "" : w.optString("place") + "에 ";
-        if ((code >= 71 && code <= 77) || code == 85 || code == 86) remember(c, "snow", place + "눈이 내렸어", 12 * 3_600_000L);
-        if (t <= -5) remember(c, "cold", "영하로 꽁꽁 추운 날이라 목도리를 했어", 12 * 3_600_000L);
-        else if (t >= 33) remember(c, "hot", "푹푹 찌게 더운 날이었어", 12 * 3_600_000L);
+        if ((code >= 71 && code <= 77) || code == 85 || code == 86) tally(c, now, "snow", true, n -> n == 1 ? place + "눈이 내렸어" : "한 주 동안 눈 온 날이 " + n + "번이었어");
+        if (t <= -5) tally(c, now, "cold", true, n -> n == 1 ? "영하로 꽁꽁 추운 날이라 목도리를 했어" : "한 주 동안 영하로 꽁꽁 추운 날이 " + n + "번이었어");
+        else if (t >= 33) tally(c, now, "hot", true, n -> n == 1 ? "푹푹 찌게 더운 날이었어" : "한 주 동안 푹푹 찌게 더운 날이 " + n + "번이었어");
     }
     /** An app the user opened from the home screen, once in six hours each. */
     /**

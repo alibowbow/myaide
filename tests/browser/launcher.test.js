@@ -198,6 +198,44 @@ async function open(browser, at, bridge) {
     await p.evaluate(() => launcher.voice('listening', '')); await p.evaluate(() => launcher.voice('idle', ''));
     assert.deepStrictEqual(day.errors, []);
   });
+  // 준: "퍼레의 사용자 상호작용" — the face from the words themselves (board.js feelOf), not the same happy face for every line;
+  // its motion once the words are out, never while it plays on its own.
+  await check('퍼레\'s face follows its words: teary for ㅠㅠ, surprised for 헉, a giggle as it says 히히', async () => {
+    const p = day.page, has = c => p.evaluate(c => document.querySelector('.bot').classList.contains(c), c);
+    const moving = c => p.evaluate(c => document.querySelector('.buddy').classList.contains(c), c);
+    await p.evaluate(() => launcher.thought('흐잉… 우산이 젖었어 ㅠㅠ'));
+    await p.clock.runFor(300);
+    assert(await has('teary'), 'teary for ㅠㅠ');
+    await p.clock.runFor(800);
+    assert(await moving('droop'), 'its motion once the words are out');
+    await p.clock.runFor(8000);
+    await p.evaluate(() => launcher.thought('헉, 진짜?'));
+    await p.clock.runFor(200);
+    assert(await has('surprised'), 'surprised for 헉');
+    await p.clock.runFor(8000);
+    await p.evaluate(() => launcher.voice('speaking', '히히 좋아', 800));
+    await p.clock.runFor(200);
+    assert(await has('giggle'), 'a giggle as it says 히히');
+    await p.evaluate(() => { launcher.voice('gap', ''); launcher.voice('idle', ''); });
+    await p.clock.runFor(4000);
+    await p.evaluate(() => launcher.thought('오늘 뭐 하고 놀까?'));
+    await p.clock.runFor(200);
+    assert(await has('happy'), 'words that call for nothing keep the plain happy face');
+    await p.clock.runFor(8000);
+    // Playing on its own: the face only.
+    await p.evaluate(() => { window._wasInPlay = boards[0]._inPlay; boards[0]._inPlay = () => true; launcher.thought('히히 재밌다'); });
+    await p.clock.runFor(700);
+    assert(await has('giggle') && !(await moving('giggleshake')), 'no motion while it plays');
+    await p.evaluate(() => { boards[0]._inPlay = window._wasInPlay; });
+    await p.clock.runFor(8000);
+    // 퍼레와 대화's 퍼레 too, as an answer comes.
+    const pal = await p.evaluate(() => { pal.show(); pal.done(true, '헉, 그게 진짜야?'); const bot = document.querySelector('.chatpal .bot'); return bot && bot.classList.contains('surprised'); });
+    assert(pal, 'the talk\'s 퍼레 is surprised for 헉');
+    // Every face it may make is one of its faces, every motion one of its motions.
+    const unknown = await p.evaluate(() => FEEL_OF.filter(([re, face, motion]) => !FACES[face] || motion && !MOTIONS.some(m => m[0] === motion)).map(x => x[1] + '/' + x[2]));
+    assert.deepStrictEqual(unknown, []);
+    assert.deepStrictEqual(day.errors, []);
+  });
   await check('퍼레 is plain by default and dresses up now and then, never one outfit for long', async () => {
     const p = day.page, looks = [];
     // A play's own outfit (a headband for karate) is that play's, not the day's: the one going on ends first.
