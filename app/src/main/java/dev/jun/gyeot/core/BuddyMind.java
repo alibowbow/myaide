@@ -361,15 +361,18 @@ public final class BuddyMind {
     private static final Pattern SECRET = Pattern.compile("(비밀번호|비번|패스워드|암호|핀\\s*번호|PIN|인증\\s*번호|인증\\s*코드|OTP|보안\\s*코드|아이디|계정|로그인|권한|접근\\s*허용|계좌|카드\\s*번호|주민\\s*(등록\\s*)?번호|여권\\s*번호|집\\s*주소|집\\s*위치|전화\\s*번호|연락처|고민|걱정|스트레스|털어놓|속상|우울|불안|빚|대출|비밀)", Pattern.CASE_INSENSITIVE);
     /** Whether a memory is private (a password, a login or a site's access, a worry confided …): kept, but said only after the fingerprint. */
     public static boolean secret(String text) { return text != null && SECRET.matcher(text).find(); }
-    private static final Pattern ASKS = Pattern.compile("(내|나의|제)\\s*(비밀|비번|비밀번호|암호|아이디|계정|로그인|권한|계좌|카드|번호|주소|고민|걱정)|기억나|기억해\\?|뭐라고\\s*했|뭐라 했|알고\\s*있|알려\\s*줘.*(나|내)|(나|내)에\\s*대해");
+    private static final Pattern ASKS = Pattern.compile("(내|나의|제)\\s*(비밀|비번|비밀번호|암호|아이디|계정|로그인|권한|계좌|카드|번호|주소|고민|걱정)|기억나|기억해\\?|뭐라고\\s*했|뭐라 했|알고\\s*있|알려\\s*줘.*(나|내)|(나|내)에\\s*대해"
+        // "잊어 줘", "그건 틀렸어 지워" (준: "퍼레의 학습기능"): a private memory is let go only after the fingerprint; not "우산 잊어버렸어".
+        + "|잊어\\s*줘|잊어버려|잊어(?=[\\s.!?~]*$)|지워\\s*줘|지워버려|지워(?=[\\s.!?~]*$)|까먹어\\s*줘|까먹어(?=[\\s.!?~]*$)");
     /** Whether what the user asked may need what is private (then the fingerprint first). */
     public static boolean asksPersonal(String said) { return said != null && ASKS.matcher(said).find(); }
 
     // ── what to bring to mind now ──
     /**
-     * The memories to bring to mind now, at most n: by how much they matter, how recent they are (two weeks to fade by
-     * half), and how much they share with what is going on (context: the hour, the weather, apps, what was said); a memory
-     * brought up in the last day waits (shown: memory time → when last brought up); private ones only when unlocked.
+     * The memories to bring to mind now, at most n: by how much they matter and how often the user told them (seen, up to
+     * five times), how recently they were told (last; two weeks to fade by half), and how much they share with what is going
+     * on (context: the hour, the weather, apps, what was said); a memory brought up in the last day waits (shown: memory time
+     * → when last brought up); private ones only when unlocked.
      */
     public static List<BuddyMemory.Entry> recall(List<BuddyMemory.Entry> all, String context, long now, Map<Long, Long> shown, boolean unlocked, int n) {
         String ctx = context == null ? "" : context;
@@ -380,12 +383,232 @@ public final class BuddyMind {
             if ("profile".equals(e.kind()) || "promise".equals(e.kind())) continue; // given apart
             Long last = shown == null ? null : shown.get(e.at());
             if (last != null && now - last < 24 * 3_600_000L) continue;
-            double age = Math.max(0, now - e.at()) / (14 * 86_400_000.0);
-            double s = e.weight() + Math.pow(0.5, age) * 1.5 + similarity(e.text(), ctx) * 4;
+            double age = Math.max(0, now - e.last()) / (14 * 86_400_000.0);
+            double s = e.weight() + 0.3 * Math.min(e.seen(), 5) + Math.pow(0.5, age) * 1.5 + similarity(e.text(), ctx) * 4;
             score.put(e, s); pool.add(e);
         }
         pool.sort((a, b) -> Double.compare(score.get(b), score.get(a)));
         return new ArrayList<>(pool.subList(0, Math.min(n, pool.size())));
+    }
+
+    // ── learning from a whole talk (준: "퍼레의 학습기능 … 강화해줘"): what it knew told again, set right or let go, or new ──
+    /** The kinds of memory a talk can teach or correct: what the user told, the night's notes about them, promises. */
+    private static final Set<String> KNOWN = Set.of("fact", "profile", "promise");
+    /** Words that say nothing of what a memory is about: the user and 퍼레, when, how often, and the common "does" endings. */
+    private static final Set<String> PLAIN = Set.of("사용자", "퍼레", "오늘", "내일", "어제", "요즘", "이번", "다음", "주말", "아침", "저녁", "자주", "가끔",
+        "많이", "이제", "예전", "그냥", "처음", "항상", "아직", "사실", "완전", "제일", "가장", "간대", "한대", "했대", "갔대", "왔대", "온대", "산대", "된대",
+        "있대", "없대", "한다", "했어", "했다", "간다");
+    /** What a line is about: its subjects (subjects()) without the plain words and the liking, the not liking and the "~대" of a memory. */
+    static Set<String> topics(String line) {
+        Set<String> out = new HashSet<>();
+        for (String w : subjects(line)) {
+            if (PLAIN.contains(w) || w.contains("좋아") || w.contains("싫어") || w.length() >= 3 && w.endsWith("대")) continue;
+            out.add(w);
+        }
+        return out;
+    }
+    /** Whether two lines are about the same thing: a topic in common (커피 and 커피를 are one, so are 전투기 and 전투기라서). */
+    public static boolean shareTopic(String a, String b) {
+        Set<String> other = topics(b);
+        for (String w : topics(a)) if (among(w, other)) return true;
+        return false;
+    }
+    /**
+     * What 퍼레 knows that what was said is about, at most n: the user's told memories, the night's notes and promises with a
+     * topic in common (or nearly said again), the most in common first; private ones only when unlocked.
+     */
+    public static List<BuddyMemory.Entry> related(List<BuddyMemory.Entry> all, String said, int n, boolean unlocked) {
+        Set<String> heard = topics(said);
+        List<BuddyMemory.Entry> pool = new ArrayList<>();
+        Map<BuddyMemory.Entry, Double> score = new HashMap<>();
+        for (BuddyMemory.Entry e : all) {
+            if (!KNOWN.contains(e.kind()) || e.secret() && !unlocked || e.done()) continue;
+            int shared = 0; for (String w : topics(e.text())) if (among(w, heard)) shared++;
+            double alike = similarity(e.text(), said);
+            if (shared == 0 && alike < 0.6) continue;
+            score.put(e, alike + 0.5 * shared); pool.add(e);
+        }
+        pool.sort((a, b) -> Double.compare(score.get(b), score.get(a)));
+        return new ArrayList<>(pool.subList(0, Math.min(n, pool.size())));
+    }
+    private static final Pattern NEGATION = Pattern.compile("(안 |못 |싫|끊|그만|별로|말고|아니)");
+    /**
+     * Whether one line says the opposite of the other ("커피를 안 좋아한대" to "커피를 좋아한대", "싫어한대" to "좋아한대"): only
+     * one of them says no, and without the no they are alike (half their letter pairs) and about the same thing (or nearly the
+     * same words: "고양이를 안 좋아한대" is not the opposite of "커피를 좋아한대").
+     */
+    public static boolean negates(String a, String b) {
+        if (a == null || b == null) return false;
+        if (NEGATION.matcher(a).find() == NEGATION.matcher(b).find()) return false;
+        double alike = similarity(NEGATION.matcher(a).replaceAll(""), NEGATION.matcher(b).replaceAll(""));
+        return alike >= 0.5 && (shareTopic(a, b) || alike >= 0.75);
+    }
+    /** What the user said may be them correcting what 퍼레 knew ("아니 나 커피 끊었어", "이제는 안 좋아해"). */
+    private static final Pattern CORRECTS = Pattern.compile("(아니|아냐|틀렸|그게 아니|잘못 알|이제는|요즘은 안|끊었|안 좋아|싫어해)");
+    public static boolean correcting(String said) { return said != null && CORRECTS.matcher(said).find(); }
+
+    /**
+     * What a talk taught: something new, a known one (n: its number in the list the brain was given) set right, let go or
+     * told again, or a promise of 퍼레's kept (DONE).
+     */
+    public enum Change { NEW, FIX, DROP, SAME, DONE }
+    /** One lesson of a talk (parseOps): its change, the known one's number (0: none), its kind (fact, promise), its words, private. */
+    public record Op(Change change, int n, String kind, String text, boolean secret) {}
+    private static final Pattern TOLD = Pattern.compile("^(새로|약속|사용자)\\s*[:：]\\s*(.+)$");
+    private static final Pattern FIXED = Pattern.compile("^고침\\s*#?(\\d+)\\s*번?\\s*[:：]\\s*(.+)$");
+    private static final Pattern NUMBERED = Pattern.compile("^(지움|같음|약속\\s*끝)\\s*#?(\\d+)");
+    /**
+     * The lessons the learning brain wrote, at most four, a line each: "새로: 사용자는 …", "고침 2: 사용자는 …", "지움 3", "같음 1",
+     * "약속: 퍼레가 …", "약속 끝 4", each maybe with "민감" first (private); lists' marks and quotes left out, other lines ("없음") skipped.
+     * "사용자: …" (the form before) reads as new.
+     */
+    public static List<Op> parseOps(String text) {
+        List<Op> out = new ArrayList<>();
+        if (text == null) return out;
+        for (String raw : text.replaceAll("(?s)<think>.*?</think>", "").split("\\n")) {
+            String line = raw.replaceAll("[\"“”*]", "").replaceAll("^\\s*(?:[-•]+|\\d+[.)])\\s*", "").strip();
+            boolean secret = line.startsWith("민감"); line = line.replaceFirst("^민감\\s*", "");
+            Op op = null; Matcher m;
+            if ((m = FIXED.matcher(line)).matches()) op = new Op(Change.FIX, Integer.parseInt(m.group(1)), "fact", m.group(2), secret);
+            else if ((m = NUMBERED.matcher(line)).find()) op = new Op("지움".equals(m.group(1)) ? Change.DROP : "같음".equals(m.group(1)) ? Change.SAME : Change.DONE, Integer.parseInt(m.group(2)), "", "", false);
+            else if ((m = TOLD.matcher(line)).matches()) op = new Op(Change.NEW, 0, "약속".equals(m.group(1)) ? "promise" : "fact", m.group(2), secret);
+            if (op == null) continue;
+            String t = op.text().strip();
+            if (t.startsWith("민감")) op = new Op(op.change(), op.n(), op.kind(), t.replaceFirst("^민감\\s*", ""), true);
+            if (op.n() > 0 || !op.text().isBlank()) out.add(op);
+            if (out.size() == 4) break;
+        }
+        return out;
+    }
+    /** Whether lesson words may be kept: some, not "없음", 70 letters at most, no number of four digits or more (an account, a code). */
+    private static boolean keepable(String t) { return t != null && !t.isBlank() && !t.startsWith("없음") && t.length() <= 70 && !t.matches(".*\\d{4,}.*"); }
+    /**
+     * The memories after a talk's lessons (ops), as 퍼레 keeps them: told again confirms the one known (BuddyMemory.confirm);
+     * set right (고침) replaces it and let go (지움) removes it, but only one the lesson or the talk is about (a topic in common,
+     * or nearly the same words), and a private one only while unlocked (else 고침 is kept as new and 지움 left); new words that
+     * say the opposite of one known replace it (negates), ones nearly the same (0.6) confirm it, the rest are kept as told
+     * (weight 2). shown: the list the brain was given, numbered from 1; talk: the words of the talk.
+     */
+    public static List<BuddyMemory.Entry> learned(List<BuddyMemory.Entry> all, List<BuddyMemory.Entry> shown, List<Op> ops, String talk, long now, boolean unlocked) {
+        return learned(all, shown, ops, talk, now, unlocked, Map.of());
+    }
+    /** The same, a lesson on a subject the user asked 퍼레 to let go (forgot, forgotten()) left out. */
+    public static List<BuddyMemory.Entry> learned(List<BuddyMemory.Entry> all, List<BuddyMemory.Entry> shown, List<Op> ops, String talk, long now, boolean unlocked, Map<String, Long> forgot) {
+        List<BuddyMemory.Entry> out = new ArrayList<>(all);
+        int added = 0;
+        for (Op op : ops) {
+            BuddyMemory.Entry target = op.n() >= 1 && shown != null && op.n() <= shown.size() ? at(out, shown.get(op.n() - 1).at()) : null;
+            if (target != null && target.secret() && !unlocked) target = null;
+            if (op.change() == Change.SAME) { if (target != null) out = BuddyMemory.confirm(out, target.at(), now); continue; }
+            if (op.change() == Change.DONE) { if (target != null) out = BuddyMemory.done(out, target.at()); continue; }
+            if (op.change() == Change.DROP) { if (target != null && shareTopic(target.text(), talk)) out = BuddyMemory.remove(out, target.at()); continue; }
+            String t = op.text().strip();
+            if (!keepable(t) || forgotten(t, forgot, now)) continue;
+            boolean secret = op.secret() || secret(t);
+            if (op.change() == Change.FIX && target != null && (shareTopic(target.text(), t) || similarity(target.text(), t) >= 0.6)) {
+                out = BuddyMemory.replace(out, target.at(), t, now, secret || target.secret()); continue;
+            }
+            BuddyMemory.Entry opposite = null, same = null;
+            for (BuddyMemory.Entry e : out) {
+                if (!KNOWN.contains(e.kind()) || e.secret() && !unlocked) continue;
+                if (opposite == null && negates(e.text(), t)) opposite = e;
+                if (same == null && similarity(e.text(), t) >= 0.6) same = e;
+            }
+            if (opposite != null) out = BuddyMemory.replace(out, opposite.at(), t, now, secret || opposite.secret());
+            else if (same != null) out = BuddyMemory.confirm(out, same.at(), now);
+            else out = BuddyMemory.add(out, now + added++, op.kind(), t, 0, 2, secret);
+        }
+        return out;
+    }
+    private static BuddyMemory.Entry at(List<BuddyMemory.Entry> list, long at) { for (BuddyMemory.Entry e : list) if (e.at() == at) return e; return null; }
+
+    // ── what the user asked 퍼레 to let go (준: "퍼레의 학습기능 … 강화해줘": "잊어 줘", "그건 틀렸어 지워") ──
+    /** How long a subject let go stays out of what 퍼레 learns by itself (a talk, the night's digest): ninety days. */
+    public static final long FORGOT_MS = 90L * 86_400_000L;
+    /** Whether a line is on a subject the user asked 퍼레 to let go, not yet over (forgot: subject → until when). */
+    public static boolean forgotten(String text, Map<String, Long> forgot, long now) {
+        if (text == null || forgot == null || forgot.isEmpty()) return false;
+        Set<String> gone = new HashSet<>();
+        for (Map.Entry<String, Long> f : forgot.entrySet()) if (f.getValue() != null && f.getValue() > now) gone.add(f.getKey());
+        if (gone.isEmpty()) return false;
+        for (String w : topics(text)) if (among(w, gone)) return true;
+        return false;
+    }
+    /**
+     * The memories a "잊어 줘" names (what: its words): every one holding all its words (BuddyTricks.matching), else the one
+     * known that it is most about (related: a topic in common or nearly the same words); then the night's notes on the same
+     * subject, so it is not still told the next day: a note on what the user named, not on another word of what went ("커피
+     * 잊어 줘" takes "아침마다 커피를 마셔요", never "친구가 많아요" because the coffee was with a friend). Private ones too: the
+     * caller asks for the fingerprint.
+     */
+    public static List<BuddyMemory.Entry> toForget(List<BuddyMemory.Entry> all, String what) {
+        List<String> texts = new ArrayList<>(); for (BuddyMemory.Entry e : all) texts.add(e.text());
+        List<BuddyMemory.Entry> out = new ArrayList<>();
+        for (int i : BuddyTricks.matching(texts, what)) out.add(all.get(i));
+        if (out.isEmpty()) { List<BuddyMemory.Entry> best = related(all, what, 1, true); out.addAll(best); }
+        if (out.isEmpty() || out.size() > 5) return out;
+        for (BuddyMemory.Entry e : new ArrayList<>(out)) for (BuddyMemory.Entry p : all)
+            if ("profile".equals(p.kind()) && !out.contains(p) && shareTopic(p.text(), e.text()) && shareTopic(p.text(), what)) out.add(p);
+        return out;
+    }
+    /** The subjects a "잊어 줘" lets go: its own words' topics found in what went (커피 for "커피 얘기 잊어"), else what went is about. */
+    public static Set<String> forgetting(String what, List<BuddyMemory.Entry> gone) {
+        Set<String> about = new HashSet<>(), in = new HashSet<>();
+        for (BuddyMemory.Entry e : gone) in.addAll(topics(e.text()));
+        for (String w : topics(what)) if (among(w, in)) about.add(w);
+        if (about.isEmpty() && !gone.isEmpty()) about.addAll(topics(gone.get(0).text()));
+        return about;
+    }
+    /** A memory as 퍼레 says it back to the user: without "사용자는 …" ("‘커피를 좋아한대’ 잊었어"). */
+    public static String toldBack(String text) {
+        String t = text == null ? "" : text.strip().replaceFirst("^사용자(?:가 기억해 달랬어\\s*[:：]|는|가|의|도)\\s*", "");
+        return t.codePointCount(0, t.length()) <= 40 ? t : t.substring(0, t.offsetByCodePoints(0, 40)) + "…";
+    }
+    /** A turn of a talk said by a voice not the user's ({role, text, "g"}). */
+    public static boolean guestTurn(String[] t) { return t != null && t.length > 2 && "g".equals(t[2]); }
+    /** The user's own words in a talk from turn from (a guest's left out), with 퍼레's when buddyToo: what the talk was about. */
+    public static String talkWords(List<String[]> turns, int from, boolean buddyToo) {
+        StringBuilder out = new StringBuilder();
+        for (int i = Math.max(0, from); i < turns.size(); i++) {
+            String[] t = turns.get(i);
+            if (t == null || t.length < 2 || t[1] == null || guestTurn(t) || !buddyToo && !"user".equals(t[0])) continue;
+            out.append(out.length() == 0 ? "" : "\n").append(t[1].strip());
+        }
+        return out.toString();
+    }
+    /** Whether a talk from turn from is worth a learning request: the user themselves said four letters or more in it. */
+    public static boolean worthLearning(List<String[]> turns, int from) { return talkWords(turns, from, false).replaceAll("\\s", "").length() >= 4; }
+    /**
+     * What the learning brain reads of a talk (turns {role, text[, "g"]}, new from turn from): the user's own talk only, a
+     * guest's left out; the six lines before it as already learned; the new ones (the last sixteen, 2,000 letters at most);
+     * what 퍼레 did for them ("22:10 노래 ‘아이유’(멜론)"); and what it knows that the talk is about, numbered for 고침·지움·같음.
+     */
+    public static String talkInput(List<String[]> turns, int from, List<String> acts, List<BuddyMemory.Entry> related) {
+        List<String> before = new ArrayList<>(), talk = new ArrayList<>();
+        for (int i = 0; i < turns.size(); i++) {
+            String[] t = turns.get(i);
+            if (t == null || t.length < 2 || t[1] == null || t[1].isBlank() || guestTurn(t)) continue;
+            (i < from ? before : talk).add(("user".equals(t[0]) ? "사용자: " : "퍼레: ") + cut(t[1].strip(), i < from ? 200 : 300));
+        }
+        List<String> kept = new ArrayList<>(); int size = 0;
+        for (int i = talk.size() - 1; i >= Math.max(0, talk.size() - 16); i--) {
+            size += talk.get(i).length() + 1;
+            if (size > 2000 && !kept.isEmpty()) break;
+            kept.add(0, talk.get(i));
+        }
+        StringBuilder out = new StringBuilder();
+        List<String> earlier = before.subList(Math.max(0, before.size() - 6), before.size());
+        if (!earlier.isEmpty()) out.append("앞의 대화(이미 배운 것, 참고만):\n").append(String.join("\n", earlier)).append("\n\n");
+        out.append("대화:\n").append(String.join("\n", kept)).append('\n');
+        if (acts != null && !acts.isEmpty())
+            out.append("\n한 일(사용자가 시켜서 퍼레가 한 것):\n- ").append(String.join("\n- ", acts.subList(Math.max(0, acts.size() - 8), acts.size()))).append('\n');
+        out.append("\n지금 알고 있는 것:\n");
+        if (related == null || related.isEmpty()) out.append("(이 대화와 관련된 것 없음)");
+        else for (int i = 0; i < related.size(); i++) out.append(i + 1).append(". ").append(related.get(i).text()).append('\n');
+        return out.toString().strip();
+    }
+    private static String cut(String line, int most) {
+        return line.codePointCount(0, line.length()) <= most ? line : line.substring(0, line.offsetByCodePoints(0, most)) + "…";
     }
 
     // ── the day so far ──
@@ -425,18 +648,67 @@ public final class BuddyMind {
     private static int count(JSONObject o) { if (o == null) return 0; int n = 0; for (java.util.Iterator<String> k = o.keys(); k.hasNext();) n += o.optInt(k.next()); return n; }
 
     // ── a night's digest ──
-    /** What a night's digest wrote: the user's profile, line by line, and the day as one memory (or ""). */
-    public record Dream(List<String> profile, String episode) {}
-    private static final Pattern LINE = Pattern.compile("^\\s*[-•*]?\\s*(프로필|추억)\\s*[:：]\\s*(.+)$");
+    /**
+     * What a night's digest wrote: the user's profile, line by line ("(추측)" at the end of a guess), the day as one memory
+     * (or ""), and the profile lines it took out (빼기).
+     */
+    public record Dream(List<String> profile, String episode, List<String> drop) {
+        public Dream(List<String> profile, String episode) { this(profile, episode, List.of()); }
+    }
+    private static final Pattern LINE = Pattern.compile("^\\s*[-•*]?\\s*(프로필|추억|빼기)\\s*[:：]\\s*(.*)$");
+    private static final Pattern BULLET = Pattern.compile("^\\s*(?:[-•*]|\\d+[.)])\\s*(.+)$");
+    /** The digest as written: "프로필: …" a line each, or "프로필:" and its lines under it as a list ("- …"); the same for 빼기. */
     public static Dream dream(String text) {
-        List<String> profile = new ArrayList<>(); String episode = "";
+        List<String> profile = new ArrayList<>(), drop = new ArrayList<>(); String episode = "", under = "";
         if (text != null) for (String line : text.replaceAll("(?s)<think>.*?</think>", "").split("\\n")) {
-            Matcher m = LINE.matcher(line); if (!m.find()) continue;
-            String v = m.group(2).replaceAll("[\"“”*]", "").strip();
+            Matcher m = LINE.matcher(line), b;
+            String part, v;
+            if (m.find()) { part = m.group(1); v = m.group(2); under = part; if (v.isBlank()) continue; }
+            else if (!under.isEmpty() && (b = BULLET.matcher(line)).find()) { part = under; v = b.group(1); }
+            else { if (!line.isBlank()) under = ""; continue; }
+            v = v.replaceAll("[\"“”*]", "").strip();
             if (v.isEmpty() || v.startsWith("없음") || v.length() > 80 || v.matches(".*\\d{4,}.*")) continue;
-            if ("추억".equals(m.group(1))) { if (episode.isEmpty()) episode = v; }
+            if ("추억".equals(part)) { if (episode.isEmpty()) episode = v; }
+            else if ("빼기".equals(part)) { if (!drop.contains(v)) drop.add(v); }
             else if (profile.size() < 12 && !profile.contains(v)) profile.add(v);
         }
-        return new Dream(profile, episode);
+        return new Dream(profile, episode, drop);
+    }
+    /** A night's profile line that is a guess: it matters least until it is told again. */
+    public static boolean guess(String line) { return line != null && line.strip().endsWith("(추측)"); }
+    /**
+     * What 퍼레 knows after the night's digest (준: "퍼레의 학습기능 … 강화해줘"), merged into what it knew rather than written
+     * over it: a line it took out (빼기) goes, a line it wrote again is told once more, one that says the opposite of one known
+     * sets it right, a new one is kept (a guess matters least, weight 1; else 3), none on a subject the user let go (forgot);
+     * then at most twelve lines, the ones told most and latest kept. Private lines are the user's own and stay.
+     */
+    public static List<BuddyMemory.Entry> mergeProfile(List<BuddyMemory.Entry> all, Dream d, long now, Map<String, Long> forgot) {
+        List<BuddyMemory.Entry> out = new ArrayList<>(all);
+        for (String gone : d.drop()) {
+            BuddyMemory.Entry best = null; double most = 0.5;
+            for (BuddyMemory.Entry e : out) if ("profile".equals(e.kind()) && !e.secret()) { double a = similarity(e.text(), gone); if (a >= most) { most = a; best = e; } }
+            if (best != null) out = BuddyMemory.remove(out, best.at());
+        }
+        long t = now;
+        for (String line : d.profile()) {
+            if (forgotten(line, forgot, now)) continue;
+            int weight = guess(line) ? 1 : 3;
+            BuddyMemory.Entry same = null, opposite = null;
+            for (BuddyMemory.Entry e : out) {
+                if (!"profile".equals(e.kind()) || e.secret()) continue;
+                if (same == null && similarity(e.text(), line) >= 0.6 && !negates(e.text(), line)) same = e;
+                if (opposite == null && negates(e.text(), line)) opposite = e;
+            }
+            if (same != null) out = BuddyMemory.confirm(out, same.at(), now);
+            else if (opposite != null) out = BuddyMemory.replace(out, opposite.at(), line, now, false, weight);
+            else { long at = BuddyMemory.free(out, t); out.add(new BuddyMemory.Entry(at, "profile", line, weight, false)); t = at + 1; }
+        }
+        List<BuddyMemory.Entry> lines = new ArrayList<>();
+        for (BuddyMemory.Entry e : out) if ("profile".equals(e.kind()) && !e.secret()) lines.add(e);
+        if (lines.size() > 12) {
+            lines.sort((a, b) -> a.seen() != b.seen() ? b.seen() - a.seen() : Long.compare(b.last(), a.last()));
+            for (BuddyMemory.Entry e : lines.subList(12, lines.size())) out = BuddyMemory.remove(out, e.at());
+        }
+        return out;
     }
 }

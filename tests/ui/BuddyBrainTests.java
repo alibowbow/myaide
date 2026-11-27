@@ -11,6 +11,7 @@ import android.widget.TextView;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.function.Predicate;
+import org.json.JSONObject;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
@@ -345,7 +346,7 @@ public class BuddyBrainTests {
         assertEquals(1, BuddyTalk.memories(app).size());
         BuddyTalk.rememberStrong(app, "fact", "사용자는 고양이를 좋아한대요", false);
         // Forgotten by its words; all at once only in 퍼레의 기억, the way there kept.
-        assertEquals("‘고양이’ 기억 지웠어.", BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"forget\",\"what\":\"고양이\"}"), "고양이 얘기 잊어 줘", false).say());
+        assertEquals("‘고양이를 좋아한대요’ 잊었어.", BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"forget\",\"what\":\"고양이\"}"), "고양이 얘기 잊어 줘", false).say());
         assertEquals(1, BuddyTalk.memories(app).size());
         assertTrue(BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"forget\",\"what\":\"강아지\"}"), "", false).say().contains("원래 없었어"));
         BuddyVoice.Outcome all = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"forget\",\"what\":\"전부\"}"), "다 잊어버려", false);
@@ -364,6 +365,253 @@ public class BuddyBrainTests {
         assertFalse(BuddyTalk.hushed(app)); assertFalse(BuddyTalk.env(app).optBoolean("hush"));
         String board; try (java.io.InputStream in = app.getAssets().open("decor/board.js")) { board = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8); }
         assertTrue("the board keeps quiet while hushed", board.contains("info.env.hush") && board.contains("dnd: !!e.dnd || !!e.hush"));
+    }
+    /**
+     * "기억해 둬", "잊어 줘", "그건 틀렸어 지워" by voice (준: "퍼레의 학습기능 … 강화해줘"): kept as the user's own and as mattering
+     * most, let go with the night's notes on it and said back, not learned again by itself for ninety days, back on "되돌려 줘";
+     * a private one only after the fingerprint; the words send 퍼레's own tools.
+     */
+    @Test public void remembersAndForgetsByVoice() throws Exception {
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        BuddyMisses.clear(app); BuddyTalk.forgetAll(app);
+        JSONObject keep = BuddyTalk.loose("{\"tool\":\"remember\",\"text\":\"나 고양이 키워\"}");
+        assertEquals("기억해 둘게!", BuddyTools.say(keep));
+        BuddyActs.run(app, keep, "나 고양이 키워 기억해 둬", false);
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> m = BuddyTalk.memories(app);
+        assertEquals(1, m.size()); assertEquals("fact", m.get(0).kind());
+        assertEquals("the user's own", "사용자는 고양이 키워", m.get(0).text()); assertEquals("asked to be kept: it matters most", 3, m.get(0).weight());
+        assertEquals("그건 벌써 기억하고 있어!", BuddyActs.run(app, keep, "고양이 키운다고 기억해", false).say());
+        assertEquals("told again", 2, BuddyTalk.memories(app).get(0).seen());
+        // Let go, with the night's note on the same thing, and said back as it was known.
+        BuddyTalk.rememberStrong(app, "fact", "사용자는 커피를 좋아한대", false);
+        BuddyTalk.rememberStrong(app, "fact", "사용자는 내일 부산에 간대", false);
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> withNote = BuddyTalk.memories(app);
+        withNote.add(new dev.jun.gyeot.core.BuddyMemory.Entry(System.currentTimeMillis() + 5, "profile", "아침마다 커피를 마셔요", 3, false));
+        BuddyTalk.restore(app, withNote);
+        JSONObject about = BuddyTalk.loose("{tool:forget,about:커피}");
+        assertEquals("forget", about.optString("tool")); assertEquals("커피", about.optString("what"));
+        // "커피 좋아한다는 거": the note says nothing of liking, yet it is on the same thing, so it goes too.
+        String said = BuddyActs.run(app, BuddyTalk.loose("{tool:forget,about:커피 좋아한다는 거}"), "커피 좋아한다는 거 잊어 줘", false).say();
+        assertTrue(said, said.contains("커피를 좋아한대") && said.contains("잊었어"));
+        java.util.List<String> left = new java.util.ArrayList<>(); for (dev.jun.gyeot.core.BuddyMemory.Entry e : BuddyTalk.memories(app)) left.add(e.text());
+        assertEquals(java.util.List.of("사용자는 고양이 키워", "사용자는 내일 부산에 간대"), left);
+        // Not learned again by itself (a talk, the night) for ninety days.
+        long now = System.currentTimeMillis();
+        java.util.Map<String, Long> forgot = BuddyTalk.forgot(app);
+        assertTrue(forgot.toString(), dev.jun.gyeot.core.BuddyMind.forgotten("사용자는 커피를 매일 마신대", forgot, now));
+        assertFalse(dev.jun.gyeot.core.BuddyMind.forgotten("사용자는 부산에 간대", forgot, now));
+        assertFalse("ninety days on", dev.jun.gyeot.core.BuddyMind.forgotten("사용자는 커피를 매일 마신대", forgot, now + 91 * 86_400_000L));
+        BuddyTalk.learned(app, java.util.List.of(), "새로: 사용자는 커피를 다시 마신대\n새로: 사용자는 등산을 좋아한대", "나 커피 다시 마셔. 등산도 좋아");
+        left.clear(); for (dev.jun.gyeot.core.BuddyMemory.Entry e : BuddyTalk.memories(app)) left.add(e.text());
+        assertTrue("the rest is learned: " + left, left.contains("사용자는 등산을 좋아한대"));
+        assertFalse("not the subject let go: " + left, left.stream().anyMatch(t -> t.contains("커피")));
+        // "되돌려 줘" within two minutes brings it back, and its subject may be learned again.
+        assertEquals("다시 기억했어!", BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"forget\",\"undo\":true}"), "방금 거 되돌려 줘", false).say());
+        left.clear(); for (dev.jun.gyeot.core.BuddyMemory.Entry e : BuddyTalk.memories(app)) left.add(e.text());
+        assertTrue(left.toString(), left.contains("사용자는 커피를 좋아한대") && left.contains("아침마다 커피를 마셔요"));
+        assertFalse(dev.jun.gyeot.core.BuddyMind.forgotten("사용자는 커피를 매일 마신대", BuddyTalk.forgot(app), now));
+        assertTrue(BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"forget\",\"undo\":true}"), "되돌려 줘", false).say().contains("되돌릴 게 없어"));
+        // "그건 틀렸어 지워": the one it is about, by its topic.
+        said = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"forget\",\"what\":\"부산 가는 거\"}"), "그건 틀렸어 지워", false).say();
+        assertTrue(said, said.contains("부산"));
+        // The words send 퍼레's own tools (all 45), and the fingerprint comes first for a private one.
+        for (String w : new String[]{"그건 틀렸어 지워", "커피 얘기 잊어 줘", "이거 기억해 둬", "방금 거 되돌려 줘", "그거 까먹어"}) {
+            assertTrue(w, BuddyTools.self(w)); assertEquals(w, BuddyTools.TOOLS.length(), BuddyTools.forTurn(w).length());
+        }
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"remember\",\"fact\":\"사용자는 요즘 이직 생각이 많대\",\"private\":true}"), "이거 비밀로 기억해 둬", false);
+        dev.jun.gyeot.core.BuddyMemory.Entry kept = null; for (dev.jun.gyeot.core.BuddyMemory.Entry e : BuddyTalk.memories(app)) if (e.text().contains("이직")) kept = e;
+        assertNotNull(kept); assertTrue("private when asked", kept.secret());
+        assertTrue(dev.jun.gyeot.core.BuddyMind.asksPersonal("이직 얘기 잊어 줘")); assertTrue(dev.jun.gyeot.core.BuddyMind.asksPersonal("그건 틀렸어 지워"));
+        assertFalse("forgetting an umbrella is not a question about memories", dev.jun.gyeot.core.BuddyMind.asksPersonal("나 우산 잊어버렸어"));
+        assertFalse(BuddyTalk.unlocked());
+        assertTrue(BuddyTalk.needsUnlock(app, "이직 얘기 잊어 줘"));
+        BuddyVoice.Outcome locked = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"forget\",\"what\":\"이직\"}"), "이직 얘기 잊어 줘", false);
+        assertTrue(locked.say(), locked.say().contains("지문")); assertTrue(BuddyTalk.memories(app).contains(kept));
+        BuddyTalk.unlock();
+        try {
+            BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"forget\",\"what\":\"이직\"}"), "이직 얘기 잊어 줘", false);
+            assertFalse(BuddyTalk.memories(app).contains(kept));
+        } finally { java.lang.reflect.Field f = BuddyTalk.class.getDeclaredField("unlockedUntil"); f.setAccessible(true); f.setLong(null, 0); }
+        // The night's notes that go with it are on what the user named: "커피" takes the coffee note, not the one on friends
+        // because the coffee was with a friend.
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> mixed = java.util.List.of(
+            new dev.jun.gyeot.core.BuddyMemory.Entry(1, "fact", "사용자는 친구랑 커피를 마셨대", 2, false),
+            new dev.jun.gyeot.core.BuddyMemory.Entry(2, "profile", "친구가 많아요", 3, false),
+            new dev.jun.gyeot.core.BuddyMemory.Entry(3, "profile", "아침마다 커피를 마셔요", 3, false));
+        assertEquals(java.util.List.of("사용자는 친구랑 커피를 마셨대", "아침마다 커피를 마셔요"),
+            dev.jun.gyeot.core.BuddyMind.toForget(mixed, "커피").stream().map(dev.jun.gyeot.core.BuddyMemory.Entry::text).toList());
+        // The text form knows the words for them too.
+        assertEquals("forget", BuddyTalk.loose("{\"tool\":\"지워\",\"what\":\"커피\"}").optString("tool"));
+        assertEquals("remember", BuddyTalk.loose("{\"tool\":\"buddy_remember\",\"text\":\"고양이\"}").optString("tool"));
+        BuddyTalk.forgetAll(app);
+    }
+    /**
+     * Memory that keeps what matters (준: "퍼레의 학습기능 … 강화해줘"): the routine counted a week to a line, the one that
+     * matters least going when it is full, promises done, the night's digest merged into the note (and done only once it
+     * answered), and memory.json read once while it does not change.
+     */
+    @Test public void keepsWhatMatters() throws Exception {
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        BuddyTalk.forgetAll(app);
+        java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+        long day = 86_400_000L, monday = java.time.ZonedDateTime.of(2026, 11, 2, 9, 0, 0, 0, zone).toInstant().toEpochMilli();
+        // A hundred things told, then two hundred routine moments over four weeks (Monday 2 to Sunday 29 November): every one
+        // told stays, the routine is a line a kind a week.
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> list = new java.util.ArrayList<>();
+        for (int i = 0; i < 100; i++) list.add(new dev.jun.gyeot.core.BuddyMemory.Entry(monday - (200 - i) * day, "fact", "사용자는 기억 " + i + "번을 말했대", 2, false));
+        for (int i = 0; i < 200; i++) {
+            boolean cold = i % 2 == 0;
+            list = dev.jun.gyeot.core.BuddyMemory.tally(list, monday + i * 27 * day / 200, zone, cold ? "cold" : "away", cold, n -> (cold ? "추운 날 " : "돌아옴 ") + n + "번");
+        }
+        int told = 0, routine = 0, coldDays = 0;
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : list) { if ("fact".equals(e.kind())) told++; else routine++; if ("cold".equals(e.kind())) coldDays += e.seen(); }
+        assertEquals(100, told);
+        assertEquals("a line a kind a week", 8, routine);
+        assertEquals("a cold day counted once", 28, coldDays);
+        // Full: what matters least goes, never one asked to be kept while a passing moment is there.
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> full = new java.util.ArrayList<>();
+        full.add(new dev.jun.gyeot.core.BuddyMemory.Entry(monday - 400 * day, "fact", "사용자는 차를 지하 2층에 세웠대", 3, false));
+        for (int i = 0; i < 119; i++) full.add(new dev.jun.gyeot.core.BuddyMemory.Entry(monday - (300 - i) * day, i % 2 == 0 ? "late" : "fact", "기억 " + i, i % 2 == 0 ? 1 : 2, false));
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> more = dev.jun.gyeot.core.BuddyMemory.add(full, monday, "fact", "사용자는 고양이를 좋아한대", 0, 2, false);
+        assertEquals(dev.jun.gyeot.core.BuddyMemory.MOST, more.size());
+        assertTrue("the oldest, asked to be kept", more.contains(full.get(0)));
+        assertFalse("the oldest passing moment went", more.contains(full.get(1)));
+        assertEquals("사용자는 고양이를 좋아한대", more.get(more.size() - 1).text());
+        // The weather once a day, not every twelve hours of board builds.
+        JSONObject freezing = new JSONObject().put("code", 0).put("temp", -8);
+        BuddyTalk.weatherMemory(app, freezing, monday); BuddyTalk.weatherMemory(app, freezing, monday + 13 * 3_600_000L);
+        assertEquals(1, BuddyTalk.memories(app).size()); assertEquals(1, BuddyTalk.memories(app).get(0).seen());
+        BuddyTalk.weatherMemory(app, freezing, monday + day);
+        assertEquals(1, BuddyTalk.memories(app).size());
+        assertEquals("한 주 동안 영하로 꽁꽁 추운 날이 2번이었어", BuddyTalk.memories(app).get(0).text());
+        // A promise done: kept for the memory book, never brought up again; in 퍼레's own lines once a day at most.
+        BuddyTalk.forgetAll(app);
+        BuddyTalk.rememberStrong(app, "promise", "퍼레가 내일 아침 날씨를 알려 주기로 했어", false);
+        assertTrue(BuddyTalk.memoryWords(app, "", false, true, java.util.Set.of()).contains("날씨를 알려 주기로"));
+        assertFalse("once a day in its own lines", BuddyTalk.memoryWords(app, "", false, true, java.util.Set.of()).contains("날씨를 알려 주기로"));
+        assertTrue("an answer still knows it", BuddyTalk.memoryWords(app, "", true, true, java.util.Set.of()).contains("날씨를 알려 주기로"));
+        java.util.List<dev.jun.gyeot.core.BuddyMind.Op> ops = dev.jun.gyeot.core.BuddyMind.parseOps("약속 끝 1");
+        assertEquals(dev.jun.gyeot.core.BuddyMind.Change.DONE, ops.get(0).change());
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> promised = BuddyTalk.memories(app);
+        BuddyTalk.learned(app, promised, "약속 끝 1", "날씨 알려 줘서 고마워");
+        assertTrue(BuddyTalk.memories(app).get(0).done());
+        assertTrue("kept as done", dev.jun.gyeot.core.BuddyMemory.read(dev.jun.gyeot.core.BuddyMemory.save(BuddyTalk.memories(app))).get(0).done());
+        assertFalse(BuddyTalk.memoryWords(app, "", true, true, java.util.Set.of()).contains("날씨를 알려 주기로"));
+        assertTrue(dev.jun.gyeot.core.BuddyMind.related(BuddyTalk.memories(app), "내일 아침 날씨", 3, false).isEmpty());
+        // The night's digest: a list under its heading, merged into the note (kept unless taken out), a guess matters least.
+        dev.jun.gyeot.core.BuddyMind.Dream d = dev.jun.gyeot.core.BuddyMind.dream("프로필:\n- a\n- b\n추억: 없음");
+        assertEquals(java.util.List.of("a", "b"), d.profile()); assertEquals("", d.episode());
+        long t0 = monday - 30 * day;
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> note = java.util.List.of(
+            new dev.jun.gyeot.core.BuddyMemory.Entry(t0, "profile", "평일 아침 8시쯤 지도 앱을 열어요", 3, false),
+            new dev.jun.gyeot.core.BuddyMemory.Entry(t0 + 1, "profile", "고양이를 좋아해요", 3, false));
+        dev.jun.gyeot.core.BuddyMind.Dream night = dev.jun.gyeot.core.BuddyMind.dream("프로필:\n- 주말엔 등산을 가요\n- 강아지를 키우는 것 같아요 (추측)\n- 커피를 매일 마셔요\n빼기: 고양이를 좋아해요\n추억: 비 오는 날 같이 음악 들었어");
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> merged = dev.jun.gyeot.core.BuddyMind.mergeProfile(note, night, monday, java.util.Map.of("커피", monday + day));
+        java.util.Map<String, Integer> weights = new java.util.HashMap<>(); for (dev.jun.gyeot.core.BuddyMemory.Entry e : merged) weights.put(e.text(), e.weight());
+        assertTrue("an old line it did not take out stays: " + weights, weights.containsKey("평일 아침 8시쯤 지도 앱을 열어요"));
+        assertFalse("taken out", weights.containsKey("고양이를 좋아해요"));
+        assertEquals(Integer.valueOf(3), weights.get("주말엔 등산을 가요"));
+        assertEquals("a guess matters least", Integer.valueOf(1), weights.get("강아지를 키우는 것 같아요 (추측)"));
+        assertFalse("nothing on a subject let go", weights.keySet().stream().anyMatch(k -> k.contains("커피")));
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> many = new java.util.ArrayList<>();
+        for (int i = 0; i < 12; i++) many.add(new dev.jun.gyeot.core.BuddyMemory.Entry(t0 + i, "profile", "노트 " + (char) ('가' + i * 300) + " 줄", 3, false, i == 0 ? 4 : 1, t0 + i));
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> capped = dev.jun.gyeot.core.BuddyMind.mergeProfile(many, dev.jun.gyeot.core.BuddyMind.dream("프로필: 새로 안 것 하나\n프로필: 새로 안 것 둘"), monday, java.util.Map.of());
+        assertEquals("twelve lines at most", 12, capped.size()); assertTrue("the one told most stays", capped.contains(many.get(0)));
+        // A digest that failed leaves the day to be tried again, two hours on; one that answered is merged and the day done.
+        BuddyTalk.Night was = BuddyTalk.night;
+        android.content.SharedPreferences prefs = app.getSharedPreferences("buddyTalk", android.content.Context.MODE_PRIVATE);
+        try {
+            BuddyTalk.forgetAll(app);
+            BuddyTalk.restore(app, note);
+            java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> old = new java.util.ArrayList<>(BuddyTalk.memories(app));
+            old.add(new dev.jun.gyeot.core.BuddyMemory.Entry(monday - 90 * day, "fact", "사용자는 바다를 좋아한대", 2, false, 3, monday - 60 * day));
+            BuddyTalk.restore(app, old);
+            java.util.List<String> asked = new java.util.ArrayList<>();
+            BuddyTalk.night = (c, instructions, input, done, failed) -> { asked.add(input); failed.run(); return true; };
+            java.time.ZonedDateTime three = java.time.ZonedDateTime.of(2026, 11, 3, 3, 0, 0, 0, zone);
+            BuddyTalk.dream(app, false, false, three);
+            assertEquals(1, asked.size()); assertEquals("not done when it failed", "", prefs.getString("dreamt", ""));
+            assertTrue("what was told again and again, however old: " + asked.get(0), asked.get(0).contains("사용자는 바다를 좋아한대"));
+            BuddyTalk.dream(app, false, false, three.plusMinutes(40));
+            assertEquals("tried again two hours on", 1, asked.size());
+            BuddyTalk.night = (c, instructions, input, done, failed) -> { asked.add(input); done.accept("프로필:\n- 주말엔 등산을 가요\n추억: 없음"); return true; };
+            BuddyTalk.dream(app, false, false, three.plusHours(2));
+            assertEquals(2, asked.size()); assertEquals("2026-11-03", prefs.getString("dreamt", ""));
+            java.util.List<String> texts = new java.util.ArrayList<>(); for (dev.jun.gyeot.core.BuddyMemory.Entry e : BuddyTalk.memories(app)) texts.add(e.text());
+            assertTrue(texts.toString(), texts.contains("주말엔 등산을 가요") && texts.contains("평일 아침 8시쯤 지도 앱을 열어요") && texts.contains("고양이를 좋아해요"));
+            BuddyTalk.dream(app, false, false, three.plusHours(2).plusMinutes(30));
+            assertEquals("once a day", 2, asked.size());
+        } finally { BuddyTalk.night = was; prefs.edit().remove("dreamt").remove("dreamTry").commit(); }
+        // Two kept in the same moment are two memories (at names one): the night's first note line and the day, two told in
+        // one millisecond; the memory book's delete of one keeps the other.
+        BuddyTalk.forgetAll(app);
+        long same = System.currentTimeMillis();
+        BuddyTalk.dreamt(app, dev.jun.gyeot.core.BuddyMind.dream("프로필: 주말엔 등산을 가요\n추억: 비 오는 날 같이 음악 들었어"), same);
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> night2 = BuddyTalk.memories(app);
+        assertEquals(2, night2.size()); assertNotEquals("the note line and the day", night2.get(0).at(), night2.get(1).at());
+        dev.jun.gyeot.core.BuddyMemory.Entry day2 = night2.stream().filter(e -> "episode".equals(e.kind())).findFirst().orElseThrow();
+        BuddyTalk.forget(app, day2.at());
+        assertEquals(java.util.List.of("주말엔 등산을 가요"), BuddyTalk.memories(app).stream().map(dev.jun.gyeot.core.BuddyMemory.Entry::text).toList());
+        BuddyTalk.forgetAll(app);
+        BuddyTalk.rememberStrong(app, "fact", "사용자는 귤을 좋아한대", false); BuddyTalk.rememberStrong(app, "fact", "사용자는 수영을 배운대", false);
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> both = BuddyTalk.memories(app);
+        assertEquals(2, both.size()); assertNotEquals("told in one millisecond", both.get(0).at(), both.get(1).at());
+        // memory.json read once while it does not change; again when it does.
+        java.io.File file = new java.io.File(new java.io.File(app.getFilesDir(), "buddy"), "memory.json");
+        java.nio.file.Files.writeString(file.toPath(), dev.jun.gyeot.core.BuddyMemory.save(note));
+        int reads = BuddyTalk.memoryReads;
+        assertEquals(2, BuddyTalk.memories(app).size()); BuddyTalk.memories(app); BuddyTalk.life(app); BuddyTalk.needsUnlock(app, "내 고민 기억나?");
+        assertEquals("read once", reads + 1, BuddyTalk.memoryReads);
+        java.nio.file.Files.writeString(file.toPath(), dev.jun.gyeot.core.BuddyMemory.save(note.subList(0, 1)));
+        assertEquals("read again once it changed", 1, BuddyTalk.memories(app).size());
+        BuddyTalk.forgetAll(app);
+    }
+    /**
+     * A voice that fits the moment (준: "음성상호작용을 더 강화해줘"): Typecast's emotion and tempo from the line and what the user
+     * said, never quick or high late at night, only what the voice can do; calm "음…" sounds for a user who is down.
+     */
+    @Test public void tonesFitTheMoment() throws Exception {
+        java.util.List<String> all = dev.jun.gyeot.core.VoiceTone.ALL;
+        dev.jun.gyeot.core.VoiceTone.Tone down = dev.jun.gyeot.core.VoiceTone.of("나 오늘 너무 속상해", "그랬구나, 무슨 일 있었어?", 14, all);
+        assertEquals("sad", down.preset()); assertEquals(0.8, down.intensity(), 1e-9); assertTrue("calm sounds too", down.calm());
+        dev.jun.gyeot.core.VoiceTone.Tone news = dev.jun.gyeot.core.VoiceTone.of("나 합격했어!", "우와 축하해!", 14, all);
+        assertEquals("happy", news.preset()); assertEquals(1.3, news.intensity(), 1e-9); assertFalse(news.calm());
+        dev.jun.gyeot.core.VoiceTone.Tone time = dev.jun.gyeot.core.VoiceTone.of("지금 몇 시야", "오후 세 시야", 14, all);
+        assertEquals("normal", time.preset()); assertEquals(1.0, time.intensity(), 1e-9);
+        dev.jun.gyeot.core.VoiceTone.Tone usual = dev.jun.gyeot.core.VoiceTone.of("심심해", "그럼 영화 볼래?", 14, all);
+        assertEquals("happy", usual.preset()); assertEquals(1.1, usual.intensity(), 1e-9); assertEquals(1.05, usual.tempo(), 1e-9);
+        // The line's own faces first: a crying one low, 헉 high (not late at night: never quick or high then).
+        assertEquals("sad", dev.jun.gyeot.core.VoiceTone.of("", "우산이 젖었어 ㅠㅠ", 14, all).preset());
+        assertEquals("sad", dev.jun.gyeot.core.VoiceTone.of("", "그랬구나 \uD83E\uDD7A", 14, all).preset());
+        assertEquals("toneup", dev.jun.gyeot.core.VoiceTone.of("", "헉, 진짜?", 14, all).preset());
+        assertEquals("normal", dev.jun.gyeot.core.VoiceTone.of("", "헉, 진짜?", 1, all).preset());
+        assertEquals(1.0, dev.jun.gyeot.core.VoiceTone.of("심심해", "그럼 영화 볼래?", 1, all).tempo(), 1e-9);
+        assertEquals(1.05, dev.jun.gyeot.core.VoiceTone.of("심심해", "그럼 영화 볼래?", 6, all).tempo(), 1e-9);
+        assertNotEquals("아파트 is not 아파", "sad", dev.jun.gyeot.core.VoiceTone.of("아파트 시세", "알아볼게!", 14, all).preset());
+        // Only what the voice can do.
+        assertEquals("normal", dev.jun.gyeot.core.VoiceTone.of("나 오늘 너무 속상해", "", 14, java.util.List.of("normal", "happy")).preset());
+        assertEquals("tonedown", dev.jun.gyeot.core.VoiceTone.of("나 오늘 너무 속상해", "", 14, java.util.List.of("normal", "tonedown")).preset());
+        assertEquals("normal", dev.jun.gyeot.core.VoiceTone.of("심심해", "", 14, java.util.List.of()).preset());
+        // What goes to Typecast.
+        JSONObject voice = new JSONObject().put("id", "tc_test").put("emotions", new org.json.JSONArray(java.util.List.of("normal", "happy", "sad")));
+        JSONObject sad = BuddyVoice.request(voice, "괜찮아", "wav", down);
+        assertEquals("sad", sad.getJSONObject("prompt").getString("emotion_preset"));
+        assertEquals(0.8, sad.getJSONObject("prompt").getDouble("emotion_intensity"), 1e-9);
+        assertEquals(1.05, sad.getJSONObject("output").getDouble("audio_tempo"), 1e-9);
+        JSONObject made = BuddyVoice.request(voice, "응!", "mp3", BuddyVoice.usual(voice));
+        assertEquals("its short words as always", "happy", made.getJSONObject("prompt").getString("emotion_preset"));
+        assertEquals(1.1, made.getJSONObject("prompt").getDouble("emotion_intensity"), 1e-9);
+        assertEquals("plain when the voice has no happy", "normal", BuddyVoice.usual(new JSONObject().put("id", "x")).preset());
+        // Calm "음…" for a user who is down: never "오, 좋아!" or "어머나!".
+        assertTrue(dev.jun.gyeot.core.VoiceTone.calm("나 오늘 너무 속상해", 14)); assertFalse(dev.jun.gyeot.core.VoiceTone.calm("심심해", 14));
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        app.store().settings.edit().putString("typecastVoice", "{\"id\":\"tc_test\"}").commit();
+        java.io.File dir = VoicePresets.dir(app, "tc_test"); dir.mkdirs();
+        for (int i = 0; i < VoicePresets.LINES.length; i++) java.nio.file.Files.write(new java.io.File(dir, i + ".mp3").toPath(), new byte[]{1});
+        for (String w : VoicePresets.CALM) assertTrue(w, java.util.Arrays.stream(VoicePresets.LINES).anyMatch(l -> l[0].equals("think") && l[1].equals(w)));
+        java.util.Set<String> picked = new java.util.HashSet<>();
+        for (int k = 0; k < 14; k++) { String w = VoicePresets.words(VoicePresets.pick(app, app.store(), "think", true)); assertTrue(w, VoicePresets.CALM.contains(w)); picked.add(w); }
+        assertTrue("not one alone: " + picked, picked.size() >= 4);
     }
     /** More apps their own way: the clock's timers, a recorder, downloads, a mail, an app's info, a translator, a day in the calendar, 방해 금지. */
     @Test public void usesMoreAppsTheirOwnWay() throws Exception {
@@ -653,6 +901,11 @@ public class BuddyBrainTests {
         assertEquals(5000, playing.level(2000), 0);
         assertEquals("nothing played lately", 0, playing.level(3200), 0);
         playing.clear(); assertEquals("cut short", 0, playing.level(2000), 0);
+        // A sound whose length is not known ahead (the phone's voice): measured until it is said, then the usual window.
+        playing.add(5000, 65_000, 4000); playing.end(6200);
+        assertEquals("said: the window from its real end", 4000, playing.level(6800), 0);
+        assertEquals("not a minute of a guess", 0, playing.level(7000), 0);
+        playing.clear();
 
         // 퍼레's own echo through the echo canceller: 0.45 of what plays, for ten seconds.
         dev.jun.gyeot.core.BargeIn barge = new dev.jun.gyeot.core.BargeIn();
@@ -1403,7 +1656,216 @@ public class BuddyBrainTests {
             settle(() -> BuddyMisses.list(app).size() == 2);
             shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1000));
             assertEquals("said once: " + shown, 1, shown.stream().filter(late::equals).count());
+
+            // Cut short, then a guest's "응": a guest never does a thing on the phone, so the user's thing waits (it is not let
+            // go either) and the quiet after does it.
+            comesUp[0] = true; while (shadow.getNextStartedActivity() != null) { /* the shares above */ }
+            var think = BuddyVoice.class.getDeclaredMethod("think", String.class, boolean.class); think.setAccessible(true);
+            ears.get(11).heard("유튜브에서 아이유 좋은날 틀어 줘");
+            settle(() -> asks.size() == 9);
+            asks.get(8).doIt().accept(play); asks.get(8).part().accept("틀어 줄게!");
+            settle(saying);
+            over.invoke(talk, false);
+            settle(() -> ears.size() == 13);
+            think.invoke(talk, "응", true);
+            settle(() -> asks.size() == 10);
+            assertNull("a guest's yes does not do it", shadow.getNextStartedActivity());
+            assertNotNull("it waits for the user", field(talk, "held"));
+            assertNull("a guest's answer does nothing", asks.get(9).doIt());
+            asks.get(9).done().accept("");
+            settle(() -> ears.size() == 14);
+            ears.get(13).ready(); ears.get(13).silent("말이 없어요");
+            settle(() -> shadow.peekNextStartedActivity() != null);
+            android.content.Intent after = shadow.getNextStartedActivity();
+            assertNotNull("done on the quiet after", after); assertEquals("com.google.android.youtube", after.getPackage());
+
+            // A talk ended while an answer was awaited: the next one awaits none (else what did not open is never said in it).
+            settle(() -> ears.size() == 15);
+            ears.get(14).ready(); ears.get(14).heard("오늘 뭐 하지");
+            settle(() -> asks.size() == 11);
+            assertNotEquals(0, field(talk, "awaited"));
+            talk.stop(); talk.start();
+            assertEquals("a new talk awaits nothing", 0, field(talk, "awaited"));
         } finally { talk.stop(); BuddyVoice.ears = before; BuddyVoice.brain = was; BuddyActs.watch = watched; }
+    }
+
+    /**
+     * What 퍼레 knew, set right (준: "퍼레의 학습기능 … 강화해줘"): a talk's lessons replace what the user corrected, reinforce
+     * what they told again and keep the rest as new, and what was told often or lately comes to mind first.
+     */
+    @Test public void correctsWhatItKnew() {
+        long t = 1_700_000_000_000L, day = 86_400_000L;
+        java.util.function.Function<java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry>, java.util.List<String>> texts = l -> l.stream().map(dev.jun.gyeot.core.BuddyMemory.Entry::text).toList();
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> coffee = java.util.List.of(new dev.jun.gyeot.core.BuddyMemory.Entry(t, "fact", "사용자는 커피를 좋아한대", 2, false));
+        // Said the other way round: the new words in its place, not a second memory beside it (one known as it was named, told now).
+        var no = dev.jun.gyeot.core.BuddyMind.learned(coffee, coffee, dev.jun.gyeot.core.BuddyMind.parseOps("새로: 사용자는 커피를 안 좋아한대"), "나 커피 안 좋아해", t + day, false);
+        assertEquals(java.util.List.of("사용자는 커피를 안 좋아한대"), texts.apply(no));
+        assertEquals(t, no.get(0).at()); assertEquals(t + day, no.get(0).last()); assertEquals(1, no.get(0).seen());
+        // Set right by its number; a "고침" about something else is kept as new, the one known left as it was.
+        assertEquals(java.util.List.of("사용자는 요즘 커피를 끊었대"), texts.apply(dev.jun.gyeot.core.BuddyMind.learned(coffee, coffee, dev.jun.gyeot.core.BuddyMind.parseOps("고침 1: 사용자는 요즘 커피를 끊었대"), "커피 끊었어", t + day, false)));
+        assertEquals(java.util.List.of("사용자는 커피를 좋아한대", "사용자는 내일 부산에 간대"), texts.apply(dev.jun.gyeot.core.BuddyMind.learned(coffee, coffee, dev.jun.gyeot.core.BuddyMind.parseOps("고침 1: 사용자는 내일 부산에 간대"), "내일 부산 가", t + day, false)));
+        // Let go only when the talk was about it, and a private one only once the fingerprint passed.
+        assertTrue(dev.jun.gyeot.core.BuddyMind.learned(coffee, coffee, dev.jun.gyeot.core.BuddyMind.parseOps("지움 1"), "아니 나 커피 안 마셔", t, false).isEmpty());
+        assertEquals("not about it", 1, dev.jun.gyeot.core.BuddyMind.learned(coffee, coffee, dev.jun.gyeot.core.BuddyMind.parseOps("지움 1"), "내일 부산 가", t, false).size());
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> worry = java.util.List.of(new dev.jun.gyeot.core.BuddyMemory.Entry(t, "fact", "사용자는 요즘 이직 고민이 많대", 2, true));
+        assertEquals("private, locked", 1, dev.jun.gyeot.core.BuddyMind.learned(worry, worry, dev.jun.gyeot.core.BuddyMind.parseOps("지움 1"), "이직 고민은 끝났어", t, false).size());
+        assertTrue("private, unlocked", dev.jun.gyeot.core.BuddyMind.learned(worry, worry, dev.jun.gyeot.core.BuddyMind.parseOps("지움 1"), "이직 고민은 끝났어", t, true).isEmpty());
+        // Told again twice: told three times, and it matters more.
+        var twice = dev.jun.gyeot.core.BuddyMind.learned(coffee, coffee, dev.jun.gyeot.core.BuddyMind.parseOps("같음 1\n같음 1"), "커피 좋아", t, false);
+        assertEquals(1, twice.size()); assertEquals(3, twice.get(0).seen()); assertEquals(3, twice.get(0).weight());
+        // Nearly the same words written as new: told again (no longer dropped, nor kept twice).
+        var again = dev.jun.gyeot.core.BuddyMind.learned(coffee, coffee, dev.jun.gyeot.core.BuddyMind.parseOps("새로: 사용자는 커피를 좋아한대요"), "커피 좋아", t + day, false);
+        assertEquals(1, again.size()); assertEquals(2, again.get(0).seen()); assertEquals(t + day, again.get(0).last());
+        assertEquals("a new thing", 2, dev.jun.gyeot.core.BuddyMind.learned(coffee, coffee, dev.jun.gyeot.core.BuddyMind.parseOps("새로: 사용자는 고양이를 좋아한대"), "고양이 좋아", t, false).size());
+        assertEquals("no numbers of four digits", 1, dev.jun.gyeot.core.BuddyMind.learned(coffee, coffee, dev.jun.gyeot.core.BuddyMind.parseOps("새로: 사용자의 현관 번호는 4821이래"), "", t, false).size());
+        // What was told more often comes to mind first (the same weight, told as lately), and lately counts from when it was last told.
+        dev.jun.gyeot.core.BuddyMemory.Entry cat = new dev.jun.gyeot.core.BuddyMemory.Entry(t, "fact", "사용자는 고양이를 좋아한대", 2, false);
+        dev.jun.gyeot.core.BuddyMemory.Entry dog = dev.jun.gyeot.core.BuddyMemory.confirm(java.util.List.of(new dev.jun.gyeot.core.BuddyMemory.Entry(t, "fact", "사용자는 강아지를 키운대", 2, false)), t, t).get(0);
+        assertEquals(2, dog.seen()); assertEquals(2, dog.weight());
+        assertEquals(dog, dev.jun.gyeot.core.BuddyMind.recall(java.util.List.of(cat, dog), "", t + 3 * day, null, false, 2).get(0));
+        dev.jun.gyeot.core.BuddyMemory.Entry sea = new dev.jun.gyeot.core.BuddyMemory.Entry(t - 30 * day, "fact", "사용자는 바다를 좋아한대", 2, false, 1, t);
+        dev.jun.gyeot.core.BuddyMemory.Entry hill = new dev.jun.gyeot.core.BuddyMemory.Entry(t - 10 * day, "fact", "사용자는 산을 좋아한대", 2, false);
+        assertEquals("told a month ago, again today", sea, dev.jun.gyeot.core.BuddyMind.recall(java.util.List.of(hill, sea), "", t + day, null, false, 2).get(0));
+        // The opposite: one says no, and it is the same thing.
+        assertTrue(dev.jun.gyeot.core.BuddyMind.negates("사용자는 커피를 좋아한대", "사용자는 커피를 싫어한대"));
+        assertFalse(dev.jun.gyeot.core.BuddyMind.negates("사용자는 커피를 좋아한대", "사용자는 커피를 좋아한대요"));
+        assertFalse("another thing", dev.jun.gyeot.core.BuddyMind.negates("사용자는 커피를 좋아한대", "사용자는 고양이를 안 좋아한대"));
+        // The lessons as written, at most four, "민감" kept as private.
+        var ops = dev.jun.gyeot.core.BuddyMind.parseOps("- 새로: 사용자는 고양이를 좋아한대\n민감 고침 2: 사용자는 이직 고민이 끝났대\n지움 3\n같음 1 (또 말함)\n약속: 퍼레가 내일 날씨를 알려 주기로 했어");
+        assertEquals(4, ops.size());
+        assertEquals(dev.jun.gyeot.core.BuddyMind.Change.NEW, ops.get(0).change()); assertEquals("사용자는 고양이를 좋아한대", ops.get(0).text());
+        assertEquals(dev.jun.gyeot.core.BuddyMind.Change.FIX, ops.get(1).change()); assertEquals(2, ops.get(1).n()); assertTrue("민감 is private", ops.get(1).secret());
+        assertEquals(dev.jun.gyeot.core.BuddyMind.Change.DROP, ops.get(2).change()); assertEquals(dev.jun.gyeot.core.BuddyMind.Change.SAME, ops.get(3).change());
+        assertEquals("promise", dev.jun.gyeot.core.BuddyMind.parseOps("약속: 퍼레가 내일 날씨를 알려 주기로 했어").get(0).kind());
+        assertTrue(dev.jun.gyeot.core.BuddyMind.parseOps("없음").isEmpty()); assertTrue(dev.jun.gyeot.core.BuddyMind.parseOps("사용자는 커피를 좋아한대").isEmpty());
+        // Kept as before: memories saved before seen and last read as told once, when they were kept; saved and read back the same.
+        var old = dev.jun.gyeot.core.BuddyMemory.read("[{\"at\":5,\"kind\":\"fact\",\"text\":\"사용자는 바다를 좋아한대\",\"weight\":2}]").get(0);
+        assertEquals(1, old.seen()); assertEquals(5, old.last());
+        assertEquals(twice, dev.jun.gyeot.core.BuddyMemory.read(dev.jun.gyeot.core.BuddyMemory.save(twice)));
+
+        // On the phone: what it knew goes with an answer that corrects it, and the lessons are kept in its memory.
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        BuddyTalk.forgetAll(app);
+        BuddyTalk.rememberStrong(app, "fact", "사용자는 커피를 좋아한대", false);
+        assertTrue("what it knew goes with the correction", BuddyTalk.corrected(app, "아니 나 이제 커피 안 마셔").contains("예전: ‘사용자는 커피를 좋아한대’"));
+        assertEquals("not a correction", "", BuddyTalk.corrected(app, "커피 마시고 싶다"));
+        assertEquals("nothing known about it", "", BuddyTalk.corrected(app, "아니 오늘은 산책할래"));
+        var shown = dev.jun.gyeot.core.BuddyMind.related(BuddyTalk.memories(app), "나 이제 커피 끊었어", 6, false);
+        assertEquals(1, shown.size());
+        BuddyTalk.learned(app, shown, "고침 1: 사용자는 요즘 커피를 끊었대\n새로: 사용자는 고양이를 좋아한대", "나 이제 커피 끊었어. 고양이 좋아");
+        assertEquals(java.util.List.of("사용자는 요즘 커피를 끊었대", "사용자는 고양이를 좋아한대"), texts.apply(BuddyTalk.memories(app)));
+        BuddyTalk.forgetAll(app);
+    }
+    /**
+     * Learned once a talk, from all of it (준: "퍼레의 학습기능 … 강화해줘"): no voice answer learns on its own; what the user said
+     * (a short "고양이 좋아" too) and what was done for them go to the learning brain when the talk ends, every six of their
+     * turns, and before a guest's words; a guest's turns never.
+     */
+    @Test public void learnsFromTheWholeTalk() throws Exception {
+        long at = java.time.LocalDateTime.of(2026, 11, 27, 22, 10).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
+        assertEquals("22:10 노래 ‘아이유 좋은날’(멜론)", BuddyActs.line(BuddyTalk.loose("{\"tool\":\"play\",\"query\":\"아이유 좋은날\",\"app\":\"멜론\"}"), at));
+        assertEquals("a torch tells nothing of the user", "", BuddyActs.line(BuddyTalk.loose("{\"tool\":\"torch\",\"on\":true}"), at));
+        java.util.List<String[]> turns = java.util.List.of(new String[]{"user", "어제 산책했어"}, new String[]{"assistant", "좋았겠다!"},
+            new String[]{"user", "고양이 좋아"}, new String[]{"assistant", "나도!"}, BuddyVoice.talkTurn("user", "내 통장 비밀번호 알려 줄까", true));
+        String in = dev.jun.gyeot.core.BuddyMind.talkInput(turns, 2, java.util.List.of("22:10 노래 ‘아이유 좋은날’(멜론)"), java.util.List.of(new dev.jun.gyeot.core.BuddyMemory.Entry(1, "fact", "사용자는 강아지를 키운대", 2, false)));
+        assertTrue(in, in.startsWith("앞의 대화(이미 배운 것, 참고만):\n사용자: 어제 산책했어\n퍼레: 좋았겠다!"));
+        assertTrue(in, in.contains("대화:\n사용자: 고양이 좋아\n퍼레: 나도!\n"));
+        assertFalse("a guest's words", in.contains("통장"));
+        assertTrue(in, in.contains("한 일(사용자가 시켜서 퍼레가 한 것):\n- 22:10 노래 ‘아이유 좋은날’(멜론)"));
+        assertTrue(in, in.endsWith("지금 알고 있는 것:\n1. 사용자는 강아지를 키운대"));
+        java.util.List<String[]> long30 = new java.util.ArrayList<>(); for (int i = 0; i < 30; i++) long30.add(new String[]{"user", "말 " + i});
+        String last = dev.jun.gyeot.core.BuddyMind.talkInput(long30, 0, java.util.List.of(), java.util.List.of());
+        assertTrue("the last sixteen", last.contains("사용자: 말 14\n") && !last.contains("사용자: 말 13\n") && last.contains("사용자: 말 29"));
+        assertTrue("a short word is worth learning", dev.jun.gyeot.core.BuddyMind.worthLearning(java.util.List.<String[]>of(new String[]{"user", "고양이 좋아"}), 0));
+        assertFalse("less than four letters", dev.jun.gyeot.core.BuddyMind.worthLearning(java.util.List.<String[]>of(new String[]{"user", "응"}, new String[]{"assistant", "좋아, 그럼 내일 같이 하자!"}), 0));
+        assertFalse("a guest's", dev.jun.gyeot.core.BuddyMind.worthLearning(java.util.List.<String[]>of(BuddyVoice.talkTurn("user", "나는 커피를 좋아해", true)), 0));
+        assertFalse("learned before", dev.jun.gyeot.core.BuddyMind.worthLearning(java.util.List.<String[]>of(new String[]{"user", "나는 커피를 좋아해"}), 1));
+
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        app.store().appVisible = true;
+        java.util.List<SpeechInput.Listener> ears = new java.util.ArrayList<>();
+        java.util.List<BuddyTalk.Ask> asks = new java.util.concurrent.CopyOnWriteArrayList<>();
+        java.util.List<Object[]> learned = new java.util.ArrayList<>();
+        SpeechInput.Ears before = BuddyVoice.ears; java.util.function.BiConsumer<android.content.Context, BuddyTalk.Ask> was = BuddyVoice.brain; BuddyVoice.Learner learnedBy = BuddyVoice.learner;
+        BuddyVoice.ears = fakeEars(ears); BuddyVoice.brain = (c, ask) -> asks.add(ask);
+        BuddyVoice.learner = (c, t, from, acts) -> learned.add(new Object[]{new java.util.ArrayList<>(t), from, new java.util.ArrayList<>(acts)});
+        BuddyVoice talk = new BuddyVoice(app, app.store());
+        try {
+            talk.attach((state, text) -> {}, then -> then.run());
+            talk.start(); settle(() -> ears.size() == 1);
+            ears.get(0).ready(); ears.get(0).heard("고양이 좋아");
+            settle(() -> asks.size() == 1);
+            assertFalse("no answer learns on its own", asks.get(0).learnNow());
+            asks.get(0).done().accept("");
+            settle(() -> ears.size() == 2);
+            // A thing done for the user: one line for what the talk taught.
+            ears.get(1).ready(); ears.get(1).heard("아이유 좋은날 검색해 줘");
+            settle(() -> asks.size() == 2);
+            asks.get(1).doIt().accept(BuddyTalk.loose("{\"tool\":\"search\",\"query\":\"아이유 좋은날\"}")); asks.get(1).done().accept("");
+            settle(() -> ears.size() == 3);
+            assertTrue("nothing learned while it goes on", learned.isEmpty());
+            // A guest speaks: what the user said is learned first, once.
+            var think = BuddyVoice.class.getDeclaredMethod("think", String.class, boolean.class); think.setAccessible(true);
+            think.invoke(talk, "안녕, 나는 친구야", true);
+            assertEquals(1, learned.size());
+            @SuppressWarnings("unchecked") java.util.List<String[]> taught = (java.util.List<String[]>) learned.get(0)[0];
+            assertEquals(0, learned.get(0)[1]);
+            assertTrue("a short word too", taught.stream().anyMatch(x -> x[1].equals("고양이 좋아")));
+            @SuppressWarnings("unchecked") java.util.List<String> done = (java.util.List<String>) learned.get(0)[2];
+            assertEquals(1, done.size()); assertTrue(done.get(0), done.get(0).matches("\\d\\d:\\d\\d 검색 ‘아이유 좋은날’"));
+            settle(() -> asks.size() == 3);
+            assertTrue(asks.get(2).guest());
+            asks.get(2).done().accept("");
+            settle(() -> ears.size() == 4);
+            // It ends with only the guest's words since: nothing more to learn.
+            talk.stop();
+            assertEquals("a guest's turns never", 1, learned.size());
+
+            // Called again soon: the talk goes on, and a long one learns every six of the user's turns, the kept ones not again.
+            talk.start(); settle(() -> ears.size() == 5);
+            for (int i = 0; i < BuddyVoice.LEARN_TURNS; i++) {
+                int n = asks.size(), heard = ears.size();
+                ears.get(heard - 1).ready(); ears.get(heard - 1).heard("오늘 본 영화 " + (i + 1) + "번째 얘기");
+                settle(() -> asks.size() == n + 1);
+                asks.get(n).done().accept("");
+                settle(() -> ears.size() == heard + 1);
+            }
+            assertEquals(2, learned.size());
+            @SuppressWarnings("unchecked") java.util.List<String[]> six = (java.util.List<String[]>) learned.get(1)[0];
+            int from = (int) learned.get(1)[1];
+            assertEquals("the guest's kept turn is not learned again", 1, from);
+            assertEquals(BuddyVoice.LEARN_TURNS, six.size() - from);
+            // One more, and the talk ends: what came after is learned as it ends, and only that.
+            ears.get(ears.size() - 1).ready(); ears.get(ears.size() - 1).heard("내일은 바다 보러 갈 거야");
+            settle(() -> asks.size() == 2 + 1 + BuddyVoice.LEARN_TURNS + 1);
+            asks.get(asks.size() - 1).done().accept("");
+            settle(() -> ears.size() == 5 + BuddyVoice.LEARN_TURNS + 1);
+            talk.stop();
+            assertEquals("learned as it ends", 3, learned.size());
+            assertEquals(1 + BuddyVoice.LEARN_TURNS, (int) learned.get(2)[1]);
+            talk.stop();
+            assertEquals("learned already", 3, learned.size());
+            // A talk that goes on from the typed 퍼레와 대화: those turns were learned there, so only what is said by voice is.
+            BuddyVoice typed = new BuddyVoice(app, app.store());
+            try {
+                typed.attach((state, text) -> {}, then -> then.run());
+                typed.start("[[\"user\",\"나 다음 주에 제주도 가\"],[\"assistant\",\"우와 좋겠다!\"],[\"user\",\"귤 많이 먹을 거야\"]]");
+                settle(() -> ears.size() == 5 + BuddyVoice.LEARN_TURNS + 2);
+                ears.get(ears.size() - 1).ready(); ears.get(ears.size() - 1).heard("한라산도 올라갈 거야");
+                settle(() -> asks.size() == 2 + 1 + BuddyVoice.LEARN_TURNS + 2);
+                asks.get(asks.size() - 1).done().accept("");
+                settle(() -> ears.size() == 5 + BuddyVoice.LEARN_TURNS + 3);
+                typed.stop();
+                assertEquals(4, learned.size());
+                assertEquals("the typed turns are not learned again", 3, (int) learned.get(3)[1]);
+            } finally { typed.stop(); }
+            // An act that went wrong is told as one (kept in 퍼레가 못 한 일, not learned from).
+            app.store().appVisible = false;
+            org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(false);
+            assertTrue("it could not open", BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"search\",\"query\":\"아이유\"}"), "아이유 검색해 줘", false).missed());
+            app.store().appVisible = true;
+            assertFalse(BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"search\",\"query\":\"아이유\"}"), "아이유 검색해 줘", false).missed());
+        } finally { talk.stop(); BuddyVoice.ears = before; BuddyVoice.brain = was; BuddyVoice.learner = learnedBy; app.store().appVisible = false; }
     }
 
     /** Korean that reads (준: "가끔 한국어를 못알아듣게 말해"): a line cut at its start or in another script is not said. */

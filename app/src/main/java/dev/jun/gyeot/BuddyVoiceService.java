@@ -53,5 +53,7 @@ public final class BuddyVoiceService extends Service {
         if (talk == null || !talk.on()) { stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); }
         return START_NOT_STICKY;
     }
+    /** Going (the talk ended, or Android stopped it): what the talk taught so far is learned, not lost with it. */
+    @Override public void onDestroy() { BuddyVoice.flushLearning(); super.onDestroy(); }
     @Override public IBinder onBind(Intent intent) { return null; }
 }

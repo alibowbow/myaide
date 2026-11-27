@@ -97,7 +97,7 @@ public final class DecorActivity extends Activity {
         ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_bolt, Ui.ORANGE, "퍼레 두뇌", brainLabel(), ui.chevron(), this::chooseBrain), true);
         // What 퍼레 calls the user (준: "호칭은 내가 설정할 수 있게해줘").
         ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_sparkle, Ui.PURPLE, "부르는 호칭", "퍼레가 나를 ‘" + BuddyTalk.title(this) + "’(이)라고 불러요", ui.chevron(), this::chooseTitle), true);
-        ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_sparkle, Ui.ACCENT, "퍼레의 기억", "발견 노트 · 약속 · 추억 · 오늘 · 지문으로 열어요", ui.chevron(), () -> Fingerprint.ask(this, "퍼레의 기억", "지문으로 확인하면 열려요", this::showMemory, () -> {})), true);
+        ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_book, Ui.ACCENT, "퍼레의 기억", "발견 노트 · 약속 · 추억 · 오늘 · 지문으로 열어요", ui.chevron(), () -> Fingerprint.ask(this, "퍼레의 기억", "지문으로 확인하면 열려요", this::showMemory, () -> {})), true);
         // The user's voice (준: "내 목소리를 알아볼 수 있게해줘"): read three sentences once; in the voice talk 퍼레 then knows it.
         boolean known = BuddyTalk.voice(this).ready();
         ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_mic, Ui.TEAL, "내 목소리", known ? "등록했어요 · 음성 대화에서 내 목소리를 알아봐요" : "등록하면 다른 사람 목소리엔 내 기억을 말하지 않아요", ui.chevron(), this::voiceSheet), true);
@@ -481,7 +481,8 @@ public final class DecorActivity extends Activity {
             sheet.body.addView(ui.sectionHeader(part[0]));
             LinearLayout group = ui.group();
             for (dev.jun.gyeot.core.BuddyMemory.Entry e : shown)
-                ui.addRow(group, ui.listRow(R.drawable.ic_sparkle, e.secret() ? Ui.ORANGE : Ui.ACCENT, (e.secret() ? "🔒 " : "") + e.text(), dev.jun.gyeot.core.BuddyMemory.when(e.at(), now, zone),
+                // A book, not a sparkle (준 does not like star or sparkle icons).
+                ui.addRow(group, ui.listRow(R.drawable.ic_book, e.secret() ? Ui.ORANGE : Ui.ACCENT, (e.secret() ? "🔒 " : "") + e.text(), (e.done() ? "지킨 약속 · " : "") + dev.jun.gyeot.core.BuddyMemory.when(e.at(), now, zone),
                     ui.smallChip("지우기", () -> { sheet.dismiss(); work.execute(() -> { BuddyTalk.forget(this, e.at()); main.post(() -> { if (!destroyed) showMemory(); }); }); }), null), true);
             sheet.body.addView(group);
         }

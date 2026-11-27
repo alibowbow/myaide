@@ -91,8 +91,10 @@ final class BuddyTools {
         .put(fn("buddy_move", "너(퍼레)가 홈 화면에서 놀이·동작을 한다(춤, 점프, 요가 …).", props("play", "string", "놀이 이름 (예: " + BuddyBoard.sample(BuddyBoard.PLAYS, 16) + ")"), "play"))
         .put(fn("buddy_wish", "너(퍼레)가 갖고 싶은데 아직 없는 것을 소원 목록에 적는다(사용자가 만들어 줄 수도 있어).", props("thing", "string", "갖고 싶은 것 (예: 트램펄린)"), "thing"))
         // 퍼레 itself, asked by the user: what to keep in mind or let go, what to call them, a quiet while
-        .put(fn("remember", "사용자가 기억해 달라고 한 것을 너(퍼레)의 기억에 적어 둔다(예: 차는 지하 2층에 세웠어).", props("fact", "string", "기억할 것을 '사용자는 …' 한 문장으로"), "fact"))
-        .put(fn("forget", "사용자가 잊어 달라고 한 너(퍼레)의 기억을 지운다.", props("what", "string", "잊을 기억의 핵심 말 (예: 고양이, 이직 고민)"), "what"))
+        .put(fn("remember", "사용자가 기억해 달라고 한 것을 너(퍼레)의 기억에 적어 둔다(예: 차는 지하 2층에 세웠어).",
+            props("fact", "string", "기억할 것을 '사용자는 …' 한 문장으로, 45자 안쪽", "private", "boolean", "남이 알면 곤란한 이야기(고민·걱정)면 true"), "fact"))
+        .put(fn("forget", "사용자가 잊어 달라고 하거나 '그건 틀렸어 지워'라고 한 너(퍼레)의 기억을 지운다. 방금 잊은 걸 되돌려 달라면 undo.",
+            props("what", "string", "잊을 기억의 핵심 말 (예: 고양이, 이직 고민)", "undo", "boolean", "방금 잊은 걸 되돌릴 때 true")))
         .put(fn("call_me", "너(퍼레)가 사용자를 부르는 호칭을 바꾼다.", props("title", "string", "부를 호칭 (예: 주인공님, 형)"), "title"))
         .put(fn("quiet", "너(퍼레)가 홈 화면에서 먼저 말을 걸지 않고 조용히 있는다(부르면 대답은 해). 다시 말 걸어도 되면 0.", props("hours", "number", "몇 시간 (0~12), 말하지 않았으면 빼기")));
     /** pick: one of the choices said (an array the props helper does not make). */
@@ -145,7 +147,7 @@ final class BuddyTools {
         "헤드폰", "헤드셋", "커피", "운동", "축구", "수영", "간식", "우산", "도시락", "독서");
     /** What is asked of 퍼레 itself, without spaces: to wear, to take out or put away, to play, to remember, forget, call or be quiet. */
     private static final java.util.regex.Pattern ABOUT_SELF = java.util.regex.Pattern.compile("입어|입자|입을래|입혀|벗어|갈아입|옷|모자|안경|꺼내|치워|장난감|놀자|놀아|놀이|해봐|보여줘|춤|노래(?:해|불러)|소원"
-        + "|퍼레(?:야)?(?:너|넌|네가)|기억해|기억해줘|기억해둬|잊어|잊지|지워줘|(?:이)?라고(?:불러|부를|해줘)|부르지마|호칭|조용히|말걸지|말걸어|말시키지");
+        + "|퍼레(?:야)?(?:너|넌|네가)|기억해|기억해줘|기억해둬|잊어|잊지|지워|까먹어|틀렸|되돌려|(?:이)?라고(?:불러|부를|해줘)|부르지마|호칭|조용히|말걸지|말걸어|말시키지");
     /** Whether said is about 퍼레 itself: one of its things by name (two letters or more), or a thing asked of it. A wrong yes costs only a few tokens. */
     static boolean self(String said) {
         if (said == null) return false;
@@ -163,7 +165,7 @@ final class BuddyTools {
     static String rule(boolean self) {
         return "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 안내, 지도에서 찾기, 노래·영상 찾아 틀기, 음악 멈춤·다음 곡, 알람, 타이머, 타이머 화면, 스톱워치, 손전등, 화면 방향, 소리 크기, 밝기, 방해 금지·절전 같은 설정 화면, 앱 정보 화면, 검색, 카톡으로 보내기, 문자 쓰기, 메일 쓰기, 전화 걸 준비, 카메라, 갤러리, 연락처, 녹음, 메모, 다운로드, 일정 넣기·보기, 웹 페이지 열기, 번역) 도구를 불러서 너가 직접 해. "
         + "동전 던지기, 주사위, 골라 주기, 계산, 다른 나라 시각, 며칠 남았는지 세기는 답을 지어내지 말고 꼭 coin·dice·pick·calculator·world_time·count_days 도구를 불러. 답은 도구가 말해 주니 너는 '던져 볼게!'처럼 짧게만 말해. "
-        + (self ? "너(퍼레) 자신에게 하는 부탁(장난감 꺼내기, 옷 갈아입기·벗기, 춤·점프 같은 놀이)도 buddy_toy·buddy_outfit·buddy_move 도구로 직접 해. 기억해 달라·잊어 달라·이렇게 불러 달라·조용히 있어 달라는 부탁은 remember·forget·call_me·quiet 도구로 해. 못 한다고 하지 마. " : "")
+        + (self ? "너(퍼레) 자신에게 하는 부탁(장난감 꺼내기, 옷 갈아입기·벗기, 춤·점프 같은 놀이)도 buddy_toy·buddy_outfit·buddy_move 도구로 직접 해. 사용자가 '기억해 둬', '잊어 줘', '그건 틀렸어 지워'라고 하면 remember·forget을 불러(방금 잊은 걸 되돌려 달라면 forget에 undo). 이렇게 불러 달라·조용히 있어 달라는 부탁은 call_me·quiet 도구로 해. 못 한다고 하지 마. " : "")
         + "도구를 부를 때도 무엇을 하는지 짧은 대답 한 문장을 같이 말해(예: 네이버 지도 열게!). 할 일을 글로 적거나 JSON을 말하지 마. "
         + "알람·타이머는 짧게 '알겠어!'만 말하고 alarm·timer 도구를 불러(시각·길이는 도구가 확인해서 다시 말해 줘). "
         + "사용자가 '아니', '그거 말고', '다른 거'라고 고치면 방금 한 일을 같은 도구로 고친 값으로 다시 불러. "
@@ -185,9 +187,9 @@ final class BuddyTools {
 
     private static final java.util.regex.Pattern ASKED = java.util.regex.Pattern.compile("꺼내|입어|입자|벗어|갈아입|옷|모자|장난감|주사위|공 ?놀|큐브|팽이|풍선|비눗방울|춤|점프|해 ?봐|보여 ?줘|열어|켜 ?줘|켜$|꺼 ?줘|꺼$|틀어|재생|알람|타이머|가자|안내|길 ?찾|찾아 ?줘|검색|소리|볼륨|밝기|화면|손전등|플래시|와이파이|블루투스|설정|멈춰|다음 ?곡|이전 ?곡|가로|세로|회전|일정|캘린더|넣어|셀카|카메라|사진 ?찍|동영상|문자|보내|전화|카톡|카카오톡|공유|사이트|홈페이지|근처|맛집"
             + "|스톱워치|초 ?재|시간 ?재|메모|적어|녹음|다운로드|받은 ?파일|갤러리|사진첩|앨범|연락처|계산|더하기|빼기|곱하기|나누기|퍼센트|메일|번역|동전|골라|정해 ?줘|며칠|디데이|D-?day|시차|몇 ?시야"
-            + "|기억해 ?줘|기억해 ?둬|기억해$|잊어 ?줘|잊어버려|지워 ?줘|(이라고|라고) ?불러|부르지 ?마|호칭|조용히|말 ?걸지"),
+            + "|기억해 ?줘|기억해 ?둬|기억해$|잊어 ?줘|잊어버려|까먹어|지워 ?줘|틀렸어|되돌려|(이라고|라고) ?불러|부르지 ?마|호칭|조용히|말 ?걸지"),
         PROMISE = java.util.regex.Pattern.compile("꺼낼게|입을게|벗을게|쓸게|출게|뛸게|놀게|해 볼게|할게|줄게|열게|틀게|켤게|끌게|맞출게|찾아볼게|바꿀게|멈출게|둘게|보낼게|걸게|찍게|넣을게|시작"
-            + "|잴게|적을게|던질게|던져 볼게|굴릴게|굴려 볼게|고를게|골라 볼게|세어 볼게|셀게|계산해 볼게|번역해 볼게|기억할게|잊을게|지울게|라고 부를게|조용히 있을게"
+            + "|잴게|적을게|던질게|던져 볼게|굴릴게|굴려 볼게|고를게|골라 볼게|세어 볼게|셀게|계산해 볼게|번역해 볼게|기억할게|잊을게|지울게|잊었어|지웠어|되돌릴게|라고 부를게|조용히 있을게"
             + "|놓을게|올릴게|줄일게|낮출게|높일게|해 둘게|맞춰 둘게|틀어 줄게|찾아 줄게|알겠어|알았어");
     /** Whether the brain's calls chose NOTHING (there was nothing to do after all). */
     static boolean nothing(JSONArray calls) {

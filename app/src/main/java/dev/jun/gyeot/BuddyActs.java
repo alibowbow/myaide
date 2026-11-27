@@ -79,8 +79,28 @@ final class BuddyActs {
             String what = act.optString("tool") + " " + (act.optString("app") + " " + act.optString("destination") + " " + act.optString("query") + " " + act.optString("panel")).strip();
             BuddyMisses.add(context, heard, what.strip(), m[0], m[1]);
             ((GyeotApp) context.getApplicationContext()).store().phoneLog("  · 퍼레 · 못 함: " + what.strip() + " · " + m[0]);
+            if (o != null) o = new BuddyVoice.Outcome(o.say(), o.leaves(), o.confirm(), true);
         }
         return o;
+    }
+    /**
+     * The acts that tell something of the user (a song, a place, what they looked up, a plan), with how the talk's learning
+     * names them; a torch, the volume or a coin tells nothing (준: "필요없는것들이 다 기록이돼").
+     */
+    private static final Map<String, String> TELLING = Map.of("play", "노래", "navigate", "길 안내", "map_search", "장소 찾기", "search", "검색", "calendar_add", "일정");
+    /**
+     * An act done, as the voice talk's learning reads it (BuddyTalk.learnTalk): its time, what it was and about, and the app,
+     * "22:10 노래 ‘아이유 좋은날’(멜론)"; "" for an act that tells nothing of the user.
+     */
+    static String line(JSONObject a, long at) {
+        String name = a == null ? null : TELLING.get(a.optString("tool").strip());
+        if (name == null) return "";
+        String what = "";
+        for (String key : new String[]{"query", "destination", "title", "text"}) {
+            String v = a.optString(key).strip(); if (!v.isEmpty()) { what = " ‘" + (v.length() > 40 ? v.substring(0, 40) + "…" : v) + "’"; break; }
+        }
+        String app = a.optString("app").strip();
+        return new java.text.SimpleDateFormat("HH:mm", Locale.KOREA).format(new java.util.Date(at)) + " " + name + what + (app.isEmpty() ? "" : "(" + app + ")");
     }
     /**
      * An act in a few words, for the brain's next answer and 퍼레가 못 한 일: its tool, then what it was about (the words to
@@ -561,32 +581,78 @@ final class BuddyActs {
         if (label.isEmpty() && !date.matches(".*\\d.*") && !date.matches("(?i)오늘|내일|모레|글피|어제|그제|그저께|today|tomorrow|yesterday")) label = date;
         return said(BuddyTricks.countDays(day, label, today));
     }
-    /** What the user asks to be remembered, as a memory of theirs (weight 2, private when it is); never a password or account number. */
+    /**
+     * What the user asks to be remembered ("기억해 둬"), as a memory of theirs that matters most (weight 3), private when they say
+     * so or it is; never a password or account number. "나 고양이 키워" is kept as "사용자는 고양이 키워"; one it knew already is told
+     * once more (seen), and one it says the opposite of is set right (BuddyMind.negates). A subject let go before is learned
+     * again from then on.
+     */
     private static final java.util.regex.Pattern SECRET_VALUE = java.util.regex.Pattern.compile("비밀 ?번호|비번|패스워드|password|계좌|카드 ?번호|주민 ?(등록)? ?번호|인증 ?번호|otp|pin ?번호|보안 ?코드|cvc", java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static final java.util.regex.Pattern ME = java.util.regex.Pattern.compile("^(?:나는|난|나|저는|전|저|내가|제가)\\s+");
+    /** The words to keep, as the user's memory: "사용자는 …" ("나 고양이 키워" → "사용자는 고양이 키워"); ones with their own subject ("차는 …") as asked. */
+    static String rememberText(String fact) {
+        String f = fact == null ? "" : fact.strip().replaceAll("\\s+", " ").replaceAll("[\"“”]", "");
+        if (f.isEmpty() || f.startsWith("사용자")) return f;
+        java.util.regex.Matcher me = ME.matcher(f);
+        if (me.find()) { String rest = f.substring(me.end()).strip(); return rest.isEmpty() ? "" : (me.group().startsWith("내가") || me.group().startsWith("제가") ? "사용자가 " : "사용자는 ") + rest; }
+        // Its own subject first ("차는 지하 2층에", "열쇠는 서랍에"): what they asked to be kept, as asked.
+        if (f.split(" ", 2)[0].matches(".+(은|는)")) return "사용자가 기억해 달랬어: " + f;
+        return "사용자는 " + f;
+    }
     private static BuddyVoice.Outcome remember(Context context, JSONObject act) {
-        String fact = act.optString("fact").strip().replaceAll("\\s+", " ");
+        String fact = act.optString("fact").strip();
         if (fact.isEmpty()) return fail("뭘 기억할지 알려 줘.", "");
         if (SECRET_VALUE.matcher(fact).find()) return said("비밀번호나 계좌 같은 번호는 내 기억에 안 적어 둬.");
-        String text = fact.startsWith("사용자") ? fact : "사용자가 기억해 달랬어: " + fact;
+        String text = rememberText(fact);
         if (text.length() > 90) text = text.substring(0, 90);
-        for (dev.jun.gyeot.core.BuddyMemory.Entry e : BuddyTalk.memories(context)) if (dev.jun.gyeot.core.BuddyMind.similarity(e.text(), text) >= 0.6) return said("그건 벌써 기억하고 있어!");
-        BuddyTalk.rememberStrong(context, "fact", text, dev.jun.gyeot.core.BuddyMind.secret(text));
+        boolean secret = act.optBoolean("private", act.optBoolean("secret")) || dev.jun.gyeot.core.BuddyMind.secret(text);
+        BuddyTalk.unforgot(context, text);
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = BuddyTalk.memories(context);
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) if (dev.jun.gyeot.core.BuddyMind.similarity(e.text(), text) >= 0.6 && !dev.jun.gyeot.core.BuddyMind.negates(e.text(), text)) {
+            BuddyTalk.confirm(context, e.at());
+            return said("그건 벌써 기억하고 있어!");
+        }
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) if (!e.secret() || BuddyTalk.unlocked()) if (("fact".equals(e.kind()) || "profile".equals(e.kind())) && dev.jun.gyeot.core.BuddyMind.negates(e.text(), text)) {
+            BuddyTalk.replace(context, e.at(), text, secret || e.secret(), 3);
+            return said("");
+        }
+        BuddyTalk.rememberStrong(context, "fact", text, secret, 3);
         return said("");
     }
-    /** The memories a "잊어 줘" names, deleted (at most five; more, or all of them, in 퍼레의 기억 behind the fingerprint). */
+    /** What the last "잊어 줘" let go, kept two minutes for "되돌려 줘" (in memory only, never on disk). */
+    private static volatile java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> letGo = java.util.List.of();
+    private static volatile long letGoAt;
+    static final long UNDO_MS = 2 * 60_000L;
+    /**
+     * The memories a "잊어 줘" or "그건 틀렸어 지워" names, deleted (at most five; more, or all of them, in 퍼레의 기억 behind the
+     * fingerprint), with the night's notes on the same thing (BuddyMind.toForget), and what went said back; the subject is not
+     * learned again by itself for ninety days. A private one waits for the fingerprint. "되돌려 줘" (undo) within two minutes
+     * brings them back.
+     */
     private static BuddyVoice.Outcome forget(Context context, JSONObject act) {
+        if (act.optBoolean("undo")) return unforget(context);
         String what = act.optString("what").strip();
         if (what.isEmpty()) return fail("뭘 잊을지 알려 줘.", "");
         if (what.replaceAll("\\s+", "").matches("(내)?(기억|것|거)?(을|를)?(다|전부|모두|싹|싹다|모든것|모든기억|전부다)(기억)?"))
             return fail("기억을 한꺼번에 지우는 건 ‘퍼레의 기억’에서 직접 해 줘. 지문으로 열 수 있어.", "memory");
-        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = BuddyTalk.memories(context);
-        java.util.List<String> texts = new java.util.ArrayList<>(); for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) texts.add(e.text());
-        java.util.List<Integer> hit = BuddyTricks.matching(texts, what);
-        if (hit.isEmpty()) return said("‘" + what + "’ 기억은 원래 없었어.");
-        if (hit.size() > 5) return fail("‘" + what + "’ 기억이 " + hit.size() + "개나 돼서 그대로 뒀어. ‘퍼레의 기억’에서 골라 지워 줘.", "memory");
-        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> gone = new java.util.ArrayList<>(); for (int i : hit) gone.add(all.get(i));
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> gone = dev.jun.gyeot.core.BuddyMind.toForget(BuddyTalk.memories(context), what);
+        if (gone.isEmpty()) return said("‘" + what + "’ 기억은 원래 없었어.");
+        if (gone.size() > 5) return fail("‘" + what + "’ 기억이 " + gone.size() + "개나 돼서 그대로 뒀어. ‘퍼레의 기억’에서 골라 지워 줘.", "memory");
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : gone) if (e.secret() && !BuddyTalk.unlocked()) return fail("지문을 확인해야 지울 수 있어.", "memory");
         BuddyTalk.forget(context, gone);
-        return said(hit.size() == 1 ? "‘" + what + "’ 기억 지웠어." : "‘" + what + "’ 기억 " + hit.size() + "개 지웠어.");
+        BuddyTalk.forgot(context, dev.jun.gyeot.core.BuddyMind.forgetting(what, gone));
+        letGo = java.util.List.copyOf(gone); letGoAt = System.currentTimeMillis();
+        String first = dev.jun.gyeot.core.BuddyMind.toldBack(gone.get(0).text());
+        return said(gone.size() == 1 ? "‘" + first + "’ 잊었어." : "‘" + first + "’ 하고 " + (gone.size() - 1) + "개 더 잊었어.");
+    }
+    /** What the last "잊어 줘" let go, back (within two minutes), its subjects learned again. */
+    private static BuddyVoice.Outcome unforget(Context context) {
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> back = letGo;
+        if (back.isEmpty() || System.currentTimeMillis() - letGoAt > UNDO_MS) return said("방금 잊은 게 없어서 되돌릴 게 없어.");
+        letGo = java.util.List.of();
+        BuddyTalk.restore(context, back);
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : back) BuddyTalk.unforgot(context, e.text());
+        return said("다시 기억했어!");
     }
     /** A quiet while (0–12 hours, one when not said; 0 talks again): the home screen's 퍼레 starts no talk, and answers when called. */
     private static BuddyVoice.Outcome quiet(Context context, JSONObject act) {
