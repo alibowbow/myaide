@@ -51,7 +51,8 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   + '<clipPath id="botClip"><rect x="12" y="18" width="76" height="74.6" rx="30"/></clipPath><linearGradient id="botLower" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b19bff"/><stop offset="1" stop-color="#8b6ff0"/></linearGradient>'
   + '<radialGradient id="cheekG"><stop offset=".7" stop-color="#ff8ea6"/><stop offset="1" stop-color="#ff8ea6" stop-opacity="0"/></radialGradient>'
   + '<linearGradient id="armL" gradientUnits="userSpaceOnUse" x1="0" y1="18" x2="0" y2="88"><stop offset="0" stop-color="#ffb08f"/><stop offset="1" stop-color="#ff7d58"/></linearGradient>'
-  + '<linearGradient id="armR" gradientUnits="userSpaceOnUse" x1="0" y1="18" x2="0" y2="88"><stop offset="0" stop-color="#ffb08f"/><stop offset="1" stop-color="#ff7d58"/></linearGradient></defs>'
+  + '<linearGradient id="armR" gradientUnits="userSpaceOnUse" x1="0" y1="18" x2="0" y2="88"><stop offset="0" stop-color="#ffb08f"/><stop offset="1" stop-color="#ff7d58"/></linearGradient>'
+  + '<radialGradient id="fist" cx=".42" cy=".38" r=".68"><stop offset="0" stop-color="#ffb898"/><stop offset=".72" stop-color="#ff8d67"/><stop offset="1" stop-color="#ef6c48"/></radialGradient></defs>'
   + '<g class="b-all">'
   // behind 퍼레: what it holds high or that floats over it
   +   '<g class="acc umbrella"><path d="M86 66 L60 -6" stroke="#5b6470" stroke-width="2.4" stroke-linecap="round"/><path d="M86 66 q3 5 -2 6" fill="none" stroke="#5b6470" stroke-width="2.4" stroke-linecap="round"/>'
@@ -130,6 +131,11 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +     '<g class="acc ribbon"><path d="M50 74 L41 69 L41 79Z M50 74 L59 69 L59 79Z" fill="#ff7eb6"/><path d="M48 76 L45 85 M52 76 L55 85" stroke="#ff7eb6" stroke-width="2.4" stroke-linecap="round"/><circle cx="50" cy="74" r="2.4" fill="#ff5fa2"/></g>'
   +     '<g class="acc whistle"><path d="M30 68 Q50 78 70 68" fill="none" stroke="#5b8def" stroke-width="1.6"/><path d="M57 75 h9 v5 h-9 a2.5 2.5 0 0 1 0 -5z" fill="#c9ced9" stroke="#9aa3b5" stroke-width=".8"/></g>'
   +   '</g>'
+  // The arm come round in front (준: "위아래뿐아니라 3차원적인 움직임도 2d지만 구현해줘", "모양의 적절한 변화로", "예를들면 권투같은
+  // 경우"): an arm turned toward the one looking is its round end seen head on, a ball over the body's side that grows as it
+  // comes closer; the arm behind narrows as it turns (board.css .b-armf). Hidden until a move brings it round.
+  +   '<g class="b-armf l"><ellipse class="b-fist" cx="11" cy="62" rx="8.6" ry="9.2" fill="url(#fist)"/></g>'
+  +   '<g class="b-armf r"><ellipse class="b-fist" cx="89" cy="62" rx="8.6" ry="9.2" fill="url(#fist)"/></g>'
   // on its head
   +   '<g class="acc cap"><path d="M20 30 C22 6 56 -6 84 2 C74 6 70 12 72 22 C58 16 36 18 20 30Z" fill="#8f7cf0"/><path d="M20 30 C36 20 58 18 76 24" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/><circle cx="86" cy="3" r="5.5" fill="#fff"/></g>'
   +   '<g class="acc santa"><path d="M20 30 C22 6 56 -6 84 2 C74 6 70 12 72 22 C58 16 36 18 20 30Z" fill="#e5383b"/><path d="M20 30 C36 20 58 18 76 24" fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round"/><circle cx="86" cy="3" r="5.5" fill="#fff"/></g>'

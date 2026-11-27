@@ -331,7 +331,7 @@ body.liquid .menu hr{background:var(--hair2)}
 .chat-top{display:none}
 .pad.chat-mode .chat-top{display:block;padding:calc(var(--top) + 6px) 14px 0;flex:none}
 .pad.chat-mode .pad-top{order:3;padding:8px 12px calc(max(var(--bottom), var(--kb, 0px)) + 8px)}
-.pad.chat-mode .pad-body{order:2;padding:0 14px 6px}
+.pad.chat-mode .pad-body{order:2;padding:0 14px 96px}
 .pad.chat-mode .chips,.pad.chat-mode #padClose{display:none!important}
 .pad-top .send,.pad-top .mic{display:none}
 .pad.chat-mode .pad-top .mic{display:grid;place-items:center;flex:none;width:38px;height:38px;border-radius:50%;border:0;background:rgba(255,255,255,.85);color:var(--accent);box-shadow:0 2px 8px rgba(40,50,80,.1)}
@@ -1222,6 +1222,8 @@ el("q").addEventListener("keydown", e => {
   const first = el("padBody").querySelector(".app");
   if (first) launch(first.dataset.id, first.querySelector(".ic")); else { const q = el("q").value.trim(); if (q && B) { B.web(q); closePad(); } }
 });
+let palScroll = 0;
+el("padBody").addEventListener("scroll", () => { clearTimeout(palScroll); palScroll = setTimeout(() => { if (chatting) pal.away(); }, 350); }, {passive: true});
 el("padBody").addEventListener("click", e => {
   if (chatting) {
     if (e.target.closest("[data-older]")) { shownTurns += 30; const body = el("padBody"), h = body.scrollHeight; drawChat(); body.scrollTop = body.scrollHeight - h; return; }
@@ -1323,6 +1325,7 @@ function drawChat() {
   }
   body.innerHTML = h + '</div>';
   body.scrollTop = body.scrollHeight;
+  requestAnimationFrame(() => pal.away());
 }
 function drawList() {
   chatView = "list"; drawChatTop();
@@ -1450,7 +1453,7 @@ const pal = (() => {
   }
   // 퍼레 is drawn at .72 (its zoom): the room in its own pixels.
   const Z = .72, room = () => Math.max(40, el("stage").clientWidth / Z - 112), roomY = () => Math.max(20, el("stage").clientHeight / Z - 136);
-  const place = (ms, lift) => { p.b.style.transition = "transform " + ms + "ms " + (lift ? "cubic-bezier(.3,1.6,.5,1)" : "cubic-bezier(.45,.1,.55,.9)"); p.b.style.transform = "translate(" + p.x.toFixed(0) + "px," + p.y.toFixed(0) + "px)"; p.buddy.classList.toggle("flip", p.x > room() / 2); };
+  const place = (ms, lift) => { p.b.style.transition = "transform " + ms + "ms " + (lift ? "cubic-bezier(.3,1.6,.5,1)" : "cubic-bezier(.45,.1,.55,.9)"); p.b.style.transform = "translate(" + p.x.toFixed(0) + "px," + p.y.toFixed(0) + "px)"; };
   function walk(nx, done, ny) {
     if (ny == null) ny = p.y;
     const dist = Math.hypot(nx - p.x, ny - p.y); if (dist < 4) { if (done) done(); return; }
@@ -1458,11 +1461,47 @@ const pal = (() => {
     p.buddy.style.setProperty("--face", nx < p.x ? "-1" : "1"); p.buddy.classList.add("walking"); p.x = nx; p.y = ny; place(ms);
     setTimeout(() => { p.buddy.classList.remove("walking"); if (done) done(); }, ms);
   }
-  const sfx = (w, ms) => { if (w && !$(p.b, ".bubble").classList.contains("on")) speak(p.b, {text: w, sfx: true}, ms || 1700); };
+  /* Not over the talk (준: "대화를 안 가리게 해줘"): what is said (its bubbles, the day pills, faces and names) is in the way;
+     퍼레 walks and stops only where nothing is said, its bubble opens on a side with nothing said under it, and the bottom of
+     the talk is kept empty for it (.pad-body's padding), so a full talk still has a place for 퍼레. */
+  const ink = () => Array.from(document.querySelectorAll("#padBody .kb, #padBody .kday, #padBody .kface:not(.ghost), #padBody .kname, #padBody .kmore, #padBody time"))
+    .map(e => e.getBoundingClientRect()).filter(r => r.width > 0 && r.height > 0);
+  const hits = (a, list) => list.some(r => a.left < r.right + 6 && a.right > r.left - 6 && a.top < r.bottom + 6 && a.bottom > r.top - 6);
+  function boxAt(x, y) {
+    const s = el("stage").getBoundingClientRect(), w = p.buddy.offsetWidth * Z, h = p.buddy.offsetHeight * Z;
+    return {left: s.left + x * Z, top: s.top + y * Z, right: s.left + x * Z + w, bottom: s.top + y * Z + h};
+  }
+  /** Where its bubble would be on that side: about two lines of words beside 퍼레, at the top of it. */
+  function bubbleAt(x, y, left) {
+    const b = boxAt(x, y), vw = document.documentElement.clientWidth, bw = Math.min(250, vw - (b.right - b.left) - 40);
+    return left ? {left: b.left - bw - 4, right: b.left, top: b.top, bottom: b.top + 66} : {left: b.right, right: b.right + bw + 4, top: b.top, bottom: b.top + 66};
+  }
+  const onScreen = r => r.left >= 4 && r.right <= document.documentElement.clientWidth - 4;
+  /** The side its bubble can open on at x, y (false: the right, true: the left), or null when both cover the talk or go off screen. */
+  function side(x, y, list) {
+    const first = x > room() / 2;
+    for (const left of [first, !first]) { const r = bubbleAt(x, y, left); if (onScreen(r) && !hits(r, list)) return left; }
+    return null;
+  }
+  const clear = (x, y, list, talk) => !hits(boxAt(x, y), list) && (!talk || side(x, y, list) != null);
+  /** A free place for 퍼레 (with room for its bubble when it is to talk): anywhere nothing is said, else the strip kept at the bottom. */
+  function spot(talk) {
+    const list = ink(), W = room(), H = roomY();
+    for (let i = 0; i < 16; i++) { const x = Math.round(rnd(4, W)), y = Math.round(rnd(0, H)); if (clear(x, y, list, talk)) return {x, y}; }
+    for (let i = 0; i < 10; i++) { const x = Math.round(rnd(4, W)); if (clear(x, H, list, talk)) return {x, y: H}; }
+    return {x: Math.round(W * .1), y: H};
+  }
+  /** Off the talk if something said came under it (a new line, the talk scrolled, or it was put down there). */
+  function away() { if (!p || p.held || p.finger || !chatting || chatView !== "talk") return; if (hits(boxAt(p.x, p.y), ink())) { const s = spot(false); walk(s.x, null, s.y); } }
+  const sfx = (w, ms) => {
+    if (!w || $(p.b, ".bubble").classList.contains("on")) return;
+    const say = () => { const left = side(p.x, p.y, ink()); if (left == null) return; p.buddy.classList.toggle("flip", left); speak(p.b, {text: w, sfx: true}, ms || 1700); };
+    if (side(p.x, p.y, ink()) != null && !hits(boxAt(p.x, p.y), ink())) say(); else { const s = spot(true); walk(s.x, say, s.y); }
+  };
   function loop() {
     if (p && chatting && !document.hidden && !p.busy && !p.talking && !p.held && !p.finger) {
       const r = Math.random();
-      if (r < .5) walk(Math.round(rnd(4, room())), null, Math.round(rnd(0, roomY())));
+      if (r < .5) { const s = spot(false); walk(s.x, null, s.y); }
       else if (r < .85 && typeof MOTIONS !== "undefined") { const m = MOTIONS[Math.floor(Math.random() * MOTIONS.length)]; move(p.b, m[0], m[1]); if (m[2] && p.b._feel) p.b._feel(m[2], m[1]); if (Math.random() < .4) sfx(preset("solo")); }
       else sfx(preset(Math.random() < .5 ? "roam" : "solo"));
     }
@@ -1504,7 +1543,7 @@ const pal = (() => {
       if (!down) return; const d = down; down = null; clearTimeout(p.longT); buddy.classList.remove("squish");
       if (d.carry && d.long) { p.held = false; buddy.classList.remove("held"); p.y = d.y0 != null ? d.y0 : p.y; place(300, true); b._feel("blissful", 1600); hearts(b, 3); sfx("꾸욱~ 히히", 1500); return; }
       if (d.carry) {
-        p.held = false; buddy.classList.remove("held"); p.y = Math.max(0, p.y); place(520, true);
+        p.held = false; buddy.classList.remove("held"); p.y = Math.max(0, p.y); place(520, true); setTimeout(away, 1600);
         if (Math.abs(d.vx) > 14) { move(b, "spin", 950); b._feel("dizzy", 1500); sfx("으아아~ 빙글!", 1500); } else { b._feel("ouch", 1200); sfx(["쿵!", "으앗!", "사뿐~", "내려 줘서 고마워"][Math.floor(Math.random() * 4)], 1400); }
         return;
       }
@@ -1523,6 +1562,7 @@ const pal = (() => {
   return {
     show() { make(); if (p) { p.b._env = boards[0] && boards[0]._env; if (p.x === 0) { p.x = Math.round(room() * .6); p.y = Math.round(roomY() * .15); place(0); } } },
     listening(on) { if (p) p.buddy.classList.toggle("listening", !!on); },
+    away() { if (p) away(); },
     thinking() { if (!p) return; p.talking = false; p.b._mood("thinking"); },
     talking() { if (!p || p.talking) return; p.talking = true; p.b._mood(""); $(p.b, ".bot").classList.add("talking"); },
     done(ok) { if (!p) return; p.talking = false; $(p.b, ".bot").classList.remove("talking"); p.b._mood(""); if (ok === false) p.b._feel("sorry", 1600); else { p.b._feel("happy", 1600); move(p.b, "hop", 760); } }

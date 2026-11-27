@@ -276,6 +276,19 @@ async function open(browser, at) {
       assert(read.line >= 16, 'words of a readable size (old: 12): ' + JSON.stringify(read));
       assert(read.left >= 0 && read.right <= read.vw + 1, 'the bubble on screen: ' + JSON.stringify(read));
     }
+    // Not over the talk (준: "대화를 안 가리게 해줘"): with a screen of words, 퍼레 and its bubble keep off them as it walks and talks.
+    await p.evaluate(() => { const now = Date.now(); const lines = []; for (let i = 0; i < 9; i++) lines.push({who: 'me', text: '오늘 뭐 할까 ' + i, at: now + i * 120000}, {who: 'ai', text: '산책 어때? 날씨가 좋아서 걷기 딱이야 ' + i, at: now + i * 120000 + 1000});
+      thread.splice(0, thread.length, ...lines); drawChat(); document.querySelector('.chatpal .bubble').classList.remove('on'); const c = document.querySelector('.chatpal'); c.style.transform = 'translate(40px,60px)'; });
+    const over = [];
+    for (let i = 0; i < 30; i++) {
+      await p.clock.runFor(1000);
+      over.push(...await p.evaluate(() => { const ink = Array.from(document.querySelectorAll('#padBody .kb, #padBody .kday')).map(e => e.getBoundingClientRect()), hit = r => ink.some(k => r.left < k.right && r.right > k.left && r.top < k.bottom && r.bottom > k.top);
+        const c = document.querySelector('.chatpal'), m = c.style.transform.match(/translate\(([-\d.]+)px,\s*([-\d.]+)px\)/); if (!m) return ['no place'];
+        const s = el('stage').getBoundingClientRect(), b = c.querySelector('.buddy'), box = {left: s.left + m[1] * .72, top: s.top + m[2] * .72, right: s.left + m[1] * .72 + b.offsetWidth * .72, bottom: s.top + m[2] * .72 + b.offsetHeight * .72};
+        const out = []; if (!c.querySelector('.buddy').classList.contains('walking') && hit(box)) out.push('퍼레 at ' + m[1] + ',' + m[2]);
+        const bub = c.querySelector('.bubble'); if (bub.classList.contains('on') && hit(bub.getBoundingClientRect())) out.push('bubble: ' + bub.textContent); return out; }));
+    }
+    assert.deepStrictEqual(over, [], 'nothing said under 퍼레 or its bubble');
     await p.evaluate(() => closePad()); await p.clock.runFor(400);
     assert.deepStrictEqual(talk.errors, []);
   });

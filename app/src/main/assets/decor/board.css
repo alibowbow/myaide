@@ -445,7 +445,7 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .buddy.facepalm .b-arm.r{animation:facepalm 1.8s ease-in-out}.buddy.facepalm .b-all{animation:droopB 1.8s ease-in-out}
 .buddy.thinker .b-arm.r{animation:thinker 2s ease-in-out}.buddy.thinker .b-all{animation:tilt 2s ease-in-out}
 .buddy.cheer .b-arm.l{animation:cheerL .4s ease-in-out 5}.buddy.cheer .b-arm.r{animation:cheerR .4s ease-in-out 5}.buddy.cheer .body{animation:bounce .8s ease-in-out 2}
-.buddy.boxing .b-arm.l{animation:punchL .5s ease-in-out 4}.buddy.boxing .b-arm.r{animation:punchR .5s ease-in-out .25s 4}.buddy.boxing .b-all{animation:hula .5s ease-in-out 4}
+.buddy.boxing .b-arm.l{animation:punchL .6s ease-in-out 4}.buddy.boxing .b-arm.r{animation:punchR .6s ease-in-out .3s 4}.buddy.boxing .b-armf.l{animation:fistL .6s ease-in-out 4}.buddy.boxing .b-armf.r{animation:fistR .6s ease-in-out .3s 4}.buddy.boxing .b-all{animation:hula .5s ease-in-out 4}
 .buddy.swim .b-arm.l{animation:swimL .8s linear 3}.buddy.swim .b-arm.r{animation:swimR .8s linear .4s 3}.buddy.swim .b-all{animation:rock .8s ease-in-out 3}
 .buddy.airplane .b-arm.l{transform:translateY(-2px) skewY(5deg) scale(1.12,.96)}.buddy.airplane .b-arm.r{transform:translateY(-2px) skewY(-5deg) scale(1.12,.96)}.buddy.airplane .b-all{animation:bank 2.2s ease-in-out}
 .buddy.jelly .body{animation:jelly .9s ease-in-out}
@@ -503,8 +503,8 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 @keyframes thinker{25%,75%{transform:translateY(-10px) skewY(-14deg) scale(0.955,1.045)}}
 @keyframes cheerL{50%{transform:translateY(-10px) skewY(14deg) scale(0.955,1.045)}}
 @keyframes cheerR{50%{transform:translateY(-10px) skewY(-14deg) scale(0.955,1.045)}}
-@keyframes punchL{50%{transform:translateY(-9.1px) skewY(12.7deg) scale(0.959,1.041)}}
-@keyframes punchR{50%{transform:translateY(-9.1px) skewY(-12.7deg) scale(0.959,1.041)}}
+@keyframes punchL{0%,100%{transform:none}25%{transform:translateY(1.5px) scale(.9,.98)}45%,62%{transform:translateY(1px) scale(.28,.86)}85%{transform:scale(.8,1)}}
+@keyframes punchR{0%,100%{transform:none}25%{transform:translateY(1.5px) scale(.9,.98)}45%,62%{transform:translateY(1px) scale(.28,.86)}85%{transform:scale(.8,1)}}
 @keyframes swimL{to{transform:translateY(-10px) skewY(14deg) scale(0.955,1.045)}}
 @keyframes swimR{to{transform:translateY(-10px) skewY(-14deg) scale(0.955,1.045)}}
 @keyframes bank{25%{transform:rotate(-14deg) translateX(-6px)}75%{transform:rotate(14deg) translateX(6px)}}
@@ -861,3 +861,11 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 /* The bubble over the toys (준: "말풍선이 장난감아래로 가서 가려져"): the toys' layer comes after the top of the board at the same
    height, so while 퍼레 says something the top of the board (and its bubble) goes above them. */
 .hero:has(.bubble.on){z-index:4}
+/* The arm come round in front (board.js b-armf): an arm turned toward the one looking is its round end head on, a ball that
+   grows as it comes closer and goes back behind as it returns; the arm behind narrows while it is round in front. */
+.bot .b-armf{opacity:0;transform-box:view-box;pointer-events:none}
+.bot .b-armf.l{transform-origin:11px 62px}.bot .b-armf.r{transform-origin:89px 62px}
+.bot.w-mittens .b-fist{fill:#6f9fe8}
+/* a punch at the one looking: the fist comes out over the body's side, grows to half again, squashes as it lands, and goes back */
+@keyframes fistL{0%,30%{opacity:0;transform:scale(.7)}40%{opacity:1;transform:translate(2px,1px) scale(.95)}52%{opacity:1;transform:translate(7px,2px) scale(1.62,1.52)}60%{opacity:1;transform:translate(7px,2px) scale(1.5)}75%{opacity:1;transform:translate(2px,0) scale(.95)}84%,100%{opacity:0;transform:scale(.75)}}
+@keyframes fistR{0%,30%{opacity:0;transform:scale(.7)}40%{opacity:1;transform:translate(-2px,1px) scale(.95)}52%{opacity:1;transform:translate(-7px,2px) scale(1.62,1.52)}60%{opacity:1;transform:translate(-7px,2px) scale(1.5)}75%{opacity:1;transform:translate(-2px,0) scale(.95)}84%,100%{opacity:0;transform:scale(.75)}}
