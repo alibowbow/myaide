@@ -380,6 +380,11 @@ if __name__ == '__main__':
     trading.mkdir(parents=True, exist_ok=True)
     javac(['-encoding', 'UTF-8', '-d', trading, core / 'TradingViewLink.java', ROOT / 'tools/TradingViewRegression.java'])
     run(['java', '-ea', '-cp', trading, 'dev.jun.gyeot.core.TradingViewRegression'])
+    # 알림을 행동으로 (core/NoticeActions): parcels, bookings and messenger plans read from real-looking notices.
+    notices = BUILD / 'notice-checks'
+    notices.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', notices, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/NoticeActionsRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (notices, jars[-1]))), 'dev.jun.gyeot.core.NoticeActionsRegression'])
     test_board(jars[-1])
     # The optional larger suites run when their tests folder is present.
     if (ROOT / 'tests/CoreTests.java').is_file(): test(jars)

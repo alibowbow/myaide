@@ -316,7 +316,7 @@ final class BuddyTalk {
         String now = new SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date());
         return BuddyPrompt.chatRules(persona(c), now) + corrected(c, question) + ACTS + places(store)
             + BuddyPrompt.CHAT_PHONE
-            + "휴대폰 상태: " + facts(c) + "\n" + todayWords(c) + deliveryWords(c) + memoryWords(c, question, true)
+            + "휴대폰 상태: " + facts(c) + "\n" + todayWords(c) + deliveryWords(c) + noticeWords(c) + memoryWords(c, question, true)
             + worldWords(c)
             + (about.isBlank() ? "" : "참고(비서 노트, 먼저 꺼내지 마):\n" + about);
     }
@@ -512,7 +512,7 @@ final class BuddyTalk {
         if (!guest) try { String all = Briefing.profile(store); note = dev.jun.gyeot.core.BuddyMind.asksWork(said) ? all : dev.jun.gyeot.core.BuddyMind.everyday(all); } catch (RuntimeException ignored) {}
         String house = said.matches("(?s).*(배터리|충전|밥|음악|노래|와이파이|인터넷|데이터|절전|뜨거|방해|비행기 모드|무음).*") ? home(c) : "";
         String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + lifeWords(c) + "\n"
-            + (guest ? "" : "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + todayWords(c) + deliveryWords(c) + memoryWords(c, said, true)
+            + (guest ? "" : "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + todayWords(c) + deliveryWords(c) + noticeWords(c) + memoryWords(c, said, true)
                 + (note.isBlank() ? "" : "참고(비서 노트, 먼저 꺼내지 마):\n" + note + "\n")) + "\n";
         // The talk so far, its last lines each cut short: a long talk does not grow every request (Groq's free tier counts tokens a minute).
         return context + BuddyPrompt.voiceTail(recent, turns, guest, said);
@@ -729,6 +729,16 @@ final class BuddyTalk {
             if (!NoticeListener.on(c) || !NoticeListener.allowed(c)) return "";
             dev.jun.gyeot.core.Deliveries.Delivery d = NoticeListener.delivery(c);
             return d == null ? "" : "배달(휴대폰 알림에서 읽음): " + dev.jun.gyeot.core.Deliveries.words(d, System.currentTimeMillis(), java.time.ZoneId.systemDefault()) + "\n";
+        } catch (RuntimeException unreadable) { return ""; }
+    }
+    /**
+     * Parcels, bookings and messenger plans as the phone's notices say (core/NoticeActions; "택배 언제 와?", "오늘 예약 몇 시였지?"):
+     * only for what the user asks, as deliveryWords.
+     */
+    static String noticeWords(Context c) {
+        try {
+            if (!NoticeListener.on(c) || !NoticeListener.allowed(c)) return "";
+            return dev.jun.gyeot.core.NoticeActions.words(NoticeListener.acts(c), System.currentTimeMillis(), java.time.ZoneId.systemDefault());
         } catch (RuntimeException unreadable) { return ""; }
     }
     /** Something of today for the day's log: an app's kind opened, a charge, music. */

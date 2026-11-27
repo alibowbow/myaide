@@ -448,6 +448,67 @@ async function open(browser, at, bridge, pages) {
     assert.strictEqual(await p.evaluate(() => document.querySelector('.mini-pill.deliv').textContent.trim()), '배민 배달 완료');
     await food.ctx.close();
   });
+  // 준's plan, 알림을 행동으로 (stage 1): a parcel out today, a booking made, a plan set in a messenger, read from the phone's
+  // notices (core/NoticeActions) and each one tap of action; said in passing as the food is.
+  const acts = await open(browser, '2026-11-27T13:05:00+09:00', true);
+  await check('알림을 행동으로: at most two small pills, the most useful first, each one tap; every event said once in passing and gone in a few seconds', async () => {
+    const p = acts.page;
+    const plan = { kind: 'plan', stage: 'set', key: 'm1a2b', line: '민수랑 내일 19:00 약속 생겼네', lineKey: 'act:plan:m1a2b:set', go: 'act:calendar:m1a2b', rank: 88,
+      pills: [{ label: '약속', word: '일정에 넣기', go: 'act:calendar:m1a2b', rank: 72, icon: 'calendar' }, { label: '민수', word: '답장', go: 'act:reply:m1a2b', rank: 88, icon: 'reply' }] };
+    const out = { kind: 'parcel', stage: 'out', key: 'p3c4d', line: '‘무선 이어폰’ 오늘 2~4시쯤 온대 📦', lineKey: 'act:parcel:p3c4d:out', go: 'act:open:p3c4d', rank: 78,
+      pills: [{ label: '택배', word: '오늘 도착', go: 'act:open:p3c4d', rank: 78, icon: 'parcel' }] };
+    const booked = { kind: 'booking', stage: 'booked', key: 'b5e6f', line: '', lineKey: 'act:booking:b5e6f:booked', go: 'act:calendar:b5e6f', rank: 70,
+      pills: [{ label: 'KTX', word: '일정에 넣기', go: 'act:calendar:b5e6f', rank: 70, icon: 'calendar' }] };
+    const board = list => p.evaluate(list => { const at = Date.now(); launcher.board({ weather: { code: 0, temp: 12, day: true }, env: { battery: 80 }, life: { heart: 60 }, noticeCount: 3,
+      acts: list.map(a => Object.assign({ at }, a)) }); }, list);
+    const bubble = () => p.evaluate(() => { const b = document.querySelector('.bubble'); return b.classList.contains('on') ? b.textContent : ''; });
+    const pills = () => p.evaluate(() => [...document.querySelectorAll('#minis .mini-pill.act')].map(b => { const r = b.getBoundingClientRect(); return { text: b.textContent.trim(), go: b.dataset.go, h: Math.round(r.height), right: Math.round(r.right) }; }));
+    await p.clock.runFor(60000);                       // the opening greeting well past (one word in 45 s)
+    await board([out, booked, plan]);
+    await p.clock.runFor(1200);
+    let shown = await pills();
+    assert.deepStrictEqual(shown.map(x => x.text), ['민수 답장', '택배 오늘 도착'], 'the two most useful: ' + JSON.stringify(shown));
+    for (const x of shown) assert(x.h <= 40, 'a small pill: ' + JSON.stringify(x));
+    assert(await p.evaluate(() => !!document.querySelector('#minis [data-mini="notices"]')), '알림 stays beside them');
+    assert(await p.evaluate(() => Math.max(...[...document.querySelectorAll('#minis .mini-pill')].map(b => b.getBoundingClientRect().right)) <= innerWidth), 'nothing past the screen');
+    assert(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no page wider than the screen');
+    assert.strictEqual(await bubble(), '민수랑 내일 19:00 약속 생겼네 ›', 'the plan said in passing (a tap on it fills the calendar)');
+    await p.clock.runFor(3600);
+    assert(!(await bubble()).includes('약속 생겼네'), 'gone in a few seconds');
+    await p.evaluate(() => { window._calls.length = 0; [...document.querySelectorAll('#minis .mini-pill.act')].find(b => b.textContent.includes('택배')).click(); });
+    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open').map(c => JSON.parse(c[1])[0])), ['act:open:p3c4d'], 'one tap opens the parcel');
+    await p.evaluate(() => { window._calls.length = 0; [...document.querySelectorAll('#minis .mini-pill.act')].find(b => b.textContent.includes('답장')).click(); });
+    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open').map(c => JSON.parse(c[1])[0])), ['act:reply:m1a2b'], 'one tap opens the reply');
+    await p.clock.runFor(46000);
+    await board([out, booked, plan]);
+    await p.clock.runFor(1200);
+    assert((await bubble()).startsWith('‘무선 이어폰’ 오늘'), 'the parcel next, once: ' + await bubble());
+    await p.clock.runFor(3600);
+    assert(!(await bubble()).includes('무선 이어폰'), 'gone again');
+    await p.clock.runFor(46000);
+    await board([out, booked, plan]);
+    await p.clock.runFor(1200);
+    assert(!/약속 생겼네|무선 이어폰/.test(await bubble()), 'each said only once: ' + await bubble());
+    // It came: a new stage, said once; the booking's pill comes up when the plan has been put in the calendar.
+    const came = Object.assign({}, out, { stage: 'done', line: '택배 문 앞에 왔대 📦', lineKey: 'act:parcel:p3c4d:done', rank: 60, pills: [{ label: '택배', word: '도착', go: 'act:open:p3c4d', rank: 60, icon: 'parcel' }] });
+    const inCalendar = Object.assign({}, plan, { pills: [plan.pills[1]], line: '' });
+    await p.clock.runFor(46000);
+    await board([came, booked, inCalendar]);
+    await p.clock.runFor(1200);
+    assert.strictEqual(await bubble(), '택배 문 앞에 왔대 📦 ›', 'said as it comes');
+    shown = await pills();
+    assert.deepStrictEqual(shown.map(x => x.text), ['민수 답장', 'KTX 일정에 넣기'], 'the booking now second: ' + JSON.stringify(shown));
+    const shots = process.env.SHOTS || require('os').tmpdir();
+    await p.screenshot({ path: path.join(shots, 'launcher-acts-line.png') });
+    await p.clock.runFor(3600);
+    assert(!(await bubble()).includes('문 앞에 왔대'), 'gone in a few seconds');
+    await p.screenshot({ path: path.join(shots, 'launcher-acts.png') });
+    // Locked: none of it.
+    await p.evaluate(() => launcher.board({ locked: true, weather: { code: 0, temp: 12, day: true }, env: { battery: 80 }, life: { heart: 60 }, acts: [{ kind: 'parcel', key: 'p1', line: '택배 오늘 온대', lineKey: 'x', pills: [{ label: '택배', word: '오늘 도착', go: 'act:open:p1', rank: 78 }] }] }));
+    assert.strictEqual((await pills()).length, 0, 'nothing on the lock screen');
+    assert.deepStrictEqual(acts.errors, []);
+    await acts.ctx.close();
+  });
   await check('an app that did not open: its words stay while 퍼레 listens, one tap opens the way through', async () => {
     const p = bridged.page, look = () => p.evaluate(() => { const b = document.querySelector('.bubble'); return { text: b.textContent, go: b.dataset.go, act: b.classList.contains('act'), on: b.classList.contains('on') }; });
     await p.evaluate(() => closePad()); await p.clock.runFor(400);

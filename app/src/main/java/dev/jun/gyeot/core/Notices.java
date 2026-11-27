@@ -31,8 +31,12 @@ public final class Notices {
     public static boolean keep(Notice notice) {
         if (notice == null || (notice.title().isBlank() && notice.text().isBlank())) return false;
         String all = notice.title() + " " + notice.text();
-        return !SECRET.matcher(all).find() && !Memory.sensitive(all);
+        return !secret(all) && !Memory.sensitive(all);
     }
+    /** A verification code, a password or the like in the words: such a notification is never read (NoticeActions too). */
+    public static boolean secret(String words) { return words != null && SECRET.matcher(words).find(); }
+    /** An ad by its own marks ((광고), an opt-out line). */
+    public static boolean ad(String words) { return words != null && AD.matcher(words).find(); }
     /** The list with the notice added (a repeat of the same one within SAME_MS replaces it), older than a day and past MOST gone. */
     public static List<Notice> add(List<Notice> list, Notice notice, long now) {
         List<Notice> out = new ArrayList<>();

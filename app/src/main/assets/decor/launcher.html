@@ -503,7 +503,7 @@ body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18p
 .search-row .search{margin:0;width:auto;flex:1 1 auto;min-width:0}
 .search .s-words{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .search-row.has-minis .kbd{display:none}
-.minis{display:flex;gap:8px;flex:none}
+.minis{display:flex;flex-wrap:wrap;gap:8px;flex:0 1 auto;min-width:0}
 .minis .mini-pill{border-radius:16px;padding:9px 13px}
 @media (min-width:600px){.search-row{margin:10px 28px 2px}}
 @media (max-width:420px){.search-row.has-minis .s-words{font-size:14px}.minis .mini-pill{padding:0 10px}}
@@ -906,9 +906,27 @@ el("shorts").addEventListener("click", e => {
   if (x.settings) B.settings(x.id); else B.open(x.id);
 });
 drawShorts();
+/*
+  알림을 행동으로 (준's plan, stage 1): what a notice promises as one tap, beside the food's pill: "택배 오늘 도착" opens the
+  parcel's app, "KTX 일정에 넣기" fills the calendar, "민수 답장" opens a reply draft (sent only on 보내기). At most two of all
+  of these, the most useful first (the app ranks them); the 알림 · 제안 pills stay after them.
+*/
+const ACT_ICON = {
+  parcel: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5 12 3l8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9"/></svg>',
+  calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4M12 13v5M9.5 15.5h5"/></svg>',
+  reply: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 8 5 12.5l5 4.5"/><path d="M5.5 12.5H14a5 5 0 0 1 5 5V19"/></svg>'
+};
+function actPills(k) {
+  const out = [], d = !k.locked && k.delivery;
+  if (d && DELIV[d.stage]) out.push({rank: d.stage === "done" || d.stage === "canceled" ? 55 : 95, html: delivPill(k)});
+  for (const a of (!k.locked && Array.isArray(k.acts) ? k.acts : [])) for (const p of (a && a.pills) || [])
+    if (p && p.go && /^act:(open|calendar|reply):[a-z][0-9a-f]+$/.test(p.go))
+      out.push({rank: +p.rank || 0, html: '<button class="mini-pill act" data-mini="act" data-go="' + esc(p.go) + '">' + (ACT_ICON[p.icon] || "") + esc(p.label || "") + ' <b>' + esc(p.word || "") + '</b></button>'});
+  return out.sort((x, y) => y.rank - x.rank).slice(0, 2).map(x => x.html).join("");
+}
 function minis(k) {
   const box = el("minis"), n = k.locked ? 0 : (k.noticeCount || 0), ideas = k.locked ? [] : (k.suggestions || []);
-  box.innerHTML = delivPill(k) + (n ? '<button class="mini-pill" data-mini="notices"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/></svg>알림 <b>' + n + '</b></button>' : "")
+  box.innerHTML = actPills(k) + (n ? '<button class="mini-pill" data-mini="notices"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/></svg>알림 <b>' + n + '</b></button>' : "")
     + (ideas.length ? '<button class="mini-pill" data-mini="idea"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17c0-3-3-4-3-8a6 6 0 0 1 12 0c0 4-3 5-3 8z"/><path d="M9.5 20h5M11 22.5h2"/></svg>제안 <b>' + ideas.length + '</b></button>' : "");
   box.style.display = box.innerHTML ? "" : "none";
   box.parentElement.classList.toggle("has-minis", !!box.innerHTML);
@@ -917,6 +935,7 @@ el("minis").addEventListener("click", e => {
   const p = e.target.closest(".mini-pill"); if (!p || !info) return;
   if (p.dataset.mini === "notices") { if (B) B.open("notices"); return; }
   if (p.dataset.mini === "delivery") { if (B && p.dataset.app) B.open("delivery:" + p.dataset.app); return; }
+  if (p.dataset.mini === "act") { if (B && p.dataset.go) B.open(p.dataset.go); return; }
   openIdeas();
 });
 /* The background: the night aurora, or the user's own wallpaper under a dark veil (the home screen's menu switches). */
