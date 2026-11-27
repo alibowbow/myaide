@@ -38,6 +38,11 @@ import java.util.function.Consumer;
  *   /__gyeot/addon/walnut-col|nor|rgh.jpg  the 3D deck's walnut (a Poly Haven scan, CC0, graded to walnut)
  *   /__gyeot/music/list.json?k=             the list: titles and lengths, never a file's address ({locked} while locked)
  *   /__gyeot/music/pick?k=&kind=files|folder  Android's picker (MusicPickActivity), answered at once {pending, rev, via}
+ *   /__gyeot/music/scan?k=&ask=1|0          휴대폰 노래: the songs of Android's media index ({perm:"granted", items: id, title,
+ *                                           artist, dur, on; hidden}), or how asking for READ_MEDIA_AUDIO goes ({perm}); ask=1
+ *                                           asks (MusicPickActivity, kind songs) when it is not given
+ *   /__gyeot/music/add-media?k=&ids=a,b     the chosen songs onto the list (read off the main thread), answered at once {pending, rev, n}
+ *   /__gyeot/music/settings?k=              the app's page in Android's settings (to allow 음악 및 오디오 after a refusal)
  *   /__gyeot/music/<id>?k=                  the file's bytes, with Range (seeking)
  *   /__gyeot/music/<id>/art?k=              the picture found in it
  *   DELETE /__gyeot/music/<id>?k=           off the list (also GET …/<id>/remove)
@@ -125,7 +130,7 @@ final class PieceExtras {
         PieceMusicStore store = PieceMusicStore.of(c);
         // Locked, a wallpaper shows nothing of the user's (HtmlWallpaper): no list of their music and no picker, but an answer
         // that says so (the page asks again once it is shown unlocked); a file already playing goes on (its bytes are asked by id).
-        if ((path.equals("music/list.json") || path.equals("music/pick")) && locked(c)) return json(Jsons.obj("locked", true, "rev", -1, "items", new org.json.JSONArray(), "pick", "").toString());
+        if (PRIVATE.contains(path) && locked(c)) return json(Jsons.obj("locked", true, "rev", -1, "items", new org.json.JSONArray(), "pick", "").toString());
         switch (path) {
             case "music/list.json": return json(PieceMusic.page(store.shelf(), store.pick()).toString());
             case "music/pick": {
@@ -134,6 +139,33 @@ final class PieceExtras {
                 opener.accept(new Intent(c, MusicPickActivity.class).putExtra(MusicPickActivity.KIND, kind));
                 return json(Jsons.obj("pending", true, "rev", store.shelf().rev(), "via", "app").toString());
             }
+            case "music/scan": {
+                // The media index is read here (the request thread); without the permission, it is asked for once (ask=1),
+                // and the page asks again (ask=0) until the answer comes.
+                if (!songsAllowed(c)) {
+                    if (!"0".equals(u.getQueryParameter("ask"))) {
+                        store.perm("asking");
+                        opener.accept(new Intent(c, MusicPickActivity.class).putExtra(MusicPickActivity.KIND, MusicPickActivity.SONGS));
+                    }
+                    String perm = store.perm();
+                    return json(Jsons.obj("perm", perm.isEmpty() || perm.equals("granted") ? "ask" : perm).toString());
+                }
+                store.perm("granted");
+                return json(PieceMusic.songs(store.scan(), store.shelf()).toString());
+            }
+            case "music/add-media": {
+                if (!songsAllowed(c)) return json(Jsons.obj("perm", "ask").toString());
+                java.util.Set<String> want = new java.util.HashSet<>(PieceMusic.ids(u.getQueryParameter("ids")));
+                java.util.List<PieceMusic.Found> chosen = new java.util.ArrayList<>();
+                // the page names ids only: each is looked up again in the index (never an address from the page)
+                if (!want.isEmpty()) for (PieceMusic.Found f : store.scan()) if (want.contains(f.id()) && f.song() && !store.shelf().has(f.uri())) chosen.add(f);
+                store.pick("open");
+                store.addMediaLater(chosen);
+                return json(Jsons.obj("pending", true, "rev", store.shelf().rev(), "n", chosen.size(), "via", "app").toString());
+            }
+            case "music/settings":
+                opener.accept(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", c.getPackageName(), null)));
+                return json(Jsons.obj("via", "app").toString());
             case "deck/stats": return stats(c, u);
             default: break;
         }
@@ -151,6 +183,15 @@ final class PieceExtras {
         return bytes(c.getContentResolver(), t, header(r, "Range"));
     }
 
+    /** What tells of the user's music (or opens a window over the lock screen): nothing while the phone is locked. */
+    private static final java.util.Set<String> PRIVATE = java.util.Set.of("music/list.json", "music/pick", "music/scan", "music/add-media", "music/settings");
+    /**
+     * Whether the app may read the phone's songs from the media index: READ_MEDIA_AUDIO (asked for itself even where all files
+     * access was given for 들퍼레's folder: that one is about files, and the index answers for the permission it knows).
+     */
+    static boolean songsAllowed(Context c) {
+        return c.checkSelfPermission(android.Manifest.permission.READ_MEDIA_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
     private static boolean locked(Context c) {
         android.app.KeyguardManager k = c.getSystemService(android.app.KeyguardManager.class);
         return k != null && k.isKeyguardLocked();

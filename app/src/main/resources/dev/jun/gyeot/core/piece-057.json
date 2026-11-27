@@ -49,6 +49,36 @@
    "put": "on ? 0.36 * A.crackle : 0"
   },
   {
+   "why": "H16 pitch: the pitch fader's speed (1 is 33⅓ as cut; the add-on's fader sets it, ±8 %) and the one detune that bends every voice with it",
+   "find": "const GAP = 2.4, TAIL = 3.2;",
+   "put": "const GAP = 2.4, TAIL = 3.2;\n  let speed = 1, pitchC = null;"
+  },
+  {
+   "why": "H17 pitch: the detune (cents), made with the sound",
+   "find": "wowOsc.connect(wowDepth); wowOsc.start();",
+   "put": "wowOsc.connect(wowDepth); wowOsc.start();\n      if (actx.createConstantSource) { pitchC = actx.createConstantSource(); pitchC.offset.value = 1200 * Math.log2(speed); pitchC.start(); }"
+  },
+  {
+   "why": "H18 pitch: every voice the wow bends the fader bends too, at once (a held chord as well)",
+   "find": "function wobble(o) { wowDepth.connect(o.detune); o.onended = () => { try { wowDepth.disconnect(o.detune); } catch (e) {} }; }",
+   "put": "function wobble(o) { wowDepth.connect(o.detune); if (pitchC) pitchC.connect(o.detune); o.onended = () => { try { wowDepth.disconnect(o.detune); } catch (e) {} try { if (pitchC) pitchC.disconnect(o.detune); } catch (e) {} }; }"
+  },
+  {
+   "why": "H19 pitch: the bars come at the fader's speed (the song's clock runs speed times the sound's)",
+   "find": "scheduleBar(nextBar, startAudio + (nextBar * BL - startSong));",
+   "put": "scheduleBar(nextBar, startAudio + (nextBar * BL - startSong) / speed);"
+  },
+  {
+   "why": "H20 pitch: a bar's beats at the fader's speed too",
+   "find": "const beats = T.beats || A.beats, beat = 60 / A.bpm, BL = beats * beat;",
+   "put": "const beats = T.beats || A.beats, beat = 60 / A.bpm / speed, BL = beats * beat;"
+  },
+  {
+   "why": "H21 pitch: the platter turns at the fader's speed (the 3D deck's strobe dots drift off 33⅓, as on a real deck)",
+   "find": "const target = motorOn ? 200 : 0;",
+   "put": "const target = motorOn ? 200 * speed : 0;"
+  },
+  {
    "why": "H12 track numbers past iv., and A1, A2 … for 내 음악 (a Proxy: the piece reads NUM[k] as before)",
    "find": "const NUM = ['i.', 'ii.', 'iii.', 'iv.'];",
    "put": "const NUM = new Proxy(['i.', 'ii.', 'iii.', 'iv.'], { get(a, k) { if (typeof k === 'string' && /^\\d+$/.test(k)) { const A = ALBUMS[albumIdx]; if (A && A.mine) return 'A' + (+k + 1); if (a[k] === undefined) return (+k + 1) + '.'; } return a[k]; } });"
@@ -59,9 +89,9 @@
    "put": "function trackDur(A, T) { return T.dur != null ? T.dur : T.bars * barLen(A, T) + TAIL; }"
   },
   {
-   "why": "H3 a file's clock is its audio element",
+   "why": "H3 a file's clock is its audio element (a record's runs at the pitch fader's speed, H16)",
    "find": "function songNow() { return startSong + (actx.currentTime - startAudio); }",
-   "put": "function songNow() { const M = ALBUMS[albumIdx].mine; if (M) { try { return M.pos(); } catch (e) { return songPos; } } return startSong + (actx.currentTime - startAudio); }"
+   "put": "function songNow() { const M = ALBUMS[albumIdx].mine; if (M) { try { return M.pos(); } catch (e) { return songPos; } } return startSong + (actx.currentTime - startAudio) * speed; }"
   },
   {
    "why": "H4 a file plays from its audio element: no synthesizer session, no bar scheduler",
@@ -119,9 +149,9 @@
    "put": "if (!pd) updateProgress(false);\n    if (window.__gyFrame) try { window.__gyFrame(dt); } catch (e) {}"
   },
   {
-   "why": "H1 the piece's state and steps, for the add-on (getters: the piece's own variables, live)",
+   "why": "H1 the piece's state and steps, for the add-on (getters: the piece's own variables, live); the pitch fader's speed, the cue lever's lift (the motor still turning), the motor stopped under a lifted arm",
    "find": "setPlayUI(false);\n  drawArm();\n  raf = requestAnimationFrame(frame);",
-   "put": "setPlayUI(false);\n  drawArm();\n  window.__lp = {\n    ALBUMS, NUM, arm, GAP, TAIL, REST, R_OUT, R_IN, PX, PY, CX, CY, AL,\n    get albumIdx() { return albumIdx; }, get trackIdx() { return trackIdx; }, get songPos() { return songPos; },\n    get playing() { return playing; }, get busy() { return busy; }, get runout() { return runout; },\n    get motorOn() { return motorOn; }, get omega() { return omega; }, get spin() { return spin; },\n    get tweening() { return !!tween; }, get actx() { return actx; }, get master() { return master; },\n    get session() { return session; }, get vol() { return vol; }, get muted() { return muted; },\n    play, pause, toggle, gotoTrack, changeAlbum, seekTo, applyAlbum, refreshTrackUI, updateProgress, ensureAudio, setSurface, endOfSide,\n    thump(t, big) { if (actx) thump(t, big); },\n    angleForRadius, radiusAt, albumPos, trackDur, fmt,\n    setTrack(i, keep) { trackIdx = i; if (!keep) { songPos = 0; runout = false; } },\n    setPos(s) { songPos = s; }\n  };\n  raf = requestAnimationFrame(frame);"
+   "put": "setPlayUI(false);\n  drawArm();\n  window.__lp = {\n    ALBUMS, NUM, arm, GAP, TAIL, REST, R_OUT, R_IN, PX, PY, CX, CY, AL,\n    get albumIdx() { return albumIdx; }, get trackIdx() { return trackIdx; }, get songPos() { return songPos; },\n    get playing() { return playing; }, get busy() { return busy; }, get runout() { return runout; },\n    get motorOn() { return motorOn; }, get omega() { return omega; }, get spin() { return spin; },\n    get tweening() { return !!tween; }, get actx() { return actx; }, get master() { return master; },\n    get session() { return session; }, get vol() { return vol; }, get muted() { return muted; },\n    play, pause, toggle, gotoTrack, changeAlbum, seekTo, applyAlbum, refreshTrackUI, updateProgress, ensureAudio, setSurface, endOfSide,\n    thump(t, big) { if (actx) thump(t, big); },\n    angleForRadius, radiusAt, albumPos, trackDur, fmt,\n    setTrack(i, keep) { trackIdx = i; if (!keep) { songPos = 0; runout = false; } },\n    setPos(s) { songPos = s; },\n    get speed() { return speed; },\n    setSpeed(r) { r = Math.max(0.9, Math.min(1.1, +r || 1)); if (playing && actx && session) { const s = songNow(); startAudio = actx.currentTime; startSong = s; } speed = r;\n      if (pitchC) { const t = actx.currentTime; pitchC.offset.cancelScheduledValues(t); pitchC.offset.setTargetAtTime(1200 * Math.log2(r), t, 0.04); } },\n    async cueUp() { if (busy || !playing) return false; busy = true; playing = false; arm.follow = false; stopAudio(); if (actx) thump(actx.currentTime + 0.01, false); setPlayUI(false);\n      await tweenArm({ lift: 1 }, 0.5); busy = false; return true; },\n    stopMotor() { if (playing || busy || runout || !motorOn) return false; motorOn = false; setPlayUI(false); return true; }\n  };\n  raf = requestAnimationFrame(frame);"
   },
   {
    "why": "the add-on itself: the list bar and sheet, 내 음악 (vinyl.js) and the three.js deck (deck3d.js), from the app",

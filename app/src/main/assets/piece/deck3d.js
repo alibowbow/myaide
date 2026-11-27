@@ -13,13 +13,15 @@
       looks the same however it turns (the platter, the mat, the spindle, and the record's own body: its sheen stands still
       while it spins, as on a real record) are drawn once, at twice the size and averaged down, into two pictures (without the
       record, A; with it, B), again only when the deck changes size or another record's rings come home. A frame is picture B
-      and what moves on it: the label and the dust turning, the strobe dots, the arm and its shadow, the cue lever, the lamps
-      and LEDs (18 to 22 draws, 19 thousand triangles). While a record flies out and in, its body is drawn live over A;
+      and what moves on it: the label and the dust turning, the strobe dots, the arm and its shadow, the cue lever, the pitch
+      fader's slider and the anti-skate mark (vinyl.js: controls()), the lamps and LEDs (22 to 26 draws, 21 thousand
+      triangles). While a record flies out and in, its body is drawn live over A;
     - one canvas, the deck only; the frame times go once to the app's diagnostic report ("LP 3D 평균 …", __gy.report);
     - nothing is made before the page is seen: three.js is read, the light baked and the canvas made once the piece's frames
       have kept coming for 0.7 s with the deck in view, which they do only while the page is on screen (a launcher's page next
       to the one shown gets a few as it loads, then none; the wallpaper's board, which slides its pages, says which is in
-      sight: __gy.shown). The CSS deck stays until then. A resize or a new record's bake waits for frames too;
+      sight: __gy.shown). The CSS deck stays until then. A resize or a new record's bake waits for frames too, and a deck
+      hidden with its tab (vinyl.js on a wide screen) draws nothing and bakes nothing until it is shown again;
     - when it gives up (the phone too slow, an error), everything it held on the GPU goes (its pictures, bakes, buffers, and
       the context itself), and the CSS deck is the deck again.
 
@@ -187,6 +189,7 @@ function printLayer(W) {
   g.textAlign = 'center'; g.textBaseline = 'alphabetic';
   const say = (t, x, y, size, a, ls) => { g.font = size + 'px ' + FONT; g.fillStyle = ink(a); if ('letterSpacing' in g) g.letterSpacing = (ls || 0) + 'px'; g.fillText(t, x, y); };
   say('SKATE', 944, 184, 11, 0.85, 1.5); say('CUE', 944, 300, 11, 0.85, 1.5); say('PITCH', 952, 626, 11, 0.85, 1.5);
+  say('+8', 916, 394, 11, 0.8, 0.5); say('−8', 916, 562, 11, 0.8, 0.5);        // the pitch fader: up is faster (vinyl.js)
   g.textAlign = 'left'; say('33⅓', 224, 733, 17, 0.9, 1); say('45', 296, 733, 17, 0.5, 1);
   g.strokeStyle = ink(0.6); g.lineWidth = 1.2;
   g.beginPath(); for (const [y, w] of [[60, 10], [102, 7], [144, 10], [186, 7], [228, 10], [250, 7]]) { g.moveTo(952 - 22, 330 + y); g.lineTo(952 - 22 + w, 330 + y); } g.stroke();
@@ -207,7 +210,7 @@ function shadeLayer(W) {
   // the platter's well: its lip darkens toward the gap
   g.save(); g.filter = 'blur(' + (7 * k).toFixed(1) + 'px)'; g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 14; g.beginPath(); g.arc(400, 390, 347, 0, TAU); g.stroke(); g.restore();
   blob(disc(850, 150, 74), 6, 0.55); blob(disc(944, 150, 21), 4, 0.6); blob(disc(873, 561, 20), 4, 0.6);
-  blob(disc(152, 634, 16), 4, 0.6); blob(box(118, 716, 140, 56), 4, 0.5); blob(box(726, 750, 236, 32), 3, 0.45); blob(box(952, 474, 38, 26), 3, 0.55);
+  blob(disc(152, 634, 16), 4, 0.6); blob(box(118, 716, 140, 56), 4, 0.5); blob(box(726, 750, 236, 32), 3, 0.45);
   blob(box(944, 252, 20, 62), 3, 0.5); blob(box(952, 485, 14, 232), 3, 0.4);
   blob(disc(214, 727, 6.5), 2, 0.6); blob(disc(287, 727, 6.5), 2, 0.6); blob(box(200, 10, 104, 20), 3, 0.55); blob(box(804, 10, 104, 20), 3, 0.55);
   const t = tex(c); return t;
@@ -530,7 +533,7 @@ function build(M) {
   add(still, at(new THREE.CylinderGeometry(30, 30, 38, 48), PIV.x, 45, PIV.z), M.ghost, { recv: false });
   /* anti-skate: a turned knob with its mark */
   add(still, turned([[0, 13], [14, 13], [14, 13], [16.6, 12.4], [17.8, 11], [18, 9.8], [18, 9.8], [18, 2.2], [18.8, 1.2], [20.5, 0.4]], 96, 18, 944, 150), M.turned);
-  add(still, slab(944, 140, 2.2, 8, 12.9, 13.6, 1, 0.3), M.anodS, { cast: false });
+  // (its mark turns with the knob: drawn with what moves, below)
   /* the arm rest: a turned post with a rubber saddle */
   add(still, turned([[0, 32], [14.6, 32], [16.4, 31], [17, 29], [17, 29], [17, 2.4], [17.8, 1.3], [20.5, 0.4]], 96, 17, 873, 561), M.turned);
   add(still, slab(873, 561, 30, 11, 31, 41.6, 4, 2.2), M.rubber);
@@ -538,8 +541,7 @@ function build(M) {
   add(still, slab(944, 252, 18, 60, 0, 1.6, 9, 0.6), M.satin);
   /* pitch: the slot and its brass slider */
   add(still, slab(952, 485, 12, 230, 0, 1.4, 6, 0.5), M.satin);
-  add(still, slab(952, 474, 34, 22, 0, 7.5, 3, 1.4), M.brassS);
-  add(still, slab(952, 474, 24, 1.6, 7.3, 7.9, 0.6, 0.2), M.anodS, { cast: false });
+  // (its brass slider moves with the fader: drawn with what moves, below)
   /* the strobe lamp: a round satin base, a turned brass bezel with a lip round its glass (the glass is drawn live), the LEDs'
      bezels, the 45 LED (never lit) */
   add(still, turned([[0, 4.2], [14.8, 4.2], [15.6, 3.6], [16, 2.2], [16.4, 0]], 64, 16, 152, 634), M.satin);
@@ -610,6 +612,15 @@ function build(M) {
   // the cue lever: brass in its slot, tipping up as the arm lifts
   const cue = new THREE.Group(); cue.position.set(944, 1.6, 256); live.add(cue);
   add(cue, merge([slab(0, -13, 7, 29, 0, 4.6, 3.5, 1.2), at(ring([[0, 3.2], [5.2, 3.1], [7.4, 2.2], [8, 0], [7.4, -2.2], [5.2, -3.1], [0, -3.2]], 32, { R: 8 }), 0, 6, -26)]), M.brass);
+  // the pitch fader's brass slider (vinyl.js moves it: controls().fader, deck units from its middle) with its own soft shadow,
+  // and the anti-skate knob's mark (controls().skate, degrees)
+  const pitch = new THREE.Group(); pitch.position.set(952, 0, 474); live.add(pitch);
+  const psh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: spot(0.35), color: 0x000000, transparent: true, depthWrite: false, opacity: 0.55 }));
+  psh.position.set(3, 1.45, 4); psh.scale.set(50, 1, 38); psh.renderOrder = 1; pitch.add(psh);
+  add(pitch, slab(0, 0, 34, 22, 0, 7.5, 3, 1.4), M.brassS);
+  add(pitch, slab(0, 0, 24, 1.6, 7.3, 7.9, 0.6, 0.2), M.anodS, { cast: false });
+  const skate = new THREE.Group(); skate.position.set(944, 0, 150); live.add(skate);
+  add(skate, slab(0, -10, 2.2, 8, 12.9, 13.6, 1, 0.3), M.anodS, { cast: false });
   // what glows: the strobe lamp (its glass dome lit from inside) and its light on the plinth, the 33⅓ LED
   const lens = add(live, turned([[0, 9.6], [2.6, 9.45], [5, 8.95], [7, 8.0], [8.3, 6.9], [8.6, 6.1]], 48, 9, 152, 634), M.lens, { cast: false, recv: false, order: 9 });
   const led = add(live, turned([[0, 3.6], [2.4, 3.3], [3.6, 2.4], [3.9, 1]], 24, 4, 214, 727), M.led, { cast: false, recv: false });
@@ -625,7 +636,7 @@ function build(M) {
   const glow = new THREE.Mesh(glowG, glowM); glow.position.set(152, 10, 634); glow.scale.set(120, 1, 110); glow.renderOrder = 20; live.add(glow);
   const glow2 = new THREE.Mesh(glowG, glowM.clone()); glow2.position.set(214, 4, 727); glow2.scale.set(26, 1, 26); glow2.renderOrder = 20; live.add(glow2);
   const glow3 = new THREE.Mesh(glowG, glowM.clone()); glow3.position.set(ledX, 7, KEY.z + KEY.d / 2); glow3.scale.set(22, 1, 22); glow3.renderOrder = 20; live.add(glow3);
-  return { still, live, vinylHome, disc, vinyl, label, dust, dots, glowRim, yaw, liftG, cue, lens, led, glow, glow2, glow3 };
+  return { still, live, vinylHome, disc, vinyl, label, dust, dots, glowRim, yaw, liftG, cue, pitch, skate, lens, led, glow, glow2, glow3 };
 }
 
 /** The arm's moving shadow: for each point near the arm, how high it is (record, platter, plinth) says how far the arm's shadow falls. */
@@ -662,7 +673,7 @@ function summary() {
   const s = stats, w = s.work.slice().sort((a, b) => a - b), g = s.gaps.slice().sort((a, b) => a - b);
   const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0, p95 = a => a.length ? a[Math.min(a.length - 1, Math.floor(a.length * 0.95))] : 0;
   return { css: s.css, frames: s.frames, avg: +mean(w).toFixed(2), p95: +p95(w).toFixed(2), gapAvg: +mean(g).toFixed(2), gapP95: +p95(g).toFixed(2),
-    fps: g.length ? +(1000 / mean(g)).toFixed(1) : 0, gpu: s.gpu.length ? +mean(s.gpu).toFixed(2) : null, pr: s.pr, w: s.w, h: s.h, calls: s.calls, triangles: s.triangles, programs: s.programs, prep: s.prep };
+    fps: g.length ? +(1000 / mean(g)).toFixed(1) : 0, gpu: s.gpu.length ? +mean(s.gpu).toFixed(2) : null, pr: s.pr, w: s.w, h: s.h, resized: s.resized || 0, calls: s.calls, triangles: s.triangles, programs: s.programs, prep: s.prep };
 }
 /**
  * Khronos PBR Neutral (the engine's tone mapping: it keeps a paint's colour where ACES drains it), with its toe a fraction as
@@ -896,9 +907,11 @@ async function main() {
     }
     function sample() {
       const sl = slotState();
-      return { spin: L.spin, a: L.arm.angle, l: L.arm.lift, on: !!L.motorOn, ph: strobePh, sl: sl ? [sl.x, sl.z, sl.rot, sl.lift, sl.o].map(v => v.toFixed(2)).join() : '', slot: sl };
+      const c = G.controls ? G.controls() : null;
+      return { spin: L.spin, a: L.arm.angle, l: L.arm.lift, on: !!L.motorOn, ph: strobePh, sl: sl ? [sl.x, sl.z, sl.rot, sl.lift, sl.o].map(v => v.toFixed(2)).join() : '', slot: sl,
+        f: c ? +c.fader || 0 : 0, k: c ? +c.skate || 0 : 0 };
     }
-    const same = (p, q) => p && q && Math.abs(p.spin - q.spin) < 0.02 && Math.abs(p.a - q.a) < 0.004 && Math.abs(p.l - q.l) < 0.001 && p.on === q.on && Math.abs(p.ph - q.ph) < 0.01 && p.sl === q.sl;
+    const same = (p, q) => p && q && Math.abs(p.spin - q.spin) < 0.02 && Math.abs(p.a - q.a) < 0.004 && Math.abs(p.l - q.l) < 0.001 && p.on === q.on && Math.abs(p.ph - q.ph) < 0.01 && p.sl === q.sl && p.f === q.f && p.k === q.k;
     const headM = new THREE.Matrix4().makeRotationY(-22 * D2R).setPosition(500, 0, 0);
     function pose(s) {
       const sp = -s.spin * D2R, sl = s.slot, home = !sl;
@@ -924,6 +937,7 @@ async function main() {
       B.yaw.rotation.y = -s.a * D2R;
       B.liftG.rotation.z = 1.2 * D2R * s.l;
       B.cue.rotation.x = 42 * D2R * s.l; B.cue.rotation.y = 10 * D2R * s.l;
+      B.pitch.position.z = 474 + s.f; B.skate.rotation.y = -s.k * D2R;          // the fader's slider, the anti-skate mark (clockwise on screen)
       const c = Math.cos(s.a * D2R), sn = Math.sin(s.a * D2R), u = shadow.material.uniforms;
       u.cs.value.set(c, sn); u.tilt.value = Math.tan(1.2 * D2R * s.l); u.rec.value.z = home ? 1 : 0;
       // the shadow's quad: along the arm (its reach, −160…610 by ±115), pushed away from the lamp
@@ -983,7 +997,8 @@ async function main() {
       if (resizedAt && seenAt - resizedAt > 160) {
         resizedAt = 0;
         const r = deck.getBoundingClientRect();
-        if (Math.round(r.width) !== cssW || Math.round(r.height) !== cssH) { size(); bake(); dirty = true; }
+        // (0 × 0: the deck hidden, as when another tab is shown; nothing to size until it shows, when the observer says so again)
+        if (r.width >= 2 && r.height >= 2 && (Math.round(r.width) !== cssW || Math.round(r.height) !== cssH)) { size(); bake(); dirty = true; stats.resized = (stats.resized || 0) + 1; }
       }
       // the strobe dots as the lamp (100 flashes a second) shows them: still at 33⅓, drifting while the platter speeds up
       const per = L.omega / 100, al = ((per % 2) + 3) % 2 - 1;

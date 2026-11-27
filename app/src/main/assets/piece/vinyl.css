@@ -34,18 +34,18 @@ html{font-synthesis:weight;font-synthesis-style:none}
 #gyBar button:focus-visible{outline:2px solid var(--brass-lt,#ecd27a);outline-offset:1px}
 
 #gyScrim{position:fixed;inset:0;z-index:38;background:rgba(8,14,10,.18);touch-action:none}
-#gyScrim[hidden],#gySheet[hidden]{display:none}
-#gySheet{position:fixed;z-index:39;left:50%;bottom:calc(var(--gyB) + 26px + var(--gyBarH) + 8px);transform:translateX(-50%);
+#gyScrim[hidden],#gySheet[hidden],#gyScan[hidden]{display:none}
+#gySheet,#gyScan{position:fixed;z-index:39;left:50%;bottom:calc(var(--gyB) + 26px + var(--gyBarH) + 8px);transform:translateX(-50%);
   width:min(420px,calc(100vw - 44px));max-height:min(56vh,460px);box-sizing:border-box;display:flex;flex-direction:column;
   border-radius:10px;color:var(--ink,#2b2118);font-family:var(--serif,Georgia,serif);
   background:radial-gradient(120% 80% at 0% 0%,rgba(255,255,255,.5),rgba(255,255,255,0) 50%),
     repeating-linear-gradient(0deg,rgba(90,60,30,.018) 0 1px,rgba(0,0,0,0) 1px 3px),linear-gradient(180deg,#f3ebdf,#efe6d8 50%,#e7dcca);
   box-shadow:0 22px 40px rgba(0,0,0,.5),0 3px 8px rgba(0,0,0,.3),inset 0 0 0 1px rgba(255,255,255,.4);
   animation:gyUp .18s ease-out}
-#gySheet::before{content:"";position:absolute;inset:6px;border:1px solid rgba(138,109,18,.32);border-radius:6px;pointer-events:none}
+#gySheet::before,#gyScan::before{content:"";position:absolute;inset:6px;border:1px solid rgba(138,109,18,.32);border-radius:6px;pointer-events:none}
 @keyframes gyUp{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
 /* :where: the parts' own font sizes win over this */
-:where(#gySheet button){-webkit-appearance:none;appearance:none;font:inherit;color:inherit;cursor:pointer;margin:0}
+:where(#gySheet button,#gyScan button){-webkit-appearance:none;appearance:none;font:inherit;color:inherit;cursor:pointer;margin:0}
 .gy-albums{display:flex;gap:5px;padding:12px 10px 6px;overflow-x:auto;scrollbar-width:none;flex:none;touch-action:pan-x;overscroll-behavior:contain}
 .gy-albums::-webkit-scrollbar{display:none}
 .gy-chip{flex:0 1 auto;min-width:46px;height:28px;max-width:132px;padding:0 9px;border-radius:14px;border:1px solid rgba(43,33,24,.22);background:rgba(255,255,255,.35);
@@ -74,7 +74,45 @@ html{font-synthesis:weight;font-synthesis-style:none}
 .gy-x.sure{width:auto;padding:0 9px;font-size:11.5px;color:#fff;background:#a3361f}
 .gy-more{width:100%;height:36px;border:0;background:none;font-size:12.5px;font-style:italic;color:var(--brass-dk,#8a6d12)}
 .gy-empty{padding:10px 14px 16px;font-size:13px;line-height:1.5;font-style:italic;color:#4a3b2c}
-#gySheet button:focus-visible{outline:2px solid var(--brass-dk,#8a6d12);outline-offset:-2px}
+#gySheet button:focus-visible,#gyScan button:focus-visible{outline:2px solid var(--brass-dk,#8a6d12);outline-offset:-2px}
+/* 내 음악's head: 원음 / LP (two small pills), and a row of its ways in (휴대폰 노래, 파일, 폴더) */
+.gy-sound{flex:none;display:inline-flex;padding:1px;border-radius:13px;border:1px solid rgba(138,109,18,.55);background:rgba(255,255,255,.3)}
+.gy-sound button{height:22px;min-width:34px;padding:0 8px;border:0;border-radius:11px;background:none;font-size:11.5px;letter-spacing:.03em;color:#5a4a38}
+.gy-sound button[aria-checked="true"]{color:#2b1d05;background:linear-gradient(180deg,#f0d77e,#c9a227 60%,#a8861d);box-shadow:inset 0 1px 0 rgba(255,255,255,.55)}
+.gy-adds{display:flex;flex-wrap:wrap;gap:6px;padding:0 14px 6px;flex:none}
+.gy-adds:empty{display:none}
+
+/* 휴대폰 노래: a checklist in the sheet's place; only the rows in sight are on the page */
+.gy-shead{display:flex;align-items:center;gap:6px;padding:12px 10px 6px 16px;flex:none}
+.gy-stitle{flex:1;min-width:0;font-weight:400;font-size:13.5px;letter-spacing:.06em;font-variant:small-caps;color:#3b2e22;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gy-all{flex:none;height:26px;padding:0 10px;border-radius:13px;border:1px solid var(--brass-dk,#8a6d12);background:rgba(201,162,39,.14);font-size:12px;color:#3b2e22}
+.gy-all[hidden]{display:none}
+.gy-sx{flex:none;width:28px;height:28px;border-radius:14px;border:0;background:none;font-size:17px;line-height:1;color:var(--ink-soft,#6b5a48)}
+.gy-snote{padding:0 14px 6px;font-size:12px;line-height:1.45;color:var(--brass-dk,#8a6d12);flex:none;display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.gy-snote:empty{display:none}
+.gy-snote span{flex:1 1 100%;color:#4a3b2c}
+.gy-slist{position:relative;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;border-top:1px solid rgba(43,33,24,.13);margin:0 8px}
+.gy-spad{position:relative}
+.gy-srow{position:absolute;left:0;right:0;height:40px;display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:8px;padding:0 6px;border:0;border-bottom:1px solid rgba(43,33,24,.1);background:none;text-align:left;font-size:14px;color:#3b2e22}
+.gy-srow:active{background:rgba(201,162,39,.12)}
+.gy-srow[aria-disabled="true"]{opacity:.55;cursor:default}
+.gy-box{width:16px;height:16px;border-radius:4px;border:1.5px solid rgba(138,109,18,.75);box-sizing:border-box;position:relative}
+.gy-srow[aria-selected="true"] .gy-box{background:var(--brass,#c9a227);border-color:var(--brass-dk,#8a6d12)}
+.gy-srow[aria-selected="true"] .gy-box::after{content:"";position:absolute;left:4.5px;top:1px;width:4px;height:8px;border:solid #2b1d05;border-width:0 1.8px 1.8px 0;transform:rotate(42deg)}
+.gy-srow .gy-dur{font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--ink-soft,#6b5a48)}
+.gy-sfoot{display:flex;align-items:center;gap:8px;padding:8px 12px 12px 16px;flex:none;border-top:1px solid rgba(43,33,24,.13)}
+.gy-ssum{flex:1;min-width:0;font-size:11.5px;line-height:1.35;font-style:italic;color:var(--ink-soft,#6b5a48)}
+.gy-take{flex:none;height:28px;padding:0 13px;border-radius:14px;border:1px solid var(--brass-dk,#8a6d12);font-size:12.5px;color:#2b1d05;
+  background:linear-gradient(180deg,#f0d77e,#c9a227 60%,#a8861d);box-shadow:0 1px 3px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.55)}
+.gy-take[disabled]{opacity:.45;cursor:default;box-shadow:none}
+
+/* The deck's PITCH fader, CUE lever and SKATE knob: see-through boxes over where the piece draws them (both decks) */
+.deck>.gy-ctl{position:absolute;z-index:2;margin:0;padding:0;border:0;background:none;-webkit-appearance:none;appearance:none;cursor:pointer;
+  touch-action:none;-webkit-tap-highlight-color:transparent;border-radius:6px;outline:none}
+.deck>.gy-ctl:focus-visible{box-shadow:0 0 0 2px var(--brass-lt,#ecd27a)}
+.deck>.gy-pitch{cursor:ns-resize}
+.deck>svg.gy-art{pointer-events:none}
+.deck.gy3d>svg.gy-art{visibility:hidden}
 
 /* 내 음악 in the crate: a fourth sleeve (a record peeking from a walnut sleeve), and its cover in the liner notes */
 .sleeves.gy-four{grid-template-columns:repeat(4,1fr);max-width:470px}
@@ -87,7 +125,7 @@ html{font-synthesis:weight;font-synthesis-style:none}
     linear-gradient(160deg,#76482f,#4a2f20 58%,#2a1a10)}
 .art.a3 .t{color:#f3e3bd}
 .art.a3.pic{background-size:cover;background-position:center}
-@media (prefers-reduced-motion:reduce){#gySheet{animation:none}}
+@media (prefers-reduced-motion:reduce){#gySheet,#gyScan{animation:none}}
 
 /* The three.js deck (deck3d.js): one canvas over the plinth, under the buttons; once it has drawn, the CSS deck's parts hide
    (the slot's animation keeps running: the 3D record follows it). Without it, nothing here applies. */
@@ -97,3 +135,36 @@ html{font-synthesis:weight;font-synthesis-style:none}
 /* the start · stop key is drawn in 3D (lit with the rest, its LED with the motor): the piece's button stays, see-through, to press */
 .deck.gy3d>.startstop,.deck.gy3d>.startstop:active{background:none;border-color:transparent;box-shadow:none;color:transparent;transform:none}
 .deck.gy3d>.startstop i{visibility:hidden}
+
+/* One part at a time on a screen wide for its height (vinyl.js: the unfolded Fold, a tablet): the brand row with the tab pills
+   at its end, then the deck as large as fits, the amplifier, or the liner notes in two columns (their track list scrolls in
+   its own box); the page itself never scrolls, and keeps clear of the bar and the launcher's dots under it. */
+.gy-tabs{display:none}
+html.gy-tabbed .gy-tabs{display:inline-flex;flex:none;order:3;gap:2px;padding:2px;border-radius:16px;border:1px solid rgba(201,162,39,.55);
+  background:linear-gradient(180deg,rgba(66,43,29,.94),rgba(29,19,12,.95));box-shadow:0 4px 10px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,232,190,.14)}
+.gy-tabs button{-webkit-appearance:none;appearance:none;height:28px;padding:0 12px;margin:0;border:0;border-radius:14px;background:none;cursor:pointer;
+  color:var(--cream,#efe6d8);font-family:var(--serif,Georgia,serif);font-size:13px;letter-spacing:.04em;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+.gy-tabs button[aria-selected="true"]{color:#2b1d05;background:radial-gradient(circle at 38% 30%,#fbe8a6,#dcb947 40%,#b08c1f 72%,#7d620f);box-shadow:inset 0 1px 1px rgba(255,255,255,.6)}
+.gy-tabs button:focus-visible{outline:2px solid var(--brass-lt,#ecd27a);outline-offset:1px}
+html.gy-tabbed body{min-height:0}
+html.gy-tabbed .room{height:100vh;height:100dvh;display:flex;flex-direction:column;padding-top:12px;padding-bottom:calc(var(--gyB) + 26px + var(--gyBarH) + 10px)}
+html.gy-tabbed .brand{flex:none;flex-direction:row;align-items:center;margin-bottom:12px;padding-bottom:10px}
+html.gy-tabbed .brand p{margin-left:auto;font-size:12px;line-height:1.35}
+@media (max-width:900px){html.gy-tabbed .brand p{display:none}html.gy-tabbed .gy-tabs{margin-left:auto}}
+html.gy-tabbed .stage{flex:1;min-height:0;display:block;container-type:size;gap:0}
+html.gy-tabbed .fine{display:none}
+html.gy-tabbed[data-gy-tab="deck"] .amp,html.gy-tabbed[data-gy-tab="amp"] .deck,html.gy-tabbed[data-gy-tab="list"] .left,
+html.gy-tabbed[data-gy-tab="deck"] .panel,html.gy-tabbed[data-gy-tab="amp"] .panel{display:none}
+html.gy-tabbed .left{height:100%;display:flex;align-items:center;justify-content:center}
+html.gy-tabbed .deck{flex:none;width:min(100cqw,128.2cqh)}
+html.gy-tabbed .amp{flex:none;margin-top:0;width:min(100cqw,900px)}
+html.gy-tabbed .panel{height:100%;max-width:none;width:100%;margin:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  grid-template-rows:auto auto minmax(0,1fr) auto auto;column-gap:clamp(18px,3vw,36px);padding:clamp(16px,2vw,26px) clamp(18px,2.4vw,30px)}
+html.gy-tabbed .panel .np{grid-column:1/-1}
+html.gy-tabbed .panel .album{grid-column:1;grid-row:2;margin-top:12px;grid-template-columns:clamp(110px,24cqh,180px) minmax(0,1fr)}
+html.gy-tabbed .panel .liner{grid-column:1;grid-row:3;align-self:start;max-height:100%;overflow:hidden}
+html.gy-tabbed .panel .now{grid-column:1;grid-row:4}
+html.gy-tabbed .panel .transport{grid-column:1;grid-row:5;align-self:end;margin-top:6px}
+html.gy-tabbed .panel .tracks{grid-column:2;grid-row:2/5;margin-top:12px;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+html.gy-tabbed .panel .crate{grid-column:2;grid-row:5;margin-top:10px;padding-top:10px}
+html.gy-tabbed .panel .keys{display:none}

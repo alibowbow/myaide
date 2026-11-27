@@ -9,13 +9,31 @@
       tracks a tap away without scrolling; the page itself stays as the piece made it;
     - 내 음악, a fourth record: music files picked on the phone (PieceExtras /__gyeot/music/…, the app's file picker), played
       by one audio element into the piece's own sound path (master: the volume knob, mute, the VU meters, the surface noise)
-      but not its synthesizer bus (no saturation, no reverb, no wow: the music as it is). The piece's own transport runs it:
-      the tonearm follows the files' real lengths, the silent bands sit between them, the arm returns after the last.
+      but not its synthesizer bus. The piece's own transport runs it: the tonearm follows the files' real lengths, the silent
+      bands sit between them, the arm returns after the last.
+  Then (준, on the Galaxy Z Fold): "갤폴드인데 lp페이지는 여전히 스크롤 해야해 차라리 탭으로 구분하면 어떨까", "우측 조작패널들
+  조작이 안돼 피치 큐", "mp3들은 자동인식해서 목록들을 쭉 가져오면 안될까 … 음성대화녹음파일들은 파일명 보고 자동으로 걸러",
+  "내음악을 원음대로 재생만 돼 lp모드가 없어". So:
+    - a screen wide for its height (the unfolded Fold, a tablet, a desktop: innerWidth ≥ 560 and innerHeight < 1.45 ×
+      innerWidth) shows one part at a time, each sized to fit: 턴테이블 · 앰프 · 곡목록, small pills at the end of the brand row
+      (the last one remembered). Nothing there scrolls but the track list inside its own box. A tall screen (the folded
+      cover screen, a phone) keeps the piece's own long page;
+    - the deck's right-hand controls work (the piece only drew them): PITCH drags ±8 % (a detent at 0, a double tap back to
+      it) and bends speed and pitch together as a turntable does (a record through the piece's own clock and one detune,
+      H16–H21; a file by its playbackRate without keeping its pitch); CUE lifts the arm off the record (the sound stops, the
+      platter keeps turning) and lowers it again; SKATE turns (a real deck's anti-skate is not heard either). They are see-
+      through boxes over the deck at the drawn places, so they work with the 3D deck too, which draws them from controls();
+    - + 휴대폰 노래: the songs Android's media index knows (PieceExtras /__gyeot/music/scan: music only, without ringtones,
+      alarms, podcasts, recordings, voice and call recordings by their folders and names, or anything under 45 s), in a
+      checklist sheet (only the rows in sight drawn), the chosen ones onto 내 음악 (/__gyeot/music/add-media);
+    - 내 음악 plays as an LP by default (원음 / LP in its sheet): a little wow and flutter, a warmer tone, a light tape
+      saturation and a slightly narrower stereo before the piece's master and its surface noise; 원음 is the file as it is.
 
   For the three.js deck (deck3d.js), window.__gy: onFrame(fn(dt)) in the piece's own frame (one loop; none while the page is
   hidden or out of the launcher's sight), onTrack(fn) when the track, the record or 내 음악's list changes, state() (spin, arm
-  angle and lift, …), label() (the label's SVG group and a key that changes when it looks different), grooves() (the tracks'
-  radii), report(stats), shown (whether the home screen says the page is in sight; null where nobody says).
+  angle and lift, …), controls() (the pitch fader's offset in deck units, the anti-skate knob's angle), label() (the label's
+  SVG group and a key that changes when it looks different), grooves() (the tracks' radii), report(stats), shown (whether
+  the home screen says the page is in sight; null where nobody says).
 
   A file goes on to the next one out of the launcher's sight too (no frames there: its end starts the next here), stops when
   the page is hidden (another app, the screen off: it has no notification or audio focus of its own), and a page opened while
@@ -35,7 +53,9 @@
   const idle = (most = 8000) => new Promise(res => { const t0 = performance.now(); const tick = () => (!L.busy || performance.now() - t0 > most) ? res() : setTimeout(tick, 60); tick(); });
   // A file's level against the synthesizer records': measured with Web Audio (tests/browser/vinyl.test.js), a −14 LUFS
   // recording at TRIM sounds as loud as the records, and reads 0 VU at the default volume with VU as the meters' offset.
-  const TRIM = 0.65, VU = 23.5;
+  const TRIM = 0.65, VU = 23.5, MOST = 500;
+  // What this viewer chose last (the tab, the sound): a convenience only, so a blocked storage just means the defaults.
+  const kept = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : v; } catch (e) { return d; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
   /* ── the hook ── */
   const frameFns = new Set(), trackFns = new Set();
@@ -62,8 +82,13 @@
   window.__gyInsets = (top, bottom) => { heard = true; insets(top, bottom); };
 
   /* ── 내 음악 ── */
-  const MINE = { id: 3, title: '내 음악', artist: '휴대폰의 음악', cat: 'MY MUSIC', liner: '휴대폰에서 고른 음악을 이 턴테이블에 올렸어요. 소리는 원곡 그대로이고, 레코드 표면 소리만 살짝 깔려요.',
-    bpm: 60, beats: 4, wow: 0, crackle: 0.5, rain: 0, scale: [], vu: VU, mine: null, tracks: [], starts: [], total: 1 };
+  // How 내 음악 sounds: 'lp' (the vinyl chain below, the surface a little louder) or 'clean' (the file as it is).
+  let sound = kept.get('gy.lp.sound', 'lp') === 'clean' ? 'clean' : 'lp';
+  const LINER = { lp: '휴대폰에서 고른 음악을 이 턴테이블에 올렸어요. LP로 들어요: 살짝 흔들리는 회전, 따뜻한 음색, 레코드 표면 소리.',
+    clean: '휴대폰에서 고른 음악을 이 턴테이블에 올렸어요. 소리는 원곡 그대로이고, 레코드 표면 소리만 살짝 깔려요.' };
+  const CRACKLE = { lp: 0.75, clean: 0.5 };
+  const MINE = { id: 3, title: '내 음악', artist: '휴대폰의 음악', cat: 'MY MUSIC', liner: LINER[sound],
+    bpm: 60, beats: 4, wow: 0, crackle: CRACKLE[sound], rain: 0, scale: [], vu: VU, mine: null, tracks: [], starts: [], total: 1 };
   let host = false, locked = false, rev = -1, waiting = null, pollT = 0, lockT = 0;
   const bad = new Map();
   function restack() {
@@ -75,14 +100,55 @@
   const mineOn = () => L.albumIdx === 3 && ALBUMS[3] === MINE;
   const current = () => ALBUMS[L.albumIdx].tracks[L.trackIdx];
 
+  /**
+   * The LP sound for a file: the wow of a platter turning at 33⅓ (0.556 Hz, about 0.12 %) and a little flutter (7.3 Hz,
+   * 0.04 %) as a short delay whose length is swung; a softer top (12.5 kHz) and a touch of low-mid warmth; a light tape-like
+   * saturation (unity for quiet sound, rounding only the loudest); the stereo a little narrower (90 % width). The piece's own
+   * surface noise sits on the master after it. Made once, on the piece's own audio context.
+   */
+  function vinylChain(ctx) {
+    const inp = ctx.createGain(); inp.channelCount = 2; inp.channelCountMode = 'explicit'; inp.channelInterpretation = 'speakers'; // a mono file to both sides
+    const dl = ctx.createDelay(0.05); dl.delayTime.value = 0.006;
+    for (const [f, a] of [[100 / 180, 0.0012 / (2 * Math.PI * (100 / 180))], [7.3, 0.0004 / (2 * Math.PI * 7.3)]]) {
+      const o = ctx.createOscillator(); o.frequency.value = f; const g = ctx.createGain(); g.gain.value = a; o.connect(g); g.connect(dl.delayTime); o.start();
+    }
+    const body = ctx.createBiquadFilter(); body.type = 'peaking'; body.frequency.value = 240; body.Q.value = 0.8; body.gain.value = 1.6;
+    const top = ctx.createBiquadFilter(); top.type = 'lowpass'; top.frequency.value = 12500; top.Q.value = 0.5;
+    const sat = ctx.createWaveShaper(), n = 2048, cv = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const x = (i / (n - 1)) * 2 - 1; cv[i] = Math.tanh(1.1 * x) / 1.1; }
+    sat.curve = cv; sat.oversample = '2x';
+    const split = ctx.createChannelSplitter(2), merge = ctx.createChannelMerger(2), out = ctx.createGain(); out.gain.value = 0.97;
+    const W = 0.8, same = (1 + W) / 2, cross = (1 - W) / 2;
+    for (const [from, to, k] of [[0, 0, same], [1, 0, cross], [1, 1, same], [0, 1, cross]]) { const g = ctx.createGain(); g.gain.value = k; split.connect(g, from); g.connect(merge, 0, to); }
+    inp.connect(dl); dl.connect(body); body.connect(top); top.connect(sat); sat.connect(split); merge.connect(out);
+    return { inp, out, nodes: [inp, dl, body, top, sat, split, merge, out] };
+  }
+
   const player = (() => {
     const au = new Audio(); au.preload = 'auto';
-    let node = null, want = false, at = -1, badRun = 0, unlocked = false, unlocking = false;
+    // The pitch fader bends a file's speed and pitch together, as a turntable does (not a time stretch).
+    au.preservesPitch = false; au.mozPreservesPitch = false; au.webkitPreservesPitch = false;
+    let node = null, trim = null, lp = null, routed = '', swapping = false, want = false, at = -1, badRun = 0, unlocked = false, unlocking = false;
     function wire() {
       if (node || !L.actx || !L.master) return;
-      try { node = L.actx.createMediaElementSource(au); const trim = L.actx.createGain(); trim.gain.value = TRIM; node.connect(trim); trim.connect(L.master); }
+      try { node = L.actx.createMediaElementSource(au); trim = L.actx.createGain(); trim.gain.value = TRIM; node.connect(trim); route(); }
       catch (e) { node = null; }
     }
+    /** The file to the master through the LP chain or straight; switched while playing, a 35 ms dip so it never clicks. */
+    function route() {
+      if (!trim || swapping || routed === sound) return;
+      const ctx = L.actx;
+      const swap = () => {
+        const to = sound;
+        try { trim.disconnect(); } catch (e) {}
+        if (to === 'lp') { if (!lp) { lp = vinylChain(ctx); lp.out.connect(L.master); } trim.connect(lp.inp); } else trim.connect(L.master);
+        routed = to;
+      };
+      if (!routed || au.paused) { swap(); return; }
+      swapping = true; trim.gain.setTargetAtTime(0, ctx.currentTime, 0.006);
+      setTimeout(() => { swap(); swapping = false; trim.gain.setTargetAtTime(TRIM, ctx.currentTime, 0.01); if (routed !== sound) route(); }, 35);
+    }
+    function rate(r) { try { au.defaultPlaybackRate = r; au.playbackRate = r; } catch (e) {} }
     function start(i, s) {
       const T = MINE.tracks[i]; if (!T) return;
       if (document.hidden) { want = false; return; } // never starting unseen (it goes on when shown: visibilitychange)
@@ -90,6 +156,7 @@
       if (!node) return; // no Web Audio: no sound outside the volume knob
       const url = q('/__gyeot/music/' + T.id);
       if (at !== i || au.dataset.id !== T.id) { au.src = url; au.dataset.id = T.id; at = i; }
+      rate(L.speed || 1);
       try { au.currentTime = Math.max(0, s || 0); } catch (e) {}
       want = true; unlocking = false;
       const p = au.play();
@@ -139,7 +206,9 @@
         await idle(); if (mineOn() && current() && current().id === id) L.gotoTrack(L.trackIdx + 1);
       });
     });
-    return { au, start, stop, pos, unlock, get want() { return want; } };
+    /** The nodes from the file to the piece's master, in order (for checks: the LP chain or the plain one). */
+    const chain = () => !node ? [] : [node, trim].concat(routed === 'lp' && lp ? lp.nodes : []).map(n => n.constructor.name);
+    return { au, start, stop, pos, unlock, route, rate, chain, get want() { return want; }, get routed() { return routed; } };
   })();
   MINE.mine = player;
   // A tenth of a second of silence (8 kHz, 8-bit WAV): only to let the element sound after the first tap.
@@ -148,6 +217,15 @@
     v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); s(36, 'data'); v.setUint32(40, n, true); b.fill(128, 44);
     let t = ''; for (const x of b) t += String.fromCharCode(x); return 'data:audio/wav;base64,' + btoa(t); })();
   for (const ev of ['pointerup', 'click', 'keydown']) document.addEventListener(ev, () => player.unlock(), true);
+
+  /** 원음 or LP for 내 음악: the chain, the surface's level, the liner notes; kept for next time. */
+  function setSound(s) {
+    sound = s === 'clean' ? 'clean' : 'lp'; kept.set('gy.lp.sound', sound);
+    MINE.crackle = CRACKLE[sound]; MINE.liner = LINER[sound];
+    player.route();
+    if (mineOn()) { const ln = $('liner'); if (ln) ln.textContent = MINE.liner; if (L.playing && L.setSurface) L.setSurface(true); }
+    drawSheet(false);
+  }
 
   // A file whose size the phone does not know (a cloud document) plays straight through: its progress bar is not for seeking.
   document.addEventListener('pointerdown', e => {
@@ -246,7 +324,7 @@
   // notification to stop it from and holds no audio focus (calls, other music, directions would sound over it). The record
   // stops with it; a tap plays it again.
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) { refresh(); return; }
+    if (!document.hidden) { refresh(); if (!scan.hidden && scanS.state && scanS.state !== 'list') askScan(false); return; }
     if (!mineOn() || !(L.playing || player.want)) return;
     player.stop();
     if (L.playing && !L.busy) L.pause();
@@ -312,7 +390,7 @@
   barList.addEventListener('click', () => sheet.hidden ? openSheet(L.albumIdx) : closeSheet());
   barPlay.addEventListener('click', () => L.toggle());
   let sayUntil = 0, sayT = 0;
-  function say(words) { sayUntil = Date.now() + 2600; barT.textContent = words; barT.classList.add('say'); barN.textContent = ''; clearTimeout(sayT); sayT = setTimeout(drawBar, 2700); }
+  function say(words, ms = 2600) { sayUntil = Date.now() + ms; barT.textContent = words; barT.classList.add('say'); barN.textContent = ''; clearTimeout(sayT); sayT = setTimeout(drawBar, ms + 100); }
   function drawBar() {
     if (Date.now() < sayUntil) return;
     barT.classList.remove('say');
@@ -331,14 +409,134 @@
   }
   frameFns.add(frame);
 
+  /* ── one part at a time on a screen wide for its height (the unfolded Fold): 턴테이블 · 앰프 · 곡목록 ── */
+  const TABS = [['deck', '턴테이블'], ['amp', '앰프'], ['list', '곡목록']];
+  let tab = kept.get('gy.lp.tab', 'deck');
+  if (!TABS.some(t => t[0] === tab)) tab = 'deck';
+  const brand = document.querySelector('.brand');
+  const tabsEl = document.createElement('div'); tabsEl.className = 'gy-tabs'; tabsEl.setAttribute('role', 'tablist'); tabsEl.setAttribute('aria-label', 'LP 화면');
+  tabsEl.innerHTML = TABS.map(([k, w]) => '<button type="button" role="tab" data-tab="' + k + '">' + w + '</button>').join('');
+  if (brand) brand.appendChild(tabsEl);
+  const tabbed = () => !!brand && innerWidth >= 560 && innerHeight < 1.45 * innerWidth;
+  function layout() {
+    root.classList.toggle('gy-tabbed', tabbed());
+    root.dataset.gyTab = tab;
+    for (const b of tabsEl.children) { const on = b.dataset.tab === tab; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; }
+  }
+  function showTab(k) { if (!TABS.some(t => t[0] === k)) return; tab = k; kept.set('gy.lp.tab', k); layout(); }
+  tabsEl.addEventListener('click', e => { const b = e.target.closest('[data-tab]'); if (b) showTab(b.dataset.tab); });
+  tabsEl.addEventListener('keydown', e => {
+    const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0; if (!d) return;
+    e.preventDefault(); e.stopPropagation();
+    const i = (TABS.findIndex(t => t[0] === tab) + d + TABS.length) % TABS.length; showTab(TABS[i][0]); tabsEl.children[i].focus();
+  });
+  addEventListener('resize', layout);
+  layout();
+
+  /* ── the deck's right-hand controls: PITCH, CUE and SKATE (the piece drew them; here they work) ── */
+  const deckEl = $('deck');
+  // Deck units (the SVG's 1000 × 780): the fader's knob sits at y 474, its marks ±42 (±4 %) and ±84 (±8 %) from it; up is faster.
+  const FADER = { y: 474, travel: 84, most: 8 };
+  let pitch = 0, skate = 0, knobG = null, skateMark = null;
+  if (deckEl) {
+    // The moving parts of the CSS deck in an SVG of their own over the plinth (the plinth's filtered wood is not drawn again
+    // each time they move); the 3D deck hides it and draws its own.
+    const plinth = deckEl.querySelector('svg.plinth');
+    const fg = plinth && plinth.querySelector('g[transform="translate(952 330)"]'), sg = plinth && plinth.querySelector('g[transform="translate(944 150)"]');
+    const kr = fg && fg.querySelector('rect[y="133"]'), kl = fg && fg.querySelector('path[d="M-12 144h24"]'), mk = sg && sg.querySelector('path[d="M0 -14v8"]');
+    if (kr && kl && mk) {
+      const art = document.createElementNS(SVGNS, 'svg'); art.setAttribute('class', 'gy-art'); art.setAttribute('viewBox', '0 0 1000 780'); art.setAttribute('aria-hidden', 'true');
+      art.innerHTML = '<g transform="translate(952 330)"><g id="gyPitchKnob"></g></g><g transform="translate(944 150)"><g id="gySkate"></g></g>';
+      knobG = art.querySelector('#gyPitchKnob'); skateMark = art.querySelector('#gySkate');
+      knobG.append(kr, kl); skateMark.append(mk);
+      // which way is faster, by the marks
+      fg.insertAdjacentHTML('beforeend', '<g font-family="Palatino Linotype, P052, Georgia, serif" font-size="11" letter-spacing=".5" text-anchor="middle" fill="#ecd27a" fill-opacity=".8"><text x="-36" y="64">+8</text><text x="-36" y="232">−8</text></g>');
+      plinth.after(art);
+    }
+  }
+  const ctl = (tag, cls, x, y, w, h, attrs) => {
+    const el = document.createElement(tag); el.className = 'gy-ctl ' + cls; if (tag === 'button') el.type = 'button';
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    Object.assign(el.style, { left: (x / 10) + '%', top: (y / 7.8) + '%', width: (w / 10) + '%', height: (h / 7.8) + '%' });
+    deckEl.appendChild(el); return el;
+  };
+  const sign = p => (p > 0 ? '+' : p < 0 ? '−' : '±') + Math.abs(p).toFixed(1) + '%';
+  function drawControls() {
+    if (knobG) knobG.setAttribute('transform', 'translate(0 ' + (-pitch / FADER.most * FADER.travel).toFixed(2) + ')');
+    if (skateMark) skateMark.setAttribute('transform', 'rotate(' + skate.toFixed(1) + ')');
+  }
+  /** The pitch fader: ±8 %, held at 0 near it, speed and pitch together (a record through the piece, a file by its rate). */
+  function setPitch(p, tell) {
+    p = Math.max(-FADER.most, Math.min(FADER.most, +p || 0));
+    if (Math.abs(p) < 0.35) p = 0;                                 // the detent at 0
+    p = Math.round(p * 10) / 10;
+    if (p !== pitch) {
+      pitch = p; const r = 1 + p / 100;
+      if (L.setSpeed) L.setSpeed(r);
+      player.rate(r);
+      drawControls();
+      if (fader) { fader.setAttribute('aria-valuenow', String(p)); fader.setAttribute('aria-valuetext', p ? sign(p) : '0%, 33⅓'); }
+    }
+    if (tell) say('피치 ' + (p ? sign(p) : '0% · 33⅓'), 1600);
+  }
+  let fader = null;
+  if (deckEl) {
+    fader = ctl('div', 'gy-pitch', 916, 360, 84, 250, { role: 'slider', tabindex: '0', 'aria-label': '피치 (위로 빠르게)', 'aria-orientation': 'vertical', 'aria-valuemin': '-8', 'aria-valuemax': '8', 'aria-valuenow': '0', 'aria-valuetext': '0%, 33⅓' });
+    const cue = ctl('button', 'gy-cue', 916, 200, 84, 104, { 'aria-label': '큐 레버: 바늘 들기 · 내리기', 'aria-pressed': 'false' });
+    const knob = ctl('div', 'gy-skate', 916, 114, 84, 84, { role: 'slider', tabindex: '0', 'aria-label': '안티스케이팅', 'aria-valuemin': '0', 'aria-valuemax': '3', 'aria-valuenow': '1.5' });
+    const unit = () => 780 / Math.max(1, deckEl.getBoundingClientRect().height);   // deck units per CSS pixel
+    let fd = null, lastTap = 0;
+    fader.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      const now = performance.now(), again = now - lastTap < 320; lastTap = now;
+      fd = { y: e.clientY, p: pitch, moved: false, again };
+      try { fader.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    fader.addEventListener('pointermove', e => {
+      if (!fd) return;
+      const du = (e.clientY - fd.y) * unit();
+      if (Math.abs(du) > 4) fd.moved = true;
+      if (fd.moved) setPitch(fd.p - du / FADER.travel * FADER.most, true);
+    });
+    const fEnd = () => { if (fd && !fd.moved && fd.again) { setPitch(0, true); lastTap = 0; } fd = null; };
+    fader.addEventListener('pointerup', fEnd); fader.addEventListener('pointercancel', () => { fd = null; });
+    fader.addEventListener('keydown', e => {
+      const m = { ArrowUp: 0.5, ArrowRight: 0.5, ArrowDown: -0.5, ArrowLeft: -0.5, PageUp: 2, PageDown: -2 };
+      if (e.key in m) setPitch(pitch + m[e.key], true); else if (e.key === 'Home' || e.key === '0') setPitch(0, true); else return;
+      e.preventDefault(); e.stopPropagation();
+    });
+    // CUE: the arm up off a playing record (the platter keeps turning), and down again where it was; the lever follows the
+    // arm's lift in both decks (the piece's drawArm, the 3D deck's pose)
+    cue.addEventListener('click', async e => {
+      e.stopPropagation();
+      if (L.busy || L.tweening) return;
+      if (L.playing) { if (L.cueUp && await L.cueUp()) say('바늘을 들었어요', 1600); }
+      else if (!L.runout) L.play();
+    });
+    frameFns.add(() => { const up = String(L.arm.lift > 0.5 && !L.busy); if (cue.getAttribute('aria-pressed') !== up) cue.setAttribute('aria-pressed', up); });
+    // The start · stop key under a cued arm stops the motor (the piece's own key would lower the arm and play).
+    const key = $('deckBtn');
+    if (key) key.addEventListener('click', e => { if (!L.playing && !L.busy && !L.runout && L.motorOn && L.stopMotor) { e.stopImmediatePropagation(); L.stopMotor(); } }, true);
+    // SKATE: a knob to turn (0 to 3 on its dial); as on a real deck, nothing to hear
+    let sd = null;
+    const setSkate = a => { skate = Math.max(-120, Math.min(120, a)); const v = (skate + 120) / 80; knob.setAttribute('aria-valuenow', v.toFixed(1)); drawControls(); say('안티스케이팅 ' + v.toFixed(1), 1400); };
+    knob.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); sd = { x: e.clientX, y: e.clientY, a: skate }; try { knob.setPointerCapture(e.pointerId); } catch (_) {} });
+    knob.addEventListener('pointermove', e => { if (sd) setSkate(sd.a + ((e.clientX - sd.x) - (e.clientY - sd.y)) * 1.4); });
+    knob.addEventListener('pointerup', () => { sd = null; }); knob.addEventListener('pointercancel', () => { sd = null; });
+    knob.addEventListener('keydown', e => { const m = { ArrowUp: 8, ArrowRight: 8, ArrowDown: -8, ArrowLeft: -8 }; if (!(e.key in m)) return; setSkate(skate + m[e.key]); e.preventDefault(); e.stopPropagation(); });
+  }
+
   /* ── the sheet ── */
   const scrim = document.createElement('div'); scrim.id = 'gyScrim'; scrim.hidden = true;
   const sheet = document.createElement('section'); sheet.id = 'gySheet'; sheet.hidden = true; sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-label', '곡 목록');
-  sheet.innerHTML = '<div class="gy-albums" role="tablist" aria-label="레코드"></div><div class="gy-head"><span class="gy-about"></span></div><div class="gy-note" aria-live="polite"></div><ol class="gy-tracks"></ol>';
+  sheet.innerHTML = '<div class="gy-albums" role="tablist" aria-label="레코드"></div><div class="gy-head"><span class="gy-about"></span></div><div class="gy-adds"></div><div class="gy-note" aria-live="polite"></div><ol class="gy-tracks"></ol>';
   document.body.appendChild(scrim); document.body.appendChild(sheet);
-  const chipsEl = sheet.querySelector('.gy-albums'), headEl = sheet.querySelector('.gy-head'), aboutEl = sheet.querySelector('.gy-about'), noteEl = sheet.querySelector('.gy-note'), listEl = sheet.querySelector('.gy-tracks');
-  scrim.addEventListener('pointerdown', e => { e.preventDefault(); closeSheet(); });
-  addEventListener('keydown', e => { if (e.key === 'Escape' && !sheet.hidden) { e.stopPropagation(); closeSheet(); } }, true);
+  const chipsEl = sheet.querySelector('.gy-albums'), headEl = sheet.querySelector('.gy-head'), aboutEl = sheet.querySelector('.gy-about'), addsEl = sheet.querySelector('.gy-adds'), noteEl = sheet.querySelector('.gy-note'), listEl = sheet.querySelector('.gy-tracks');
+  scrim.addEventListener('pointerdown', e => { e.preventDefault(); if (!scan.hidden) closeScan(false); else closeSheet(); });
+  addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (!scan.hidden) { e.stopPropagation(); closeScan(true); } else if (!sheet.hidden) { e.stopPropagation(); closeSheet(); }
+  }, true);
   let view = 0, shown = 40, noteWords = '';
   const ROMAN = ['i.', 'ii.', 'iii.', 'iv.']; // the piece's own numbers (its NUM follows the record that is on, not the one shown)
   const SHORT = k => { const t = document.querySelector('.sleeve[data-album="' + k + '"] .art .t'); return t ? t.textContent : ALBUMS[k].title; };
@@ -356,24 +554,25 @@
   }
   function closeSheet() { sheet.hidden = true; scrim.hidden = true; barList.setAttribute('aria-expanded', 'false'); }
   window.__gyEmpty = i => { if (host && i === 3) openSheet(3); };
+  const ADDS = [['songs', '+ 휴대폰 노래', '담는 중…'], ['files', '+ 파일 추가', '고르는 중…'], ['folder', '+ 폴더', '고르는 중…']];
   function drawSheet(scroll) {
     if (sheet.hidden) return;
     const albums = ALBUMS.filter(A => A !== MINE || host);
     if (view >= albums.length) view = L.albumIdx;
     chipsEl.innerHTML = albums.map((A, k) => '<button type="button" class="gy-chip' + (k === L.albumIdx ? ' on' : '') + '" role="tab" data-v="' + k + '" aria-selected="' + (k === view) + '">' + esc(SHORT(k)) + '</button>').join('');
     const A = ALBUMS[view];
-    headEl.querySelectorAll('.gy-add').forEach(b => b.remove());
+    headEl.querySelectorAll('.gy-sound').forEach(b => b.remove());
     if (A === MINE) {
       aboutEl.textContent = MINE.tracks.length ? MINE.tracks.length + '곡 · ' + fmt(MINE.total) : '휴대폰의 음악';
-      for (const [kind, words] of [['files', '+ 파일 추가'], ['folder', '+ 폴더']]) {
-        const b = document.createElement('button'); b.type = 'button'; b.className = 'gy-add'; b.dataset.kind = kind;
-        b.textContent = waiting && waiting.kind === kind ? '고르는 중…' : words;
-        headEl.appendChild(b);
-      }
-    } else aboutEl.textContent = A.artist + ' · ' + A.tracks.length + '곡 · ' + fmt(A.total);
+      // 원음 / LP: how 내 음악 sounds (LP by default)
+      const s = document.createElement('span'); s.className = 'gy-sound'; s.setAttribute('role', 'radiogroup'); s.setAttribute('aria-label', '내 음악 소리');
+      s.innerHTML = [['clean', '원음'], ['lp', 'LP']].map(([k, w]) => '<button type="button" role="radio" data-s="' + k + '" aria-checked="' + (sound === k) + '">' + w + '</button>').join('');
+      headEl.appendChild(s);
+      addsEl.innerHTML = ADDS.map(([kind, words, busy]) => '<button type="button" class="gy-add" data-kind="' + kind + '">' + (waiting && waiting.kind === kind ? busy : words) + '</button>').join('');
+    } else { aboutEl.textContent = A.artist + ' · ' + A.tracks.length + '곡 · ' + fmt(A.total); addsEl.innerHTML = ''; }
     noteEl.textContent = noteWords;
     if (A === MINE && !MINE.tracks.length) {
-      listEl.innerHTML = '<li class="gy-empty">휴대폰에 있는 음악 파일을 골라 이 턴테이블에 올려요. 원곡 소리 그대로, 레코드 표면 소리만 살짝 깔려요.</li>';
+      listEl.innerHTML = '<li class="gy-empty">휴대폰의 노래나 음악 파일을 골라 이 턴테이블에 올려요. LP로 들으면 살짝 흔들리는 회전과 따뜻한 음색, 원음이면 원곡 그대로예요.</li>';
       return;
     }
     const n = Math.min(A.tracks.length, shown);
@@ -401,7 +600,8 @@
     listEl.querySelectorAll('.gy-row').forEach(b => b.setAttribute('aria-current', String(view === L.albumIdx && +b.dataset.k === L.trackIdx)));
   }
   chipsEl.addEventListener('click', e => { const c = e.target.closest('.gy-chip'); if (!c) return; view = +c.dataset.v; shown = 40; note(''); drawSheet(true); });
-  headEl.addEventListener('click', e => { const b = e.target.closest('.gy-add'); if (b) addMusic(b.dataset.kind); });
+  headEl.addEventListener('click', e => { const s = e.target.closest('[data-s]'); if (s) setSound(s.dataset.s); });
+  addsEl.addEventListener('click', e => { const b = e.target.closest('.gy-add'); if (!b) return; if (b.dataset.kind === 'songs') openScan(); else addMusic(b.dataset.kind); });
   let sureT = 0;
   listEl.addEventListener('click', e => {
     const more = e.target.closest('.gy-more'); if (more) { shown += 40; drawSheet(false); return; }
@@ -437,6 +637,112 @@
     } finally { picking = false; }
   }
 
+  /* ── 휴대폰 노래: the phone's songs (its media index, recordings and short sounds left out by the app), as a checklist ── */
+  const scan = document.createElement('section'); scan.id = 'gyScan'; scan.hidden = true; scan.setAttribute('role', 'dialog'); scan.setAttribute('aria-label', '휴대폰 노래');
+  scan.innerHTML = '<div class="gy-shead"><b class="gy-stitle">휴대폰 노래</b><button type="button" class="gy-all" hidden>모두 선택</button><button type="button" class="gy-sx" aria-label="닫기">×</button></div>'
+    + '<div class="gy-snote" aria-live="polite"></div><div class="gy-slist" role="listbox" aria-multiselectable="true" aria-label="휴대폰 노래"><div class="gy-spad"></div></div>'
+    + '<div class="gy-sfoot"><span class="gy-ssum"></span><button type="button" class="gy-take" disabled>담기</button></div>';
+  document.body.appendChild(scan);
+  const sTitle = scan.querySelector('.gy-stitle'), sAll = scan.querySelector('.gy-all'), sNote = scan.querySelector('.gy-snote'), sList = scan.querySelector('.gy-slist'),
+    sPad = scan.querySelector('.gy-spad'), sSum = scan.querySelector('.gy-ssum'), sTake = scan.querySelector('.gy-take');
+  const ROW = 40;
+  const scanS = { items: [], chosen: new Set(), hidden: 0, more: 0, state: '', since: 0, t: 0, a: -1, b: -1 };
+  const free = () => scanS.items.filter(it => !it.on);
+  function openScan() {
+    closeSheet(); scan.hidden = false; scrim.hidden = false;
+    Object.assign(scanS, { items: [], hidden: 0, more: 0, state: 'finding', since: 0 }); scanS.chosen.clear();
+    sNote.textContent = '휴대폰에서 노래를 찾는 중…'; drawScan();
+    askScan(true);
+  }
+  function closeScan(back) { scan.hidden = true; clearTimeout(scanS.t); if (back) openSheet(3); else scrim.hidden = true; }
+  /** The list from the app; without the permission, it asks for it (once, then each 1 s for the answer). */
+  async function askScan(ask) {
+    clearTimeout(scanS.t);
+    let j;
+    try { j = await (await fetch(q('/__gyeot/music/scan?ask=' + (ask ? 1 : 0)), { cache: 'no-store' })).json(); }
+    catch (e) { scanS.state = 'none'; sNote.textContent = '여기서는 휴대폰 노래를 찾을 수 없어요'; return; }
+    if (scan.hidden) return;
+    if (j.locked) { scanS.state = 'locked'; sNote.textContent = '잠금을 풀면 볼 수 있어요'; return; }
+    if (Array.isArray(j.items)) {
+      scanS.items = j.items.filter(it => it && /^[0-9a-f]{12}$/.test(it.id)); scanS.hidden = j.hidden | 0; scanS.more = j.more | 0; scanS.state = 'list';
+      sNote.textContent = scanS.items.length ? '' : '휴대폰에서 노래를 찾지 못했어요. + 파일 추가로 골라 보세요.';
+      sList.scrollTop = 0; drawScan(); return;
+    }
+    scanS.state = j.perm || 'ask';
+    if (scanS.state === 'asking' || scanS.state === 'notification') {
+      sNote.textContent = scanS.state === 'asking' ? '음악 파일을 읽어도 되는지 휴대폰이 물어요…' : '알림을 눌러 허용해 주세요';
+      if (!scanS.since) scanS.since = Date.now();
+      if (Date.now() - scanS.since < 120000) scanS.t = setTimeout(() => askScan(false), 1000);
+      return;
+    }
+    // Refused (or never asked): what is blocked, and the way through in one tap; 파일 추가 needs no permission.
+    sNote.innerHTML = '<span>휴대폰 노래를 보려면 ‘음악 및 오디오’ 권한이 필요해요. + 파일 추가는 그대로 돼요.</span>'
+      + (scanS.state === 'blocked' ? '' : '<button type="button" class="gy-add" data-do="ask">허용하기</button>')
+      + '<button type="button" class="gy-add" data-do="settings">설정 열기</button>';
+  }
+  sNote.addEventListener('click', async e => {
+    const b = e.target.closest('[data-do]'); if (!b) return;
+    if (b.dataset.do === 'ask') { scanS.since = 0; sNote.textContent = '음악 파일을 읽어도 되는지 휴대폰이 물어요…'; askScan(true); return; }
+    try { await fetch(q('/__gyeot/music/settings'), { cache: 'no-store' }); sNote.textContent = '설정의 ‘권한 → 음악 및 오디오’에서 허용하고 돌아오면 바로 보여요'; }
+    catch (e2) { sNote.textContent = '설정을 열지 못했어요'; }
+  });
+  function drawScan() {
+    const n = scanS.items.length, f = free();
+    sTitle.textContent = '휴대폰 노래' + (n ? ' ' + n + '곡' : '');
+    sAll.hidden = !f.length;
+    sAll.textContent = f.length && f.every(it => scanS.chosen.has(it.id)) ? '모두 해제' : '모두 선택';
+    sPad.style.height = n * ROW + 'px';
+    scanS.a = scanS.b = -1; rows();
+    const k = scanS.chosen.size;
+    sSum.textContent = (k ? k + '곡 고름' : n ? '담을 노래를 골라 주세요' : '') + (scanS.hidden ? ' · 녹음·짧은 소리 ' + scanS.hidden + '개는 뺐어요' : '')
+      + (scanS.more ? ' · 앞의 ' + n + '곡만 보여요' : '');
+    sTake.disabled = !k; sTake.textContent = k ? k + '곡 담기' : '담기';
+  }
+  /** Only the rows in sight (and a few around them) are on the page; the rest is the scroller's height. */
+  function rows() {
+    const n = scanS.items.length, top = sList.scrollTop, h = sList.clientHeight || 320;
+    const a = Math.max(0, Math.floor(top / ROW) - 4), b = Math.min(n, Math.ceil((top + h) / ROW) + 4);
+    if (a === scanS.a && b === scanS.b) return;
+    scanS.a = a; scanS.b = b;
+    let html = '';
+    for (let i = a; i < b; i++) {
+      const it = scanS.items[i], on = scanS.chosen.has(it.id);
+      html += '<button type="button" class="gy-srow" role="option" data-i="' + i + '" style="top:' + (i * ROW) + 'px" aria-selected="' + (it.on || on) + '"' + (it.on ? ' aria-disabled="true"' : '') + '>'
+        + '<span class="gy-box" aria-hidden="true"></span><span class="gy-ttl"><b>' + esc(it.title) + '</b>' + (it.artist ? '<small>' + esc(it.artist) + '</small>' : '') + '</span>'
+        + '<span class="gy-dur">' + (it.on ? '담김' : it.dur > 0 ? fmt(it.dur) : '') + '</span></button>';
+    }
+    sPad.innerHTML = html;
+  }
+  let rowsRaf = 0;
+  sList.addEventListener('scroll', () => { if (!rowsRaf) rowsRaf = requestAnimationFrame(() => { rowsRaf = 0; rows(); }); }, { passive: true });
+  sList.addEventListener('click', e => {
+    const r = e.target.closest('.gy-srow'); if (!r) return;
+    const it = scanS.items[+r.dataset.i]; if (!it || it.on) return;
+    if (scanS.chosen.has(it.id)) scanS.chosen.delete(it.id); else scanS.chosen.add(it.id);
+    drawScan();
+  });
+  sAll.addEventListener('click', () => {
+    const f = free(), all = f.length && f.every(it => scanS.chosen.has(it.id));
+    scanS.chosen.clear(); if (!all) for (const it of f) scanS.chosen.add(it.id);
+    drawScan();
+  });
+  scan.querySelector('.gy-sx').addEventListener('click', () => closeScan(true));
+  sTake.addEventListener('click', async () => {
+    let ids = scanS.items.filter(it => scanS.chosen.has(it.id)).map(it => it.id);
+    const room = MOST - MINE.tracks.length;
+    if (room <= 0) { sNote.textContent = '내 음악은 ' + MOST + '곡까지 담겨요. 몇 곡을 빼고 담아 주세요.'; return; }
+    const cut = ids.length > room; if (cut) ids = ids.slice(0, room);
+    let j;
+    try { j = await (await fetch(q('/__gyeot/music/add-media?ids=' + ids.join(',')), { cache: 'no-store' })).json(); }
+    catch (e) { sNote.textContent = '담지 못했어요'; return; }
+    if (j.locked) { sNote.textContent = '잠금을 풀면 담을 수 있어요'; return; }
+    if (!j.pending) { askScan(false); return; }
+    clearTimeout(pollT);
+    waiting = { since: Date.now(), kind: 'songs' };
+    closeScan(true); view = 3; note(ids.length + '곡을 담는 중…' + (cut ? ' (' + MOST + '곡까지)' : '')); drawSheet(false);
+    poll();
+  });
+
   /* ── for the three.js deck ── */
   const labelKey = () => { const i = L.albumIdx; if (i !== 3) return 'lab' + i; const T = current(); return 'lab3:' + (T ? T.id + ':' + (T.art ? 1 : 0) : ''); };
   const reported = {}, toReport = {};
@@ -448,6 +754,8 @@
       return { spin: L.spin, omega: L.omega, motorOn: L.motorOn, armAngle: L.arm.angle, armLift: L.arm.lift, albumIdx: L.albumIdx, trackIdx: L.trackIdx,
         songPos: L.songPos, playing: L.playing, busy: L.busy, runout: L.runout, tweening: L.tweening };
     },
+    /** The deck's controls as drawn: the pitch fader's knob, deck units from its middle (up is negative), and the anti-skate knob's turn in degrees. */
+    controls() { return { fader: -pitch / FADER.most * FADER.travel, skate }; },
     /** The label on the record now: its SVG group (with arcTop/arcBot in the same svg's defs), a key, the file's picture. */
     label() {
       const T = current(), el = $('lab' + L.albumIdx);
@@ -473,9 +781,13 @@
     stats: null,
     /** Whether the home screen says the page is in sight (null: nobody says). */
     get shown() { return inSight; },
-    /** For checks: the audio element that plays 내 음악, and how many frames the piece has run. */
+    /** For checks: the audio element that plays 내 음악, how many frames the piece has run, the tab, 내 음악's sound and its chain, the pitch. */
     audio: player.au,
-    get frames() { return frameCount; }
+    get frames() { return frameCount; },
+    get tab() { return root.classList.contains('gy-tabbed') ? tab : null; },
+    get sound() { return sound; },
+    chain: () => player.chain(),
+    get pitch() { return pitch; }
   };
   trackFns.add(() => { drawBar(); label(); marks(); });
 
