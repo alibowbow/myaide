@@ -152,21 +152,33 @@ final class GroqWork {
     }
     /**
      * A short thing said (a WAV, 퍼레's voice talk) as Korean words by Whisper, or "" when nothing was said: Whisper's words
-     * for silence ("시청해 주셔서 감사합니다" …) count as nothing. Null when Groq cannot take it now.
+     * for silence ("시청해 주셔서 감사합니다" …) count as nothing. Null when Groq cannot take it now. Whisper is told prompt first
+     * (core/VoiceHints.prompt: 퍼레's name, its last words, this phone's own words), so names are written as the user means
+     * them; a short clip that gave back only the prompt's words is nothing too.
      */
-    static String words(byte[] wav, AtomicReference<Runnable> cancel) throws Exception {
+    static String words(byte[] wav, String prompt, AtomicReference<Runnable> cancel) throws Exception {
         if (wav == null || wav.length <= 44 || wav.length > WHISPER_BYTES || !ready(WHISPER, 0)) return null;
         String boundary = "gyeot" + System.nanoTime();
         ByteArrayOutputStream form = new ByteArrayOutputStream(wav.length + 1024);
         field(form, boundary, "model", WHISPER); field(form, boundary, "response_format", "json"); field(form, boundary, "temperature", "0"); field(form, boundary, "language", "ko");
-        field(form, boundary, "prompt", "퍼레야,"); // its name spelled so (not 벌레, 버려)
+        String told = prompt == null || prompt.isBlank() ? "퍼레야," : prompt;
+        field(form, boundary, "prompt", told); // its name spelled so (not 벌레, 버려)
         form.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"said.wav\"\r\nContent-Type: audio/wav\r\n\r\n").getBytes(StandardCharsets.UTF_8));
         form.write(wav);
         form.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
         JSONObject answer = post(WHISPER, "audio/transcriptions", "multipart/form-data; boundary=" + boundary, form.toByteArray(), 20_000, cancel);
         GeminiQuotas.used(WHISPER, 0);
         String text = answer.optString("text").strip();
+        if (dev.jun.gyeot.core.VoiceHints.echo(text, told, ms(wav))) return "";
         return text.matches("(?s).*(시청해\\s*주셔서|구독과\\s*좋아요|구독\\s*부탁|MBC\\s*뉴스|자막\\s*제공|다음\\s*영상에서).*") || text.matches("[\\p{Punct}\\s.…]*") ? "" : text;
+    }
+    /** How long a WAV's sound lasts (its header's rate, channels and sample size; 16 kHz 16-bit mono when unreadable). */
+    static long ms(byte[] wav) {
+        if (wav == null || wav.length <= 44) return 0;
+        java.nio.ByteBuffer h = java.nio.ByteBuffer.wrap(wav, 0, 44).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        int channels = h.getShort(22), rate = h.getInt(24), bits = h.getShort(34);
+        long perSecond = rate > 0 && channels > 0 && bits > 0 ? (long) rate * channels * (bits / 8) : 32000;
+        return perSecond <= 0 ? 0 : (wav.length - 44L) * 1000 / perSecond;
     }
     private static void field(ByteArrayOutputStream form, String boundary, String name, String value) throws Exception {
         form.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + name + "\"\r\n\r\n" + value + "\r\n").getBytes(StandardCharsets.UTF_8));

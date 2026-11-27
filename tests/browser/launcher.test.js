@@ -252,6 +252,10 @@ async function open(browser, at) {
     assert(mic.w > 0 && mic.beside, 'the mic beside the send button');
     await p.evaluate(() => { el("padMic").click(); launcher.voice("listening", "오늘 날"); });
     assert.strictEqual(await p.evaluate(() => el("q").value), '오늘 날', 'what it hears so far shows in the box');
+    // Over music only words with 퍼레's name are taken, shown as a note (BuddyVoice.idle): the note is not words heard.
+    await p.evaluate(() => launcher.voice("listening", "♪"));
+    assert.strictEqual(await p.evaluate(() => el("q").value), '', 'the music note is not put in the box');
+    await p.evaluate(() => launcher.voice("listening", "오늘 날"));
     await p.evaluate(() => { launcher.voice("thinking", "오늘 날씨 어때"); launcher.voice("speaking", "맑고 따뜻해!", 900); launcher.voice("gap", ""); launcher.voice("speaking", "산책하기 딱 좋아 ☀️", 1100); launcher.voice("done", ""); });
     const said = await p.evaluate(() => thread.slice(-2).map(t => t.who + ':' + t.text));
     assert.deepStrictEqual(said, ['me:오늘 날씨 어때', 'ai:맑고 따뜻해! 산책하기 딱 좋아 ☀️']);

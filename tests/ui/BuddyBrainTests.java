@@ -216,7 +216,31 @@ public class BuddyBrainTests {
         assertTrue(BuddyTools.promised("3분 타이머 맞춰 줘", "3분 타이머 시작할게!"));
         assertFalse("small talk is never forced into a tool", BuddyTools.promised("오늘 기분 어때", "나 오늘 완전 좋아!"));
         assertFalse(BuddyTools.promised("유튜브 틀어 줘", "어떤 노래가 좋아?"));
+        assertTrue(BuddyTools.promised("소리 좀 줄여 줘", "줄여 놓을게!"));
         for (int i = 0; i < BuddyTools.TOOLS.length(); i++) assertEquals("function", BuddyTools.TOOLS.getJSONObject(i).getString("type"));
+        // 준: "퍼레의 판단력" — 퍼레's own tools go only with words about 퍼레 (lighter turns), and a forced retry may choose nothing.
+        java.util.Set<String> phone = new java.util.HashSet<>(), own = new java.util.HashSet<>();
+        for (int i = 0; i < BuddyTools.PHONE.length(); i++) phone.add(BuddyTools.PHONE.getJSONObject(i).getJSONObject("function").getString("name"));
+        for (int i = 0; i < BuddyTools.SELF.length(); i++) own.add(BuddyTools.SELF.getJSONObject(i).getJSONObject("function").getString("name"));
+        assertEquals(java.util.Set.of("buddy_toy", "buddy_outfit", "buddy_move", "buddy_wish", "remember", "forget", "call_me", "quiet"), own);
+        assertEquals("each tool in one set", 45, phone.size() + own.size());
+        java.util.Set<String> both = new java.util.HashSet<>(phone); both.retainAll(own); assertTrue(both.isEmpty());
+        for (String answer : new String[]{"coin", "dice", "pick", "calculator", "world_time", "count_days", "stopwatch"}) assertTrue("an answer that needs no app goes every turn: " + answer, phone.contains(answer));
+        org.json.JSONArray light = BuddyTools.forTurn("손전등 켜 줘");
+        assertEquals(37, light.length());
+        // 퍼레's eight carry its long lists of names (toys, clothes, plays): about a fifth of all the tools' words.
+        assertTrue("lighter: " + light.toString().length() + " of " + BuddyTools.TOOLS.toString().length(), light.toString().length() < 0.85 * BuddyTools.TOOLS.toString().length());
+        assertFalse(BuddyTools.rule(false).contains("buddy_toy")); assertTrue(BuddyTools.rule(true).contains("buddy_toy")); assertEquals(BuddyTools.RULE, BuddyTools.rule(true));
+        for (String about : new String[]{"고양이 귀 해 봐", "춤춰 봐", "퍼레야, 주사위 꺼내 봐", "나 내일 시험이야 기억해 줘", "이제 형이라고 불러", "한 시간만 조용히 해 줘", "비눗방울 불어 줘"})
+            assertTrue("about 퍼레: " + about, BuddyTools.self(about));
+        assertTrue(BuddyTools.forTurn("고양이 귀 해 봐").toString().contains("\"buddy_outfit\"")); assertTrue(BuddyTools.forTurn("춤춰 봐").toString().contains("\"buddy_move\""));
+        for (String phoneOnly : new String[]{"손전등 켜 줘", "카메라 켜 줘", "노래 틀어 줘", "내일 일정 뭐야", "동전 던져 줘", "네이버 지도 열어 줘", "소리 좀 줄여 줘"})
+            assertFalse("not about 퍼레: " + phoneOnly, BuddyTools.self(phoneOnly));
+        org.json.JSONArray nothing = new org.json.JSONArray().put(new org.json.JSONObject().put("name", "nothing").put("arguments", "{}"));
+        assertNull("nothing is no act", BuddyTools.act(nothing)); assertTrue(BuddyTools.nothing(nothing)); assertFalse(BuddyTools.nothing(new org.json.JSONArray()));
+        org.json.JSONArray retry = BuddyTools.orNothing();
+        assertEquals(46, retry.length()); assertEquals("nothing", retry.getJSONObject(45).getJSONObject("function").getString("name"));
+        assertEquals("the full list stays as it was", 45, BuddyTools.TOOLS.length());
         // 준: "3번" — each sentence said as soon as it is written; a word or two waits for the next; no act text, digits kept.
         java.util.List<String> said = new java.util.ArrayList<>();
         BuddyTalk.Sentences s = new BuddyTalk.Sentences(said::add);
@@ -731,6 +755,90 @@ public class BuddyBrainTests {
             assertEquals("done:" + BuddyVoice.BYE_WORDS, shown.get(shown.size() - 1));
             assertEquals("the brain was never asked", 0, talk.answers);
         } finally { BuddyVoice.ears = before; }
+    }
+
+    /**
+     * Over music, 퍼레 lets a song's words go (준: "음성상호작용을 더 강화해줘"): only words with its name, or said to the music
+     * itself, get through; and both ears are told this phone's own words (its names, the saved places, the apps just used, the
+     * names in what it said last), Whisper with a short prompt whose echo on a short clip counts as nothing.
+     */
+    @Test public void ignoresSongsAndKnowsItsWords() throws Exception {
+        assertNull(dev.jun.gyeot.core.VoiceHints.musicGate("너의 손을 잡고", true));
+        assertNull(dev.jun.gyeot.core.VoiceHints.musicGate("다음 곡도 너를 생각하며 걸어가", true));
+        assertEquals("다음 곡", dev.jun.gyeot.core.VoiceHints.musicGate(dev.jun.gyeot.core.BuddyMind.nameHeard("버레야 다음 곡"), true));
+        assertEquals("다음 곡", dev.jun.gyeot.core.VoiceHints.musicGate("다음 곡", true));
+        assertEquals("소리 좀 줄여 줘", dev.jun.gyeot.core.VoiceHints.musicGate("소리 좀 줄여 줘", true));
+        assertEquals("퍼레야", dev.jun.gyeot.core.VoiceHints.musicGate("퍼레야", true));
+        assertEquals("퍼레야", dev.jun.gyeot.core.VoiceHints.musicGate("퍼레야!", true));
+        assertEquals("지금 몇 시야", dev.jun.gyeot.core.VoiceHints.musicGate("퍼레야 지금 몇 시야", true));
+        assertNull("a name inside other words is not a call", dev.jun.gyeot.core.VoiceHints.musicGate("퍼레가 좋아", true));
+        assertEquals("아무 말", dev.jun.gyeot.core.VoiceHints.musicGate("아무 말", false));
+
+        java.util.List<String> names = java.util.List.of("퍼레", "퍼레야", "들퍼레");
+        java.util.List<String> hints = dev.jun.gyeot.core.VoiceHints.build(names, java.util.List.of("회사", "집"), java.util.List.of("네이버 지도", "카카오톡"), java.util.List.of("주사위", "고양이 귀"), "아이유 좋은날 틀어 줄게! 🎵");
+        for (String w : new String[]{"퍼레", "회사", "네이버 지도", "주사위", "아이유", "좋은날"}) assertTrue(w + " in " + hints, hints.contains(w));
+        for (String w : new String[]{"틀어", "줄게"}) assertFalse(w + " is not a name: " + hints, hints.contains(w));
+        java.util.List<String> lots = new java.util.ArrayList<>(); for (int i = 0; i < 300; i++) lots.add("장난감" + i);
+        java.util.List<String> full = dev.jun.gyeot.core.VoiceHints.build(names, lots, lots, lots, "아이유 좋은날 틀어 줄게!");
+        assertTrue(full.size() <= dev.jun.gyeot.core.VoiceHints.MOST); assertTrue("the last words always fit: " + full, full.contains("좋은날"));
+        String prompt = dev.jun.gyeot.core.VoiceHints.prompt("아이유 좋은날 틀어 줄게! 🎵", hints);
+        assertTrue(prompt, prompt.startsWith("퍼레야, 아이유 좋은날 틀어 줄게!")); assertTrue(prompt, prompt.contains("회사"));
+        assertTrue(prompt, prompt.length() <= 120); assertFalse(prompt, prompt.contains("🎵"));
+        assertTrue(dev.jun.gyeot.core.VoiceHints.prompt("가".repeat(300), full).length() <= 120);
+        // The phone's recognizer leans toward them (its names alone when there are none).
+        assertEquals(hints, SpeechInput.intent(hints).getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_BIASING_STRINGS));
+        assertEquals(names, SpeechInput.intent(java.util.List.of()).getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_BIASING_STRINGS));
+        // Whisper's echo of its prompt on a short clip is nothing; said for longer, or other words, it is what was said.
+        String told = dev.jun.gyeot.core.VoiceHints.prompt("", java.util.List.of());
+        assertEquals("퍼레야,", told);
+        assertEquals(600, GroqWork.ms(dev.jun.gyeot.core.Utterance.wav(new short[9600], 16000)));
+        assertEquals(2000, GroqWork.ms(dev.jun.gyeot.core.Utterance.wav(new short[32000], 16000)));
+        assertTrue(dev.jun.gyeot.core.VoiceHints.echo("퍼레야,", told, 600));
+        assertFalse(dev.jun.gyeot.core.VoiceHints.echo("퍼레야,", told, 2000));
+        assertFalse(dev.jun.gyeot.core.VoiceHints.echo("다음 곡", told, 600));
+
+        // In a talk over another app with music on, the phone's recognizer played by the test: a song's words are let go
+        // (the brain never asked, a note in the bubble, the talk goes on), a bare call is answered, a request with the name
+        // goes to the brain.
+        org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(true);
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        java.util.List<SpeechInput.Listener> ears = new java.util.ArrayList<>();
+        SpeechInput.Ears before = BuddyVoice.ears; java.util.function.Predicate<android.content.Context> was = BuddyVoice.musicCheck;
+        BuddyVoice.ears = new SpeechInput.Ears() {
+            @Override public SpeechInput.Ear open(android.content.Context c) {
+                return new SpeechInput.Ear() { @Override public void start(SpeechInput.Listener l) { ears.add(l); } @Override public void finish() {} @Override public void close() {} };
+            }
+            @Override public boolean available(android.content.Context c) { return true; }
+        };
+        BuddyVoice.musicCheck = c -> true;
+        BuddyVoice talk = new BuddyVoice(app, app.store());
+        try {
+            talk.start();
+            android.view.WindowManager wm = app.getSystemService(android.view.WindowManager.class);
+            java.util.function.Supplier<String> bubble = () -> {
+                java.util.List<View> views = ((org.robolectric.shadows.ShadowWindowManagerImpl) org.robolectric.shadow.api.Shadow.extract(wm)).getViews();
+                View t = views.isEmpty() ? null : find(views.get(views.size() - 1), x -> x instanceof TextView && ((TextView) x).getMaxWidth() > 0 && ((TextView) x).getMaxWidth() < Integer.MAX_VALUE);
+                return t == null ? "" : ((TextView) t).getText().toString();
+            };
+            for (int i = 0; i < 100 && ears.isEmpty(); i++) { Thread.sleep(10); shadowOf(Looper.getMainLooper()).idle(); }
+            assertEquals(1, ears.size());
+            ears.get(0).ready();
+            for (int i = 0; i < 100 && !"♪".equals(bubble.get()); i++) { Thread.sleep(10); shadowOf(Looper.getMainLooper()).idle(); }
+            assertEquals("a note while the music plays", "♪", bubble.get());
+            ears.get(0).partial("너의 손을");
+            assertEquals("the song is not shown as heard", "♪", bubble.get());
+            ears.get(0).heard("너의 손을 잡고 걸어가");
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1500));
+            assertTrue(talk.on()); assertEquals("it listens on", 2, ears.size());
+            assertEquals("the brain was not asked", 0, talk.answers);
+            assertTrue(app.store().phoneLogText().contains("음악 중 이름 없는 말 넘김"));
+            ears.get(1).ready(); ears.get(1).heard("퍼레야");
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1500));
+            assertEquals("a bare call is answered, and it listens", 3, ears.size()); assertEquals(0, talk.answers);
+            ears.get(2).ready(); ears.get(2).heard("퍼레야, 지금 몇 시야");
+            shadowOf(Looper.getMainLooper()).idle();
+            assertEquals("words with its name go to the brain", 1, talk.answers);
+        } finally { talk.stop(); BuddyVoice.ears = before; BuddyVoice.musicCheck = was; }
     }
 
     /** 퍼레's short words in its own voice (준: "프리셋 보이스 100개", "타입캐스트로"): a hundred, kept by voice, no repeat of the last few. */

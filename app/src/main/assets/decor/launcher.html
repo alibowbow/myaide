@@ -1352,7 +1352,8 @@ function chatVoice(state, text) {
   // A pause between two of its sentences changes nothing in the talk.
   if (!voiceChat || !chatting || state === "gap") return;
   const q = el("q"), t = String(text || "").trim();
-  if (state === "listening") { q.value = t && t !== "…" ? t : ""; q.placeholder = "듣고 있어…"; return; }
+  // "…" (words begin) and "♪" (music plays: only words with 퍼레's name are taken) are notes, not words heard.
+  if (state === "listening") { q.value = t && t !== "…" && t !== "♪" ? t : ""; q.placeholder = "듣고 있어…"; return; }
   q.value = ""; q.placeholder = CHAT_HINT;
   if (state === "thinking" && t) {
     const last = thread[thread.length - 1];

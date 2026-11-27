@@ -415,13 +415,19 @@ final class BuddyTalk {
             + "- 귀엽고 밝게, 가끔 너의 기억을 자연스럽게 꺼내도 좋아.\n"
             + "- 사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 '휴대폰 상태'의 숫자로 정확히 답해. 묻지 않으면 저장공간 이야기는 꺼내지 말고, 정리·삭제를 권하지 마.\n"
             + worldWords(c);
-        String withText = instructions + (guest || doIt == null ? "" : ACTS + places(store)), withTools = instructions + BuddyTools.RULE + places(store);
+        // 퍼레's own tools only when the words are about 퍼레, now or in the last exchange ("고양이 귀 써 볼까?" → "응"): most turns weigh less.
+        String lastTurns = turns.isEmpty() ? "" : turns.get(turns.size() - 1)[1] + (turns.size() > 1 ? "\n" + turns.get(turns.size() - 2)[1] : "");
+        boolean self = BuddyTools.self(said) || BuddyTools.self(lastTurns);
+        JSONArray tools = self ? BuddyTools.TOOLS : BuddyTools.PHONE;
+        String withText = instructions + (guest || doIt == null ? "" : ACTS + places(store)), withTools = instructions + BuddyTools.rule(self) + places(store);
         long now = System.currentTimeMillis();
         String when = new SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date(now));
         String note = ""; if (!guest) try { note = Briefing.profile(store); } catch (RuntimeException ignored) {}
         StringBuilder talk = new StringBuilder();
         String who = guest ? "상대" : "사용자";
-        for (String[] t : turns) talk.append("user".equals(t[0]) ? who + ": " : "퍼레: ").append(t[1]).append('\n');
+        // The talk so far, its last TALK_TURNS lines each cut to TALK_LINE: a long talk does not grow every request (Groq's free tier counts tokens a minute).
+        for (String[] t : turns.subList(Math.max(0, turns.size() - TALK_TURNS), turns.size()))
+            talk.append("user".equals(t[0]) ? who + ": " : "퍼레: ").append(cut(t[1], TALK_LINE)).append('\n');
         String house = said.matches("(?s).*(배터리|충전|밥|음악|노래|와이파이|인터넷|데이터|절전|뜨거|방해|비행기 모드|무음).*") ? home(c) : "";
         String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + lifeWords(c) + "\n"
             + (guest ? "" : "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + todayWords(c) + memoryWords(c, said, true)
@@ -434,7 +440,8 @@ final class BuddyTalk {
             done.accept(line);
         }, failed);
         boolean nimOn = store.nim.connected();
-        if (guest || doIt == null || !GroqWork.on() && !nimOn) { asText.run(); return; }
+        if (guest || doIt == null || !GroqWork.on() && !nimOn) { toolsSent = 0; asText.run(); return; }
+        toolsSent = tools.length();
         new Thread(() -> {
             Sentences sentences = new Sentences(part);
             try {
@@ -450,17 +457,22 @@ final class BuddyTalk {
                 JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", input));
                 GroqWork.Turn t = null; String[] used = null;
                 for (String[] w : ways) {
-                    try { t = GroqWork.stream(w[0], w[1], w[2], withTools, messages, w[3], 0.7, BuddyTools.TOOLS, "auto", 9_000, sentences::add, null); used = w; break; }
+                    try { t = GroqWork.stream(w[0], w[1], w[2], withTools, messages, w[3], 0.7, tools, "auto", 9_000, sentences::add, null); used = w; break; }
                     catch (Exception next) { if (!sentences.said().isEmpty()) break; }
                 }
                 if (t == null) throw new IllegalStateException("답이 없어요");
                 sentences.end();
                 JSONObject a = BuddyTools.act(t.calls()); if (a == null) a = act(t.text());
-                // It said it would do a thing but called no tool ("3분 타이머 시작할게!"): asked once more, a tool this time.
+                // It said it would do a thing but called no tool ("3분 타이머 시작할게!"): asked once more, a tool this time, all of
+                // them (퍼레's own too: the words may have been about it after all), or NOTHING when there was nothing to do ("내일
+                // 일정 뭐야" is a question). Only a retry that gave no answer is a miss.
                 if (a == null && BuddyTools.promised(said, t.text())) {
-                    try { a = BuddyTools.act(GroqWork.stream(used[0], used[1], used[2], withTools, messages, used[3], 0.3, BuddyTools.TOOLS, "required", 6_000, null, null).calls()); }
-                    catch (Exception refused) { /* the words alone */ }
-                    if (a == null) BuddyMisses.add(c, said, "할 일 도구", "말로만 하겠다고 하고 도구를 부르지 않았어요", "");
+                    boolean none = false;
+                    try {
+                        JSONArray calls = GroqWork.stream(used[0], used[1], used[2], instructions + BuddyTools.rule(true) + places(store), messages, used[3], 0.2, BuddyTools.orNothing(), "required", 6_000, null, null).calls();
+                        none = BuddyTools.nothing(calls); a = BuddyTools.act(calls);
+                    } catch (Exception refused) { /* the words alone */ }
+                    if (a == null && !none) BuddyMisses.add(c, said, "할 일 도구", "말로만 하겠다고 하고 도구를 부르지 않았어요", "");
                 }
                 String line = spoken(t.text());
                 if ((line == null || line.isBlank()) && a != null) line = BuddyTools.say(a);
@@ -473,6 +485,14 @@ final class BuddyTalk {
                 if (sentences.said().isEmpty()) asText.run(); else done.accept(sentences.said());
             }
         }, "gyeot-buddy-tools").start();
+    }
+    /** How much of the talk so far goes with each answer: its last lines, each this long at most. */
+    static final int TALK_TURNS = 8, TALK_LINE = 200;
+    /** How many tools went with the last answer (0: the text form), for the voice talk's timing line. */
+    static volatile int toolsSent;
+    private static String cut(String line, int most) {
+        if (line == null) return "";
+        return line.codePointCount(0, line.length()) <= most ? line : line.substring(0, line.offsetByCodePoints(0, most)) + "…";
     }
     /** An answer cut into sentences as it streams, each said (spoken: no marks, links or act text) when it is whole. */
     static final class Sentences {

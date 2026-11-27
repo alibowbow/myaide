@@ -19,7 +19,18 @@ public final class VoiceTurns {
     private static final Pattern REPEAT = Pattern.compile("뭐라고(?:했어|요)?|다시말해줘(?:요)?|다시말해주세요|한번더(?:말해줘|말해주세요)?(?:요)?|잘못들었어(?:요)?");
     private static final Pattern HUSH = Pattern.compile("잠깐(?:만)?(?:요)?|쉿|멈춰(?:요)?|스톱|조용(?:히)?(?:해)?(?:요)?");
     private static final Pattern NO = Pattern.compile("아니(?:야|요|에요)?|아뇨|싫어(?:요)?|됐어(?:요)?|취소(?:해)?(?:줘)?|하지마(?:요)?|괜찮아(?:요)?");
+    /** What is said to the music itself (다음 곡, 멈춰, 소리 좀 줄여 줘): heard over music without 퍼레's name (VoiceHints.musicGate). */
+    private static final Pattern MEDIA = Pattern.compile("(?:다음|이전)(?:곡|노래)(?:틀어(?:줘)?)?(?:요)?|멈춰(?:줘)?(?:요)?|(?:일시)?정지(?:해)?(?:줘)?(?:요)?|그만(?:요)?|스톱"
+        + "|(?:다시|계속)틀어(?:줘)?(?:요)?|(?:소리|볼륨)(?:좀)?(?:줄여|키워|낮춰|높여|작게|크게)(?:줘|주세요)?(?:요)?|(?:노래|음악)(?:좀)?(?:꺼|멈춰|그만)(?:줘)?(?:요)?");
     private VoiceTurns() {}
+
+    /** Whether heard, as a whole and short, is said to the music playing (다음 곡, 정지, 소리 좀 줄여 줘). */
+    public static boolean media(String heard) {
+        String t = bare(heard);
+        return !t.isEmpty() && t.codePointCount(0, t.length()) <= LONGEST && MEDIA.matcher(t).matches();
+    }
+    /** What was said without spaces and punctuation. */
+    static String bare(String heard) { return heard == null ? "" : heard.strip().replaceAll("[\\s\\p{Punct}·…~。，！？「」『』“”‘’]+", ""); }
 
     /**
      * What heard is. justCut: the user spoke over 퍼레 a moment ago (then 잠깐 is to wait); confirming: an alarm or a timer waits
@@ -28,7 +39,7 @@ public final class VoiceTurns {
     public static Kind of(String heard, boolean justCut, boolean confirming, boolean musicOn) {
         String raw = heard == null ? "" : heard.strip();
         boolean asked = raw.endsWith("?") || raw.endsWith("？");
-        String t = raw.replaceAll("[\\s\\p{Punct}·…~。，！？「」『』“”‘’]+", "");
+        String t = bare(raw);
         if (t.isEmpty() || t.codePointCount(0, t.length()) > LONGEST) return Kind.NONE;
         if (CALL.matcher(t).matches()) return Kind.CALL;
         if (confirming && !asked && NO.matcher(t).matches()) return Kind.NO;
