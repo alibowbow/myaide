@@ -435,7 +435,7 @@ public class BuddyBrainTests {
         org.json.JSONObject toy = BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "buddy_toy").put("arguments", "{\"toy\":\"주사위\"}")));
         assertEquals("launcher.self({\"toy\":\"dice\"})", BuddyBoard.call(toy)); assertEquals("주사위 꺼낼게!", BuddyTools.say(toy));
         org.json.JSONObject wear = BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "buddy_outfit").put("arguments", "{\"items\":[\"고양이 귀\",\"목도리\"]}")));
-        assertEquals("launcher.self({\"wear\":[\"catears\",\"scarf\"]})", BuddyBoard.call(wear));
+        assertEquals("launcher.self({\"wear\":[\"catears\",\"xscarf\"]})", BuddyBoard.call(wear));
         assertEquals("launcher.self({\"wear\":[]})", BuddyBoard.call(new org.json.JSONObject().put("tool", "buddy_outfit").put("items", new org.json.JSONArray().put("기본"))));
         assertEquals("launcher.self({\"wear\":[],\"any\":true})", BuddyBoard.call(new org.json.JSONObject().put("tool", "buddy_outfit").put("items", new org.json.JSONArray().put("아무거나"))));
         assertEquals("launcher.self({\"play\":\"dance\"})", BuddyBoard.call(new org.json.JSONObject().put("tool", "buddy_move").put("play", "춤")));

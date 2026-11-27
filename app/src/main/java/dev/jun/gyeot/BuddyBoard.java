@@ -28,10 +28,10 @@ final class BuddyBoard {
     static final Map<String, String> CLOTHES = map(
         "기본", "", "아무거나", "any", "고양이 귀", "catears", "토끼 귀", "bunny", "리본", "bow", "왕관", "crown",
         "티아라", "tiara", "꽃", "flower", "꽃왕관", "flowercrown", "새싹", "sprout", "베레모", "beret", "벙거지", "bucket",
-        "비니", "beanie", "귀마개", "muffs", "헤드폰", "phones", "밀짚모자", "straw", "파티 모자", "party", "산타 모자", "santa",
-        "마녀 모자", "witch", "개구리 모자", "froghat", "버섯 모자", "mushroom", "요리사 모자", "chef", "헤어밴드", "headband", "두건", "bandana",
-        "해적 모자", "pirate", "카우보이 모자", "cowboy", "중절모", "tophat", "선글라스", "shades", "동그란 안경", "roundglasses", "하트 안경", "heartglasses",
-        "고글", "goggles", "목도리", "scarf", "나비넥타이", "bowtie", "방울", "bell", "목 리본", "ribbon", "꽃목걸이", "lei",
+        "비니", "beanie", "귀마개", "xmuffs", "헤드폰", "phones", "밀짚모자", "straw", "파티 모자", "party", "산타 모자", "santa2",
+        "마녀 모자", "witch", "개구리 모자", "froghat", "버섯 모자", "mushroom", "요리사 모자", "chef2", "헤어밴드", "headband", "두건", "bandana",
+        "해적 모자", "pirate2", "카우보이 모자", "cowboy2", "중절모", "tophat", "선글라스", "shades", "동그란 안경", "roundglasses", "하트 안경", "heartglasses",
+        "고글", "goggles", "목도리", "xscarf", "나비넥타이", "bowtie", "방울", "bell", "목 리본", "ribbon", "꽃목걸이", "lei",
         "우산", "umbrella", "후드티", "hoodie", "스웨터", "sweater", "잠옷", "pajamas", "우비", "raincoat", "앞치마", "apron",
         "망토", "cape", "가방", "backpack", "장갑", "mittens", "곰인형", "teddy", "마이크", "mic", "요술봉", "wand",
         "막대사탕", "lollipop", "아이스크림", "icecream", "벗기", "", "원래대로", "", "머리 리본", "bow", "화관", "flowercrown",
@@ -54,7 +54,19 @@ final class BuddyBoard {
         "군고구마", "sweetpotato", "고구마", "sweetpotato", "주먹밥", "riceball", "삼각김밥", "riceball", "눈뭉치", "snowball", "눈덩이", "snowball",
         "깃발", "flag", "카메라", "camera", "사진기", "camera", "비눗방울 막대", "bubblewand", "버블 막대", "bubblewand", "무지개", "rainbow",
         "달", "moon", "초승달", "moon", "꼬마 산타 모자", "santa", "보라 귀마개", "muffs", "주방장 모자", "chef", "해골 모자", "pirate",
-        "서부 모자", "cowboy", "파란 목도리", "scarf");
+        "서부 모자", "cowboy", "파란 목도리", "scarf",
+        // GPT's 32 (준: "이런식으로 의상 소품들도 만들자", "재미난 의상들 많이 만들어보자", "크리스마스 관련도 만들고")
+        "눈꽃 귀마개", "xmuffs", "산타", "santa2", "크리스마스 모자", "santa2", "요리사", "chef2", "꼬마 요리사", "chef2", "해적", "pirate2", "카우보이", "cowboy2",
+        "빨간 목도리", "xscarf", "크리스마스 목도리", "xscarf", "루돌프 머리띠", "antlers", "루돌프 뿔", "antlers", "사슴뿔", "antlers", "요정 모자", "elfhat",
+        "엘프 모자", "elfhat", "트리 모자", "treehat", "트리 옷", "treehat", "눈사람 옷", "snowman", "눈사람", "snowman", "진저브레드 옷", "ginger",
+        "쿠키 옷", "ginger", "진저브레드", "ginger", "선물", "xgift", "선물 상자", "xgift", "사탕 지팡이", "cane", "지팡이 사탕", "cane", "캔디케인", "cane",
+        "리스", "wreath", "크리스마스 리스", "wreath", "화환", "wreath", "별 장식", "topstar", "트리 별", "topstar", "징글벨 목걸이", "bells", "종 목걸이", "bells",
+        "징글벨", "bells", "크리스마스 스웨터", "xsweater", "눈꽃 스웨터", "xsweater", "크리스마스 양말", "stocking", "양말", "stocking", "산타 양말", "stocking",
+        "스노볼", "globe", "스노우볼", "globe", "공룡 옷", "dino", "공룡 후드", "dino", "공룡", "dino", "상어 옷", "shark", "상어 후드", "shark", "상어", "shark",
+        "판다 옷", "panda", "판다 후드", "panda", "판다", "panda", "개구리 옷", "froghood", "개구리 후드", "froghood", "우주인 헬멧", "astro", "우주 헬멧", "astro",
+        "우주비행사", "astro", "히어로 망토", "hero", "히어로 가면", "hero", "마법사 모자", "wizard", "마법사", "wizard", "꿀벌 옷", "bee", "꿀벌", "bee",
+        "딸기 모자", "berry", "딸기", "berry", "세일러 모자", "sailor", "선원 모자", "sailor", "탐정 모자", "detective", "탐정", "detective",
+        "바나나 옷", "banana", "바나나", "banana", "기사 투구", "knight", "투구", "knight", "기사", "knight");
     /** Plays: the words → board.js PLAYS. */
     static final Map<String, String> PLAYS = map(
         "춤", "dance", "점프", "jump", "빙글빙글", "spin", "옆돌기", "cartwheel", "물구나무", "handstand", "낮잠", "nap",

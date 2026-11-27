@@ -874,3 +874,53 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 @keyframes fistL{0%,30%{opacity:0;transform:scale(.7)}40%{opacity:1;transform:translate(2px,1px) scale(.95)}52%{opacity:1;transform:translate(7px,2px) scale(1.62,1.52)}60%{opacity:1;transform:translate(7px,2px) scale(1.5)}75%{opacity:1;transform:translate(2px,0) scale(.95)}84%,100%{opacity:0;transform:scale(.75)}}
 @keyframes fistR{0%,30%{opacity:0;transform:scale(.7)}40%{opacity:1;transform:translate(-2px,1px) scale(.95)}52%{opacity:1;transform:translate(-7px,2px) scale(1.62,1.52)}60%{opacity:1;transform:translate(-7px,2px) scale(1.5)}75%{opacity:1;transform:translate(-2px,0) scale(.95)}84%,100%{opacity:0;transform:scale(.75)}}
 
+/* GPT outfits (start) */
+.bot.w-antlers .acc.antlers{display:inline}
+.bot.w-astro .acc.astro{display:inline}
+.bot.w-banana .acc.banana{display:inline}
+.bot.w-bee .acc.bee{display:inline}
+.bot.w-bells .acc.bells{display:inline}
+.bot.w-berry .acc.berry{display:inline}
+.bot.w-cane .acc.cane{display:inline}
+.bot.w-chef2 .acc.chef2{display:inline}
+.bot.w-cowboy2 .acc.cowboy2{display:inline}
+.bot.w-detective .acc.detective{display:inline}
+.bot.w-dino .acc.dino{display:inline}
+.bot.w-elfhat .acc.elfhat{display:inline}
+.bot.w-froghood .acc.froghood{display:inline}
+.bot.w-ginger .acc.ginger{display:inline}
+.bot.w-globe .acc.globe{display:inline}
+.bot.w-hero .acc.hero{display:inline}
+.bot.w-knight .acc.knight{display:inline}
+.bot.w-panda .acc.panda{display:inline}
+.bot.w-pirate2 .acc.pirate2{display:inline}
+.bot.w-sailor .acc.sailor{display:inline}
+.bot.w-santa2 .acc.santa2{display:inline}
+.bot.w-shark .acc.shark{display:inline}
+.bot.w-snowman .acc.snowman{display:inline}
+.bot.w-stocking .acc.stocking{display:inline}
+.bot.w-topstar .acc.topstar{display:inline}
+.bot.w-treehat .acc.treehat{display:inline}
+.bot.w-wizard .acc.wizard{display:inline}
+.bot.w-wreath .acc.wreath{display:inline}
+.bot.w-xgift .acc.xgift{display:inline}
+.bot.w-xmuffs .acc.xmuffs{display:inline}
+.bot.w-xscarf .acc.xscarf{display:inline}
+.bot.w-xsweater .acc.xsweater{display:inline}
+.bot.w-astro .b-antenna{display:none}
+.bot.w-banana .b-antenna{display:none}
+.bot.w-bee .b-antenna{display:none}
+.bot.w-berry .b-antenna{display:none}
+.bot.w-chef2 .b-antenna{display:none}
+.bot.w-cowboy2 .b-antenna{display:none}
+.bot.w-detective .b-antenna{display:none}
+.bot.w-elfhat .b-antenna{display:none}
+.bot.w-knight .b-antenna{display:none}
+.bot.w-pirate2 .b-antenna{display:none}
+.bot.w-sailor .b-antenna{display:none}
+.bot.w-santa2 .b-antenna{display:none}
+.bot.w-snowman .b-antenna{display:none}
+.bot.w-treehat .b-antenna{display:none}
+.bot.w-wizard .b-antenna{display:none}
+.bot.w-topstar .b-bulb{display:none}
+/* GPT outfits (end) */
