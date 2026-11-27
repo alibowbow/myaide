@@ -54,6 +54,8 @@ public final class DecorActivity extends Activity {
     private static final LruCache<String, Bitmap> THUMBS = new LruCache<>(60);
     /** Opened from 퍼레's care card: its memory at once. */
     static final String MEMORY = "memory";
+    /** Opened when 퍼레 was asked to check itself ("자가 점검해 줘"): 퍼레 자동 점검 at once. */
+    static final String CHECK = "buddyCheck";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -61,6 +63,7 @@ public final class DecorActivity extends Activity {
         collection = prefs().getString("collection", "opus");
         draw(); load();
         if (getIntent().getBooleanExtra(MEMORY, false)) main.post(() -> Fingerprint.ask(this, "퍼레의 기억", "지문으로 확인하면 열려요", this::showMemory, () -> {}));
+        if (getIntent().getBooleanExtra(CHECK, false)) main.post(() -> { if (!destroyed) BuddyCheckUi.show(this, this::draw); });
     }
     @Override protected void onDestroy() { destroyed = true; work.shutdownNow(); super.onDestroy(); }
     private SharedPreferences prefs() { return getSharedPreferences(HtmlWallpaper.PREFS, Context.MODE_PRIVATE); }
@@ -107,6 +110,9 @@ public final class DecorActivity extends Activity {
         // What 퍼레 wishes it had (준: "그 장난감이 없다면 내가 클로드를 이용해 만들어서 줄 수도 있는거고"): for the user to make and give.
         List<String> wished = BuddyTalk.wishes(this);
         if (!wished.isEmpty()) ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_sparkle, Ui.ACCENT, "퍼레의 소원 " + wished.size(), wished.get(wished.size() - 1) + " 갖고 싶대요", ui.chevron(), this::wishSheet), true);
+        // 퍼레 자동 점검 (준: "내가 자꾸 테스트를 많이 해봐야하는데 자동테스트도 구현해줘"): the words, the brain (a dry run) and the phone's readiness in one tap.
+        String checked = BuddyCheckUi.last(this);
+        ui.addRow(buddyGroup, ui.listRow(R.drawable.ic_check, Ui.GREEN, "퍼레 자동 점검", checked.isEmpty() ? "말 · 두뇌 · 준비 상태를 한 번에 · 실제로 하지는 않아요" : "마지막 " + checked, ui.chevron(), () -> BuddyCheckUi.show(this, this::draw)), true);
         LinearLayout.LayoutParams bg = new LinearLayout.LayoutParams(-1, -2); bg.bottomMargin = ui.dp(14);
         body.addView(buddyGroup, bg);
 

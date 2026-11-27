@@ -35,29 +35,29 @@ final class BuddyTools {
 
     /** The tools, as Groq takes them. */
     static final JSONArray TOOLS = new JSONArray()
-        .put(fn("open_app", "휴대폰에 깔린 앱을 연다.", props("app", "string", "앱 이름 (예: 카카오톡, 네이버 지도, YouTube)"), "app"))
+        .put(fn("open_app", "휴대폰에 깔린 앱을 연다(그 앱의 알림·권한 설정 화면은 app_settings).", props("app", "string", "앱 이름 (예: 카카오톡, 네이버 지도, YouTube)"), "app"))
         .put(fn("navigate", "목적지까지 길안내를 시작한다(네이버 지도). 저장된 자주 가는 곳은 그 부르는 말 그대로 쓴다.",
-            props("destination", "string", "목적지: 부르는 말(집, 회사), 장소 이름이나 주소", "mode", new String[]{"car", "public", "walk", "bicycle"}, "이동 수단, 말하지 않았으면 빼기"), "destination"))
+            props("destination", "string", "목적지: 부르는 말(집, 회사), 장소 이름이나 주소", "mode", new String[]{"car", "public", "walk", "bicycle"}, "이동 수단(걸어서=walk, 버스·지하철=public, 자전거=bicycle, 차=car), 말하지 않았으면 빼기"), "destination"))
         .put(fn("play", "유튜브·유튜브 뮤직·멜론·스포티파이에서 노래나 영상을 찾아 튼다.",
             props("query", "string", "찾을 노래·영상 (예: 아이유 신곡)", "app", "string", "앱 이름, 말하지 않았으면 빼기"), "query"))
-        .put(fn("media", "지금 나오는 음악·영상을 조작한다.", props("command", new String[]{"play", "pause", "next", "previous"}, "할 일"), "command"))
-        .put(fn("alarm", "알람을 맞춘다.", props("hour", "integer", "시 (0~23)", "minute", "integer", "분"), "hour"))
+        .put(fn("media", "지금 나오는 음악·영상을 조작한다: 다음 곡, 이전 곡, 멈춤, 다시 틀기. 무엇을 틀지 묻지 말고 바로.", props("command", new String[]{"play", "pause", "next", "previous"}, "play=다시 틀기, pause=멈춤, next=다음 곡, previous=이전 곡"), "command"))
+        .put(fn("alarm", "알람을 맞춘다(깨워 줘도).", props("hour", "integer", "시 (0~23, 오후 3시=15, 오전 6시=6, 밤 11시=23)", "minute", "integer", "분"), "hour"))
         .put(fn("timer", "타이머를 시작한다.", props("seconds", "integer", "몇 초"), "seconds"))
         .put(fn("torch", "손전등을 켜거나 끈다.", props("on", "boolean", "켜기 true, 끄기 false"), "on"))
         .put(fn("rotation", "화면 방향: 가로 고정, 세로 고정, 자동 회전, 반대로.", props("mode", new String[]{"landscape", "portrait", "auto", "toggle"}, "방향"), "mode"))
         .put(fn("volume", "미디어 소리 크기를 바꾼다.", props("direction", new String[]{"up", "down", "mute", "unmute"}, "올리기·내리기·음소거·음소거 풀기", "level", "integer", "0~100으로 정할 때")))
-        .put(fn("brightness", "화면 밝기를 바꾼다.", props("direction", new String[]{"up", "down"}, "밝게·어둡게", "level", "integer", "0~100으로 정할 때")))
+        .put(fn("brightness", "화면 밝기를 바꾼다(밝게 해 줘, 어둡게 해 줘: 묻지 말고 바로).", props("direction", new String[]{"up", "down"}, "밝게·어둡게", "level", "integer", "0~100으로 정할 때")))
         .put(fn("show_alarms", "맞춰 둔 알람 목록을 보여 준다.", null))
         .put(fn("settings", "설정 화면을 연다(방해 금지, 절전, 화면 꺼짐 시간, 알림 …). 바꾸는 건 사용자가 한다.", props("panel", dev.jun.gyeot.core.DeviceActions.PANEL_NAMES.toArray(new String[0]),
             "어느 설정: dnd=방해 금지, battery=절전 모드, timeout=화면 꺼짐 시간, night=블루라이트, notifications=알림, apps=앱 목록, rotate=자동 회전, data=데이터 사용, cast=화면 공유"), "panel"))
         .put(fn("search", "인터넷에서 검색한다.", props("query", "string", "검색어"), "query"))
         // 앱이 열어 둔 공식 길 (준: "4번")
         .put(fn("share", "카카오톡 같은 앱으로 글을 보낸다(받는 친구는 사용자가 고른다).", props("text", "string", "보낼 글", "app", "string", "앱 이름 (예: 카카오톡), 말하지 않았으면 빼기"), "text"))
-        .put(fn("message", "문자 메시지를 써 둔다(보내기는 사용자가 누른다).", props("who", "string", "받는 사람 이름", "number", "string", "전화번호를 말했으면", "text", "string", "보낼 글"), "text"))
+        .put(fn("message", "문자 메시지를 써 둔다(보내기는 사용자가 누른다). 받는 사람 이름만 말해도 연락처에서 찾으니 번호를 묻지 마.", props("who", "string", "받는 사람 이름 (예: 엄마)", "number", "string", "전화번호를 말했으면", "text", "string", "보낼 글"), "text"))
         .put(fn("call", "전화 앱에 번호를 눌러 둔다(통화는 사용자가 누른다).", props("who", "string", "받는 사람 이름", "number", "string", "전화번호를 말했으면")))
         .put(fn("camera", "카메라를 연다.", props("mode", new String[]{"photo", "selfie", "video"}, "사진·셀카·동영상")))
-        .put(fn("calendar_add", "캘린더에 새 일정을 채워 둔다(저장은 사용자가 누른다).",
-            props("title", "string", "일정 이름", "date", "string", "오늘·내일·모레 또는 YYYY-MM-DD", "hour", "integer", "시 (0~23), 시간을 말했으면", "minute", "integer", "분", "minutes", "integer", "길이(분)", "place", "string", "장소"), "title"))
+        .put(fn("calendar_add", "캘린더에 새 일정을 채워 둔다(저장은 사용자가 누른다). 날짜·시각을 말했으면 date·hour·minute에 꼭 넣는다.",
+            props("title", "string", "일정 이름 (예: 치과)", "date", "string", "날짜: 오늘·내일·모레 또는 YYYY-MM-DD", "hour", "integer", "시작 시각의 시, 24시간제 (오후 3시 → 15, 오전 10시 → 10)", "minute", "integer", "시작 시각의 분 (정각이면 0)", "minutes", "integer", "길이(분), 말했으면", "place", "string", "장소, 말했으면"), "title", "date"))
         .put(fn("open_url", "웹 페이지를 연다.", props("url", "string", "주소 (예: naver.com)"), "url"))
         .put(fn("map_search", "지도에서 장소를 찾는다(근처 카페, 맛집 …).", props("query", "string", "찾을 것"), "query"))
         // 더 많은 공식 길 (2026-11-26): the clock's timers, the calendar's day, a memo, a recorder, an app's info, files, photos, people, mail, a translator
@@ -66,7 +66,7 @@ final class BuddyTools {
         .put(fn("memo", "메모 앱(삼성 노트, Google Keep …)에 새 메모를 써 둔다(저장은 그 앱에서 사용자가).",
             props("text", "string", "메모할 글", "title", "string", "메모 제목, 말했으면", "app", "string", "앱 이름, 말하지 않았으면 빼기"), "text"))
         .put(fn("recorder", "음성 녹음 앱을 연다.", null))
-        .put(fn("app_settings", "어떤 앱의 정보 화면(알림·권한·저장공간)을 연다. 바꾸는 건 사용자가 한다.", props("app", "string", "앱 이름 (예: 카카오톡)"), "app"))
+        .put(fn("app_settings", "어떤 앱의 정보 화면(알림·권한·저장공간)을 연다. '카카오톡 알림 설정 열어 줘'처럼 한 앱의 설정일 때. 바꾸는 건 사용자가 한다.", props("app", "string", "앱 이름 (예: 카카오톡)"), "app"))
         .put(fn("downloads", "받은 파일(다운로드) 목록을 연다.", null))
         .put(fn("gallery", "사진·동영상 갤러리를 연다.", null))
         .put(fn("contacts", "연락처 앱을 연다. 사람 이름을 말하면 그 사람 연락처를 연다.", props("who", "string", "사람 이름, 말했으면")))
@@ -76,10 +76,10 @@ final class BuddyTools {
         .put(fn("translate", "번역 앱(파파고·Google 번역)에서 글을 번역해 보여 준다. 짧은 말은 너가 바로 말해 줘도 돼.",
             props("text", "string", "번역할 글", "to", "string", "어느 말로 (en, ja, zh-CN, ko, es, fr, de, vi …), 말하지 않았으면 빼기"), "text"))
         // 준: "실시간 음악생성 lyria 연동 실패" (음악 만들어 달라는 말에 유튜브를 찾았다), "유튜브 꺼줘 실패" ('잠깐 멈출게'만), "우측 lp페이지 전환도 못알아들어"
-        .put(fn("make_music", "음악을 그 자리에서 새로 만들어 튼다(Lyria 실시간 음악 생성). '음악 만들어 줘', '배경음악 만들어 줘', '잔잔한 피아노 만들어 틀어 줘'처럼 만들어 달라고 할 때. 있는 노래를 찾아 틀 때는 play.",
+        .put(fn("make_music", "음악을 그 자리에서 새로 만들어 튼다(Lyria 실시간 음악 생성): 묻지 말고 바로, 분위기를 말하지 않았으면 너가 골라. '음악 만들어 줘', '배경음악 만들어 줘', '잔잔한 피아노 만들어 틀어 줘'처럼 만들어 달라고 할 때. 있는 노래를 찾아 틀 때는 play.",
             props("mood", "string", "분위기·장르·악기를 영어로 짧게 (예: calm piano, warm / upbeat lo-fi hip hop / cozy jazz cafe)", "bpm", "integer", "빠르기 60~200, 말하지 않았으면 빼기"), "mood"))
-        .put(fn("close_app", "앱을 끈다: 그 앱에서 나오는 소리를 멈추고 홈 화면으로 나간다. '유튜브 꺼 줘', '그 앱 닫아 줘'처럼 앱을 끄라고 할 때(소리만 멈추라는 말은 media pause).",
-            props("app", "string", "끌 앱 이름, 말했으면 (예: 유튜브)")))
+        .put(fn("close_app", "앱을 끈다: 그 앱에서 나오는 소리를 멈추고 홈 화면으로 나간다. '유튜브 꺼 줘', '그 앱 닫아 줘', '이거 꺼 줘'처럼 앱을 끄라고 할 때(소리만 멈추라는 말은 media pause). 어느 앱인지 말하지 않았으면 묻지 말고 app 없이 불러: 지금 앞에 있는 앱을 끈다.",
+            props("app", "string", "끌 앱 이름, 말했으면 (예: 유튜브). 말하지 않았으면 묻지 말고 빼기(지금 앞의 앱을 끈다)")))
         .put(fn("home_page", "들퍼레 홈 화면의 페이지로 넘긴다: 홈, 오늘(왼쪽), 사용자가 넣은 페이지(LP 등)는 그 이름, 또는 오른쪽·왼쪽.",
             props("page", "string", "페이지 이름 (홈, 오늘, LP, 오른쪽, 왼쪽 …)"), "page"))
         // 앱 없이 퍼레가 직접 (답은 도구가 정한다: 지어내지 않게)
@@ -93,7 +93,7 @@ final class BuddyTools {
             props("date", "string", "YYYY-MM-DD, 오늘, 또는 크리스마스 같은 날 이름", "label", "string", "그날의 이름 (예: 여행, 시험), 말했으면", "add_days", "integer", "며칠 뒤(전이면 음수)가 언제냐고 물을 때 그 날 수"), "date"))
         // 퍼레 itself (준: "음성대화로 퍼레의 상호작용이 안돼"): its toys, its clothes, its plays on the home screen
         // Hundreds of names (준: "시킬 수 있는 목록 … 아직 부족"): the brain says it in its own words, the phone finds the name (BuddyBoard.find).
-        .put(fn("buddy_toy", "너(퍼레)의 장난감을 홈 화면에 꺼내서 갖고 논다. 다 치우려면 치우기.", props("toy", "string", "장난감 이름 (예: " + BuddyBoard.sample(BuddyBoard.TOYS, 14) + ")"), "toy"))
+        .put(fn("buddy_toy", "너(퍼레)의 장난감을 홈 화면에 꺼내서 갖고 논다(꺼내 줘, 갖고 놀아 봐: 묻지 말고 바로). 다 치우려면 치우기.", props("toy", "string", "장난감 이름 (예: " + BuddyBoard.sample(BuddyBoard.TOYS, 14) + ")"), "toy"))
         .put(outfit())
         .put(fn("buddy_move", "너(퍼레)가 홈 화면에서 놀이·동작을 한다(춤, 점프, 요가 …).", props("play", "string", "놀이 이름 (예: " + BuddyBoard.sample(BuddyBoard.PLAYS, 16) + ")"), "play"))
         .put(fn("buddy_wish", "너(퍼레)가 갖고 싶은데 아직 없는 것을 소원 목록에 적는다(사용자가 만들어 줄 수도 있어).", props("thing", "string", "갖고 싶은 것 (예: 트램펄린)"), "thing"))
@@ -173,7 +173,8 @@ final class BuddyTools {
         return "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 안내, 지도에서 찾기, 노래·영상 찾아 틀기, 음악 멈춤·다음 곡, 알람, 타이머, 타이머 화면, 스톱워치, 손전등, 화면 방향, 소리 크기, 밝기, 방해 금지·절전 같은 설정 화면, 앱 정보 화면, 검색, 카톡으로 보내기, 문자 쓰기, 메일 쓰기, 전화 걸 준비, 카메라, 갤러리, 연락처, 녹음, 메모, 다운로드, 일정 넣기·보기, 웹 페이지 열기, 번역) 도구를 불러서 너가 직접 해. "
         + "동전 던지기, 주사위, 골라 주기, 계산, 다른 나라 시각, 며칠 남았는지 세기는 답을 지어내지 말고 꼭 coin·dice·pick·calculator·world_time·count_days 도구를 불러. 답은 도구가 말해 주니 너는 '던져 볼게!'처럼 짧게만 말해. "
         + (self ? "너(퍼레) 자신에게 하는 부탁(장난감 꺼내기, 옷 갈아입기·벗기, 춤·점프 같은 놀이)도 buddy_toy·buddy_outfit·buddy_move 도구로 직접 해. 사용자가 '기억해 둬', '잊어 줘', '그건 틀렸어 지워'라고 하면 remember·forget을 불러(방금 잊은 걸 되돌려 달라면 forget에 undo). 이렇게 불러 달라·조용히 있어 달라는 부탁은 call_me·quiet 도구로 해. 못 한다고 하지 마. " : "")
-        + "도구를 부를 때도 무엇을 하는지 짧은 대답 한 문장을 같이 말해(예: 네이버 지도 열게!). 할 일을 글로 적거나 JSON을 말하지 마. "
+        + "도구를 부를 때도 무엇을 하는지 짧은 대답 한 문장을 같이 말해(예: 네이버 지도 열게!). 도구는 꼭 함수 호출(tool call)로 불러: 도구 이름이나 인자를 말로 쓰지 마(예: 'settings panel=dnd', 'alarm 7 30', 'mapsearch'라고 쓰지 마). 할 일을 글로 적거나 JSON을 말하지 마. "
+        + "할 일이 분명하면 되묻지 말고 바로 불러: 말하지 않은 값은 빼고 부르면 도구가 정하거나 다시 물어(앱 이름 없는 close_app, 오전·오후 없는 alarm, 번호 없는 message). "
         + "알람·타이머는 짧게 '알겠어!'만 말하고 alarm·timer 도구를 불러(시각·길이는 도구가 확인해서 다시 말해 줘). "
         + "사용자가 '아니', '그거 말고', '다른 거'라고 고치면 방금 한 일을 같은 도구로 고친 값으로 다시 불러. "
         + "결제·송금처럼 도구가 없는 일은 아직 못 한다고 말해. 대답에 주소(URL)는 절대 쓰지 마. 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘는 어울리면 하나까지(반짝이·별은 빼고).\n";
@@ -185,8 +186,8 @@ final class BuddyTools {
             JSONObject call = calls.optJSONObject(i); if (call == null) continue;
             String name = call.optString("name").strip(), args = call.optString("arguments").strip();
             if (name.equals("nothing")) continue; // nothing to do (NOTHING): no act
-            JSONObject a = BuddyTalk.loose("{\"tool\":" + JSONObject.quote(name) + (args.length() > 2 && args.startsWith("{") ? "," + args.substring(1) : "}"));
-            if (a == null) { try { a = new JSONObject(args.isEmpty() ? "{}" : args).put("tool", name); a = BuddyTalk.loose(a.toString()); } catch (Exception broken) { a = null; } }
+            JSONObject a = BuddyPrompt.loose("{\"tool\":" + JSONObject.quote(name) + (args.length() > 2 && args.startsWith("{") ? "," + args.substring(1) : "}"));
+            if (a == null) { try { a = new JSONObject(args.isEmpty() ? "{}" : args).put("tool", name); a = BuddyPrompt.loose(a.toString()); } catch (Exception broken) { a = null; } }
             if (a != null) return a;
         }
         return null;
@@ -194,18 +195,25 @@ final class BuddyTools {
 
     private static final java.util.regex.Pattern ASKED = java.util.regex.Pattern.compile("꺼내|입어|입자|벗어|갈아입|옷|모자|장난감|주사위|공 ?놀|큐브|팽이|풍선|비눗방울|춤|점프|해 ?봐|보여 ?줘|열어|켜 ?줘|켜$|꺼 ?줘|꺼$|틀어|재생|알람|타이머|가자|안내|길 ?찾|찾아 ?줘|검색|소리|볼륨|밝기|화면|손전등|플래시|와이파이|블루투스|설정|멈춰|다음 ?곡|이전 ?곡|가로|세로|회전|일정|캘린더|넣어|셀카|카메라|사진 ?찍|동영상|문자|보내|전화|카톡|카카오톡|공유|사이트|홈페이지|근처|맛집"
             + "|스톱워치|초 ?재|시간 ?재|메모|적어|녹음|다운로드|받은 ?파일|갤러리|사진첩|앨범|연락처|계산|더하기|빼기|곱하기|나누기|퍼센트|메일|번역|동전|골라|정해 ?줘|며칠|디데이|D-?day|시차|몇 ?시야"
-            + "|기억해 ?줘|기억해 ?둬|기억해$|잊어 ?줘|잊어버려|까먹어|지워 ?줘|틀렸어|되돌려|(이라고|라고) ?불러|부르지 ?마|호칭|조용히|말 ?걸지"),
+            + "|기억해 ?줘|기억해 ?둬|기억해$|잊어 ?줘|잊어버려|까먹어|지워 ?줘|틀렸어|되돌려|(이라고|라고) ?불러|부르지 ?마|호칭|조용히|말 ?걸지"
+            + "|음소거|깨워|닫아|만들어|넘겨|페이지|소원"),
         PROMISE = java.util.regex.Pattern.compile("꺼낼게|입을게|벗을게|쓸게|출게|뛸게|놀게|해 볼게|할게|줄게|열게|틀게|켤게|끌게|맞출게|찾아볼게|바꿀게|멈출게|둘게|보낼게|걸게|찍게|넣을게|시작"
             + "|잴게|적을게|던질게|던져 볼게|굴릴게|굴려 볼게|고를게|골라 볼게|세어 볼게|셀게|계산해 볼게|번역해 볼게|기억할게|잊을게|지울게|잊었어|지웠어|되돌릴게|라고 부를게|조용히 있을게"
-            + "|놓을게|올릴게|줄일게|낮출게|높일게|해 둘게|맞춰 둘게|틀어 줄게|찾아 줄게|알겠어|알았어");
+            + "|놓을게|올릴게|줄일게|낮출게|높일게|해 둘게|맞춰 둘게|틀어 줄게|찾아 줄게|알겠어|알았어"
+            + "|닫을게|넘길게|넘어갈게|만들게|만들어 볼게|찾을게|갈게|깨울게|적어 둘게|남길게|남겨 둘게|볼게|끄게|열께|할께|줄께");
     /** Whether the brain's calls chose NOTHING (there was nothing to do after all). */
     static boolean nothing(JSONArray calls) {
         for (int i = 0; calls != null && i < calls.length(); i++) { JSONObject c = calls.optJSONObject(i); if (c != null && "nothing".equals(c.optString("name").strip())) return true; }
         return false;
     }
-    /** The user asked for a thing on the phone and the answer says it will be done (the brain then called no tool). */
+    /**
+     * The user asked for a thing on the phone and the answer says it will be done, or the answer wrote a tool out instead of
+     * calling it ("settings panel=dnd", "countdays": BuddyPrompt.toolWritten); the brain then called no tool.
+     */
     static boolean promised(String said, String answer) {
-        return said != null && answer != null && ASKED.matcher(said).find() && PROMISE.matcher(answer).find();
+        if (said == null || answer == null) return false;
+        for (String line : answer.split("\n")) if (BuddyPrompt.toolWritten(line) >= 0) return true;
+        return ASKED.matcher(said).find() && PROMISE.matcher(answer).find();
     }
     private static String outfitSay(JSONObject a) {
         JSONArray items = a.optJSONArray("items"); String first = items != null && items.length() > 0 ? items.optString(0).strip() : a.optString("item").strip();
