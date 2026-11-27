@@ -44,6 +44,8 @@ public final class GyeotApp extends Application {
             if (exit != null) store.exitNotice = exit;
             // Alarms do not survive a phone restart and nothing listens for boot: the 예약 작업 alarm comes back here.
             WorkScheduleAlarm.refresh(this, store);
+            // 조건 알림 (사건 트리거): read once and listened for as the triggers need, off the main thread.
+            TriggerWatch.start(this);
             // Pictures and videos saved by an older version were never registered with Android's media index; do it once, off the main thread.
             AppStore saved = store; Thread index = new Thread(() -> {
                 MediaIndex.registerExisting(this, saved);

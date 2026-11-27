@@ -263,6 +263,17 @@ public final class HomeActivity extends Activity {
             break;
         }
     }
+    /**
+     * A 조건 알림 that fired (TriggerFire): one passing word from 퍼레 when the home screen is in front (준: "흘러가듯이 슬쩍",
+     * a few seconds), a tap on it doing what waits (go: "trig:<id>", "job:<id>"); false when the home screen is not in front.
+     */
+    static boolean passing(String text, String go) {
+        HomeActivity a = alive.get();
+        if (a == null || a.isFinishing() || !a.shown || !a.ready || text == null || text.isBlank()) return false;
+        BuddyVoice talk = BuddyVoice.current(); if (talk != null && talk.on()) return false;
+        a.js("launcher.jobDone&&launcher.jobDone(" + Jsons.obj("id", "trigger", "text", text, "go", go == null ? "" : go) + ")");
+        return true;
+    }
     /** 퍼레 itself, asked by voice or in the talk (BuddyBoard): a launcher.self() call to the page. */
     private final java.util.function.Consumer<String> selfCall = call -> js(call);
     @Override protected void onPause() {
@@ -412,8 +423,8 @@ public final class HomeActivity extends Activity {
         }
         if (shown.isEmpty()) shown = BuddyTools.say(a);
         // A job handed over has the user's own words as its authority (BuddyHands); typed, an alarm needs no spoken yes.
-        // The past asked about (day_recall) is found by the user's own words too ("지난주 그 집").
-        BuddyVoice.Outcome o = BuddyActs.run(this, a, BuddyHands.TOOLS.contains(a.optString("tool")) || "day_recall".equals(a.optString("tool")) ? question : "네", false);
+        // The past asked about (day_recall) and a trigger ("…하면 …") are found by the user's own words too ("지난주 그 집").
+        BuddyVoice.Outcome o = BuddyActs.run(this, a, BuddyHands.TOOLS.contains(a.optString("tool")) || BuddyTriggers.TOOLS.contains(a.optString("tool")) || "day_recall".equals(a.optString("tool")) ? question : "네", false);
         String more = o == null || o.say() == null ? "" : o.say().strip();
         js("launcher.reply(" + JSONObject.quote(more.isEmpty() ? shown : shown + "\n" + more) + ")");
     }
@@ -725,6 +736,12 @@ public final class HomeActivity extends Activity {
             if (what != null && what.startsWith("fix:")) {
                 Intent fix = BuddyMisses.fixIntent(HomeActivity.this, what.substring(4));
                 if (fix != null) main.post(() -> { try { startActivity(fix.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); } catch (RuntimeException none) { Toast.makeText(HomeActivity.this, "이 휴대폰에서는 열 수 없어요.", Toast.LENGTH_SHORT).show(); } });
+                return;
+            }
+            // A 조건 알림's passing word: what it left waiting (a draft to send, an app to open), done now (TriggerActivity).
+            if (what != null && what.startsWith("trig:")) {
+                Intent tap = TriggerActivity.fire(HomeActivity.this, what.substring(5));
+                main.post(() -> { try { startActivity(tap); } catch (RuntimeException none) { Toast.makeText(HomeActivity.this, "열 수 있는 화면이 없어요.", Toast.LENGTH_SHORT).show(); } });
                 return;
             }
             // A job 퍼레 took on (its line, its passing word): its result (BuddyHands.opening).

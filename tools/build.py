@@ -390,6 +390,11 @@ if __name__ == '__main__':
     daylog.mkdir(parents=True, exist_ok=True)
     javac(['-encoding', 'UTF-8', '-d', daylog, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/DayLogRegression.java'])
     run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (daylog, jars[-1]))), 'dev.jun.gyeot.core.DayLogRegression'])
+    # 사건 트리거 (core/Triggers): what is said read into a condition and an action, each kind of event matched once.
+    triggers = BUILD / 'trigger-checks'
+    triggers.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', triggers, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/TriggersRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (triggers, jars[-1]))), 'dev.jun.gyeot.core.TriggersRegression'])
     test_board(jars[-1])
     # The optional larger suites run when their tests folder is present.
     if (ROOT / 'tests/CoreTests.java').is_file(): test(jars)

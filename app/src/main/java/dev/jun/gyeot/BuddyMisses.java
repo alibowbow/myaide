@@ -61,6 +61,10 @@ final class BuddyMisses {
         if (fix.equals("memory")) return "퍼레의 기억 열기";
         if (fix.equals("daylog")) return "하루 기록 켜기";
         if (fix.startsWith("settings:")) return "설정 열기";
+        // 조건 알림 (사건 트리거): what a trigger needs to be heard.
+        if (fix.equals("allow:location") || fix.equals("allow:bluetooth")) return "권한 허용";
+        if (fix.startsWith("pick:")) return "기기 고르기";
+        if (fix.equals("notices")) return "알림 접근 허용";
         return "";
     }
     /** That tap's screen, or null. */
@@ -78,6 +82,11 @@ final class BuddyMisses {
         if (fix.equals("daylog")) return new Intent(c, DecorActivity.class).putExtra(DecorActivity.DAYLOG, true);
         // A page of the app's settings (폰 조작, AI 연결 …): what a job 퍼레 could not take needs (BuddyHands).
         if (fix.startsWith("settings:")) return new Intent(c, MainActivity.class).putExtra("tab", 2).putExtra(MainActivity.SETTINGS_PAGE, fix.substring(9)).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        // 조건 알림: Android's own permission screens after one line why, the paired devices to pick from, 알림 접근.
+        if (fix.equals("allow:location")) return TriggerActivity.allow(c, "location");
+        if (fix.equals("allow:bluetooth")) return TriggerActivity.allow(c, "bluetooth");
+        if (fix.startsWith("pick:")) return TriggerActivity.pick(c, fix.substring(5));
+        if (fix.equals("notices")) return new Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS).putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, new android.content.ComponentName(c, NoticeListener.class).flattenToString());
         return null;
     }
 }

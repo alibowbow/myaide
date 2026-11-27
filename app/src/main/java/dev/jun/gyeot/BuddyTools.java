@@ -110,6 +110,13 @@ final class BuddyTools {
         // when a brain adds them (BuddyPrompt.loose, the text form) but not asked for here.
         .put(fn("day_recall", "지난 일을 하루 기록에서 찾아 답한다.",
             props("query", "string", "말한 대로"), "query"))
+        // ── 사건 트리거 (stage 2, BuddyTriggers · core/Triggers): "…하면 …" by what happens, not by the clock ──
+        // Short (it goes with every turn): who and text of a message, the reminder, the device are read from the user's own words.
+        .put(fn("when_event", "어떤 일이 생기면 할 일을 걸어 둔다(…하면 알려 줘: 알림, 도착·출발, 차 타기, 충전, 가격). 걸어 둔 것 묻기·끄기·지우기도. 정한 시각은 schedule_job.",
+            props("command", new String[]{"make", "list", "off", "on", "delete"}, "기본 make", "when", "string", "조건, 사용자의 말대로",
+                "then", new String[]{"tell", "open_app", "navigate", "play", "message", "phone_job", "web_job", "work_job"}, "기본 tell",
+                "what", "string", "앱·목적지·노래·할 일·받는 사람", "every", "boolean", "매번이면 true")))
+        // ── end of 사건 트리거 ──
         // 퍼레 itself (준: "음성대화로 퍼레의 상호작용이 안돼"): its toys, its clothes, its plays on the home screen
         // Hundreds of names (준: "시킬 수 있는 목록 … 아직 부족"): the brain says it in its own words, the phone finds the name (BuddyBoard.find).
         .put(fn("buddy_toy", "너(퍼레)의 장난감을 홈 화면에 꺼내서 갖고 논다(꺼내 줘, 갖고 놀아 봐: 묻지 말고 바로). 다 치우려면 치우기.", props("toy", "string", "장난감 이름 (예: " + BuddyBoard.sample(BuddyBoard.TOYS, 14) + ")"), "toy"))
@@ -198,6 +205,9 @@ final class BuddyTools {
      * day's own lines and says it (the same words go with the text form, BuddyPrompt.ACTS).
      */
     static final String RECALL_RULE = "사용자가 지난 일(지난주 그 집, 어제 한 일, 그저께 주문한 것, 저번에 간 곳)을 물으면 짐작해서 답하지 말고 꼭 day_recall을 불러: 하루 기록에서 찾아 시각·앱과 함께 말해 주니 너는 '찾아볼게!'처럼 짧게만 말해. ";
+    /** 사건 트리거 (stage 2): events, not times, go to when_event; the same words go with the text form (BuddyPrompt.ACTS). */
+    static final String EVENTS_RULE = "어떤 일이 생기면 할 일(집에 도착하면 알려 줘, 차 타면 지도 켜 줘, 충전 다 되면, 배달 출발하면, 비트코인 1억 넘으면)은 when_event로 걸어 둬(매번이면 every). 걸어 둔 걸 묻거나 끄거나 지우는 것도 when_event. "
+        + "그때 문자·카톡을 보내 달라면 then=message로 걸어(보내기는 사용자가 눌러). ";
     /** The rule for the brain with tools (in place of BuddyTalk.ACTS). */
     static final String RULE = rule(true);
     /** The rule for the brain with the tools sent: 퍼레's own named only when they are (else it might call one not there). */
@@ -205,7 +215,7 @@ final class BuddyTools {
         return "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 안내, 지도에서 찾기, 노래·영상 찾아 틀기, 음악 멈춤·다음 곡, 알람, 타이머, 타이머 화면, 스톱워치, 손전등, 화면 방향, 소리 크기, 밝기, 방해 금지·절전 같은 설정 화면, 앱 정보 화면, 검색, 카톡으로 보내기, 문자 쓰기, 메일 쓰기, 전화 걸 준비, 카메라, 갤러리, 연락처, 녹음, 메모, 다운로드, 일정 넣기·보기, 웹 페이지 열기, 번역) 도구를 불러서 너가 직접 해. "
         + "동전 던지기, 주사위, 골라 주기, 계산, 다른 나라 시각, 며칠 남았는지 세기는 답을 지어내지 말고 꼭 coin·dice·pick·calculator·world_time·count_days 도구를 불러. 답은 도구가 말해 주니 너는 '던져 볼게!'처럼 짧게만 말해. "
         + RECALL_RULE
-        + JOBS_RULE
+        + JOBS_RULE + EVENTS_RULE
         + (self ? "너(퍼레) 자신에게 하는 부탁(장난감 꺼내기, 옷 갈아입기·벗기, 춤·점프 같은 놀이)도 buddy_toy·buddy_outfit·buddy_move 도구로 직접 해. 사용자가 '기억해 둬', '잊어 줘', '그건 틀렸어 지워'라고 하면 remember·forget을 불러(방금 잊은 걸 되돌려 달라면 forget에 undo). 이렇게 불러 달라·조용히 있어 달라는 부탁은 call_me·quiet 도구로 해. 못 한다고 하지 마. " : "")
         + "도구를 부를 때도 무엇을 하는지 짧은 대답 한 문장을 같이 말해(예: 네이버 지도 열게!). 도구는 꼭 함수 호출(tool call)로 불러: 도구 이름이나 인자를 말로 쓰지 마(예: 'settings panel=dnd', 'alarm 7 30', 'mapsearch'라고 쓰지 마). 할 일을 글로 적거나 JSON을 말하지 마. "
         + "할 일이 분명하면 되묻지 말고 바로 불러: 말하지 않은 값은 빼고 부르면 도구가 정하거나 다시 물어(앱 이름 없는 close_app, 오전·오후 없는 alarm, 번호 없는 message). "
@@ -232,13 +242,17 @@ final class BuddyTools {
             + "|기억해 ?줘|기억해 ?둬|기억해$|잊어 ?줘|잊어버려|까먹어|지워 ?줘|틀렸어|되돌려|(이라고|라고) ?불러|부르지 ?마|호칭|조용히|말 ?걸지"
             + "|음소거|깨워|닫아|종료|나가 ?줘|만들어|넘겨|넘어가|페이지|소원"
             // The jobs that take more than one step (phone_job, web_job, work_job, schedule_job, research_job).
-            + "|담아|담기|장바구니|공지|단톡|읽어 ?줘|양식|신청서|업로드|올려 ?줘|다운로드|내려 ?받|받아 ?(?:줘|와|놔)|작업창|맡겨|맡아 ?줘|분석해|보고서|코딩|코드|짜 ?줘|프로그램|예약해|매일|평일|마다|연구해|연구실|조사해|정리해 ?줘"),
+            + "|담아|담기|장바구니|공지|단톡|읽어 ?줘|양식|신청서|업로드|올려 ?줘|다운로드|내려 ?받|받아 ?(?:줘|와|놔)|작업창|맡겨|맡아 ?줘|분석해|보고서|코딩|코드|짜 ?줘|프로그램|예약해|매일|평일|마다|연구해|연구실|조사해|정리해 ?줘"
+            // 사건 트리거 (when_event): "…하면 …", and the ones made.
+            + "|(?:도착하|출발하|나가|나오|타|내리|넘으|떨어지|오르|다 ?되|오|끊기|연결되|꽂으|빼)면|때마다|조건 ?알림|걸어 ?둔"),
         PROMISE = java.util.regex.Pattern.compile("꺼낼게|입을게|벗을게|쓸게|출게|뛸게|놀게|해 볼게|할게|줄게|열게|틀게|켤게|끌게|맞출게|찾아볼게|바꿀게|멈출게|둘게|보낼게|걸게|찍게|넣을게|시작"
             + "|잴게|적을게|던질게|던져 볼게|굴릴게|굴려 볼게|고를게|골라 볼게|세어 볼게|셀게|계산해 볼게|번역해 볼게|기억할게|잊을게|지울게|잊었어|지웠어|되돌릴게|라고 부를게|조용히 있을게"
             + "|놓을게|올릴게|줄일게|낮출게|높일게|해 둘게|맞춰 둘게|틀어 줄게|찾아 줄게|알겠어|알았어"
             // "네이버지도 닫을게 👋" was not heard as a promise, so nothing was done (2026-11-27)
             + "|닫을게|닫아 ?줄게|나갈게|종료할게|끝낼게|꺼 ?줄게|넘길게|넘겨 ?줄게|넘어갈게|만들게|만들어 ?볼게|만들어 ?줄게|찾을게|갈게|깨울게|적어 둘게|남길게|남겨 둘게|볼게|끄게|열께|할께|줄께"
-            + "|맡길게|맡겨 ?둘게|맡겼어|맡을게|담을게|읽을게|올릴게|받을게|예약할게|예약했어|연구할게|조사할게|분석할게|정리할게");
+            + "|맡길게|맡겨 ?둘게|맡겼어|맡을게|담을게|읽을게|올릴게|받을게|예약할게|예약했어|연구할게|조사할게|분석할게|정리할게"
+            // 사건 트리거: "도착하면 알려 줄게" with no tool called is a promise.
+            + "|알려 ?줄게|알려 ?드릴게|걸어 ?둘게|걸어 ?뒀어|챙겨 ?줄게|켜 ?줄게|꺼 ?둘게|껐어|지웠어");
     /** Whether the brain's calls chose NOTHING (there was nothing to do after all). */
     static boolean nothing(JSONArray calls) {
         for (int i = 0; calls != null && i < calls.length(); i++) { JSONObject c = calls.optJSONObject(i); if (c != null && "nothing".equals(c.optString("name").strip())) return true; }
@@ -314,6 +328,8 @@ final class BuddyTools {
             case "work_job" -> "작업창에 맡길게!";
             case "schedule_job" -> "예약해 둘게!";
             case "research_job" -> "연구실에 맡길게!";
+            // 사건 트리거: the act says it back itself ("차에 타면 네이버 지도 열게. 매번.").
+            case "when_event" -> "";
             // The answer itself is the act's own words, said after these (BuddyActs: coin, dice, pick, the time, the days).
             case "stopwatch" -> "start".equals(a.optString("command", "start")) ? "스톱워치 시작!" : "";
             case "coin" -> "동전 던진다!";
