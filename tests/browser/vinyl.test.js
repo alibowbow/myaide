@@ -256,6 +256,8 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
         return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, h: r.height, w: r.width, vh: innerHeight, vw: innerWidth, y: scrollY, mine: !!at && !!at.closest('#gyBar') }; });
       assert.strictEqual(b.y, 0, 'not scrolled');
       assert(b.h <= 40, 'height ' + b.h);
+      const brandTop = await frame.evaluate(() => document.querySelector('.brand').getBoundingClientRect().top);
+      assert(brandTop >= 24 + 4, 'the brand row below the status bar (24 px here): ' + brandTop);
       assert(b.top >= 0 && b.bottom <= b.vh - 24 - 16, 'above the system bar and the dots (bottom+10…16): ' + b.bottom + ' of ' + b.vh);
       assert(b.left >= 22 && b.right <= b.vw - 22, 'clear of the 22 px edges: ' + b.left + '…' + b.right);
       assert(b.w <= 320, 'not a full-width bar: ' + b.w);
@@ -543,6 +545,9 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
         assert.deepStrictEqual([g.tabbed, g.tab, g.names], [true, 'deck', ['턴테이블', '앰프', '곡목록']]);
         assert(g.h <= 36 && g.w <= 260, 'small pills: ' + g.w + '×' + g.h);
         assert(g.inRow && g.right <= 1, 'at the end of the brand row');
+        // 준, 2026-11-27: "시계 상태표시줄이 가려져": the brand row and the tabs below the status bar the home screen tells (24 px here).
+        const top = await t.frame.evaluate(() => Math.min(document.querySelector('.brand').getBoundingClientRect().top, document.querySelector('.gy-tabs').getBoundingClientRect().top));
+        assert(top >= 24 + 4, 'clear of the status bar: ' + top);
         for (const k of ['deck', 'amp', 'list']) {
           await t.frame.locator('.gy-tabs [data-tab="' + k + '"]').tap();
           const m = await fit(k);

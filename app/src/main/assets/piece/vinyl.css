@@ -2,14 +2,15 @@
   들퍼레's add-on for the LP page (Opus 5.5 · 057 Hi-Fi Walnut), with vinyl.js: a small now-playing bar at the bottom and the
   track list over it, in the piece's own walnut, brass and liner-note cream. Kept small (준: compact controls, no full-width
   bars or big cards): the bar is 38 px high and at most 320 px wide, clear of the launcher's page dots and its 22 px edge strips.
-  --gyB is the bottom the page must keep clear (the system bar), told by the home screen (vinyl.js).
+  --gyB is the bottom the page must keep clear (the system bar), --gyT the top (the status bar), told by the home screen (vinyl.js).
 */
-:root{--gyB:48px;--gyBarH:38px;
+:root{--gyB:48px;--gyT:0px;--gyBarH:38px;
   /* the piece's serif, then a Korean serif for 한글 (its own fonts have none), and never a slanted copy of an upright font:
      an italic line in Korean stays upright rather than leaning like a broken font */
   --serif:"Iowan Old Style","Palatino Linotype",Palatino,"P052","Book Antiqua",Georgia,serif,"Noto Serif KR","Noto Serif CJK KR","Nanum Myeongjo","AppleMyungjo"}
 html{font-synthesis:weight;font-synthesis-style:none}
-.room{padding-bottom:calc(30px + var(--gyB) + 26px + var(--gyBarH) + 10px)}
+.room{padding-top:calc(20px + var(--gyT));padding-bottom:calc(30px + var(--gyB) + 26px + var(--gyBarH) + 10px)}
+@media (max-width:560px){.room{padding-top:calc(18px + var(--gyT))}}
 
 #gyBar{position:fixed;z-index:40;left:50%;bottom:calc(var(--gyB) + 26px);transform:translateX(-50%);
   width:min(320px,calc(100vw - 56px));height:var(--gyBarH);box-sizing:border-box;display:flex;align-items:center;gap:4px;padding:0 4px 0 6px;
@@ -155,7 +156,7 @@ html.gy-tabbed .gy-tabs{display:inline-flex;flex:none;order:3;gap:2px;padding:2p
 .gy-tabs button[aria-selected="true"]{color:#2b1d05;background:radial-gradient(circle at 38% 30%,#fbe8a6,#dcb947 40%,#b08c1f 72%,#7d620f);box-shadow:inset 0 1px 1px rgba(255,255,255,.6)}
 .gy-tabs button:focus-visible{outline:2px solid var(--brass-lt,#ecd27a);outline-offset:1px}
 html.gy-tabbed body{min-height:0}
-html.gy-tabbed .room{height:100vh;height:100dvh;display:flex;flex-direction:column;padding-top:12px;padding-bottom:calc(var(--gyB) + 26px + var(--gyBarH) + 10px)}
+html.gy-tabbed .room{height:100vh;height:100dvh;display:flex;flex-direction:column;padding-top:calc(12px + var(--gyT));padding-bottom:calc(var(--gyB) + 26px + var(--gyBarH) + 10px)}
 html.gy-tabbed .brand{flex:none;flex-direction:row;align-items:center;margin-bottom:12px;padding-bottom:10px}
 html.gy-tabbed .brand p{margin-left:auto;font-size:12px;line-height:1.35}
 @media (max-width:900px){html.gy-tabbed .brand p{display:none}html.gy-tabbed .gy-tabs{margin-left:auto}}

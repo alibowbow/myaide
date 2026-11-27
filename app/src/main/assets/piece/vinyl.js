@@ -79,11 +79,15 @@
   const framing = () => performance.now() - lastFrame < 250;
   window.__gyTrack = () => { for (const f of trackFns) try { f(); } catch (e) {} };
 
-  /* ── where the bottom of the screen is (the home screen tells; alone on a wallpaper, under the phone's dock) ── */
+  /* ── where the top and the bottom of the screen are (the home screen tells; alone on a wallpaper, under the phone's bars) ── */
   const root = document.documentElement;
   let heard = false;
-  function insets(top, bottom) { root.style.setProperty('--gyB', Math.max(0, Math.round(+bottom || 0)) + 'px'); }
-  insets(0, window.parent !== window ? 48 : 120);
+  // The top too (준, 2026-11-27: "시계 상태표시줄이 가려져": the brand row and the tabs sat under the status bar).
+  function insets(top, bottom) {
+    root.style.setProperty('--gyB', Math.max(0, Math.round(+bottom || 0)) + 'px');
+    root.style.setProperty('--gyT', Math.max(0, Math.round(+top || 0)) + 'px');
+  }
+  insets(window.parent !== window ? 0 : 32, window.parent !== window ? 48 : 120);
   // and whether the page is in sight, where the home screen says so (the wallpaper's board slides its pages: the browser keeps
   // running a page next to the one shown); null where nobody says (the launcher's pages: the browser stops those itself)
   let inSight = null;
