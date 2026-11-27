@@ -161,6 +161,11 @@ final class BrowserEngine {
          */
         final boolean secret;
         final GeckoSession session;
+        /**
+         * The tab whose page opened this one as its window (a sign-in popup: Google's for TradingView, which closes itself when
+         * done): the page goes back to it, not to whichever tab is beside it.
+         */
+        Tab opener;
         Tab() { this(false); }
         Tab(boolean secret) {
             this.secret = secret;
@@ -897,7 +902,7 @@ final class BrowserEngine {
 
                         showTaskState();
                     }
-                    popup.desktop = tab.desktop; popup.zoomPercent = tab.zoomPercent; desktopSettings(popup); persist();
+                    popup.desktop = tab.desktop; popup.zoomPercent = tab.zoomPercent; popup.opener = tab; desktopSettings(popup); persist();
                     main.post(() -> { if (popup.session.isOpen() && live(popup)) { if (current == popup || working(popup)) activate(popup); else popup.session.setActive(false); changed(); } });
                     return GeckoResult.fromValue(popup.session);
                 }
@@ -984,7 +989,8 @@ final class BrowserEngine {
         tab.retained = false; tabs.remove(closedIndex); Lane removed=tabLanes.remove(tab);if(removed!=null)lanes.remove(removed.id); tab.port = null; tab.document = ""; releaseDisplay(tab); if (tab.session.isOpen()) tab.session.close();
         if (split == tab) split = null;
         if (tabs.isEmpty()) newTab("https://www.google.com/", true);
-        else if (current == tab) current = tabs.get(Math.min(closedIndex, tabs.size() - 1));
+        else if (current == tab) current = tab.opener != null && tabs.contains(tab.opener) ? tab.opener : tabs.get(Math.min(closedIndex, tabs.size() - 1));
+        for (Tab other : tabs) if (other.opener == tab) other.opener = null;
         showTaskState(); activate(current); persist(); changed();
     }
     void navigate(String value) {

@@ -54,6 +54,12 @@
   .chart .wait { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
   .chart .tradingview-widget-container, .chart .tradingview-widget-container__widget { height: 100%; width: 100%; }
   .card.focus { position: fixed; inset: 0; z-index: 20; border-radius: 0; }
+  /* 내 트뷰: the app shows the user's own TradingView beside this page; the cards are the list that picks its symbol. */
+  body.mine .chart { display: none; }
+  body.mine .grid { gap: 8px; }
+  body.mine .card { cursor: pointer; }
+  body.mine .card-head { padding: 8px 8px 8px 12px; }
+  body.mine .card.sel { box-shadow: 0 0 0 2px var(--accent), var(--shadow); }
   .card.focus .chart { height: auto; flex: 1; }
   body.focused { overflow: hidden; }
   .sheet { position: fixed; inset: 0; z-index: 30; display: none; }
@@ -182,6 +188,10 @@
   let state;
   try { state = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { state = null; }
   if (!state || !Array.isArray(state.symbols)) state = { symbols: DEFAULTS.slice(), interval: 'D', layout: 'auto' };
+  // 내 트뷰 (the app says so: the user is signed in to TradingView in its AI 브라우저): the app draws the user's own chart of the
+  // picked symbol (their layout, indicators and data) and this page's cards pick it; otherwise each card has its widget chart.
+  let mine = false;
+  const picked = () => state.symbols.find(x => x.s === state.picked) || state.symbols[0];
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
   const dark = () => { const t = document.documentElement.getAttribute('data-theme'); return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; };
   const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -226,7 +236,7 @@
   function grid() {
     const g = $('grid'); g.innerHTML = '';
     g.className = 'grid' + (state.layout === 'one' ? ' one' : state.layout === 'two' ? ' two' : '');
-    $('count').textContent = '관심 종목 ' + state.symbols.length + '개';
+    $('count').textContent = '관심 종목 ' + state.symbols.length + '개' + (mine && state.symbols.length ? ' · 눌러서 내 트뷰 차트로' : '');
     if (!state.symbols.length) { g.innerHTML = '<div class="empty">종목이 없어요. 오른쪽 위 연필을 눌러 추가해 보세요.</div>'; return; }
     state.symbols.forEach((sym, i) => {
       const card = document.createElement('section'); card.className = 'card';
@@ -239,11 +249,14 @@
         <div class="chart" data-index="${i}"><div class="wait">차트를 불러오는 중…</div></div>`;
       card.querySelector('b').textContent = sym.n;
       card.querySelector('.name span').textContent = (sym.d ? sym.d + ' · ' : '') + sym.s.split(':')[0];
-      card.querySelector('.small').onclick = () => focus(card);
+      card.querySelector('.small').onclick = () => { if (mine) pick(sym, true); else focus(card); };
+      if (mine && picked() === sym) card.classList.add('sel');
+      card.addEventListener('click', e => { if (mine && !e.target.closest('button')) pick(sym, false); });
       card.querySelector('[data-ai]').onclick = () => ask(sym, 'analyze', card, false);
       card.querySelector('[data-news]').onclick = () => ask(sym, 'news', card, false);
       g.appendChild(card);
       const host = card.querySelector('.chart');
+      if (mine) return;
       if (watch) watch.observe(host); else chart(host, sym);
     });
   }
@@ -255,11 +268,25 @@
     const btn = card.querySelector('.small'); btn.setAttribute('aria-label', on ? '작게 보기' : '크게 보기');
     btn.innerHTML = on ? '<svg viewBox="0 0 24 24"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>';
   }
+  // A card picked for the app's chart (large: 크게 보기); the interval goes with it.
+  function pick(sym, large) {
+    state.picked = sym.s; save();
+    document.querySelectorAll('.card').forEach((c, i) => c.classList.toggle('sel', state.symbols[i] === sym));
+    send({ type: large ? 'tv_focus' : 'tv_symbol', symbol: sym.s, interval: state.interval });
+  }
+  function setMine(on) {
+    if (on === mine) return;
+    mine = on; document.body.classList.toggle('mine', on);
+    if (on) document.querySelectorAll('.card.focus').forEach(c => focus(c));
+    grid();
+  }
+  // The app's chart steps aside while a sheet of this page is open, so the sheet has the whole screen.
+  const tellSheet = () => send({ type: 'tv_sheet', open: $('ai').classList.contains('open') || $('sheet').classList.contains('open') });
   function intervals() {
     const seg = $('intervals'); seg.innerHTML = '';
     for (const [v, label] of INTERVALS) {
       const b = document.createElement('button'); b.textContent = label; b.className = v === state.interval ? 'on' : ''; b.setAttribute('role', 'tab');
-      b.onclick = () => { if (state.interval === v) return; state.interval = v; save(); intervals(); grid(); };
+      b.onclick = () => { if (state.interval === v) return; state.interval = v; save(); intervals(); grid(); const p = picked(); if (mine && p) send({ type: 'tv_symbol', symbol: p.s, interval: v }); };
       seg.appendChild(b);
     }
   }
@@ -302,8 +329,8 @@
   let before = null;
   // Not remember(): that name is the AI answers' (below), and a second function of one name replaces the first.
   function rememberSymbols() { before = state.symbols.map(x => ({ ...x })); $('undoSym').hidden = false; }
-  function changed() { save(); rows(); tape(); grid(); }
-  function sheet(open) { $('sheet').classList.toggle('open', open); $('sheet').setAttribute('aria-hidden', open ? 'false' : 'true'); if (open) rows(); }
+  function changed() { save(); rows(); tape(); grid(); const p = picked(); if (mine && p) send({ type: 'tv_symbol', symbol: p.s, interval: state.interval }); }
+  function sheet(open) { $('sheet').classList.toggle('open', open); $('sheet').setAttribute('aria-hidden', open ? 'false' : 'true'); if (open) rows(); tellSheet(); }
   $('edit').onclick = () => sheet(true);
   $('sheet').addEventListener('click', e => { if (e.target.dataset.close !== undefined) sheet(false); });
   $('addBtn').onclick = () => {
@@ -362,6 +389,8 @@
     if (e.data !== 'gyeot-app' || !e.ports || !e.ports[0]) return;
     app = e.ports[0]; app.onmessage = m => { try { fromApp(JSON.parse(m.data)); } catch (err) {} };
     send({ type: 'model' });
+    // This page takes the app's own-TradingView chart: the symbol and interval it would show.
+    const p = picked(); send({ type: 'tv_ready', symbol: p ? p.s : '', interval: state.interval });
   });
   const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   // A small Markdown: headings, lists, bold, links (they open in the app's browser).
@@ -383,7 +412,7 @@
     return out + (list ? '</ul>' : '');
   }
   const ago = at => { const m = Math.round((Date.now() - at) / 60000); return m < 1 ? '방금' : m < 60 ? m + '분 전' : m < 1440 ? Math.round(m / 60) + '시간 전' : Math.round(m / 1440) + '일 전'; };
-  function showAi(on) { $('ai').classList.toggle('open', on); $('ai').setAttribute('aria-hidden', on ? 'false' : 'true'); if (!on) open = null; }
+  function showAi(on) { $('ai').classList.toggle('open', on); $('ai').setAttribute('aria-hidden', on ? 'false' : 'true'); if (!on) open = null; tellSheet(); }
   $('ai').addEventListener('click', e => { if (e.target.closest('[data-close]')) showAi(false); });
   function paint() {
     if (!open) return;
@@ -481,6 +510,7 @@
   }
   function fromApp(m) {
     if (m.type === 'model') { modelName = m.label || ''; paint(); return; }
+    if (m.type === 'tv') { setMine(!!m.mine); return; }
     if (!open || m.id !== open.id) { if (m.type === 'result' && m.ok) remember(m); return; }
     if (m.type === 'progress') {
       open.status = m.text; if (!$('ai').classList.contains('open')) showAi(true); paint();

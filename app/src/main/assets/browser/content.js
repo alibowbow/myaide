@@ -624,10 +624,29 @@
     if (!known && youtube) known=true;
     mytubeSay(connection,'account',{known, loggedIn});
   }
+  // 트레이딩's own TradingView (only when the app asks, in its chart pane or its sign-in check): whether TradingView shows this
+  // page signed in, from what the page itself shows: its <html> class (is-authenticated / is-not-authenticated, written by
+  // TradingView's server), its own is_authenticated flag and whether its user is the Guest. Never a cookie, a name or an address:
+  // only the is-… class words and two yes/no answers leave the page. Asked again for a few seconds while the page loads.
+  function tradingviewAccount(connection, tries) {
+    const say=answer=>{ try { connection.postMessage({tradingview:{event:'account', ...answer}}); } catch(_) {} };
+    if (!/(^|\.)tradingview\.com$/.test(location.hostname)) { say({known:false}); return; }
+    let classes='', flag=null, guest=null;
+    try { classes=String(document.documentElement.className||'').split(/\s+/).filter(w=>/^is-[a-z-]{1,40}$/.test(w)).join(' ').slice(0,200); } catch(_) {}
+    try {
+      const page=window.wrappedJSObject || window;
+      if (typeof page.is_authenticated==='boolean') flag=page.is_authenticated;
+      const user=page.user; if (user && typeof user.username==='string') guest=user.username==='Guest';
+    } catch(_) {}
+    const known=/(^|\s)is-(not-)?authenticated(\s|$)/.test(classes) || flag!==null || guest!==null;
+    if (!known && tries<10) { setTimeout(()=>tradingviewAccount(connection, tries+1), 500); return; }
+    say({known, classes, flag, guest});
+  }
   function connect() {
   const connection=browser.runtime.connectNative('gyeot_browser'); port=connection;
   connection.onMessage.addListener(async message => {
     if (Object.hasOwn(message, 'mytube')) { mytube(message.mytube, connection); return; }
+    if (Object.hasOwn(message, 'tradingview')) { if (message.tradingview==='account') tradingviewAccount(connection, 0); return; }
     if (Object.hasOwn(message, 'page_zoom')) {
       try { pageZoom(message.page_zoom); connection.postMessage({page_zoom:true,ok:true,percent:message.page_zoom}); }
       catch(e) { connection.postMessage({page_zoom:true,ok:false,error:tidy(e.message,250)}); }
