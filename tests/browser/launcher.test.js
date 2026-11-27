@@ -305,6 +305,8 @@ async function open(browser, at, bridge) {
     assert.strictEqual(times.days, 2, 'a pill for each day');
     assert(times.times.length === 4 && times.times.every(t => /^오[전후] \d{1,2}:\d\d$/.test(t)), 'times: ' + times.times.join(','));
     assert(times.kept, 'the talk is kept');
+    // 퍼레 steps off the words drawn just now (pal.away after the next frame): circle it where it stands after that.
+    await p.clock.runFor(400); await p.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))); await p.clock.runFor(100);
     const c = await p.evaluate(() => { const r = document.querySelector('.chatpal .buddy').getBoundingClientRect(); return {x: r.left + r.width / 2, y: r.top + r.height / 2}; });
     await p.mouse.move(c.x + 34, c.y); await p.mouse.down();
     for (let i = 1; i <= 64; i++) { const a = i / 64 * Math.PI * 2 * 2.4; await p.mouse.move(c.x + 34 * Math.cos(a), c.y + 34 * Math.sin(a)); }
@@ -405,6 +407,7 @@ async function open(browser, at, bridge) {
   // 준: "음성 대화로 주사위 꺼내봐 해도 안된다고해", "의상바꿔도 안되고", "음성대화로 퍼레의 상호작용이 안돼"
   await check('asked by voice or in the talk, 퍼레 takes out a toy, changes clothes and keeps them, plays what it is asked', async () => {
     const p = talk.page;
+    await p.evaluate(() => { if (el('pad').classList.contains('on')) closePad(); }); await p.clock.runFor(500);
     await p.evaluate(() => launcher.self({toy: 'dice'}));
     for (let i = 0; i < 16; i++) await p.clock.runFor(500);
     assert(await p.evaluate(() => !!document.querySelector('.toy.dice, .dice')), 'a die on the board');
