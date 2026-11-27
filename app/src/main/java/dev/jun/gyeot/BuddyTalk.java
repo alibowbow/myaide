@@ -129,6 +129,11 @@ final class BuddyTalk {
     // ── what 퍼레 calls the user (준: "호칭은 내가 설정할 수 있게해줘") ──
     static String title(Context c) { String t = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("title", "").strip(); return t.isEmpty() ? dev.jun.gyeot.core.BuddyMind.TITLE : t; }
     static void title(Context c, String t) { String v = t == null ? "" : t.strip(); if (v.length() > 12) v = v.substring(0, 12); c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("title", v).apply(); }
+    // ── 퍼레 keeping quiet a while when asked (the quiet tool): it answers when called, but starts no talk on the home screen ──
+    static long hushUntil(Context c) { return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong("hushUntil", 0); }
+    static boolean hushed(Context c) { return System.currentTimeMillis() < hushUntil(c); }
+    /** Quiet for ms from now (0 or less: talking again). */
+    static void hush(Context c, long ms) { c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putLong("hushUntil", ms <= 0 ? 0 : System.currentTimeMillis() + ms).apply(); }
     /** 퍼레 as itself (BuddyMind.persona) with its name and the title the user chose. */
     static String persona(Context c) { String name = "퍼레"; try { name = AssistantProfile.readName(c); } catch (RuntimeException ignored) {} return dev.jun.gyeot.core.BuddyMind.persona(name, title(c)); }
 
@@ -273,12 +278,18 @@ final class BuddyTalk {
 
     // ── doing things on the phone (준: "퍼레는 폰조작이 안되네": it said "네이버 지도 바로 열어볼게" and a link, and opened nothing) ──
     /** What 퍼레 may do on the phone, as the model writes it: a second line "할일: {json}" after its words. */
-    static final String ACTS = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 찾기, 알람, 타이머, 음악 재생·멈춤·다음 곡, 유튜브·음악 앱에서 노래나 영상 찾아 틀기, 손전등, 화면 가로·세로 고정과 자동 회전, 소리 크기, 화면 밝기, 와이파이·블루투스 같은 설정 화면, 인터넷 검색) 너가 직접 해. "
+    static final String ACTS = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 찾기, 알람, 타이머, 음악 재생·멈춤·다음 곡, 유튜브·음악 앱에서 노래나 영상 찾아 틀기, 손전등, 화면 가로·세로 고정과 자동 회전, 소리 크기, 화면 밝기, 와이파이·블루투스·방해 금지 같은 설정 화면, 인터넷 검색, 스톱워치, 그날 일정 보기, 메모, 녹음, 계산, 메일 쓰기, 번역, 동전·주사위·골라 주기, 다른 나라 시각, 날짜 세기) 너가 직접 해. "
         + "첫 줄에 짧은 대답(예: '네이버 지도 열게!'), 둘째 줄에 '할일: ' 다음에 JSON 하나만 써. 형식: {\"tool\":\"open_app\",\"app\":\"앱 이름\"} · {\"tool\":\"navigate\",\"destination\":\"장소\"}(걸어서·대중교통·자전거라고 하면 \"mode\":\"walk|public|bicycle\") · "
         + "{\"tool\":\"alarm\",\"hour\":7,\"minute\":30} · {\"tool\":\"timer\",\"seconds\":180} · {\"tool\":\"media\",\"command\":\"play\"}(play·pause·next·previous, 지금 나오는 것) · {\"tool\":\"play\",\"query\":\"노래·영상 검색어\",\"app\":\"YouTube\"}(유튜브·유튜브 뮤직·멜론·스포티파이에서 찾아 틀기, 앱을 말하지 않으면 app 빼기) · {\"tool\":\"torch\",\"on\":true} · "
         + "{\"tool\":\"rotation\",\"mode\":\"landscape\"}(landscape=가로 고정·portrait=세로 고정·auto=자동 회전·toggle=반대로) · {\"tool\":\"volume\",\"direction\":\"up\"}(up·down·mute·unmute, 또는 \"level\":0~100) · "
         + "{\"tool\":\"brightness\",\"direction\":\"up\"}(up·down, 또는 \"level\":0~100) · {\"tool\":\"show_alarms\"} · "
-        + "{\"tool\":\"settings\",\"panel\":\"wifi\"}(internet·wifi·bluetooth·volume·nfc·display·location·battery) · {\"tool\":\"search\",\"query\":\"검색어\"} · {\"tool\":\"map_search\",\"query\":\"근처 카페\"} · {\"tool\":\"share\",\"text\":\"보낼 글\",\"app\":\"카카오톡\"} · {\"tool\":\"message\",\"who\":\"이름\",\"text\":\"글\"} · {\"tool\":\"call\",\"who\":\"이름\"} · {\"tool\":\"camera\",\"mode\":\"photo\"}(photo·selfie·video) · {\"tool\":\"calendar_add\",\"title\":\"일정\",\"date\":\"내일\",\"hour\":15,\"minute\":0} · {\"tool\":\"open_url\",\"url\":\"naver.com\"}. "
+        + "{\"tool\":\"settings\",\"panel\":\"wifi\"}(" + String.join("·", dev.jun.gyeot.core.DeviceActions.PANEL_NAMES) + ") · {\"tool\":\"search\",\"query\":\"검색어\"} · {\"tool\":\"map_search\",\"query\":\"근처 카페\"} · {\"tool\":\"share\",\"text\":\"보낼 글\",\"app\":\"카카오톡\"} · {\"tool\":\"message\",\"who\":\"이름\",\"text\":\"글\"} · {\"tool\":\"call\",\"who\":\"이름\"} · {\"tool\":\"camera\",\"mode\":\"photo\"}(photo·selfie·video) · {\"tool\":\"calendar_add\",\"title\":\"일정\",\"date\":\"내일\",\"hour\":15,\"minute\":0} · {\"tool\":\"open_url\",\"url\":\"naver.com\"} · "
+        + "{\"tool\":\"show_timers\"} · {\"tool\":\"stopwatch\",\"command\":\"start\"}(start·check·stop) · {\"tool\":\"calendar_view\",\"date\":\"오늘\"} · {\"tool\":\"memo\",\"text\":\"메모할 글\"} · {\"tool\":\"recorder\"} · "
+        + "{\"tool\":\"app_settings\",\"app\":\"카카오톡\"}(앱 정보·알림·권한 화면) · {\"tool\":\"downloads\"} · {\"tool\":\"gallery\"} · {\"tool\":\"contacts\",\"who\":\"이름\"} · {\"tool\":\"calculator\",\"expression\":\"35000*0.15\"} · "
+        + "{\"tool\":\"email\",\"who\":\"이름\",\"subject\":\"제목\",\"text\":\"내용\"} · {\"tool\":\"translate\",\"text\":\"번역할 글\",\"to\":\"en\"} · {\"tool\":\"coin\"} · {\"tool\":\"dice\",\"count\":1} · {\"tool\":\"pick\",\"options\":[\"짜장면\",\"짬뽕\"]} · "
+        + "{\"tool\":\"world_time\",\"place\":\"뉴욕\"} · {\"tool\":\"count_days\",\"date\":\"2026-12-25\",\"label\":\"크리스마스\"}(며칠 뒤가 언제냐면 \"add_days\":100). "
+        + "동전·주사위·골라 주기·계산·다른 나라 시각·날짜 세기는 답을 지어내지 말고 할일 줄을 써(답은 그 할일이 말해 주니 첫 줄은 '던져 볼게!'처럼 짧게). "
+        + "사용자가 기억해 달라, 잊어 달라, 호칭을 바꿔 달라, 조용히 있어 달라고 하면: {\"tool\":\"remember\",\"fact\":\"사용자는 차를 지하 2층에 세웠대\"} · {\"tool\":\"forget\",\"what\":\"고양이\"} · {\"tool\":\"call_me\",\"title\":\"주인공님\"} · {\"tool\":\"quiet\",\"hours\":2}(다시 말 걸어도 되면 0). "
         + "너(퍼레) 자신에게 하는 부탁도 직접 해: {\"tool\":\"buddy_toy\",\"toy\":\"주사위\"}(" + BuddyBoard.sample(BuddyBoard.TOYS, 14) + ") · "
         + "{\"tool\":\"buddy_outfit\",\"items\":[\"고양이 귀\"]}(" + BuddyBoard.sample(BuddyBoard.CLOTHES, 16) + ") · "
         + "{\"tool\":\"buddy_move\",\"play\":\"춤\"}(" + BuddyBoard.sample(BuddyBoard.PLAYS, 16) + ") · "
@@ -309,7 +320,28 @@ final class BuddyTalk {
         java.util.Map.entry("openurl", "open_url"), java.util.Map.entry("url", "open_url"), java.util.Map.entry("web", "open_url"), java.util.Map.entry("mapsearch", "map_search"), java.util.Map.entry("nearby", "map_search"),
         java.util.Map.entry("toy", "buddy_toy"), java.util.Map.entry("buddytoy", "buddy_toy"), java.util.Map.entry("outfit", "buddy_outfit"), java.util.Map.entry("buddyoutfit", "buddy_outfit"),
         java.util.Map.entry("dress", "buddy_outfit"), java.util.Map.entry("wear", "buddy_outfit"), java.util.Map.entry("move", "buddy_move"), java.util.Map.entry("buddymove", "buddy_move"), java.util.Map.entry("dance", "buddy_move"),
-        java.util.Map.entry("wish", "buddy_wish"), java.util.Map.entry("buddywish", "buddy_wish"));
+        java.util.Map.entry("wish", "buddy_wish"), java.util.Map.entry("buddywish", "buddy_wish"),
+        java.util.Map.entry("showtimers", "show_timers"), java.util.Map.entry("timers", "show_timers"), java.util.Map.entry("timerlist", "show_timers"),
+        java.util.Map.entry("chronometer", "stopwatch"), java.util.Map.entry("스톱워치", "stopwatch"),
+        java.util.Map.entry("calendarview", "calendar_view"), java.util.Map.entry("showcalendar", "calendar_view"), java.util.Map.entry("agenda", "calendar_view"), java.util.Map.entry("viewcalendar", "calendar_view"),
+        java.util.Map.entry("note", "memo"), java.util.Map.entry("notes", "memo"), java.util.Map.entry("newnote", "memo"), java.util.Map.entry("takenote", "memo"), java.util.Map.entry("메모", "memo"),
+        java.util.Map.entry("record", "recorder"), java.util.Map.entry("voicerecorder", "recorder"), java.util.Map.entry("recordaudio", "recorder"), java.util.Map.entry("녹음", "recorder"),
+        java.util.Map.entry("appsettings", "app_settings"), java.util.Map.entry("appinfo", "app_settings"), java.util.Map.entry("appdetails", "app_settings"),
+        java.util.Map.entry("download", "downloads"), java.util.Map.entry("showdownloads", "downloads"),
+        java.util.Map.entry("photos", "gallery"), java.util.Map.entry("album", "gallery"), java.util.Map.entry("pictures", "gallery"), java.util.Map.entry("갤러리", "gallery"),
+        java.util.Map.entry("contact", "contacts"), java.util.Map.entry("showcontact", "contacts"), java.util.Map.entry("연락처", "contacts"),
+        java.util.Map.entry("calc", "calculator"), java.util.Map.entry("calculate", "calculator"), java.util.Map.entry("math", "calculator"), java.util.Map.entry("계산", "calculator"),
+        java.util.Map.entry("mail", "email"), java.util.Map.entry("sendemail", "email"), java.util.Map.entry("sendmail", "email"), java.util.Map.entry("메일", "email"),
+        java.util.Map.entry("translation", "translate"), java.util.Map.entry("번역", "translate"),
+        java.util.Map.entry("flipcoin", "coin"), java.util.Map.entry("coinflip", "coin"), java.util.Map.entry("동전", "coin"),
+        java.util.Map.entry("rolldice", "dice"), java.util.Map.entry("rolldie", "dice"), java.util.Map.entry("roll", "dice"), java.util.Map.entry("die", "dice"),
+        java.util.Map.entry("pickone", "pick"), java.util.Map.entry("choose", "pick"), java.util.Map.entry("decide", "pick"), java.util.Map.entry("choice", "pick"), java.util.Map.entry("골라", "pick"),
+        java.util.Map.entry("worldtime", "world_time"), java.util.Map.entry("worldclock", "world_time"), java.util.Map.entry("timezone", "world_time"), java.util.Map.entry("timein", "world_time"),
+        java.util.Map.entry("countdays", "count_days"), java.util.Map.entry("dday", "count_days"), java.util.Map.entry("daysuntil", "count_days"), java.util.Map.entry("days", "count_days"),
+        java.util.Map.entry("memorize", "remember"), java.util.Map.entry("keep", "remember"), java.util.Map.entry("기억", "remember"),
+        java.util.Map.entry("forgetmemory", "forget"), java.util.Map.entry("잊기", "forget"),
+        java.util.Map.entry("callme", "call_me"), java.util.Map.entry("nickname", "call_me"), java.util.Map.entry("settitle", "call_me"), java.util.Map.entry("호칭", "call_me"),
+        java.util.Map.entry("hush", "quiet"), java.util.Map.entry("silence", "quiet"), java.util.Map.entry("quietmode", "quiet"), java.util.Map.entry("조용히", "quiet"));
     /** The thing to do the answer names ("할일: {…}", or a bare {…} with a tool), its tool one of ACTS', or null. */
     static JSONObject act(String text) {
         if (text == null) return null;
@@ -341,6 +373,16 @@ final class BuddyTalk {
             if (known.equals("navigate") && a.optString("destination").isBlank()) a.put("destination", a.optString("place", a.optString("to", a.optString("address", a.optString("query")))));
             if (known.equals("search") && a.optString("query").isBlank()) a.put("query", a.optString("q", a.optString("keyword", a.optString("text"))));
             if (known.equals("play") && a.optString("query").isBlank()) a.put("query", a.optString("song", a.optString("title", a.optString("q", a.optString("keyword")))));
+            if ((known.equals("memo") || known.equals("translate")) && a.optString("text").isBlank()) a.put("text", a.optString("content", a.optString("note", a.optString("query", a.optString("body")))));
+            if (known.equals("email") && a.optString("text").isBlank()) a.put("text", a.optString("body", a.optString("content")));
+            if (known.equals("calculator") && a.optString("expression").isBlank()) a.put("expression", a.optString("expr", a.optString("query", a.optString("text", a.optString("formula")))));
+            if (known.equals("pick") && !a.has("options")) { Object o = a.opt("choices") != null ? a.opt("choices") : a.opt("items") != null ? a.opt("items") : a.opt("list"); if (o != null) a.put("options", o); }
+            if (known.equals("world_time") && a.optString("place").isBlank()) a.put("place", a.optString("city", a.optString("country", a.optString("location", a.optString("where")))));
+            if (known.equals("count_days") && a.optString("date").isBlank()) a.put("date", a.optString("day", a.optString("target", a.optString("when"))));
+            if (known.equals("remember") && a.optString("fact").isBlank()) a.put("fact", a.optString("text", a.optString("what", a.optString("thing", a.optString("content")))));
+            if (known.equals("forget") && a.optString("what").isBlank()) a.put("what", a.optString("text", a.optString("fact", a.optString("thing", a.optString("query")))));
+            if (known.equals("call_me") && a.optString("title").isBlank()) a.put("title", a.optString("name", a.optString("nickname", a.optString("call"))));
+            if (known.equals("contacts") && a.optString("who").isBlank() && !a.optString("name").isBlank()) a.put("who", a.optString("name"));
         } catch (Exception ignored) {}
         return a;
     }
@@ -794,6 +836,10 @@ final class BuddyTalk {
     }
     static synchronized void forget(Context c, long at) { keepMemories(c, dev.jun.gyeot.core.BuddyMemory.remove(memories(c), at)); }
     static synchronized void forgetAll(Context c) { keepMemories(c, new java.util.ArrayList<>()); }
+    /** These memories gone, each by all it holds (two kept in the same millisecond are not mistaken for each other). */
+    static synchronized void forget(Context c, java.util.Collection<dev.jun.gyeot.core.BuddyMemory.Entry> gone) {
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = memories(c); all.removeAll(gone); keepMemories(c, all);
+    }
     /** The weather, when it is worth remembering (rain, snow, very cold or hot), once a half day. */
     static void weatherMemory(Context c, JSONObject w) {
         if (w == null) return;
@@ -860,6 +906,8 @@ final class BuddyTalk {
         try { android.os.PowerManager pm = c.getSystemService(android.os.PowerManager.class); if (pm != null) e.put("powerSave", pm.isPowerSaveMode()); } catch (Exception ignored) {}
         try { android.app.NotificationManager nm = c.getSystemService(android.app.NotificationManager.class); if (nm != null) e.put("dnd", nm.getCurrentInterruptionFilter() > android.app.NotificationManager.INTERRUPTION_FILTER_ALL); } catch (Exception ignored) {}
         try { e.put("airplane", android.provider.Settings.Global.getInt(c.getContentResolver(), android.provider.Settings.Global.AIRPLANE_MODE_ON, 0) != 0); } catch (Exception ignored) {}
+        // Asked to keep quiet a while (the quiet tool): the board starts no talk, as in do-not-disturb (the phone's own is "dnd").
+        try { if (hushed(c)) e.put("hush", true); } catch (Exception ignored) {}
         // The day's log (a charge, music) and, at night, the night's digest.
         try {
             SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -901,6 +949,7 @@ final class BuddyTalk {
         if (e.optInt("heat") >= 41) out.append("휴대폰이 ").append(e.optInt("heat")).append("도로 뜨거움. ");
         if (e.optBoolean("powerSave")) out.append("절전 모드. ");
         if (e.optBoolean("dnd")) out.append("방해 금지 모드(말을 아낄 것). ");
+        if (e.optBoolean("hush")) out.append("사용자가 조용히 있어 달라고 한 시간(부르면 대답만, 먼저 말 걸지 않기). ");
         if (e.optBoolean("airplane")) out.append("비행기 모드. ");
         return out.toString().strip();
     }

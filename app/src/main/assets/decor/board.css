@@ -196,12 +196,13 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 /* ── 퍼레, more alive (board.js touchBuddy, alive, envOf) ───────────────────────── */
 .buddy{touch-action:none;-webkit-user-select:none;user-select:none}
 /* arms */
-.bot .b-arm{transform-box:fill-box;transition:transform .35s cubic-bezier(.34,1.15,.64,1)}
-/* Each arm turns where it joins the body, not from a shoulder above it: a round arm lifts and tucks, it does not swing. */
-/* the arm turns at its shoulder (준: "팔을움직일때 모션이 이상해", "뾰족한 부분이 생겨"): the top of where it joins the body;
-   raised at most about 110° (higher, a round arm reads as an ear), each move scaled so its swing keeps its size */
-.bot .b-arm.l{transform-origin:68% 16%}.bot .b-arm.r{transform-origin:32% 16%}
-.bot.w-umbrella .b-arm.r{transform:rotate(-24deg)}
+.bot .b-arm{transform-box:view-box;transition:transform .35s cubic-bezier(.34,1.15,.64,1)}
+/* The arm's wide bottom is where it joins the body and its round top is the tip (준: "팔끝은 둥근첨부분인데", "팔이움직일때 몸통과
+   붙은 하단이 분리되고 거기가 끝인것처럼 모션을 취해", "분리되면 안되는 부분이야"): each arm turns about a point inside the body at its
+   bottom (16,70 / 84,70 in the picture's own units, so clothes on the arm do not move it), never slides, and only the tip swings:
+   out up to about 55°, in a little (it goes behind the head). */
+.bot .b-arm.l{transform-origin:16px 70px}.bot .b-arm.r{transform-origin:84px 70px}
+.bot.w-umbrella .b-arm.r{transform:rotate(12deg)}
 /* what it wears and what shows by it */
 .bot .acc{display:none}
 .bot.w-umbrella .umbrella,.bot.w-scarf .scarf,.bot.w-shades .shades,.bot.w-cap .cap,.bot.w-phones .phones,.bot.w-bolt .bolt,.bot.w-sweat .sweat,.bot.w-notes .notes,.bot.w-q .q,.bot.eating .cookie{display:inline}
@@ -236,9 +237,9 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .buddy.nod .b-body{animation:nod .9s ease-in-out}
 .buddy.rumble .b-body{animation:rumble .25s ease-in-out 4}
 @keyframes dance{0%,100%{transform:none}25%{transform:translateY(-3px) rotate(-7deg)}50%{transform:none}75%{transform:translateY(-3px) rotate(7deg)}}
-@keyframes armL{50%{transform:rotate(110deg)}}
-@keyframes armR{50%{transform:rotate(-110deg)}}
-@keyframes wave{18%{transform:rotate(-110deg)}34%{transform:rotate(-87deg)}50%{transform:rotate(-110deg)}66%{transform:rotate(-87deg)}82%{transform:rotate(-110deg)}100%{transform:none}}
+@keyframes armL{50%{transform:rotate(-55deg)}}
+@keyframes armR{50%{transform:rotate(55deg)}}
+@keyframes wave{18%{transform:rotate(55deg)}34%{transform:rotate(43.5deg)}50%{transform:rotate(55deg)}66%{transform:rotate(43.5deg)}82%{transform:rotate(55deg)}100%{transform:none}}
 @keyframes shiver{25%{transform:translateX(-1.3px)}75%{transform:translateX(1.3px)}}
 @keyframes spin{0%{transform:none}20%{transform:translateY(-16px) scaleX(.2)}40%{transform:translateY(-22px) scaleX(-1)}60%{transform:translateY(-16px) scaleX(.2)}80%{transform:scaleX(1)}90%{transform:scale(1.08,.92)}100%{transform:none}}
 @keyframes wobble{15%{transform:rotate(-11deg)}30%{transform:rotate(9deg)}45%{transform:rotate(-7deg)}60%{transform:rotate(5deg)}75%{transform:rotate(-2deg)}100%{transform:none}}
@@ -429,7 +430,7 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .buddy.backflip .body{animation:backflip 1s cubic-bezier(.4,.1,.4,1);transform-origin:50% 55%}
 .buddy.frontflip .body{animation:frontflip 1s cubic-bezier(.4,.1,.4,1);transform-origin:50% 55%}
 .buddy.hula .b-all{animation:hula .5s ease-in-out 6}
-.buddy.hula .b-arm.l{transform:rotate(80deg)}.buddy.hula .b-arm.r{transform:rotate(-80deg)}
+.buddy.hula .b-arm.l{transform:rotate(-40deg)}.buddy.hula .b-arm.r{transform:rotate(40deg)}
 .buddy.moonwalk .body{animation:moonwalk 2s ease-in-out}
 .buddy.robot .b-all{animation:robot 1.6s steps(1)}
 .buddy.robot .b-arm.l{animation:robotL 1.6s steps(1)}.buddy.robot .b-arm.r{animation:robotR 1.6s steps(1)}
@@ -444,7 +445,7 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .buddy.cheer .b-arm.l{animation:cheerL .4s ease-in-out 5}.buddy.cheer .b-arm.r{animation:cheerR .4s ease-in-out 5}.buddy.cheer .body{animation:bounce .8s ease-in-out 2}
 .buddy.boxing .b-arm.l{animation:punchL .5s ease-in-out 4}.buddy.boxing .b-arm.r{animation:punchR .5s ease-in-out .25s 4}.buddy.boxing .b-all{animation:hula .5s ease-in-out 4}
 .buddy.swim .b-arm.l{animation:swimL .8s linear 3}.buddy.swim .b-arm.r{animation:swimR .8s linear .4s 3}.buddy.swim .b-all{animation:rock .8s ease-in-out 3}
-.buddy.airplane .b-arm.l{transform:rotate(92deg)}.buddy.airplane .b-arm.r{transform:rotate(-92deg)}.buddy.airplane .b-all{animation:bank 2.2s ease-in-out}
+.buddy.airplane .b-arm.l{transform:rotate(-72deg)}.buddy.airplane .b-arm.r{transform:rotate(72deg)}.buddy.airplane .b-all{animation:bank 2.2s ease-in-out}
 .buddy.jelly .body{animation:jelly .9s ease-in-out}
 .buddy.sneeze .b-all{animation:sneeze 1.2s ease}
 .buddy.hiccup .body{animation:hiccup 1.6s steps(1)}
@@ -482,35 +483,35 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 @keyframes hula{25%{transform:translateX(-4px) rotate(-4deg)}75%{transform:translateX(4px) rotate(4deg)}}
 @keyframes moonwalk{0%,100%{transform:none}20%{transform:translateX(8px) rotate(-6deg)}40%{transform:translateX(-4px) rotate(-6deg)}60%{transform:translateX(-16px) rotate(-6deg)}80%{transform:translateX(-26px) rotate(-6deg)}}
 @keyframes robot{20%{transform:rotate(-12deg)}40%{transform:rotate(12deg)}60%{transform:translateY(-4px)}80%{transform:rotate(-6deg)}100%{transform:none}}
-@keyframes robotL{20%{transform:rotate(66deg)}60%{transform:none}80%{transform:rotate(110deg)}}
-@keyframes robotR{40%{transform:rotate(-66deg)}60%{transform:rotate(-110deg)}80%{transform:none}}
+@keyframes robotL{20%{transform:rotate(-33deg)}60%{transform:none}80%{transform:rotate(-55deg)}}
+@keyframes robotR{40%{transform:rotate(33deg)}60%{transform:rotate(55deg)}80%{transform:none}}
 @keyframes headbang{50%{transform:translateY(4px) rotate(3deg)}}
-@keyframes clapL{0%,100%{transform:rotate(93deg)}50%{transform:rotate(110deg)}}
-@keyframes clapR{0%,100%{transform:rotate(-93deg)}50%{transform:rotate(-110deg)}}
-@keyframes salute{20%,80%{transform:rotate(-110deg)}}
-@keyframes point{20%,80%{transform:rotate(-100deg)}}
-@keyframes flexL{20%,80%{transform:rotate(110deg)}}
-@keyframes flexR{20%,80%{transform:rotate(-110deg)}}
+@keyframes clapL{0%,100%{transform:rotate(-46.5deg)}50%{transform:rotate(-55deg)}}
+@keyframes clapR{0%,100%{transform:rotate(46.5deg)}50%{transform:rotate(55deg)}}
+@keyframes salute{20%,80%{transform:rotate(55deg)}}
+@keyframes point{20%,80%{transform:rotate(50deg)}}
+@keyframes flexL{20%,80%{transform:rotate(-55deg)}}
+@keyframes flexR{20%,80%{transform:rotate(55deg)}}
 @keyframes squat{50%{transform:translateY(3px) scale(1.03,.95)}}
-@keyframes shrugL{30%,70%{transform:rotate(60deg) translateY(-3px)}}
-@keyframes shrugR{30%,70%{transform:rotate(-60deg) translateY(-3px)}}
+@keyframes shrugL{30%,70%{transform:rotate(-30deg)}}
+@keyframes shrugR{30%,70%{transform:rotate(30deg)}}
 @keyframes shrugB{30%,70%{transform:translateY(2px)}}
-@keyframes facepalm{25%,75%{transform:rotate(-110deg)}}
+@keyframes facepalm{25%,75%{transform:rotate(55deg)}}
 @keyframes droopB{25%,75%{transform:rotate(6deg) translateY(2px)}}
-@keyframes thinker{25%,75%{transform:rotate(-110deg)}}
-@keyframes cheerL{50%{transform:rotate(110deg)}}
-@keyframes cheerR{50%{transform:rotate(-110deg)}}
-@keyframes punchL{50%{transform:rotate(100deg) translateY(-4px)}}
-@keyframes punchR{50%{transform:rotate(-100deg) translateY(-4px)}}
-@keyframes swimL{to{transform:rotate(110deg)}}
-@keyframes swimR{to{transform:rotate(-110deg)}}
+@keyframes thinker{25%,75%{transform:rotate(55deg)}}
+@keyframes cheerL{50%{transform:rotate(-55deg)}}
+@keyframes cheerR{50%{transform:rotate(55deg)}}
+@keyframes punchL{50%{transform:rotate(-50deg)}}
+@keyframes punchR{50%{transform:rotate(50deg)}}
+@keyframes swimL{to{transform:rotate(-55deg)}}
+@keyframes swimR{to{transform:rotate(55deg)}}
 @keyframes bank{25%{transform:rotate(-14deg) translateX(-6px)}75%{transform:rotate(14deg) translateX(6px)}}
 @keyframes jelly{20%{transform:scale(1.15,.85)}40%{transform:scale(.88,1.12)}60%{transform:scale(1.06,.95)}80%{transform:scale(.97,1.03)}}
 @keyframes sneeze{40%{transform:rotate(-10deg) translateY(-2px)}55%{transform:rotate(12deg) translateY(2px)}70%{transform:rotate(-2deg)}}
 @keyframes hiccup{0%{transform:none}10%{transform:translateY(-6px)}20%{transform:none}55%{transform:translateY(-6px)}65%{transform:none}}
 @keyframes bowB{30%,70%{transform:translateY(4px) scale(1.04,.9)}}
-@keyframes hideL{20%,70%{transform:rotate(110deg)}}
-@keyframes hideR{20%,70%{transform:rotate(-110deg)}}
+@keyframes hideL{20%,70%{transform:rotate(-55deg)}}
+@keyframes hideR{20%,70%{transform:rotate(55deg)}}
 @keyframes ninja{0%{transform:none}20%{transform:translateY(6px) scale(1.1,.85)}35%{transform:translateX(-30px) translateY(-4px) skewX(10deg);opacity:.35}55%{transform:translateX(30px) skewX(-10deg);opacity:.35}75%{transform:none;opacity:1}}
 @keyframes tiptoe{50%{transform:translateY(-3px) scaleY(1.04)}}
 @keyframes skip{25%{transform:translateY(-8px) rotate(-6deg)}75%{transform:translateY(-8px) rotate(6deg)}}
@@ -520,16 +521,16 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 @keyframes melt{30%,70%{transform:translateY(10px) scale(1.25,.6)}}
 @keyframes tall{30%,70%{transform:scale(.85,1.25)}}
 @keyframes yoga{20%,80%{transform:rotate(-18deg)}}
-@keyframes yogaL{20%,80%{transform:rotate(110deg)}}
-@keyframes yogaR{20%,80%{transform:rotate(-110deg)}}
+@keyframes yogaL{20%,80%{transform:rotate(-55deg)}}
+@keyframes yogaR{20%,80%{transform:rotate(55deg)}}
 @keyframes jackB{50%{transform:translateY(-6px)}}
-@keyframes chop{30%{transform:rotate(-110deg)}55%{transform:rotate(-26deg)}100%{transform:none}}
-@keyframes waveL{18%{transform:rotate(110deg)}34%{transform:rotate(87deg)}50%{transform:rotate(110deg)}66%{transform:rotate(87deg)}82%{transform:rotate(110deg)}100%{transform:none}}
+@keyframes chop{30%{transform:rotate(55deg)}55%{transform:rotate(13deg)}100%{transform:none}}
+@keyframes waveL{18%{transform:rotate(-55deg)}34%{transform:rotate(-43.5deg)}50%{transform:rotate(-55deg)}66%{transform:rotate(-43.5deg)}82%{transform:rotate(-55deg)}100%{transform:none}}
 @keyframes twirl{to{transform:rotate(360deg)}}
 @keyframes droop{25%,75%{transform:rotate(60deg)}}
 @keyframes perk{40%{transform:scaleY(1.4)}}
 @keyframes tremble{50%{transform:translate(1px,-.5px)}}
-@keyframes victory{20%,80%{transform:rotate(-110deg)}}
+@keyframes victory{20%,80%{transform:rotate(55deg)}}
 @keyframes slide{40%{transform:translateX(-24px) rotate(-8deg)}70%{transform:translateX(-24px)}100%{transform:none}}
 @keyframes zoom{40%{transform:scale(.6)}70%{transform:scale(1.2)}}
 @keyframes pop2{40%{transform:scale(1.18)}}
@@ -547,7 +548,7 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .bot .balloon{transform-box:fill-box;transform-origin:50% 100%;animation:sway 3s ease-in-out infinite}
 .bot .fan-blade{transform-box:fill-box;transform-origin:50% 100%;animation:fanning .35s ease-in-out infinite alternate}
 .bot .coffee .steam{animation:puff 1.6s ease-out infinite}
-.bot.w-handfan .b-arm.r{transform:rotate(-30deg)}.bot.w-coffee .b-arm.l,.bot.w-icecream .b-arm.l,.bot.w-lunch .b-arm.l,.bot.w-luckybag .b-arm.l{transform:rotate(30deg)}
+.bot.w-handfan .b-arm.r{transform:rotate(15deg)}.bot.w-coffee .b-arm.l,.bot.w-icecream .b-arm.l,.bot.w-lunch .b-arm.l,.bot.w-luckybag .b-arm.l{transform:rotate(-15deg)}
 @keyframes fanning{from{transform:rotate(-14deg)}to{transform:rotate(14deg)}}
 /* toys for more plays: juggling balls, a paper plane, a kite, a gum bubble */
 .toy.jball{left:50%;top:0;width:11px;height:11px;margin-left:-5px;border-radius:50%;animation:juggle 1.2s linear infinite}
@@ -584,7 +585,7 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .buddy.pounce .body{animation:k2pounce 1.2s cubic-bezier(.4,0,.4,1);transform-origin:50% 100%}
 @keyframes k2pounce{30%{transform:scale(1.15,.8)}55%{transform:translate(-14px,-20px) rotate(-12deg)}80%{transform:translate(-18px,0) scale(1.1,.9)}100%{transform:none}}
 .buddy.sprint .body{animation:k2bob .2s ease-in-out 10}.buddy.sprint .b-arm.l{animation:k2runL .4s ease-in-out 5}.buddy.sprint .b-arm.r{animation:k2runR .4s ease-in-out 5}
-@keyframes k2runL{50%{transform:rotate(55deg)}}@keyframes k2runR{0%,100%{transform:rotate(-55deg)}50%{transform:none}}
+@keyframes k2runL{50%{transform:rotate(-27.5deg)}}@keyframes k2runR{0%,100%{transform:rotate(27.5deg)}50%{transform:none}}
 .buddy.shuffle .body{animation:k2shuffle 1.6s ease-in-out}
 @keyframes k2shuffle{15%{transform:translateX(-8px) rotate(-5deg)}30%{transform:translateX(-8px)}45%{transform:translateX(8px) rotate(5deg)}60%{transform:translateX(8px)}80%{transform:translateX(0) rotate(-3deg)}}
 .buddy.heartbeat .body{animation:k2beat .5s ease-in-out 3}
@@ -628,33 +629,33 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .buddy.pant .b-body{animation:k2pant .35s ease-in-out 6}
 @keyframes k2pant{50%{transform:scale(1.05,.95)}}
 .buddy.stretchup .b-arm.l{animation:k2upL 1.8s ease-in-out}.buddy.stretchup .b-arm.r{animation:k2upR 1.8s ease-in-out}.buddy.stretchup .body{animation:tall 1.8s ease-in-out}
-@keyframes k2upL{30%,75%{transform:rotate(110deg)}}@keyframes k2upR{30%,75%{transform:rotate(-110deg)}}
+@keyframes k2upL{30%,75%{transform:rotate(-55deg)}}@keyframes k2upR{30%,75%{transform:rotate(55deg)}}
 .buddy.armswing .b-arm.l{animation:k2swingL .6s ease-in-out 3}.buddy.armswing .b-arm.r{animation:k2swingR .6s ease-in-out 3}
-@keyframes k2swingL{25%{transform:rotate(40deg)}75%{transform:rotate(-30deg)}}@keyframes k2swingR{25%{transform:rotate(30deg)}75%{transform:rotate(-40deg)}}
+@keyframes k2swingL{25%{transform:rotate(-20deg)}75%{transform:rotate(15deg)}}@keyframes k2swingR{25%{transform:rotate(-15deg)}75%{transform:rotate(20deg)}}
 .buddy.propeller .b-arm.l{animation:k2propL .4s linear 5}.buddy.propeller .b-arm.r{animation:k2propR .4s linear 5}.buddy.propeller .body{animation:k2lev .8s ease-in-out 2}
-@keyframes k2propL{to{transform:rotate(110deg)}}@keyframes k2propR{to{transform:rotate(-110deg)}}
+@keyframes k2propL{to{transform:rotate(-55deg)}}@keyframes k2propR{to{transform:rotate(55deg)}}
 .buddy.flapping .b-arm.l{animation:k2flapL .25s ease-in-out 8}.buddy.flapping .b-arm.r{animation:k2flapR .25s ease-in-out 8}.buddy.flapping .body{animation:k2lev .5s ease-in-out 4}
-@keyframes k2flapL{50%{transform:rotate(80deg)}}@keyframes k2flapR{50%{transform:rotate(-80deg)}}
+@keyframes k2flapL{50%{transform:rotate(-40deg)}}@keyframes k2flapR{50%{transform:rotate(40deg)}}
 .buddy.conductor .b-arm.r{animation:k2baton .5s ease-in-out 4}.buddy.conductor .b-all{animation:rock 1s ease-in-out 2}
-@keyframes k2baton{0%,100%{transform:rotate(-81deg)}50%{transform:rotate(-110deg)}}
+@keyframes k2baton{0%,100%{transform:rotate(40.5deg)}50%{transform:rotate(55deg)}}
 .buddy.drum .b-arm.l{animation:k2drumL .2s ease-in-out 8}.buddy.drum .b-arm.r{animation:k2drumR .2s ease-in-out .1s 8}
-@keyframes k2drumL{50%{transform:rotate(-35deg)}}@keyframes k2drumR{50%{transform:rotate(35deg)}}
+@keyframes k2drumL{50%{transform:rotate(17.5deg)}}@keyframes k2drumR{50%{transform:rotate(-17.5deg)}}
 .buddy.hugself .b-arm.l{animation:k2hugL 2s ease-in-out}.buddy.hugself .b-arm.r{animation:k2hugR 2s ease-in-out}.buddy.hugself .b-all{animation:nuzzle 1s ease-in-out 2}
-@keyframes k2hugL{20%,80%{transform:translate(14px,-6px) rotate(-60deg)}}@keyframes k2hugR{20%,80%{transform:translate(-14px,-6px) rotate(60deg)}}
+@keyframes k2hugL{20%,80%{transform:rotate(30deg)}}@keyframes k2hugR{20%,80%{transform:rotate(-30deg)}}
 .buddy.akimbo .b-arm.l{animation:k2akL 1.8s ease-in-out}.buddy.akimbo .b-arm.r{animation:k2akR 1.8s ease-in-out}.buddy.akimbo .body{animation:tall 1.8s ease-in-out}
-@keyframes k2akL{20%,80%{transform:rotate(-38deg) translate(4px,-2px)}}@keyframes k2akR{20%,80%{transform:rotate(38deg) translate(-4px,-2px)}}
+@keyframes k2akL{20%,80%{transform:rotate(19deg)}}@keyframes k2akR{20%,80%{transform:rotate(-19deg)}}
 .buddy.fistpump .b-arm.r{animation:k2pump .4s ease-in-out 4}.buddy.fistpump .body{animation:k2bob .4s ease-in-out 4}
-@keyframes k2pump{0%,100%{transform:rotate(-78deg)}50%{transform:rotate(-110deg)}}
+@keyframes k2pump{0%,100%{transform:rotate(39deg)}50%{transform:rotate(55deg)}}
 .buddy.highfive .b-arm.r{animation:k2high 1s cubic-bezier(.3,1.5,.5,1)}.buddy.highfive .body{animation:hop .72s var(--soft)}
-@keyframes k2high{25%,70%{transform:rotate(-110deg) translateY(-2px)}}
+@keyframes k2high{25%,70%{transform:rotate(55deg)}}
 .buddy.wavebye .b-arm.l{animation:k2byeL .5s ease-in-out 3}.buddy.wavebye .b-arm.r{animation:k2byeR .5s ease-in-out .25s 3}
-@keyframes k2byeL{0%,100%{transform:rotate(89deg)}50%{transform:rotate(110deg)}}@keyframes k2byeR{0%,100%{transform:rotate(-89deg)}50%{transform:rotate(-110deg)}}
+@keyframes k2byeL{0%,100%{transform:rotate(-44.5deg)}50%{transform:rotate(-55deg)}}@keyframes k2byeR{0%,100%{transform:rotate(44.5deg)}50%{transform:rotate(55deg)}}
 .buddy.beckon .b-arm.r{animation:k2beckon .5s ease-in-out 3}
-@keyframes k2beckon{0%,100%{transform:rotate(-70deg)}50%{transform:rotate(-30deg)}}
+@keyframes k2beckon{0%,100%{transform:rotate(35deg)}50%{transform:rotate(15deg)}}
 .buddy.shush .b-arm.r{animation:k2shush 1.8s ease-in-out}
-@keyframes k2shush{20%,80%{transform:translate(-30px,-6px) rotate(-30deg)}}
+@keyframes k2shush{20%,80%{transform:rotate(15deg)}}
 .buddy.scratch .b-arm.r{animation:k2scratch 1.8s ease-in-out}.buddy.scratch .b-all{animation:tilt 1.8s ease-in-out}
-@keyframes k2scratch{20%{transform:rotate(-110deg)}30%{transform:rotate(-103deg)}40%{transform:rotate(-110deg)}50%{transform:rotate(-103deg)}60%{transform:rotate(-110deg)}80%{transform:rotate(-103deg)}}
+@keyframes k2scratch{20%{transform:rotate(55deg)}30%{transform:rotate(51.5deg)}40%{transform:rotate(55deg)}50%{transform:rotate(51.5deg)}60%{transform:rotate(55deg)}80%{transform:rotate(51.5deg)}}
 .buddy.clapfast .b-arm.l{animation:clapL .15s ease-in-out 10}.buddy.clapfast .b-arm.r{animation:clapR .15s ease-in-out 10}.buddy.clapfast .body{animation:k2bob .3s ease-in-out 5}
 .buddy.antwiggle .b-antenna{animation:k2antwig .15s ease-in-out 10;transform-origin:50px 20px}
 @keyframes k2antwig{25%{transform:rotate(-14deg)}75%{transform:rotate(14deg)}}

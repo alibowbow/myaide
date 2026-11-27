@@ -19,7 +19,7 @@ final class BuddyMisses {
     private BuddyMisses() {}
     private static final String PREFS = "buddyTalk", KEY = "misses";
     static final int MOST = 30;
-    /** fix: "overlay", "writeSettings", "place:<words>", "store:<app>", "contacts", "accessibility", or "" for none. */
+    /** fix: "overlay", "writeSettings", "place:<words>", "store:<app>", "contacts", "accessibility", "memory", or "" for none. */
     record Miss(long at, String said, String what, String why, String fix) {}
 
     static synchronized void add(Context c, String said, String what, String why, String fix) {
@@ -51,6 +51,7 @@ final class BuddyMisses {
         if (fix.startsWith("store:")) return "앱 찾기";
         if (fix.equals("contacts")) return "연락처 허용";
         if (fix.equals("accessibility")) return "폰 조작 켜기";
+        if (fix.equals("memory")) return "퍼레의 기억 열기";
         return "";
     }
     /** That tap's screen, or null. */
@@ -62,6 +63,8 @@ final class BuddyMisses {
         if (fix.startsWith("store:")) return new Intent(Intent.ACTION_VIEW, Uri.parse("market://search?q=" + Uri.encode(fix.substring(6))));
         if (fix.equals("contacts")) return new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + c.getPackageName()));
         if (fix.equals("accessibility")) return new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
+        // 퍼레의 기억 (opened after the fingerprint): where memories are wiped all at once or picked one by one.
+        if (fix.equals("memory")) return new Intent(c, DecorActivity.class).putExtra(DecorActivity.MEMORY, true);
         return null;
     }
 }

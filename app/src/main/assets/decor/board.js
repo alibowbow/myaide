@@ -71,8 +71,8 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   // 아냐", "D는 너무 말려들어갔어", "G가 나은듯"): the top flows out of the body's side in one long gentle curve, the fullest part is low and
   // outside, the bottom rounds off and runs back into the body without curling up; the body's own colour at each height (준: "팔색깔이 몸통과 다른것 같아"), softly
   // darker below; turning where they join it.
-  +   '<g class="b-arm l"><clipPath id="armClipL"><path d="M11 46.6 C8 48.2 2.4 54.6 1.6 61.6 C1 67.2 3 72.6 7.4 75 C10.4 76.6 13.8 76.6 17 75.8 C21 74.6 22.6 66 22.2 60 C21.8 52 17 43.4 11 46.6Z"/></clipPath><path d="M11 46.6 C8 48.2 2.4 54.6 1.6 61.6 C1 67.2 3 72.6 7.4 75 C10.4 76.6 13.8 76.6 17 75.8 C21 74.6 22.6 66 22.2 60 C21.8 52 17 43.4 11 46.6Z" fill="url(#armL)"/><ellipse cx="5.4" cy="57.6" rx="3" ry="1.8" transform="rotate(-40 5.4 57.6)" fill="#fff" opacity=".4"/><g class="acc mittens" clip-path="url(#armClipL)"><path d="M11 46.6 C8 48.2 2.4 54.6 1.6 61.6 C1 67.2 3 72.6 7.4 75 C10.4 76.6 13.8 76.6 17 75.8 C21 74.6 22.6 66 22.2 60 C21.8 52 17 43.4 11 46.6Z" fill="#6f9fe8"/><path d="M12.4 49.6 Q9 60.6 13 72.6" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></g></g>'
-  +   '<g class="b-arm r"><clipPath id="armClipR"><path d="M89 46.6 C92 48.2 97.6 54.6 98.4 61.6 C99 67.2 97 72.6 92.6 75 C89.6 76.6 86.2 76.6 83 75.8 C79 74.6 77.4 66 77.8 60 C78.2 52 83 43.4 89 46.6Z"/></clipPath><path d="M89 46.6 C92 48.2 97.6 54.6 98.4 61.6 C99 67.2 97 72.6 92.6 75 C89.6 76.6 86.2 76.6 83 75.8 C79 74.6 77.4 66 77.8 60 C78.2 52 83 43.4 89 46.6Z" fill="url(#armR)"/><ellipse cx="94.6" cy="57.6" rx="3" ry="1.8" transform="rotate(40 94.6 57.6)" fill="#fff" opacity=".4"/><g class="acc mittens" clip-path="url(#armClipR)"><path d="M89 46.6 C92 48.2 97.6 54.6 98.4 61.6 C99 67.2 97 72.6 92.6 75 C89.6 76.6 86.2 76.6 83 75.8 C79 74.6 77.4 66 77.8 60 C78.2 52 83 43.4 89 46.6Z" fill="#6f9fe8"/><path d="M87.6 49.6 Q91 60.6 87 72.6" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></g></g>'
+  +   '<g class="b-arm l"><clipPath id="armClipL"><path d="M11 46.6 C8 48.2 2.4 54.6 1.6 61.6 C1 67.2 3 72.6 7.4 75 C10.4 76.6 13.8 76.6 17 75.8 C21 74.6 22.6 66 22.2 60 C21.8 52 17 43.4 11 46.6Z"/></clipPath><path d="M11 46.6 C8 48.2 2.4 54.6 1.6 61.6 C1 67.2 3 72.6 7.4 75 C10.4 76.6 13.8 76.6 17 75.8 C21 74.6 22.6 66 22.2 60 C21.8 52 17 43.4 11 46.6Z" fill="url(#armL)"/><g class="acc mittens" clip-path="url(#armClipL)"><path d="M11 46.6 C8 48.2 2.4 54.6 1.6 61.6 C1 67.2 3 72.6 7.4 75 C10.4 76.6 13.8 76.6 17 75.8 C21 74.6 22.6 66 22.2 60 C21.8 52 17 43.4 11 46.6Z" fill="#6f9fe8"/><path d="M12.4 49.6 Q9 60.6 13 72.6" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></g></g>'
+  +   '<g class="b-arm r"><clipPath id="armClipR"><path d="M89 46.6 C92 48.2 97.6 54.6 98.4 61.6 C99 67.2 97 72.6 92.6 75 C89.6 76.6 86.2 76.6 83 75.8 C79 74.6 77.4 66 77.8 60 C78.2 52 83 43.4 89 46.6Z"/></clipPath><path d="M89 46.6 C92 48.2 97.6 54.6 98.4 61.6 C99 67.2 97 72.6 92.6 75 C89.6 76.6 86.2 76.6 83 75.8 C79 74.6 77.4 66 77.8 60 C78.2 52 83 43.4 89 46.6Z" fill="url(#armR)"/><g class="acc mittens" clip-path="url(#armClipR)"><path d="M89 46.6 C92 48.2 97.6 54.6 98.4 61.6 C99 67.2 97 72.6 92.6 75 C89.6 76.6 86.2 76.6 83 75.8 C79 74.6 77.4 66 77.8 60 C78.2 52 83 43.4 89 46.6Z" fill="#6f9fe8"/><path d="M87.6 49.6 Q91 60.6 87 72.6" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/></g></g>'
   +   '<g class="b-antenna"><line x1="50" y1="20" x2="50" y2="8" stroke="#ff6640" stroke-width="4" stroke-linecap="round"/><circle class="b-bulb" cx="50" cy="5" r="5.9"/>'
   +     '<g class="acc flower"><circle cx="50" cy="1.5" r="3.4" fill="#ffb3c8"/><circle cx="55" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="53" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="47" cy="11" r="3.4" fill="#ffb3c8"/><circle cx="45" cy="5.5" r="3.4" fill="#ffb3c8"/><circle cx="50" cy="7" r="2.6" fill="#ffd36e"/></g></g>'
   +   '<g class="b-body"><rect x="12" y="18" width="76" height="74.6" rx="30" fill="url(#botBody)"/><rect x="12" y="18" width="76" height="74.6" rx="30" fill="url(#botShine)"/><path class="b-lower" clip-path="url(#botClip)" d="M8 74 C10 70.6 14.6 67.2 19.6 67.2 Q50 79.6 80.4 67.2 C85.4 67.2 90 70.6 92 74 L92 97 L8 97Z" fill="url(#botLower)"/>'
@@ -677,7 +677,7 @@ function nextLine(k, prev, opened) {
   return lines.find(l => !said(l.key)) || null;
 }
 function talk(opened) {
-  if (!seenNow || !info || (info.env && info.env.dnd)) return;
+  if (!seenNow || !info || (info.env && (info.env.dnd || info.env.hush))) return;
   // Asleep at dawn: it says its news once it is awake, not in its sleep.
   if (sleepHours() && boards.some(b => !awake(b))) return;
   const now = Date.now();
@@ -703,6 +703,8 @@ function boardSeen(on) {
   if (away > 90000) setTimeout(() => {
     if (nextLine(info, before, false)) { talk(true); return; }
     // Coming back: the AI's greeting (at most every five minutes) or a preset one (talk.js "back").
+    // Do not disturb, or asked to keep quiet a while (퍼레's quiet tool, env.hush): no greeting of its own.
+    if (info && info.env && (info.env.dnd || info.env.hush)) return;
     if (window.boardThink && Date.now() - (window._thoughtAt || 0) > 300000 && (typeof TALK === "undefined" || TALK.mix("back", true) !== "preset")) { window._thoughtAt = Date.now(); thinkAt = Date.now(); boards.forEach(thinking); window.boardThink("back"); }
     else if (seenNow && info && !(info.env && info.env.dnd) && Date.now() - lastSpoke > 45000) { const own = preset("back"); if (own) { lastSpoke = Date.now(); boards.forEach(b => { if (b._feel) b._feel("happy", 1600); speak(b, {text: own}, 5000); }); } else talk(true); }
     else talk(true);
@@ -989,7 +991,7 @@ function envOf(b, k) {
   const cold = (temp != null && temp <= 5) || snow, heat = (e.heat || 0) >= 41, hot = (temp != null && temp >= 28) || heat, night = h < 6;
   const sunny = code != null && code <= 1 && w.day !== false && temp != null && temp >= 24;
   const hungry = e.battery != null && e.battery <= 20 && !e.charging;
-  b._env = {music: !!e.music, phones: !!e.phones, charging: !!e.charging, hungry, cold, hot, heat, rain, snow, offline: !!e.offline, heart: life.heart, night, battery: e.battery, roomFree: e.roomFree, silent: !!e.silent, save: !!e.powerSave, dnd: !!e.dnd, airplane: !!e.airplane};
+  b._env = {music: !!e.music, phones: !!e.phones, charging: !!e.charging, hungry, cold, hot, heat, rain, snow, offline: !!e.offline, heart: life.heart, night, battery: e.battery, roomFree: e.roomFree, silent: !!e.silent, save: !!e.powerSave, dnd: !!e.dnd || !!e.hush, airplane: !!e.airplane};
   /*
     What it wears, one thing per place (head, face, neck, hand, body), from the weather, the hour, the season and the day, and
     from the phone (준: "3배로 늘려줘" for 차림): a nightcap at night, a Santa hat in late December, a beanie or earmuffs in the cold,
@@ -1046,7 +1048,7 @@ function envOf(b, k) {
   if (!b._dressed) WEAR.forEach(x => svg.classList.toggle("w-" + x, (own || wear).includes(x)));
   svg.classList.toggle("w-bolt", !!e.charging); svg.classList.toggle("w-sweat", hot && !night);
   svg.classList.toggle("w-notes", !!e.music); svg.classList.toggle("w-q", !!e.offline);
-  svg.classList.toggle("w-save", !!e.powerSave); svg.classList.toggle("w-dnd", !!e.dnd);
+  svg.classList.toggle("w-save", !!e.powerSave); svg.classList.toggle("w-dnd", !!e.dnd || !!e.hush);
   const cb = $(b, ".care-btn"); if (cb) cb.style.setProperty("--fill", Math.max(8, Math.min(100, life.heart == null ? 55 : life.heart)) + "%");
   $(b, ".buddy").classList.toggle("lowpower", !!e.powerSave);
   const was = b._was; b._was = {charging: !!e.charging, music: !!e.music, heat, save: !!e.powerSave};

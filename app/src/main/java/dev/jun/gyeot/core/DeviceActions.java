@@ -62,6 +62,20 @@ public final class DeviceActions {
         PANELS.put("display", new String[]{"디스플레이", "", "android.settings.DISPLAY_SETTINGS"});
         PANELS.put("location", new String[]{"위치", "", "android.settings.LOCATION_SOURCE_SETTINGS"});
         PANELS.put("battery", new String[]{"절전 모드", "", "android.settings.BATTERY_SAVER_SETTINGS"});
+        // More screens the user changes themselves (퍼레's settings tool, 2026-11-26); after the first, the next ones are tried in order.
+        PANELS.put("dnd", new String[]{"방해 금지", "", "android.settings.ZEN_MODE_PRIORITY_SETTINGS", "android.settings.SOUND_SETTINGS"});
+        PANELS.put("sound", new String[]{"소리", "", "android.settings.SOUND_SETTINGS"});
+        PANELS.put("notifications", new String[]{"알림", "", "android.settings.ALL_APPS_NOTIFICATION_SETTINGS"});
+        PANELS.put("timeout", new String[]{"화면 꺼짐 시간(디스플레이)", "", "android.settings.DISPLAY_SETTINGS"});
+        PANELS.put("night", new String[]{"블루라이트(야간 모드)", "", "android.settings.NIGHT_DISPLAY_SETTINGS", "android.settings.DISPLAY_SETTINGS"});
+        PANELS.put("rotate", new String[]{"자동 회전", "", "android.settings.AUTO_ROTATE_SETTINGS", "android.settings.DISPLAY_SETTINGS"});
+        PANELS.put("apps", new String[]{"애플리케이션", "", "android.settings.MANAGE_APPLICATIONS_SETTINGS"});
+        PANELS.put("data", new String[]{"데이터 사용", "", "android.settings.DATA_USAGE_SETTINGS", "android.settings.WIRELESS_SETTINGS"});
+        PANELS.put("airplane", new String[]{"비행기 모드", "", "android.settings.AIRPLANE_MODE_SETTINGS", "android.settings.WIRELESS_SETTINGS"});
+        PANELS.put("cast", new String[]{"화면 공유(캐스트)", "", "android.settings.CAST_SETTINGS"});
+        PANELS.put("date", new String[]{"날짜와 시간", "", "android.settings.DATE_SETTINGS"});
+        PANELS.put("language", new String[]{"언어", "", "android.settings.LOCALE_SETTINGS"});
+        PANELS.put("keyboard", new String[]{"키보드", "", "android.settings.INPUT_METHOD_SETTINGS"});
     }
     public static final Set<String> PANEL_NAMES = Collections.unmodifiableSet(PANELS.keySet());
     /** Added to the phone-control instructions: these tools come before screen automation whenever they fit. */
@@ -231,7 +245,7 @@ public final class DeviceActions {
         if (panel == null) throw new IllegalArgumentException("열 수 있는 설정 화면은 " + String.join(", ", PANEL_NAMES) + "예요.");
         List<Launch> launches = new ArrayList<>();
         if (!panel[1].isEmpty()) launches.add(new Launch(panel[1], "", "설정", "panel", Map.of()));
-        launches.add(new Launch(panel[2], "", "설정", "settings", Map.of()));
+        for (int i = 2; i < panel.length; i++) launches.add(new Launch(panel[i], "", "설정", "settings", Map.of()));
         launches.add(new Launch(SETTINGS_HOME, "", "설정", "settings_home", Map.of()));
         return new Action(SETTINGS, panel[0], launches, false, false, false, 0);
     }
