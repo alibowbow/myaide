@@ -737,11 +737,13 @@ function nextLine(k, prev, opened) {
     const min = Math.round((n.begin - now) / 60000);
     if (min >= 0 && min <= 15) lines.push({key: "soon15:" + n.title + n.begin, text: (min <= 1 ? "곧" : min + "분 뒤") + " ‘" + n.title + "’ 시작이야" + (n.place ? " · " + n.place : ""), go: "calendar", feel: "surprised"});
   }
-  // Food on its way (준: "배민에서 배달한걸 못알아채네"): each stage once (주문 접수, 조리 중, 조리 완료, 배달 중, 곧 도착, 배달 완료),
-  // before anything else; a tap on the bubble opens the delivery app.
+  // Food on its way (준: "배민에서 배달한걸 못알아채네"), said in passing (준: "너무 반복해서 알림이야기를 하거나 오랫동안 풍선띄우는건
+  // 자제", "그냥 흘러가듯이 슬쩍 말하는 정도"): once when it sets off (or is close, if that came first), once when it came, and a
+  // call-off; the stages before only show on the small pill.
   const d = !k.locked && k.delivery;
-  if (d && d.stage && d.line) lines.unshift({key: "deliv:" + d.app + ":" + d.stage + ":" + Math.floor((d.at || 0) / 10800000), text: d.line, go: d.app ? "delivery:" + d.app : "",
-    feel: d.stage === "done" || d.stage === "near" ? "excited" : d.stage === "canceled" ? "sad" : "yum"});
+  const said1 = d && {onway: "way", near: "way", done: "done", canceled: "done"}[d.stage];
+  if (said1 && d.line) lines.unshift({key: "deliv:" + d.app + ":" + said1 + ":" + Math.floor((d.at || 0) / 10800000), text: d.line, go: "", ms: 3200,
+    feel: d.stage === "canceled" ? "sad" : "excited"});
   if (opened) {
     // The hour's greeting from the presets, at most once in three hours (준: "저녁이라고 물론 맥락에 맞는 말을 한다지만 반복적인
     // 패턴이 있어"), or one of the AI's everyday lines.
@@ -766,7 +768,8 @@ function talk(opened) {
   boards.forEach(b => {
     const buddy = $(b, ".buddy"); buddy.classList.remove("hop"); void buddy.offsetWidth; buddy.classList.add("hop"); setTimeout(() => buddy.classList.remove("hop"), 760);
     if (line.feel && b._feel) b._feel(line.feel, 1800);
-    speak(b, line, 6500);
+    // A word in passing, not a sign left up (준: "오랫동안 풍선띄우는건 자제"): as long as it takes to read, 4.5 s at most.
+    speak(b, line, line.ms || Math.min(4500, 2400 + line.text.length * 55));
   });
 }
 /** The host says when the screen is seen (the home screen app's resume, the wallpaper shown) and when it is not. */

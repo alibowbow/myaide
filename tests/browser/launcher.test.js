@@ -391,26 +391,35 @@ async function open(browser, at, bridge) {
   // 준: "퍼레의 판단력 … 강화해줘" — an app 퍼레 opened that did not come up is said once, and those words open the way through.
   // 준, 2026-11-27: "배민에서 배달한걸 못알아채네" (the status bar said 조리완료, 퍼레 said "휴, 땀 났다").
   const food = await open(browser, '2026-11-27T17:55:00+09:00', true);
-  await check('food on its way (배민 조리완료): 퍼레 says it at once, a small pill says when it comes, a tap on either opens 배민', async () => {
+  await check('food on its way (배민 조리완료): the small pill says when it comes (a tap opens 배민); 퍼레 says it in passing, once as it sets off and once as it comes, each gone in a few seconds', async () => {
     const p = food.page;
+    const board = (stage, line, min) => p.evaluate(([stage, line, min]) => { const at = Date.now(); launcher.board({ weather: { code: 0, temp: 15, day: false }, env: { battery: 80 }, life: { heart: 60 },
+      delivery: { app: 'com.sampleapp', name: '배민', stage, eta: at + min * 60000, when: '6:40', at, line } }); }, [stage, line, min]);
+    const bubble = () => p.evaluate(() => { const b = document.querySelector('.bubble'); return b.classList.contains('on') ? b.textContent : ''; });
     await p.clock.runFor(60000);                       // the opening greeting well past (one word in 45 s)
-    await p.evaluate(() => { const at = Date.now(); launcher.board({ weather: { code: 0, temp: 15, day: false }, env: { battery: 80 }, life: { heart: 60 },
-      delivery: { app: 'com.sampleapp', name: '배민', stage: 'ready', eta: at + 45 * 60000, when: '6:40', at, line: '음식 다 만들어졌대! 이제 라이더님만 오면 돼 · 6:40쯤 도착' } }); });
+    await board('ready', '음식 다 됐대, 라이더님 기다리는 중', 45);
     await p.clock.runFor(1500);
-    const said = await p.evaluate(() => document.querySelector('.bubble').textContent);
-    assert(said.includes('다 만들어졌대'), '퍼레 says it: ' + said);
+    assert(!(await bubble()).includes('음식 다 됐대'), 'the stages before it sets off are not said');
     const pill = await p.evaluate(() => { const b = document.querySelector('.mini-pill.deliv'); if (!b) return null; const r = b.getBoundingClientRect(); return {text: b.textContent.trim(), h: Math.round(r.height)}; });
     assert(pill && pill.text === '배민 6:40 도착', 'the pill: ' + JSON.stringify(pill));
     assert(pill.h <= 40, 'a small pill: ' + pill.h);
     await p.evaluate(() => { window._calls.length = 0; document.querySelector('.mini-pill.deliv').click(); });
     assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open').map(c => JSON.parse(c[1])[0])), ['delivery:com.sampleapp']);
-    // Said once: the same stage again (the tracker posts it again) says nothing new; the next stage does.
     await p.clock.runFor(50000);
-    await p.evaluate(() => { const at = Date.now(); launcher.board({ weather: { code: 0, temp: 15, day: false }, env: { battery: 80 }, life: { heart: 60 },
-      delivery: { app: 'com.sampleapp', name: '배민', stage: 'onway', eta: at + 20 * 60000, when: '6:40', at, line: '음식 출발했대 🛵 6:40쯤 도착이래' } }); });
+    await board('onway', '배달 출발했대, 6:40쯤 온대 🛵', 20);
+    await p.clock.runFor(1200);
+    assert((await bubble()).includes('출발했대'), 'said as it sets off');
+    await p.clock.runFor(3000);
+    assert.strictEqual(await bubble(), '', 'gone in a few seconds');
+    await p.clock.runFor(50000);
+    await board('near', '배달 곧 온대!', 3);
     await p.clock.runFor(1500);
-    assert((await p.evaluate(() => document.querySelector('.bubble').textContent)).includes('출발했대'));
-    assert.strictEqual(await p.evaluate(() => document.querySelector('.mini-pill.deliv').textContent.trim()), '배민 6:40 도착');
+    assert(!(await bubble()).includes('곧 온대'), 'close by: not said again');
+    await p.clock.runFor(50000);
+    await board('done', '배달 왔대, 맛있게 먹어 🍚', 0);
+    await p.clock.runFor(1200);
+    assert((await bubble()).includes('배달 왔대'), 'said as it comes');
+    assert.strictEqual(await p.evaluate(() => document.querySelector('.mini-pill.deliv').textContent.trim()), '배민 배달 완료');
     await food.ctx.close();
   });
   await check('an app that did not open: its words stay while 퍼레 listens, one tap opens the way through', async () => {

@@ -136,14 +136,15 @@ public final class Deliveries {
     /** What 퍼레 says at each stage, in its own words (no guessing what was ordered). */
     public static String line(Delivery d, ZoneId zone) {
         String when = d.eta() > 0 ? clock(d.eta(), zone).replace("오전 ", "").replace("오후 ", "") + "쯤 " : "";
+        // Short, said in passing (준: "그냥 흘러가듯이 슬쩍 말하는 정도").
         return switch (d.stage()) {
-            case ORDERED -> d.name() + " 주문 들어갔대! " + (when.isEmpty() ? "벌써 신난다 😋" : when + "온대 😋");
-            case COOKING -> "가게에서 지금 만들고 있대, 냄새 나는 것 같아" + (when.isEmpty() ? "" : " · " + when + "도착");
-            case READY -> "음식 다 만들어졌대! 이제 라이더님만 오면 돼" + (when.isEmpty() ? "" : " · " + when + "도착");
-            case ON_WAY -> "음식 출발했대 🛵 " + (when.isEmpty() ? "곧 만나자!" : when + "도착이래");
-            case NEAR -> "곧 도착한대! 문 앞으로 출동 준비!";
-            case DONE -> "배달 왔대! 맛있게 먹어 🍚";
-            case CANCELED -> "주문이 취소됐대… 아쉽다";
+            case ORDERED -> d.name() + " 주문 들어갔네 😋";
+            case COOKING -> "음식 만드는 중이래";
+            case READY -> "음식 다 됐대, 라이더님 기다리는 중";
+            case ON_WAY -> "배달 출발했대" + (when.isEmpty() ? " 🛵" : ", " + when + "온대 🛵");
+            case NEAR -> "배달 곧 온대!";
+            case DONE -> "배달 왔대, 맛있게 먹어 🍚";
+            case CANCELED -> "주문 취소됐대…";
         };
     }
     /** For the brain: "배민 배달: 조리 완료, 오후 6:40 도착 예정 (3분 전 알림)". */

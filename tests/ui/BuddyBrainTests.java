@@ -719,7 +719,7 @@ public class BuddyBrainTests {
         java.util.function.Function<String, dev.jun.gyeot.core.Deliveries.Delivery> read = words -> dev.jun.gyeot.core.Deliveries.read("com.sampleapp", "배달의민족", "", words, "", at, seoul);
         dev.jun.gyeot.core.Deliveries.Delivery ready = dev.jun.gyeot.core.Deliveries.read("com.sampleapp", "배달의민족", "", "조리완료 조리가 완료되었어요. 라이더님이 곧 픽업해요", "조리완료", at, seoul);
         assertEquals(dev.jun.gyeot.core.Deliveries.Stage.READY, ready.stage()); assertEquals("배민", ready.name());
-        assertTrue(dev.jun.gyeot.core.Deliveries.line(ready, seoul), dev.jun.gyeot.core.Deliveries.line(ready, seoul).contains("다 만들어졌대"));
+        assertEquals("배달 출발했대, 6:52쯤 온대 🛵", dev.jun.gyeot.core.Deliveries.line(read.apply("라이더님이 음식을 픽업했어요. 6:52 도착 예정"), seoul));
         dev.jun.gyeot.core.Deliveries.Delivery ordered = read.apply("주문이 접수되었어요. 오후 6:40 도착 예정이에요");
         assertEquals(dev.jun.gyeot.core.Deliveries.Stage.ORDERED, ordered.stage());
         assertEquals("오후 6:40", dev.jun.gyeot.core.Deliveries.clock(ordered.eta(), seoul));

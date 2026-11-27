@@ -316,7 +316,7 @@ final class BuddyTalk {
         String now = new SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date());
         return BuddyPrompt.chatRules(persona(c), now) + corrected(c, question) + ACTS + places(store)
             + BuddyPrompt.CHAT_PHONE
-            + "휴대폰 상태: " + facts(c) + "\n" + todayWords(c) + memoryWords(c, question, true)
+            + "휴대폰 상태: " + facts(c) + "\n" + todayWords(c) + deliveryWords(c) + memoryWords(c, question, true)
             + worldWords(c)
             + (about.isBlank() ? "" : "참고(비서 노트, 먼저 꺼내지 마):\n" + about);
     }
@@ -512,7 +512,7 @@ final class BuddyTalk {
         if (!guest) try { String all = Briefing.profile(store); note = dev.jun.gyeot.core.BuddyMind.asksWork(said) ? all : dev.jun.gyeot.core.BuddyMind.everyday(all); } catch (RuntimeException ignored) {}
         String house = said.matches("(?s).*(배터리|충전|밥|음악|노래|와이파이|인터넷|데이터|절전|뜨거|방해|비행기 모드|무음).*") ? home(c) : "";
         String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + lifeWords(c) + "\n"
-            + (guest ? "" : "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + todayWords(c) + memoryWords(c, said, true)
+            + (guest ? "" : "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + todayWords(c) + deliveryWords(c) + memoryWords(c, said, true)
                 + (note.isBlank() ? "" : "참고(비서 노트, 먼저 꺼내지 마):\n" + note + "\n")) + "\n";
         // The talk so far, its last lines each cut short: a long talk does not grow every request (Groq's free tier counts tokens a minute).
         return context + BuddyPrompt.voiceTail(recent, turns, guest, said);
@@ -717,11 +717,13 @@ final class BuddyTalk {
     }
     /** Today so far, in words (BuddyMind.todayWords). */
     static String todayWords(Context c) {
-        String food = deliveryWords(c);
-        try { String w = dev.jun.gyeot.core.BuddyMind.todayWords(new JSONObject(c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("today", "{}")), java.time.ZoneId.systemDefault()); return (w.isEmpty() ? "" : "오늘 하루: " + w + "\n") + food; }
-        catch (Exception e) { return food; }
+        try { String w = dev.jun.gyeot.core.BuddyMind.todayWords(new JSONObject(c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("today", "{}")), java.time.ZoneId.systemDefault()); return w.isEmpty() ? "" : "오늘 하루: " + w + "\n"; }
+        catch (Exception e) { return ""; }
     }
-    /** Food on its way, as the delivery app's notifications say (core/Deliveries; "배달 언제 와?"). */
+    /**
+     * Food on its way, as the delivery app's notifications say (core/Deliveries; "배달 언제 와?"): only for what the user asks,
+     * never in 퍼레's own lines (준: "너무 반복해서 알림이야기를 하거나 … 자제", "흘러가듯이 슬쩍 말하는 정도").
+     */
     static String deliveryWords(Context c) {
         try {
             if (!NoticeListener.on(c) || !NoticeListener.allowed(c)) return "";
