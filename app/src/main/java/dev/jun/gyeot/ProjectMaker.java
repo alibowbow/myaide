@@ -64,11 +64,13 @@ final class ProjectMaker {
     }
     /**
      * The template's pages shipped before, by SHA-256: a project still exactly one of them was never changed by the user, so it
-     * takes the newest at once. The first had no AI 차트 분석; 0.4.513 no 방금 바꾼 것 되돌리기; 0.4.526 no 분석 스타일.
+     * takes the newest at once. The first had no AI 차트 분석; 0.4.513 no 방금 바꾼 것 되돌리기; 0.4.526 no 분석 스타일; the last
+     * (7fe20c…) no 내 트뷰 차트 (the user's own TradingView above the cards).
      */
     private static final java.util.Set<String> OLD_TRADING = java.util.Set.of("f960956429b84eda68d057d8255e0203dcaf0dde0b64bd53aca821f902c49ef8",
         "419eb6e647b423181d7bcd35d4c92680d6f6c7b09e6912264c673ce7739cf008", "603e83b7ac93ed513be7c56bb180eca9b4dbbac2799f2ff256bd018acd937048",
-        "70bdfcabe4df4f7cdfbe0d80fab533302d8119e6f308d1fad4750d2981763155", "64ae67608b07f7cd8b1084b859069a3d3de296ad2f3b7cb7e1dce82a13ad6afc", "777fa08c4d930ad183d6955292d8aa1afb703c781cfa52e3181a89af17dd20bc", "cf598aa60a397d6bc99555f5f2568d178db4a842d31a68dd7238fb14febd10c2");
+        "70bdfcabe4df4f7cdfbe0d80fab533302d8119e6f308d1fad4750d2981763155", "64ae67608b07f7cd8b1084b859069a3d3de296ad2f3b7cb7e1dce82a13ad6afc", "777fa08c4d930ad183d6955292d8aa1afb703c781cfa52e3181a89af17dd20bc", "cf598aa60a397d6bc99555f5f2568d178db4a842d31a68dd7238fb14febd10c2",
+        "7fe20c1aae708543c6b75bc160a836d18e0fb4c251aa78d6cf425b0a9ed132b3");
     /**
      * A 트레이딩 made from an older template gets the new one (AI 차트 분석 · 최신 뉴스): at once when the user never changed it
      * (the old page stays in its versions), else only when asked (offerUpgrade). Returns whether the page changed.
@@ -78,8 +80,9 @@ final class ProjectMaker {
         String html = book.html(id);
         try {
             boolean shipped = OLD_TRADING.contains(sha256(html));
-            // A page the user changed that already has the app's AI is theirs; one never changed takes the newest template.
-            if (html.contains("gyeot-app") && !shipped) return false;
+            // A page the user changed that already has the app's AI is theirs; one never changed takes the newest template. One
+            // without the 내 트뷰 차트 (tv_ready) takes it when the user asks (ProjectActivity offers it once signed in to TradingView).
+            if (html.contains("gyeot-app") && html.contains("tv_ready") && !shipped) return false;
             if (!changedByUser && !shipped) return false;
             String fresh; try (InputStream in = app.getAssets().open(TRADING.asset())) { fresh = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
             if (fresh.equals(html)) return false;

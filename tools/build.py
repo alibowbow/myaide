@@ -376,6 +376,10 @@ if __name__ == '__main__':
     security.mkdir(parents=True, exist_ok=True)
     javac(['-encoding', 'UTF-8', '-d', security, core / 'PhoneRisk.java', core / 'SecurityLink.java', ROOT / 'tools/SecurityRegression.java'])
     run(['java', '-ea', '-cp', security, 'dev.jun.gyeot.core.SecurityRegression'])
+    trading = BUILD / 'tradingview-checks'
+    trading.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', trading, core / 'TradingViewLink.java', ROOT / 'tools/TradingViewRegression.java'])
+    run(['java', '-ea', '-cp', trading, 'dev.jun.gyeot.core.TradingViewRegression'])
     test_board(jars[-1])
     # The optional larger suites run when their tests folder is present.
     if (ROOT / 'tests/CoreTests.java').is_file(): test(jars)
