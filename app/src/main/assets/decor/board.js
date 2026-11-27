@@ -52,7 +52,7 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   + '<radialGradient id="cheekG"><stop offset=".7" stop-color="#ff8ea6"/><stop offset="1" stop-color="#ff8ea6" stop-opacity="0"/></radialGradient>'
   + '<linearGradient id="armL" gradientUnits="userSpaceOnUse" x1="0" y1="18" x2="0" y2="88"><stop offset="0" stop-color="#ffb08f"/><stop offset="1" stop-color="#ff7d58"/></linearGradient>'
   + '<linearGradient id="armR" gradientUnits="userSpaceOnUse" x1="0" y1="18" x2="0" y2="88"><stop offset="0" stop-color="#ffb08f"/><stop offset="1" stop-color="#ff7d58"/></linearGradient>'
-  + '<radialGradient id="fist" cx=".42" cy=".38" r=".68"><stop offset="0" stop-color="#ffb898"/><stop offset=".72" stop-color="#ff8d67"/><stop offset="1" stop-color="#ef6c48"/></radialGradient></defs>'
+  + '</defs>'
   + '<g class="b-all">'
   // behind 퍼레: what it holds high or that floats over it
   // ── GPT outfits (start) ──
@@ -135,13 +135,6 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   +     '<g class="acc ribbon"><path d="M50 74 L41 69 L41 79Z M50 74 L59 69 L59 79Z" fill="#ff7eb6"/><path d="M48 76 L45 85 M52 76 L55 85" stroke="#ff7eb6" stroke-width="2.4" stroke-linecap="round"/><circle cx="50" cy="74" r="2.4" fill="#ff5fa2"/></g>'
   +     '<g class="acc whistle"><path d="M30 68 Q50 78 70 68" fill="none" stroke="#5b8def" stroke-width="1.6"/><path d="M57 75 h9 v5 h-9 a2.5 2.5 0 0 1 0 -5z" fill="#c9ced9" stroke="#9aa3b5" stroke-width=".8"/></g>'
   +   '</g>'
-  // The arm come round in front (준: "위아래뿐아니라 3차원적인 움직임도 2d지만 구현해줘", "모양의 적절한 변화로", "예를들면 권투같은
-  // 경우"): an arm turned toward the one looking is its round end seen head on, a ball over the body's side that grows as it
-  // comes closer; the arm behind narrows as it turns (board.css .b-armf). Hidden until a move brings it round.
-  // No long arm across the front (준: "왜 사람 팔모양이 생겨?", "정체성 위기", "팔모양 생기면서 귀여운캐릭에서 기괴한 캐릭이 됐네"):
-  // 퍼레's arm is a short round half; brought round in front it is that same short round end, only as far as it reaches.
-  +   '<g class="b-armf l"><ellipse class="b-fist" cx="11" cy="62" rx="8.6" ry="9.2" fill="url(#fist)"/></g>'
-  +   '<g class="b-armf r"><ellipse class="b-fist" cx="89" cy="62" rx="8.6" ry="9.2" fill="url(#fist)"/></g>'
   // on its head
   // ── GPT outfits (start) ──
   // (준: "이런식으로 의상 소품들도 만들자", "재미난 의상들 많이 만들어보자", "크리스마스 관련도 만들고"): drawn from GPT's sheets, over the body and face
