@@ -112,10 +112,13 @@ final class BuddyTalk {
         SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         JSONObject w = worldState(p); dev.jun.gyeot.core.BuddyWorld.forget(w, thing); p.edit().putString(WORLD, w.toString()).apply();
     }
-    /** Everything 퍼레 knows about the user, as words (the night's profile and its memories), for what it may still ask. */
+    /**
+     * Everything 퍼레 knows about the user, as words (the night's profile without the user's work, and its memories), for what
+     * it may still ask: a note full of work made it think it knew their games and music.
+     */
     static String knownWords(Context c, AppStore store) {
         StringBuilder out = new StringBuilder();
-        try { out.append(Briefing.profile(store)).append('\n'); } catch (RuntimeException ignored) {}
+        try { out.append(dev.jun.gyeot.core.BuddyMind.everyday(Briefing.profile(store))).append('\n'); } catch (RuntimeException ignored) {}
         for (dev.jun.gyeot.core.BuddyMemory.Entry e : memories(c)) out.append(e.text()).append('\n');
         return out.toString();
     }
@@ -194,23 +197,44 @@ final class BuddyTalk {
      * fails, the other answers. clean makes what 퍼레 says of the text (null: not usable). Off the main thread.
      */
     static void ask(Context c, String instructions, String input, double temperature, int timeoutMs, java.util.function.Function<String, String> clean, Consumer<String> done, Runnable failed) {
+        ask(c, instructions, input, temperature, timeoutMs, clean, done, why -> failed.run());
+    }
+    /** As above; failed gets why the last brain could not answer (why()). */
+    static void ask(Context c, String instructions, String input, double temperature, int timeoutMs, java.util.function.Function<String, String> clean, Consumer<String> done, Consumer<String> failed) {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
         boolean nim = store.nim.connected(), groq = GroqWork.on();
         // The app's AI chosen for 퍼레: it answers; when it cannot, the quick ones below do.
         if (CUSTOM.equals(brain(c)) && !customLabel(store).isEmpty()) {
             new Thread(() -> {
+                String reason = "빈 답";
                 try { String line = clean.apply(askCustom(store, instructions, input, null)); if (line != null) { done.accept(line); return; } }
-                catch (Exception unavailable) { /* the quick brains next */ }
-                if (nim || groq) quick(c, store, nim, groq, QWEN, instructions, input, temperature, timeoutMs, clean, done, failed); else failed.run();
+                catch (Exception unavailable) { reason = why("고른 AI", unavailable, timeoutMs); /* the quick brains next */ }
+                if (nim || groq) quick(c, store, nim, groq, QWEN, instructions, input, temperature, timeoutMs, clean, done, failed); else failed.accept(reason);
             }, "gyeot-buddy-custom").start();
             return;
         }
-        if (!nim && !groq) { failed.run(); return; }
+        if (!nim && !groq) { failed.accept("연결된 두뇌 없음"); return; }
         quick(c, store, nim, groq, brain(c), instructions, input, temperature, timeoutMs, clean, done, failed);
     }
-    /** Groq's Qwen and NVIDIA NIM, raced as the brain says (QWEN, NIM or BOTH). */
-    private static void quick(Context c, AppStore store, boolean nim, boolean groq, String brain, String instructions, String input, double temperature, int timeoutMs, java.util.function.Function<String, String> clean, Consumer<String> done, Runnable failed) {
+    /**
+     * Why a brain could not answer, in a few words for 퍼레가 못 한 일 and the app's log: "Groq HTTP 429", "시간 초과 8초", "빈 답",
+     * "NVIDIA 연결 끊김" (who: the brain's name).
+     */
+    static String why(String who, Throwable e, int timeoutMs) {
+        if (e instanceof java.io.InterruptedIOException) return "시간 초과 " + Math.round(timeoutMs / 1000.0) + "초";
+        if (e instanceof dev.jun.gyeot.core.ModelLimit limit) return who + " HTTP " + limit.status;
+        String m = e == null || e.getMessage() == null ? "" : e.getMessage();
+        java.util.regex.Matcher http = java.util.regex.Pattern.compile("HTTP (\\d{3})").matcher(m);
+        if (http.find()) return who + " HTTP " + http.group(1);
+        if (m.contains("빈 답") || m.contains("내용 없는") || m.contains("답이 없")) return "빈 답";
+        if (e instanceof java.io.IOException) return who + " 연결 끊김";
+        if (m.isBlank()) return who + " " + (e == null ? "오류" : e.getClass().getSimpleName());
+        return m.startsWith(who) ? cut(m, 40) : who + " " + cut(m, 40);
+    }
+    /** Groq's Qwen and NVIDIA NIM, raced as the brain says (QWEN, NIM or BOTH); failed gets why the last one could not answer. */
+    private static void quick(Context c, AppStore store, boolean nim, boolean groq, String brain, String instructions, String input, double temperature, int timeoutMs, java.util.function.Function<String, String> clean, Consumer<String> done, Consumer<String> failed) {
         AtomicBoolean answered = new AtomicBoolean();
+        AtomicReference<String> reason = new AtomicReference<>("빈 답");
         AtomicReference<Runnable> stopNim = new AtomicReference<>(), stopGroq = new AtomicReference<>();
         Object lock = new Object(); int[] running = {0}; boolean[] tried = {false, false};
         Runnable[] start = new Runnable[2];
@@ -228,7 +252,7 @@ final class BuddyTalk {
                 if (answered.get() || running[0] > 0) return;
                 if (groq && !tried[0]) next = start[0];
                 else if (nim && !tried[1]) next = start[1];
-                else if (answered.compareAndSet(false, true)) next = failed;
+                else if (answered.compareAndSet(false, true)) next = () -> failed.accept(reason.get());
             }
             if (next != null) next.run();
         };
@@ -243,8 +267,8 @@ final class BuddyTalk {
                     // Qwen's thinking off for speed; a model that refuses the setting is asked again without it.
                     try { text = GroqWork.converse(model, instructions, messages, "none", temperature, timeoutMs, stopGroq); }
                     catch (Exception first) { if (answered.get()) throw first; text = GroqWork.converse(model, instructions, messages, null, temperature, timeoutMs, stopGroq); }
-                    String line = clean.apply(text); if (line != null) win.accept(line); else lost.run();
-                } catch (Exception e) { lost.run(); }
+                    String line = clean.apply(text); if (line != null) win.accept(line); else { reason.set("빈 답"); lost.run(); }
+                } catch (Exception e) { reason.set(why("Groq", e, timeoutMs)); lost.run(); }
             }, "gyeot-buddy-qwen").start();
         };
         start[1] = () -> {
@@ -254,8 +278,8 @@ final class BuddyTalk {
                 try {
                     WorkClient.Result r = NimClient.complete(store.nim, store.nim.generation(), NIM_MODEL, instructions, input, () -> { if (answered.get()) throw new java.util.concurrent.CancellationException(); }, stopNim);
                     if (System.currentTimeMillis() - begun > 4_000) nimSlowUntil = System.currentTimeMillis() + 10 * 60_000L;
-                    String line = clean.apply(r.text); if (line != null) win.accept(line); else lost.run();
-                } catch (Exception e) { nimSlowUntil = System.currentTimeMillis() + 5 * 60_000L; lost.run(); }
+                    String line = clean.apply(r.text); if (line != null) win.accept(line); else { reason.set("빈 답"); lost.run(); }
+                } catch (Exception e) { nimSlowUntil = System.currentTimeMillis() + 5 * 60_000L; reason.set(why("NVIDIA", e, timeoutMs)); lost.run(); }
             }, "gyeot-buddy-nim").start();
         };
         android.os.Handler later = new android.os.Handler(android.os.Looper.getMainLooper());
@@ -288,7 +312,7 @@ final class BuddyTalk {
         + "{\"tool\":\"app_settings\",\"app\":\"카카오톡\"}(앱 정보·알림·권한 화면) · {\"tool\":\"downloads\"} · {\"tool\":\"gallery\"} · {\"tool\":\"contacts\",\"who\":\"이름\"} · {\"tool\":\"calculator\",\"expression\":\"35000*0.15\"} · "
         + "{\"tool\":\"email\",\"who\":\"이름\",\"subject\":\"제목\",\"text\":\"내용\"} · {\"tool\":\"translate\",\"text\":\"번역할 글\",\"to\":\"en\"} · {\"tool\":\"coin\"} · {\"tool\":\"dice\",\"count\":1} · {\"tool\":\"pick\",\"options\":[\"짜장면\",\"짬뽕\"]} · "
         + "{\"tool\":\"world_time\",\"place\":\"뉴욕\"} · {\"tool\":\"count_days\",\"date\":\"2026-12-25\",\"label\":\"크리스마스\"}(며칠 뒤가 언제냐면 \"add_days\":100). "
-        + "동전·주사위·골라 주기·계산·다른 나라 시각·날짜 세기는 답을 지어내지 말고 할일 줄을 써(답은 그 할일이 말해 주니 첫 줄은 '던져 볼게!'처럼 짧게). "
+        + "동전·주사위·골라 주기·계산·다른 나라 시각·날짜 세기는 답을 지어내지 말고 할일 줄을 써(답은 그 할일이 말해 주니 첫 줄은 '던져 볼게!'처럼 짧게). 알람·타이머의 첫 줄은 '알겠어!'만(시각·길이는 할일이 다시 말해 줘). "
         + "사용자가 기억해 달라, 잊어 달라, 호칭을 바꿔 달라, 조용히 있어 달라고 하면: {\"tool\":\"remember\",\"fact\":\"사용자는 차를 지하 2층에 세웠대\"} · {\"tool\":\"forget\",\"what\":\"고양이\"} · {\"tool\":\"call_me\",\"title\":\"주인공님\"} · {\"tool\":\"quiet\",\"hours\":2}(다시 말 걸어도 되면 0). "
         + "너(퍼레) 자신에게 하는 부탁도 직접 해: {\"tool\":\"buddy_toy\",\"toy\":\"주사위\"}(" + BuddyBoard.sample(BuddyBoard.TOYS, 14) + ") · "
         + "{\"tool\":\"buddy_outfit\",\"items\":[\"고양이 귀\"]}(" + BuddyBoard.sample(BuddyBoard.CLOTHES, 16) + ") · "
@@ -386,26 +410,44 @@ final class BuddyTalk {
         } catch (Exception ignored) {}
         return a;
     }
-    /**
-     * guest: the voice is not the user's (VoicePrint, 준: "내 목소리를 알아볼 수 있게해줘"): 퍼레 answers a guest kindly and keeps the
-     * user's memories, day and profile to itself, and learns nothing from what the guest said.
-     */
     /** What was heard with 퍼레's name put back where the recognizer took it for 벌레, 버려 … (only while its name is 퍼레). */
     static String heard(Context c, String said) {
         if (said == null || said.isBlank()) return said;
         String name = "퍼레"; try { name = AssistantProfile.readName(c); } catch (RuntimeException ignored) {}
         return name == null || name.isBlank() || name.contains("퍼레") ? dev.jun.gyeot.core.BuddyMind.nameHeard(said) : said;
     }
+    /**
+     * One turn of the voice talk for the brain (reply): what was said; the talk so far ({role, text}, from this talk, the last
+     * one or the typed 퍼레와 대화); guest: the voice is not the user's (VoicePrint, 준: "내 목소리를 알아볼 수 있게해줘"), so 퍼레
+     * answers kindly, keeps the user's memories, day and profile to itself, does nothing on the phone and learns nothing;
+     * doIt: the thing to do the answer names (null: nothing is done); part: each sentence as soon as it is written (null: the
+     * whole only); done: the whole answer ("" when every sentence was one 퍼레 does not say unasked, BuddyMind.unasked);
+     * failed: why no brain could answer, in a few words (why()); learnNow: what the user said may be learned from this answer;
+     * recent: what just happened, for the brain to know, a line each with its own words ("방금 한 일: play · ‘아이유 좋은날’ ·
+     * YouTube (10초 전)", "방금 하려던 일: …", "퍼레가 방금 ‘…맞출까?’라고 물었어. …"; "" for nothing).
+     */
+    record Ask(String said, java.util.List<String[]> turns, boolean guest, Consumer<JSONObject> doIt, Consumer<String> part, Consumer<String> done,
+               Consumer<String> failed, boolean learnNow, String recent) {}
     static void reply(Context c, String said, java.util.List<String[]> turns, boolean guest, Consumer<JSONObject> doIt, Consumer<String> done, Runnable failed) {
         reply(c, said, turns, guest, doIt, null, done, failed);
     }
-    /**
-     * As above, with part: each sentence as soon as it is written (준: "음성대화 너무 느려", the brain with tools streams), so 퍼레
-     * starts speaking before the answer is done; done still gets the whole. With Groq, the things to do are tools it calls
-     * (BuddyTools, 준: "{tool:openapp…}를 외쳤다"); without, or when that fails before a word was said, the "할일:" text form.
-     */
     static void reply(Context c, String said, java.util.List<String[]> turns, boolean guest, Consumer<JSONObject> doIt, Consumer<String> part, Consumer<String> done, Runnable failed) {
+        reply(c, new Ask(said, turns, guest, doIt, part, done, why -> failed.run(), true, ""));
+    }
+    /**
+     * The answer to a turn of the voice talk, each sentence as soon as it is written (준: "음성대화 너무 느려", the brain streams),
+     * so 퍼레 starts speaking before the answer is done; done still gets the whole. With Groq, the things to do are tools it
+     * calls (BuddyTools, 준: "{tool:openapp…}를 외쳤다"); without, or when that fails before a word was said, the "할일:" text
+     * form. A guest's answer streams too, with no tools. Sentences 퍼레 does not say unasked (cheering, rest, chores, coins:
+     * BuddyMind.unasked) are left out, aloud and in done alike.
+     */
+    static void reply(Context c, Ask ask) {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
+        String said = ask.said(); java.util.List<String[]> turns = ask.turns() == null ? java.util.List.of() : ask.turns();
+        boolean guest = ask.guest(), learn = ask.learnNow() && !guest;
+        // A guest's words never do a thing on the phone.
+        Consumer<JSONObject> doIt = guest ? null : ask.doIt();
+        Consumer<String> done = ask.done(), failed = ask.failed();
         String instructions = persona(c) + "\n지금 " + (guest ? "누군가와" : "사용자와") + " 목소리로 대화하고 있어.\n"
             + (guest ? "- 지금 들리는 목소리는 '" + title(c) + "'(휴대폰 주인) 목소리가 아니야. 처음 듣는 목소리라고 반갑게 대하되, 주인의 기억·일정·하루·개인적인 이야기는 절대 꺼내지 말고, 주인에 대해 물어도 알려 주지 마. 상대를 '" + title(c) + "'(이)라고 부르지 마.\n" : "")
             + "- 사용자의 마지막 말에 바로, 친구처럼 답해. 물으면 핵심만 짧게 알려 주고, 모르면 솔직하게 말해.\n"
@@ -415,28 +457,29 @@ final class BuddyTalk {
             + "- 귀엽고 밝게, 가끔 너의 기억을 자연스럽게 꺼내도 좋아.\n"
             + "- 사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 '휴대폰 상태'의 숫자로 정확히 답해. 묻지 않으면 저장공간 이야기는 꺼내지 말고, 정리·삭제를 권하지 마.\n"
             + worldWords(c);
-        String withText = instructions + (guest || doIt == null ? "" : ACTS + places(store)), withTools = instructions + BuddyTools.RULE + places(store);
-        long now = System.currentTimeMillis();
-        String when = new SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date(now));
-        String note = ""; if (!guest) try { note = Briefing.profile(store); } catch (RuntimeException ignored) {}
-        StringBuilder talk = new StringBuilder();
-        String who = guest ? "상대" : "사용자";
-        for (String[] t : turns) talk.append("user".equals(t[0]) ? who + ": " : "퍼레: ").append(t[1]).append('\n');
-        String house = said.matches("(?s).*(배터리|충전|밥|음악|노래|와이파이|인터넷|데이터|절전|뜨거|방해|비행기 모드|무음).*") ? home(c) : "";
-        String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + lifeWords(c) + "\n"
-            + (guest ? "" : "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + todayWords(c) + memoryWords(c, said, true)
-                + "사용자에 대해 아는 것:\n" + (note.isBlank() ? "(아직 잘 몰라)" : note) + "\n") + "\n";
-        String input = context + (talk.length() == 0 ? "" : "지금까지 대화:\n" + talk) + who + ": " + said + "\n퍼레:";
+        // 퍼레's own tools only when the words are about 퍼레, now or in the last exchange ("고양이 귀 써 볼까?" → "응"): most turns weigh less.
+        String lastTurns = turns.isEmpty() ? "" : turns.get(turns.size() - 1)[1] + (turns.size() > 1 ? "\n" + turns.get(turns.size() - 2)[1] : "");
+        boolean self = BuddyTools.self(said) || BuddyTools.self(lastTurns);
+        JSONArray tools = doIt == null ? null : self ? BuddyTools.TOOLS : BuddyTools.PHONE;
+        String withText = instructions + (doIt == null ? "" : ACTS + places(store)), withTools = doIt == null ? instructions : instructions + BuddyTools.rule(self) + places(store);
+        String input = replyInput(c, said, turns, guest, ask.recent());
         AtomicReference<JSONObject> todo = new AtomicReference<>();
-        Runnable asText = () -> speedy(c, withText, input, 0.7, text -> { todo.set(guest ? null : act(text)); return spoken(text); }, line -> {
-            if (!guest && todo.get() == null) learnLater(c, said, line);
+        Runnable asText = () -> speedy(c, withText, input, 0.7, text -> {
+            todo.set(doIt == null ? null : act(text));
+            String words = spoken(text);
+            return words == null ? null : sayable(words, said);
+        }, line -> {
+            String l = line.isBlank() && todo.get() != null ? BuddyTools.say(todo.get()) : line;
+            if (learn && todo.get() == null && !l.isBlank()) learnLater(c, said, l);
             if (doIt != null && todo.get() != null) doIt.accept(todo.get());
-            done.accept(line);
+            done.accept(l);
         }, failed);
         boolean nimOn = store.nim.connected();
-        if (guest || doIt == null || !GroqWork.on() && !nimOn) { asText.run(); return; }
+        if (!GroqWork.on() && !nimOn) { toolsSent = 0; asText.run(); return; }
+        toolsSent = tools == null ? 0 : tools.length();
         new Thread(() -> {
-            Sentences sentences = new Sentences(part);
+            Sentences sentences = new Sentences(ask.part(), said);
+            String why = "빈 답";
             try {
                 // The ways to ask, quickest first: Groq (the chosen model or GPT OSS at its lightest), then NVIDIA's quick model.
                 java.util.List<String[]> ways = new java.util.ArrayList<>();
@@ -444,28 +487,35 @@ final class BuddyTalk {
                     ScopedModels m = ScopedModels.buddy(store);
                     boolean mine = CUSTOM.equals(brain(c)) && dev.jun.gyeot.core.WorkBook.GROQ.equals(m.engine());
                     String model = mine ? m.model(m.engine()) : GroqWork.CHORES, effort = mine ? m.effort(m.engine(), model) : "low";
-                    ways.add(new String[]{GroqAccount.API + "chat/completions", GroqWork.key(), model, store.groqModels.profile(model).normalize(effort).isEmpty() ? null : effort});
+                    ways.add(new String[]{GroqAccount.API + "chat/completions", GroqWork.key(), model, store.groqModels.profile(model).normalize(effort).isEmpty() ? null : effort, "Groq"});
                 }
-                if (nimOn) ways.add(new String[]{dev.jun.gyeot.core.NimProtocol.ENDPOINT, dev.jun.gyeot.core.NimProtocol.key(store.secrets.get(SecretStore.NIM)), NIM_MODEL, null});
+                if (nimOn) ways.add(new String[]{dev.jun.gyeot.core.NimProtocol.ENDPOINT, dev.jun.gyeot.core.NimProtocol.key(store.secrets.get(SecretStore.NIM)), NIM_MODEL, null, "NVIDIA"});
                 JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", input));
                 GroqWork.Turn t = null; String[] used = null;
                 for (String[] w : ways) {
-                    try { t = GroqWork.stream(w[0], w[1], w[2], withTools, messages, w[3], 0.7, BuddyTools.TOOLS, "auto", 9_000, sentences::add, null); used = w; break; }
-                    catch (Exception next) { if (!sentences.said().isEmpty()) break; }
+                    try { t = GroqWork.stream(w[0], w[1], w[2], withTools, messages, w[3], 0.7, tools, "auto", 9_000, sentences::add, null); used = w; break; }
+                    catch (Exception next) { why = why(w[4], next, 9_000); if (!sentences.said().isEmpty()) break; }
                 }
-                if (t == null) throw new IllegalStateException("답이 없어요");
+                if (t == null) throw new IllegalStateException(why);
                 sentences.end();
-                JSONObject a = BuddyTools.act(t.calls()); if (a == null) a = act(t.text());
-                // It said it would do a thing but called no tool ("3분 타이머 시작할게!"): asked once more, a tool this time.
-                if (a == null && BuddyTools.promised(said, t.text())) {
-                    try { a = BuddyTools.act(GroqWork.stream(used[0], used[1], used[2], withTools, messages, used[3], 0.3, BuddyTools.TOOLS, "required", 6_000, null, null).calls()); }
-                    catch (Exception refused) { /* the words alone */ }
-                    if (a == null) BuddyMisses.add(c, said, "할 일 도구", "말로만 하겠다고 하고 도구를 부르지 않았어요", "");
+                JSONObject a = doIt == null ? null : BuddyTools.act(t.calls()); if (a == null && doIt != null) a = act(t.text());
+                // It said it would do a thing but called no tool ("3분 타이머 시작할게!"): asked once more, a tool this time, all of
+                // them (퍼레's own too: the words may have been about it after all), or NOTHING when there was nothing to do ("내일
+                // 일정 뭐야" is a question). Only a retry that gave no answer is a miss.
+                if (doIt != null && a == null && BuddyTools.promised(said, t.text())) {
+                    boolean none = false;
+                    try {
+                        JSONArray calls = GroqWork.stream(used[0], used[1], used[2], instructions + BuddyTools.rule(true) + places(store), messages, used[3], 0.2, BuddyTools.orNothing(), "required", 6_000, null, null).calls();
+                        none = BuddyTools.nothing(calls); a = BuddyTools.act(calls);
+                    } catch (Exception refused) { /* the words alone */ }
+                    if (a == null && !none) BuddyMisses.add(c, said, "할 일 도구", "말로만 하겠다고 하고 도구를 부르지 않았어요", "", BuddyMisses.PROMISED);
                 }
-                String line = spoken(t.text());
-                if ((line == null || line.isBlank()) && a != null) line = BuddyTools.say(a);
-                if ((line == null || line.isBlank()) && a == null) throw new IllegalStateException("빈 답");
-                if (a == null) learnLater(c, said, line);
+                String words = spoken(t.text());
+                if ((words == null || words.isBlank()) && a == null) { why = "빈 답"; throw new IllegalStateException(why); }
+                // What was said aloud (the same sentences Sentences gave), or the thing's own words when every sentence was left out.
+                String line = words == null ? "" : sayable(words, said);
+                if (line.isBlank() && a != null) line = BuddyTools.say(a);
+                if (a == null) { if (learn && !line.isBlank()) learnLater(c, said, line); }
                 else doIt.accept(a);
                 done.accept(line == null ? "" : line);
             } catch (Exception failedWithTools) {
@@ -474,10 +524,52 @@ final class BuddyTalk {
             }
         }, "gyeot-buddy-tools").start();
     }
-    /** An answer cut into sentences as it streams, each said (spoken: no marks, links or act text) when it is whole. */
+    /**
+     * What the brain reads for a turn of the voice talk: the hour, 퍼레's life, and (not for a guest) the phone's state, the
+     * day, its memories and the assistant's note about the user, without their work unless they asked about it
+     * (BuddyMind.everyday: 퍼레 kept bringing up the user's projects unasked), labelled as a reference not to bring up first;
+     * then what was done lately, the talk so far and what was said.
+     */
+    static String replyInput(Context c, String said, java.util.List<String[]> turns, boolean guest, String recent) {
+        AppStore store = ((GyeotApp) c.getApplicationContext()).store();
+        long now = System.currentTimeMillis();
+        String when = new SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date(now));
+        String note = "";
+        if (!guest) try { String all = Briefing.profile(store); note = dev.jun.gyeot.core.BuddyMind.asksWork(said) ? all : dev.jun.gyeot.core.BuddyMind.everyday(all); } catch (RuntimeException ignored) {}
+        StringBuilder talk = new StringBuilder();
+        String who = guest ? "상대" : "사용자";
+        // The talk so far, its last TALK_TURNS lines each cut to TALK_LINE: a long talk does not grow every request (Groq's free tier counts tokens a minute).
+        for (String[] t : turns.subList(Math.max(0, turns.size() - TALK_TURNS), turns.size()))
+            talk.append("user".equals(t[0]) ? who + ": " : "퍼레: ").append(cut(t[1], TALK_LINE)).append('\n');
+        String house = said.matches("(?s).*(배터리|충전|밥|음악|노래|와이파이|인터넷|데이터|절전|뜨거|방해|비행기 모드|무음).*") ? home(c) : "";
+        String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + lifeWords(c) + "\n"
+            + (guest ? "" : "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + todayWords(c) + memoryWords(c, said, true)
+                + (note.isBlank() ? "" : "참고(비서 노트, 먼저 꺼내지 마):\n" + note + "\n")) + "\n";
+        return context + (recent == null || recent.isBlank() ? "" : recent.strip() + "\n")
+            + (talk.length() == 0 ? "" : "지금까지 대화:\n" + talk) + who + ": " + said + "\n퍼레:";
+    }
+    /** How much of the talk so far goes with each answer: its last lines, each this long at most. */
+    static final int TALK_TURNS = 8, TALK_LINE = 200;
+    /** How many tools went with the last answer (0: the text form), for the voice talk's timing line. */
+    static volatile int toolsSent;
+    private static String cut(String line, int most) {
+        if (line == null) return "";
+        return line.codePointCount(0, line.length()) <= most ? line : line.substring(0, line.offsetByCodePoints(0, most)) + "…";
+    }
+    /** What of a spoken answer 퍼레 says to what was heard: its sentences as Sentences cuts them, without those it does not say unasked. */
+    static String sayable(String text, String heard) {
+        if (text == null || text.isBlank()) return "";
+        Sentences s = new Sentences(piece -> {}, heard); s.add(text); s.end();
+        return s.said();
+    }
+    /**
+     * An answer cut into sentences as it streams, each said (spoken: no marks, links or act text) when it is whole; a sentence
+     * 퍼레 does not say to what was heard (BuddyMind.unasked: "푹 쉬어" to "오늘 뭐 할까") is left out whole.
+     */
     static final class Sentences {
-        private final Consumer<String> out; private final StringBuilder buf = new StringBuilder(), all = new StringBuilder();
-        Sentences(Consumer<String> out) { this.out = out; }
+        private final Consumer<String> out; private final String heard; private final StringBuilder buf = new StringBuilder(), all = new StringBuilder();
+        Sentences(Consumer<String> out) { this(out, ""); }
+        Sentences(Consumer<String> out, String heard) { this.out = out; this.heard = heard == null ? "" : heard; }
         void add(String piece) { if (out == null || piece == null) return; buf.append(piece); emit(false); }
         void end() { if (out != null) emit(true); }
         /** What was said so far. */
@@ -498,6 +590,7 @@ final class BuddyTalk {
         private void give(String s) {
             if (s.contains("{") || s.strip().startsWith("할일") || s.strip().startsWith("할 일")) return;
             String clean = spoken(s); if (clean == null || clean.isBlank()) return;
+            if (dev.jun.gyeot.core.BuddyMind.unasked(clean, heard)) return;
             if (all.length() > 0) all.append(' ');
             all.append(clean); out.accept(clean);
         }
@@ -505,9 +598,9 @@ final class BuddyTalk {
     /**
      * The voice talk's brain, quick above all (준: "음성대화 너무 느려"): the AI chosen for 퍼레 when it is Groq's (it answers in
      * well under a second); otherwise GPT OSS 120B on Groq at its lightest thinking, then Qwen and NVIDIA as for its lines.
-     * A slow chosen AI (Antigravity, Claude …) is left to the written talk.
+     * A slow chosen AI (Antigravity, Claude …) is left to the written talk. failed gets why the last one could not answer.
      */
-    static void speedy(Context c, String instructions, String input, double temperature, java.util.function.Function<String, String> clean, Consumer<String> done, Runnable failed) {
+    static void speedy(Context c, String instructions, String input, double temperature, java.util.function.Function<String, String> clean, Consumer<String> done, Consumer<String> failed) {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
         boolean nim = store.nim.connected(), groq = GroqWork.on();
         if (!nim && !groq) { ask(c, instructions, input, temperature, 12_000, clean, done, failed); return; }
@@ -598,7 +691,7 @@ final class BuddyTalk {
     /**
      * What 퍼레 sees now. What it knows about the user (the night's profile, its discovery notes) only when this topic is about
      * them, and never a subject it said too often lately (준: "전투기이야기만 수백번 하고 있어": the profile went along every
-     * time, and the brain took its biggest subject every time).
+     * time, and the brain took its biggest subject every time), nor the user's work (BuddyMind.everyday).
      */
     private static String input(Context c, AppStore store, SharedPreferences p, String reason, String topic, java.util.List<String> said) {
         long now = System.currentTimeMillis();
@@ -608,7 +701,7 @@ final class BuddyTalk {
         boolean aboutUser = topic.startsWith("사용자에 대해") || topic.startsWith("너의 기억");
         boolean aboutSelf = topic.startsWith("너의 취향") || topic.startsWith("너 자신의") || reason.startsWith("solo:");
         java.util.Set<String> stale = dev.jun.gyeot.core.BuddyMind.staleSubjects(said);
-        String note = ""; if (aboutUser) try { note = dev.jun.gyeot.core.BuddyMind.freshLines(Briefing.profile(store), stale).strip(); } catch (RuntimeException ignored) {}
+        String note = ""; if (aboutUser) try { note = dev.jun.gyeot.core.BuddyMind.freshLines(dev.jun.gyeot.core.BuddyMind.everyday(Briefing.profile(store)), stale).strip(); } catch (RuntimeException ignored) {}
         SharedPreferences home = c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE);
         String recent = home.getString("recentLabels", "[]");
         long since = home.getLong("awaySince", 0);
@@ -684,7 +777,7 @@ final class BuddyTalk {
             if (l.isEmpty()) continue;
             if (l.length() > 70 || l.matches(".*(코인|비트코인|주식|시세|SOXL|KORU|BTC|\\$|%).*")) return null;
             // Chores are not 퍼레's to suggest (준: "자꾸 파일 정리하라는 엉뚱한 이야기를 하는데").
-            if (l.matches(".*(정리|청소|삭제|지우|백업|용량|저장 ?공간|업데이트|파일).*")) return null;
+            if (dev.jun.gyeot.core.BuddyMind.CHORES.matcher(l).find()) return null;
             // Too like a line already said (half its letter pairs or more): not this one (준: "했던말 자꾸 반복하는 경향 없애줘").
             if (p != null && dev.jun.gyeot.core.BuddyMind.repeats(l, said(p), 0.45)) return null;
             // The same subject again, worded anew (준: "자꾸 전투기 배터리 이야기를 반복해서해"): not this one either.
@@ -767,7 +860,7 @@ final class BuddyTalk {
                 if (dup) continue;
                 rememberStrong(c, kind, t, secret || dev.jun.gyeot.core.BuddyMind.secret(t));
             }
-        }, () -> {}), "gyeot-buddy-learn").start();
+        }, why -> {}), "gyeot-buddy-learn").start();
     }
     private static java.io.File memoryFile(Context c) { return new java.io.File(new java.io.File(c.getFilesDir(), "buddy"), "memory.json"); }
     static synchronized java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> memories(Context c) {
@@ -832,7 +925,7 @@ final class BuddyTalk {
                 if (!d.episode().isEmpty()) list = dev.jun.gyeot.core.BuddyMemory.add(list, System.currentTimeMillis(), "episode", d.episode(), 12 * 3_600_000L, 2, false);
                 keepMemories(c, list);
             }
-        }, () -> {}), "gyeot-buddy-dream").start();
+        }, why -> {}), "gyeot-buddy-dream").start();
     }
     static synchronized void forget(Context c, long at) { keepMemories(c, dev.jun.gyeot.core.BuddyMemory.remove(memories(c), at)); }
     static synchronized void forgetAll(Context c) { keepMemories(c, new java.util.ArrayList<>()); }

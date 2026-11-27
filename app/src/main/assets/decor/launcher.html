@@ -1352,8 +1352,9 @@ window.boardThink = why => { if (B) B.think(why); };
 window.boardCare = kind => { if (B && B.care) B.care(kind); };
 window.boardLived = (kind, key, joy, why) => { if (B) B.lived(kind, key, joy, why); };
 window.boardMemory = () => { if (B) B.settings("memory"); };
-// 퍼레's voice talk (held 퍼레): the app listens, answers and speaks in 퍼레's Typecast voice (BuddyVoice).
-window.boardVoice = () => { if (B) B.voice(); };
+// 퍼레's voice talk (held 퍼레): the app listens, answers and speaks in 퍼레's Typecast voice (BuddyVoice); seed: the typed talk
+// it goes on from (JSON [[role, text] …]), none when 퍼레 itself was held.
+window.boardVoice = seed => { if (B) B.voice(seed || "[]"); };
 window.boardVoiceStop = () => { if (B) B.voiceStop(); };
 setInterval(() => { if (B && B.home && document.visibilityState === "visible" && !document.body.classList.contains("covered")) B.home(); }, 15000);
 el("padSend").addEventListener("click", e => { e.preventDefault(); if (chatting) ask(); });
@@ -1378,7 +1379,9 @@ el("padMic").addEventListener("click", e => {
   if (voiceChat) { voiceChat = false; voiceLive = false; voiceLook("off"); if (window.boardVoiceStop) window.boardVoiceStop(); return; }
   // On at once (준: "마이크를 눌러도 변화가 없어"): the button, the box and 퍼레 show the talk before the app answers.
   voiceChat = true; voiceLive = false; voiceTurn = null; el("q").blur(); voiceLook("starting");
-  if (window.boardVoice) window.boardVoice();
+  // The voice talk goes on from what was typed: its last eight turns, each cut short.
+  const seed = thread.filter(t => !t.pending && !t.error && t.text).slice(-8).map(t => [t.who === "me" ? "user" : "assistant", String(t.text).slice(0, 200)]);
+  if (window.boardVoice) window.boardVoice(JSON.stringify(seed));
 });
 function chatVoice(state, text) {
   // A pause between two of its sentences changes nothing in the talk.
@@ -1387,7 +1390,8 @@ function chatVoice(state, text) {
   if (state === "idle" && !voiceLive) return;
   if (state === "listening" || state === "thinking" || state === "speaking") voiceLive = true;
   const q = el("q"), t = String(text || "").trim();
-  if (state === "listening") { voiceLook(state); q.value = t && t !== "…" ? t : ""; return; }
+  // "…" (words begin) and "♪" (music plays: only words with 퍼레's name are taken) are notes, not words heard.
+  if (state === "listening") { voiceLook(state); q.value = t && t !== "…" && t !== "♪" ? t : ""; return; }
   q.value = ""; voiceLook(state);
   if (state === "thinking" && t) {
     const last = thread[thread.length - 1];
@@ -1666,8 +1670,8 @@ window.launcher = {
   thought(line) { thought(line); },
   thoughtFail() { thoughtFail(); },
   life(k) { boardLife(k); },
-  /** 퍼레's voice talk as it goes; ms: how long the words being said take (the bubble types them over it). */
-  voice(state, text, ms) { boardVoiceState(state, text, ms); chatVoice(state, text); },
+  /** 퍼레's voice talk as it goes; ms: how long the words being said take (the bubble types them over it); go: what a tap on them opens. */
+  voice(state, text, ms, go) { boardVoiceState(state, text, ms, go); chatVoice(state, text); },
   env(k) { boardEnv(k); },
   /** The pages to the right changed (화면 꾸미기). */
   pages(list) { drawPages(list); },

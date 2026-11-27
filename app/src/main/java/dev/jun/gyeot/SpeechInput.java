@@ -55,7 +55,12 @@ final class SpeechInput {
         try { return Boolean.TRUE.equals(localKorean) && SpeechRecognizer.isOnDeviceRecognitionAvailable(context); }
         catch (RuntimeException unknown) { return false; }
     }
-    static Intent intent() {
+    /** The words the next listenings lean toward (core/VoiceHints: 퍼레's names, the saved places, the apps just used …); none: its names. */
+    private static volatile List<String> hints = List.of();
+    /** What the phone's recognizer leans toward from the next listening on (null or empty: 퍼레's names alone). */
+    static void hints(List<String> words) { hints = words == null ? List.of() : List.copyOf(words); }
+    /** A listening in Korean that leans toward hints (or 퍼레's three names when there are none). */
+    static Intent intent(List<String> hints) {
         return new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, LANGUAGE)
@@ -63,8 +68,9 @@ final class SpeechInput {
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             // Punctuation where the recognizer can (a "?" for a question; 준: "퍼레가 의문문을 못 알아 들어").
             .putExtra(RecognizerIntent.EXTRA_ENABLE_FORMATTING, RecognizerIntent.FORMATTING_OPTIMIZE_LATENCY)
-            // 퍼레's name, so it is not heard as 벌레 or 버려 (준: "퍼레가 자기 이름을 못알아듣고"); recognizers that cannot bias ignore it.
-            .putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, new java.util.ArrayList<>(java.util.List.of("퍼레", "퍼레야", "들퍼레")));
+            // 퍼레's name, so it is not heard as 벌레 or 버려 (준: "퍼레가 자기 이름을 못알아듣고"), and this phone's own words (집, 회사,
+            // 네이버 지도, what 퍼레 just said); recognizers that cannot bias ignore it.
+            .putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, new ArrayList<>(hints == null || hints.isEmpty() ? List.of("퍼레", "퍼레야", "들퍼레") : hints));
     }
     /** What the user is told when a recognizer error ends a listening. */
     static String reason(int error) {
@@ -90,6 +96,8 @@ final class SpeechInput {
         private SpeechRecognizer recognizer;
         private Listener listener;
         private boolean onDevice, started, finishing, done, heardSpeech;
+        /** The words this listening leans toward, as they were when it was opened. */
+        private final List<String> hints = SpeechInput.hints;
         Device(Context context) { this.context = context.getApplicationContext(); }
 
         @Override public void start(Listener listener) {
@@ -102,7 +110,7 @@ final class SpeechInput {
             // First use in this process: ask the on-device service whether Korean is installed, then listen with the answer.
             try {
                 recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context); onDevice = true;
-                recognizer.checkRecognitionSupport(intent(), context.getMainExecutor(), new RecognitionSupportCallback() {
+                recognizer.checkRecognitionSupport(intent(hints), context.getMainExecutor(), new RecognitionSupportCallback() {
                     @Override public void onSupportResult(RecognitionSupport support) { localKorean = korean(support.getInstalledOnDeviceLanguages()); decided(); }
                     @Override public void onError(int error) { localKorean = false; decided(); }
                 });
@@ -133,7 +141,7 @@ final class SpeechInput {
                 @Override public void onPartialResults(Bundle partial) { String words = first(partial); if (!done && !words.isBlank()) listener.partial(words); }
                 @Override public void onEvent(int type, Bundle params) {}
             });
-            try { recognizer.startListening(intent()); started = true; }
+            try { recognizer.startListening(intent(hints)); started = true; }
             catch (RuntimeException refused) { fail("음성 인식을 시작하지 못했어요."); return; }
             // A release before the recognizer started still ends the listening.
             if (finishing) recognizer.stopListening();

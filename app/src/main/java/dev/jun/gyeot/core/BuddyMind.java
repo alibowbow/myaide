@@ -214,9 +214,86 @@ public final class BuddyMind {
         return out.toString();
     }
 
+    // ── the user's work kept out of 퍼레's picture of them (준: "나를 이해한 바탕으로 일상적인 말걸기, 업무적인 것 말고") ──
+    /** A line of the assistant's note about work, a project or money: not for 퍼레 to bring up. */
+    private static final Pattern WORK = Pattern.compile("(작업|업무|프로젝트|업로드|편집|렌더|영상 ?제작|모델링|코딩|회의|마감|출근|주식|코인|시세)");
+    private static final Pattern HEADING = Pattern.compile("^\\s*#+\\s*(.*)$");
+    /**
+     * The assistant's note about the user (Briefing.profile: ## 하는 일·관심사, ## 진행 중인 일, ## 생활 패턴 …) without its work:
+     * the work sections left out (by their headings, loosely, as the user may have edited them: 진행 중인 일들, 진행중), and in the
+     * rest the lines on work, projects or money. A section with nothing left loses its heading too. The whole note went with
+     * every answer, and 퍼레 brought up the user's work unasked.
+     */
+    public static String everyday(String note) {
+        if (note == null || note.isBlank()) return "";
+        StringBuilder out = new StringBuilder(), section = new StringBuilder();
+        String heading = null; boolean work = false;
+        for (String line : note.split("\\n")) {
+            Matcher h = HEADING.matcher(line);
+            if (h.matches()) {
+                keep(out, heading, section); section.setLength(0);
+                heading = line.strip(); String name = h.group(1).replaceAll("\\s+", "");
+                work = name.contains("하는일") || name.contains("진행중");
+                continue;
+            }
+            if (work || line.isBlank() || WORK.matcher(line).find()) continue;
+            section.append(line).append('\n');
+        }
+        keep(out, heading, section);
+        return out.toString().strip();
+    }
+    private static void keep(StringBuilder out, String heading, StringBuilder section) {
+        if (section.length() == 0) return;
+        if (heading != null) out.append(heading).append('\n');
+        out.append(section);
+    }
+    private static final Pattern ASKS_WORK = Pattern.compile("(작업|업무|프로젝트|업로드|마감|회의|출근|회사\\s*일|(^|[\\s,])일(은|이|도)?\\s*(어때|어떻|잘|많))");
+    /** Whether the user asked about their work ("요즘 작업 잘 돼?", "일은 어때"): then the whole note goes with the answer. */
+    public static boolean asksWork(String said) { return said != null && ASKS_WORK.matcher(said).find(); }
+
     private static final Pattern NAG = Pattern.compile("(힘\\s*내|화이팅|파이팅|쉬어|쉬자|쉬엄|쉬면서|휴식|푹\\s*쉬|수고|고생\\s*했|고생\\s*많|애썼|무리\\s*하지|무리하면|잘\\s*하고\\s*있어|응원할게|응원해)");
     /** Cheering, a nudge to rest, a "well done" (준: "자꾸 화이팅하고 쉬래"): not 퍼레's to say unasked. */
     public static boolean nag(String line) { return line != null && NAG.matcher(line).find(); }
+
+    // ── what 퍼레 does not say unasked, aloud or typed (its home lines: BuddyTalk.clean) ──
+    /** Chores (준: "자꾸 파일 정리하라는 엉뚱한 이야기를 하는데"): tidying, deleting, backing up, storage, updates. */
+    public static final Pattern CHORES = Pattern.compile("(정리|청소|삭제|지우|백업|용량|저장 ?공간|업데이트|파일)");
+    private static final Pattern TIRED = Pattern.compile("(힘들|피곤|지쳤|졸려|우울|속상|아파(?!트)|슬퍼)");
+    private static final Pattern MONEY = Pattern.compile("(코인|비트코인|주식|시세)");
+    private static final Pattern MONEY_ASKED = Pattern.compile("(코인|비트코인|주식|시세|돈|가격|얼마)");
+    /** The user said they are tired, down or hurting: then a word of comfort is theirs. */
+    public static boolean tired(String said) { return said != null && TIRED.matcher(said).find(); }
+    /** The user brought up a chore ("저장공간 얼마 남았어", "사진 정리해 줘"). */
+    public static boolean raisedChores(String said) { return said != null && CHORES.matcher(said).find(); }
+    /** The user brought up money or prices. */
+    public static boolean raisedMoney(String said) { return said != null && MONEY_ASKED.matcher(said).find(); }
+    /**
+     * A sentence 퍼레 should not say to what the user said (준: "자꾸 화이팅하고 쉬래"): cheering or a nudge to rest when they did
+     * not say they were tired, a chore they did not bring up, coins or stocks when they did not ask about money. A battery's
+     * percent or the storage they asked about is an answer, not a chore.
+     */
+    public static boolean unasked(String sentence, String said) {
+        if (sentence == null || sentence.isBlank()) return false;
+        return nag(sentence) && !tired(said) || CHORES.matcher(sentence).find() && !raisedChores(said) || MONEY.matcher(sentence).find() && !raisedMoney(said);
+    }
+    private static final Pattern SENTENCE_END = Pattern.compile("(?<=[.!?~…])\\s+");
+    /**
+     * A typed answer without the sentences 퍼레 should not say (unasked), its lines and '-' lists kept as written; a line with
+     * nothing left goes. "" when nothing is left.
+     */
+    public static String keepAsked(String text, String said) {
+        if (text == null || text.isBlank()) return "";
+        List<String> lines = new ArrayList<>();
+        for (String line : text.split("\\n")) {
+            if (line.isBlank()) { if (!lines.isEmpty() && !lines.get(lines.size() - 1).isEmpty()) lines.add(""); continue; }
+            Matcher item = LIST_ITEM.matcher(line); String mark = item.find() ? item.group() : "";
+            List<String> kept = new ArrayList<>();
+            for (String s : SENTENCE_END.split(line.substring(mark.length()).strip())) if (!unasked(s, said)) kept.add(s);
+            if (!kept.isEmpty()) lines.add(mark + String.join(" ", kept));
+        }
+        return String.join("\n", lines).strip();
+    }
+    private static final Pattern LIST_ITEM = Pattern.compile("^\\s*[-•*]\\s+");
     /** The same opening as one of the last four lines (뿅!, 오늘…, 저녁…: its first word's first two letters): the same mould again. */
     public static boolean sameOpening(String line, List<String> said) {
         String first = firstWord(line); if (first.length() < 1) return false;

@@ -111,18 +111,71 @@ final class BuddyTools {
         } catch (Exception impossible) { throw new IllegalStateException(impossible); }
     }
 
+    /**
+     * 퍼레's own tools (준: "퍼레의 판단력"): its toys, clothes, plays and wishes, and what the user asks of it (remember, forget,
+     * what to call them, a quiet while). Sent only when the words are about 퍼레 (self), so most turns weigh less; a coin, dice,
+     * a pick, a sum, another city's time and the days to a day need no app but are answers, sent with the phone's.
+     */
+    static final java.util.Set<String> OWN = java.util.Set.of("buddy_toy", "buddy_outfit", "buddy_move", "buddy_wish", "remember", "forget", "call_me", "quiet");
+    /** The tools sent every turn (all but 퍼레's own), and 퍼레's own (OWN). */
+    static final JSONArray PHONE = only(false), SELF = only(true);
+    private static JSONArray only(boolean own) {
+        JSONArray out = new JSONArray();
+        for (int i = 0; i < TOOLS.length(); i++) {
+            JSONObject t = TOOLS.optJSONObject(i);
+            if (OWN.contains(t.optJSONObject("function").optString("name")) == own) out.put(t);
+        }
+        return out;
+    }
+    /**
+     * The answer to a forced retry when there is nothing to do after all (a question, small talk): the brain may say so
+     * rather than make up a tool (준: "내일 일정 뭐야" was forced into one). Never an act.
+     */
+    static final JSONObject NOTHING = fn("nothing", "부탁받은 할 일이 없을 때(질문·잡담) 부른다.", null);
+    /** The tools for what was said: the phone's, and 퍼레's own too when the words are about 퍼레 (self). */
+    static JSONArray forTurn(String said) { return self(said) ? TOOLS : PHONE; }
+    /** The tools for a retry that must call one: all of them, and NOTHING. */
+    static JSONArray orNothing() {
+        JSONArray out = new JSONArray();
+        for (int i = 0; i < TOOLS.length(); i++) out.put(TOOLS.opt(i));
+        return out.put(NOTHING);
+    }
+    /** Names of 퍼레's things that are also the phone's (손전등 켜 줘, 카메라, 노래 틀어 줘): they alone do not make the words about 퍼레. */
+    private static final java.util.Set<String> SHARED = java.util.Set.of("손전등", "플래시", "카메라", "사진기", "지도", "노래", "비행기", "정리", "안녕", "바이바이", "마이크",
+        "헤드폰", "헤드셋", "커피", "운동", "축구", "수영", "간식", "우산", "도시락", "독서");
+    /** What is asked of 퍼레 itself, without spaces: to wear, to take out or put away, to play, to remember, forget, call or be quiet. */
+    private static final java.util.regex.Pattern ABOUT_SELF = java.util.regex.Pattern.compile("입어|입자|입을래|입혀|벗어|갈아입|옷|모자|안경|꺼내|치워|장난감|놀자|놀아|놀이|해봐|보여줘|춤|노래(?:해|불러)|소원"
+        + "|퍼레(?:야)?(?:너|넌|네가)|기억해|기억해줘|기억해둬|잊어|잊지|지워줘|(?:이)?라고(?:불러|부를|해줘)|부르지마|호칭|조용히|말걸지|말걸어|말시키지");
+    /** Whether said is about 퍼레 itself: one of its things by name (two letters or more), or a thing asked of it. A wrong yes costs only a few tokens. */
+    static boolean self(String said) {
+        if (said == null) return false;
+        String bare = said.replaceAll("[\\s\\p{Punct}·…~]+", "");
+        if (bare.isEmpty()) return false;
+        if (ABOUT_SELF.matcher(bare).find()) return true;
+        for (java.util.Map<String, String> things : java.util.List.of(BuddyBoard.TOYS, BuddyBoard.CLOTHES, BuddyBoard.PLAYS))
+            for (String name : things.keySet()) { String k = name.replace(" ", ""); if (k.length() >= 2 && !SHARED.contains(k) && bare.contains(k)) return true; }
+        return false;
+    }
+
     /** The rule for the brain with tools (in place of BuddyTalk.ACTS). */
-    static final String RULE = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 안내, 지도에서 찾기, 노래·영상 찾아 틀기, 음악 멈춤·다음 곡, 알람, 타이머, 타이머 화면, 스톱워치, 손전등, 화면 방향, 소리 크기, 밝기, 방해 금지·절전 같은 설정 화면, 앱 정보 화면, 검색, 카톡으로 보내기, 문자 쓰기, 메일 쓰기, 전화 걸 준비, 카메라, 갤러리, 연락처, 녹음, 메모, 다운로드, 일정 넣기·보기, 웹 페이지 열기, 번역) 도구를 불러서 너가 직접 해. "
+    static final String RULE = rule(true);
+    /** The rule for the brain with the tools sent: 퍼레's own named only when they are (else it might call one not there). */
+    static String rule(boolean self) {
+        return "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 안내, 지도에서 찾기, 노래·영상 찾아 틀기, 음악 멈춤·다음 곡, 알람, 타이머, 타이머 화면, 스톱워치, 손전등, 화면 방향, 소리 크기, 밝기, 방해 금지·절전 같은 설정 화면, 앱 정보 화면, 검색, 카톡으로 보내기, 문자 쓰기, 메일 쓰기, 전화 걸 준비, 카메라, 갤러리, 연락처, 녹음, 메모, 다운로드, 일정 넣기·보기, 웹 페이지 열기, 번역) 도구를 불러서 너가 직접 해. "
         + "동전 던지기, 주사위, 골라 주기, 계산, 다른 나라 시각, 며칠 남았는지 세기는 답을 지어내지 말고 꼭 coin·dice·pick·calculator·world_time·count_days 도구를 불러. 답은 도구가 말해 주니 너는 '던져 볼게!'처럼 짧게만 말해. "
-        + "너(퍼레) 자신에게 하는 부탁(장난감 꺼내기, 옷 갈아입기·벗기, 춤·점프 같은 놀이)도 buddy_toy·buddy_outfit·buddy_move 도구로 직접 해. 기억해 달라·잊어 달라·이렇게 불러 달라·조용히 있어 달라는 부탁은 remember·forget·call_me·quiet 도구로 해. 못 한다고 하지 마. "
+        + (self ? "너(퍼레) 자신에게 하는 부탁(장난감 꺼내기, 옷 갈아입기·벗기, 춤·점프 같은 놀이)도 buddy_toy·buddy_outfit·buddy_move 도구로 직접 해. 기억해 달라·잊어 달라·이렇게 불러 달라·조용히 있어 달라는 부탁은 remember·forget·call_me·quiet 도구로 해. 못 한다고 하지 마. " : "")
         + "도구를 부를 때도 무엇을 하는지 짧은 대답 한 문장을 같이 말해(예: 네이버 지도 열게!). 할 일을 글로 적거나 JSON을 말하지 마. "
+        + "알람·타이머는 짧게 '알겠어!'만 말하고 alarm·timer 도구를 불러(시각·길이는 도구가 확인해서 다시 말해 줘). "
+        + "사용자가 '아니', '그거 말고', '다른 거'라고 고치면 방금 한 일을 같은 도구로 고친 값으로 다시 불러. "
         + "결제·송금처럼 도구가 없는 일은 아직 못 한다고 말해. 대답에 주소(URL)는 절대 쓰지 마. 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘는 어울리면 하나까지(반짝이·별은 빼고).\n";
+    }
 
     /** The first call as a BuddyActs act ({"tool": name, …arguments}), its name made one of ours; null when there is none. */
     static JSONObject act(JSONArray calls) {
         for (int i = 0; calls != null && i < calls.length(); i++) {
             JSONObject call = calls.optJSONObject(i); if (call == null) continue;
             String name = call.optString("name").strip(), args = call.optString("arguments").strip();
+            if (name.equals("nothing")) continue; // nothing to do (NOTHING): no act
             JSONObject a = BuddyTalk.loose("{\"tool\":" + JSONObject.quote(name) + (args.length() > 2 && args.startsWith("{") ? "," + args.substring(1) : "}"));
             if (a == null) { try { a = new JSONObject(args.isEmpty() ? "{}" : args).put("tool", name); a = BuddyTalk.loose(a.toString()); } catch (Exception broken) { a = null; } }
             if (a != null) return a;
@@ -134,7 +187,13 @@ final class BuddyTools {
             + "|스톱워치|초 ?재|시간 ?재|메모|적어|녹음|다운로드|받은 ?파일|갤러리|사진첩|앨범|연락처|계산|더하기|빼기|곱하기|나누기|퍼센트|메일|번역|동전|골라|정해 ?줘|며칠|디데이|D-?day|시차|몇 ?시야"
             + "|기억해 ?줘|기억해 ?둬|기억해$|잊어 ?줘|잊어버려|지워 ?줘|(이라고|라고) ?불러|부르지 ?마|호칭|조용히|말 ?걸지"),
         PROMISE = java.util.regex.Pattern.compile("꺼낼게|입을게|벗을게|쓸게|출게|뛸게|놀게|해 볼게|할게|줄게|열게|틀게|켤게|끌게|맞출게|찾아볼게|바꿀게|멈출게|둘게|보낼게|걸게|찍게|넣을게|시작"
-            + "|잴게|적을게|던질게|던져 볼게|굴릴게|굴려 볼게|고를게|골라 볼게|세어 볼게|셀게|계산해 볼게|번역해 볼게|기억할게|잊을게|지울게|라고 부를게|조용히 있을게");
+            + "|잴게|적을게|던질게|던져 볼게|굴릴게|굴려 볼게|고를게|골라 볼게|세어 볼게|셀게|계산해 볼게|번역해 볼게|기억할게|잊을게|지울게|라고 부를게|조용히 있을게"
+            + "|놓을게|올릴게|줄일게|낮출게|높일게|해 둘게|맞춰 둘게|틀어 줄게|찾아 줄게|알겠어|알았어");
+    /** Whether the brain's calls chose NOTHING (there was nothing to do after all). */
+    static boolean nothing(JSONArray calls) {
+        for (int i = 0; calls != null && i < calls.length(); i++) { JSONObject c = calls.optJSONObject(i); if (c != null && "nothing".equals(c.optString("name").strip())) return true; }
+        return false;
+    }
     /** The user asked for a thing on the phone and the answer says it will be done (the brain then called no tool). */
     static boolean promised(String said, String answer) {
         return said != null && answer != null && ASKED.matcher(said).find() && PROMISE.matcher(answer).find();

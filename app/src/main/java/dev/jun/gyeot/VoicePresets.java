@@ -81,6 +81,12 @@ final class VoicePresets {
     static String words(File f) {
         try { int i = Integer.parseInt(f.getName().replace(".mp3", "")); return i >= 0 && i < LINES.length ? LINES[i][1] : ""; } catch (RuntimeException unknown) { return ""; }
     }
+    /** These very words in the chosen voice ("알았어!" for a no, where "출동!" would not do); null when not made yet. */
+    static File line(Context c, AppStore store, String words) {
+        String id = store.typecast.voice().optString("id"); if (id.isBlank()) return null;
+        for (int i = 0; i < LINES.length; i++) if (LINES[i][1].equals(words)) { File f = file(c, id, i); return f.isFile() ? f : null; }
+        return null;
+    }
     /** One of this kind in the chosen voice, not one of the last few played; null when none is made yet. */
     static synchronized File pick(Context c, AppStore store, String kind) {
         String id = store.typecast.voice().optString("id"); if (id.isBlank()) return null;

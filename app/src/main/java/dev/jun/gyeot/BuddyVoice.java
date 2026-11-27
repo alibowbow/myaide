@@ -27,7 +27,12 @@ import org.json.JSONObject;
  * lives on its own (one at a time, current()) with a microphone service (BuddyVoiceService), shown on the home screen while it
  * is in front (attach) and over the other apps otherwise (BuddyOverlay). Without a Typecast key, past the month's free characters or when Typecast fails, it speaks with the
  * phone's own voice, a little higher. An answer is said sentence by sentence as it is written, the next one's sound fetched
- * while one plays (Pipe). Everything but the network and the playing sound on the main thread.
+ * while one plays (Pipe). The user can talk over it (Over: its own voice never stops it, their first words are kept), and a few
+ * words are answered on the phone with no AI (core/VoiceTurns: a bare call, 그만, 뭐라고?, 잠깐, a no). A talk goes on from the
+ * typed 퍼레와 대화 or from the last talk (start(seed)), and one brain failure asks to hear it again rather than ending it. A
+ * thing promised waits when the user cuts in ("아니 멜론으로" lets it go), a read-back can be corrected ("아니 8시로"), the next
+ * answer knows what was just done (Ask.recent), and an app opened that did not come up is said once.
+ * Everything but the network, the microphone and the playing sound on the main thread.
  */
 final class BuddyVoice {
     /**
@@ -38,6 +43,8 @@ final class BuddyVoice {
         void state(String state, String text);
         /** As state(state, text); ms, when more than 0: how long the words take to say (the bubble types them over that time). */
         default void state(String state, String text, int ms) { state(state, text); }
+        /** As state(state, text, ms); go: what a tap on these words opens ("fix:overlay" …, BuddyMisses.fixIntent), "" nothing. */
+        default void state(String state, String text, int ms, String go) { state(state, text, ms); }
     }
     /** The fingerprint before an answer that may need private memories; then runs either way (passed or not). */
     interface Unlock { void ask(Runnable then); }
@@ -47,7 +54,8 @@ final class BuddyVoice {
      * when it waits for a yes (an alarm or a timer).
      */
     record Outcome(String say, boolean leaves, org.json.JSONObject confirm) {}
-    interface Act { Outcome run(org.json.JSONObject act, String heard); }
+    /** answers: heard answers 퍼레's own read-back (BuddyActs.run); late: who hears of an app that did not come up. */
+    interface Act { Outcome run(org.json.JSONObject act, String heard, boolean answers, BuddyActs.Late late); }
     private final Context context; private final AppStore store; private final ExecutorService io = java.util.concurrent.Executors.newCachedThreadPool();
     /** The home screen while it is in front (its page shows 퍼레's state; its fingerprint); null when another app is. */
     private volatile Show screen; private volatile Unlock unlock;
@@ -61,16 +69,22 @@ final class BuddyVoice {
     private Pipe pipe;
 
     private final Act act;
-    /** The thing to do once 퍼레 has said its words, and the one waiting for a yes. */
-    private org.json.JSONObject todo, confirming; private String todoHeard = "";
+    /**
+     * The thing to do once 퍼레 has said its words (with the words that asked for it, and whether they answered 퍼레's own
+     * read-back), and the one waiting for a yes (with the question 퍼레 asked for it).
+     */
+    private org.json.JSONObject todo, confirming; private String todoHeard = "", confirmAsk = ""; private boolean todoCorrects;
     private static volatile BuddyVoice current;
     /** The one voice talk (made the first time). */
     static synchronized BuddyVoice of(Context context, AppStore store) { if (current == null) current = new BuddyVoice(context, store); return current; }
     static BuddyVoice current() { return current; }
-    private BuddyVoice(Context context, AppStore store) {
+    /** The phone's recognizer (tests put their own). */
+    static SpeechInput.Ears ears = SpeechInput.DEVICE;
+    /** A talk of its own (tests); the app uses of(). */
+    BuddyVoice(Context context, AppStore store) {
         this.context = context.getApplicationContext(); this.store = store;
         this.overlay = new BuddyOverlay(this.context, this::stop);
-        this.act = (a, heard) -> BuddyActs.run(this.context, a, heard, screen == null && overlay.shown());
+        this.act = (a, heard, answers, late) -> BuddyActs.run(this.context, a, heard, screen == null && overlay.shown(), answers, late);
     }
     boolean on() { return on; }
     /** The home screen came to the front: it shows the talk (and asks for the fingerprint); the overlay goes. */
@@ -91,13 +105,30 @@ final class BuddyVoice {
     private void show(String state, String text, int ms) {
         boolean gap = "gap".equals(state);
         lastState = state; if (!gap) lastText = text == null ? "" : text;
+        // The words that say an app did not come up open the way through it when tapped (late()).
+        String go = "speaking".equals(state) && !lateGo.isEmpty() && lastText.equals(lateLine) ? lateGo : "";
         Show s = screen;
-        if (s != null) s.state(state, gap ? "" : lastText, ms); else overlay.state(state, lastText);
+        if (s != null) s.state(state, gap ? "" : lastText, ms, go); else overlay.state(state, lastText);
     }
 
-    void start() {
+    void start() { start(null); }
+    /**
+     * A talk, going on from what came before (준: "음성상호작용을 더 강화해줘"): the turns typed in 퍼레와 대화 (seed, [[role, text]
+     * …] as JSON) when there are some, else this talk's last turns when it ended less than REMEMBER_MS ago, else none.
+     */
+    void start(String seed) {
         if (on) return;
-        on = true; silences = 0; turns.clear(); generation++; lastTalk = android.os.SystemClock.uptimeMillis();
+        List<String[]> typed = seed(seed);
+        boolean recent = endedAt != 0 && android.os.SystemClock.elapsedRealtime() - endedAt < REMEMBER_MS;
+        List<String[]> kept = !typed.isEmpty() ? typed : recent ? new ArrayList<>(turns.subList(Math.max(0, turns.size() - SEED_TURNS), turns.size())) : List.of();
+        turns.clear(); turns.addAll(kept);
+        // What was done last goes on with the talk it was done in (its own two minutes still count).
+        if (!(recent && typed.isEmpty())) lastAct = null;
+        held = null; meant = null; pendingAsk = null; heardNow = false; lateLine = ""; lateGo = "";
+        on = true; silences = 0; failures = 0; generation++; lastTalk = android.os.SystemClock.uptimeMillis(); talkFrom = lastTalk;
+        // What 퍼레's echo sounds like is learned afresh for this talk (the phone may be in another room, or on a speaker now).
+        barge = new dev.jun.gyeot.core.BargeIn(); cutAt = 0; lastLine = ""; lastSound = null; answers = 0;
+        music = false; overMusic = false; saidAt = 0; hintsFor("");
         store.buddyTalking = true; store.changed();
         BuddyVoiceService.start(context);
         if (screen == null) overlay.show();
@@ -105,8 +136,26 @@ final class BuddyVoice {
         VoicePresets.prepare(context, store);
         // The user's voice known and Whisper at hand: 퍼레 listens itself, to know whose voice it is (준: "내 목소리를 알아볼 수 있게해줘").
         voice = BuddyTalk.voice(context); ownEar = voice.ready() && GroqWork.on(); ownBroken = false; deviceOff = false; heardSome = false;
-        if (!ownEar && !SpeechInput.DEVICE.available(context)) { end("error", "이 휴대폰에서는 음성 인식을 쓸 수 없어요"); return; }
+        if (!ownEar && !ears.available(context)) { end("error", "이 휴대폰에서는 음성 인식을 쓸 수 없어요"); return; }
         listen();
+    }
+    /** How long after a talk ended its turns are still there for the next one, and how many of them (typed ones too) go on. */
+    static final long REMEMBER_MS = 10 * 60_000L; static final int SEED_TURNS = 8;
+    /** When the last talk ended (elapsed ms since boot, sleep included; 0: none yet). */
+    long endedAt;
+    /** The turns typed in 퍼레와 대화 (JSON [[role, text] …]), the last SEED_TURNS, each cut to 200 letters; none when unreadable. */
+    static List<String[]> seed(String json) {
+        List<String[]> out = new ArrayList<>();
+        if (json == null || json.isBlank()) return out;
+        try {
+            JSONArray a = new JSONArray(json);
+            for (int i = 0; i < a.length(); i++) {
+                JSONArray t = a.optJSONArray(i); if (t == null) continue;
+                String text = t.optString(1, "").strip(); if (text.isEmpty()) continue;
+                out.add(new String[]{"user".equals(t.optString(0)) ? "user" : "assistant", text.length() > 200 ? text.substring(0, 200) : text});
+            }
+        } catch (Exception unreadable) { /* none */ }
+        return new ArrayList<>(out.subList(Math.max(0, out.size() - SEED_TURNS), out.size()));
     }
     private volatile dev.jun.gyeot.core.VoicePrint.Profile voice; private boolean ownEar, ownBroken; private VoiceCapture capture;
     /** The phone's recognizer could not hear over another app (an error, or only silence before anything was heard): 퍼레's own ear from then on. */
@@ -118,18 +167,29 @@ final class BuddyVoice {
 
     private void listen() {
         if (!on) return;
-        stopOver();
-        closeEar(); listenAt = android.os.SystemClock.uptimeMillis();
+        // One microphone at a time: the one that listened over 퍼레 lets it go first (a frame, 300 ms at most).
+        stopOver(); overGone();
+        closeEar(); listenAt = android.os.SystemClock.uptimeMillis(); heardNow = false;
         int mine = generation;
-        show("listening", "");
+        prepareCues(); checkMusic();
+        SpeechInput.hints(hints);
         // The phone's own recognizer first, also over another app (준: "다른 앱 위에서도 휴대폰 기본 음성인식 먼저 쓰기"); 퍼레's own
         // ear when the user's voice is known (it needs the sound) or when the recognizer could not hear there.
-        if (ownEar || deviceOff && !ownBroken && GroqWork.on()) { listenOwn(mine); return; }
-        ear = SpeechInput.DEVICE.open(context);
+        if (ownEar || deviceOff && !ownBroken && GroqWork.on()) { show("listening", idle()); listenOwn(mine); return; }
+        // The recognizer shows it listens once it is ready to hear (ready()), so words said before that are not lost; until then
+        // what 퍼레 said stays with its mouth at rest.
+        if ("speaking".equals(lastState)) show("gap", ""); else if (!"gap".equals(lastState) && !"listening".equals(lastState)) show("thinking", "");
+        ear = ears.open(context);
         boolean[] some = {false};
         ear.start(new SpeechInput.Listener() {
-            @Override public void ready() {}
-            @Override public void partial(String words) { if (on && mine == generation) { if (words != null && !words.isBlank()) some[0] = true; show("listening", BuddyTalk.heard(context, words)); } }
+            @Override public void ready() { if (on && mine == generation) show("listening", idle()); }
+            @Override public void partial(String words) {
+                if (!on || mine != generation || words == null || words.isBlank()) return;
+                // Over music, a song's words are neither shown nor taken for words not made out.
+                String heard = BuddyTalk.heard(context, words);
+                if (gate(heard) == null) return;
+                some[0] = true; heardNow = true; show("listening", heard);
+            }
             @Override public void ended() {}
             @Override public void heard(String words) {
                 if (!on || mine != generation) return;
@@ -137,7 +197,10 @@ final class BuddyVoice {
                 closeEar();
                 if (words == null || words.isBlank()) { quiet(some[0]); return; }
                 if (screen == null && guidance(words)) { quiet(false); return; } // the navigation app's own voice
-                heardSome = true; silences = 0; micSince = 0; filler(); think(BuddyTalk.heard(context, words.strip()), false);
+                String said = gate(BuddyTalk.heard(context, words.strip()));
+                if (said == null) { passed(); return; } // a song's words over the music, not said to 퍼레
+                // Words 퍼레 answers itself (core/VoiceTurns) have no "음…" before them.
+                heardSome = true; silences = 0; micSince = 0; if (turn(said, false) == dev.jun.gyeot.core.VoiceTurns.Kind.NONE) filler(); think(said, false);
             }
             @Override public void failed(String reason) {
                 if (!on || mine != generation) return;
@@ -156,7 +219,7 @@ final class BuddyVoice {
      */
     private void listenOwn(int mine) {
         capture = VoiceCapture.start(7000, new VoiceCapture.Heard() {
-            @Override public void speech(short[] pcm) { if (on && mine == generation) { capture = null; heardAt = android.os.SystemClock.uptimeMillis(); filler(); hear(pcm, mine); } }
+            @Override public void speech(short[] pcm) { if (on && mine == generation) { capture = null; heardAt = android.os.SystemClock.uptimeMillis(); if (!gated()) filler(); hear(pcm, mine, false); } }
             @Override public void silent() { if (on && mine == generation) { capture = null; quiet(false); } }
             @Override public void failed(String why) {
                 if (!on || mine != generation) return;
@@ -165,29 +228,41 @@ final class BuddyVoice {
                 if (VoiceCapture.SILENCED.equals(why)) { if (!waitForMicrophone(why)) end("error", micWords()); return; }
                 ownEar = false; ownBroken = true; listen();
             }
-            @Override public void began() { if (on && mine == generation) show("listening", "…"); }
+            @Override public void began() { if (on && mine == generation) { heardNow = true; show("listening", gated() ? "♪" : "…"); } }
         });
     }
-    private void hear(short[] pcm, int mine) {
-        show("thinking", "");
+    /**
+     * What was said, to Whisper and VoicePrint. fromOverMic: from the microphone that listened over 퍼레 (the call's, with the
+     * echo canceller), which sounds unlike the one the voice was enrolled with: there a voice unlike the user's is not taken
+     * for a guest, and nothing is learned (the owner must never become a guest).
+     */
+    private void hear(short[] pcm, int mine, boolean fromOverMic) {
+        // Over music it is not known yet whether this was said to 퍼레: the note stays until it is.
+        if (!gated()) show("thinking", "");
         dev.jun.gyeot.core.VoicePrint.Profile known = voice;
+        String prompt = dev.jun.gyeot.core.VoiceHints.prompt(lastLine, hints);
         try {
             io.execute(() -> {
                 float[] mark = dev.jun.gyeot.core.VoicePrint.mark(pcm);
                 dev.jun.gyeot.core.VoicePrint.Who who = dev.jun.gyeot.core.VoicePrint.who(known, mark);
-                if (who == dev.jun.gyeot.core.VoicePrint.Who.OWNER) { dev.jun.gyeot.core.VoicePrint.Profile learned = known.learn(mark); voice = learned; BuddyTalk.voice(context, learned); }
+                if (fromOverMic && who == dev.jun.gyeot.core.VoicePrint.Who.STRANGER) who = dev.jun.gyeot.core.VoicePrint.Who.UNSURE;
+                if (who == dev.jun.gyeot.core.VoicePrint.Who.OWNER && !fromOverMic) { dev.jun.gyeot.core.VoicePrint.Profile learned = known.learn(mark); voice = learned; BuddyTalk.voice(context, learned); }
+                boolean guest = who == dev.jun.gyeot.core.VoicePrint.Who.STRANGER;
                 String words;
-                try { words = GroqWork.words(dev.jun.gyeot.core.Utterance.wav(pcm, dev.jun.gyeot.core.WakeWord.RATE), whisper); } catch (Exception failed) { words = null; }
+                try { words = GroqWork.words(dev.jun.gyeot.core.Utterance.wav(pcm, dev.jun.gyeot.core.WakeWord.RATE), prompt, whisper); } catch (Exception failed) { words = null; }
                 // The voice went up at the end: a question, though the words carry no "?" (준: "음악소리들려? 라고 말하면 음악소리들려로 알아들어").
                 if (words != null && !words.isBlank() && !words.strip().endsWith("?") && dev.jun.gyeot.core.Intonation.rising(pcm)) words = words.strip().replaceAll("[.!。]+$", "") + "?";
                 String got = words == null ? null : BuddyTalk.heard(context, words);
                 main.post(() -> {
                     if (!on || mine != generation) return;
-                    if (got == null) { ownEar = false; ownBroken = true; listen(); return; }
+                    // Whisper could not make it out at all: "다시 말해 줄래?", then the phone's recognizer listens from now on.
+                    if (got == null) { ownEar = false; ownBroken = true; cue("again", true, () -> main.postDelayed(() -> { if (on && mine == generation) listen(); }, 150)); return; }
                     if (got.isBlank()) { quiet(false); return; }
                     if (screen == null && guidance(got)) { quiet(false); return; }
+                    String said = gate(got);
+                    if (said == null) { passed(); return; }
                     wordsAt = android.os.SystemClock.uptimeMillis();
-                    heardSome = true; silences = 0; micSince = 0; think(got, who == dev.jun.gyeot.core.VoicePrint.Who.STRANGER);
+                    heardSome = true; silences = 0; micSince = 0; think(said, guest);
                 });
             });
         } catch (RuntimeException stopped) { end("error", ""); }
@@ -230,6 +305,72 @@ final class BuddyVoice {
         main.postDelayed(() -> { if (on && mine == generation) listen(); }, 4000);
         return true;
     }
+    // ── music playing over another app, and the words the ears are told (core/VoiceHints) ──
+    /**
+     * Whether music plays (another app's), and whether it plays while 퍼레 is over another app: then only words with its name,
+     * or a few said to the music itself, get through (준: a song's words were answered). Learned when a listening starts,
+     * while 퍼레 makes no sound of its own; main thread.
+     */
+    private boolean music, overMusic;
+    /** When 퍼레 last finished saying an answer (uptime ms): just after a question of its own, the reply needs no name. */
+    private long saidAt;
+    /** How long after 퍼레 asked something the words heard are taken as the reply, music or not. */
+    static final long REPLY_MS = 8000;
+    /** How music is known (tests put their own). */
+    static java.util.function.Predicate<Context> musicCheck = BuddyVoice::musicOn;
+    /** Whether music plays now, learned on io while 퍼레 is silent (its own sound would count); the note in the bubble follows. */
+    private void checkMusic() {
+        if (cue != null || pipe != null || player != null) return;
+        java.util.function.Predicate<Context> check = musicCheck;
+        try {
+            io.execute(() -> {
+                boolean m; try { m = check.test(context); } catch (RuntimeException unknown) { m = false; }
+                boolean playing = m;
+                main.post(() -> {
+                    if (!on) return;
+                    boolean was = gated(); music = playing; overMusic = playing && screen == null;
+                    if (gated() != was && "listening".equals(lastState) && (lastText.isEmpty() || "♪".equals(lastText))) show("listening", idle());
+                });
+            });
+        } catch (RuntimeException stopped) { /* the talk ended */ }
+    }
+    /** Words without 퍼레's name are let go now: music plays over another app, and nothing waits for a reply. */
+    private boolean gated() {
+        if (!overMusic || screen != null || confirming != null) return false;
+        boolean asked = voiced(lastLine).endsWith("?") && android.os.SystemClock.uptimeMillis() - saidAt < REPLY_MS;
+        return !asked;
+    }
+    /** What a listening shows before words come: a note while the song's words are let go (VoiceHints.musicGate). */
+    private String idle() { return gated() ? "♪" : ""; }
+    /** What of said gets through (core/VoiceHints.musicGate): all of it, the request after 퍼레's name, or null for a song's words. */
+    private String gate(String said) { return gated() ? dev.jun.gyeot.core.VoiceHints.musicGate(said, true) : said; }
+    /** A song's words let go: listening goes on, and the talk still ends after its quiet (lastTalk is left as it was). */
+    private void passed() {
+        store.phoneLog("● 퍼레 음성: 음악 중 이름 없는 말 넘김");
+        heardSome = true; quiet(false);
+    }
+    /** The words both ears lean toward (core/VoiceHints), made on io for what comes after line. */
+    private volatile List<String> hints = List.of();
+    private void hintsFor(String line) {
+        try { io.execute(() -> hints = hints(context, store, line)); } catch (RuntimeException stopped) { /* the talk ended */ }
+    }
+    /** 퍼레's names, the saved places' names, the apps just used, 퍼레's toys, clothes and plays, the names in line. Off the main thread. */
+    static List<String> hints(Context c, AppStore store, String line) {
+        List<String> names = new ArrayList<>(List.of("퍼레", "퍼레야", "들퍼레"));
+        List<String> places = new ArrayList<>();
+        try { for (dev.jun.gyeot.core.SavedPlaces.Saved p : store.savedPlaces()) { places.addAll(p.words()); places.add(p.name()); } } catch (RuntimeException unreadable) {}
+        List<String> labels = new ArrayList<>();
+        try {
+            JSONArray recent = new JSONArray(c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).getString("recentLabels", "[]"));
+            for (int i = 0; i < recent.length(); i++) labels.add(recent.optString(i));
+        } catch (Exception unreadable) {}
+        List<String> own = new ArrayList<>();
+        for (Map<String, String> things : List.of(BuddyBoard.TOYS, BuddyBoard.PLAYS, BuddyBoard.CLOTHES)) {
+            java.util.Set<String> kinds = new java.util.HashSet<>();
+            for (Map.Entry<String, String> e : things.entrySet()) if (!e.getValue().isEmpty() && kinds.add(e.getValue()) && kinds.size() <= 10) own.add(e.getKey());
+        }
+        return dev.jun.gyeot.core.VoiceHints.build(names, places, labels, own, line);
+    }
     /** Words heard over a navigation app that are its own guidance, not the user's ("300미터 앞에서 우회전입니다"). */
     static boolean guidance(String said) {
         if (said == null) return false;
@@ -249,51 +390,203 @@ final class BuddyVoice {
      */
     private void quiet(boolean misheard) {
         closeEar();
+        // Cut short with a thing promised, then nothing said: it is done after all (think() lets it go on a correction).
+        if (held != null && !misheard) { doHeld(); return; }
         // Over another app the recognizer may get only silence: before ending, 퍼레's own ear gets one more try.
         if (silences + 1 >= 2 && !heardSome && ownEarCanTakeOver()) { deviceOff = true; main.postDelayed(this::listen, 150); return; }
         if (screen == null && !misheard && micTaken() && switchEar()) return;
         silences++;
         long now = android.os.SystemClock.uptimeMillis();
-        if (now - lastTalk >= (screen == null ? QUIET_OVER : QUIET_HOME)) { end("done", "또 불러 줘!"); return; }
+        if (now - lastTalk >= (screen == null ? QUIET_OVER : QUIET_HOME)) { end("done", BYE_WORDS); return; }
         int mine = generation;
         Runnable again = () -> { if (on && mine == generation) listen(); };
         // Words that were not made out: "응? 다시 말해 줄래?" in its own voice (after the sound, so it does not hear itself).
         // Silence: it waits quietly. A recognizer that gave up at once is not asked again at once.
-        if (misheard) { String said = cue("again", () -> main.postDelayed(again, 150)); if (said != null) show("speaking", said, (int) Math.max(0, cueEnds - android.os.SystemClock.uptimeMillis())); return; }
+        if (misheard) { cue("again", true, () -> main.postDelayed(again, 150)); return; }
         main.postDelayed(again, now - listenAt < 1500 ? 1200 : 250);
     }
 
     // ── 퍼레's short words, at once (VoicePresets) ──
-    private MediaPlayer cue; private volatile long cueEnds;
+    /**
+     * One of 퍼레's short words: its file opened on io and prepared asynchronously (never on the main thread's way), played
+     * once. The ones a listening may need next (think, again) are made ahead as it starts (prepareCues), so they start at once.
+     * Main thread.
+     */
+    private final class Cue {
+        final File file; final String words;
+        private MediaPlayer p; private boolean prepared, playing, over, shows; private Runnable after;
+        Cue(File file) {
+            this.file = file; this.words = VoicePresets.words(file);
+            try { io.execute(this::open); } catch (RuntimeException stopped) { over = true; }
+        }
+        private void open() {
+            MediaPlayer m = new MediaPlayer();
+            try { m.setAudioAttributes(Speech.ATTRIBUTES); m.setDataSource(file.getPath()); }
+            catch (Exception broken) { m.release(); main.post(this::ended); return; }
+            main.post(() -> opened(m));
+        }
+        private void opened(MediaPlayer m) {
+            if (over) { m.release(); return; }
+            p = m;
+            m.setOnPreparedListener(x -> { prepared = true; if (playing) start(); });
+            m.setOnCompletionListener(x -> ended());
+            m.setOnErrorListener((x, what, extra) -> { ended(); return true; });
+            try { m.prepareAsync(); } catch (RuntimeException broken) { ended(); }
+        }
+        /** Plays it as soon as it is prepared (shown as 퍼레 speaking when shows), then after. */
+        void play(boolean shows, Runnable after) {
+            if (over) { if (cue == this) cue = null; if (after != null) after.run(); return; }
+            this.shows = shows; this.after = after; playing = true;
+            // Not prepared yet: the answer waits a little for it (the player looks at cueEnds again until it has started).
+            cueEnds = android.os.SystemClock.uptimeMillis() + 600;
+            if (prepared) start();
+        }
+        private void start() {
+            if (over || cue != this) return;
+            try { focus(true); p.start(); } catch (RuntimeException broken) { ended(); return; }
+            int ms = Math.max(200, p.getDuration());
+            cueEnds = android.os.SystemClock.uptimeMillis() + ms;
+            if (shows) show("speaking", words, ms);
+        }
+        /** Said to its end (or it could not be): let go, then after. */
+        private void ended() {
+            if (over) return;
+            boolean was = playing; let();
+            if (was) { if (!on && player == null && pipe == null) focus(false); if (after != null) after.run(); }
+        }
+        /** Let go without after (cut short, or made ahead and not needed). */
+        void let() {
+            over = true;
+            if (cue == this) { cue = null; cueEnds = 0; }
+            cues.values().remove(this);
+            MediaPlayer m = p; p = null;
+            if (m != null) { try { m.stop(); } catch (RuntimeException ignored) {} try { m.release(); } catch (RuntimeException ignored) {} }
+        }
+    }
+    /** The short word playing (or about to), and the ones made ahead by kind. */
+    private Cue cue; private volatile long cueEnds;
+    private final Map<String, Cue> cues = new java.util.HashMap<>();
+    /** The short words a listening may need next, made ahead: "음…" when the user stops, "다시 말해 줄래?" when unclear. */
+    private void prepareCues() {
+        for (String kind : new String[]{"think", "again"}) {
+            if (cues.containsKey(kind)) continue;
+            File f = VoicePresets.pick(context, store, kind);
+            if (f != null) cues.put(kind, new Cue(f));
+        }
+    }
     /** A sound while the answer is made, right as the user stops talking (most turns, a different one each time). */
-    private void filler() { if (Math.random() < .8) cue("think", null); }
-    /** One of 퍼레's short words of this kind, then after (on the main thread; at once when none is made yet); the words said, or null. */
-    private String cue(String kind, Runnable after) {
-        java.io.File f = VoicePresets.pick(context, store, kind);
-        if (f == null) { if (after != null) after.run(); return null; }
-        stopCue();
+    private void filler() { if (Math.random() < .8) cue("think", false, null); }
+    /** The kind of the short word asked for last (tests). */
+    String cued = "";
+    /**
+     * One of 퍼레's short words of this kind (made ahead when it was), shown as it starts when shows; then after (on the main
+     * thread; at once when none is made yet). The words, or null when there were none.
+     */
+    private String cue(String kind, boolean shows, Runnable after) {
+        cued = kind;
+        Cue c = cues.remove(kind);
+        if (c == null) { File f = VoicePresets.pick(context, store, kind); if (f != null) c = new Cue(f); }
+        return cue(c, shows, after);
+    }
+    private String cue(Cue c, boolean shows, Runnable after) {
+        if (c == null) { if (after != null) after.run(); return null; }
+        stopCue(); cue = c; c.play(shows, after);
+        return c.words;
+    }
+    private void stopCue() { Cue c = cue; cue = null; cueEnds = 0; if (c != null) c.let(); }
+    // ── a few words answered on the phone, with no AI and no Typecast (core/VoiceTurns) ──
+    /** How long after the user cut 퍼레 short "잠깐" is a wait, not talk. */
+    static final long JUST_CUT = 3000;
+    /** When the user last spoke over 퍼레 (uptime ms; 0: not in this talk). */
+    private long cutAt;
+    /** What 퍼레 said last, and its sound when the whole of it came streamed (to say it again just as it was). */
+    private String lastLine = ""; private Sound lastSound;
+    private record Sound(byte[] pcm, int rate) {}
+    /** What said is, of the words 퍼레 answers itself; musicOn: whether music plays (only a bare 그만 asks). */
+    private dev.jun.gyeot.core.VoiceTurns.Kind turn(String said, boolean musicOn) {
+        boolean cut = cutAt != 0 && android.os.SystemClock.uptimeMillis() - cutAt < JUST_CUT;
+        return dev.jun.gyeot.core.VoiceTurns.of(said, cut, confirming != null, musicOn);
+    }
+    /** Music from another app is playing (its media session, else any media sound but this app's own speech). Off the main thread. */
+    static boolean musicOn(Context context) {
+        Boolean playing = BuddyTalk.musicPlaying(context);
+        if (playing != null) return playing;
         try {
-            MediaPlayer p = new MediaPlayer(); cue = p;
-            p.setAudioAttributes(Speech.ATTRIBUTES); p.setDataSource(f.getPath());
-            Runnable finished = () -> { cueEnds = 0; if (cue == p) cue = null; try { p.release(); } catch (RuntimeException ignored) {} if (!on && player == null && pipe == null) focus(false); if (after != null) after.run(); };
-            p.setOnCompletionListener(x -> finished.run());
-            p.setOnErrorListener((x, what, extra) -> { finished.run(); return true; });
-            p.prepare(); focus(true); p.start();
-            cueEnds = android.os.SystemClock.uptimeMillis() + Math.max(200, p.getDuration());
-            return VoicePresets.words(f);
-        } catch (Exception failed) { stopCue(); if (after != null) after.run(); return null; }
+            AudioManager am = context.getSystemService(AudioManager.class);
+            if (am != null) for (android.media.AudioPlaybackConfiguration c : am.getActivePlaybackConfigurations())
+                if (c.getAudioAttributes().getUsage() == AudioAttributes.USAGE_MEDIA) return true;
+        } catch (RuntimeException unknown) { /* not known: not playing */ }
+        return false;
     }
-    private void stopCue() {
-        MediaPlayer p = cue; cue = null; cueEnds = 0;
-        if (p != null) { try { p.stop(); } catch (RuntimeException ignored) {} try { p.release(); } catch (RuntimeException ignored) {} }
+    /**
+     * The words 퍼레 answers itself (준: "음성상호작용을 더 강화해줘"): true when said was one of them. A bare call: "불렀어?" and it
+     * listens. An end: a goodbye, the talk ends. 그만 with music playing: the music stops. "뭐라고?": the last answer again, as
+     * it sounded. "잠깐" right after the user cut it short: it just listens. A no to an alarm or a timer waiting for a yes.
+     */
+    private boolean answeredHere(String said, boolean guest) {
+        dev.jun.gyeot.core.VoiceTurns.Kind kind = turn(said, false);
+        if (kind == dev.jun.gyeot.core.VoiceTurns.Kind.BYE) kind = turn(said, music);
+        int mine = generation;
+        Runnable listens = () -> main.postDelayed(() -> { if (on && mine == generation) listen(); }, 150);
+        switch (kind) {
+            case CALL -> { show("thinking", said); cue("hello", true, listens); }
+            case BYE -> { show("thinking", said); turns.add(new String[]{"user", said}); end("done", BYE_WORDS); }
+            case PAUSE -> {
+                if (guest || act == null) return false;
+                show("thinking", said);
+                try { doNow(new JSONObject().put("tool", "media").put("command", "pause"), said); } catch (org.json.JSONException never) { listen(); }
+            }
+            case REPEAT -> {
+                if (lastLine.isBlank()) return false;
+                show("thinking", said); sayAgain();
+            }
+            case HUSH -> listen();
+            case NO -> {
+                confirming = null; confirmAsk = ""; show("thinking", said);
+                turns.add(new String[]{"user", said}); turns.add(new String[]{"assistant", "알았어, 안 할게."});
+                File okay = VoicePresets.line(context, store, "알았어!");
+                cue(okay == null ? null : new Cue(okay), true, listens);
+            }
+            default -> { return false; }
+        }
+        return true;
     }
+    /** The last answer again: its own sound when all of it came streamed, else said anew. */
+    private void sayAgain() {
+        Sound s = lastSound; String line = lastLine;
+        if (s == null) { say(line); return; }
+        Pipe p = pipe(); p.again(line, s.pcm(), s.rate()); p.close();
+    }
+    /** What a talk ended by the user says last (a goodbye in 퍼레's own voice when one is made). */
+    static final String BYE_WORDS = "또 불러 줘!";
     /** guest: not the user's voice; the fingerprint, when what was asked needs it, shows it was the user after all. */
     private void think(String said, boolean guest) {
-        lastTalk = android.os.SystemClock.uptimeMillis();
-        // An alarm or a timer waiting for a yes: this was the answer.
+        long now = android.os.SystemClock.uptimeMillis();
+        lastTalk = now;
+        // A voice not the user's: the talk so far (typed, or kept from the last talk), and what was done in it, are not theirs to go on from.
+        if (guest) { turns.clear(); lastAct = null; meant = null; pendingAsk = null; }
+        // A thing promised when the user cut in (talkedOver): a correction or a wait lets it go (the answer is told what it
+        // was), a yes does it, other words have it done first and are answered after.
+        org.json.JSONObject h = held; held = null;
+        if (h != null && act != null) {
+            dev.jun.gyeot.core.VoiceTurns.Kind k = turn(said, false);
+            if (k == dev.jun.gyeot.core.VoiceTurns.Kind.NO || k == dev.jun.gyeot.core.VoiceTurns.Kind.HUSH || dev.jun.gyeot.core.VoiceTurns.corrects(said)) {
+                meant = h;
+                BuddyMisses.add(context, said, BuddyActs.about(h), "하기 전에 고쳐 말해서 안 했어요", "", BuddyMisses.CORRECTED);
+                store.phoneLog("● 퍼레 음성: 하려던 일을 고쳐 말해서 안 함 (" + BuddyActs.about(h) + ")");
+            } else if (dev.jun.gyeot.core.DeviceActions.affirmative(said)) { show("thinking", said); doNow(h, heldHeard, heldCorrects); return; }
+            else { show("thinking", said); doFirst(h, heldHeard, heldCorrects, said, () -> think(said, guest)); return; }
+        } else if (lastAct != null && now - lastAct.at() < CORRECT_MS && dev.jun.gyeot.core.VoiceTurns.corrects(said)) {
+            // What was just done, said to be the wrong thing ("아니 멜론으로"): kept, and the answer does it again the way said.
+            BuddyMisses.add(context, said, lastAct.what(), "방금 한 일을 고쳐 말했어요", "", BuddyMisses.CORRECTED);
+        }
+        if (answeredHere(said, guest)) return;
+        // An alarm or a timer waiting for a yes: this was the answer. Neither a yes nor a no (answeredHere) may correct it
+        // ("아니 8시로"): the next answer is told what was asked, and the same thing with the values said is set at once.
         if (confirming != null) {
-            org.json.JSONObject waiting = confirming; confirming = null;
+            org.json.JSONObject waiting = confirming; String asked = confirmAsk; confirming = null; confirmAsk = "";
             if (!guest && act != null && dev.jun.gyeot.core.DeviceActions.affirmative(said)) { show("thinking", said); doNow(waiting, said); return; }
+            if (!guest) pendingAsk = new Pending(asked, waiting);
         }
         if (unlock != null && BuddyTalk.needsUnlock(context, said)) {
             show("thinking", said); int mine = generation;
@@ -302,17 +595,69 @@ final class BuddyVoice {
         }
         answer(said, guest);
     }
+    /** How many of the user's words went to the brain in this talk (the words 퍼레 answers itself never do). */
+    int answers;
+    /** How 퍼레's brain is asked for an answer (tests put their own). */
+    static java.util.function.BiConsumer<Context, BuddyTalk.Ask> brain = BuddyTalk::reply;
+    /** The brain's failures in a row in this talk: the first asks to hear it again, the second ends the talk. */
+    private int failures;
+    /** Thinking this long after the words with no sound yet: one more "음…" (once a turn). */
+    static final long STILL_MS = 3500;
+    /** The turn whose answer is awaited (answers' count then; 0: none). */
+    private int awaited;
     private void answer(String said, boolean guest) {
+        int turn = ++answers; awaited = turn;
         show("thinking", said);
         int mine = generation;
         List<String[]> before = new ArrayList<>(turns);
-        try {
-            partsUsed = false; answeredAt = 0;
-            io.execute(() -> BuddyTalk.reply(context, said, before, guest, guest || act == null ? null : a -> main.post(() -> { if (on && mine == generation) { todo = a; todoHeard = said; } }),
-                part -> main.post(() -> { if (on && mine == generation) sayPart(part); }),
-                line -> main.post(() -> { if (on && mine == generation) { if (answeredAt == 0) answeredAt = android.os.SystemClock.uptimeMillis(); turns.add(new String[]{"user", said}); turns.add(new String[]{"assistant", line}); finish(line); } }),
-                () -> main.post(() -> { if (on && mine == generation) end("error", "지금은 대답이 안 떠올라. 조금 있다 다시 불러 줘"); })));
-        } catch (RuntimeException stopped) { end("error", ""); }
+        partsUsed = false; answeredAt = 0;
+        Pending asked = pendingAsk; String recent = recent(guest); pendingAsk = null;
+        // A guest's words never do a thing on the phone. The same thing as the read-back they answered: their values are enough.
+        BuddyTalk.Ask ask = new BuddyTalk.Ask(said, before, guest, guest || act == null ? null : a -> main.post(() -> {
+                if (on && mine == generation) { todo = a; todoHeard = said; todoCorrects = asked != null && asked.act().optString("tool").equals(a.optString("tool")); }
+            }),
+            part -> main.post(() -> { if (on && mine == generation) sayPart(part); }),
+            line -> main.post(() -> { if (on && mine == generation) answered(said, line); }),
+            why -> main.post(() -> { if (on && mine == generation) brainFailed(said, why); }), true, recent);
+        java.util.function.BiConsumer<Context, BuddyTalk.Ask> b = brain;
+        try { io.execute(() -> b.accept(context, ask)); } catch (RuntimeException stopped) { end("error", ""); return; }
+        // Still thinking well after the words (a slow brain, a long tool): one more short sound, so 퍼레 does not go quiet.
+        long now = android.os.SystemClock.uptimeMillis(), from = wordsAt != 0 && now - wordsAt < STILL_MS ? wordsAt : now;
+        main.postDelayed(() -> {
+            if (on && mine == generation && awaited == turn && "thinking".equals(lastState) && cue == null && (pipe == null || !pipe.begun)) cue("think", false, null);
+        }, from + STILL_MS - now);
+    }
+    /**
+     * The brain's whole answer: into the talk and said. Nothing to say (every sentence was one 퍼레 does not say unasked) and
+     * nothing to do: a little sound, and it listens.
+     */
+    private void answered(String said, String line) {
+        failures = 0; awaited = 0;
+        if (answeredAt == 0) answeredAt = android.os.SystemClock.uptimeMillis();
+        turns.add(new String[]{"user", said});
+        if ((line == null || line.isBlank()) && !partsUsed) {
+            org.json.JSONObject now = todo; todo = null;
+            if (now != null && act != null) { doNow(now, todoHeard, todoCorrects); return; }
+            int mine = generation;
+            cue("react", true, () -> main.postDelayed(() -> { if (on && mine == generation) listen(); }, 150));
+            return;
+        }
+        turns.add(new String[]{"assistant", line});
+        finish(line);
+    }
+    /**
+     * No brain could answer (why: "Groq HTTP 429", "시간 초과 8초" …): kept in 퍼레가 못 한 일 and the app's log; the first time
+     * "다시 말해 줄래?" and it listens, the second time in a row the talk ends.
+     */
+    private void brainFailed(String said, String why) {
+        failures++; awaited = 0;
+        String reason = why == null || why.isBlank() ? "답 없음" : why;
+        BuddyMisses.add(context, said, "음성 대화 두뇌", reason + " (" + new java.text.SimpleDateFormat("HH:mm", Locale.KOREA).format(new java.util.Date()) + ")", "");
+        store.phoneLog("● 퍼레 음성: 두뇌가 답하지 못함 (" + reason + ")" + (failures >= 2 ? " · 두 번째라 끝내요" : " · 다시 들어요"));
+        if (failures >= 2) { end("error", "지금은 대답이 안 떠올라. 조금 있다 다시 불러 줘"); return; }
+        if (pipe != null) { pipe.close(); return; } // some of it was said after all: the talk goes on after it
+        int mine = generation;
+        cue("again", true, () -> main.postDelayed(() -> { if (on && mine == generation) listen(); }, 150));
     }
     // ── the answer said as it is written (준: "음성대화 너무 느려"): each sentence fetched while the one before it plays ──
     private boolean partsUsed, saying;
@@ -325,14 +670,29 @@ final class BuddyVoice {
     private void finish(String line) {
         Pipe p = pipe();
         if (!partsUsed) p.add(line);
+        lastSaid(line);
         p.close();
     }
     /** A line on its own (after a thing done), said as an answer of one sentence. */
-    private void say(String line) { Pipe p = pipe(); p.add(line); p.close(); }
-    /** The answer's voice, made with its first sentence. */
-    private Pipe pipe() { if (pipe == null) { pipe = new Pipe(); saying = true; } return pipe; }
+    private void say(String line) { Pipe p = pipe(); p.add(line); lastSaid(line); p.close(); }
+    /** What 퍼레 said last: kept to say again, and its names given to the ears for what comes next (VoiceHints). */
+    private void lastSaid(String line) {
+        String was = lastLine; lastLine = line == null ? "" : line;
+        if (!lastLine.equals(was)) hintsFor(lastLine);
+    }
+    /** The answer's voice, made with its first sentence (the sound of the one before it is let go: it is not the last any more). */
+    private Pipe pipe() { if (pipe == null) { pipe = new Pipe(); saying = true; lastSound = null; } return pipe; }
     /** The answer being said stops: nothing more of it fetched or played, its sound silenced now. */
-    private void stopPipe() { Pipe p = pipe; pipe = null; if (p != null) p.stop(); }
+    private void stopPipe() { Pipe p = pipe; pipe = null; if (p != null) p.stop(); playLevel.clear(); }
+    /** How loud 퍼레's voice plays now, and when: its own echo is told from the user's by it (core/BargeIn). */
+    private final dev.jun.gyeot.core.PlayLevel playLevel = new dev.jun.gyeot.core.PlayLevel();
+    /**
+     * The level taken for a sound whose samples this app does not see (the phone's voice, Typecast's whole file): a usual
+     * speaking level, so its echo is learned against it as against the streamed one.
+     */
+    static final double SPOKEN = 4000;
+    /** Most of an answer's sound kept to say it again ("뭐라고?"): about half a minute. */
+    static final int KEEP_BYTES = 2 * 1024 * 1024;
     /** Quiet this long after a sentence's sound, the next not come yet: 퍼레's mouth rests ("gap"). */
     static final int GAP_MS = 150;
     /** The short breath written between two sentences that follow each other at once. */
@@ -345,7 +705,8 @@ final class BuddyVoice {
      * starts at 100 ms of sound, a short breath between them; a sentence whose stream gave nothing is said from Typecast's whole
      * file, else in the phone's voice, in its place. Without Typecast the phone's voice says them one after another. 퍼레 shows
      * each sentence as its sound starts (with how long it lasts, so the bubble types along with it) and rests its mouth when the
-     * next one has not come; once the last is said it listens again (spoken()).
+     * next one has not come; once the last is said it listens again (spoken()). How loud each piece plays, and when, goes to
+     * playLevel (the over-mic tells 퍼레's echo by it), and the answer's sound is kept to say it again as it was ("뭐라고?").
      */
     private final class Pipe {
         final int mine = generation;
@@ -356,24 +717,47 @@ final class BuddyVoice {
         volatile android.media.AudioTrack track;
         private Thread player;
         /** The phone's voice: sentences held until the short sound has ended, and how many are not said yet (main thread). */
-        private final List<dev.jun.gyeot.core.SayQueue.Clip> held = new ArrayList<>(); private int unsaid;
+        private final List<dev.jun.gyeot.core.SayQueue.Clip> held = new ArrayList<>(); private int unsaid; private long heldAt;
+        /** Its first sentence has come to be said (its sound, or the phone's voice starting): 퍼레 is not just thinking any more. */
+        volatile boolean begun;
+        /** The answer's sound as played (the player's alone until said()), at keptRate; whole: every sentence of it streamed and kept. */
+        private final java.io.ByteArrayOutputStream kept = new java.io.ByteArrayOutputStream(); private int keptRate; private volatile boolean whole = true;
 
         boolean live() { return on && mine == generation; }
         /** A sentence: asked for at once when it is its turn (Typecast), or into the phone's voice. Main thread. */
         void add(String line) {
             dev.jun.gyeot.core.SayQueue.Clip clip = queue.add(line);
             if (!typecast) { phone(clip); return; }
-            if (player == null) { player = new Thread(this::play, "gyeot-buddy-say"); player.setDaemon(true); player.start(); }
+            startPlayer();
             fetchNext();
         }
-        /** No more sentences: the player ends after the last one. */
-        void close() { queue.close(); if (!typecast && unsaid == 0) said(); }
+        /** The answer said before, again from its own sound (nothing fetched). Main thread. */
+        void again(String line, byte[] pcm, int rate) {
+            dev.jun.gyeot.core.SayQueue.Clip clip = queue.add(line);
+            clip.rate = rate; clip.size = pcm.length;
+            for (int i = 0; i < pcm.length; i += 8192) queue.arrived(clip, java.util.Arrays.copyOfRange(pcm, i, Math.min(pcm.length, i + 8192)));
+            queue.fetched(clip);
+            startPlayer();
+        }
+        private void startPlayer() { if (player == null) { player = new Thread(this::play, "gyeot-buddy-say"); player.setDaemon(true); player.start(); } }
+        /** No more sentences: the player ends after the last one (the phone's voice, after its last). */
+        void close() { queue.close(); if (player == null && unsaid == 0) said(); }
         void stop() {
             queue.cancelAll();
             android.media.AudioTrack playing = track; if (playing != null) try { playing.pause(); playing.flush(); } catch (RuntimeException ignored) {}
         }
         /** All said: the mouth rests, then 퍼레 does what it promised or listens again. Main thread. */
-        void said() { if (live() && pipe == this) { show("gap", ""); spoken(); } }
+        void said() {
+            if (!live() || pipe != this) return;
+            lastSound = whole && kept.size() > 0 ? new Sound(kept.toByteArray(), keptRate) : null;
+            show("gap", ""); spoken();
+        }
+        /** Some of the answer's sound as it plays, kept to say it again; a sentence said another way, or too much, keeps none. */
+        private void keep(byte[] pcm, int length, int rate) {
+            if (!whole) return;
+            if (keptRate != 0 && keptRate != rate || kept.size() + length > KEEP_BYTES) { whole = false; kept.reset(); return; }
+            keptRate = rate; kept.write(pcm, 0, length);
+        }
         /** The next sentence's sound asked for, when it is its turn (core/SayQueue.nextToFetch). */
         private void fetchNext() {
             dev.jun.gyeot.core.SayQueue.Clip c = queue.nextToFetch();
@@ -434,11 +818,12 @@ final class BuddyVoice {
                     }
                     fetchNext(); // the one after it, while this one plays
                     if (first) {
-                        first = false;
+                        first = false; begun = true;
                         // The short sound first (its "음…" while it thought), the answer right after it; the microphone then
                         // listens for the user over it.
-                        long wait = cueEnds - android.os.SystemClock.uptimeMillis();
-                        if (wait > 0) pause(Math.min(wait, 2500) + 60);
+                        long until = android.os.SystemClock.uptimeMillis() + 2500; boolean waited = false;
+                        while (live() && cueEnds > android.os.SystemClock.uptimeMillis() && android.os.SystemClock.uptimeMillis() < until) { Thread.sleep(20); waited = true; }
+                        if (waited) pause(60);
                         main.post(() -> { if (live()) listenOver(); });
                     }
                     String words = voiced(clip.text);
@@ -449,7 +834,7 @@ final class BuddyVoice {
                     }
                     if (failed) {
                         if (out != null) drain(out, frames, rate);
-                        instead(clip, words); sounded = true;
+                        whole = false; instead(clip, words); sounded = true;
                         quietSince = android.os.SystemClock.uptimeMillis(); resting = false;
                     } else if (clip.bytes == 0) {
                         // Nothing to say (an emoji alone): shown a moment to read it.
@@ -462,7 +847,7 @@ final class BuddyVoice {
                         boolean drained = frames == 0 || head(out) >= frames;
                         long silence = drained ? (quietSince == 0 ? 0 : now - quietSince) + 100 : BETWEEN_MS;
                         // Two sentences one right after the other: a short breath between them.
-                        if (!drained) frames += write(out, new byte[rate * BETWEEN_MS / 1000 * 2]);
+                        if (!drained) { byte[] breath = new byte[rate * BETWEEN_MS / 1000 * 2]; frames += write(out, breath, frames, rate); keep(breath, breath.length, rate); }
                         boolean sounding = false;
                         while (live()) {
                             byte[] chunk = clip.chunks.poll(20, java.util.concurrent.TimeUnit.MILLISECONDS);
@@ -477,7 +862,8 @@ final class BuddyVoice {
                                 timing("타입캐스트"); if (sounded) timing(clip, silence);
                                 sounded = true;
                             }
-                            frames += write(out, chunk);
+                            long w = write(out, chunk, frames, rate); frames += w;
+                            keep(chunk, (int) w * 2, rate);
                         }
                         quietSince = 0; resting = false;
                     }
@@ -488,6 +874,7 @@ final class BuddyVoice {
                 if (live()) main.post(this::said);
             } catch (InterruptedException | RuntimeException broken) {
                 // A track that broke on the way: what is left is not said, the talk goes on.
+                whole = false;
                 if (live()) main.post(this::said);
             } finally {
                 if (out != null) release(out);
@@ -501,7 +888,7 @@ final class BuddyVoice {
             main.post(() -> {
                 if (!live()) { over.countDown(); return; }
                 if (whole != null) playWhole(whole, clip.text, over::countDown);
-                else speakPhone(words, () -> { if (live()) { show("speaking", clip.text, sayMs(words)); timing("휴대폰 목소리"); } }, over::countDown);
+                else speakPhone(words, () -> { if (live()) { spokenAt(sayMs(words)); show("speaking", clip.text, sayMs(words)); timing("휴대폰 목소리"); } }, over::countDown);
             });
             while (live() && !over.await(50, java.util.concurrent.TimeUnit.MILLISECONDS)) { /* said, or the talk moved on */ }
         }
@@ -509,16 +896,20 @@ final class BuddyVoice {
         private void phone(dev.jun.gyeot.core.SayQueue.Clip clip) {
             unsaid++; held.add(clip);
             if (held.size() > 1) return; // goes with the one held before it
-            long wait = cueEnds - android.os.SystemClock.uptimeMillis();
-            if (wait > 0) main.postDelayed(this::phoneHeld, Math.min(wait, 2500) + 60); else phoneHeld();
+            heldAt = android.os.SystemClock.uptimeMillis();
+            phoneHeld();
         }
         private void phoneHeld() {
             if (!live()) return;
+            // The short sound first (it may still be starting), 2.5 s at most.
+            long at = android.os.SystemClock.uptimeMillis();
+            if (cueEnds > at && at - heldAt < 2500) { main.postDelayed(this::phoneHeld, Math.min(cueEnds - at, 2500 - (at - heldAt)) + 60); return; }
+            begun = true;
             listenOver();
             List<dev.jun.gyeot.core.SayQueue.Clip> now = new ArrayList<>(held); held.clear();
             for (dev.jun.gyeot.core.SayQueue.Clip c : now) {
                 String words = voiced(c.text);
-                speakPhone(words, () -> { if (live()) { show("speaking", c.text, sayMs(words)); timing("휴대폰 목소리"); } },
+                speakPhone(words, () -> { if (live()) { spokenAt(sayMs(words)); show("speaking", c.text, sayMs(words)); timing("휴대폰 목소리"); } },
                     () -> { unsaid--; if (unsaid == 0 && queue.closed()) said(); });
             }
         }
@@ -532,10 +923,19 @@ final class BuddyVoice {
             long until = android.os.SystemClock.uptimeMillis() + Math.max(0, frames - head(out)) * 1000 / Math.max(1, rate) + 1000;
             while (live() && head(out) < frames && android.os.SystemClock.uptimeMillis() < until) Thread.sleep(20);
         }
-        /** Frames written to the track (blocking while it is full); fewer when it was stopped. */
-        private long write(android.media.AudioTrack out, byte[] pcm) {
+        /**
+         * Frames written to the track (blocking while it is full); fewer when it was stopped. before: the frames written ahead
+         * of these. Each piece's level goes to playLevel with when it will sound: after what is still in the track before it.
+         */
+        private long write(android.media.AudioTrack out, byte[] pcm, long before, int rate) {
             int done = 0;
-            while (done < pcm.length && live()) { int w = out.write(pcm, done, pcm.length - done); if (w <= 0) break; done += w; }
+            while (done < pcm.length && live()) {
+                int w = out.write(pcm, done, Math.min(4096, pcm.length - done)); if (w <= 0) break;
+                long to = android.os.SystemClock.uptimeMillis() + Math.max(0, before + (done + w) / 2 - head(out)) * 1000 / rate;
+                double level = dev.jun.gyeot.core.BargeIn.rms(java.util.Arrays.copyOfRange(pcm, done, done + w));
+                if (level > 0) playLevel.add(to - w / 2 * 1000L / rate, to, level);
+                done += w;
+            }
             return done / 2;
         }
         private void release(android.media.AudioTrack out) {
@@ -611,7 +1011,7 @@ final class BuddyVoice {
     private void timing(String voice) {
         long now = android.os.SystemClock.uptimeMillis();
         if (heardAt == 0 || answeredAt == 0) return;
-        try { store.phoneLog(String.format(java.util.Locale.ROOT, "● 퍼레 음성: 글자로 %.1f초 · 대답 %.1f초 · %s 첫 소리 %.1f초 (모두 %.1f초)", (wordsAt - heardAt) / 1000.0, (answeredAt - wordsAt) / 1000.0, voice, (now - answeredAt) / 1000.0, (now - heardAt) / 1000.0)); }
+        try { store.phoneLog(String.format(java.util.Locale.ROOT, "● 퍼레 음성: 글자로 %.1f초 · 대답 %.1f초 · %s 첫 소리 %.1f초 (모두 %.1f초) · 도구 %d개", (wordsAt - heardAt) / 1000.0, (answeredAt - wordsAt) / 1000.0, voice, (now - answeredAt) / 1000.0, (now - heardAt) / 1000.0, BuddyTalk.toolsSent)); }
         catch (RuntimeException ignored) {}
         heardAt = 0; answeredAt = 0;
     }
@@ -635,54 +1035,122 @@ final class BuddyVoice {
             p.setOnErrorListener((x, what, extra) -> { finished.run(); return true; });
             p.setOnPreparedListener(x -> {
                 if (player != p || !on) { finished.run(); return; }
-                focus(true); x.start(); show("speaking", text, x.getDuration()); timing("타입캐스트(통째로)");
+                focus(true); x.start(); spokenAt(x.getDuration()); show("speaking", text, x.getDuration()); timing("타입캐스트(통째로)");
             });
             p.prepareAsync();
         } catch (Exception failed) { releasePlayer(); after.run(); }
     }
-    // ── talking over 퍼레 (barge-in, core/TalkOver): it stops, does what it promised, and listens ──
-    private java.util.concurrent.atomic.AtomicBoolean overRun;
-    /** While 퍼레 speaks, the microphone (with the phone's echo canceller) waits for the user's voice over it. */
+    // ── talking over 퍼레 (barge-in, core/OverEar): it stops, does what it promised, and hears the user from their first word ──
+    /** The talk's echo guard: what 퍼레's own voice sounds like in the microphone, kept from answer to answer (core/BargeIn). */
+    private volatile dev.jun.gyeot.core.BargeIn barge = new dev.jun.gyeot.core.BargeIn();
+    /**
+     * The over-mic: one microphone (the call's, with the phone's echo canceller and noise suppressor) from an answer's first
+     * sound. hears: Whisper at hand, so a user who talks over 퍼레 is heard by this same microphone (from the second kept
+     * before they stopped it), with no gap; listening: the answer said, it hears the next words itself (퍼레's own ear).
+     */
+    private static final class Over {
+        final java.util.concurrent.atomic.AtomicBoolean run = new java.util.concurrent.atomic.AtomicBoolean(true);
+        final boolean hears; volatile boolean listening; Thread thread;
+        Over(boolean hears) { this.hears = hears; }
+    }
+    private Over over;
+    /** While 퍼레 speaks, the microphone waits for the user's voice over it. */
     private void listenOver() {
-        if (overRun != null || !on) return;
-        java.util.concurrent.atomic.AtomicBoolean run = new java.util.concurrent.atomic.AtomicBoolean(true); overRun = run;
-        int mine = generation;
-        Thread t = new Thread(() -> {
-            android.media.AudioRecord mic = null; android.media.audiofx.AcousticEchoCanceler echo = null; android.media.audiofx.NoiseSuppressor noise = null;
-            try {
-                int min = android.media.AudioRecord.getMinBufferSize(16000, android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT);
-                mic = new android.media.AudioRecord(android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION, 16000, android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT, Math.max(min * 2, 6400));
-                if (mic.getState() != android.media.AudioRecord.STATE_INITIALIZED) return;
+        if (over != null || !on) return;
+        Over o = new Over(GroqWork.on() && !ownBroken); over = o;
+        dev.jun.gyeot.core.BargeIn b = barge;
+        o.thread = new Thread(() -> overMic(o, b), "gyeot-buddy-over");
+        o.thread.setDaemon(true); o.thread.start();
+    }
+    /**
+     * The over-mic's thread: each 20 ms frame set against what 퍼레 plays then (playLevel), so its own voice never stops it.
+     * The user over it: 퍼레 stops at once (talkedOver); with Whisper the same microphone goes on to cut what they say. What
+     * was said, silence, or nothing comes once, after the microphone is let go (overEnded).
+     */
+    private void overMic(Over o, dev.jun.gyeot.core.BargeIn b) {
+        android.media.AudioRecord mic = null; android.media.audiofx.AcousticEchoCanceler echo = null; android.media.audiofx.NoiseSuppressor noise = null;
+        short[] said = null; boolean silent = false, cut = false;
+        try {
+            int min = android.media.AudioRecord.getMinBufferSize(16000, android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT);
+            mic = new android.media.AudioRecord(android.media.MediaRecorder.AudioSource.VOICE_COMMUNICATION, 16000, android.media.AudioFormat.CHANNEL_IN_MONO, android.media.AudioFormat.ENCODING_PCM_16BIT, Math.max(min * 2, 6400));
+            if (mic.getState() == android.media.AudioRecord.STATE_INITIALIZED) {
                 if (android.media.audiofx.AcousticEchoCanceler.isAvailable()) { echo = android.media.audiofx.AcousticEchoCanceler.create(mic.getAudioSessionId()); if (echo != null) echo.setEnabled(true); }
                 if (android.media.audiofx.NoiseSuppressor.isAvailable()) { noise = android.media.audiofx.NoiseSuppressor.create(mic.getAudioSessionId()); if (noise != null) noise.setEnabled(true); }
                 mic.startRecording();
-                dev.jun.gyeot.core.TalkOver over = new dev.jun.gyeot.core.TalkOver(); short[] frame = new short[dev.jun.gyeot.core.TalkOver.FRAME];
-                while (run.get()) {
-                    int n = mic.read(frame, 0, frame.length); if (n <= 0) return;
-                    if (over.add(frame, n)) { run.set(false); main.post(() -> { if (on && mine == generation) talkedOver(); }); return; }
+                dev.jun.gyeot.core.OverEar ear = new dev.jun.gyeot.core.OverEar(b); short[] frame = new short[dev.jun.gyeot.core.OverEar.FRAME];
+                boolean began = false;
+                while (o.run.get()) {
+                    int n = mic.read(frame, 0, frame.length); if (n <= 0) break;
+                    // The answer said: the words that come next, from this moment, waited for as long as a listening waits.
+                    if (o.listening && !ear.hearing()) ear.listen(7000);
+                    dev.jun.gyeot.core.OverEar.Step step = ear.add(frame, n, ear.hearing() ? 0 : playLevel.level(android.os.SystemClock.uptimeMillis()));
+                    if (step == dev.jun.gyeot.core.OverEar.Step.OVER) {
+                        main.post(() -> { if (over == o) talkedOver(o.hears); });
+                        if (!o.hears) break;
+                        cut = true; step = ear.hear(4000);
+                    }
+                    if (step == dev.jun.gyeot.core.OverEar.Step.SPEAKING && !began) { began = true; main.post(() -> { if (over == o && on) { heardNow = true; show("listening", gated() ? "♪" : "…"); } }); }
+                    if (step == dev.jun.gyeot.core.OverEar.Step.DONE) { said = ear.pcm(); break; }
+                    if (step == dev.jun.gyeot.core.OverEar.Step.SILENT) { silent = true; break; }
                 }
-            } catch (RuntimeException unavailable) { /* no barge-in this time */ }
-            finally {
-                if (echo != null) try { echo.release(); } catch (RuntimeException ignored) {}
-                if (noise != null) try { noise.release(); } catch (RuntimeException ignored) {}
-                if (mic != null) { try { mic.stop(); } catch (RuntimeException ignored) {} mic.release(); }
             }
-        }, "gyeot-buddy-over");
-        t.setDaemon(true); t.start();
+        } catch (RuntimeException unavailable) { /* no barge-in this time */ }
+        finally {
+            if (echo != null) try { echo.release(); } catch (RuntimeException ignored) {}
+            if (noise != null) try { noise.release(); } catch (RuntimeException ignored) {}
+            if (mic != null) { try { mic.stop(); } catch (RuntimeException ignored) {} mic.release(); }
+        }
+        short[] heard = said; boolean none = silent, afterCut = cut;
+        main.post(() -> overEnded(o, heard, none, afterCut));
     }
-    private void stopOver() { java.util.concurrent.atomic.AtomicBoolean run = overRun; overRun = null; if (run != null) run.set(false); }
-    /** The user spoke over 퍼레: what it was saying stops (the rest of the answer too), a thing already promised is done, then it listens. */
-    private void talkedOver() {
+    /**
+     * The over-mic let go of the microphone by itself: what the user said is heard (Whisper, VoicePrint as from this
+     * microphone); silence after the answer is a quiet turn; silence after cutting 퍼레 short, or a microphone that failed
+     * while it was to listen, listens again the usual way.
+     */
+    private void overEnded(Over o, short[] said, boolean silent, boolean afterCut) {
+        if (over != o) return; // stopped: the talk moved on
+        over = null;
+        if (!on) return;
+        if (said != null) { heardAt = android.os.SystemClock.uptimeMillis(); if (!gated()) filler(); hear(said, generation, true); return; }
+        if (o.listening && silent && !afterCut) { quiet(false); return; }
+        if (afterCut && silent && held != null) { doHeld(); return; } // nothing said after cutting in: the thing promised is done
+        if (o.listening || afterCut) listen();
+    }
+    /** The over-mic stopped last, letting the microphone go. */
+    private Thread overLeaving;
+    /** The over-mic stops (it lets the microphone go within a frame). */
+    private void stopOver() {
+        Over o = over; over = null;
+        if (o == null) return;
+        o.run.set(false); overLeaving = o.thread;
+    }
+    /** Until the over-mic stopped last has let the microphone go (a frame; 300 ms at most), so the next ear can have it. */
+    private void overGone() {
+        Thread t = overLeaving; overLeaving = null;
+        if (t != null && t.isAlive()) try { t.join(300); } catch (InterruptedException stop) { Thread.currentThread().interrupt(); }
+    }
+    /** A sound whose samples this app does not see starts now, for ms: its echo is measured against a usual speaking level. */
+    private void spokenAt(long ms) { long now = android.os.SystemClock.uptimeMillis(); playLevel.add(now, now + Math.max(0, ms), SPOKEN); }
+    /**
+     * The user spoke over 퍼레: what it was saying stops (the rest of the answer too), a thing already promised is done, then
+     * it listens; hearing: the over-mic is already cutting what they say.
+     */
+    private void talkedOver(boolean hearing) {
         if (!on || !saying) return;
-        stopOver(); generation++;
+        generation++;
         stopPipe(); releasePlayer(); stopCue();
         if (phone != null) try { phone.stop(); } catch (RuntimeException ignored) {}
         phoneSaying.clear(); phoneWaiting.clear();
         saying = false; focus(false);
-        lastTalk = android.os.SystemClock.uptimeMillis(); silences = 0;
+        long now = android.os.SystemClock.uptimeMillis();
+        lastTalk = now; silences = 0; cutAt = now;
         store.phoneLog("● 퍼레 음성: 말하는 중에 사용자가 말해서 멈추고 들어요");
+        // A thing promised is held, not done: what they say may be "아니 멜론으로" (think()); silence does it (quiet()).
         org.json.JSONObject promised = todo; todo = null;
-        if (promised != null && act != null) { doNow(promised, todoHeard); return; }
+        if (promised != null && act != null) { held = promised; heldHeard = todoHeard; heldCorrects = todoCorrects; }
+        if (hearing && over != null) { listenAt = now; prepareCues(); show("listening", ""); return; }
+        stopOver();
         main.postDelayed(this::listen, 150); // the microphone let go first
     }
     /** What is said aloud of a line: its words without emoji or symbols. */
@@ -730,38 +1198,124 @@ final class BuddyVoice {
     /** Said: what was promised is done now, then it listens again (the loop goes on until silence or a tap). */
     private void spoken() {
         saying = false; pipe = null;
-        stopOver(); focus(false); releasePlayer();
-        if (!on) return;
-        lastTalk = android.os.SystemClock.uptimeMillis();
+        focus(false); releasePlayer();
+        if (!on) { stopOver(); return; }
+        lastTalk = android.os.SystemClock.uptimeMillis(); saidAt = lastTalk;
         org.json.JSONObject now = todo; todo = null;
-        if (now != null && act != null) { doNow(now, todoHeard); return; }
+        if (now != null && act != null) { stopOver(); doNow(now, todoHeard, todoCorrects); return; }
+        // 퍼레's own ear: the microphone that listened over the answer hears the next words from this moment, with no gap.
+        Over o = over;
+        if (ownEar && o != null && o.hears) { o.listening = true; closeEar(); listenAt = lastTalk; heardNow = false; prepareCues(); checkMusic(); show("listening", idle()); return; }
+        stopOver();
         main.postDelayed(this::listen, 350);
     }
     /** A thing to do, off the main thread (a place search may wait on the network), then its words. */
-    private void doNow(org.json.JSONObject a, String heard) {
-        int mine = generation;
-        try { io.execute(() -> { Outcome o = act.run(a, heard); main.post(() -> { if (on && mine == generation) done(o); }); }); }
+    private void doNow(org.json.JSONObject a, String heard) { doNow(a, heard, false); }
+    /** answers: heard answered 퍼레's own read-back (an alarm whose hour it says is set without asking again). */
+    private void doNow(org.json.JSONObject a, String heard, boolean answers) {
+        int mine = generation; BuddyActs.Late late = late();
+        try { io.execute(() -> { Outcome o = act.run(a, heard, answers, late); main.post(() -> { if (on && mine == generation) { did(a, o); done(o); } }); }); }
         catch (RuntimeException stopped) { main.postDelayed(this::listen, 350); }
     }
+    /**
+     * A thing held from before the user cut in, done before their words are answered (then): what it says goes into the
+     * talk for the answer to know (Ask.recent tells it too); one that waits for a yes asks it first, the words kept in the talk.
+     */
+    private void doFirst(org.json.JSONObject a, String heard, boolean answers, String said, Runnable then) {
+        int mine = generation; BuddyActs.Late late = late();
+        try {
+            io.execute(() -> {
+                Outcome o = act.run(a, heard, answers, late);
+                main.post(() -> {
+                    if (!on || mine != generation) return;
+                    did(a, o);
+                    if (o != null && o.confirm() != null) { turns.add(new String[]{"user", said}); done(o); return; }
+                    if (o != null && o.say() != null && !o.say().isBlank()) turns.add(new String[]{"assistant", o.say()});
+                    then.run();
+                });
+            });
+        } catch (RuntimeException stopped) { then.run(); }
+    }
+    /** The thing held from before the user cut in, done now: they said nothing more after all. */
+    private void doHeld() { org.json.JSONObject h = held; held = null; if (h != null && act != null) doNow(h, heldHeard, heldCorrects); else listen(); }
     /** After a thing done: its words (a question when it waits for a yes), and the talk ends when another app came up. */
     private void done(Outcome o) {
         lastTalk = android.os.SystemClock.uptimeMillis();
         if (o == null) { main.postDelayed(this::listen, 350); return; }
-        if (o.confirm() != null) confirming = o.confirm();
+        if (o.confirm() != null) { confirming = o.confirm(); confirmAsk = o.say() == null ? "" : o.say(); }
         // Another app came up: the talk goes on over it (BuddyOverlay), 퍼레 listening again.
         if (o.leaves()) { if (o.say() != null && !o.say().isBlank()) { say(o.say()); return; } main.postDelayed(this::listen, 2500); return; }
         if (o.say() != null && !o.say().isBlank()) { turns.add(new String[]{"assistant", o.say()}); say(o.say()); return; }
         main.postDelayed(this::listen, 350);
     }
+    // ── what was done on the phone, held or asked about, for the next answer to know (준: "퍼레의 판단력 … 강화해줘") ──
+    /** A read-back answered with neither a yes nor a no: the question, and the thing it asked about. */
+    private record Pending(String question, org.json.JSONObject act) {}
+    private Pending pendingAsk;
+    /** A thing promised and held because the user cut in before it was done (talkedOver), with what it was for. */
+    private org.json.JSONObject held; private String heldHeard = ""; private boolean heldCorrects;
+    /** A thing held and then let go (the user corrected it): told to the next answer, once. */
+    private org.json.JSONObject meant;
+    /** The last thing done on the phone in this talk: what it was (BuddyActs.about), what it said, when (uptime ms). */
+    record LastAct(String what, String said, long at) {}
+    LastAct lastAct;
+    /** How long the last thing done is told to the brain, and how long after it a correction counts as one of it. */
+    static final long RECENT_MS = 120_000, CORRECT_MS = 30_000;
+    /** Whether any of the user's words have been heard in this listening (then nothing is said over them, late()). */
+    private boolean heardNow;
+    /** The words that said an app did not come up, and what a tap on them opens. */
+    private String lateLine = "", lateGo = "";
+    /** A thing done (not one waiting for a yes): kept as the last thing done. */
+    private void did(org.json.JSONObject a, Outcome o) {
+        if (a == null || o != null && o.confirm() != null) return;
+        lastAct = new LastAct(BuddyActs.about(a), o == null || o.say() == null ? "" : voiced(o.say()), android.os.SystemClock.uptimeMillis());
+    }
+    /**
+     * What just happened, for the next answer (Ask.recent), a line each: the last thing done (under RECENT_MS ago), the
+     * thing let go when the user cut in, and the read-back they answered with neither a yes nor a no. None for a guest.
+     */
+    private String recent(boolean guest) {
+        if (guest) { meant = null; return ""; }
+        List<String> lines = new ArrayList<>();
+        long now = android.os.SystemClock.uptimeMillis();
+        LastAct l = lastAct;
+        if (l != null && now - l.at() < RECENT_MS) lines.add("방금 한 일: " + l.what() + (l.said().isBlank() ? "" : " · " + l.said()) + " (" + ago(now - l.at()) + ")");
+        if (meant != null) lines.add("방금 하려던 일: " + BuddyActs.about(meant) + " (사용자가 고쳐 말해서 아직 안 했어)");
+        meant = null;
+        if (pendingAsk != null) lines.add("퍼레가 방금 ‘" + pendingAsk.question() + "’라고 물었어. 사용자가 고쳐 말하면 고친 값으로 같은 도구를 불러.");
+        return String.join("\n", lines);
+    }
+    private static String ago(long ms) { return ms < 5000 ? "방금" : ms < 60_000 ? ms / 1000 + "초 전" : ms / 60_000 + "분 전"; }
+    /** Who hears of an app this talk opened that did not come up (BuddyActs.verify): late(), while the talk is the same one. */
+    private BuddyActs.Late late() {
+        long since = talkFrom;
+        return (what, fix) -> main.post(() -> { if (on && talkFrom == since) late(what, fix); });
+    }
+    /** When this talk began (uptime ms): a late word from an earlier talk is not said in this one. */
+    private long talkFrom;
+    /**
+     * An app 퍼레 opened did not come up (폰 조작 sees what is in front): said once, only while 퍼레 just listens and nothing
+     * of the user's has been heard yet, never on success; the words open the way through when tapped (BuddyMisses.fixIntent).
+     */
+    private void late(String what, String fix) {
+        if (saying || cue != null || awaited != 0 || heardNow || pipe != null || !"listening".equals(lastState)) return;
+        String line = "어, ‘" + what + "’ 안 열렸어.";
+        store.phoneLog("● 퍼레 음성: " + what + " 안 열려서 말해요");
+        generation++; closeEar(); stopOver();
+        lateLine = line; lateGo = fix == null || fix.isEmpty() ? "" : "fix:" + fix;
+        turns.add(new String[]{"assistant", line});
+        say(line);
+    }
     private void end(String state, String words) {
-        on = false; generation++; todo = null; confirming = null; stopOver(); stopPipe(); saying = false;
+        on = false; generation++; todo = null; confirming = null; confirmAsk = ""; held = null; meant = null; pendingAsk = null; endedAt = android.os.SystemClock.elapsedRealtime(); stopOver(); stopPipe(); saying = false; lastSound = null; lastLine = "";
+        for (Cue c : new ArrayList<>(cues.values())) c.let();
         if (store.buddyTalking) { store.buddyTalking = false; store.changed(); }
         Runnable listening = whisper.getAndSet(null); if (listening != null) try { listening.run(); } catch (RuntimeException ignored) {}
-        closeEar(); releasePlayer(); focus(false);
+        closeEar(); releasePlayer(); focus(false); SpeechInput.hints(null);
         if (phone != null) { try { phone.stop(); phone.shutdown(); } catch (RuntimeException ignored) {} phone = null; phoneReady = false; }
         phoneSaying.clear(); phoneWaiting.clear();
         // After the quiet, a goodbye in its own voice (the bubble shows what it says).
-        String bye = "done".equals(state) && "또 불러 줘!".equals(words) ? cue("bye", null) : null;
+        String bye = "done".equals(state) && BYE_WORDS.equals(words) ? cue("bye", false, null) : null;
         if (bye == null) stopCue();
         show(state, bye != null ? bye : words == null ? "" : words);
         BuddyVoiceService.stop(context);

@@ -192,14 +192,22 @@ public final class HomeActivity extends Activity {
     private final BuddyVoice.Show talkShown = new BuddyVoice.Show() {
         @Override public void state(String state, String text) { state(state, text, 0); }
         /** With ms, how long the words take to say: the bubble types them along with the sound. */
-        @Override public void state(String state, String text, int ms) { js("launcher.voice(" + JSONObject.quote(state) + "," + JSONObject.quote(text) + "," + Math.max(0, ms) + ")"); }
+        @Override public void state(String state, String text, int ms) { state(state, text, ms, ""); }
+        /** With go, what a tap on the words opens (an app that did not come up: the way through, "fix:overlay"). */
+        @Override public void state(String state, String text, int ms, String go) {
+            js("launcher.voice(" + JSONObject.quote(state) + "," + JSONObject.quote(text) + "," + Math.max(0, ms) + "," + JSONObject.quote(go == null ? "" : go) + ")");
+        }
     };
     private final BuddyVoice.Unlock talkUnlock = then -> main.post(() -> Fingerprint.ask(this, "퍼레의 비밀 기억", "지문으로 확인하면 말해 줄게", () -> { BuddyTalk.unlock(); then.run(); }, then));
-    private void voice() {
-        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, MIC); return; }
+    /** The typed talk the voice talk goes on from, kept while the microphone is asked for. */
+    private String voiceSeed = "[]";
+    private void voice() { String seed = voiceSeed; voiceSeed = "[]"; voice(seed); }
+    /** seed: the last turns typed in 퍼레와 대화 ([[role, text] …]), "[]" when 퍼레 itself was held. */
+    private void voice(String seed) {
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) { voiceSeed = seed == null ? "[]" : seed; requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, MIC); return; }
         BuddyVoice talk = BuddyVoice.of(this, ((GyeotApp) getApplication()).store());
         talk.attach(talkShown, talkUnlock);
-        if (talk.on()) talk.stop(); else talk.start();
+        if (talk.on()) talk.stop(); else talk.start(seed);
     }
     @Override protected void onResume() {
         super.onResume(); shown = true;
@@ -321,9 +329,14 @@ public final class HomeActivity extends Activity {
     // ── 퍼레 on the home screen ─────────────────────────────────
     private final AtomicReference<Runnable> chatCancel = new AtomicReference<>();
     private volatile long chatTicket;
-    /** 퍼레 대화's instructions: 퍼레 as itself (BuddyTalk.persona), the phone's state, the day, what it knows and remembers now. */
+    /**
+     * 퍼레 대화's instructions: 퍼레 as itself (BuddyTalk.persona), the phone's state, the day, what it knows and remembers now; the
+     * assistant's note about the user without their work unless the question is about it (BuddyMind.everyday), as a reference
+     * not to bring up first.
+     */
     private String chatInstructions(AppStore store, String question) {
-        String about = ""; try { about = Briefing.profile(store); } catch (RuntimeException ignored) {}
+        String about = "";
+        try { String all = Briefing.profile(store); about = dev.jun.gyeot.core.BuddyMind.asksWork(question) ? all : dev.jun.gyeot.core.BuddyMind.everyday(all); } catch (RuntimeException ignored) {}
         String now = new java.text.SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", java.util.Locale.KOREA).format(new java.util.Date());
         return BuddyTalk.persona(this) + "\n지금은 " + now + ". 사용자가 홈 화면에서 너에게 글로 말을 걸었어.\n"
             + "한국어로, 너답게 친근한 반말(~야, ~해)로 밝고 상냥하게 답해. 존댓말은 쓰지 마. 핵심부터 2~6문장. 표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써. 어울리면 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘 하나까지(반짝이·별은 빼고).\n"
@@ -331,13 +344,21 @@ public final class HomeActivity extends Activity {
             + "사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 아래 '휴대폰 상태'의 숫자로 답해. 묻지 않으면 꺼내지 말고 정리·삭제를 권하지 마.\n"
             + "휴대폰 상태: " + BuddyTalk.facts(this) + "\n" + BuddyTalk.todayWords(this) + BuddyTalk.memoryWords(this, question, true)
             + BuddyTalk.worldWords(this)
-            + (about.isBlank() ? "" : "사용자에 대해 알고 있는 것:\n" + about);
+            + (about.isBlank() ? "" : "참고(비서 노트, 먼저 꺼내지 마):\n" + about);
     }
-    /** A written answer shown, and the thing it names done (BuddyTalk.ACTS; typed, so an alarm needs no spoken yes). */
+    /**
+     * A written answer shown, and the thing it names done (BuddyTalk.ACTS; typed, so an alarm needs no spoken yes); without
+     * the sentences 퍼레 does not say to the question (BuddyMind.unasked: cheering, rest, chores, coins), "응응!" when that was all.
+     */
     private void chatAnswer(String question, String text) {
         JSONObject a = BuddyTalk.act(text);
-        String shown = text.replaceAll("(?m)^\\s*할\\s*일\\s*[:：].*$", "").strip();
-        if (a == null) { js("launcher.reply(" + JSONObject.quote(shown) + ")"); BuddyTalk.learnLater(this, question, shown); return; }
+        String written = text.replaceAll("(?m)^\\s*할\\s*일\\s*[:：].*$", "").strip();
+        String shown = dev.jun.gyeot.core.BuddyMind.keepAsked(written, question);
+        if (a == null) {
+            if (shown.isEmpty() && !written.isEmpty()) shown = "응응!";
+            js("launcher.reply(" + JSONObject.quote(shown) + ")"); BuddyTalk.learnLater(this, question, shown); return;
+        }
+        if (shown.isEmpty()) shown = BuddyTools.say(a);
         BuddyVoice.Outcome o = BuddyActs.run(this, a, "네", false);
         String more = o == null || o.say() == null ? "" : o.say().strip();
         js("launcher.reply(" + JSONObject.quote(more.isEmpty() ? shown : shown + "\n" + more) + ")");
@@ -478,7 +499,7 @@ public final class HomeActivity extends Activity {
                 case "web" -> b.web(a.optString(0, null));
                 case "settings" -> b.settings(a.optString(0, ""));
                 case "bars" -> b.bars(a.optBoolean(0));
-                case "voice" -> main.post(HomeActivity.this::voice);
+                case "voice" -> { String seed = a.optString(0, "[]"); main.post(() -> voice(seed)); }
                 case "voiceStop" -> main.post(() -> { BuddyVoice talk = BuddyVoice.current(); if (talk != null) talk.stop(); });
                 case "lived" -> { String kind = a.optString(0, ""), key = a.optString(1, ""), why = a.optString(3, ""); double joy = a.optDouble(2, 0); try { io.execute(() -> BuddyTalk.lived(HomeActivity.this, kind, key, joy, why)); } catch (RuntimeException ignored) {} }
                 case "care" -> { String kind = a.optString(0, ""); try { io.execute(() -> js("launcher.life(" + BuddyTalk.care(HomeActivity.this, kind) + ")")); } catch (RuntimeException ignored) {} }
@@ -657,6 +678,12 @@ public final class HomeActivity extends Activity {
         }
         /** 퍼레 홈's cards: the app's own screens. */
         public void open(String what) {
+            // The way through for something 퍼레 could not do (its words in the voice talk's bubble): one tap (BuddyMisses).
+            if (what != null && what.startsWith("fix:")) {
+                Intent fix = BuddyMisses.fixIntent(HomeActivity.this, what.substring(4));
+                if (fix != null) main.post(() -> { try { startActivity(fix.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); } catch (RuntimeException none) { Toast.makeText(HomeActivity.this, "이 휴대폰에서는 열 수 없어요.", Toast.LENGTH_SHORT).show(); } });
+                return;
+            }
             Intent t = HtmlWallpaper.target(HomeActivity.this, what == null ? "" : what);
             if (t != null && t.getComponent() != null) t.putExtra(HtmlWallpaper.FROM_HOME, true);
             if (t != null) main.post(() -> { try { startActivity(t); } catch (RuntimeException none) { Toast.makeText(HomeActivity.this, "열 수 있는 앱이 없어요.", Toast.LENGTH_SHORT).show(); } });

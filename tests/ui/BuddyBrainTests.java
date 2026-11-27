@@ -216,20 +216,38 @@ public class BuddyBrainTests {
         assertTrue(BuddyTools.promised("3분 타이머 맞춰 줘", "3분 타이머 시작할게!"));
         assertFalse("small talk is never forced into a tool", BuddyTools.promised("오늘 기분 어때", "나 오늘 완전 좋아!"));
         assertFalse(BuddyTools.promised("유튜브 틀어 줘", "어떤 노래가 좋아?"));
+        assertTrue(BuddyTools.promised("소리 좀 줄여 줘", "줄여 놓을게!"));
         for (int i = 0; i < BuddyTools.TOOLS.length(); i++) assertEquals("function", BuddyTools.TOOLS.getJSONObject(i).getString("type"));
+        // 준: "퍼레의 판단력" — 퍼레's own tools go only with words about 퍼레 (lighter turns), and a forced retry may choose nothing.
+        java.util.Set<String> phone = new java.util.HashSet<>(), own = new java.util.HashSet<>();
+        for (int i = 0; i < BuddyTools.PHONE.length(); i++) phone.add(BuddyTools.PHONE.getJSONObject(i).getJSONObject("function").getString("name"));
+        for (int i = 0; i < BuddyTools.SELF.length(); i++) own.add(BuddyTools.SELF.getJSONObject(i).getJSONObject("function").getString("name"));
+        assertEquals(java.util.Set.of("buddy_toy", "buddy_outfit", "buddy_move", "buddy_wish", "remember", "forget", "call_me", "quiet"), own);
+        assertEquals("each tool in one set", 45, phone.size() + own.size());
+        java.util.Set<String> both = new java.util.HashSet<>(phone); both.retainAll(own); assertTrue(both.isEmpty());
+        for (String answer : new String[]{"coin", "dice", "pick", "calculator", "world_time", "count_days", "stopwatch"}) assertTrue("an answer that needs no app goes every turn: " + answer, phone.contains(answer));
+        org.json.JSONArray light = BuddyTools.forTurn("손전등 켜 줘");
+        assertEquals(37, light.length());
+        // 퍼레's eight carry its long lists of names (toys, clothes, plays): about a fifth of all the tools' words.
+        assertTrue("lighter: " + light.toString().length() + " of " + BuddyTools.TOOLS.toString().length(), light.toString().length() < 0.85 * BuddyTools.TOOLS.toString().length());
+        assertFalse(BuddyTools.rule(false).contains("buddy_toy")); assertTrue(BuddyTools.rule(true).contains("buddy_toy")); assertEquals(BuddyTools.RULE, BuddyTools.rule(true));
+        for (String about : new String[]{"고양이 귀 해 봐", "춤춰 봐", "퍼레야, 주사위 꺼내 봐", "나 내일 시험이야 기억해 줘", "이제 형이라고 불러", "한 시간만 조용히 해 줘", "비눗방울 불어 줘"})
+            assertTrue("about 퍼레: " + about, BuddyTools.self(about));
+        assertTrue(BuddyTools.forTurn("고양이 귀 해 봐").toString().contains("\"buddy_outfit\"")); assertTrue(BuddyTools.forTurn("춤춰 봐").toString().contains("\"buddy_move\""));
+        for (String phoneOnly : new String[]{"손전등 켜 줘", "카메라 켜 줘", "노래 틀어 줘", "내일 일정 뭐야", "동전 던져 줘", "네이버 지도 열어 줘", "소리 좀 줄여 줘"})
+            assertFalse("not about 퍼레: " + phoneOnly, BuddyTools.self(phoneOnly));
+        org.json.JSONArray nothing = new org.json.JSONArray().put(new org.json.JSONObject().put("name", "nothing").put("arguments", "{}"));
+        assertNull("nothing is no act", BuddyTools.act(nothing)); assertTrue(BuddyTools.nothing(nothing)); assertFalse(BuddyTools.nothing(new org.json.JSONArray()));
+        org.json.JSONArray retry = BuddyTools.orNothing();
+        assertEquals(46, retry.length()); assertEquals("nothing", retry.getJSONObject(45).getJSONObject("function").getString("name"));
+        assertEquals("the full list stays as it was", 45, BuddyTools.TOOLS.length());
         // 준: "3번" — each sentence said as soon as it is written; a word or two waits for the next; no act text, digits kept.
         java.util.List<String> said = new java.util.ArrayList<>();
         BuddyTalk.Sentences s = new BuddyTalk.Sentences(said::add);
         for (String piece : new String[]{"응! 지금", " 바로 틀어 줄게. 아이유", " 신곡 좋더라~ 7시에", " 또 듣자\n할일: {\"tool\":\"play\"}"}) s.add(piece);
         s.end();
         assertEquals(java.util.List.of("응! 지금 바로 틀어 줄게.", "아이유 신곡 좋더라~", "7시에 또 듣자"), said);
-        // Talking over 퍼레: its own echo and a short "응" do not stop it; half a second of the user's voice does.
-        dev.jun.gyeot.core.TalkOver over = new dev.jun.gyeot.core.TalkOver(); short[] f = new short[dev.jun.gyeot.core.TalkOver.FRAME];
-        java.util.Arrays.fill(f, (short) 600); for (int i = 0; i < 50; i++) assertFalse("echo", over.add(f, f.length));
-        java.util.Arrays.fill(f, (short) 5000); for (int i = 0; i < 10; i++) assertFalse("응", over.add(f, f.length));
-        java.util.Arrays.fill(f, (short) 600); for (int i = 0; i < 10; i++) assertFalse(over.add(f, f.length));
-        java.util.Arrays.fill(f, (short) 5000); boolean stopped = false; for (int i = 0; i < 30 && !stopped; i++) stopped = over.add(f, f.length);
-        assertTrue("talked over", stopped);
+        // Talking over 퍼레 (its own echo never stops it, the user does): talksOverWithoutCuttingItself.
     }
     /**
      * 퍼레's own answers that need no app (준: "시킬 수 있는 목록 … 아직 부족"): a coin, dice, a pick, a sum, the time in another
@@ -616,6 +634,213 @@ public class BuddyBrainTests {
         assertTrue(BuddyVoice.BETWEEN_MS < 200 && BuddyVoice.GAP_MS > BuddyVoice.BETWEEN_MS);
     }
 
+    /** A 20 ms microphone frame whose RMS is level. */
+    private static short[] frame(double level) {
+        short[] f = new short[dev.jun.gyeot.core.OverEar.FRAME];
+        for (int i = 0; i < f.length; i++) f[i] = (short) (i % 2 == 0 ? level : -level);
+        return f;
+    }
+    /**
+     * Talking over 퍼레 (준: "퍼레가 말하는 중에 끼어들면 멈추고 듣기", core/OverEar): its own echo never stops it, however long it
+     * talks; a short "응" does not; the user does within half a second, and what they say is kept from just before their voice
+     * began. What plays is still known in the pause between two sentences (core/PlayLevel).
+     */
+    @Test public void talksOverWithoutCuttingItself() {
+        dev.jun.gyeot.core.PlayLevel playing = new dev.jun.gyeot.core.PlayLevel();
+        playing.add(0, 1000, 6000);
+        assertEquals("the 400 ms pause between two sentences still plays", 6000, playing.level(1400), 0);
+        playing.add(1400, 2400, 5000);
+        assertEquals(5000, playing.level(2000), 0);
+        assertEquals("nothing played lately", 0, playing.level(3200), 0);
+        playing.clear(); assertEquals("cut short", 0, playing.level(2000), 0);
+
+        // 퍼레's own echo through the echo canceller: 0.45 of what plays, for ten seconds.
+        dev.jun.gyeot.core.BargeIn barge = new dev.jun.gyeot.core.BargeIn();
+        dev.jun.gyeot.core.OverEar ear = new dev.jun.gyeot.core.OverEar(barge);
+        short[] echo = frame(0.45 * 6000), user = frame(2.5 * 0.45 * 6000);
+        for (int i = 0; i < 500; i++) assertEquals("its own voice, frame " + i, dev.jun.gyeot.core.OverEar.Step.ECHO, ear.add(echo, echo.length, 6000));
+        // A 300 ms "응" over it, then the echo again: it goes on.
+        for (int i = 0; i < 15; i++) assertEquals("응", dev.jun.gyeot.core.OverEar.Step.ECHO, ear.add(user, user.length, 6000));
+        for (int i = 0; i < 50; i++) assertEquals(dev.jun.gyeot.core.OverEar.Step.ECHO, ear.add(echo, echo.length, 6000));
+        // The next answer (what the echo sounds like kept): the user at 2.5 times the echo stops it within half a second.
+        ear = new dev.jun.gyeot.core.OverEar(barge); int frames = 0;
+        while (frames < 40 && ear.add(user, user.length, 6000) != dev.jun.gyeot.core.OverEar.Step.OVER) frames++;
+        assertTrue("talked over after " + (frames + 1) * 20 + " ms", (frames + 1) * 20 <= 500);
+
+        // What they said, from just before their voice began: 퍼레's echo (words of 250 ms with short pauses), the user over it
+        // from 1.2 s to 2.8 s (syllables of 240 ms, 60 ms between), 퍼레 stopped as soon as it hears them, then quiet.
+        java.util.Random r = new java.util.Random(3);
+        int rate = dev.jun.gyeot.core.WakeWord.RATE, size = dev.jun.gyeot.core.OverEar.FRAME, starts = 60 * size, ends = rate * 28 / 10, n = rate * 5;
+        short[] mic = new short[n];
+        dev.jun.gyeot.core.OverEar heard = new dev.jun.gyeot.core.OverEar(barge);
+        dev.jun.gyeot.core.OverEar.Step step = dev.jun.gyeot.core.OverEar.Step.ECHO; int over = -1;
+        for (int at = 0; at + size <= n; at += size) {
+            // 퍼레 speaks until the user stops it.
+            for (int i = at; i < at + size; i++) {
+                double t = i / (double) rate;
+                double e = over < 0 && i % 5280 < 4000 ? Math.sin(2 * Math.PI * 180 * t) * 2700 * Math.sqrt(2) : 0;
+                double v = i >= starts && i < ends && (i - starts) % 4800 < 3840 ? Math.sin(2 * Math.PI * 140 * t) * 7000 * Math.sqrt(2) + Math.sin(2 * Math.PI * 280 * t) * 2000 : 0;
+                mic[i] = (short) Math.max(-32768, Math.min(32767, Math.round(v + e + r.nextGaussian() * 30)));
+            }
+            short[] f = java.util.Arrays.copyOfRange(mic, at, at + size);
+            if (over < 0) {
+                step = heard.add(f, f.length, 6000);
+                if (step == dev.jun.gyeot.core.OverEar.Step.OVER) { over = at; step = heard.hear(4000); }
+                continue;
+            }
+            step = heard.add(f, f.length, 0);
+            if (step == dev.jun.gyeot.core.OverEar.Step.DONE || step == dev.jun.gyeot.core.OverEar.Step.SILENT) break;
+        }
+        assertTrue("stopped once they spoke: " + over, over > starts && over - starts <= rate / 2);
+        assertEquals(dev.jun.gyeot.core.OverEar.Step.DONE, step);
+        short[] said = heard.pcm();
+        int first = starts - 15 * dev.jun.gyeot.core.OverEar.FRAME, keep = rate * 3 / 10;
+        assertArrayEquals("it starts 300 ms before their voice and keeps its first 300 ms",
+            java.util.Arrays.copyOfRange(mic, first, starts + keep), java.util.Arrays.copyOf(said, starts + keep - first));
+        assertTrue("all of what they said: " + said.length, said.length >= ends - first);
+        // After an answer it hears the next words itself, with no barge-in check any more.
+        dev.jun.gyeot.core.OverEar next = new dev.jun.gyeot.core.OverEar(barge); next.listen(7000);
+        assertNotEquals(dev.jun.gyeot.core.OverEar.Step.OVER, next.add(user, user.length, 6000));
+        assertTrue(next.hearing());
+    }
+    /**
+     * The words 퍼레 answers itself, with no AI and no Typecast (준: "음성상호작용을 더 강화해줘", core/VoiceTurns): a bare call, an
+     * end, 그만 while music plays, 뭐라고?, 잠깐 right after being cut short, and a no to an alarm waiting for a yes; talk that only
+     * starts with those words is talk.
+     */
+    @Test public void handlesTurnWordsItself() throws Exception {
+        dev.jun.gyeot.core.VoiceTurns.Kind CALL = dev.jun.gyeot.core.VoiceTurns.Kind.CALL, BYE = dev.jun.gyeot.core.VoiceTurns.Kind.BYE, PAUSE = dev.jun.gyeot.core.VoiceTurns.Kind.PAUSE,
+            REPEAT = dev.jun.gyeot.core.VoiceTurns.Kind.REPEAT, HUSH = dev.jun.gyeot.core.VoiceTurns.Kind.HUSH, NO = dev.jun.gyeot.core.VoiceTurns.Kind.NO, NONE = dev.jun.gyeot.core.VoiceTurns.Kind.NONE;
+        Object[][] table = {
+            // heard, just cut, confirming, music on, what it is
+            {"퍼레야", false, false, false, CALL}, {"퍼레야!", false, false, false, CALL}, {"들퍼레", false, false, false, CALL},
+            {"그만할래", false, false, false, BYE}, {"됐어 고마워", false, false, false, BYE}, {"이제 그만하자.", false, false, true, BYE}, {"잘 자", false, false, false, BYE},
+            {"그만", false, false, true, PAUSE}, {"그만", false, false, false, BYE},
+            {"그만 먹고 싶어", false, false, true, NONE}, {"다 됐어?", false, false, false, NONE}, {"그만큼 좋아", false, false, false, NONE}, {"끝?", false, false, false, NONE},
+            {"뭐라고?", false, false, false, REPEAT}, {"다시 말해 줘", false, false, false, REPEAT},
+            {"잠깐", true, false, false, HUSH}, {"잠깐만", true, false, false, HUSH}, {"잠깐", false, false, false, NONE},
+            {"됐어", false, true, false, NO}, {"아니", false, true, false, NO}, {"아니", false, false, false, NONE}, {"됐어", false, false, false, NONE},
+            {"퍼레야 오늘 날씨 어때", false, false, false, NONE}, {"", false, false, false, NONE}, {null, false, false, false, NONE},
+        };
+        for (Object[] row : table)
+            assertEquals(String.valueOf(row[0]), row[4], dev.jun.gyeot.core.VoiceTurns.of((String) row[0], (boolean) row[1], (boolean) row[2], (boolean) row[3]));
+
+        // In a talk, with the phone's recognizer played by the test: a bare call is answered and it listens again; an end
+        // ends it; neither goes to the brain.
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        java.util.List<SpeechInput.Listener> ears = new java.util.ArrayList<>();
+        SpeechInput.Ears before = BuddyVoice.ears;
+        BuddyVoice.ears = new SpeechInput.Ears() {
+            @Override public SpeechInput.Ear open(android.content.Context c) {
+                return new SpeechInput.Ear() { @Override public void start(SpeechInput.Listener l) { ears.add(l); } @Override public void finish() {} @Override public void close() {} };
+            }
+            @Override public boolean available(android.content.Context c) { return true; }
+        };
+        try {
+            BuddyVoice talk = new BuddyVoice(app, app.store());
+            java.util.List<String> shown = new java.util.ArrayList<>();
+            talk.attach((state, text) -> shown.add(state + ":" + text), then -> then.run());
+            talk.start();
+            shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(1, ears.size());
+            assertFalse("not listening before the recognizer is ready: " + shown, shown.contains("listening:"));
+            ears.get(0).ready(); assertEquals("listening:", shown.get(shown.size() - 1));
+            ears.get(0).heard("퍼레야");
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(400));
+            assertTrue(talk.on()); assertEquals("it listens again: " + shown, 2, ears.size());
+            ears.get(1).ready();
+            ears.get(1).heard("그만할래");
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(400));
+            assertFalse("ended", talk.on());
+            assertEquals("done:" + BuddyVoice.BYE_WORDS, shown.get(shown.size() - 1));
+            assertEquals("the brain was never asked", 0, talk.answers);
+        } finally { BuddyVoice.ears = before; }
+    }
+
+    /**
+     * Over music, 퍼레 lets a song's words go (준: "음성상호작용을 더 강화해줘"): only words with its name, or said to the music
+     * itself, get through; and both ears are told this phone's own words (its names, the saved places, the apps just used, the
+     * names in what it said last), Whisper with a short prompt whose echo on a short clip counts as nothing.
+     */
+    @Test public void ignoresSongsAndKnowsItsWords() throws Exception {
+        assertNull(dev.jun.gyeot.core.VoiceHints.musicGate("너의 손을 잡고", true));
+        assertNull(dev.jun.gyeot.core.VoiceHints.musicGate("다음 곡도 너를 생각하며 걸어가", true));
+        assertEquals("다음 곡", dev.jun.gyeot.core.VoiceHints.musicGate(dev.jun.gyeot.core.BuddyMind.nameHeard("버레야 다음 곡"), true));
+        assertEquals("다음 곡", dev.jun.gyeot.core.VoiceHints.musicGate("다음 곡", true));
+        assertEquals("소리 좀 줄여 줘", dev.jun.gyeot.core.VoiceHints.musicGate("소리 좀 줄여 줘", true));
+        assertEquals("퍼레야", dev.jun.gyeot.core.VoiceHints.musicGate("퍼레야", true));
+        assertEquals("퍼레야", dev.jun.gyeot.core.VoiceHints.musicGate("퍼레야!", true));
+        assertEquals("지금 몇 시야", dev.jun.gyeot.core.VoiceHints.musicGate("퍼레야 지금 몇 시야", true));
+        assertNull("a name inside other words is not a call", dev.jun.gyeot.core.VoiceHints.musicGate("퍼레가 좋아", true));
+        assertEquals("아무 말", dev.jun.gyeot.core.VoiceHints.musicGate("아무 말", false));
+
+        java.util.List<String> names = java.util.List.of("퍼레", "퍼레야", "들퍼레");
+        java.util.List<String> hints = dev.jun.gyeot.core.VoiceHints.build(names, java.util.List.of("회사", "집"), java.util.List.of("네이버 지도", "카카오톡"), java.util.List.of("주사위", "고양이 귀"), "아이유 좋은날 틀어 줄게! 🎵");
+        for (String w : new String[]{"퍼레", "회사", "네이버 지도", "주사위", "아이유", "좋은날"}) assertTrue(w + " in " + hints, hints.contains(w));
+        for (String w : new String[]{"틀어", "줄게"}) assertFalse(w + " is not a name: " + hints, hints.contains(w));
+        java.util.List<String> lots = new java.util.ArrayList<>(); for (int i = 0; i < 300; i++) lots.add("장난감" + i);
+        java.util.List<String> full = dev.jun.gyeot.core.VoiceHints.build(names, lots, lots, lots, "아이유 좋은날 틀어 줄게!");
+        assertTrue(full.size() <= dev.jun.gyeot.core.VoiceHints.MOST); assertTrue("the last words always fit: " + full, full.contains("좋은날"));
+        String prompt = dev.jun.gyeot.core.VoiceHints.prompt("아이유 좋은날 틀어 줄게! 🎵", hints);
+        assertTrue(prompt, prompt.startsWith("퍼레야, 아이유 좋은날 틀어 줄게!")); assertTrue(prompt, prompt.contains("회사"));
+        assertTrue(prompt, prompt.length() <= 120); assertFalse(prompt, prompt.contains("🎵"));
+        assertTrue(dev.jun.gyeot.core.VoiceHints.prompt("가".repeat(300), full).length() <= 120);
+        // The phone's recognizer leans toward them (its names alone when there are none).
+        assertEquals(hints, SpeechInput.intent(hints).getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_BIASING_STRINGS));
+        assertEquals(names, SpeechInput.intent(java.util.List.of()).getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_BIASING_STRINGS));
+        // Whisper's echo of its prompt on a short clip is nothing; said for longer, or other words, it is what was said.
+        String told = dev.jun.gyeot.core.VoiceHints.prompt("", java.util.List.of());
+        assertEquals("퍼레야,", told);
+        assertEquals(600, GroqWork.ms(dev.jun.gyeot.core.Utterance.wav(new short[9600], 16000)));
+        assertEquals(2000, GroqWork.ms(dev.jun.gyeot.core.Utterance.wav(new short[32000], 16000)));
+        assertTrue(dev.jun.gyeot.core.VoiceHints.echo("퍼레야,", told, 600));
+        assertFalse(dev.jun.gyeot.core.VoiceHints.echo("퍼레야,", told, 2000));
+        assertFalse(dev.jun.gyeot.core.VoiceHints.echo("다음 곡", told, 600));
+
+        // In a talk over another app with music on, the phone's recognizer played by the test: a song's words are let go
+        // (the brain never asked, a note in the bubble, the talk goes on), a bare call is answered, a request with the name
+        // goes to the brain.
+        org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(true);
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        java.util.List<SpeechInput.Listener> ears = new java.util.ArrayList<>();
+        SpeechInput.Ears before = BuddyVoice.ears; java.util.function.Predicate<android.content.Context> was = BuddyVoice.musicCheck;
+        BuddyVoice.ears = new SpeechInput.Ears() {
+            @Override public SpeechInput.Ear open(android.content.Context c) {
+                return new SpeechInput.Ear() { @Override public void start(SpeechInput.Listener l) { ears.add(l); } @Override public void finish() {} @Override public void close() {} };
+            }
+            @Override public boolean available(android.content.Context c) { return true; }
+        };
+        BuddyVoice.musicCheck = c -> true;
+        BuddyVoice talk = new BuddyVoice(app, app.store());
+        try {
+            talk.start();
+            android.view.WindowManager wm = app.getSystemService(android.view.WindowManager.class);
+            java.util.function.Supplier<String> bubble = () -> {
+                java.util.List<View> views = ((org.robolectric.shadows.ShadowWindowManagerImpl) org.robolectric.shadow.api.Shadow.extract(wm)).getViews();
+                View t = views.isEmpty() ? null : find(views.get(views.size() - 1), x -> x instanceof TextView && ((TextView) x).getMaxWidth() > 0 && ((TextView) x).getMaxWidth() < Integer.MAX_VALUE);
+                return t == null ? "" : ((TextView) t).getText().toString();
+            };
+            for (int i = 0; i < 100 && ears.isEmpty(); i++) { Thread.sleep(10); shadowOf(Looper.getMainLooper()).idle(); }
+            assertEquals(1, ears.size());
+            ears.get(0).ready();
+            for (int i = 0; i < 100 && !"♪".equals(bubble.get()); i++) { Thread.sleep(10); shadowOf(Looper.getMainLooper()).idle(); }
+            assertEquals("a note while the music plays", "♪", bubble.get());
+            ears.get(0).partial("너의 손을");
+            assertEquals("the song is not shown as heard", "♪", bubble.get());
+            ears.get(0).heard("너의 손을 잡고 걸어가");
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1500));
+            assertTrue(talk.on()); assertEquals("it listens on", 2, ears.size());
+            assertEquals("the brain was not asked", 0, talk.answers);
+            assertTrue(app.store().phoneLogText().contains("음악 중 이름 없는 말 넘김"));
+            ears.get(1).ready(); ears.get(1).heard("퍼레야");
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1500));
+            assertEquals("a bare call is answered, and it listens", 3, ears.size()); assertEquals(0, talk.answers);
+            ears.get(2).ready(); ears.get(2).heard("퍼레야, 지금 몇 시야");
+            shadowOf(Looper.getMainLooper()).idle();
+            assertEquals("words with its name go to the brain", 1, talk.answers);
+        } finally { talk.stop(); BuddyVoice.ears = before; BuddyVoice.musicCheck = was; }
+    }
+
     /** 퍼레's short words in its own voice (준: "프리셋 보이스 100개", "타입캐스트로"): a hundred, kept by voice, no repeat of the last few. */
     @Test public void keepsItsShortWords() throws Exception {
         assertEquals(100, VoicePresets.LINES.length);
@@ -771,6 +996,414 @@ public class BuddyBrainTests {
         String persona = dev.jun.gyeot.core.BuddyMind.persona("퍼레", "대장님");
         assertTrue(persona.contains("화이팅") && persona.contains("하지 마"));
         assertFalse(dev.jun.gyeot.core.BuddyMind.TOPICS.toString().contains("응원"));
+    }
+
+    /**
+     * The user's work stays out of 퍼레's picture of them (준: "나를 이해한 바탕으로 일상적인 말걸기, 업무적인 것 말고"): the assistant's
+     * note goes with 퍼레's talk without its work sections, however the user retitled them, or its lines on work and money,
+     * unless the user asks about their work; what 퍼레 thinks it knows (and still asks) is not fooled by it either.
+     */
+    @Test public void keepsWorkOutOfItsTalk() throws Exception {
+        String note = "## 하는 일·관심사\n- 영상 채널을 운영하고 게임 개발에 관심이 많다\n## 진행 중인 일\n- 게임엔진 작업\n- BGM 음악 고르기\n"
+            + "## 생활 패턴\n- 밤늦게 잔다\n- 출근 전에 영상 편집을 한다\n## 좋아하는 방식\n- 작업 요청은 결론부터\n## 자주 나오는 사람·곳\n- 회의는 판교 사무실에서";
+        String everyday = dev.jun.gyeot.core.BuddyMind.everyday(note);
+        assertEquals("## 생활 패턴\n- 밤늦게 잔다", everyday);
+        assertTrue("the whole note seems to tell its games and music", dev.jun.gyeot.core.BuddyMind.knows(note) >= 2);
+        assertEquals("neither games nor music from the user's work", 0, dev.jun.gyeot.core.BuddyMind.knows(everyday));
+        assertEquals("a heading edited by hand", everyday, dev.jun.gyeot.core.BuddyMind.everyday(note.replace("## 진행 중인 일", "## 진행 중인 일들")));
+        assertEquals(everyday, dev.jun.gyeot.core.BuddyMind.everyday(note.replace("## 진행 중인 일", "##진행중인 일")));
+        assertEquals("before any heading, lines on work go", "고양이를 좋아한다", dev.jun.gyeot.core.BuddyMind.everyday("고양이를 좋아한다\n프로젝트 마감이 다음 주"));
+        assertTrue(dev.jun.gyeot.core.BuddyMind.asksWork("요즘 작업 잘 돼?")); assertTrue(dev.jun.gyeot.core.BuddyMind.asksWork("일은 어때?"));
+        assertFalse(dev.jun.gyeot.core.BuddyMind.asksWork("뭐 먹을까")); assertFalse(dev.jun.gyeot.core.BuddyMind.asksWork("생일 많이 축하해"));
+        // What the voice talk's brain reads, and what 퍼레 thinks it knows.
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        app.store().settings.edit().putBoolean("proactive", true).putString("aboutAi", note).commit();
+        String bored = BuddyTalk.replyInput(app, "심심해", java.util.List.of(), false, "");
+        assertFalse(bored, bored.contains("게임엔진")); assertTrue(bored, bored.contains("밤늦게 잔다")); assertTrue(bored, bored.contains("먼저 꺼내지 마"));
+        assertTrue("asked about work, the whole note", BuddyTalk.replyInput(app, "요즘 작업 잘 돼?", java.util.List.of(), false, "").contains("게임엔진"));
+        assertFalse("a guest none of it", BuddyTalk.replyInput(app, "요즘 작업 잘 돼?", java.util.List.of(), true, "").contains("밤늦게"));
+        assertFalse("what it thinks it knows has no work in it", BuddyTalk.knownWords(app, app.store()).contains("게임엔진"));
+    }
+
+    /**
+     * What 퍼레 does not say unasked, aloud or typed (준: "자꾸 화이팅하고 쉬래", "자꾸 파일 정리하라는 엉뚱한 이야기를 하는데"): cheering
+     * or rest when the user did not say they were tired, chores they did not bring up, coins and stocks when they did not ask.
+     */
+    @Test public void doesNotNagAloud() {
+        java.util.List<String> said = new java.util.ArrayList<>();
+        BuddyTalk.Sentences s = new BuddyTalk.Sentences(said::add, "오늘 뭐 할까");
+        s.add("좋아! 근데 푹 쉬어. 영화 볼래?"); s.end();
+        assertEquals("'좋아!' is too short alone and goes with the nag", java.util.List.of("영화 볼래?"), said);
+        assertEquals("영화 볼래?", s.said());
+        java.util.List<String> comfort = new java.util.ArrayList<>();
+        BuddyTalk.Sentences t = new BuddyTalk.Sentences(comfort::add, "너무 피곤해");
+        t.add("에고, 오늘은 푹 쉬어. 내가 옆에 있을게."); t.end();
+        assertEquals("tired, a word of comfort is theirs", java.util.List.of("에고, 오늘은 푹 쉬어.", "내가 옆에 있을게."), comfort);
+        // The whole answer is what was said aloud; nothing left is nothing to say.
+        assertEquals("영화 볼래?", BuddyTalk.sayable("좋아! 근데 푹 쉬어. 영화 볼래?", "오늘 뭐 할까"));
+        assertEquals("", BuddyTalk.sayable("오늘도 수고했어! 화이팅이야.", "오늘 뭐 할까"));
+        assertFalse(dev.jun.gyeot.core.BuddyMind.unasked("배터리 80% 남았어", "배터리 얼마야"));
+        assertFalse(dev.jun.gyeot.core.BuddyMind.unasked("저장공간 20GB 남았어", "저장공간 얼마 남았어"));
+        assertTrue(dev.jun.gyeot.core.BuddyMind.unasked("사진 정리 한번 해 볼까?", "심심해"));
+        assertTrue(dev.jun.gyeot.core.BuddyMind.unasked("요즘 비트코인 시세 좋더라", "뭐 하고 놀까"));
+        assertFalse(dev.jun.gyeot.core.BuddyMind.unasked("비트코인은 지금 좀 내렸대", "비트코인 얼마야"));
+        assertTrue(dev.jun.gyeot.core.BuddyMind.tired("배가 아파")); assertFalse("아파트 is no pain", dev.jun.gyeot.core.BuddyMind.tired("아파트 앞이야"));
+        // A typed answer loses the stock line it was not asked for, its lines and list kept.
+        assertEquals("오늘 날씨 맑아.\n- 산책 어때?", dev.jun.gyeot.core.BuddyMind.keepAsked("오늘 날씨 맑아. 주식은 계속 오르는 중이야.\n- 산책 어때?", "오늘 뭐 할까"));
+        assertEquals("", dev.jun.gyeot.core.BuddyMind.keepAsked("수고했어! 푹 쉬어.", "오늘 뭐 할까"));
+        assertEquals("주식은 계속 오르는 중이야.", dev.jun.gyeot.core.BuddyMind.keepAsked("주식은 계속 오르는 중이야.", "주식 어때"));
+    }
+
+    /**
+     * The talk goes on (준: "음성상호작용을 더 강화해줘"): the turns typed in 퍼레와 대화 go into the voice talk, the last talk is
+     * there for ten minutes, a brain that fails once asks to hear it again (the second time in a row ends it, saying why), a
+     * slow brain gets one more "음…", an answer with nothing left to say listens on, and a guest's voice neither hears the
+     * user's talk nor does a thing on the phone.
+     */
+    @Test public void keepsTheTalkGoing() throws Exception {
+        assertEquals(2, BuddyVoice.seed("[[\"user\",\"내일 부산 가\"],[\"assistant\",\"좋겠다!\"]]").size());
+        assertEquals("user", BuddyVoice.seed("[[\"user\",\"내일 부산 가\"]]").get(0)[0]);
+        org.json.JSONArray twelve = new org.json.JSONArray(); for (int i = 0; i < 12; i++) twelve.put(new org.json.JSONArray().put(i % 2 == 0 ? "user" : "assistant").put("말 " + i + " " + "가".repeat(300)));
+        java.util.List<String[]> last = BuddyVoice.seed(twelve.toString());
+        assertEquals(8, last.size()); assertTrue(last.get(0)[1].startsWith("말 4 ")); assertEquals(200, last.get(0)[1].length());
+        assertTrue(BuddyVoice.seed("not json").isEmpty()); assertTrue(BuddyVoice.seed(null).isEmpty());
+        // Why a brain could not answer, in a few words.
+        assertEquals("Groq HTTP 429", BuddyTalk.why("Groq", new IllegalStateException("Groq 오류 HTTP 429 (Rate limit reached)"), 8_000));
+        assertEquals("NVIDIA HTTP 429", BuddyTalk.why("NVIDIA", new dev.jun.gyeot.core.ModelLimit(429), 8_000));
+        assertEquals("시간 초과 9초", BuddyTalk.why("Groq", new java.net.SocketTimeoutException("Read timed out"), 9_000));
+        assertEquals("빈 답", BuddyTalk.why("Groq", new IllegalStateException("Groq가 빈 답을 보냈어요."), 8_000));
+        assertEquals("Groq 키가 없어요.", BuddyTalk.why("Groq", new IllegalStateException("Groq 키가 없어요."), 8_000));
+
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        java.util.List<SpeechInput.Listener> ears = new java.util.ArrayList<>();
+        java.util.List<BuddyTalk.Ask> asks = new java.util.concurrent.CopyOnWriteArrayList<>();
+        String[] brain = {"wait"};
+        SpeechInput.Ears before = BuddyVoice.ears; java.util.function.BiConsumer<android.content.Context, BuddyTalk.Ask> was = BuddyVoice.brain;
+        BuddyVoice.ears = new SpeechInput.Ears() {
+            @Override public SpeechInput.Ear open(android.content.Context c) {
+                return new SpeechInput.Ear() { @Override public void start(SpeechInput.Listener l) { ears.add(l); } @Override public void finish() {} @Override public void close() {} };
+            }
+            @Override public boolean available(android.content.Context c) { return true; }
+        };
+        BuddyVoice.brain = (c, ask) -> { asks.add(ask); if (brain[0].equals("fail")) ask.failed().accept("Groq HTTP 429"); };
+        BuddyVoice talk = new BuddyVoice(app, app.store());
+        java.util.List<String> shown = new java.util.ArrayList<>();
+        java.util.function.BooleanSupplier[] until = new java.util.function.BooleanSupplier[1];
+        Runnable settle = () -> { for (int i = 0; i < 200 && !until[0].getAsBoolean(); i++) { try { Thread.sleep(10); } catch (InterruptedException e) { return; } shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(20)); } };
+        try {
+            talk.attach((state, text) -> shown.add(state + ":" + text), then -> then.run());
+            // What was typed goes on by voice.
+            talk.start("[[\"user\",\"내일 부산 가\"],[\"assistant\",\"좋겠다! 조심히 다녀와\"]]");
+            shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(1, ears.size());
+            ears.get(0).ready(); ears.get(0).heard("뭐 챙겨 갈까");
+            until[0] = () -> !asks.isEmpty(); settle.run();
+            assertEquals(1, asks.size());
+            assertTrue("the typed turns go along", asks.get(0).turns().stream().anyMatch(x -> x[1].equals("내일 부산 가")));
+            assertNotNull("the user's own words may do a thing", asks.get(0).doIt());
+            // A slow brain: one more "음…" once 3.5 s have gone by with no sound, and only once.
+            talk.cued = "";
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(BuddyVoice.STILL_MS + 200));
+            assertEquals("think", talk.cued);
+            talk.cued = ""; shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(BuddyVoice.STILL_MS + 200));
+            assertEquals("once a turn", "", talk.cued);
+            // Every sentence left out (BuddyMind.unasked): a little sound, and it listens on.
+            asks.get(0).done().accept("");
+            until[0] = () -> ears.size() == 2; settle.run();
+            assertTrue(talk.on()); assertEquals("react", talk.cued); assertEquals(2, ears.size());
+
+            // The brain fails: "다시 말해 줄래?", it listens on, and why is kept.
+            brain[0] = "fail";
+            ears.get(1).ready(); ears.get(1).heard("부산 날씨 어때");
+            until[0] = () -> ears.size() == 3; settle.run();
+            assertTrue("one failure does not end it", talk.on()); assertEquals("again", talk.cued); assertEquals(3, ears.size());
+            assertEquals("음성 대화 두뇌", BuddyMisses.list(app).get(0).what());
+            assertTrue(BuddyMisses.list(app).get(0).why(), BuddyMisses.list(app).get(0).why().matches("Groq HTTP 429 \\(\\d\\d:\\d\\d\\)"));
+            assertTrue(app.store().phoneLogText().contains("두뇌가 답하지 못함 (Groq HTTP 429)"));
+            // Twice in a row: the talk ends, saying so.
+            ears.get(2).ready(); ears.get(2).heard("부산 날씨 어때");
+            until[0] = () -> !talk.on(); settle.run();
+            assertFalse(talk.on());
+            assertEquals("error:지금은 대답이 안 떠올라. 조금 있다 다시 불러 줘", shown.get(shown.size() - 1));
+            assertEquals(2, BuddyMisses.list(app).size());
+
+            // Called again five minutes later: it goes on from that talk.
+            brain[0] = "wait"; asks.clear();
+            talk.endedAt = android.os.SystemClock.elapsedRealtime() - 5 * 60_000L;
+            talk.start();
+            until[0] = () -> ears.size() == 4; settle.run();
+            ears.get(3).ready(); ears.get(3).heard("다시 왔어");
+            until[0] = () -> !asks.isEmpty(); settle.run();
+            assertTrue("five minutes on, the talk goes on", asks.get(0).turns().stream().anyMatch(x -> x[1].equals("뭐 챙겨 갈까")));
+            // Fifteen minutes on, afresh.
+            talk.stop(); asks.clear();
+            talk.endedAt = android.os.SystemClock.elapsedRealtime() - 15 * 60_000L;
+            talk.start();
+            until[0] = () -> ears.size() == 5; settle.run();
+            ears.get(4).ready(); ears.get(4).heard("안녕");
+            until[0] = () -> !asks.isEmpty(); settle.run();
+            assertTrue("fifteen minutes on, afresh", asks.get(0).turns().isEmpty());
+
+            // Another's voice (VoicePrint: STRANGER): the talk so far is not theirs, and their words do nothing on the phone.
+            talk.stop(); asks.clear();
+            talk.start("[[\"user\",\"내 비밀 일기 썼어\"]]");
+            shadowOf(Looper.getMainLooper()).idle();
+            var think = BuddyVoice.class.getDeclaredMethod("think", String.class, boolean.class); think.setAccessible(true);
+            think.invoke(talk, "안녕, 반가워", true);
+            until[0] = () -> !asks.isEmpty(); settle.run();
+            BuddyTalk.Ask guest = asks.get(0);
+            assertTrue(guest.guest()); assertNull("a guest's turn never gets a doIt", guest.doIt()); assertTrue("nor the user's talk", guest.turns().isEmpty());
+        } finally { talk.stop(); BuddyVoice.ears = before; BuddyVoice.brain = was; }
+    }
+
+    /** The phone's recognizer played by a test: each listening it opens is kept, in order. */
+    private static SpeechInput.Ears fakeEars(java.util.List<SpeechInput.Listener> ears) {
+        return new SpeechInput.Ears() {
+            @Override public SpeechInput.Ear open(android.content.Context c) {
+                return new SpeechInput.Ear() { @Override public void start(SpeechInput.Listener l) { ears.add(l); } @Override public void finish() {} @Override public void close() {} };
+            }
+            @Override public boolean available(android.content.Context c) { return true; }
+        };
+    }
+    /** The main looper run (and the talk's threads let run) until done says so, a few virtual seconds at most. */
+    private static void settle(java.util.function.BooleanSupplier done) {
+        for (int i = 0; i < 300 && !done.getAsBoolean(); i++) {
+            try { Thread.sleep(10); } catch (InterruptedException e) { return; }
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(20));
+        }
+    }
+    private static Object field(Object o, String name) throws Exception { var f = BuddyVoice.class.getDeclaredField(name); f.setAccessible(true); return f.get(o); }
+
+    /**
+     * Only a guessed alarm or timer waits for a yes (준: "퍼레의 판단력 … 강화해줘"): a length or a time the user said is set at
+     * once and read back as it is set; an hour without 오전·오후, or none, is asked; and "아니 8시로" to the read-back sets that
+     * one alarm with no second question.
+     */
+    @Test public void confirmsOnlyAGuessedTime() throws Exception {
+        java.util.function.Function<String, org.json.JSONObject> json = t -> { try { return new org.json.JSONObject(t); } catch (org.json.JSONException e) { throw new AssertionError(e); } };
+        assertTrue(dev.jun.gyeot.core.DeviceActions.stated("timer", json.apply("{\"seconds\":180}"), "3분 타이머 맞춰 줘"));
+        assertFalse(dev.jun.gyeot.core.DeviceActions.stated("timer", json.apply("{\"seconds\":180}"), "라면 타이머 맞춰 줘"));
+        assertTrue(dev.jun.gyeot.core.DeviceActions.stated("timer", json.apply("{\"seconds\":5400}"), "한 시간 반 타이머"));
+        assertTrue(dev.jun.gyeot.core.DeviceActions.stated("timer", json.apply("{\"seconds\":90}"), "1분 30초만 재 줘"));
+        assertFalse("two lengths", dev.jun.gyeot.core.DeviceActions.stated("timer", json.apply("{\"seconds\":300}"), "3분이랑 5분 타이머"));
+        assertTrue(dev.jun.gyeot.core.DeviceActions.stated("alarm", json.apply("{\"hour\":7,\"minute\":30}"), "일곱 시 반에 깨워 줘"));
+        assertFalse("waking at 7 is the morning", dev.jun.gyeot.core.DeviceActions.halfDayUnsaid(7, "일곱 시 반에 깨워 줘"));
+        assertTrue(dev.jun.gyeot.core.DeviceActions.stated("alarm", json.apply("{\"hour\":7}"), "7시 알람"));
+        assertTrue("7 or 19", dev.jun.gyeot.core.DeviceActions.halfDayUnsaid(7, "7시 알람"));
+        assertTrue(dev.jun.gyeot.core.DeviceActions.stated("alarm", json.apply("{\"hour\":15}"), "오후 3시 알람"));
+        assertFalse(dev.jun.gyeot.core.DeviceActions.halfDayUnsaid(15, "오후 3시 알람"));
+        assertFalse("the half of the day said must agree", dev.jun.gyeot.core.DeviceActions.stated("alarm", json.apply("{\"hour\":19}"), "아침 7시 알람"));
+        assertFalse("two times", dev.jun.gyeot.core.DeviceActions.stated("alarm", json.apply("{\"hour\":8}"), "7시 말고 8시로"));
+        assertFalse("the minute said", dev.jun.gyeot.core.DeviceActions.stated("alarm", json.apply("{\"hour\":7}"), "7시 반에 알람"));
+        assertFalse("worked out, not said", dev.jun.gyeot.core.DeviceActions.stated("alarm", json.apply("{\"hour\":18,\"minute\":50}"), "7시 10분 전에 알람"));
+        assertFalse("days not said", dev.jun.gyeot.core.DeviceActions.stated("alarm", json.apply("{\"hour\":7,\"days\":[\"mon\"]}"), "아침 7시 알람"));
+        assertTrue(dev.jun.gyeot.core.DeviceActions.stated("alarm", json.apply("{\"hour\":7,\"minute\":30}"), "7:30에 알람"));
+        assertTrue(BuddyTools.RULE, BuddyTools.RULE.contains("'알겠어!'만"));
+
+        // On a phone with a clock app.
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        app.store().appVisible = true;
+        org.robolectric.shadows.ShadowPackageManager pm = shadowOf(app.getPackageManager());
+        android.content.ComponentName clock = new android.content.ComponentName("com.clock", "com.clock.Set"); pm.addActivityIfNotPresent(clock);
+        for (String action : new String[]{android.provider.AlarmClock.ACTION_SET_ALARM, android.provider.AlarmClock.ACTION_SET_TIMER}) {
+            android.content.IntentFilter f = new android.content.IntentFilter(action); f.addCategory(android.content.Intent.CATEGORY_DEFAULT); pm.addIntentFilterForActivity(clock, f);
+        }
+        org.robolectric.shadows.ShadowApplication shadow = shadowOf(app);
+        while (shadow.getNextStartedActivity() != null) { /* earlier ones */ }
+        BuddyVoice.Outcome timer = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"timer\",\"seconds\":180}"), "3분 타이머 맞춰 줘", false);
+        assertNull("set at once", timer.confirm()); assertEquals("3분 타이머 시작!", timer.say());
+        android.content.Intent started = shadow.getNextStartedActivity();
+        assertEquals(android.provider.AlarmClock.ACTION_SET_TIMER, started.getAction()); assertEquals(180, started.getIntExtra(android.provider.AlarmClock.EXTRA_LENGTH, 0));
+        BuddyVoice.Outcome seven = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"alarm\",\"hour\":7}"), "7시 알람 맞춰 줘", false);
+        assertNotNull("7 or 19: asked", seven.confirm()); assertTrue(seven.say(), seven.say().endsWith("오전 7:00에 알람 맞출까?"));
+        assertNull("nothing set yet", shadow.getNextStartedActivity());
+        BuddyVoice.Outcome morning = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"alarm\",\"hour\":7}"), "아침 7시에 깨워 줘", false);
+        assertNull(morning.confirm()); assertTrue(morning.say(), morning.say().endsWith("오전 7:00에 알람 맞췄어!"));
+        assertEquals(7, shadow.getNextStartedActivity().getIntExtra(android.provider.AlarmClock.EXTRA_HOUR, -1));
+        assertNotNull("no time said: asked", BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"alarm\",\"hour\":7}"), "알람 맞춰 줘", false).confirm());
+        assertNull(BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"alarm\",\"hour\":15}"), "오후 3시 알람", false).confirm());
+        assertEquals(15, shadow.getNextStartedActivity().getIntExtra(android.provider.AlarmClock.EXTRA_HOUR, -1));
+        assertNull("typed chat says yes itself, as before", BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"alarm\",\"hour\":9}"), "네", false).confirm());
+        while (shadow.getNextStartedActivity() != null) { /* that one */ }
+
+        // In a talk: the read-back asked, the user cuts in with "아니 8시로": one alarm at 8:00, no second question.
+        java.util.List<SpeechInput.Listener> ears = new java.util.ArrayList<>();
+        java.util.List<BuddyTalk.Ask> asks = new java.util.concurrent.CopyOnWriteArrayList<>();
+        SpeechInput.Ears before = BuddyVoice.ears; java.util.function.BiConsumer<android.content.Context, BuddyTalk.Ask> was = BuddyVoice.brain;
+        BuddyVoice.ears = fakeEars(ears); BuddyVoice.brain = (c, ask) -> asks.add(ask);
+        BuddyVoice talk = new BuddyVoice(app, app.store());
+        try {
+            talk.attach((state, text) -> {}, then -> then.run());
+            talk.start(); settle(() -> ears.size() == 1);
+            ears.get(0).ready(); ears.get(0).heard("알람 맞춰 줘");
+            settle(() -> asks.size() == 1);
+            asks.get(0).doIt().accept(BuddyTalk.loose("{\"tool\":\"alarm\",\"hour\":7}")); asks.get(0).done().accept("");
+            settle(() -> { try { return field(talk, "confirming") != null; } catch (Exception e) { return false; } });
+            assertNotNull("it asks", field(talk, "confirming"));
+            assertNull("and sets nothing", shadow.getNextStartedActivity());
+            var over = BuddyVoice.class.getDeclaredMethod("talkedOver", boolean.class); over.setAccessible(true);
+            over.invoke(talk, false);
+            settle(() -> ears.size() == 2);
+            ears.get(1).ready(); ears.get(1).heard("아니 8시로");
+            settle(() -> asks.size() == 2);
+            String recent = asks.get(1).recent();
+            assertTrue(recent, recent.contains("퍼레가 방금 ‘") && recent.contains("오전 7:00에 알람 맞출까?’라고 물었어"));
+            asks.get(1).doIt().accept(BuddyTalk.loose("{\"tool\":\"alarm\",\"hour\":8}")); asks.get(1).done().accept("");
+            settle(() -> shadow.peekNextStartedActivity() != null);
+            android.content.Intent eight = shadow.getNextStartedActivity();
+            assertNotNull("set", eight);
+            assertEquals(android.provider.AlarmClock.ACTION_SET_ALARM, eight.getAction()); assertEquals(8, eight.getIntExtra(android.provider.AlarmClock.EXTRA_HOUR, -1));
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(500));
+            assertNull("one alarm", shadow.getNextStartedActivity());
+            assertNull("no second question", field(talk, "confirming"));
+        } finally { talk.stop(); BuddyVoice.ears = before; BuddyVoice.brain = was; }
+    }
+
+    /**
+     * What 퍼레 was about to do and just did (준: "퍼레의 판단력 … 강화해줘"): a thing promised is held when the user cuts in, let
+     * go on "아니 멜론으로" (and the answer is told what it was), done on "응" or on silence; the next answers know what was just
+     * done; an app that did not come up is said once, with the tap that clears the way, and never over the user's words.
+     */
+    @Test public void knowsWhatItJustDid() throws Exception {
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        app.store().appVisible = true;
+        org.robolectric.shadows.ShadowPackageManager pm = shadowOf(app.getPackageManager());
+        android.content.ComponentName youtube = new android.content.ComponentName("com.google.android.youtube", "com.google.android.youtube.Home");
+        pm.addActivityIfNotPresent(youtube);
+        android.content.IntentFilter search = new android.content.IntentFilter(android.content.Intent.ACTION_SEARCH); search.addCategory(android.content.Intent.CATEGORY_DEFAULT);
+        pm.addIntentFilterForActivity(youtube, search);
+        android.content.ComponentName kakao = new android.content.ComponentName("com.kakao.talk", "com.kakao.talk.Share");
+        pm.addActivityIfNotPresent(kakao);
+        android.content.IntentFilter send = new android.content.IntentFilter(android.content.Intent.ACTION_SEND); send.addDataType("text/plain"); send.addCategory(android.content.Intent.CATEGORY_DEFAULT);
+        pm.addIntentFilterForActivity(kakao, send);
+        org.robolectric.shadows.ShadowApplication shadow = shadowOf(app);
+        while (shadow.getNextStartedActivity() != null) { /* earlier ones */ }
+
+        // What went wrong is kept with its kind; entries from before kinds read as a failure.
+        BuddyMisses.clear(app);
+        BuddyMisses.add(app, "아니 멜론으로", "play · ‘좋은날’", "고쳐 말했어요", "", BuddyMisses.CORRECTED);
+        assertEquals(BuddyMisses.CORRECTED, BuddyMisses.list(app).get(0).kind());
+        app.getSharedPreferences("buddyTalk", android.content.Context.MODE_PRIVATE).edit().putString("misses", "[{\"at\":1,\"said\":\"켜 줘\",\"what\":\"torch\",\"why\":\"안 됐어\",\"fix\":\"\"}]").commit();
+        assertEquals(BuddyMisses.FAIL, BuddyMisses.list(app).get(0).kind());
+        BuddyMisses.clear(app);
+        org.json.JSONObject play = BuddyTalk.loose("{\"tool\":\"play\",\"query\":\"아이유 좋은날\",\"app\":\"YouTube\"}");
+        assertEquals("play · ‘아이유 좋은날’ · YouTube", BuddyActs.about(play));
+        assertEquals("alarm · 07:30", BuddyActs.about(BuddyTalk.loose("{\"tool\":\"alarm\",\"hour\":7,\"minute\":30}")));
+        for (String no : new String[]{"아니 멜론으로", "그거 말고 다른 거", "잠깐만", "유튜브 말고 멜론"}) assertTrue(no, dev.jun.gyeot.core.VoiceTurns.corrects(no));
+        for (String yes : new String[]{"응", "좋아 틀어 줘", "아이유 노래 좋다", ""}) assertFalse(yes, dev.jun.gyeot.core.VoiceTurns.corrects(yes));
+
+        java.util.List<SpeechInput.Listener> ears = new java.util.ArrayList<>();
+        java.util.List<BuddyTalk.Ask> asks = new java.util.concurrent.CopyOnWriteArrayList<>();
+        java.util.List<String> shown = new java.util.concurrent.CopyOnWriteArrayList<>();
+        boolean[] comesUp = {true};
+        SpeechInput.Ears before = BuddyVoice.ears; java.util.function.BiConsumer<android.content.Context, BuddyTalk.Ask> was = BuddyVoice.brain; BuddyActs.Watch watched = BuddyActs.watch;
+        BuddyVoice.ears = fakeEars(ears); BuddyVoice.brain = (c, ask) -> asks.add(ask);
+        // 폰 조작 on: the app is looked for in front for 4 s (PhoneService.whenShown), here it comes up or not as the test says.
+        android.os.Handler main = new android.os.Handler(Looper.getMainLooper());
+        BuddyActs.watch = new BuddyActs.Watch() {
+            @Override public boolean on() { return true; }
+            @Override public void whenShown(String pkg, long withinMs, java.util.function.Consumer<Boolean> then) { boolean up = comesUp[0]; main.postDelayed(() -> then.accept(up), withinMs + 500); }
+        };
+        org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(false);
+        org.robolectric.shadows.ShadowTextToSpeech.addLanguageAvailability(java.util.Locale.KOREAN);
+        BuddyVoice talk = new BuddyVoice(app, app.store());
+        var over = BuddyVoice.class.getDeclaredMethod("talkedOver", boolean.class); over.setAccessible(true);
+        java.util.function.BooleanSupplier saying = () -> { try { return (boolean) field(talk, "saying"); } catch (Exception e) { return false; } };
+        try {
+            talk.attach(new BuddyVoice.Show() {
+                @Override public void state(String state, String text) { shown.add(state + ":" + text); }
+                @Override public void state(String state, String text, int ms, String go) { shown.add(state + ":" + text + (go == null || go.isEmpty() ? "" : "|" + go)); }
+            }, then -> then.run());
+            talk.start(); settle(() -> ears.size() == 1);
+
+            // "틀어 줄게!" cut short, then "아니 멜론으로": YouTube is never opened, the correction is kept, the answer knows.
+            ears.get(0).ready(); ears.get(0).heard("유튜브에서 아이유 좋은날 틀어 줘");
+            settle(() -> asks.size() == 1);
+            asks.get(0).doIt().accept(play); asks.get(0).part().accept("아이유 좋은날 틀어 줄게!");
+            settle(saying);
+            over.invoke(talk, false);
+            settle(() -> ears.size() == 2);
+            assertNull("nothing done while the user speaks", shadow.getNextStartedActivity());
+            ears.get(1).ready(); ears.get(1).heard("아니 멜론으로");
+            settle(() -> asks.size() == 2);
+            assertNull("no YouTube", shadow.getNextStartedActivity());
+            assertEquals(BuddyMisses.CORRECTED, BuddyMisses.list(app).get(0).kind());
+            assertTrue(asks.get(1).recent(), asks.get(1).recent().contains("방금 하려던 일: play · ‘아이유 좋은날’ · YouTube"));
+            asks.get(1).done().accept("");
+            settle(() -> ears.size() == 3);
+
+            // Cut short again, then "응": the thing promised is done.
+            ears.get(2).ready(); ears.get(2).heard("유튜브에서 아이유 좋은날 틀어 줘");
+            settle(() -> asks.size() == 3);
+            asks.get(2).doIt().accept(play); asks.get(2).part().accept("틀어 줄게!");
+            settle(saying);
+            over.invoke(talk, false);
+            settle(() -> ears.size() == 4);
+            ears.get(3).ready(); ears.get(3).heard("응");
+            settle(() -> shadow.peekNextStartedActivity() != null);
+            android.content.Intent yt = shadow.getNextStartedActivity();
+            assertNotNull("done on a yes", yt); assertEquals("com.google.android.youtube", yt.getPackage());
+            assertEquals("a yes is not asked", 3, asks.size());
+            settle(() -> ears.size() == 5);
+
+            // The next answer knows what was just done; "아니 그거 말고" within 30 s is kept as a correction of it.
+            ears.get(4).ready(); ears.get(4).heard("이거 무슨 노래야");
+            settle(() -> asks.size() == 4);
+            assertTrue(asks.get(3).recent(), asks.get(3).recent().startsWith("방금 한 일: play · ‘아이유 좋은날’ · YouTube ("));
+            asks.get(3).done().accept("");
+            settle(() -> ears.size() == 6);
+            ears.get(5).ready(); ears.get(5).heard("아니 그거 말고 다른 거");
+            settle(() -> asks.size() == 5);
+            assertEquals(BuddyMisses.CORRECTED, BuddyMisses.list(app).get(0).kind()); assertEquals("play · ‘아이유 좋은날’ · YouTube", BuddyMisses.list(app).get(0).what());
+            asks.get(4).done().accept("");
+            settle(() -> ears.size() == 7);
+
+            // Cut short, then nothing said: done all the same.
+            ears.get(6).ready(); ears.get(6).heard("유튜브에서 아이유 좋은날 틀어 줘");
+            settle(() -> asks.size() == 6);
+            asks.get(5).doIt().accept(play); asks.get(5).part().accept("틀어 줄게!");
+            settle(saying);
+            over.invoke(talk, false);
+            settle(() -> ears.size() == 8);
+            ears.get(7).ready(); ears.get(7).silent("말이 없어요");
+            settle(() -> shadow.peekNextStartedActivity() != null);
+            assertNotNull("done on silence", shadow.getNextStartedActivity());
+            settle(() -> ears.size() == 9);
+
+            // KakaoTalk opened but never came up: said once while it listens, the words open the way through. (YouTube came up
+            // each time: nothing was kept or said for it.)
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(5000));
+            assertTrue("came up: nothing kept " + BuddyMisses.list(app), BuddyMisses.list(app).stream().noneMatch(m -> BuddyMisses.NOT_SHOWN.equals(m.kind())));
+            assertTrue(shown.stream().noneMatch(x -> x.contains("안 열렸어")));
+            comesUp[0] = false; BuddyMisses.clear(app); shown.clear();
+            ears.get(8).ready(); ears.get(8).heard("카톡으로 안녕 보내 줘");
+            settle(() -> asks.size() == 7);
+            asks.get(6).doIt().accept(BuddyTalk.loose("{\"tool\":\"share\",\"text\":\"안녕\",\"app\":\"카카오톡\"}")); asks.get(6).done().accept("");
+            settle(() -> ears.size() == 10);
+            assertNotNull("shared", shadow.getNextStartedActivity());
+            ears.get(9).ready();
+            settle(() -> !BuddyMisses.list(app).isEmpty());
+            assertEquals(BuddyMisses.NOT_SHOWN, BuddyMisses.list(app).get(0).kind()); assertEquals("overlay", BuddyMisses.list(app).get(0).fix());
+            shadowOf(Looper.getMainLooper()).idle();
+            android.speech.tts.TextToSpeech voice = org.robolectric.shadows.ShadowTextToSpeech.getLastTextToSpeechInstance();
+            assertNotNull("said in the phone's voice", voice);
+            shadowOf(voice).getOnInitListener().onInit(android.speech.tts.TextToSpeech.SUCCESS);
+            String late = "speaking:어, ‘카카오톡’ 안 열렸어.|fix:overlay";
+            settle(() -> shown.contains(late));
+            assertTrue(shown.toString(), shown.contains(late));
+            settle(() -> ears.size() == 11);
+            assertEquals("it listens on after it", 11, ears.size());
+
+            // Again, with the user already talking: nothing said over them (kept all the same).
+            ears.get(10).ready(); ears.get(10).heard("카톡으로 안녕 보내 줘");
+            settle(() -> asks.size() == 8);
+            asks.get(7).doIt().accept(BuddyTalk.loose("{\"tool\":\"share\",\"text\":\"안녕\",\"app\":\"카카오톡\"}")); asks.get(7).done().accept("");
+            settle(() -> ears.size() == 12);
+            ears.get(11).ready(); ears.get(11).partial("근데");
+            settle(() -> BuddyMisses.list(app).size() == 2);
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1000));
+            assertEquals("said once: " + shown, 1, shown.stream().filter(late::equals).count());
+        } finally { talk.stop(); BuddyVoice.ears = before; BuddyVoice.brain = was; BuddyActs.watch = watched; }
     }
 
     /** Korean that reads (준: "가끔 한국어를 못알아듣게 말해"): a line cut at its start or in another script is not said. */
