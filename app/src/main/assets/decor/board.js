@@ -971,7 +971,8 @@ const ASK_TOY = {ball: "kickball", dice: "rolldice", cube: "puzzlecube", top: "s
 function selfAct(o) {
   const b = boards[0]; if (!b || !o) return false;
   if (sleepHours()) { b._awakeAt = Date.now(); if (b._mood) b._mood(""); }
-  if (o.toy === "away") { if (b._toys) b._toys.clear(); if (b._feel) b._feel("content", 1400); return true; }
+  // Put away when asked, and left away a while: no toy of its own for three minutes after.
+  if (o.toy === "away") { if (b._toys) b._toys.clear(); b._toysAway = Date.now(); if (b._feel) b._feel("content", 1400); return true; }
   if (o.toy) { if (!ASK_TOY[o.toy] || !b._ask) return false; if (b._home) b._home(); b._ask(ASK_TOY[o.toy]); return true; }
   if (o.play) { if (!b._ask) return false; b._ask(o.play); return true; }
   if (o.wear) {
@@ -1469,8 +1470,9 @@ function roam(b) {
     if (e.rain) ["butterfly", "kite", "paperplane", "cloudwatch", "flutter", "meteors"].forEach(drop);
     const dark = h >= 19 || h < 5;
     drop(dark ? "flutter" : "meteors");
-    // Its own toys come out often (준: "심심하지 않게"); the shower now and then on a dark evening.
-    if (b._toys) {
+    // Its own toys come out often (준: "심심하지 않게"); the shower now and then on a dark evening. Not for three minutes after the
+    // user had them put away.
+    if (b._toys && !(b._toysAway && Date.now() - b._toysAway < 180000)) {
       ["kickball", "rolldice", "puzzlecube", "spintop", "balloonbat"].concat(dark ? [] : ["flutter"]).forEach(k => { if (kinds.includes(k)) kinds.push(k, k, k); });
       ["rubberduck", "toycar", "rocket", "drumroll", "musicbox", "beachball", "marbles", "blocks"].forEach(k => { if (kinds.includes(k)) kinds.push(k); });
       // The tree and Rudolph's sleigh in December (준: "다음달은 크리스마스니깐"); other months only when asked.
