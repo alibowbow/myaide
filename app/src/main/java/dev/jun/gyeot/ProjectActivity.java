@@ -40,11 +40,8 @@ import static dev.jun.gyeot.Ui.*;
  * no files; a link leaving it opens in the app's browser), a slim bar over it, and AI로 고치기, the composer
  * that asks the projects' AI to change it (ProjectMaker), shown when asked for. Each change keeps the version before it.
  * The page's own frame (never the charts' frames inside it) gets one message port to the app (connectApp): 트레이딩 asks
- * through it for an AI chart analysis and a news briefing; nothing else of the app is reachable from a page.
- * 트레이딩 with the user signed in to TradingView in the AI 브라우저 (TradingViewLogin, the 트뷰 chip at the end of the bar): the
- * page keeps its own layout, the cards with their widget charts (준: "이거 배열이 너무 이상해 원래 우리의 레이아웃으로 해줘"), and a
- * card's 크게 보기 opens their own TradingView (TradingViewPane) over the whole page, back closes it (trading.html's tv_* messages);
- * signed out, 크게 보기 makes the widget large as before.
+ * through it for an AI chart analysis and a news briefing; nothing else of the app is reachable from a page. Its bar has
+ * TradingView's mark: the picked symbol's chart on tradingview.com, in the AI 브라우저.
  */
 public final class ProjectActivity extends Activity implements ProjectMaker.Listener {
     static final String ID = "gyeot.project_id";
@@ -55,13 +52,8 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
     private LinearLayout root, composer; private FrameLayout stage; private WebView web; private View source, making;
     private TextView title, subtitle, model, busyText; private EditText input; private ImageView send;
     private LinearLayout busyBar; private String loaded = "";
-    /** 트레이딩: the 트뷰 chip, the sign-in, the user's own chart and the line holding it with the page. */
-    private boolean trading, started; private TextView tvChip, gridChip, aiPill; private TradingViewLogin tv; private TradingViewPane pane; private LinearLayout board;
-    /** The page takes the user's chart (it said tv_ready), was told so, the chart made large, a sheet of the page open over it. */
-    private boolean tvPage, toldMine, tvLarge, tvSheet;
-    /** The symbol and interval the page's list picked for the chart. */
-    private String tvSymbol = "", tvInterval = "";
-    private final Runnable tvChanged = this::tvChanged; private TradingViewLink.Login offerFor;
+    /** 트레이딩, and the symbol and interval its page last picked (tv_symbol): the TradingView button opens that chart. */
+    private boolean trading; private String tvSymbol = "", tvInterval = "";
     /** The page's port to the app (connectApp), and the asks it started that are still running (by the page's id). */
     private android.webkit.WebMessagePort appPort;
     private final java.util.Map<String, java.util.concurrent.atomic.AtomicReference<Runnable>> asks = new java.util.concurrent.ConcurrentHashMap<>();
@@ -76,7 +68,6 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         maker.upgrade(id, false);
         ProjectBook.Project made = book.project(id);
         trading = made != null && ProjectMaker.TRADING.kind().equals(made.kind());
-        if (trading) tv = TradingViewLogin.get(this);
         composerOpen = book.html(id).isBlank() && !maker.busy(id);
         root = ui.column(); root.setBackgroundColor(BG);
         root.setOnApplyWindowInsetsListener((v, insets) -> {
@@ -86,13 +77,8 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         setContentView(root); root.requestApplyInsets();
         build();
     }
-    @Override protected void onStart() { super.onStart(); started = true; if (trading) { tv.listen(tvChanged); applyMine(); } }
-    /** Stopped (another screen, the screen off): the user's chart closes and gives its memory back; it opens again on start. */
-    @Override protected void onStop() { started = false; if (trading) { tv.unlisten(tvChanged); if (pane != null) pane.release(); } super.onStop(); }
     @Override protected void onResume() {
         super.onResume(); AppNavigator.inFront("pages"); AppNavigator.projectLeft = id; maker.watch(this); refresh();
-        // Back from the sign-in (or the last check is old): TradingView is asked again, off screen.
-        if (trading) { tv.checkIfDue(); tvChip(); }
         // Changed in 들퍼레/프로젝트 meanwhile (a file manager, another editor): that page comes in.
         new Thread(() -> { if (book.pull(id)) main.post(() -> { if (!destroyed) refresh(); }); }, "project-pull").start();
     }
@@ -102,7 +88,6 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         for (java.util.concurrent.atomic.AtomicReference<Runnable> cancel : asks.values()) dev.jun.gyeot.core.RequestAbort.cancel(cancel);
         askJobs.shutdownNow();
         if (appPort != null) { try { appPort.close(); } catch (RuntimeException ignored) {} appPort = null; }
-        if (pane != null) pane.release();
         if (web != null) { web.destroy(); web = null; } super.onDestroy();
     }
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); }
@@ -110,7 +95,6 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
     private void leave() { if (!HtmlWallpaper.backHome(this)) finish(); }
     @Override public void onBackPressed() {
         if (showingSource) { showSource(false); return; }
-        if (tvLarge) { tvLarge = false; applyMine(); return; }
         if (web == null) { leave(); return; }
         // The page's own back first: a chart shown large, an editor open.
         web.evaluateJavascript("(function(){try{return window.gyeotBack&&window.gyeotBack()?1:0}catch(e){return 0}})()", r -> {
@@ -136,19 +120,14 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         AiMark mark = new AiMark(getResources().getDisplayMetrics().density); mark.setTint(ACCENT); mark.setBounds(0, 0, ui.dp(20), ui.dp(20));
         ai.setCompoundDrawablesRelative(mark, null, null, null); ai.setCompoundDrawablePadding(ui.dp(4));
         ai.setOnClickListener(v -> toggleComposer(!composerOpen)); Ui.pressable(ai, false);
-        // 트레이딩: the 트뷰 chip before AI로 고치기 (its 새로 고침 is in the menu, so the title keeps its room on a phone).
+        // 트레이딩: TradingView's own mark before AI로 고치기, nothing else (준: "내트뷰 누르면 그냥 ai브라우저로만 열리기", "로그인도
+        // 없애줘", "트레이딩뷰 공식 아이콘만 쓰자"): a tap opens the picked symbol's chart in the AI 브라우저. Its 새로 고침 is in the
+        // menu, so the title keeps its room on a phone.
         if (trading) {
-            // While the user's chart has the whole screen: one tap back to the cards (준: "내트뷰에서 다시 트레이딩 격자형 보기로 바로
-            // 돌아가는 버튼이 없어"), first in the row.
-            gridChip = ui.smallChip("격자", () -> { if (tvLarge) { tvLarge = false; applyMine(); } }); gridChip.setSingleLine(true);
-            android.graphics.drawable.Drawable grid = getDrawable(R.drawable.ic_grid).mutate(); grid.setTint(TEXT); grid.setBounds(0, 0, ui.dp(16), ui.dp(16));
-            gridChip.setCompoundDrawablesRelative(grid, null, null, null); gridChip.setCompoundDrawablePadding(ui.dp(5)); gridChip.setPadding(ui.dp(10), 0, ui.dp(12), 0);
-            gridChip.setContentDescription("격자 보기로 돌아가기"); gridChip.setVisibility(View.GONE);
-            LinearLayout.LayoutParams g = new LinearLayout.LayoutParams(-2, -2); g.setMarginEnd(ui.dp(6)); bar.addView(gridChip, g);
-            tvChip = ui.smallChip("", this::tvChipTapped); tvChip.setSingleLine(true);
-            LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-2, -2); at.setMarginEnd(ui.dp(6)); bar.addView(tvChip, at); tvChip();
+            ImageView tv = ui.bareIcon(R.drawable.ic_tradingview, TEXT, "트레이딩뷰에서 열기", this::openTradingView); tv.setPadding(ui.dp(10), ui.dp(10), ui.dp(10), ui.dp(10));
+            bar.addView(tv, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         }
-        bar.addView(ai, new LinearLayout.LayoutParams(-2, ui.dp(44))); aiPill = ai;
+        bar.addView(ai, new LinearLayout.LayoutParams(-2, ui.dp(44)));
         if (!trading) bar.addView(ui.bareIcon(R.drawable.ic_refresh, TEXT, "새로 고침", this::reload), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         ImageView more = ui.bareIcon(R.drawable.ic_more, TEXT, "프로젝트 메뉴", () -> {}); more.setOnClickListener(this::menu);
         bar.addView(more, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
@@ -162,16 +141,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         offerBar();
         stage = new FrameLayout(this); stage.setBackgroundColor(BG);
         root.addView(stage, new LinearLayout.LayoutParams(-1, 0, 1));
-        // The page, and for 트레이딩 the user's own chart before it (TradingViewPane: hidden until signed in), a hairline between.
-        board = new LinearLayout(this); board.setOrientation(LinearLayout.VERTICAL);
-        android.graphics.drawable.GradientDrawable hairline = new android.graphics.drawable.GradientDrawable(); hairline.setColor(SEPARATOR);
-        int line = Math.max(1, ui.dp(.5f)); hairline.setSize(line, line); board.setDividerDrawable(hairline); board.setShowDividers(LinearLayout.SHOW_DIVIDER_MIDDLE);
-        stage.addView(board, new FrameLayout.LayoutParams(-1, -1));
-        if (trading) {
-            pane = new TradingViewPane(this, ui); board.addView(pane.host, new LinearLayout.LayoutParams(-1, 0));
-            stage.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> { if (r - l != or - ol || b - t != ob - ot) main.post(this::layoutPane); });
-        }
-        try { web = web(); board.addView(web, new LinearLayout.LayoutParams(-1, 0, 1)); }
+        try { web = web(); stage.addView(web, new FrameLayout.LayoutParams(-1, -1)); }
         catch (RuntimeException unavailable) { web = null; TextView none = ui.label("이 기기에서 웹 화면을 열지 못했어요. 메뉴의 ‘소스 보기’로 HTML을 볼 수 있어요.", 14, MUTED); none.setPadding(ui.dp(24), ui.dp(40), ui.dp(24), 0); stage.addView(none); }
         making = makingView(); stage.addView(making, new FrameLayout.LayoutParams(-1, -1));
         composer = composer(); root.addView(composer, new LinearLayout.LayoutParams(-1, -2));
@@ -252,9 +222,6 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
             if (!busy && !composerOpen) toggleComposer(true);
         } else if (web != null && !html.equals(loaded)) {
             loaded = html;
-            // A new page says again whether it takes the user's chart (a page the AI rewrote may not).
-            if (tvPage) { tvPage = false; applyMine(); }
-            if (trading) offerBar();
             web.loadDataWithBaseURL(BASE + id + "/", ProjectBook.themed(html, DARK), "text/html", "utf-8", null);
             if (showingSource) showSource(true);
         }
@@ -352,11 +319,8 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
             case "news" -> { if (!ask.isEmpty()) start(ask, (cancel, guard) -> news(m, ask, cancel, guard)); }
             case "followup" -> { if (!ask.isEmpty()) start(ask, (cancel, guard) -> followUp(m, ask, cancel, guard)); }
             case "stop" -> { java.util.concurrent.atomic.AtomicReference<Runnable> cancel = asks.remove(ask); if (cancel != null) dev.jun.gyeot.core.RequestAbort.cancel(cancel); }
-            // 트레이딩's own chart: the page takes it (tv_ready), its list picked a symbol or an interval, 크게 보기, a sheet over it.
-            case "tv_ready" -> { if (trading) { tvPage = true; toldMine = false; tvSheet = false; pick(m); applyMine(); } }
-            case "tv_symbol" -> { if (trading && pick(m)) applyMine(); }
-            case "tv_focus" -> { if (trading) { pick(m); if (mineWanted()) { tvLarge = true; applyMine(); } } }
-            case "tv_sheet" -> { if (trading) { tvSheet = m.optBoolean("open"); layoutPane(); } }
+            // The symbol and interval the TradingView button opens (tv_ready: a page from before, saying the same).
+            case "tv_symbol", "tv_ready" -> { if (trading) pick(m); }
             default -> {}
         }
     }
@@ -382,27 +346,24 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
      * pixels, as the project thumbnail takes them, since the chart is a cross-origin frame no script can read. Then the analysis.
      */
     private void capture(org.json.JSONObject m, String ask) {
-        // The user's own chart: what it draws now (a GeckoView's surface is not in the window's pixels).
-        if (pane != null && pane.open() && mineWanted()) { pane.capture(shot -> start(ask, (cancel, guard) -> analyze(m, ask, shot, true, cancel, guard))); return; }
         org.json.JSONObject r = m.optJSONObject("rect"); double ratio = m.optDouble("dpr", getResources().getDisplayMetrics().density);
-        if (web == null || r == null || !(ratio > 0)) { start(ask, (cancel, guard) -> analyze(m, ask, null, false, cancel, guard)); return; }
+        if (web == null || r == null || !(ratio > 0)) { start(ask, (cancel, guard) -> analyze(m, ask, null, cancel, guard)); return; }
         int[] at = new int[2]; web.getLocationInWindow(at);
         int left = Math.max(0, (int) Math.round(r.optDouble("x") * ratio)), top = Math.max(0, (int) Math.round(r.optDouble("y") * ratio));
         int right = Math.min(web.getWidth(), (int) Math.round((r.optDouble("x") + r.optDouble("w")) * ratio)), bottom = Math.min(web.getHeight(), (int) Math.round((r.optDouble("y") + r.optDouble("h")) * ratio));
-        if (right - left < 80 || bottom - top < 80) { start(ask, (cancel, guard) -> analyze(m, ask, null, false, cancel, guard)); return; }
+        if (right - left < 80 || bottom - top < 80) { start(ask, (cancel, guard) -> analyze(m, ask, null, cancel, guard)); return; }
         Bitmap shot = Bitmap.createBitmap(right - left, bottom - top, Bitmap.Config.ARGB_8888);
         try {
             android.view.PixelCopy.request(getWindow(), new android.graphics.Rect(at[0] + left, at[1] + top, at[0] + right, at[1] + bottom), shot,
-                result -> start(ask, (cancel, guard) -> analyze(m, ask, result == android.view.PixelCopy.SUCCESS ? shot : null, false, cancel, guard)), main);
-        } catch (RuntimeException failed) { start(ask, (cancel, guard) -> analyze(m, ask, null, false, cancel, guard)); }
+                result -> start(ask, (cancel, guard) -> analyze(m, ask, result == android.view.PixelCopy.SUCCESS ? shot : null, cancel, guard)), main);
+        } catch (RuntimeException failed) { start(ask, (cancel, guard) -> analyze(m, ask, null, cancel, guard)); }
     }
     /**
      * Binance's numbers and the chart's pictures to the 트레이딩 AI the user chose. The pictures are taken off screen, large
      * (ChartShots): the chart at its interval when Binance has the numbers, else at four intervals (주봉 to 1시간봉) for the AI
-     * to read without them. shown, the chart as it was on screen (shownMine: the user's own TradingView), is used only when the
-     * off-screen pictures fail.
+     * to read without them. shown, the chart as it was on screen, is used only when the off-screen pictures fail.
      */
-    private void analyze(org.json.JSONObject m, String ask, Bitmap shown, boolean shownMine, java.util.concurrent.atomic.AtomicReference<Runnable> cancel, Runnable guard) throws Exception {
+    private void analyze(org.json.JSONObject m, String ask, Bitmap shown, java.util.concurrent.atomic.AtomicReference<Runnable> cancel, Runnable guard) throws Exception {
         String symbol = field(m, "symbol", 60), name = field(m, "name", 60), about = field(m, "desc", 80), interval = field(m, "interval", 4);
         if (symbol.isEmpty()) throw new IllegalArgumentException("종목을 알 수 없어요.");
         dev.jun.gyeot.core.TradingData.Style style = dev.jun.gyeot.core.TradingData.style(field(m, "style", 20));
@@ -413,20 +374,19 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         String[] got = numbers(symbol, name, interval, guard); String numbers = got[0], from = got[1];
         boolean sees = dev.jun.gyeot.core.MainRequest.supported(engine).contains(dev.jun.gyeot.core.MainRequest.Option.FILES);
         java.util.List<dev.jun.gyeot.core.MainRequest.Attachment> pictures = new java.util.ArrayList<>(); StringBuilder named = new StringBuilder();
-        boolean[] mine = {false};
         if (sees) {
             java.util.List<String> intervals = style.pictures() != null ? style.pictures() : dev.jun.gyeot.core.TradingData.pictured(interval, !numbers.isEmpty());
             java.util.List<String> names = new java.util.ArrayList<>(); for (String tf : intervals) names.add(dev.jun.gyeot.core.TradingData.intervalName(tf));
-            progress(ask, String.join("·", names) + (mineShots() ? " 차트를 내 트레이딩뷰로 크게 찍는 중 (보이지 않는 곳에서)" : " 차트를 크게 찍는 중 (보이지 않는 곳에서)"));
-            pictures.addAll(pictures(symbol, name, intervals, interval, named, mine, guard));
-            if (pictures.isEmpty() && shown != null) { pictures.add(new dev.jun.gyeot.core.MainRequest.Attachment(name + ".jpg", "image/jpeg", jpeg(shown))); named.append("1) 사용자가 지금 보고 있는 차트"); mine[0] = shownMine; }
+            progress(ask, String.join("·", names) + " 차트를 크게 찍는 중 (보이지 않는 곳에서)");
+            pictures.addAll(pictures(symbol, name, intervals, named, guard));
+            if (pictures.isEmpty() && shown != null) { pictures.add(new dev.jun.gyeot.core.MainRequest.Attachment(name + ".jpg", "image/jpeg", jpeg(shown))); named.append("1) 사용자가 지금 보고 있는 차트"); }
         }
         if (pictures.isEmpty() && numbers.isEmpty()) throw new IllegalStateException(sees ? "차트 화면을 찍지 못했고, 바이낸스에도 이 종목이 없어요. 잠시 뒤 다시 눌러 주세요."
             : WorkBook.author(engine) + "는 그림을 볼 수 없고, 바이낸스에도 이 종목이 없어요. 그림을 보는 AI(ChatGPT·Claude·Gemini·Grok)로 바꿔 주세요.");
         String input = "종목: " + name + " (" + symbol + (about.isEmpty() ? "" : ", " + about) + ") · 사용자가 보던 시간대: " + dev.jun.gyeot.core.TradingData.intervalName(interval) + "\n"
             + "분석 스타일: " + style.label() + (custom.isEmpty() ? "" : " · 사용자가 원한 관점: " + custom) + "\n"
             + (numbers.isEmpty() ? "바이낸스 API에 이 종목이 없어 숫자 없이 차트 그림만 보내요. 가격은 그림의 축에서 읽고, 읽기 어려우면 그렇다고 말해 주세요.\n" : "앱이 바이낸스 봉으로 계산한 실제 숫자 (시간대별):" + numbers)
-            + (!pictures.isEmpty() ? "첨부한 그림: " + named + (mine[0] ? MINE_PICTURES : " (트레이딩뷰 차트, 아래에 RSI와 MACD).") : "차트 그림은 보내지 못했어요: 숫자로만 분석해 주세요.");
+            + (!pictures.isEmpty() ? "첨부한 그림: " + named + " (트레이딩뷰 차트, 아래에 RSI와 MACD)." : "차트 그림은 보내지 못했어요: 숫자로만 분석해 주세요.");
         dev.jun.gyeot.core.MainRequest request = dev.jun.gyeot.core.MainRequest.of(dev.jun.gyeot.core.TradingData.analyst(style), input);
         boolean picture = !pictures.isEmpty();
         if (picture) request = request.files(pictures);
@@ -436,7 +396,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         String text = MainAdapters.send(store, scope.snapshot(), request, guard, cancel).text();
         if (text == null || text.isBlank()) throw new IllegalStateException("AI가 빈 답을 보냈어요. 다시 해 주세요.");
         toPage(dev.jun.gyeot.core.Jsons.obj("type", "result", "id", ask, "ok", true, "text", text, "model", label,
-            "source", (picture ? (mine[0] ? "내 트뷰 차트" : "차트 화면") : "") + (picture && !from.isEmpty() ? " + " : "") + from, "at", System.currentTimeMillis()));
+            "source", (picture ? "차트 화면" : "") + (picture && !from.isEmpty() ? " + " : "") + from, "at", System.currentTimeMillis()));
     }
     /** Grok, searching the web and X, writes the latest news briefing for the symbol. */
     private void news(org.json.JSONObject m, String ask, java.util.concurrent.atomic.AtomicReference<Runnable> cancel, Runnable guard) throws Exception {
@@ -472,18 +432,10 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         }
         return new String[]{all.toString(), from};
     }
-    /** What the AI is told of pictures taken of the user's own TradingView. */
-    private static final String MINE_PICTURES = " (사용자 계정으로 연 사용자의 트레이딩뷰 차트: 사용자가 넣은 지표와 그림 그대로라 RSI·MACD가 없을 수도 있어요. 화면의 지표 이름과 값을 읽어 주세요).";
-    /** The pictures are taken of the user's own TradingView (signed in in the AI 브라우저). */
-    private boolean mineShots() { return trading && tv != null && tv.state() == TradingViewLink.Login.IN; }
-    /**
-     * The charts of these timeframes, taken large off screen just now, as attachments; named lists them ("1) 1시간봉, 2) 15분봉");
-     * mine[0] says they are of the user's own TradingView. current: the interval the user was on.
-     */
-    private java.util.List<dev.jun.gyeot.core.MainRequest.Attachment> pictures(String symbol, String name, java.util.List<String> intervals, String current, StringBuilder named, boolean[] mine, Runnable guard) throws Exception {
+    /** The charts of these timeframes, taken large off screen just now, as attachments; named lists them ("1) 1시간봉, 2) 15분봉"). */
+    private java.util.List<dev.jun.gyeot.core.MainRequest.Attachment> pictures(String symbol, String name, java.util.List<String> intervals, StringBuilder named, Runnable guard) throws Exception {
         java.util.List<dev.jun.gyeot.core.MainRequest.Attachment> out = new java.util.ArrayList<>();
-        for (ChartShots.Shot shot : shots(symbol, intervals, current, guard)) {
-            mine[0] |= shot.mine();
+        for (ChartShots.Shot shot : shots(symbol, intervals, guard)) {
             out.add(new dev.jun.gyeot.core.MainRequest.Attachment(name + "-" + shot.interval() + ".jpg", "image/jpeg", jpeg(shot.picture())));
             named.append(named.length() == 0 ? "" : ", ").append(out.size()).append(") ").append(dev.jun.gyeot.core.TradingData.intervalName(shot.interval()));
         }
@@ -534,16 +486,15 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         String[] got = numbers(symbol, name, interval, guard);
         boolean sees = dev.jun.gyeot.core.MainRequest.supported(engine).contains(dev.jun.gyeot.core.MainRequest.Option.FILES);
         java.util.List<dev.jun.gyeot.core.MainRequest.Attachment> pictures = new java.util.ArrayList<>(); StringBuilder named = new StringBuilder();
-        boolean[] mine = {false};
         if (sees) {
             java.util.List<String> intervals = dev.jun.gyeot.core.TradingData.followPictures(dev.jun.gyeot.core.TradingData.style(field(m, "style", 20)), interval);
             java.util.List<String> names = new java.util.ArrayList<>(); for (String tf : intervals) names.add(dev.jun.gyeot.core.TradingData.intervalName(tf));
-            progress(ask, String.join("·", names) + (mineShots() ? " 차트를 내 트레이딩뷰로 다시 찍는 중 (보이지 않는 곳에서)" : " 차트를 다시 찍는 중 (보이지 않는 곳에서)"));
-            pictures.addAll(pictures(symbol, name, intervals, interval, named, mine, guard));
+            progress(ask, String.join("·", names) + " 차트를 다시 찍는 중 (보이지 않는 곳에서)");
+            pictures.addAll(pictures(symbol, name, intervals, named, guard));
         }
         String now = java.time.ZonedDateTime.now(java.time.ZoneId.of("Asia/Seoul")).format(java.time.format.DateTimeFormatter.ofPattern("M월 d일 HH:mm"));
         input += "\n\n지금 시세 (한국 시간 " + now + "에 새로 받음):" + (got[0].isEmpty() ? " 바이낸스에 이 종목이 없어 숫자는 없어요." : got[0])
-            + (pictures.isEmpty() ? (sees ? "\n차트 그림은 찍지 못했어요." : "") : "\n방금 찍은 차트 그림: " + named + (mine[0] ? MINE_PICTURES : " (트레이딩뷰, 아래에 RSI와 MACD)."));
+            + (pictures.isEmpty() ? (sees ? "\n차트 그림은 찍지 못했어요." : "") : "\n방금 찍은 차트 그림: " + named + " (트레이딩뷰, 아래에 RSI와 MACD).");
         dev.jun.gyeot.core.MainRequest request = dev.jun.gyeot.core.MainRequest.of(dev.jun.gyeot.core.TradingData.FOLLOW_UP, input);
         if (!pictures.isEmpty()) request = request.files(pictures);
         String label = tradingModelLabel();
@@ -552,24 +503,12 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         if (text == null || text.isBlank()) throw new IllegalStateException("AI가 빈 답을 보냈어요. 다시 해 주세요.");
         toPage(dev.jun.gyeot.core.Jsons.obj("type", "result", "id", ask, "ok", true, "text", text, "model", label, "at", System.currentTimeMillis()));
     }
-    /**
-     * The off-screen pictures (ChartShots, on the main thread), waited for here; none when they could not be taken in time. Signed
-     * in, of the user's own chart page first (their indicators, their account's data), the anonymous widget when it gave none.
-     */
-    private java.util.List<ChartShots.Shot> shots(String symbol, java.util.List<String> intervals, String current, Runnable guard) throws Exception {
+    /** The off-screen pictures (ChartShots, on the main thread), waited for here; none when they could not be taken in time. */
+    private java.util.List<ChartShots.Shot> shots(String symbol, java.util.List<String> intervals, Runnable guard) throws Exception {
         java.util.concurrent.CountDownLatch ready = new java.util.concurrent.CountDownLatch(1);
         java.util.concurrent.atomic.AtomicReference<java.util.List<ChartShots.Shot>> taken = new java.util.concurrent.atomic.AtomicReference<>(java.util.List.of());
-        main.post(() -> {
-            if (destroyed) { ready.countDown(); return; }
-            java.util.function.Consumer<java.util.List<ChartShots.Shot>> got = list -> { taken.set(list); ready.countDown(); };
-            if (!mineShots()) { ChartShots.take(this, symbol, intervals, DARK, got); return; }
-            ChartShots.take(this, symbol, intervals, DARK, true, current, list -> {
-                if (!list.isEmpty() || destroyed) { got.accept(list); return; }
-                store.phoneLog("트레이딩 · 내 트레이딩뷰 차트를 찍지 못해 무료 위젯 차트로 찍어요");
-                ChartShots.take(this, symbol, intervals, DARK, got);
-            });
-        });
-        for (int i = 0; i < 300 && !ready.await(500, java.util.concurrent.TimeUnit.MILLISECONDS); i++) guard.run();
+        main.post(() -> { if (destroyed) { ready.countDown(); return; } ChartShots.take(this, symbol, intervals, DARK, list -> { taken.set(list); ready.countDown(); }); });
+        for (int i = 0; i < 180 && !ready.await(500, java.util.concurrent.TimeUnit.MILLISECONDS); i++) guard.run();
         return taken.get();
     }
     private static String jpeg(Bitmap chart) {
@@ -590,141 +529,39 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         } finally { c.disconnect(); }
     }
 
-    // ── 트레이딩's own TradingView ──────────────────────────────────────
-
-    /** The page again (its HTML loaded anew), and with it the user's chart. */
-    private void reload() { loaded = ""; if (pane != null) pane.release(); refresh(); }
-    /** The page's list picked a symbol or an interval (each checked); whether that changed the chart. */
-    private boolean pick(org.json.JSONObject m) {
-        String symbol = TradingViewLink.symbol(field(m, "symbol", 60)), interval = TradingViewLink.interval(field(m, "interval", 4));
-        boolean changed = !symbol.isEmpty() && !symbol.equals(tvSymbol) || !interval.isEmpty() && !interval.equals(tvInterval);
-        if (!symbol.isEmpty()) tvSymbol = symbol;
-        if (!interval.isEmpty()) tvInterval = interval;
-        return changed;
-    }
-    /** The user's own chart is wanted: signed in, 내 트뷰 차트 on, and a page that takes it. */
-    private boolean mineWanted() { return trading && tvPage && web != null && tv.mine(); }
-    /** The sign-in changed, was checked, or failed: the chip, a word when it matters, and the chart. */
-    private void tvChanged() {
-        if (destroyed) return;
-        if (tv.signedOutNews()) Toast.makeText(this, "트레이딩뷰 로그인이 풀려서 무료 위젯 차트로 보여요. 위의 ‘로그아웃 상태’를 눌러 다시 로그인할 수 있어요.", Toast.LENGTH_LONG).show();
-        String failure = tv.failure(); if (failure != null) Toast.makeText(this, failure, Toast.LENGTH_LONG).show();
-        // The offer of the new page depends on the sign-in (offerBar reads the page's file: only when the sign-in changed).
-        if (tv.state() != offerFor) { offerFor = tv.state(); offerBar(); }
-        applyMine();
-    }
-    /**
-     * The chart as the sign-in, the page and the screen are now: the page told (its cards turn into the list, or back into
-     * widget charts), the pane placed, and the user's chart opened while the screen is started, else closed.
-     */
-    private void applyMine() {
-        if (destroyed || !trading) return;
-        boolean mine = mineWanted();
-        if (tvPage && mine != toldMine) { toldMine = mine; toPage(dev.jun.gyeot.core.Jsons.obj("type", "tv", "mine", mine, "symbol", tvSymbol)); }
-        if (!mine) tvLarge = false;
-        layoutPane();
-        // Only made large (a card's 크게 보기): the page keeps its own layout otherwise (준: "원래 우리의 레이아웃으로 해줘").
-        if (mine && started && tvLarge) pane.show(TradingViewLink.chartUrl(tvSymbol, tvInterval));
-        else if (pane != null) pane.release();
-        tvChip();
-    }
-    /**
-     * Where the user's chart goes (TradingViewLink.pane): above the page on a phone (a little more than half), beside it on a wide
-     * landscape screen, all of it when made large or while the keyboard types into it (TradingView's symbol search keeps its
-     * room); hidden while the source or a sheet of the page is over it.
-     */
-    private void layoutPane() {
-        if (pane == null || board == null || web == null) return;
-        boolean shown = mineWanted() && tvLarge && !showingSource && !tvSheet;
-        WindowInsets insets = root.getRootWindowInsets();
-        boolean typing = shown && pane.host.hasFocus() && insets != null && insets.isVisible(WindowInsets.Type.ime());
-        float density = getResources().getDisplayMetrics().density;
-        int w = stage.getWidth(), h = stage.getHeight();
-        if (w == 0 || h == 0) { w = getResources().getDisplayMetrics().widthPixels; h = Math.round(getResources().getDisplayMetrics().heightPixels * .8f); }
-        TradingViewLink.Pane place = TradingViewLink.pane(Math.round(w / density), Math.round(h / density), tvLarge || typing);
-        int orientation = place.beside() ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL;
-        if (board.getOrientation() != orientation) board.setOrientation(orientation);
-        LinearLayout.LayoutParams chart = place.size() < 0 ? new LinearLayout.LayoutParams(-1, -1)
-            : place.beside() ? new LinearLayout.LayoutParams(ui.dp(place.size()), -1) : new LinearLayout.LayoutParams(-1, ui.dp(place.size()));
-        LinearLayout.LayoutParams page = place.beside() ? new LinearLayout.LayoutParams(0, -1, 1) : new LinearLayout.LayoutParams(-1, 0, 1);
-        if (!sameParams(pane.host.getLayoutParams(), chart)) pane.host.setLayoutParams(chart);
-        if (!sameParams(web.getLayoutParams(), page)) web.setLayoutParams(page);
-        int chartShown = shown ? View.VISIBLE : View.GONE, pageShown = shown && place.size() < 0 ? View.GONE : View.VISIBLE;
-        if (pane.host.getVisibility() != chartShown) pane.host.setVisibility(chartShown);
-        if (gridChip != null && gridChip.getVisibility() != chartShown) gridChip.setVisibility(chartShown);
-        // The page is not shown under the chart: AI로 고치기 steps aside for 격자, so the title keeps its room on a phone.
-        int aiShown = shown ? View.GONE : View.VISIBLE;
-        if (aiPill != null && aiPill.getVisibility() != aiShown && !composerOpen) aiPill.setVisibility(aiShown);
-        if (web.getVisibility() != pageShown) web.setVisibility(pageShown);
-        pane.drawing(shown && started);
-    }
-    private static boolean sameParams(android.view.ViewGroup.LayoutParams a, LinearLayout.LayoutParams b) {
-        return a instanceof LinearLayout.LayoutParams l && l.width == b.width && l.height == b.height && l.weight == b.weight;
-    }
-    /**
-     * The chip as the sign-in is: 트뷰 로그인, 내 트뷰 (a green dot before it, as the page's live clock) or 로그아웃 상태 (in the
-     * error color); the quiet fill, so it is not taken for AI로 고치기 beside it; faded while it is being checked.
-     */
-    private void tvChip() {
-        if (tvChip == null) return;
-        TradingViewLink.Login state = tv.state(); boolean checking = tv.checking();
-        String label = TradingViewLink.chip(state);
-        if (!label.contentEquals(tvChip.getText())) tvChip.setText(label);
-        tvChip.setTextColor(state == TradingViewLink.Login.OUT ? ERROR : TEXT);
-        android.graphics.drawable.GradientDrawable dot = null;
-        if (state == TradingViewLink.Login.IN) { dot = new android.graphics.drawable.GradientDrawable(); dot.setShape(android.graphics.drawable.GradientDrawable.OVAL); dot.setColor(SUCCESS); dot.setBounds(0, 0, ui.dp(7), ui.dp(7)); }
-        tvChip.setCompoundDrawablesRelative(dot, null, null, null); tvChip.setCompoundDrawablePadding(ui.dp(6));
-        // The background first: setting one takes the drawable's padding (Ui.smallChip).
-        tvChip.setBackground(ui.centeredCapsule(FILL, ui.dp(28))); tvChip.setPadding(ui.dp(dot == null ? 12 : 10), 0, ui.dp(12), 0);
-        tvChip.setAlpha(checking ? .6f : 1f);
-        tvChip.setContentDescription(TradingViewLink.chipDescription(state, checking));
-    }
-    /**
-     * Not signed in: TradingView's sign-in in the AI 브라우저, where the user taps 'Google' themselves. Signed in: a small menu
-     * (the chart large or small, the free widgets instead, the chart in the AI 브라우저, check the sign-in again).
-     */
-    private void tvChipTapped() {
-        if (tv.state() != TradingViewLink.Login.IN) {
-            Toast.makeText(this, "AI 브라우저에서 트레이딩뷰 로그인을 열어요. ‘Google’을 눌러 직접 로그인한 뒤 이 화면으로 돌아오세요.", Toast.LENGTH_LONG).show();
-            try { tv.signIn(this); } catch (RuntimeException failed) { Toast.makeText(this, "AI 브라우저를 열지 못했어요: " + failed.getMessage(), Toast.LENGTH_LONG).show(); }
-            return;
-        }
-        java.util.List<String> labels = new java.util.ArrayList<>(); java.util.List<Runnable> picks = new java.util.ArrayList<>();
-        if (mineWanted()) { labels.add(tvLarge ? "내 트뷰 차트 닫기" : "내 트뷰 차트 열기"); picks.add(() -> { tvLarge = !tvLarge; applyMine(); }); }
-        labels.add(tv.mine() ? "크게 보기를 무료 위젯으로" : "크게 보기를 내 트뷰로"); picks.add(() -> tv.mine(!tv.mine()));
-        labels.add("AI 브라우저에서 열기"); picks.add(() -> { try { BrowserActivity.open(this, TradingViewLink.chartUrl(tvSymbol, tvInterval)); } catch (RuntimeException ignored) {} });
-        labels.add("로그인 다시 확인"); picks.add(() -> tv.check(true));
-        ui.miniMenu(tvChip, labels.toArray(new String[0]), -1, i -> picks.get(i).run());
-    }
-
     // ── the menu ─────────────────────────────────────────────────────
 
-    /**
-     * The line offering the new 트레이딩 above the page: while it lacks AI 차트 분석 · 최신 뉴스 (again after a 되돌리기), or,
-     * signed in to TradingView, while the page the user changed lacks the 내 트뷰 차트 (it never says tv_ready).
-     */
-    private LinearLayout offer; private String offering = "";
+    /** The line offering the new 트레이딩 (AI 차트 분석 · 최신 뉴스), above the page while it lacks them; again after a 되돌리기. */
+    private LinearLayout offer;
     private void offerBar() {
-        boolean older = maker.offerUpgrade(id), chart = !older && trading && tv.state() == TradingViewLink.Login.IN && !loaded.isEmpty() && !loaded.contains("tv_ready");
-        String want = older ? "older" : chart ? "chart" : "";
-        if (offer != null && want.equals(offering)) return;
         if (offer != null) { root.removeView(offer); offer = null; }
-        offering = want;
-        if (want.isEmpty()) return;
+        if (!maker.offerUpgrade(id)) return;
         LinearLayout bar = ui.row(); bar.setGravity(Gravity.CENTER_VERTICAL); bar.setPadding(ui.dp(14), ui.dp(6), ui.dp(8), ui.dp(6)); bar.setBackground(ui.shape(ui.tone(ACCENT), 0));
-        bar.addView(ui.text(older ? "AI 차트 분석·최신 뉴스가 들어간 새 트레이딩이 있어요. 종목은 그대로, 지금 페이지는 이전 버전에 남아요."
-            : "내 트레이딩뷰 차트가 들어간 새 트레이딩이 있어요. 종목은 그대로, 지금 페이지는 이전 버전에 남아요.", 12.5f, 520, TEXT), new LinearLayout.LayoutParams(0, -2, 1));
+        bar.addView(ui.text("AI 차트 분석·최신 뉴스가 들어간 새 트레이딩이 있어요. 종목은 그대로, 지금 페이지는 이전 버전에 남아요.", 12.5f, 520, TEXT), new LinearLayout.LayoutParams(0, -2, 1));
         bar.addView(ui.pill("바꾸기", R.drawable.ic_refresh, true, () -> { if (maker.upgrade(id, true)) { offerBar(); loaded = ""; refresh(); } }), new LinearLayout.LayoutParams(-2, -2));
         // Above the page, under the busy line (the busy line is the one before the page's stage).
         int at = stage == null ? root.getChildCount() : Math.max(0, root.indexOfChild(stage));
         offer = bar; root.addView(bar, at, new LinearLayout.LayoutParams(-1, -2));
+    }
+    /** The page again (its HTML loaded anew). */
+    private void reload() { loaded = ""; refresh(); }
+    /** The page's list picked a symbol or an interval: each kept only when TradingView would take it. */
+    private void pick(org.json.JSONObject m) {
+        String symbol = TradingViewLink.symbol(field(m, "symbol", 60)), interval = TradingViewLink.interval(field(m, "interval", 4));
+        if (!symbol.isEmpty()) tvSymbol = symbol;
+        if (!interval.isEmpty()) tvInterval = interval;
+    }
+    /** TradingView's chart of the picked symbol in the AI 브라우저, where the user is whoever they are there. */
+    private void openTradingView() {
+        try { BrowserActivity.open(this, TradingViewLink.chartUrl(tvSymbol, tvInterval)); }
+        catch (RuntimeException failed) { Toast.makeText(this, "AI 브라우저를 열지 못했어요: " + failed.getMessage(), Toast.LENGTH_LONG).show(); }
     }
     private void menu(View anchor) {
         ProjectBook.Project p = book.project(id); if (p == null) return;
         // No 되돌리기 here (준: "그냥 되돌리기 버튼을 없애줘"): it brought back the page's code, not what was done on the page, and
         // took 트레이딩's AI 차트 분석 with it. 트레이딩's symbols have their own 방금 바꾼 것 되돌리기 in its 종목 편집.
         String[] labels = {showingSource ? "미리보기로" : "소스 보기", "이름 바꾸기", p.pinned() ? "고정 해제" : "맨 위에 고정", "HTML 파일로 공유", "파일 위치", "프로젝트 지우기"};
-        // 트레이딩's 새로 고침 is here (the bar has the 트뷰 chip in its place).
+        // 트레이딩's 새로 고침 is here (the bar has the TradingView button in its place).
         if (trading) { String[] more = new String[labels.length + 1]; more[0] = "새로 고침"; System.arraycopy(labels, 0, more, 1, labels.length); labels = more; }
         ui.miniMenu(anchor, labels, -1, picked -> {
             if (trading && picked == 0) { reload(); return; }
@@ -747,7 +584,6 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
     private void showSource(boolean on) {
         showingSource = on;
         if (source != null) { stage.removeView(source); source = null; }
-        layoutPane();
         if (!on) return;
         ScrollView scroll = new ScrollView(this); scroll.setBackgroundColor(BG); HorizontalScrollView wide = new HorizontalScrollView(this);
         String html = book.html(id);
