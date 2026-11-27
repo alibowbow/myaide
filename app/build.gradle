@@ -10,8 +10,8 @@ android {
         minSdk 33
         targetSdk 35
         ndk { abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64' }
-        versionCode 655
-        versionName '0.4.630'
+        versionCode 656
+        versionName '0.4.631'
     }
     packaging { jniLibs { useLegacyPackaging = true; keepDebugSymbols += ["**/*.so"] } }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
