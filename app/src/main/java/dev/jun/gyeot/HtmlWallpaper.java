@@ -138,7 +138,7 @@ public final class HtmlWallpaper extends WallpaperService {
                     return true; // the board never leaves itself
                 }
                 // A piece's frame moves only within its own site (or the user's pages).
-                return !(host.equals(HtmlShowcase.HOST) || host.equals(PAGES_HOST) || framed(host));
+                return !(host.equals(HtmlShowcase.HOST) || host.equals(PAGES_HOST) || host.equals(PieceExtras.LP_HOST) || framed(host));
             }
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 Uri u = request.getUrl(); String host = u.getHost() == null ? "" : u.getHost().toLowerCase(java.util.Locale.ROOT);
@@ -147,7 +147,7 @@ public final class HtmlWallpaper extends WallpaperService {
                     try { return html(PageStore.book(HtmlWallpaper.this).body(Uri.decode(u.getLastPathSegment() == null ? "" : u.getLastPathSegment()))); }
                     catch (Exception gone) { return html(waiting("이 페이지를 찾지 못했어요")); }
                 }
-                return tuned(request);
+                return PieceExtras.handle(HtmlWallpaper.this, request, Web.this::openPick);
             }
             @Override public void onPageFinished(WebView view, String url) {
                 if (!board || url == null || !url.startsWith(HOME)) return;
@@ -234,7 +234,7 @@ public final class HtmlWallpaper extends WallpaperService {
                 if (chosen.startsWith(PAGE)) {
                     try { web.loadDataWithBaseURL(null, PageStore.book(HtmlWallpaper.this).body(chosen.substring(PAGE.length())), "text/html", "utf-8", null); }
                     catch (Exception gone) { web.loadDataWithBaseURL(null, waiting("이 페이지를 찾지 못했어요"), "text/html", "utf-8", null); }
-                } else web.loadUrl(chosen);
+                } else web.loadUrl(PieceExtras.frameUrl(chosen));
                 return;
             }
             board = true; start = HomeBoard.start(slots, seen);
@@ -262,6 +262,21 @@ public final class HtmlWallpaper extends WallpaperService {
                     main.post(() -> { if (web != null && board && ready) web.evaluateJavascript("window.board&&board.data(" + data + ")", null); });
                 });
             } catch (RuntimeException stopped) { /* the engine is going */ }
+        }
+        /**
+         * 내 음악's 파일 추가 from a piece on the wallpaper (no window of the app is in front): the picker opens the way voice opens
+         * a screen, else a notification that opens it with one tap (the page's sheet then says so).
+         */
+        private void openPick(Intent pick) {
+            main.post(() -> {
+                Intent open = new Intent(pick).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                String route;
+                try { route = DeviceActionRunner.start(HtmlWallpaper.this, open, false); } catch (RuntimeException none) { route = "notification"; }
+                if (!DeviceActionRunner.started(route)) {
+                    boolean posted = DeviceActionRunner.post(HtmlWallpaper.this, open, "눌러서 음악 파일을 골라요");
+                    PieceMusicStore.of(HtmlWallpaper.this).pick(posted ? "notification" : "cancelled");
+                }
+            });
         }
         /** A tap on the board: the app's screen, through the route voice uses (the edge handle's accessibility service, or the overlay). */
         private void act(String what) {
@@ -295,7 +310,7 @@ public final class HtmlWallpaper extends WallpaperService {
             String page;
             try (InputStream in = getAssets().open("decor/home.html")) { page = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
             List<HomeBoard.Slot> slots = slots(prefs);
-            JSONArray list = new JSONArray(); for (HomeBoard.Slot s : slots) list.put(s.json());
+            JSONArray list = new JSONArray(); for (HomeBoard.Slot s : slots) list.put(PieceExtras.framed(s.json(), s.src()));
             File photo = photo(HtmlWallpaper.this);
             String kind = mascotReady(HtmlWallpaper.this); mascotAt = mascotSource(HtmlWallpaper.this);
             File m = mascot(HtmlWallpaper.this);
@@ -330,23 +345,36 @@ public final class HtmlWallpaper extends WallpaperService {
     static WebResourceResponse html(String body) {
         return new WebResourceResponse("text/html", "utf-8", new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)));
     }
-    /** Showcase pieces fixed (PieceTune: the turntables' record noise), by path; "" when a piece's fixes no longer match. */
-    private static final Map<String, String> TUNED = new java.util.concurrent.ConcurrentHashMap<>();
     /**
-     * A piece with fixes, fetched once and kept while the app runs; null to let the web view load the piece as it is (not one
-     * with fixes, offline, or changed so a fix no longer matches). Called on the web view's own request thread.
+     * Showcase pieces fixed (PieceTune: the turntables' record noise, the LP page's add-on), by path: the tuned page, or the
+     * piece as it came when a fix no longer matches (its tuned page null then). Kept only while the app runs.
      */
-    static WebResourceResponse tuned(WebResourceRequest request) {
+    private static final Map<String, Piece> TUNED = new java.util.concurrent.ConcurrentHashMap<>();
+    record Piece(String tuned, String raw) {}
+    /**
+     * A piece with fixes, fetched once and kept while the app runs; null when offline (nothing kept: asked again next time).
+     * Which fix no longer matches goes in the diagnostic report, once a run. Called on the web view's own request thread.
+     */
+    static Piece piece(Context c, String path) {
+        Piece p = TUNED.get(path);
+        if (p != null) return p;
+        String body = get("https://" + HtmlShowcase.HOST + path, 2_000_000);
+        if (body == null) return null;
+        PieceTune.Tuned fixed = PieceTune.apply(path, body);
+        if (fixed.html() == null) DiagnosticsExport.record(c, "other", "꾸미기 작품이 바뀌어 고침 " + fixed.failed() + "번째가 맞지 않아 원본으로 띄웠어요 (" + fixed.why() + ")");
+        p = new Piece(fixed.html(), fixed.html() == null ? body : null); TUNED.put(path, p);
+        return p;
+    }
+    /**
+     * A piece on the creator's own site with its fixes; null to let the web view load it as it is (not one with fixes, offline,
+     * or a fix no longer matches). The LP page's add-on comes with it here, but never 내 음악: its key is put only in the page
+     * the app serves from its own address (PieceExtras.LP_HOST), where no other piece's code runs.
+     */
+    static WebResourceResponse tuned(Context c, WebResourceRequest request) {
         Uri u = request.getUrl(); String path = u.getPath();
         if (!"GET".equalsIgnoreCase(request.getMethod()) || !PieceTune.knows(u.getHost(), path)) return null;
-        String page = TUNED.get(path);
-        if (page == null) {
-            String body = get("https://" + HtmlShowcase.HOST + path, 2_000_000);
-            if (body == null) return null;
-            String fixed = PieceTune.tune(path, body);
-            page = fixed == null ? "" : fixed; TUNED.put(path, page);
-        }
-        return page.isEmpty() ? null : html(page);
+        Piece p = piece(c, path);
+        return p == null || p.tuned() == null ? null : html(PieceExtras.keyless(p.tuned()));
     }
     static WebResourceResponse missing() {
         return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found", Map.of(), new ByteArrayInputStream(new byte[0]));

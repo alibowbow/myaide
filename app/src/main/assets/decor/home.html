@@ -47,9 +47,23 @@ function build() { G.slots.forEach((slot, i) => {
     f.setAttribute("allow", "autoplay; accelerometer; gyroscope");
     f.setAttribute("title", slot.title || "");
     el.appendChild(f);
-    frames.push({i, f, src: slot.src.startsWith("page:") ? "https://pages.gyeot.local/" + encodeURIComponent(slot.src.slice(5)) : slot.src, on: false, far: 0});
+    // (the LP piece from the app's own address: slot.frame, PieceExtras.frameUrl)
+    const fr = {i, f, src: slot.src.startsWith("page:") ? "https://pages.gyeot.local/" + encodeURIComponent(slot.src.slice(5)) : typeof slot.frame === "string" && slot.frame.startsWith("https://") ? slot.frame : slot.src, on: false, far: 0, shown: null};
+    // Under the phone's own home screen: the status bar above, its dock and the system bar below (the LP page's list bar
+    // sits above them); and whether it is in sight (this board slides its pages, so the browser does not know a page next
+    // to the one shown is out of sight: the LP page's 3D deck waits until it is).
+    f.addEventListener("load", () => { try { if (f.src.startsWith("https://")) f.contentWindow.postMessage({gyeot: "insets", top: 28, bottom: 24 + 120}, new URL(f.src).origin); } catch (e) {} fr.shown = null; tellShown(fr); });
+    frames.push(fr);
   }
 }); }
+
+/** {gyeot: "shown", on} to a page's frame when it comes into sight or leaves it (to its own origin only). */
+function tellShown(fr) {
+  const on = fr.on && Math.abs(fr.i - pos) < 0.999;
+  if (on === fr.shown) return;
+  fr.shown = on;
+  try { if (fr.f.src.startsWith("https://")) fr.f.contentWindow.postMessage({gyeot: "shown", on}, new URL(fr.f.src).origin); } catch (e) {}
+}
 
 /* ── the app's calls ──────────────────────────────────────── */
 window.board = {
@@ -63,6 +77,7 @@ window.board = {
       const d = Math.abs(fr.i - pos);
       if (d < 1.02 && !fr.on) { fr.on = true; fr.f.src = fr.src; }
       if (d >= 2 && fr.on) { fr.on = false; fr.f.src = "about:blank"; }
+      tellShown(fr);
     }
   },
   data(k) { setBoardData(k); }

@@ -1,0 +1,99 @@
+/*
+  들퍼레's add-on for the LP page (Opus 5.5 · 057 Hi-Fi Walnut), with vinyl.js: a small now-playing bar at the bottom and the
+  track list over it, in the piece's own walnut, brass and liner-note cream. Kept small (준: compact controls, no full-width
+  bars or big cards): the bar is 38 px high and at most 320 px wide, clear of the launcher's page dots and its 22 px edge strips.
+  --gyB is the bottom the page must keep clear (the system bar), told by the home screen (vinyl.js).
+*/
+:root{--gyB:48px;--gyBarH:38px;
+  /* the piece's serif, then a Korean serif for 한글 (its own fonts have none), and never a slanted copy of an upright font:
+     an italic line in Korean stays upright rather than leaning like a broken font */
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"P052","Book Antiqua",Georgia,serif,"Noto Serif KR","Noto Serif CJK KR","Nanum Myeongjo","AppleMyungjo"}
+html{font-synthesis:weight;font-synthesis-style:none}
+.room{padding-bottom:calc(30px + var(--gyB) + 26px + var(--gyBarH) + 10px)}
+
+#gyBar{position:fixed;z-index:40;left:50%;bottom:calc(var(--gyB) + 26px);transform:translateX(-50%);
+  width:min(320px,calc(100vw - 56px));height:var(--gyBarH);box-sizing:border-box;display:flex;align-items:center;gap:4px;padding:0 4px 0 6px;
+  border-radius:19px;border:1px solid rgba(201,162,39,.55);color:var(--cream,#efe6d8);font-family:var(--serif,Georgia,serif);
+  background:linear-gradient(180deg,rgba(66,43,29,.94),rgba(29,19,12,.95));
+  box-shadow:0 10px 22px rgba(0,0,0,.45),0 2px 5px rgba(0,0,0,.35),inset 0 1px 0 rgba(255,232,190,.14);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);-webkit-tap-highlight-color:transparent}
+/* button resets at no specificity, so each part's own size wins */
+:where(#gyBar button){-webkit-appearance:none;appearance:none;border:0;background:none;color:inherit;font:inherit;cursor:pointer;padding:0;margin:0}
+#gyBar .gy-title{flex:1;min-width:0;height:100%;display:flex;align-items:center;gap:6px;padding:0 6px;text-align:left;border-radius:16px}
+#gyBar .gy-n{flex:none;font-style:italic;font-size:12.5px;color:var(--brass-lt,#ecd27a)}
+#gyBar .gy-t{min-width:0;flex:1;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.01em}
+#gyBar .gy-t.say{font-style:italic;color:var(--brass-lt,#ecd27a)}
+#gyBar .gy-play,#gyBar .gy-list{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center}
+#gyBar .gy-play{color:#2b1d05;background:radial-gradient(circle at 38% 30%,#fbe8a6,#dcb947 40%,#b08c1f 72%,#7d620f);
+  box-shadow:0 2px 5px rgba(0,0,0,.45),inset 0 1px 1px rgba(255,255,255,.7)}
+#gyBar .gy-list{border:1px solid rgba(236,210,122,.45)}
+#gyBar .gy-list[aria-expanded="true"]{background:rgba(236,210,122,.18)}
+#gyBar svg{width:14px;height:14px;display:block}
+#gyBar .gy-prog{position:absolute;left:18px;right:76px;bottom:4px;height:1.5px;border-radius:1px;background:linear-gradient(90deg,var(--brass-dk,#8a6d12),var(--brass-lt,#ecd27a));
+  transform-origin:0 50%;transform:scaleX(0);opacity:.85;pointer-events:none}
+#gyBar button:focus-visible{outline:2px solid var(--brass-lt,#ecd27a);outline-offset:1px}
+
+#gyScrim{position:fixed;inset:0;z-index:38;background:rgba(8,14,10,.18);touch-action:none}
+#gyScrim[hidden],#gySheet[hidden]{display:none}
+#gySheet{position:fixed;z-index:39;left:50%;bottom:calc(var(--gyB) + 26px + var(--gyBarH) + 8px);transform:translateX(-50%);
+  width:min(420px,calc(100vw - 44px));max-height:min(56vh,460px);box-sizing:border-box;display:flex;flex-direction:column;
+  border-radius:10px;color:var(--ink,#2b2118);font-family:var(--serif,Georgia,serif);
+  background:radial-gradient(120% 80% at 0% 0%,rgba(255,255,255,.5),rgba(255,255,255,0) 50%),
+    repeating-linear-gradient(0deg,rgba(90,60,30,.018) 0 1px,rgba(0,0,0,0) 1px 3px),linear-gradient(180deg,#f3ebdf,#efe6d8 50%,#e7dcca);
+  box-shadow:0 22px 40px rgba(0,0,0,.5),0 3px 8px rgba(0,0,0,.3),inset 0 0 0 1px rgba(255,255,255,.4);
+  animation:gyUp .18s ease-out}
+#gySheet::before{content:"";position:absolute;inset:6px;border:1px solid rgba(138,109,18,.32);border-radius:6px;pointer-events:none}
+@keyframes gyUp{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+/* :where: the parts' own font sizes win over this */
+:where(#gySheet button){-webkit-appearance:none;appearance:none;font:inherit;color:inherit;cursor:pointer;margin:0}
+.gy-albums{display:flex;gap:5px;padding:12px 10px 6px;overflow-x:auto;scrollbar-width:none;flex:none;touch-action:pan-x;overscroll-behavior:contain}
+.gy-albums::-webkit-scrollbar{display:none}
+.gy-chip{flex:0 1 auto;min-width:46px;height:28px;max-width:132px;padding:0 9px;border-radius:14px;border:1px solid rgba(43,33,24,.22);background:rgba(255,255,255,.35);
+  font-size:12px;letter-spacing:.02em;font-variant:small-caps;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative}
+.gy-chip[aria-selected="true"]{border-color:var(--brass-dk,#8a6d12);background:rgba(201,162,39,.2);color:#1a120b}
+.gy-chip.on::after{content:"";position:absolute;right:5px;top:5px;width:5px;height:5px;border-radius:50%;background:var(--brass,#c9a227)}
+.gy-head{display:flex;align-items:center;gap:6px;padding:2px 14px 6px;min-height:30px;flex:none}
+.gy-about{flex:1;min-width:0;font-size:12.5px;font-style:italic;color:var(--ink-soft,#6b5a48);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gy-add{flex:none;height:26px;padding:0 10px;border-radius:13px;border:1px solid var(--brass-dk,#8a6d12);background:rgba(201,162,39,.14);font-size:12px;color:#3b2e22;white-space:nowrap}
+.gy-add[disabled]{opacity:.55;cursor:default}
+.gy-note{padding:0 14px 6px;font-size:12px;color:var(--brass-dk,#8a6d12);flex:none}
+.gy-note:empty{display:none}
+.gy-tracks{list-style:none;margin:0;padding:0 8px 10px;overflow-y:auto;overscroll-behavior:contain;flex:1;min-height:0;border-top:1px solid rgba(43,33,24,.13)}
+.gy-tracks li{display:flex;align-items:center;border-bottom:1px solid rgba(43,33,24,.1)}
+.gy-row{flex:1;min-width:0;height:40px;display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:6px;padding:0 6px;border:0;background:none;text-align:left;font-size:14.5px;color:#3b2e22}
+.gy-row:active{background:rgba(201,162,39,.12)}
+.gy-num{font-style:italic;color:var(--brass-dk,#8a6d12);font-size:13px}
+.gy-ttl{min-width:0;display:flex;flex-direction:column;line-height:1.15}
+.gy-ttl b{font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gy-ttl small{font-size:11px;color:var(--ink-soft,#6b5a48);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-style:italic}
+.gy-ttl small.bad{color:#a3361f;font-style:normal}
+.gy-dur{font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--ink-soft,#6b5a48)}
+.gy-row[aria-current="true"]{color:#1a120b}
+.gy-row[aria-current="true"] .gy-ttl b{text-decoration:underline;text-decoration-color:var(--brass,#c9a227);text-underline-offset:4px;text-decoration-thickness:1.5px}
+.gy-x{flex:none;width:28px;height:28px;border-radius:14px;border:0;background:none;color:var(--ink-soft,#6b5a48);font-size:16px;line-height:1;margin-right:2px!important}
+.gy-x.sure{width:auto;padding:0 9px;font-size:11.5px;color:#fff;background:#a3361f}
+.gy-more{width:100%;height:36px;border:0;background:none;font-size:12.5px;font-style:italic;color:var(--brass-dk,#8a6d12)}
+.gy-empty{padding:10px 14px 16px;font-size:13px;line-height:1.5;font-style:italic;color:#4a3b2c}
+#gySheet button:focus-visible{outline:2px solid var(--brass-dk,#8a6d12);outline-offset:-2px}
+
+/* 내 음악 in the crate: a fourth sleeve (a record peeking from a walnut sleeve), and its cover in the liner notes */
+.sleeves.gy-four{grid-template-columns:repeat(4,1fr);max-width:470px}
+.sleeves .sleeve{align-self:start} /* each sleeve's picture at the top of its cell, whatever its name's lines */
+.art.a3{background:
+    radial-gradient(circle at 50% 42%,#f3d98a 0 2.6%,#c9a227 3.2%,rgba(201,162,39,0) 3.8%),
+    radial-gradient(circle at 50% 42%,#5a2622 0 15%,rgba(90,38,34,0) 15.4%),
+    repeating-radial-gradient(circle at 50% 42%,rgba(255,255,255,.035) 0 1px,rgba(0,0,0,.25) 1px 2.4px),
+    radial-gradient(circle at 50% 42%,#141010 0 40%,rgba(20,16,16,0) 40.5%),
+    linear-gradient(160deg,#76482f,#4a2f20 58%,#2a1a10)}
+.art.a3 .t{color:#f3e3bd}
+.art.a3.pic{background-size:cover;background-position:center}
+@media (prefers-reduced-motion:reduce){#gySheet{animation:none}}
+
+/* The three.js deck (deck3d.js): one canvas over the plinth, under the buttons; once it has drawn, the CSS deck's parts hide
+   (the slot's animation keeps running: the 3D record follows it). Without it, nothing here applies. */
+.deck>canvas.gy-deck{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;border-radius:2.8%/3.6%;visibility:hidden}
+.deck.gy3d>canvas.gy-deck{visibility:visible}
+.deck.gy3d>svg.plinth,.deck.gy3d>.platter,.deck.gy3d>.slot,.deck.gy3d>.specular,.deck.gy3d>.spindle,.deck.gy3d>svg.arm{visibility:hidden}
+/* the start · stop key is drawn in 3D (lit with the rest, its LED with the motor): the piece's button stays, see-through, to press */
+.deck.gy3d>.startstop,.deck.gy3d>.startstop:active{background:none;border-color:transparent;box-shadow:none;color:transparent;transform:none}
+.deck.gy3d>.startstop i{visibility:hidden}

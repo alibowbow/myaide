@@ -138,7 +138,10 @@ public final class HomeActivity extends Activity {
                     try { return HtmlWallpaper.html(PageStore.book(HomeActivity.this).body(Uri.decode(u.getLastPathSegment() == null ? "" : u.getLastPathSegment()))); }
                     catch (Exception gone) { return HtmlWallpaper.html("<body style='background:#111;color:#bbb;font:16px sans-serif;display:grid;place-items:center;height:100vh'>이 페이지를 찾지 못했어요</body>"); }
                 }
-                if (!"gyeot.local".equalsIgnoreCase(host)) return HtmlWallpaper.tuned(request);
+                // A piece on a page of the user's own: its fixes, and the LP page's add-on (PieceExtras: 내 음악's picker opens over this).
+                if (!"gyeot.local".equalsIgnoreCase(host)) return PieceExtras.handle(HomeActivity.this, request, pick -> main.post(() -> {
+                    try { startActivity(pick); } catch (RuntimeException refused) { PieceMusicStore.of(HomeActivity.this).pick("cancelled"); }
+                }));
                 String path = u.getPath() == null ? "/" : u.getPath();
                 // The home screen page (and its secret) only as the page itself, never inside a frame.
                 if ((path.equals("/") || path.equals("/launcher.html")) && !request.isForMainFrame()) return HtmlWallpaper.missing();
@@ -440,7 +443,8 @@ public final class HomeActivity extends Activity {
     static final String PAGES = "pages";
     JSONArray pagesJson() {
         JSONArray out = new JSONArray();
-        for (dev.jun.gyeot.core.HomeBoard.Slot s : dev.jun.gyeot.core.HomeBoard.slots(prefs.getString(PAGES, ""), "", "")) if (s.web()) out.put(s.json());
+        // frame: where its frame loads it (the LP piece from the app's own address: PieceExtras.frameUrl)
+        for (dev.jun.gyeot.core.HomeBoard.Slot s : dev.jun.gyeot.core.HomeBoard.slots(prefs.getString(PAGES, ""), "", "")) if (s.web()) out.put(PieceExtras.framed(s.json(), s.src()));
         return out;
     }
     private final SharedPreferences.OnSharedPreferenceChangeListener pagesChanged = (p, key) -> { if (PAGES.equals(key)) js("launcher.pages(" + pagesJson() + ")"); };
