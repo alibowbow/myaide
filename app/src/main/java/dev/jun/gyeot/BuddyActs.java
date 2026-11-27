@@ -79,8 +79,28 @@ final class BuddyActs {
             String what = act.optString("tool") + " " + (act.optString("app") + " " + act.optString("destination") + " " + act.optString("query") + " " + act.optString("panel")).strip();
             BuddyMisses.add(context, heard, what.strip(), m[0], m[1]);
             ((GyeotApp) context.getApplicationContext()).store().phoneLog("  · 퍼레 · 못 함: " + what.strip() + " · " + m[0]);
+            if (o != null) o = new BuddyVoice.Outcome(o.say(), o.leaves(), o.confirm(), true);
         }
         return o;
+    }
+    /**
+     * The acts that tell something of the user (a song, a place, what they looked up, a plan), with how the talk's learning
+     * names them; a torch, the volume or a coin tells nothing (준: "필요없는것들이 다 기록이돼").
+     */
+    private static final Map<String, String> TELLING = Map.of("play", "노래", "navigate", "길 안내", "map_search", "장소 찾기", "search", "검색", "calendar_add", "일정");
+    /**
+     * An act done, as the voice talk's learning reads it (BuddyTalk.learnTalk): its time, what it was and about, and the app,
+     * "22:10 노래 ‘아이유 좋은날’(멜론)"; "" for an act that tells nothing of the user.
+     */
+    static String line(JSONObject a, long at) {
+        String name = a == null ? null : TELLING.get(a.optString("tool").strip());
+        if (name == null) return "";
+        String what = "";
+        for (String key : new String[]{"query", "destination", "title", "text"}) {
+            String v = a.optString(key).strip(); if (!v.isEmpty()) { what = " ‘" + (v.length() > 40 ? v.substring(0, 40) + "…" : v) + "’"; break; }
+        }
+        String app = a.optString("app").strip();
+        return new java.text.SimpleDateFormat("HH:mm", Locale.KOREA).format(new java.util.Date(at)) + " " + name + what + (app.isEmpty() ? "" : "(" + app + ")");
     }
     /**
      * An act in a few words, for the brain's next answer and 퍼레가 못 한 일: its tool, then what it was about (the words to

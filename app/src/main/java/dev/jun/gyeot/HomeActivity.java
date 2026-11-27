@@ -340,7 +340,7 @@ public final class HomeActivity extends Activity {
         String now = new java.text.SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", java.util.Locale.KOREA).format(new java.util.Date());
         return BuddyTalk.persona(this) + "\n지금은 " + now + ". 사용자가 홈 화면에서 너에게 글로 말을 걸었어.\n"
             + "한국어로, 너답게 친근한 반말(~야, ~해)로 밝고 상냥하게 답해. 존댓말은 쓰지 마. 핵심부터 2~6문장. 표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써. 어울리면 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘 하나까지(반짝이·별은 빼고).\n"
-            + "모르는 것은 지어내지 말고 모른다고 말해.\n" + BuddyTalk.ACTS + BuddyTalk.places(store)
+            + "모르는 것은 지어내지 말고 모른다고 말해.\n" + BuddyTalk.corrected(this, question) + BuddyTalk.ACTS + BuddyTalk.places(store)
             + "사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 아래 '휴대폰 상태'의 숫자로 답해. 묻지 않으면 꺼내지 말고 정리·삭제를 권하지 마.\n"
             + "휴대폰 상태: " + BuddyTalk.facts(this) + "\n" + BuddyTalk.todayWords(this) + BuddyTalk.memoryWords(this, question, true)
             + BuddyTalk.worldWords(this)
@@ -349,14 +349,15 @@ public final class HomeActivity extends Activity {
     /**
      * A written answer shown, and the thing it names done (BuddyTalk.ACTS; typed, so an alarm needs no spoken yes); without
      * the sentences 퍼레 does not say to the question (BuddyMind.unasked: cheering, rest, chores, coins), "응응!" when that was all.
+     * What the user told is learned with the six turns before it (history) as what came before.
      */
-    private void chatAnswer(String question, String text) {
+    private void chatAnswer(String question, String history, String text) {
         JSONObject a = BuddyTalk.act(text);
         String written = text.replaceAll("(?m)^\\s*할\\s*일\\s*[:：].*$", "").strip();
         String shown = dev.jun.gyeot.core.BuddyMind.keepAsked(written, question);
         if (a == null) {
             if (shown.isEmpty() && !written.isEmpty()) shown = "응응!";
-            js("launcher.reply(" + JSONObject.quote(shown) + ")"); BuddyTalk.learnLater(this, question, shown); return;
+            js("launcher.reply(" + JSONObject.quote(shown) + ")"); BuddyTalk.learnChat(this, history, question, shown); return;
         }
         if (shown.isEmpty()) shown = BuddyTools.say(a);
         BuddyVoice.Outcome o = BuddyActs.run(this, a, "네", false);
@@ -578,7 +579,7 @@ public final class HomeActivity extends Activity {
                         try {
                             String text = BuddyTalk.askCustom(store, chatInstructions(store, question), chatInput(history, question.strip()), cancel);
                             String said = text.replaceAll("(?s)<think>.*?</think>", "").strip();
-                            if (ticket == chatTicket) chatAnswer(question, said);
+                            if (ticket == chatTicket) chatAnswer(question, history, said);
                             return;
                         } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
                         catch (Exception unavailable) { if (ticket != chatTicket) return; if (!qwen && !store.nim.connected()) throw unavailable; }
@@ -589,13 +590,13 @@ public final class HomeActivity extends Activity {
                         try { text = GroqWork.converse(model, chatInstructions(store, question), messages, "none", 0.7, 30_000, cancel); }
                         catch (Exception first) { if (ticket != chatTicket) throw new java.util.concurrent.CancellationException(); text = GroqWork.converse(model, chatInstructions(store, question), messages, null, 0.7, 30_000, cancel); }
                         text = text.replaceAll("(?s)<think>.*?</think>", "").strip();
-                        if (ticket == chatTicket) chatAnswer(question, text);
+                        if (ticket == chatTicket) chatAnswer(question, history, text);
                         return;
                     }
                     WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), store.nim.model(), chatInstructions(store, question), chatInput(history, question.strip()),
                         () -> { if (ticket != chatTicket) throw new java.util.concurrent.CancellationException(); }, cancel,
                         delta -> { if (ticket == chatTicket && !delta.isEmpty()) js("launcher.stream(" + JSONObject.quote(delta) + ")"); });
-                    if (ticket == chatTicket) chatAnswer(question, answer.text == null ? "" : answer.text.strip());
+                    if (ticket == chatTicket) chatAnswer(question, history, answer.text == null ? "" : answer.text.strip());
                 } catch (java.util.concurrent.CancellationException stopped) { /* a newer question, or stopped */ }
                 catch (Exception e) {
                     String why = e instanceof java.io.IOException ? "인터넷이 끊겼거나 " + (qwen ? "Groq" : "NVIDIA") + "가 답하지 않았어요. 잠시 뒤 다시 물어봐 주세요." : e.getMessage() == null ? "답을 받지 못했어요." : e.getMessage();

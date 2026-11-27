@@ -31,7 +31,8 @@ import org.json.JSONObject;
  * words are answered on the phone with no AI (core/VoiceTurns: a bare call, 그만, 뭐라고?, 잠깐, a no). A talk goes on from the
  * typed 퍼레와 대화 or from the last talk (start(seed)), and one brain failure asks to hear it again rather than ending it. A
  * thing promised waits when the user cuts in ("아니 멜론으로" lets it go), a read-back can be corrected ("아니 8시로"), the next
- * answer knows what was just done (Ask.recent), and an app opened that did not come up is said once.
+ * answer knows what was just done (Ask.recent), and an app opened that did not come up is said once. What the talk taught
+ * is learned once, from all of it and what was done (learn()), not a request a turn; a guest's turns never.
  * Everything but the network, the microphone and the playing sound on the main thread.
  */
 final class BuddyVoice {
@@ -50,10 +51,12 @@ final class BuddyVoice {
     interface Unlock { void ask(Runnable then); }
     /**
      * Something done on the phone (준: "퍼레는 폰조작이 안되네"): an app opened, a route, an alarm … ("할일" from the answer). Its
-     * outcome: what 퍼레 says after (may be empty), whether another app is now in front (the talk goes on over it), and the thing again
-     * when it waits for a yes (an alarm or a timer).
+     * outcome: what 퍼레 says after (may be empty), whether another app is now in front (the talk goes on over it), the thing again
+     * when it waits for a yes (an alarm or a timer), and whether it went wrong (kept in 퍼레가 못 한 일: not learned from).
      */
-    record Outcome(String say, boolean leaves, org.json.JSONObject confirm) {}
+    record Outcome(String say, boolean leaves, org.json.JSONObject confirm, boolean missed) {
+        Outcome(String say, boolean leaves, org.json.JSONObject confirm) { this(say, leaves, confirm, false); }
+    }
     /** answers: heard answers 퍼레's own read-back (BuddyActs.run); late: who hears of an app that did not come up. */
     interface Act { Outcome run(org.json.JSONObject act, String heard, boolean answers, BuddyActs.Late late); }
     private final Context context; private final AppStore store; private final ExecutorService io = java.util.concurrent.Executors.newCachedThreadPool();
@@ -121,7 +124,7 @@ final class BuddyVoice {
         List<String[]> typed = seed(seed);
         boolean recent = endedAt != 0 && android.os.SystemClock.elapsedRealtime() - endedAt < REMEMBER_MS;
         List<String[]> kept = !typed.isEmpty() ? typed : recent ? new ArrayList<>(turns.subList(Math.max(0, turns.size() - SEED_TURNS), turns.size())) : List.of();
-        turns.clear(); turns.addAll(kept);
+        turns.clear(); turns.addAll(kept); learnedTo = turns.size(); acts.clear();
         // What was done last goes on with the talk it was done in (its own two minutes still count).
         if (!(recent && typed.isEmpty())) lastAct = null;
         held = null; meant = null; pendingAsk = null; heardNow = false; lateLine = ""; lateGo = "";
@@ -530,7 +533,7 @@ final class BuddyVoice {
         Runnable listens = () -> main.postDelayed(() -> { if (on && mine == generation) listen(); }, 150);
         switch (kind) {
             case CALL -> { show("thinking", said); cue("hello", true, listens); }
-            case BYE -> { show("thinking", said); turns.add(new String[]{"user", said}); end("done", BYE_WORDS); }
+            case BYE -> { show("thinking", said); turns.add(talkTurn("user", said, guest)); end("done", BYE_WORDS); }
             case PAUSE -> {
                 if (guest || act == null) return false;
                 show("thinking", said);
@@ -543,7 +546,7 @@ final class BuddyVoice {
             case HUSH -> listen();
             case NO -> {
                 confirming = null; confirmAsk = ""; show("thinking", said);
-                turns.add(new String[]{"user", said}); turns.add(new String[]{"assistant", "알았어, 안 할게."});
+                turns.add(talkTurn("user", said, guest)); turns.add(talkTurn("assistant", "알았어, 안 할게.", guest));
                 File okay = VoicePresets.line(context, store, "알았어!");
                 cue(okay == null ? null : new Cue(okay), true, listens);
             }
@@ -564,7 +567,7 @@ final class BuddyVoice {
         long now = android.os.SystemClock.uptimeMillis();
         lastTalk = now;
         // A voice not the user's: the talk so far (typed, or kept from the last talk), and what was done in it, are not theirs to go on from.
-        if (guest) { turns.clear(); lastAct = null; meant = null; pendingAsk = null; }
+        if (guest) { learn(); turns.clear(); learnedTo = 0; lastAct = null; meant = null; pendingAsk = null; }
         // A thing promised when the user cut in (talkedOver): a correction or a wait lets it go (the answer is told what it
         // was), a yes does it, other words have it done first and are answered after.
         org.json.JSONObject h = held; held = null;
@@ -617,8 +620,8 @@ final class BuddyVoice {
                 if (on && mine == generation) { todo = a; todoHeard = said; todoCorrects = asked != null && asked.act().optString("tool").equals(a.optString("tool")); }
             }),
             part -> main.post(() -> { if (on && mine == generation) sayPart(part); }),
-            line -> main.post(() -> { if (on && mine == generation) answered(said, line); }),
-            why -> main.post(() -> { if (on && mine == generation) brainFailed(said, why); }), true, recent);
+            line -> main.post(() -> { if (on && mine == generation) answered(said, line, guest); }),
+            why -> main.post(() -> { if (on && mine == generation) brainFailed(said, why); }), false, recent);
         java.util.function.BiConsumer<Context, BuddyTalk.Ask> b = brain;
         try { io.execute(() -> b.accept(context, ask)); } catch (RuntimeException stopped) { end("error", ""); return; }
         // Still thinking well after the words (a slow brain, a long tool): one more short sound, so 퍼레 does not go quiet.
@@ -631,18 +634,19 @@ final class BuddyVoice {
      * The brain's whole answer: into the talk and said. Nothing to say (every sentence was one 퍼레 does not say unasked) and
      * nothing to do: a little sound, and it listens.
      */
-    private void answered(String said, String line) {
+    private void answered(String said, String line, boolean guest) {
         failures = 0; awaited = 0;
         if (answeredAt == 0) answeredAt = android.os.SystemClock.uptimeMillis();
-        turns.add(new String[]{"user", said});
+        turns.add(talkTurn("user", said, guest));
         if ((line == null || line.isBlank()) && !partsUsed) {
+            learnSome();
             org.json.JSONObject now = todo; todo = null;
             if (now != null && act != null) { doNow(now, todoHeard, todoCorrects); return; }
             int mine = generation;
             cue("react", true, () -> main.postDelayed(() -> { if (on && mine == generation) listen(); }, 150));
             return;
         }
-        turns.add(new String[]{"assistant", line});
+        turns.add(talkTurn("assistant", line, guest)); learnSome();
         finish(line);
     }
     /**
@@ -1269,6 +1273,9 @@ final class BuddyVoice {
     private void did(org.json.JSONObject a, Outcome o) {
         if (a == null || o != null && o.confirm() != null) return;
         lastAct = new LastAct(BuddyActs.about(a), o == null || o.say() == null ? "" : voiced(o.say()), android.os.SystemClock.uptimeMillis());
+        // What it did for the user, done (not gone wrong), for the talk's learning: a song, a place, a search, a plan.
+        String line = o == null || o.missed() ? "" : BuddyActs.line(a, System.currentTimeMillis());
+        if (!line.isEmpty()) acts.add(line);
     }
     /**
      * What just happened, for the next answer (Ask.recent), a line each: the last thing done (under RECENT_MS ago), the
@@ -1306,7 +1313,40 @@ final class BuddyVoice {
         turns.add(new String[]{"assistant", line});
         say(line);
     }
+    // ── what the talk taught (준: "퍼레의 학습기능 … 강화해줘"): learned once from the whole of it, not a request a turn ──
+    /** A turn of the talk: {role, text}, with "g" when the voice was a guest's (never learned from). */
+    static String[] talkTurn(String role, String text, boolean guest) { return guest ? new String[]{role, text, "g"} : new String[]{role, text}; }
+    /** Who learns from a talk (BuddyTalk.learnTalk; tests put their own): its turns, the first not learned yet, what was done. */
+    interface Learner { void learn(Context context, List<String[]> turns, int from, List<String> acts); }
+    static Learner learner = BuddyTalk::learnTalk;
+    /** The turns from this one on are not learned from yet; what was done for the user since then (BuddyActs.line). */
+    private int learnedTo; private final List<String> acts = new ArrayList<>();
+    /** A long talk learns as it goes too, every this many of the user's turns. */
+    static final int LEARN_TURNS = 6;
+    /** After the user's turn: a long talk learns what it has so far (LEARN_TURNS of the user's turns not learned yet). */
+    private void learnSome() {
+        int mine = 0;
+        for (int i = Math.min(learnedTo, turns.size()); i < turns.size(); i++) if ("user".equals(turns.get(i)[0]) && !dev.jun.gyeot.core.BuddyMind.guestTurn(turns.get(i))) mine++;
+        if (mine >= LEARN_TURNS) learn();
+    }
+    /**
+     * What the talk taught since it last learned, learned now, once (when it ends, every LEARN_TURNS of the user's turns,
+     * before a guest's words, and when the service goes): the user's turns and 퍼레's, a guest's left out, and what was done.
+     * Nothing when the user said nothing new.
+     */
+    void learn() {
+        int from = Math.min(learnedTo, turns.size());
+        boolean mine = false;
+        for (int i = from; i < turns.size() && !mine; i++) mine = "user".equals(turns.get(i)[0]) && !dev.jun.gyeot.core.BuddyMind.guestTurn(turns.get(i));
+        List<String[]> talk = new ArrayList<>(turns); List<String> done = new ArrayList<>(acts);
+        learnedTo = turns.size(); acts.clear();
+        if (!mine) return;
+        try { learner.learn(context, talk, from, done); } catch (RuntimeException failed) { /* nothing learned this time */ }
+    }
+    /** The voice service going (BuddyVoiceService.onDestroy, main thread): what the talk taught is not lost with it. */
+    static void flushLearning() { BuddyVoice t = current; if (t != null) t.learn(); }
     private void end(String state, String words) {
+        learn();
         on = false; generation++; todo = null; confirming = null; confirmAsk = ""; held = null; meant = null; pendingAsk = null; endedAt = android.os.SystemClock.elapsedRealtime(); stopOver(); stopPipe(); saying = false; lastSound = null; lastLine = "";
         for (Cue c : new ArrayList<>(cues.values())) c.let();
         if (store.buddyTalking) { store.buddyTalking = false; store.changed(); }

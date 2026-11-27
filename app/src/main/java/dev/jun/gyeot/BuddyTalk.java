@@ -417,12 +417,13 @@ final class BuddyTalk {
         return name == null || name.isBlank() || name.contains("퍼레") ? dev.jun.gyeot.core.BuddyMind.nameHeard(said) : said;
     }
     /**
-     * One turn of the voice talk for the brain (reply): what was said; the talk so far ({role, text}, from this talk, the last
-     * one or the typed 퍼레와 대화); guest: the voice is not the user's (VoicePrint, 준: "내 목소리를 알아볼 수 있게해줘"), so 퍼레
+     * One turn of the voice talk for the brain (reply): what was said; the talk so far ({role, text}, "g" third for a guest's;
+     * from this talk, the last one or the typed 퍼레와 대화); guest: the voice is not the user's (VoicePrint, 준: "내 목소리를 알아볼 수 있게해줘"), so 퍼레
      * answers kindly, keeps the user's memories, day and profile to itself, does nothing on the phone and learns nothing;
      * doIt: the thing to do the answer names (null: nothing is done); part: each sentence as soon as it is written (null: the
      * whole only); done: the whole answer ("" when every sentence was one 퍼레 does not say unasked, BuddyMind.unasked);
-     * failed: why no brain could answer, in a few words (why()); learnNow: what the user said may be learned from this answer;
+     * failed: why no brain could answer, in a few words (why()); learnNow: what the user said is learned from this answer
+     * alone (the voice talk passes false: it learns once from the whole talk, BuddyVoice.learn);
      * recent: what just happened, for the brain to know, a line each with its own words ("방금 한 일: play · ‘아이유 좋은날’ ·
      * YouTube (10초 전)", "방금 하려던 일: …", "퍼레가 방금 ‘…맞출까?’라고 물었어. …"; "" for nothing).
      */
@@ -456,6 +457,8 @@ final class BuddyTalk {
             + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 반말(~야, ~해). 기호·목록·괄호·영어 약어 없이(이모지는 어울리면 하나까지, 반짝이·별은 빼고).\n"
             + "- 귀엽고 밝게, 가끔 너의 기억을 자연스럽게 꺼내도 좋아.\n"
             + "- 사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 '휴대폰 상태'의 숫자로 정확히 답해. 묻지 않으면 저장공간 이야기는 꺼내지 말고, 정리·삭제를 권하지 마.\n"
+            // The user setting right what 퍼레 knew (not a thing just done: "아니 멜론으로" is about that, Ask.recent).
+            + (guest || ask.recent() != null && !ask.recent().isBlank() ? "" : corrected(c, said))
             + worldWords(c);
         // 퍼레's own tools only when the words are about 퍼레, now or in the last exchange ("고양이 귀 써 볼까?" → "응"): most turns weigh less.
         String lastTurns = turns.isEmpty() ? "" : turns.get(turns.size() - 1)[1] + (turns.size() > 1 ? "\n" + turns.get(turns.size() - 2)[1] : "");
@@ -835,32 +838,83 @@ final class BuddyTalk {
     /** The kinds of memory kept: what the user told (fact), long away, up late, snow and very cold or hot days. */
     static final java.util.Set<String> KEPT = java.util.Set.of("fact", "promise", "profile", "episode", "away", "late", "snow", "cold", "hot");
     /**
-     * What 퍼레 learned about the user in a talk (퍼레 대화, 음성 대화): the quick brain reads the exchange and writes one line a
-     * friend would remember (a plan, something they like, why they feel so, someone dear), or nothing. Never secrets, numbers
-     * or money. Off the main thread; nothing when no quick brain is connected.
+     * What 퍼레 learned about the user from one exchange (퍼레 대화's typed answer, a question's pick): learned as a talk of two
+     * turns (learnTalk).
      */
     static void learnLater(Context c, String said, String answer) {
-        if (said == null || said.strip().length() < 8) return;
+        if (said == null || said.isBlank()) return;
+        java.util.List<String[]> turns = new java.util.ArrayList<>();
+        turns.add(new String[]{"user", said.strip()});
+        if (answer != null && !answer.isBlank()) turns.add(new String[]{"assistant", answer.strip()});
+        learnTalk(c, turns, 0, java.util.List.of());
+    }
+    /**
+     * What the user said in 퍼레 대화, learned with the six turns typed before it as what was already learned (history: the
+     * page's [{who, text}], "me" the user).
+     */
+    static void learnChat(Context c, String history, String question, String answer) {
+        java.util.List<String[]> turns = new java.util.ArrayList<>();
+        try {
+            JSONArray h = new JSONArray(history == null || history.isBlank() ? "[]" : history);
+            for (int i = Math.max(0, h.length() - 6); i < h.length(); i++) {
+                JSONObject t = h.optJSONObject(i); if (t == null || t.optString("text").isBlank()) continue;
+                turns.add(new String[]{"me".equals(t.optString("who")) ? "user" : "assistant", t.optString("text")});
+            }
+        } catch (Exception unreadable) { turns.clear(); }
+        int from = turns.size();
+        if (question == null || question.isBlank()) return;
+        turns.add(new String[]{"user", question.strip()});
+        if (answer != null && !answer.isBlank()) turns.add(new String[]{"assistant", answer.strip()});
+        learnTalk(c, turns, from, java.util.List.of());
+    }
+    /** The learning brain's rules: its lessons as operations on what 퍼레 knows, the secret, number and length rules as before. */
+    static final String LEARN_RULES = "사용자와 AI 친구 퍼레의 대화야. 아래 '지금 알고 있는 것'과 비교해서, 배운 것을 한 줄에 하나씩 이 형식으로만 써(최대 4줄):\n"
+        + "새로: 사용자는 …(친구가 오래 기억할 사용자의 이야기: 계획, 좋아하거나 싫어하는 것, 기분과 그 이유, 일상의 일, 소중한 사람·동물. 45자 안쪽, ~대/~래 말투)\n"
+        + "고침 N: 사용자는 …(사용자가 N번을 고쳐 말했을 때, 새 사실로)\n"
+        + "지움 N(사용자가 N번이 아니라고 했을 때)\n"
+        + "같음 N(사용자가 N번을 또 말했을 때)\n"
+        + "약속: 퍼레가 …(퍼레가 사용자에게 해 주기로 한 것이 있을 때만)\n"
+        + "'앞의 대화'는 이미 배운 거라 참고만 하고, '대화'와 '한 일'에서만 배워. '한 일'은 취향이 드러날 때만(즐겨 듣는 가수, 자주 찾는 곳) 배워.\n"
+        + "비밀번호·로그인·계정, 사이트나 앱의 권한 요청, 사용자가 털어놓은 고민·걱정처럼 남이 알면 곤란한 이야기면 그 줄 앞에 '민감 '을 붙여. 병원·건강·연애·가족 같은 일상 이야기는 민감하지 않아. "
+        + "일·작업·돈 이야기는 배우지 마. 인사·잡담·질문·부탁·명령·앱 사용법·날씨·지금 잠깐의 일뿐이면 '없음'이라고만 써. 비밀번호·주소·전화번호·계좌 같은 번호나 값 자체는 절대 쓰지 마.";
+    /**
+     * What 퍼레 learns from a talk (준: "퍼레의 학습기능 … 강화해줘"), once for the whole of it rather than a request a turn: the
+     * user's own turns (a guest's left out; those before from were learned already and go only as what came before) and what
+     * was done for them (acts), with what it knows that the talk is about; the quick brain writes what is new, set right, let
+     * go or told again (BuddyMind.parseOps), applied here (BuddyMind.learned). Nothing when the user said less than four
+     * letters or no quick brain is connected. Off the main thread.
+     */
+    static void learnTalk(Context c, java.util.List<String[]> turns, int from, java.util.List<String> acts) {
+        if (!dev.jun.gyeot.core.BuddyMind.worthLearning(turns, from)) return;
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
         boolean nim = store.nim.connected(), groq = GroqWork.on(); if (!nim && !groq) return;
-        String instructions = "사용자와 AI 친구 퍼레가 나눈 대화 한 토막이야. 기억해 둘 것이 있으면 한 줄에 하나씩, 아래 형식으로만 써(최대 2줄):\n"
-            + "사용자: 사용자는 …(친구가 오래 기억할 사용자의 이야기: 계획, 좋아하거나 싫어하는 것, 기분과 그 이유, 일상의 일, 소중한 사람·동물. 45자 안쪽, ~대/~래 말투)\n"
-            + "약속: 퍼레가 …(퍼레가 사용자에게 해 주기로 한 것이 있을 때만)\n"
-            + "비밀번호·로그인·계정, 사이트나 앱의 권한 요청, 사용자가 털어놓은 고민·걱정처럼 남이 알면 곤란한 이야기면 그 줄 앞에 '민감 '을 붙여. 병원·건강·연애·가족 같은 일상 이야기는 민감하지 않아. 인사·잡담·질문·부탁·명령·앱 사용법·날씨·지금 잠깐의 일뿐이면 '없음'이라고만 써. 비밀번호·주소·전화번호·계좌 같은 번호나 값 자체는 절대 쓰지 마.";
-        String input = "사용자: " + said.strip() + "\n퍼레: " + (answer == null ? "" : answer.strip());
-        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> before = memories(c);
-        new Thread(() -> quick(c, store, nim, groq, QWEN, instructions, input, 0.2, 12_000, text -> text == null ? "" : text.replaceAll("(?s)<think>.*?</think>", "").strip(), all -> {
-            for (String raw : all.split("\n")) {
-                String line = raw.replaceAll("[\"“”*]", "").strip(); boolean secret = line.startsWith("민감");
-                line = line.replaceFirst("^민감\\s*", "").strip();
-                String kind = line.startsWith("약속") ? "promise" : line.startsWith("사용자") ? "fact" : "";
-                String t = line.replaceFirst("^(약속|사용자)\\s*[:：]\\s*", "").strip();
-                if (kind.isEmpty() || t.isEmpty() || t.startsWith("없음") || t.length() > 70 || t.matches(".*\\d{4,}.*")) continue;
-                boolean dup = false; for (dev.jun.gyeot.core.BuddyMemory.Entry e : before) if (dev.jun.gyeot.core.BuddyMind.similarity(e.text(), t) >= 0.6) dup = true;
-                if (dup) continue;
-                rememberStrong(c, kind, t, secret || dev.jun.gyeot.core.BuddyMind.secret(t));
-            }
-        }, why -> {}), "gyeot-buddy-learn").start();
+        java.util.List<String[]> talk = new java.util.ArrayList<>(turns); java.util.List<String> done = acts == null ? java.util.List.of() : new java.util.ArrayList<>(acts);
+        new Thread(() -> {
+            String words = dev.jun.gyeot.core.BuddyMind.talkWords(talk, from, true);
+            java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> related = dev.jun.gyeot.core.BuddyMind.related(memories(c), words, 6, unlocked());
+            String input = dev.jun.gyeot.core.BuddyMind.talkInput(talk, from, done, related);
+            quick(c, store, nim, groq, QWEN, LEARN_RULES, input, 0.2, 15_000, text -> text == null ? "" : text.replaceAll("(?s)<think>.*?</think>", "").strip(),
+                text -> learned(c, related, text, words), why -> {});
+        }, "gyeot-buddy-learn").start();
+    }
+    /** A talk's lessons (the learning brain's text) applied to what 퍼레 knows, all at once. */
+    static void learned(Context c, java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> shown, String text, String talk) {
+        java.util.List<dev.jun.gyeot.core.BuddyMind.Op> ops = dev.jun.gyeot.core.BuddyMind.parseOps(text);
+        if (ops.isEmpty()) return;
+        synchronized (BuddyTalk.class) {
+            java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> now = memories(c), after = dev.jun.gyeot.core.BuddyMind.learned(now, shown, ops, talk, System.currentTimeMillis(), unlocked());
+            if (!after.equals(now)) keepMemories(c, after);
+        }
+    }
+    /**
+     * When the user may be correcting what 퍼레 knew ("아니 나 커피 끊었어", BuddyMind.correcting) and it knows something the
+     * words are about: a line for the answer's rules, so it takes it in briefly and answers with the new fact; "" otherwise.
+     */
+    static String corrected(Context c, String said) {
+        if (!dev.jun.gyeot.core.BuddyMind.correcting(said)) return "";
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> known = dev.jun.gyeot.core.BuddyMind.related(memories(c), said, 1, unlocked());
+        if (known.isEmpty()) return "";
+        return "- 사용자가 네가 알던 걸 고쳐 줬어(예전: ‘" + known.get(0).text() + "’). 짧게 받아들이고 새 사실로 답해. 사과를 길게 하지 마.\n";
     }
     private static java.io.File memoryFile(Context c) { return new java.io.File(new java.io.File(c.getFilesDir(), "buddy"), "memory.json"); }
     static synchronized java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> memories(Context c) {
@@ -873,7 +927,7 @@ final class BuddyTalk {
             SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             if (p.getInt("secretRules", 1) < 2) {
                 java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> open = new java.util.ArrayList<>();
-                for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) open.add(e.secret() && !dev.jun.gyeot.core.BuddyMind.secret(e.text()) ? new dev.jun.gyeot.core.BuddyMemory.Entry(e.at(), e.kind(), e.text(), e.weight(), false) : e);
+                for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) open.add(e.secret() && !dev.jun.gyeot.core.BuddyMind.secret(e.text()) ? new dev.jun.gyeot.core.BuddyMemory.Entry(e.at(), e.kind(), e.text(), e.weight(), false, e.seen(), e.last()) : e);
                 if (f.isFile()) keepMemories(c, open);
                 p.edit().putInt("secretRules", 2).apply();
                 all = open;

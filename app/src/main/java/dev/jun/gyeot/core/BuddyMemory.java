@@ -20,9 +20,14 @@ public final class BuddyMemory {
     private BuddyMemory() {}
     public static final int MOST = 120;
 
-    /** weight: how much it matters (1 a passing moment, 2 something told, 3 core); secret: told only after the fingerprint. */
-    public record Entry(long at, String kind, String text, int weight, boolean secret) {
+    /**
+     * weight: how much it matters (1 a passing moment, 2 something told, 3 core); secret: told only after the fingerprint;
+     * seen: how many times the user has told it (once when first kept); last: when it was last told or corrected (at, first).
+     * at stays the memory's own: it is how the app and 퍼레 name it.
+     */
+    public record Entry(long at, String kind, String text, int weight, boolean secret, int seen, long last) {
         public Entry(long at, String kind, String text) { this(at, kind, text, 1, false); }
+        public Entry(long at, String kind, String text, int weight, boolean secret) { this(at, kind, text, weight, secret, 1, at); }
     }
 
     public static List<Entry> read(String saved) {
@@ -32,14 +37,15 @@ public final class BuddyMemory {
             for (int i = 0; i < a.length(); i++) {
                 JSONObject o = a.optJSONObject(i); if (o == null) continue;
                 String text = o.optString("text").strip();
-                if (!text.isEmpty() && o.optLong("at") > 0) out.add(new Entry(o.optLong("at"), o.optString("kind"), text, Math.max(1, Math.min(3, o.optInt("weight", 1))), o.optBoolean("secret")));
+                long at = o.optLong("at");
+                if (!text.isEmpty() && at > 0) out.add(new Entry(at, o.optString("kind"), text, Math.max(1, Math.min(3, o.optInt("weight", 1))), o.optBoolean("secret"), Math.max(1, o.optInt("seen", 1)), Math.max(at, o.optLong("last", at))));
             }
         } catch (Exception unreadable) { out.clear(); }
         return out;
     }
     public static String save(List<Entry> list) {
         JSONArray a = new JSONArray();
-        for (Entry e : list) a.put(Jsons.obj("at", e.at(), "kind", e.kind(), "text", e.text(), "weight", e.weight(), "secret", e.secret()));
+        for (Entry e : list) a.put(Jsons.obj("at", e.at(), "kind", e.kind(), "text", e.text(), "weight", e.weight(), "secret", e.secret(), "seen", e.seen(), "last", e.last()));
         return a.toString();
     }
     /** The list with this memory added, unless one of the same kind was kept within quiet ms (then the list as it was). */
@@ -54,6 +60,34 @@ public final class BuddyMemory {
         out.add(new Entry(now, kind == null ? "" : kind, text.strip(), Math.max(1, Math.min(3, weight)), secret));
         while (out.size() > MOST) out.remove(0);
         return out;
+    }
+    /**
+     * The list with the memory kept at at told once more (준: "퍼레의 학습기능 … 강화해줘"): seen one more, last now, and from the
+     * third time on it matters more (weight up to 3). The list as it was when there is none.
+     */
+    public static List<Entry> confirm(List<Entry> list, long at, long now) {
+        List<Entry> out = new ArrayList<>(list);
+        for (int i = 0; i < out.size(); i++) {
+            Entry e = out.get(i); if (e.at() != at) continue;
+            int seen = e.seen() + 1;
+            out.set(i, new Entry(e.at(), e.kind(), e.text(), seen >= 3 ? Math.min(3, e.weight() + 1) : e.weight(), e.secret(), seen, Math.max(e.last(), now)));
+            return out;
+        }
+        return list;
+    }
+    /**
+     * The list with the memory kept at at said anew, as the user corrected it ("커피 끊었어" for "커피를 좋아한대"): its new
+     * words, something told (weight 2), told once, last now; its kind and its at stay. The list as it was when there is none.
+     */
+    public static List<Entry> replace(List<Entry> list, long at, String text, long now, boolean secret) {
+        if (text == null || text.isBlank()) return list;
+        List<Entry> out = new ArrayList<>(list);
+        for (int i = 0; i < out.size(); i++) {
+            Entry e = out.get(i); if (e.at() != at) continue;
+            out.set(i, new Entry(e.at(), e.kind(), text.strip(), 2, secret, 1, Math.max(e.at(), now)));
+            return out;
+        }
+        return list;
     }
     public static List<Entry> remove(List<Entry> list, long at) {
         List<Entry> out = new ArrayList<>();
