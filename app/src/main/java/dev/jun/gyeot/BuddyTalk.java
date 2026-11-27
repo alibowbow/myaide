@@ -50,14 +50,15 @@ final class BuddyTalk {
         java.util.Random random = new java.util.Random();
         String topic = solo ? "지금 하고 있는 놀이" : dev.jun.gyeot.core.BuddyMind.topic(used, hasMemory, hasApp, random);
         if (!solo) { try { used.put(topic, System.currentTimeMillis()); } catch (Exception ignored) {} p.edit().putString("topics", used.toString()).apply(); }
-        // What it does not know about the user it asks (준: "아는것이 전투기 밖에 없어?", "모르면 질문을 하면 되자너"): on its
-        // question turn, and more often while it knows little; the answer picked is kept (answer: → learnLater).
-        if (!solo && !reason.equals("hungry") && !reason.equals("charge")) {
+        // What it does not know about the user it asks (준: "아는것이 전투기 밖에 없어?", "모르면 질문을 하면 되자너"): only when
+        // the user taps it, now and then, at most once in three hours (준: "맥락과 무관한 무의미한 질문들이 반복돼": coming back
+        // from an app or opening the screen asked too); the answer picked is kept (answer: → learnLater).
+        if (reason.equals("tap")) {
             String known = knownWords(c, store);
             JSONObject asked; try { asked = new JSONObject(p.getString("asked", "{}")); } catch (Exception e) { asked = new JSONObject(); }
             String wonder = dev.jun.gyeot.core.BuddyMind.curious(known, asked, System.currentTimeMillis(), random);
             boolean thin = dev.jun.gyeot.core.BuddyMind.knows(known) < 6;
-            if (!wonder.isEmpty() && (topic.startsWith("사용자를 알아 가는 질문") || thin && random.nextDouble() < .35)) {
+            if (!wonder.isEmpty() && random.nextDouble() < (thin ? .35 : .2)) {
                 topic = "사용자를 알아 가는 질문: 아직 모르는 '" + wonder + "'";
                 try { asked.put(wonder, System.currentTimeMillis()); } catch (Exception ignored) {}
                 p.edit().putString("asked", asked.toString()).apply();
@@ -447,6 +448,20 @@ final class BuddyTalk {
      * BuddyMind.unasked) are left out, aloud and in done alike.
      */
     static void reply(Context c, Ask ask) {
+        // "<앱> 꺼 줘" is done at once, with no brain (준, 2026-11-27 over 네이버 지도: the brain said "네이버지도 닫을게 👋" and
+        // called nothing): the app as named, when an app by that name is here, or the one on screen ("이거 꺼 줘").
+        String closing = ask.guest() || ask.doIt() == null ? null : dev.jun.gyeot.core.VoiceTurns.closing(ask.said());
+        if (closing == null) { withBrain(c, ask); return; }
+        new Thread(() -> {
+            if (!closing.isEmpty() && BuddyActs.findApp(c, closing) == null) { withBrain(c, ask); return; }
+            JSONObject act;
+            try { act = loose(new JSONObject().put("tool", "close_app").put("app", closing).toString()); } catch (org.json.JSONException e) { act = null; }
+            if (act == null) { withBrain(c, ask); return; }
+            ask.doIt().accept(act);
+            ask.done().accept(BuddyTools.say(act));
+        }, "gyeot-buddy-close").start();
+    }
+    private static void withBrain(Context c, Ask ask) {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
         String said = ask.said(); java.util.List<String[]> turns = ask.turns() == null ? java.util.List.of() : ask.turns();
         boolean guest = ask.guest(), learn = ask.learnNow() && !guest;
@@ -677,7 +692,7 @@ final class BuddyTalk {
             case "heat" -> "휴대폰이 뜨거워져서 너도 덥고 땀이 나. 귀엽게 호소해.";
             case "save" -> "휴대폰이 절전 모드라 너도 기운을 아끼는 중이야. 느릿하게 한마디 해.";
             case "shake" -> "사용자가 휴대폰을 마구 흔들어서 너는 어지러워. 귀엽게 투덜거려.";
-            case "app" -> "사용자가 방금 다른 앱을 쓰고 홈 화면으로 돌아왔어(방금 쓴 앱 참고). 그 앱 이야기로 가볍게 한마디 해.";
+            case "app" -> "사용자가 방금 다른 앱을 쓰고 홈 화면으로 돌아왔어(방금 쓴 앱 참고). 그 앱에서 뭘 했는지는 몰라: 묻지 말고, 그 앱에 대한 너의 느낌으로 가볍게 한마디 해.";
             default -> "사용자가 너를 톡 건드렸어.";
         };
         if (topic.startsWith("사용자를 알아 가는 질문: ")) return persona(c) + "\n지금: " + moment + "\n"
@@ -692,8 +707,8 @@ final class BuddyTalk {
             + "- '이미 했던 말'과 같거나 비슷한 뜻·소재·문장 틀은 절대 쓰지 마. 뻔한 인사말도 피해.\n"
             + "- 일, 업무, 일정, 할 일, 주식, 코인, 시세, 숫자, 돈 이야기와 조언·잔소리는 하지 마. 파일·사진 정리, 청소, 삭제, 백업, 용량, 업데이트 같은 할 일을 권하지 마.\n"
             + "- 비밀번호·계정·권한 요청, 털어놓은 고민 같은 사적인 내용은 말하지 마.\n"
-            + "- 한 문장, 45자 안쪽. 따옴표 없이 그 문장만 답해. 어울리면 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘 하나를 붙여도 좋아(반짝이·별은 빼고).\n"
-            + "- 사용자에게 묻는 말로 끝낼 때만, 둘째 줄에 사용자가 눌러서 고를 짧은 답 2~3개를 '고르기: 답 / 답 / 답'(각 8자 안쪽)으로 써.";
+            + "- 사용자에게 묻지 마. 물음표로 끝내지 말고 네 느낌·생각·소식을 말해. 너는 사용자가 앱에서 뭘 했는지, 오늘 뭘 먹고 뭘 했는지 몰라: 모르는 걸 떠보는 질문(뭐 했어? 재밌었어? 새로운 거 알게 됐어?)은 하지 마.\n"
+            + "- 한 문장, 45자 안쪽. 따옴표 없이 그 문장만 답해. 어울리면 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘 하나를 붙여도 좋아(반짝이·별은 빼고).";
     }
     /**
      * What 퍼레 sees now. What it knows about the user (the night's profile, its discovery notes) only when this topic is about

@@ -706,7 +706,8 @@ function speak(b, line, ms) {
   if (line.go) { const more = document.createElement("b"); more.className = "more"; more.textContent = " ›"; bubble.appendChild(more); }
   bubble.classList.toggle("act", !!line.go); bubble.classList.toggle("sfx", !!line.sfx); bubble.classList.remove("asking"); bubble.classList.add("on");
   clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on", "act"), ms || 6500);
-  if (!line.sfx && !line.go && asking(line.text)) offer(b, line.text, choicesFor(line.text));
+  // 퍼레's own ready words never wait for an answer (준: "맥락과 무관한 무의미한 질문들이 반복돼": "새로운 거 알게 됐어?" with
+  // 응!/아니/글쎄~ after an app): only the AI's questions, asked about something it wants to know, come with choices (thought).
   fitBubble(bubble);
 }
 

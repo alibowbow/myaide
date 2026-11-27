@@ -72,6 +72,9 @@ async function open(browser, at, bridge) {
     const groups = new Set([...board.matchAll(/: "(joy|laugh|surprise|proud|calm|dizzy|sleepy|shy|curious|sad|cold|hot|love|sneaky|food|ouch|fume|sing)"/g)].map(m => m[1]));
     const missing = [...groups].filter(g => TALK.lines('feel:' + g).length === 0).concat(['solo', 'done', 'roam'].filter(p => TALK.lines(p).length === 0));
     assert.deepStrictEqual(missing, [], 'pools with no words');
+    // Coming back, opening the screen or returning from an app: 퍼레 says its own thing, it does not quiz the user about what it cannot know.
+    const asks = TALK.pools().filter(k => k === 'hi' || k === 'back' || k.startsWith('app:')).flatMap(k => TALK.lines(k).filter(l => /\?\s*[~!]*$/.test(l)).map(l => k + ': ' + l));
+    assert.deepStrictEqual(asks, [], 'questions in the greetings and the app pools');
   });
 
   const day = await open(browser, '2026-11-26T14:00:00+09:00');
@@ -149,6 +152,10 @@ async function open(browser, at, bridge) {
     await p.evaluate(() => { launcher.thought('오잉?'); });
     await p.clock.runFor(1500);
     assert.strictEqual(await p.evaluate(() => document.querySelectorAll('.bubble .pick').length), 0);
+    // 퍼레's own ready words never wait for an answer (준: "맥락과 무관한 무의미한 질문들이 반복돼": "새로운 거 알게 됐어?" + 응!/아니/글쎄~).
+    await p.evaluate(() => { speak(boards[0], {text: '오늘은 어떤 하루였어?'}, 3000); });
+    await p.clock.runFor(500);
+    assert.strictEqual(await p.evaluate(() => document.querySelectorAll('.bubble .pick').length), 0, 'no choices under a ready-made line');
   });
   await check('퍼레\'s toys fall and rest on the board; the dice says its number; the puzzle cube can be solved', async () => {
     const p = day.page;

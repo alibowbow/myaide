@@ -39,6 +39,26 @@ public final class VoiceTurns {
         String t = bare(heard);
         return !t.isEmpty() && CORRECTS.matcher(t).find();
     }
+    /**
+     * An app to turn off, said as a whole (준, 2026-11-27 over 네이버 지도: "네이버지도 꺼줘" → "네이버지도 닫을게 👋" and it stayed):
+     * "<앱> 꺼 줘 / 닫아 줘 / 종료해 줘". The app's name as said; "" for the one on screen (이거, 이 앱, 지금 앱); null when it is
+     * not that, or what is turned off is a thing of the phone or of the talk (불, 와이파이, 알람, 소리, 화면, 음성, 광고 …).
+     */
+    private static final Pattern CLOSE = Pattern.compile("(.{0,14}?)(앱|어플|어플리케이션)?(?:을|를|은|는)?(?:좀|이제|그냥|빨리|당장)?"
+        + "(?:꺼|닫아|닫|종료해|종료|꺼버려|닫아버려|종료시켜|나가)(?:줘|줄래|주세요|줄래요|줄수있어|봐|버려|라|주라)?(?:요)?");
+    private static final Pattern NOT_APP = Pattern.compile("(?i)불|손전등|플래시|라이트|와이파이|wifi|블루투스|데이터|핫스팟|위치|gps|알람|타이머|소리|음악|노래|볼륨|진동|무음"
+        + "|화면|음성|마이크|대화|퍼레|비행기|절전|방해금지|자동회전|에어컨|티비|tv|전원|휴대폰|핸드폰|녹음|녹화|모드|조명|자막|알림|광고|팝업|창|키보드|탭|페이지|영상|동영상|재생");
+    private static final Pattern THIS = Pattern.compile("이거|이것|저거|그거|이|지금|현재|지금이|지금켜진|켜진|열린|지금열린|여기|여기서");
+    public static String closing(String heard) {
+        String t = NAMED.matcher(bare(heard)).replaceAll("");
+        if (t.isEmpty() || t.codePointCount(0, t.length()) > 20) return null;
+        java.util.regex.Matcher m = CLOSE.matcher(t);
+        if (!m.matches()) return null;
+        String name = m.group(1), app = m.group(2);
+        if (name.isEmpty() || THIS.matcher(name).matches()) return name.isEmpty() && app == null ? null : "";
+        if (NOT_APP.matcher(name).find()) return null;
+        return name;
+    }
     /** What was said without spaces and punctuation. */
     static String bare(String heard) { return heard == null ? "" : heard.strip().replaceAll("[\\s\\p{Punct}·…~。，！？「」『』“”‘’]+", ""); }
 

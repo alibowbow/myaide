@@ -718,8 +718,11 @@ public class BuddyBrainTests {
         int k = dev.jun.gyeot.core.BuddyMind.knows(known);
         assertTrue("the coffee it was told counts as known: " + k, k >= 1 && k <= 3);
         org.json.JSONObject asked = new org.json.JSONObject().put(q, now);
-        assertEquals("not again within twenty minutes", "", dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 60_000, new java.util.Random(3)));
-        for (int i = 0; i < 20; i++) assertNotEquals("not the same one within three days", q, dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 3_600_000L, new java.util.Random(i)));
+        // At most one question in three hours (준: "맥락과 무관한 무의미한 질문들이 반복돼").
+        assertEquals("not again within three hours", "", dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 60_000, new java.util.Random(3)));
+        assertEquals("not again within three hours", "", dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 2 * 3_600_000L, new java.util.Random(3)));
+        for (int i = 0; i < 20; i++) assertNotEquals("not the same one within three days", q, dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 4 * 3_600_000L, new java.util.Random(i)));
+        assertFalse("no question topics", dev.jun.gyeot.core.BuddyMind.TOPICS.toString().matches(".*(질문|퀴즈|수수께끼).*"));
     }
     /**
      * 퍼레's own world and heart (준: "최애 장난감은 변할 수 있어", "그건 퍼레의 감정에 의해 결정되는거라", "자유도가 무한인 상호작용"):
@@ -766,6 +769,26 @@ public class BuddyBrainTests {
         for (String talk : new String[]{"회의 종료 언제야?", "들어가는 길에 우유 사야 해", "쉬어야 할 것 같아", "퍼레야 오늘 날씨 어때"})
             assertEquals(talk, dev.jun.gyeot.core.VoiceTurns.Kind.NONE, dev.jun.gyeot.core.VoiceTurns.of(talk, false, false, false));
         assertEquals(dev.jun.gyeot.core.VoiceTurns.Kind.CALL, dev.jun.gyeot.core.VoiceTurns.of("퍼레야", false, false, false));
+        // "네이버지도 꺼줘" over 네이버 지도 (2026-11-27): the brain said "네이버지도 닫을게 👋" and called nothing. Now an app to turn
+        // off is heard on the phone, and "닫을게" counts as a promise that must come with a tool.
+        assertEquals("네이버지도", dev.jun.gyeot.core.VoiceTurns.closing("네이버지도 꺼줘"));
+        assertEquals("유튜브", dev.jun.gyeot.core.VoiceTurns.closing("퍼레야 유튜브 좀 꺼 줘"));
+        assertEquals("카카오톡", dev.jun.gyeot.core.VoiceTurns.closing("카카오톡을 닫아 줘"));
+        assertEquals("티맵", dev.jun.gyeot.core.VoiceTurns.closing("티맵 종료해 줘"));
+        for (String here : new String[]{"이거 꺼 줘", "이 앱 닫아 줘", "앱 꺼 줘", "지금 앱 종료해", "여기서 나가 줘"})
+            assertEquals(here, "", dev.jun.gyeot.core.VoiceTurns.closing(here));
+        for (String not : new String[]{"꺼 줘", "불 꺼 줘", "와이파이 꺼 줘", "알람 꺼", "음성 꺼 줘", "화면 꺼 줘", "광고 닫아 줘", "음악 꺼 줘", "유튜브 꺼 줄 수 있어? 아니 그냥 두자", "오늘 날씨 어때"})
+            assertNull(not, dev.jun.gyeot.core.VoiceTurns.closing(not));
+        assertTrue(BuddyTools.promised("네이버지도 꺼줘", "네이버지도 닫을게 👋"));
+        assertTrue(BuddyTools.promised("LP 페이지로 넘겨 줘", "LP로 넘길게!"));
+        // "이거 꺼 줘" is done on the phone, with no brain: close_app, "끌게!".
+        java.util.concurrent.CountDownLatch got = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<org.json.JSONObject> did = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<String> answer = new java.util.concurrent.atomic.AtomicReference<>();
+        BuddyTalk.reply(org.robolectric.RuntimeEnvironment.getApplication(), new BuddyTalk.Ask("이거 꺼 줘", java.util.List.of(), false, did::set, null,
+            l -> { answer.set(l); got.countDown(); }, why -> got.countDown(), false, ""));
+        assertTrue(got.await(5, java.util.concurrent.TimeUnit.SECONDS));
+        assertEquals("close_app", did.get().optString("tool")); assertEquals("끌게!", answer.get());
         assertEquals("퍼레야", dev.jun.gyeot.core.BuddyMind.nameHeard("버려!"));
         assertEquals("퍼레야, 지금 몇 시야", dev.jun.gyeot.core.BuddyMind.nameHeard("버려 지금 몇 시야"));
         assertEquals("퍼레야, 음악 틀어 줘", dev.jun.gyeot.core.BuddyMind.nameHeard("거래야 음악 틀어 줘"));
