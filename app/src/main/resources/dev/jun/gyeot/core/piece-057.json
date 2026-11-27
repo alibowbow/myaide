@@ -49,9 +49,9 @@
    "put": "on ? 0.36 * A.crackle : 0"
   },
   {
-   "why": "H16 pitch: the pitch fader's speed (1 is 33⅓ as cut; the add-on's fader sets it, ±8 %) and the one detune that bends every voice with it",
+   "why": "H16 pitch: the pitch fader's speed (1 is 33⅓ as cut; the add-on's fader sets it, ±8 %) and the one detune that bends every voice with it; speed is what the record turns at now (a hand can take it), fader what the motor brings it back to (H22)",
    "find": "const GAP = 2.4, TAIL = 3.2;",
-   "put": "const GAP = 2.4, TAIL = 3.2;\n  let speed = 1, pitchC = null;"
+   "put": "const GAP = 2.4, TAIL = 3.2;\n  let speed = 1, pitchC = null, fader = 1, hand = 0;"
   },
   {
    "why": "H17 pitch: the detune (cents), made with the sound",
@@ -76,7 +76,22 @@
   {
    "why": "H21 pitch: the platter turns at the fader's speed (the 3D deck's strobe dots drift off 33⅓, as on a real deck)",
    "find": "const target = motorOn ? 200 : 0;",
-   "put": "const target = motorOn ? 200 * speed : 0;"
+   "put": "const target = motorOn ? 200 * fader : 0;"
+  },
+  {
+   "why": "H22 a hand on the platter: its speed from the hand (vinyl.js), after the motor's own pull and before it turns the record",
+   "find": "if (!motorOn && omega < 0.4) omega = 0;",
+   "put": "if (!motorOn && omega < 0.4) omega = 0;\n    if (window.__gyHand) try { const h = window.__gyHand(omega, dt); if (h != null && isFinite(h)) omega = h; } catch (e) {}"
+  },
+  {
+   "why": "H23 no new bars while a hand holds the record nearly still (setRate starts them again from where it is)",
+   "find": "function scheduler() {",
+   "put": "function scheduler() {\n    if (hand && speed < 0.7) return;"
+  },
+  {
+   "why": "H24 the arm lifts and lowers in about half a second, eased (a swing keeps its own time)",
+   "find": "function tweenArm(to, dur) {\n    return new Promise(res => {\n      if (reduce) dur = Math.min(dur, 0.12);",
+   "put": "function tweenArm(to, dur) {\n    return new Promise(res => {\n      if (to.angle == null && to.lift != null) dur = Math.max(0.45, Math.min(0.6, dur));\n      if (reduce) dur = Math.min(dur, 0.12);"
   },
   {
    "why": "H12 track numbers past iv., and A1, A2 … for 내 음악 (a Proxy: the piece reads NUM[k] as before)",
@@ -149,9 +164,9 @@
    "put": "if (!pd) updateProgress(false);\n    if (window.__gyFrame) try { window.__gyFrame(dt); } catch (e) {}"
   },
   {
-   "why": "H1 the piece's state and steps, for the add-on (getters: the piece's own variables, live); the pitch fader's speed, the cue lever's lift (the motor still turning), the motor stopped under a lifted arm",
+   "why": "H1 the piece's state and steps, for the add-on (getters: the piece's own variables, live); the pitch fader's speed, the cue lever's lift (the motor still turning), the motor stopped under a lifted arm; the hand on the platter (setRate) and on the arm (hold, drop)",
    "find": "setPlayUI(false);\n  drawArm();\n  raf = requestAnimationFrame(frame);",
-   "put": "setPlayUI(false);\n  drawArm();\n  window.__lp = {\n    ALBUMS, NUM, arm, GAP, TAIL, REST, R_OUT, R_IN, PX, PY, CX, CY, AL,\n    get albumIdx() { return albumIdx; }, get trackIdx() { return trackIdx; }, get songPos() { return songPos; },\n    get playing() { return playing; }, get busy() { return busy; }, get runout() { return runout; },\n    get motorOn() { return motorOn; }, get omega() { return omega; }, get spin() { return spin; },\n    get tweening() { return !!tween; }, get actx() { return actx; }, get master() { return master; },\n    get session() { return session; }, get vol() { return vol; }, get muted() { return muted; },\n    play, pause, toggle, gotoTrack, changeAlbum, seekTo, applyAlbum, refreshTrackUI, updateProgress, ensureAudio, setSurface, endOfSide,\n    thump(t, big) { if (actx) thump(t, big); },\n    angleForRadius, radiusAt, albumPos, trackDur, fmt,\n    setTrack(i, keep) { trackIdx = i; if (!keep) { songPos = 0; runout = false; } },\n    setPos(s) { songPos = s; },\n    get speed() { return speed; },\n    setSpeed(r) { r = Math.max(0.9, Math.min(1.1, +r || 1)); if (playing && actx && session) { const s = songNow(); startAudio = actx.currentTime; startSong = s; } speed = r;\n      if (pitchC) { const t = actx.currentTime; pitchC.offset.cancelScheduledValues(t); pitchC.offset.setTargetAtTime(1200 * Math.log2(r), t, 0.04); } },\n    async cueUp() { if (busy || !playing) return false; busy = true; playing = false; arm.follow = false; stopAudio(); if (actx) thump(actx.currentTime + 0.01, false); setPlayUI(false);\n      await tweenArm({ lift: 1 }, 0.5); busy = false; return true; },\n    stopMotor() { if (playing || busy || runout || !motorOn) return false; motorOn = false; setPlayUI(false); return true; }\n  };\n  raf = requestAnimationFrame(frame);"
+   "put": "setPlayUI(false);\n  drawArm();\n  window.__lp = {\n    ALBUMS, NUM, arm, GAP, TAIL, REST, R_OUT, R_IN, PX, PY, CX, CY, AL,\n    get albumIdx() { return albumIdx; }, get trackIdx() { return trackIdx; }, get songPos() { return songPos; },\n    get playing() { return playing; }, get busy() { return busy; }, get runout() { return runout; },\n    get motorOn() { return motorOn; }, get omega() { return omega; }, get spin() { return spin; },\n    get tweening() { return !!tween; }, get actx() { return actx; }, get master() { return master; },\n    get session() { return session; }, get vol() { return vol; }, get muted() { return muted; },\n    play, pause, toggle, gotoTrack, changeAlbum, seekTo, applyAlbum, refreshTrackUI, updateProgress, ensureAudio, setSurface, endOfSide,\n    thump(t, big) { if (actx) thump(t, big); },\n    angleForRadius, radiusAt, albumPos, trackDur, fmt,\n    setTrack(i, keep) { trackIdx = i; if (!keep) { songPos = 0; runout = false; } },\n    setPos(s) { songPos = s; },\n    get speed() { return speed; },\n    setSpeed(r) { r = Math.max(0.9, Math.min(1.1, +r || 1)); fader = r; if (hand) return; if (playing && actx && session) { const s = songNow(); startAudio = actx.currentTime; startSong = s; } speed = r;\n      if (pitchC) { const t = actx.currentTime; pitchC.offset.cancelScheduledValues(t); pitchC.offset.setTargetAtTime(1200 * Math.log2(r), t, 0.04); } },\n    get fader() { return fader; }, get hand() { return !!hand; }, get musicBus() { return musicBus; }, get crackleGain() { return crackleGain; },\n    // the platter turned by a hand (and spinning back up after): the song's clock and every voice at r times as cut; below 0.7\n    // no new bars (the ones sounding bend down with it), past it again the bars from where it is; null: the fader's speed again\n    setRate(r) {\n      const was = hand ? speed : fader;\n      if (r == null) { if (!hand) return; hand = 0; r = fader; } else { hand = 1; r = Math.max(0.02, Math.min(4, +r || 0)); }\n      if (playing && actx && session) { const s = songNow(); startAudio = actx.currentTime; startSong = s; }\n      speed = r;\n      if (playing && actx && session && was < 0.7 && r >= 0.7) { songPos = songNow(); startAt(songPos); }\n      if (pitchC) { const t = actx.currentTime; pitchC.offset.cancelScheduledValues(t); pitchC.offset.setTargetAtTime(1200 * Math.log2(Math.max(1 / 16, r)), t, 0.02); } },\n    // the hand takes the arm: the sound stops (the platter turns on), nothing else moves the arm until drop()\n    hold() { if (busy || tween) return false; busy = true; arm.follow = false; runout = false;\n      if (playing) { playing = false; stopAudio(); if (actx) thump(actx.currentTime + 0.01, false); setPlayUI(false); } return true; },\n    // the hand lets the arm go with its stylus at radius r (deck units): over the grooves it comes down there and plays from\n    // that point of the side (the track whose band it is in, that far into it; in a gap, the next track's start); off the\n    // record (r null or past its edge) it goes to its rest and the motor stops\n    async drop(r) {\n      const A = ALBUMS[albumIdx];\n      if (r == null || !(r <= 300) || !A.tracks.length) { await toRest(); motorOn = false; setPlayUI(false); busy = false; return 'rest'; }\n      const pos = Math.max(0, Math.min(A.total - 0.5, (R_OUT - Math.min(R_OUT, r)) / (R_OUT - R_IN) * A.total));\n      let k = A.tracks.length - 1; while (k > 0 && A.starts[k] > pos + GAP) k--;\n      trackIdx = k; songPos = Math.max(0, Math.min(trackDur(A, A.tracks[k]) - 0.5, pos - A.starts[k])); runout = false; refreshTrackUI();\n      busy = false; await play(); return 'play';\n    },\n    async cueUp() { if (busy || !playing) return false; busy = true; playing = false; arm.follow = false; stopAudio(); if (actx) thump(actx.currentTime + 0.01, false); setPlayUI(false);\n      await tweenArm({ lift: 1 }, 0.5); busy = false; return true; },\n    stopMotor() { if (playing || busy || runout || !motorOn) return false; motorOn = false; setPlayUI(false); return true; }\n  };\n  raf = requestAnimationFrame(frame);"
   },
   {
    "why": "the volume knob turns with the finger going round it (clockwise up, 270° the whole range), not by how far it moved up and right: going round it clockwise turned it down on the right half",

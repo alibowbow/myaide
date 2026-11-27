@@ -41,7 +41,10 @@
        name in black enamel, the start · stop key satin silver with its words and LED (the piece's button over it, see-through).
     ③ surfaces: a scanned walnut (Poly Haven "dark_wood", CC0, graded to walnut) under a clear lacquer; turned aluminium and
        brushed brass with their lines (anisotropy); the vinyl's grooves are finer than a pixel, so they are its anisotropy and
-       roughness ring by ring: a radial sheen in the grooves, mirror-smooth rings where the tracks part, at their real radii.
+       roughness ring by ring: a radial sheen in the grooves (a glare that stays where the light is while the record turns under
+       it), and where the tracks part, at their real radii, a land 3.5 mm wide, smooth but not a mirror, so it shows as a lighter
+       ring (준: "판 위 트랙 구분선 표시"). The arm follows the piece's own angle and lift, so the hand that picks it up (vinyl.js)
+       moves it here too, its shadow thrown farther and softer the higher it is.
     ④ nothing repeats: one picture of wood over the whole plinth; dust where a seeded hand put it.
     ⑥ no stair-steps: the bake at twice the size, rounded edges, mipmaps and anisotropic filtering.
     ⑦ the air and the lamp's glow are the piece's own (its felt and vignette around the deck): post passes cost too much here.
@@ -322,13 +325,16 @@ function spot(inner = 0.0) {
  */
 function vinylRings() {
   let bands = [];
+  // a land between two tracks: no grooves to stretch the light, smooth but not a mirror (it shows the room's light as a soft
+  // grey ring, lighter than the grooved vinyl beside it, as a real record's lands catch a lamp)
+  const LAND = OPT.test && OPT.land ? OPT.land : { rough: 0.42, an: 0 };
   // the cut's pitch wanders a little every few millimetres: rings the eye sees at a phone's size
   const wander = r => Math.sin(r * 1.31) * 0.5 + Math.sin(r * 0.47 + 1.7) * 0.35 + Math.sin(r * 2.9 + 0.4) * 0.15;
   const fill = r => {
     let rough = 0.12, an = 0;
     if (r > 298.3) { rough = 0.1; an = 0; }
     else if (r > 291) { rough = 0.09; an = 0.35; }
-    else if (r > 128.5 || bands.length === 0) { rough = 0.07; an = 0.1; }
+    else if (r > 128.5 || bands.length === 0) { rough = LAND.rough; an = LAND.an; }
     else if (r > 112) { rough = 0.08; an = 0.4; }
     else if (r > 106.5) { rough = 0.32; an = 0; }
     else if (r > 105.3) { rough = 0.2; an = 0.6; }
@@ -345,14 +351,17 @@ function vinylRings() {
   let key = '';
   return {
     aniso, rough,
+    /** (for checks) the lands between the tracks, [outer, inner] radius each */
+    lands: () => bands.slice(1).map((b, i) => [bands[i].r1, b.r0]),
     update() {
       const gr = G.grooves(), A = L.ALBUMS[gr.album];
       const k = gr.album + ':' + gr.tracks.map(t => t.r0.toFixed(1) + '-' + t.r1.toFixed(1)).join(',');
       if (k === key) return false; key = k;
-      // the gaps at least 3.6 units (1.8 mm) wide, centred where the piece's silent bands are (real gaps are about that)
+      // the gaps (lands) at least 6.8 units (3.5 mm) wide, centred where the piece's silent bands are: a real land is 1–3 mm, a
+      // little more so the eye finds each track at a phone's size (준: "판 위 트랙 구분선 표시")
       const tr = gr.tracks.map((t, i) => ({ r0: t.r0, r1: t.r1, T: A && A.tracks[i] }));
       for (let i = 0; i + 1 < tr.length; i++) {
-        const mid = (tr[i].r1 + tr[i + 1].r0) / 2, half = Math.max(1.8, (tr[i].r1 - tr[i + 1].r0) / 2);
+        const mid = (tr[i].r1 + tr[i + 1].r0) / 2, half = Math.max(3.4, (tr[i].r1 - tr[i + 1].r0) / 2);
         tr[i].r1 = Math.max(tr[i].r1, mid + half); tr[i + 1].r0 = Math.min(tr[i + 1].r0, mid - half);
       }
       bands = tr.map((t, i) => {

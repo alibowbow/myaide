@@ -28,6 +28,19 @@
       checklist sheet (only the rows in sight drawn), the chosen ones onto 내 음악 (/__gyeot/music/add-media);
     - 내 음악 plays as an LP by default (원음 / LP in its sheet): a little wow and flutter, a warmer tone, a light tape
       saturation and a slightly narrower stereo before the piece's master and its surface noise; 원음 is the file as it is.
+  And by hand (준: "톤암(바늘)을 직접 드래그해 LP 판 원하는 위치에 올리면 해당 구간의 음악이 재생되게", "LP 판을 손가락으로 터치해
+  멈추거나(브레이크), 돌릴 때 속도에 맞춰 음정과 속도가 변하는 물리 효과", "바늘이 판에 닿는 순간 미세한 '치직' 노이즈", "빛 반사(글레어)가
+  도는 바이닐 질감과 부드러운 톤암 리프트"):
+    - the tonearm picked up (a strip along it), swung round its pivot over the record and let go: it comes down there and plays
+      from that point of the side (H1 hold/drop: the piece's own groove map; 내 음악's files make one side); off the record it
+      goes to its rest; the gaps between tracks show as lighter lands (here over the CSS record, in the 3D deck's vinyl);
+    - a finger on the record holds it still (the platter stops in a fraction of a second, the sound slowing, dropping and
+      fading with it) or turns it at the finger's speed (the sound's speed and pitch with it); let go, the motor brings it back
+      up, the sound rising with it (H22–H23 setRate; a file by its rate, which no element plays below 1/16 or backwards: there
+      it is silent); a short tap is still play · pause;
+    - each landing of the stylus a soft crackle from noise, well under the music; the arm lifts and lowers in about half a
+      second, eased (H24), its shadow softer the higher it is; the glare on the vinyl (the piece's own, and the 3D deck's
+      sheen) stays where the light is while the record turns.
 
   For the three.js deck (deck3d.js), window.__gy: onFrame(fn(dt)) in the piece's own frame (one loop; none while the page is
   hidden or out of the launcher's sight), onTrack(fn) when the track, the record or 내 음악's list changes, state() (spin, arm
@@ -128,7 +141,7 @@
     const au = new Audio(); au.preload = 'auto';
     // The pitch fader bends a file's speed and pitch together, as a turntable does (not a time stretch).
     au.preservesPitch = false; au.mozPreservesPitch = false; au.webkitPreservesPitch = false;
-    let node = null, trim = null, lp = null, routed = '', swapping = false, want = false, at = -1, badRun = 0, unlocked = false, unlocking = false;
+    let node = null, trim = null, lp = null, routed = '', swapping = false, want = false, at = -1, badRun = 0, unlocked = false, unlocking = false, handG = 1;
     function wire() {
       if (node || !L.actx || !L.master) return;
       try { node = L.actx.createMediaElementSource(au); trim = L.actx.createGain(); trim.gain.value = TRIM; node.connect(trim); route(); }
@@ -146,9 +159,11 @@
       };
       if (!routed || au.paused) { swap(); return; }
       swapping = true; trim.gain.setTargetAtTime(0, ctx.currentTime, 0.006);
-      setTimeout(() => { swap(); swapping = false; trim.gain.setTargetAtTime(TRIM, ctx.currentTime, 0.01); if (routed !== sound) route(); }, 35);
+      setTimeout(() => { swap(); swapping = false; trim.gain.setTargetAtTime(TRIM * handG, ctx.currentTime, 0.01); if (routed !== sound) route(); }, 35);
     }
     function rate(r) { try { au.defaultPlaybackRate = r; au.playbackRate = r; } catch (e) {} }
+    /** A hand on the record: the file quieter as it slows (an element plays no slower than 1/16, and never backwards). */
+    function hand(g) { g = Math.max(0, Math.min(1, g)); if (Math.abs(g - handG) < 0.005) return; handG = g; if (trim && !swapping) trim.gain.setTargetAtTime(TRIM * g, L.actx.currentTime, 0.03); }
     function start(i, s) {
       const T = MINE.tracks[i]; if (!T) return;
       if (document.hidden) { want = false; return; } // never starting unseen (it goes on when shown: visibilitychange)
@@ -208,7 +223,7 @@
     });
     /** The nodes from the file to the piece's master, in order (for checks: the LP chain or the plain one). */
     const chain = () => !node ? [] : [node, trim].concat(routed === 'lp' && lp ? lp.nodes : []).map(n => n.constructor.name);
-    return { au, start, stop, pos, unlock, route, rate, chain, get want() { return want; }, get routed() { return routed; } };
+    return { au, start, stop, pos, unlock, route, rate, hand, chain, get want() { return want; }, get routed() { return routed; }, get handGain() { return handG; } };
   })();
   MINE.mine = player;
   // A tenth of a second of silence (8 kHz, 8-bit WAV): only to let the element sound after the first tap.
@@ -526,6 +541,183 @@
     knob.addEventListener('keydown', e => { const m = { ArrowUp: 8, ArrowRight: 8, ArrowDown: -8, ArrowLeft: -8 }; if (!(e.key in m)) return; setSkate(skate + m[e.key]); e.preventDefault(); e.stopPropagation(); });
   }
 
+  /* ── the hand on the deck (준: "톤암(바늘)을 직접 드래그해 LP 판 원하는 위치에 올리면 해당 구간의 음악이 재생되게", "LP 판을 손가락으로
+     터치해 멈추거나(브레이크), 돌릴 때 속도에 맞춰 음정과 속도가 변하는 물리 효과", "바늘이 판에 닿는 순간 미세한 '치직' 노이즈"): the arm
+     picked up and set down anywhere on the record (the piece's hold/drop: the track and the time under the stylus by its own
+     R_OUT/R_IN/GAP; 내 음악's files are one side, so the arm finds the file and the place in it); a finger on the record holds it
+     back or turns it, the sound following the platter (setRate, the file's rate) until the motor has it at speed again; a soft
+     crackle when the stylus lands; the gaps between the tracks as lighter, smoother lands in the grooves ── */
+  const toDeck = e => { const r = deckEl.getBoundingClientRect(); return { x: (e.clientX - r.left) * 1000 / r.width, y: (e.clientY - r.top) * 780 / r.height }; };
+  const stylusR = a => { const t = a * Math.PI / 180; return Math.hypot(L.PX + L.AL * Math.cos(t) - L.CX, L.PY + L.AL * Math.sin(t) - L.CY); };
+  /** Where a radius is in the side (the piece's mapping, as drop() has it): the track, and the seconds into it; null off the record. */
+  function under(r) {
+    const A = ALBUMS[L.albumIdx]; if (!A.tracks.length || !(r <= 300)) return null;
+    const pos = Math.max(0, Math.min(A.total - 0.5, (L.R_OUT - Math.min(L.R_OUT, r)) / (L.R_OUT - L.R_IN) * A.total));
+    let k = A.tracks.length - 1; while (k > 0 && A.starts[k] > pos + L.GAP) k--;
+    return { k, s: Math.max(0, Math.min(L.trackDur(A, A.tracks[k]) - 0.5, pos - A.starts[k])) };
+  }
+  const ease = u => u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;   // (the piece's own, for the arm)
+  // The arm: a see-through strip along it (from its pivot past the headshell), turning with it.
+  let grab = null;
+  if (deckEl && L.hold && L.drop) {
+    const armHit = document.createElement('div'); armHit.className = 'gy-ctl gy-armhit'; armHit.setAttribute('aria-label', '톤암: 끌어서 판 위 듣고 싶은 곳에 내려놓기');
+    Object.assign(armHit.style, { left: '85%', top: ((150 - 48) / 7.8) + '%', width: '56%', height: (96 / 7.8) + '%' });
+    deckEl.appendChild(armHit);
+    let at = null;
+    const place = () => { const a = L.arm.angle; if (a !== at) { at = a; armHit.style.transform = 'rotate(' + a.toFixed(2) + 'deg)'; } };
+    place(); frameFns.add(place);
+    const inner = () => L.angleForRadius(L.R_IN - 14);
+    armHit.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      if (grab || !L.hold()) return;                                // (the arm already on its way somewhere: not now)
+      const p = toDeck(e);
+      grab = { id: e.pointerId, a0: L.arm.angle, f0: Math.atan2(p.y - L.PY, p.x - L.PX) * 180 / Math.PI, t: performance.now(), from: L.arm.lift };
+      try { armHit.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    armHit.addEventListener('pointermove', e => {
+      if (!grab || e.pointerId !== grab.id) return;
+      const p = toDeck(e);
+      let d = Math.atan2(p.y - L.PY, p.x - L.PX) * 180 / Math.PI - grab.f0;
+      if (d > 180) d -= 360; if (d < -180) d += 360;
+      L.arm.angle = Math.max(L.REST, Math.min(inner(), grab.a0 + d));   // round its pivot, from its rest to the run-out
+      const u = under(stylusR(L.arm.angle)), A = ALBUMS[L.albumIdx];
+      say(u ? L.NUM[u.k] + ' ' + clip(A.tracks[u.k].title, 18) + ' · ' + fmt(u.s) : '받침대로', 1200);
+    });
+    const letGo = e => {
+      if (!grab || (e && e.pointerId !== grab.id)) return;
+      grab = null;
+      const r = stylusR(L.arm.angle);
+      L.drop(r <= 300 ? r : null);
+    };
+    armHit.addEventListener('pointerup', letGo); armHit.addEventListener('pointercancel', letGo);
+    // in the hand the arm rises (eased, in under half a second) and stays up until it is let go
+    frameFns.add(() => { if (grab) L.arm.lift = grab.from + (1 - grab.from) * ease(Math.min(1, (performance.now() - grab.t) / 450)); });
+  }
+
+  // The record under a finger: held still it stops (the platter slows to a halt in a fraction of a second, the sound slowing
+  // and dropping with it), moved round it turns at the finger's speed; let go, the motor brings it back to speed (with the
+  // motor off it stays where the hand left it). A short tap is still the piece's own play · pause.
+  const recHit = $('recHit');
+  let held = null, coupled = false, stopNext = false, swallow = false, swallowT = 0, qg = 1;
+  const ringAngle = p => Math.atan2(p.y - L.CY, p.x - L.CX) * 180 / Math.PI;
+  if (deckEl && recHit && L.setRate) {
+    recHit.addEventListener('pointerdown', e => {
+      if (held) return;
+      e.preventDefault();
+      const now = performance.now();
+      held = { id: e.pointerId, a: ringAngle(toDeck(e)), t: now, start: now, w: 0, moved: 0, lastMove: now };
+      coupled = true;
+      try { recHit.setPointerCapture(e.pointerId); } catch (_) {}
+    });
+    recHit.addEventListener('pointermove', e => {
+      if (!held || e.pointerId !== held.id) return;
+      const now = performance.now(), a = ringAngle(toDeck(e));
+      let d = a - held.a; if (d > 180) d -= 360; if (d < -180) d += 360;
+      const dt = Math.max(0.004, (now - held.t) / 1000);
+      held.w = held.w * 0.35 + (d / dt) * 0.65; held.a = a; held.t = now; held.moved += Math.abs(d); held.lastMove = now;
+    });
+    const off = e => {
+      if (!held || (e && e.pointerId !== held.id)) return;
+      const tap = performance.now() - held.start < 250 && held.moved < 4;
+      held = null;
+      if (!tap) { swallow = true; clearTimeout(swallowT); swallowT = setTimeout(() => { swallow = false; }, 400); }
+      if (!L.motorOn) stopNext = true;
+    };
+    recHit.addEventListener('pointerup', off); recHit.addEventListener('pointercancel', off);
+    // (a hold or a turn is no tap: the piece's own click after it does nothing)
+    recHit.addEventListener('click', e => { if (swallow) { swallow = false; e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+  }
+  /**
+   * The platter's speed while a hand has it (the piece's frame asks, H22): pulled to the finger's in about a tenth of a second,
+   * the motor's own pull overruled (a finger stalls it), so a finger held still stops the record.
+   */
+  window.__gyHand = (omega, dt) => {
+    if (stopNext) { stopNext = false; return 0; }
+    if (!held) return null;
+    if (held.om == null) held.om = omega;
+    const w = performance.now() - held.lastMove > 70 ? 0 : held.w;     // a finger that stopped moving holds it still
+    held.om += (w - held.om) * Math.min(1, dt / 0.09);
+    if (Math.abs(held.om) < 0.3 && !w) held.om = 0;
+    return held.om;
+  };
+  /** The music as loud as a record turning that fast sounds (near still or backwards: nothing), its surface noise with it. */
+  function quiet(g) {
+    if (Math.abs(g - qg) < 0.005) return;
+    qg = g;
+    const ctx = L.actx; if (!ctx) return;
+    const t = ctx.currentTime;
+    if (L.musicBus) L.musicBus.gain.setTargetAtTime(0.85 * g, t, 0.03);
+    player.hand(g);
+    if (L.crackleGain && L.playing) L.crackleGain.gain.setTargetAtTime(0.36 * (ALBUMS[L.albumIdx].crackle || 0) * g, t, 0.05);
+  }
+  const loudAt = r => { const u = Math.max(0, Math.min(1, (r - 0.1) / 0.45)); return u * u * (3 - 2 * u); };
+  frameFns.add(() => {
+    if (!coupled) return;
+    const n = 200 * (L.fader || 1), r = L.omega / 200;
+    if (!held && (L.motorOn ? Math.abs(L.omega - n) < n * 0.004 : Math.abs(L.omega) < 0.5)) {
+      coupled = false; L.setRate(null); player.rate(L.fader || 1); quiet(1); return;
+    }
+    L.setRate(Math.max(0, r));
+    player.rate(Math.max(0.0625, Math.min(4, r)));                    // (an audio element plays no slower than 1/16, never backwards)
+    quiet(loudAt(r));
+  });
+
+  // The stylus landing: a few soft ticks in a breath of noise, filtered as the piece's surface noise is, well under the music.
+  let lastLift = L.arm.lift, up = L.arm.lift > 0.3, drops = 0, dropBuf = null, dropOut = null, blurAt = -1;
+  const DROP = 0.9;
+  function dropSound(ctx) {
+    const sr = ctx.sampleRate, n = Math.round(sr * 0.36), b = ctx.createBuffer(2, n, sr);
+    for (let c = 0; c < 2; c++) {
+      const d = b.getChannelData(c); let s = 9173 + c * 4129, lp = 0;
+      const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+      for (let i = 0; i < n; i++) { const t = i / sr, env = t < 0.006 ? t / 0.006 : Math.exp(-(t - 0.006) / 0.06); const w = rnd() * 2 - 1; lp += (w - lp) * 0.45; d[i] = (w - lp) * 0.05 * env; }
+      for (let k = 0; k < 7; k++) {
+        const at = Math.floor((0.003 + Math.pow(rnd(), 1.8) * 0.22) * sr), amp = (0.05 + rnd() * 0.09) * Math.exp(-at / sr / 0.1), dec = 5 + rnd() * 22, sg = rnd() < 0.5 ? -1 : 1;
+        for (let j = 0; j < dec * 6 && at + j < n; j++) d[at + j] += sg * amp * Math.exp(-j / dec) * (j < 2 ? 1 : rnd() * 1.2 - 0.2);
+      }
+    }
+    return b;
+  }
+  function needleDown() {
+    const ctx = L.actx; if (!ctx || !L.master) return;
+    if (!dropBuf) dropBuf = dropSound(ctx);
+    if (!dropOut) {
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 650; hp.Q.value = 0.6;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 5200; lp.Q.value = 0.5;
+      dropOut = ctx.createGain(); dropOut.gain.value = DROP; hp.connect(lp); lp.connect(dropOut); dropOut.connect(L.master); dropOut.inp = hp;
+    }
+    const src = ctx.createBufferSource(); src.buffer = dropBuf; src.playbackRate.value = 0.9 + (drops * 0.37) % 0.2;   // (never quite the same twice)
+    src.connect(dropOut.inp); src.start(ctx.currentTime + 0.004);
+    drops++;
+  }
+  const blur = document.querySelector('#armBlur feGaussianBlur');
+  frameFns.add(() => {
+    const l = L.arm.lift;
+    if (l === lastLift) return;
+    if (l > 0.3) up = true;
+    else if (l === 0 && up) { up = false; if (stylusR(L.arm.angle) <= 300) needleDown(); }   // down from up: on the record, it lands
+    lastLift = l;
+    // the CSS deck's arm shadow: farther (the piece's own) and softer the higher the arm
+    if (blur && Math.abs(l - blurAt) > 0.02) { blurAt = l; blur.setAttribute('stdDeviation', (5 + l * 6).toFixed(1)); }
+  });
+
+  // The gaps between the tracks (the CSS deck; the 3D deck has them in its vinyl): lighter, smoother lands where each track starts.
+  const recEl = $('record');
+  let lands = null, landsKey = '';
+  function drawLands() {
+    if (!recEl) return;
+    const A = ALBUMS[L.albumIdx];
+    const radii = (A.starts || []).slice(1).map(s => L.R_OUT - (L.R_OUT - L.R_IN) * Math.max(0, s - L.GAP / 2) / A.total);
+    const key = L.albumIdx + ':' + radii.map(r => r.toFixed(1)).join(',');
+    if (key === landsKey) return; landsKey = key;
+    if (!lands) { lands = document.createElement('div'); lands.className = 'gy-lands'; recEl.insertBefore(lands, recEl.firstChild); }
+    const w = 2.6 / 3;                                                   // ±2.6 units (1.3 mm) of the record's 300
+    lands.style.background = radii.map(r => { const p = r / 3; return 'radial-gradient(circle closest-side,transparent ' + (p - w).toFixed(2) + '%,rgba(205,212,224,.14) ' + (p - w * 0.35).toFixed(2)
+      + '%,rgba(236,240,248,.22) ' + p.toFixed(2) + '%,rgba(205,212,224,.14) ' + (p + w * 0.35).toFixed(2) + '%,transparent ' + (p + w).toFixed(2) + '%)'; }).join(',') || 'none';
+    lands.dataset.r = radii.map(r => r.toFixed(1)).join(',');
+  }
+  drawLands(); trackFns.add(drawLands);
+
   /* ── the sheet ── */
   const scrim = document.createElement('div'); scrim.id = 'gyScrim'; scrim.hidden = true;
   const sheet = document.createElement('section'); sheet.id = 'gySheet'; sheet.hidden = true; sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-label', '곡 목록');
@@ -787,7 +979,14 @@
     get tab() { return root.classList.contains('gy-tabbed') ? tab : null; },
     get sound() { return sound; },
     chain: () => player.chain(),
-    get pitch() { return pitch; }
+    get pitch() { return pitch; },
+    /** For checks: the stylus landings heard, the sound they go through, a hand on the record (its speed), the lands' radii. */
+    get drops() { return drops; },
+    get dropNode() { return dropOut; },
+    get hand() { return held ? { w: held.w } : null; },
+    get coupled() { return coupled; },
+    get loud() { return qg; },
+    lands: () => lands ? lands.dataset.r : ''
   };
   trackFns.add(() => { drawBar(); label(); marks(); });
 

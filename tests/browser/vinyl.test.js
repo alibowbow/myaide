@@ -198,6 +198,27 @@ async function doubleTap(page, frame, sel) {
 const level = f => f.evaluate(async () => { const an = __lp.actx.createAnalyser(); an.fftSize = 2048; __lp.master.connect(an); const b = new Float32Array(2048); let e = 0;
   for (let i = 0; i < 20; i++) { an.getFloatTimeDomainData(b); let s = 0; for (const x of b) s += x * x; e += s / b.length; await new Promise(r => setTimeout(r, 50)); } an.disconnect(); return 10 * Math.log10(e / 20); });
 const knobY = f => f.evaluate(() => +(/translate\(0 ([-\d.]+)\)/.exec(document.getElementById('gyPitchKnob').getAttribute('transform') || '') || [0, 0])[1]);
+/* The hand on the deck, in its own units (1000 × 780; the frame fills the page, so its pixels are the page's). */
+const deckAt = f => f.evaluate(() => { const r = document.getElementById('deck').getBoundingClientRect(); return { x: r.left, y: r.top, k: r.width / 1000 }; });
+/** Where a point of a side is on the record: its radius by the piece's own map (album pos → R_OUT … R_IN). */
+const radiusOf = (f, k, s) => f.evaluate(([k, s]) => { const A = __lp.ALBUMS[__lp.albumIdx]; return __lp.R_OUT - (__lp.R_OUT - __lp.R_IN) * (A.starts[k] + s) / A.total; }, [k, s]);
+/** The tonearm picked up 470 units along it and swung round its pivot to angle (degrees), held (ms), then let go. */
+async function armTo(page, f, angle, hold = 0) {
+  const d = await deckAt(f), a0 = await f.evaluate(() => __lp.arm.angle);
+  const P = a => ({ x: d.x + (850 + 470 * Math.cos(a * Math.PI / 180)) * d.k, y: d.y + (150 + 470 * Math.sin(a * Math.PI / 180)) * d.k });
+  let p = P(a0); await page.mouse.move(p.x, p.y); await page.mouse.down();
+  for (let i = 1; i <= 10; i++) { p = P(a0 + (angle - a0) * i / 10); await page.mouse.move(p.x, p.y); await page.waitForTimeout(30); }
+  if (hold) await page.waitForTimeout(hold);
+  return async () => page.mouse.up();
+}
+/** A finger on the record at radius 200 (left of the spindle), turned round it at deg/s for ms (0: held still), then lifted. */
+async function hand(page, f, degPerS, ms) {
+  const d = await deckAt(f), P = a => ({ x: d.x + (400 + 200 * Math.cos(a * Math.PI / 180)) * d.k, y: d.y + (390 + 200 * Math.sin(a * Math.PI / 180)) * d.k });
+  let p = P(180); await page.mouse.move(p.x, p.y); await page.mouse.down();
+  const t0 = Date.now();
+  while (Date.now() - t0 < ms) { p = P(180 + degPerS * (Date.now() - t0) / 1000); await page.mouse.move(p.x, p.y); await page.waitForTimeout(degPerS ? 12 : 50); }
+  return async () => page.mouse.up();
+}
 const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElementById('ndL').getAttribute('transform')) || [0, -50])[1]);
 
 (async () => {
@@ -491,7 +512,7 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       await until(frame, () => __lp.playing && !__lp.busy && !__gy.audio.paused && __lp.arm.lift === 0, null, 6000, 'the arm down, playing');
       const down = await frame.evaluate(() => ({ t: __gy.audio.currentTime, lever: document.getElementById('cueLever').getAttribute('transform') }));
       assert(Math.abs(down.t - up.pos) < 1.5, 'on from where it was lifted: ' + up.pos.toFixed(2) + ' → ' + down.t.toFixed(2));
-      assert.match(down.lever, /^rotate\(-?0\.0 0 4\)$/, 'the lever down');
+      assert(Math.abs(+(/rotate\(([-\d.]+) 0 4\)/.exec(down.lever) || [0, 99])[1]) < 0.3, 'the lever down: ' + down.lever);
       await frame.locator('.gy-cue').tap();
       await until(frame, () => !__lp.playing && !__lp.busy && __lp.arm.lift > 0.99, null, 5000, 'lifted again');
       await frame.locator('#deckBtn').tap();
@@ -576,6 +597,133 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
         assert.deepStrictEqual(t.errors, []);
       });
     } finally { await t.ctx.close(); }
+  }
+  // The hand on the deck (준: "톤암(바늘)을 직접 드래그해 LP 판 원하는 위치에 올리면 해당 구간의 음악이 재생되게", "LP 판을 손가락으로 터치해
+  // 멈추거나(브레이크), 돌릴 때 속도에 맞춰 음정과 속도가 변하는 물리 효과", "바늘이 판에 닿는 순간 미세한 '치직'", "빛 반사(글레어)가 도는
+  // 바이닐 질감과 부드러운 톤암 리프트"), on the unfolded Fold's deck tab, the CSS deck (the 3D one after).
+  {
+    const MINE2 = [{ id: '5050aaaa0001', title: '좋은 날', artist: '아이유', dur: 40, mime: 'audio/wav', size: FILES['5050aaaa0001'].length, seek: true, art: false },
+      { id: '0f1e2d3c4b5a', title: 'A Quiet Tone', artist: '', dur: 5, mime: 'audio/wav', size: FILES['0f1e2d3c4b5a'].length, seek: true, art: false }];
+    const shelfH = { rev: 2, items: MINE2.slice(), pick: '' }, callsH = { list: 0, pick: [], media: [], del: [] };
+    const h = await open(browser, html, shelfH, callsH, { off: true }, { viewport: { width: 780, height: 820 } });
+    const f = h.frame, page = h.page;
+    try {
+      await until(f, () => !!window.__gy && document.querySelector('.sleeve[data-album="3"]') && __gy.tab === 'deck', null, 10000, 'the add-on, the deck tab');
+      await check('the gaps between the tracks are lighter lands on the record, where each track starts (the piece\'s dark bands gone); the glare stays still while the record turns', async () => {
+        const want = await f.evaluate(() => { const A = __lp.ALBUMS[0]; return A.starts.slice(1).map(s => (__lp.R_OUT - (__lp.R_OUT - __lp.R_IN) * (s - __lp.GAP / 2) / A.total).toFixed(1)).join(','); });
+        const l = await f.evaluate(() => ({ r: __gy.lands(), g1: getComputedStyle(document.getElementById('record')).getPropertyValue('--g1').trim(), bg: document.querySelector('#record .gy-lands').style.background }));
+        assert.strictEqual(l.r, want, 'a land at each track\'s start');
+        assert.strictEqual(l.g1, '-9%', 'the piece\'s dark bands hidden');
+        assert.match(l.bg, /rgba\(236, 240, 248, 0\.22\)/, 'lighter than the vinyl');
+        await f.locator('#gyBar .gy-play').tap();
+        await until(f, () => __lp.playing && !__lp.busy && __lp.omega > 190, null, 15000, 'the record playing');
+        const g0 = await f.evaluate(() => ({ spin: __lp.spin, rec: getComputedStyle(document.getElementById('record')).transform, glare: getComputedStyle(document.getElementById('specular')).transform, o: getComputedStyle(document.getElementById('specular')).opacity }));
+        await f.waitForTimeout(400);
+        const g1 = await f.evaluate(() => ({ spin: __lp.spin, rec: getComputedStyle(document.getElementById('record')).transform, glare: getComputedStyle(document.getElementById('specular')).transform }));
+        assert.notStrictEqual(g1.rec, g0.rec, 'the record turned');
+        assert.deepStrictEqual([g0.glare, g1.glare, g0.o], ['none', 'none', '1'], 'the glare over it stays where the light is');
+      });
+      await check('the arm lifts and lowers in half a second, eased (CUE), and each time the stylus lands a soft crackle, well under the music', async () => {
+        const music = await level(f);
+        await f.evaluate(() => { window._lift = []; window._un = __gy.onFrame(() => _lift.push([performance.now(), __lp.arm.lift])); });
+        await f.locator('.gy-cue').tap();
+        await until(f, () => !__lp.playing && !__lp.busy && __lp.arm.lift === 1, null, 5000, 'cued up');
+        const up = await f.evaluate(() => { _un(); return _lift; });
+        const t0 = up.find(x => x[1] > 0)[0], t1 = up.find(x => x[1] >= 1)[0], dur = (t1 - t0) / 1000, at = u => { const t = t0 + u * (t1 - t0); return up.find(x => x[0] >= t)[1]; };
+        console.log('     the arm up in ' + dur.toFixed(2) + ' s: at a fifth ' + at(0.2).toFixed(2) + ', halfway ' + at(0.5).toFixed(2) + ', four fifths ' + at(0.8).toFixed(2));
+        assert(dur >= 0.4 && dur <= 0.62, 'about half a second: ' + dur);
+        assert(at(0.2) < 0.12 && Math.abs(at(0.5) - 0.5) < 0.2 && at(0.8) > 0.88, 'eased in and out');
+        assert(up.every((x, i) => i === 0 || x[1] >= up[i - 1][1]), 'only up');
+        const n0 = await f.evaluate(() => __gy.drops);
+        // the landing's own sound (its node, alone) against the music at the master
+        await f.evaluate(() => { window._peak = -200; window._an = null; window._iv = setInterval(() => { const n = __gy.dropNode; if (!n) return; if (!_an) { _an = n.context.createAnalyser(); _an.fftSize = 1024; n.connect(_an); } const b = new Float32Array(1024); _an.getFloatTimeDomainData(b); let s = 0; for (const x of b) s += x * x; _peak = Math.max(_peak, 10 * Math.log10(s / 1024 + 1e-12)); }, 10); });
+        await f.locator('.gy-cue').tap();
+        await until(f, () => __lp.playing && !__lp.busy && __lp.arm.lift === 0, null, 5000, 'down again, playing');
+        await f.waitForTimeout(500);
+        const c = await f.evaluate(() => { clearInterval(_iv); return { drops: __gy.drops, peak: _peak }; });
+        console.log('     the landing\'s crackle at its loudest ' + c.peak.toFixed(1) + ' dB, the music ' + music.toFixed(1) + ' dB');
+        assert.strictEqual(c.drops, n0 + 1, 'one landing, one crackle');
+        assert(c.peak > music - 40 && c.peak < music - 10, 'heard, but well under the music: ' + c.peak.toFixed(1) + ' vs ' + music.toFixed(1));
+      });
+      await check('the arm picked up by hand rises and follows the finger; set down over a track it plays that track from that point (the piece\'s groove map), off the record it rests', async () => {
+        const n0 = await f.evaluate(() => __gy.drops);
+        const r = await radiusOf(f, 1, 30), a = await f.evaluate(r => __lp.angleForRadius(r), r);
+        const go = await armTo(page, f, a, 600);
+        const held = await f.evaluate(() => ({ lift: __lp.arm.lift, a: __lp.arm.angle, playing: __lp.playing, motor: __lp.motorOn, bar: document.querySelector('#gyBar .gy-t').textContent }));
+        assert.strictEqual(held.lift, 1, 'up in the hand');
+        assert(Math.abs(held.a - a) < 0.3, 'where the finger took it: ' + held.a + ' for ' + a);
+        assert.deepStrictEqual([held.playing, held.motor], [false, true], 'the sound stopped, the platter turning');
+        assert.strictEqual(held.bar, 'ii. Moss Keeps Time · 0:30', 'the bar says where it would play');
+        if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'arm_held.png') });
+        await go();
+        await until(f, () => __lp.playing && !__lp.busy && __lp.arm.lift === 0, null, 8000, 'down there, playing');
+        const p = await f.evaluate(() => ({ k: __lp.trackIdx, s: __lp.songPos, drops: __gy.drops }));
+        assert.strictEqual(p.k, 1, 'track ii');
+        assert(p.s >= 29.8 && p.s < 31.5, 'from 0:30: ' + p.s.toFixed(2));
+        assert.strictEqual(p.drops, n0 + 1, 'it landed with its crackle');
+        // in a gap between the tracks: the next track's start
+        const gap = await f.evaluate(() => { const A = __lp.ALBUMS[0]; return __lp.R_OUT - (__lp.R_OUT - __lp.R_IN) * (A.starts[2] - __lp.GAP / 2) / A.total; });
+        await (await armTo(page, f, await f.evaluate(r => __lp.angleForRadius(r), gap)))();
+        await until(f, () => __lp.playing && !__lp.busy, null, 8000, 'playing from the gap');
+        const q = await f.evaluate(() => ({ k: __lp.trackIdx, s: __lp.songPos }));
+        assert(q.k === 2 && q.s < 1.5, 'iii. from its start: ' + JSON.stringify(q));
+        // off the record: to its rest, the motor off
+        await (await armTo(page, f, 93))();
+        await until(f, () => !__lp.busy && !__lp.playing && !__lp.tweening, null, 8000, 'at rest');
+        const rest = await f.evaluate(() => ({ a: __lp.arm.angle, lift: __lp.arm.lift, motor: __lp.motorOn, drops: __gy.drops }));
+        assert.deepStrictEqual(rest, { a: 90, lift: 0, motor: false, drops: n0 + 2 }, 'on its rest (no crackle there)');
+      });
+      await check('a finger held on the record stops it in a fraction of a second, the music slowing, dropping and fading with it (not cut); let go, the motor brings it and the music back up', async () => {
+        await f.locator('#gyBar .gy-play').tap();
+        await until(f, () => __lp.playing && !__lp.busy && __lp.omega > 195, null, 15000, 'playing at speed');
+        const s0 = await f.evaluate(() => ({ s: __lp.songPos, t: __lp.actx.currentTime }));
+        const lift = await hand(page, f, 0, 450);
+        const b = await f.evaluate(() => ({ omega: __lp.omega, speed: __lp.speed, bus: __lp.musicBus.gain.value, s: __lp.songPos, t: __lp.actx.currentTime, playing: __lp.playing }));
+        console.log('     held 0.45 s: the platter ' + b.omega.toFixed(1) + '°/s, the song\'s clock ' + ((b.s - s0.s) / (b.t - s0.t)).toFixed(2) + '× (from 1), the music ×' + (b.bus / 0.85).toFixed(3));
+        assert(b.omega < 5, 'stopped: ' + b.omega);
+        assert(b.speed <= 0.05 && b.bus < 0.05, 'the sound slowed and quiet: ' + b.speed + ', ' + b.bus);
+        assert(b.s - s0.s > 0.02 && b.s - s0.s < 0.35, 'the clock slowed (not cut): ' + (b.s - s0.s).toFixed(2) + ' s of song in ' + (b.t - s0.t).toFixed(2) + ' s');
+        assert.strictEqual(b.playing, true, 'still on the record');
+        await lift();
+        await f.waitForTimeout(500);
+        const m = await f.evaluate(() => ({ omega: __lp.omega, speed: __lp.speed, bus: __lp.musicBus.gain.value, coupled: __gy.coupled }));
+        assert(m.coupled && m.omega > 60 && m.omega < 195 && Math.abs(m.speed - m.omega / 200) < 0.02, 'spinning up, the sound with it: ' + JSON.stringify(m));
+        await until(f, () => !__gy.coupled, null, 6000, 'back at speed');
+        const e = await f.evaluate(() => ({ omega: __lp.omega, speed: __lp.speed, bus: __lp.musicBus.gain.value, playing: __lp.playing, hand: __lp.hand }));
+        assert(Math.abs(e.omega - 200) < 1.5 && e.speed === 1 && Math.abs(e.bus - 0.85) < 0.01 && e.playing && !e.hand, 'as before (and the hold was no tap: still playing): ' + JSON.stringify(e));
+      });
+      await check('내 음악 is one side: the arm set down on a file plays that file from that point; turned by hand it plays at the finger\'s speed (rate and pitch), backwards or still it is quiet', async () => {
+        await f.locator('#gyBar .gy-play').tap();
+        await until(f, () => !__lp.playing && !__lp.busy, null, 6000, 'paused');
+        await f.evaluate(() => __lp.changeAlbum(3));
+        await until(f, () => __lp.albumIdx === 3 && !__lp.busy, null, 15000, '내 음악 on the platter');
+        assert.strictEqual(await f.evaluate(() => __gy.lands()), await f.evaluate(() => { const A = __lp.ALBUMS[3]; return (__lp.R_OUT - (__lp.R_OUT - __lp.R_IN) * (A.starts[1] - __lp.GAP / 2) / A.total).toFixed(1); }), 'a land between the two files');
+        await (await armTo(page, f, await f.evaluate(r => __lp.angleForRadius(r), await radiusOf(f, 0, 20))))();
+        await until(f, () => __lp.playing && !__lp.busy && !__gy.audio.paused && /5050aaaa0001/.test(__gy.audio.src), null, 15000, '좋은 날 playing');
+        const t = await f.evaluate(() => __gy.audio.currentTime);
+        assert(t >= 19.5 && t < 22, 'from 0:20: ' + t.toFixed(2));
+        const lift = await hand(page, f, 360, 900);
+        const s = await f.evaluate(() => ({ omega: __lp.omega, rate: __gy.audio.playbackRate, keep: __gy.audio.preservesPitch, w: __gy.hand && __gy.hand.w }));
+        console.log('     turned at ' + (s.w || 0).toFixed(0) + '°/s: the platter ' + s.omega.toFixed(0) + '°/s, the file at ' + s.rate.toFixed(2) + '×');
+        assert(s.omega > 270 && s.omega < 450, 'the record at the finger\'s speed: ' + s.omega);
+        assert(Math.abs(s.rate - s.omega / 200) < 0.06 && s.keep === false, 'the file\'s rate (its pitch with it): ' + s.rate + ' for ' + s.omega);
+        await lift();
+        await until(f, () => !__gy.coupled, null, 6000, 'back at speed');
+        assert.strictEqual(await f.evaluate(() => __gy.audio.playbackRate), 1);
+        const back = await hand(page, f, -300, 600);
+        const bw = await f.evaluate(() => ({ omega: __lp.omega, rate: __gy.audio.playbackRate, loud: __gy.loud }));
+        assert(bw.omega < -100, 'backwards: ' + bw.omega);
+        assert.deepStrictEqual([bw.rate, bw.loud], [0.0625, 0], 'an element cannot play backwards: at its slowest, silent');
+        await back();
+        await until(f, () => !__gy.coupled, null, 8000, 'back at speed');
+        assert.deepStrictEqual(await f.evaluate(() => [__gy.audio.playbackRate, __lp.playing]), [1, true]);
+      });
+      await check('a short tap on the record is still the piece\'s play · pause; no script error', async () => {
+        await f.locator('#recHit').tap();
+        await until(f, () => !__lp.playing && !__lp.busy, null, 6000, 'paused by a tap');
+        assert.deepStrictEqual(h.errors, []);
+      });
+    } finally { await h.ctx.close(); }
   }
   // Alone on the creator's own site (as the app serves it there: the add-on, never a key), where nothing answers 내 음악.
   const alone = await browser.newContext({ viewport: { width: 412, height: 900 }, hasTouch: true, isMobile: true });
@@ -695,6 +843,40 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       const b = await frame.evaluate(() => ({ ms: __gyDeck.bench(6), s: __gyDeck.stats() }));
       console.log('     one frame here (software WebGL): ' + b.ms.toFixed(1) + ' ms, while playing ' + b.s.fps + ' fps; ' + b.s.calls + ' draw calls, ' + b.s.triangles + ' triangles, '
         + b.s.programs + ' programs, ' + b.s.w + '×' + b.s.h + ' ×' + b.s.pr + '; drew ' + n + ' frames in ' + s.toFixed(1) + ' s');
+    });
+    await check('3D: the lands between the tracks lighter than the grooves beside them; the glare stays where the light is while the record turns under it', async () => {
+      const k = await frame.evaluate(() => document.getElementById('deck').getBoundingClientRect().width / 1000);
+      const lands = await frame.evaluate(() => __gyDeck._.rings.lands());
+      assert.strictEqual(lands.length, 2, 'two lands on a three-track side');
+      const pts = (r, n, from = 0, to = 6.2832) => [...Array(n)].map((_, i) => { const a = from + (to - from) * i / n; return [(400 + r * Math.cos(a)) * k, (390 + r * Math.sin(a)) * k]; });
+      const lum = p => 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2], mean = a => a.reduce((s, x) => s + x, 0) / a.length;
+      // (the left half of the record: the arm is on the right)
+      for (const [o, i] of lands) {
+        const mid = (o + i) / 2, at = r => frame.evaluate(p => __gyDeck.probe(p), pts(r, 40, 1.75, 4.55));
+        const land = mean((await at(mid)).map(lum)), out = mean((await at(o + 8)).map(lum)), inn = mean((await at(i - 8)).map(lum));
+        console.log('     the land at ' + mid.toFixed(0) + ': ' + land.toFixed(1) + ' against the grooves ' + out.toFixed(1) + ' / ' + inn.toFixed(1));
+        assert(land > out + 5 && land > inn + 5, 'lighter than the grooves on both sides: ' + [land, out, inn].map(x => x.toFixed(1)));
+      }
+      const ring = pts(265, 72, 1.75, 4.55), label = [...Array(72)].map((_, i) => { const r = i % 2 ? 73 : 84, a = i / 72 * 6.2832; return [(400 + r * Math.cos(a)) * k, (390 + r * Math.sin(a)) * k]; });
+      const s0 = await frame.evaluate(([a, b]) => ({ v: __gyDeck.probe(a), l: __gyDeck.probe(b), spin: __lp.spin }), [ring, label]);
+      await until(frame, s => { const d = ((__lp.spin - s) % 360 + 360) % 360; return d > 50 && d < 310; }, s0.spin, 5000, 'the record a little further round');
+      const s1 = await frame.evaluate(([a, b]) => ({ v: __gyDeck.probe(a), l: __gyDeck.probe(b) }), [ring, label]);
+      const diff = (a, b) => mean(a.map((p, i) => Math.abs(lum(p) - lum(b[i])))), v = s0.v.map(lum);
+      const still = diff(s0.v, s1.v), turned = diff(s0.l, s1.l), glare = Math.max(...v) - Math.min(...v);
+      console.log('     round the vinyl: the light ' + glare.toFixed(1) + ' from dark to bright, moved ' + still.toFixed(1) + ' as the record turned (its label ' + turned.toFixed(1) + ')');
+      assert(glare > 8, 'a glare on the vinyl: ' + glare);
+      assert(still < 2 && turned > 3 * still + 4, 'the glare stays, the label turns: ' + still.toFixed(1) + ' / ' + turned.toFixed(1));
+    });
+    await check('3D: the arm in the hand drawn lifted where the finger has it (its shadow farther); set down, it plays there', async () => {
+      const r = await radiusOf(frame, 1, 20), a = await frame.evaluate(r => __lp.angleForRadius(r), r);
+      const go = await armTo(frame.page(), frame, a, 600);
+      await frame.waitForTimeout(150);
+      const d = await frame.evaluate(() => ({ st: __gyDeck.stylus(), lift: __gyDeck._.B.liftG.rotation.z, tilt: __gyDeck._.D.children.find(o => o.material && o.material.uniforms && o.material.uniforms.tilt).material.uniforms.tilt.value }));
+      assert(Math.hypot(d.st.x - d.st.css.x, d.st.y - d.st.css.y) <= 2, 'the 3D arm where the piece\'s is: ' + JSON.stringify(d.st));
+      assert(Math.abs(d.lift - 1.2 * Math.PI / 180) < 1e-6 && d.tilt > 0.02, 'lifted, its shadow thrown farther: ' + d.lift + ', ' + d.tilt);
+      await go();
+      await until(frame, () => __lp.playing && !__lp.busy && __lp.trackIdx === 1, null, 10000, 'playing ii.');
+      assert(Math.abs(await frame.evaluate(() => __lp.songPos) - 20) < 1.5);
     });
     await check('3D, paused: the platter runs down and the drawing stops', async () => {
       await frame.locator('#gyBar .gy-play').tap();
