@@ -255,12 +255,27 @@ async function open(browser, at) {
     // The voice talk from the box (준: "아래 입력창 우측에 버튼으로"): heard and said come into the talk.
     const mic = await p.evaluate(() => { const r = el("padMic").getBoundingClientRect(), s = el("padSend").getBoundingClientRect(); return {w: r.width, beside: Math.abs(r.top - s.top) < 4}; });
     assert(mic.w > 0 && mic.beside, 'the mic beside the send button');
-    await p.evaluate(() => { el("padMic").click(); launcher.voice("listening", "오늘 날"); });
+    // The app's voice talk icon, and the talk on plain to see (준: "음성대화 아이콘(다른창에서 쓰는거)으로 해줘", "마이크를 눌러도 변화가
+    // 없어 대화모드인지 알 수가 없어"): the app first answers "idle" as the talk is joined (BuddyVoice.attach), then starts it.
+    assert.strictEqual(await p.evaluate(() => el("padMic").querySelectorAll("svg path").length), 5, 'the five bars of ic_wave');
+    await p.evaluate(() => { el("padMic").click(); launcher.voice("idle", ""); });
+    const on = await p.evaluate(() => ({on: el("padMic").classList.contains("on"), ring: el("padMic").closest(".pad-top").classList.contains("voicing"), hint: el("q").placeholder, moving: el("padMic").querySelector("svg path").getAnimations().length, ear: document.querySelector(".chatpal .buddy").classList.contains("listening")}));
+    assert.deepStrictEqual(on, {on: true, ring: true, hint: '듣고 있어… 말해 봐', moving: 1, ear: true}, 'on at once, and still on after the joining idle');
+    await p.evaluate(() => launcher.voice("listening", "오늘 날"));
     assert.strictEqual(await p.evaluate(() => el("q").value), '오늘 날', 'what it hears so far shows in the box');
     await p.evaluate(() => { launcher.voice("thinking", "오늘 날씨 어때"); launcher.voice("speaking", "맑고 따뜻해!", 900); launcher.voice("gap", ""); launcher.voice("speaking", "산책하기 딱 좋아 ☀️", 1100); launcher.voice("done", ""); });
     const said = await p.evaluate(() => thread.slice(-2).map(t => t.who + ':' + t.text));
     assert.deepStrictEqual(said, ['me:오늘 날씨 어때', 'ai:맑고 따뜻해! 산책하기 딱 좋아 ☀️']);
     assert.strictEqual(await p.evaluate(() => el("padMic").classList.contains("on")), false, 'the mic is off when the talk ends');
+    assert.strictEqual(await p.evaluate(() => el("q").placeholder), '퍼레에게 말하기');
+    // 퍼레's bubble in the talk at a size to read (준: "대화창에서 퍼레 말풍선이 작아 글자도 작고"), on screen wherever 퍼레 is.
+    for (const side of [0.1, 0.9]) {
+      const read = await p.evaluate(x => { const c = document.querySelector('.chatpal'), s = el('stage').clientWidth; c.style.transition = 'none'; c.style.transform = 'translate(' + Math.round(s / .72 * x) + 'px,40px)'; document.querySelector('.chatpal .buddy').classList.toggle('flip', x > .5);
+        speak(c, {text: '오늘 산책 어땠어? 날씨 좋더라'}, 4000); const b = c.querySelector('.bubble'), r = document.createRange(); r.selectNodeContents(b); const t = r.getClientRects()[0], br = b.getBoundingClientRect();
+        return {line: Math.round(t.height), left: Math.round(br.left), right: Math.round(br.right), vw: document.documentElement.clientWidth}; }, side);
+      assert(read.line >= 16, 'words of a readable size (old: 12): ' + JSON.stringify(read));
+      assert(read.left >= 0 && read.right <= read.vw + 1, 'the bubble on screen: ' + JSON.stringify(read));
+    }
     await p.evaluate(() => closePad()); await p.clock.runFor(400);
     assert.deepStrictEqual(talk.errors, []);
   });

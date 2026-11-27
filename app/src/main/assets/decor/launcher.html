@@ -336,6 +336,24 @@ body.liquid .menu hr{background:var(--hair2)}
 .pad-top .send,.pad-top .mic{display:none}
 .pad.chat-mode .pad-top .mic{display:grid;place-items:center;flex:none;width:38px;height:38px;border-radius:50%;border:0;background:rgba(255,255,255,.85);color:var(--accent);box-shadow:0 2px 8px rgba(40,50,80,.1)}
 .pad.chat-mode .pad-top .mic.on{background:#ff6f91;color:#fff;animation:micon 1.4s ease-in-out infinite}
+/* The talk on, plain to see (준: "음성마이크인식 아이콘이 아니라 음성대화 아이콘(다른창에서 쓰는거)으로 해줘", "마이크를 눌러도 변화가 없어
+   대화모드인지 알 수가 없어", "세로줄 여러개있는 특유의 그 아이콘"): the app's own voice talk bars (ic_wave); on, they move as it
+   listens, rest in a slow breath while it thinks and bounce while 퍼레 speaks; the box is ringed and says what is happening. */
+.pad-top .mic svg path{transform-box:fill-box;transform-origin:50% 50%}
+.pad-top .mic.on svg path{animation:wavebar .9s ease-in-out infinite}
+.pad-top .mic.on svg path:nth-child(2){animation-delay:-.6s}.pad-top .mic.on svg path:nth-child(3){animation-delay:-.3s}
+.pad-top .mic.on svg path:nth-child(4){animation-delay:-.75s}.pad-top .mic.on svg path:nth-child(5){animation-delay:-.45s}
+.pad-top .mic.on.think svg path{animation:wavethink 1.6s ease-in-out infinite}
+.pad-top .mic.on.speak svg path{animation-duration:.5s}
+@keyframes wavebar{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.35)}}
+@keyframes wavethink{0%,100%{opacity:1}50%{opacity:.45}}
+body.liquid .pad-top.voicing .field,.pad-top.voicing .field{border-color:#ff6f91;box-shadow:0 0 0 2px #ff6f91,0 2px 10px rgba(255,111,145,.25)}
+.pad-top.voicing #q::placeholder{color:#e0557a;font-weight:650}
+/* 퍼레's bubble in the talk at a size to read (준: "대화창에서 퍼레 말풍선이 작아 글자도 작고"): 퍼레 is drawn at .72, its bubble is
+   drawn back up past full size (about 15px words); on the right half of the talk it opens to 퍼레's left. */
+.pad .chatpal .buddy .bubble{zoom:1.5;max-width:min(240px,calc(100vw / 1.08 - 110px))}
+.pad .chatpal .buddy.flip .bubble{left:auto;right:100%;margin-left:0;margin-right:4px;border-radius:18px 18px 4px 18px;transform-origin:100% 50%}
+
 @keyframes micon{50%{box-shadow:0 0 0 7px rgba(255,111,145,.18)}}
 .pad.chat-mode .pad-top .send{display:grid;place-items:center;flex:none;width:38px;height:38px;border-radius:50%;border:0;background:var(--accent);color:#fff}
 .chat-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:40px}
@@ -519,7 +537,7 @@ body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18p
 <div class="veil" id="veil"></div>
 <div class="fan" id="fan"></div>
 <section class="pad" id="pad">
-  <div class="pad-top"><label class="field"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg><input id="q" type="search" placeholder="앱 · 초성(ㅋㅋㅇ) · 퍼레에게 묻기" autocomplete="off" enterkeyhint="go"></label><button class="send" id="padSend" aria-label="보내기"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg></button><button class="mic" id="padMic" aria-label="음성 대화"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button><button class="close" id="padClose">닫기</button></div>
+  <div class="pad-top"><label class="field"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg><input id="q" type="search" placeholder="앱 · 초성(ㅋㅋㅇ) · 퍼레에게 묻기" autocomplete="off" enterkeyhint="go"></label><button class="send" id="padSend" aria-label="보내기"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg></button><button class="mic" id="padMic" aria-label="음성 대화"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3 10v4"/><path d="M7.5 6v12"/><path d="M12 3v18"/><path d="M16.5 6v12"/><path d="M21 10v4"/></svg></button><button class="close" id="padClose">닫기</button></div>
   <div class="chat-top" id="chatTop"><div class="chat-bar" id="chatBar"></div><div class="stage" id="stage"></div></div>
   <div class="chips" id="chips"></div>
   <div class="pad-body" id="padBody"></div>
@@ -1341,30 +1359,49 @@ el("padSend").addEventListener("click", e => { e.preventDefault(); if (chatting)
   starts 퍼레's voice talk (BuddyVoice) and stops it; what it heard comes into the talk as the user's words, what it says as
   퍼레's, kept with the rest; what it hears so far shows in the box.
 */
-let voiceChat = false, voiceTurn = null;
+let voiceChat = false, voiceTurn = null, voiceLive = false;
+/** The talk's look: the button (its bars), the box's ring and words, 퍼레's listening ring. */
+function voiceLook(state) {
+  const m = el("padMic"), on = voiceChat;
+  m.classList.toggle("on", on); m.classList.toggle("think", on && state === "thinking"); m.classList.toggle("speak", on && state === "speaking");
+  m.setAttribute("aria-label", on ? "음성 대화 끝내기" : "음성 대화");
+  m.closest(".pad-top").classList.toggle("voicing", on);
+  const q = el("q");
+  q.placeholder = !on ? CHAT_HINT : state === "thinking" ? "생각하는 중…" : state === "speaking" ? "퍼레가 말하는 중…" : "듣고 있어… 말해 봐";
+  pal.listening(on && (state === "listening" || state === "starting"));
+}
 el("padMic").addEventListener("click", e => {
   e.preventDefault();
-  if (voiceChat) { voiceChat = false; el("padMic").classList.remove("on"); if (window.boardVoiceStop) window.boardVoiceStop(); return; }
-  voiceChat = true; voiceTurn = null; el("padMic").classList.add("on"); el("q").blur();
+  if (voiceChat) { voiceChat = false; voiceLive = false; voiceLook("off"); if (window.boardVoiceStop) window.boardVoiceStop(); return; }
+  // On at once (준: "마이크를 눌러도 변화가 없어"): the button, the box and 퍼레 show the talk before the app answers.
+  voiceChat = true; voiceLive = false; voiceTurn = null; el("q").blur(); voiceLook("starting");
   if (window.boardVoice) window.boardVoice();
 });
 function chatVoice(state, text) {
   // A pause between two of its sentences changes nothing in the talk.
   if (!voiceChat || !chatting || state === "gap") return;
+  // The app first says where the talk was ("idle": none yet) as the talk is joined, then starts it: that is not its end.
+  if (state === "idle" && !voiceLive) return;
+  if (state === "listening" || state === "thinking" || state === "speaking") voiceLive = true;
   const q = el("q"), t = String(text || "").trim();
-  if (state === "listening") { q.value = t && t !== "…" ? t : ""; q.placeholder = "듣고 있어…"; return; }
-  q.value = ""; q.placeholder = CHAT_HINT;
+  if (state === "listening") { voiceLook(state); q.value = t && t !== "…" ? t : ""; return; }
+  q.value = ""; voiceLook(state);
   if (state === "thinking" && t) {
     const last = thread[thread.length - 1];
     if (!(last && last.who === "me" && last.text === t)) { thread.push({who: "me", text: t, at: Date.now()}); voiceTurn = null; saveChats(); drawChat(); }
     pal.thinking(); return;
   }
+  if (state === "thinking") { pal.thinking(); return; }
   if (state === "speaking" && t) {
     if (voiceTurn && thread[thread.length - 1] === voiceTurn) voiceTurn.text += " " + t;
     else { voiceTurn = {who: "ai", text: t, at: Date.now()}; thread.push(voiceTurn); }
     saveChats(); drawChat(); pal.talking(); return;
   }
-  if (state === "idle" || state === "done" || state === "error" || state === "off") { voiceChat = false; voiceTurn = null; el("padMic").classList.remove("on"); pal.done(true); }
+  if (state === "idle" || state === "done" || state === "error" || state === "off") {
+    voiceChat = false; voiceLive = false; voiceTurn = null; voiceLook(state);
+    if (state === "error" && t) { thread.push({who: "ai", text: t, at: Date.now(), error: true}); saveChats(); drawChat(); }
+    pal.done(state !== "error");
+  }
 }
 el("chatTop").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return;
@@ -1413,7 +1450,7 @@ const pal = (() => {
   }
   // 퍼레 is drawn at .72 (its zoom): the room in its own pixels.
   const Z = .72, room = () => Math.max(40, el("stage").clientWidth / Z - 112), roomY = () => Math.max(20, el("stage").clientHeight / Z - 136);
-  const place = (ms, lift) => { p.b.style.transition = "transform " + ms + "ms " + (lift ? "cubic-bezier(.3,1.6,.5,1)" : "cubic-bezier(.45,.1,.55,.9)"); p.b.style.transform = "translate(" + p.x.toFixed(0) + "px," + p.y.toFixed(0) + "px)"; };
+  const place = (ms, lift) => { p.b.style.transition = "transform " + ms + "ms " + (lift ? "cubic-bezier(.3,1.6,.5,1)" : "cubic-bezier(.45,.1,.55,.9)"); p.b.style.transform = "translate(" + p.x.toFixed(0) + "px," + p.y.toFixed(0) + "px)"; p.buddy.classList.toggle("flip", p.x > room() / 2); };
   function walk(nx, done, ny) {
     if (ny == null) ny = p.y;
     const dist = Math.hypot(nx - p.x, ny - p.y); if (dist < 4) { if (done) done(); return; }
@@ -1485,6 +1522,7 @@ const pal = (() => {
   }
   return {
     show() { make(); if (p) { p.b._env = boards[0] && boards[0]._env; if (p.x === 0) { p.x = Math.round(room() * .6); p.y = Math.round(roomY() * .15); place(0); } } },
+    listening(on) { if (p) p.buddy.classList.toggle("listening", !!on); },
     thinking() { if (!p) return; p.talking = false; p.b._mood("thinking"); },
     talking() { if (!p || p.talking) return; p.talking = true; p.b._mood(""); $(p.b, ".bot").classList.add("talking"); },
     done(ok) { if (!p) return; p.talking = false; $(p.b, ".bot").classList.remove("talking"); p.b._mood(""); if (ok === false) p.b._feel("sorry", 1600); else { p.b._feel("happy", 1600); move(p.b, "hop", 760); } }
