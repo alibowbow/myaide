@@ -118,6 +118,11 @@ async function open(browser, at) {
     assert(lay.width >= 180, 'a bubble wide enough for words: ' + lay.width);
     assert(lay.left >= 0 && lay.right <= lay.vw, 'on screen: ' + lay.left + '..' + lay.right);
     assert(lay.inside && lay.below, 'the chips under the words, inside the bubble');
+    // Over the toys (준: "말풍선이 장난감아래로 가서 가려져"): a toy lying where the bubble is stays under it.
+    const over = await p.evaluate(() => { const c = document.querySelector('.bubble .pick').getBoundingClientRect(), tb = document.querySelector('.toybox'), w = tb.getBoundingClientRect(), t = document.createElement('div');
+      t.className = 'tb dice'; t.style.cssText = 'width:44px;height:44px;background:#000;transform:translate(' + (c.left - w.left - 12) + 'px,' + (c.top - w.top - 12) + 'px)'; tb.appendChild(t);
+      const at = document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2); t.remove(); return at ? (at.closest('.bubble') ? 'bubble' : at.className) : 'nothing'; });
+    assert.strictEqual(over, 'bubble', 'the bubble above a toy lying under it');
     const box = await p.evaluate(() => { const r = document.querySelector('.bubble .pick').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, h: r.height }; });
     assert(box.h <= 30, 'small chips: ' + box.h);
     await p.touchscreen.tap(box.x, box.y);

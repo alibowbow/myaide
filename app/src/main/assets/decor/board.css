@@ -858,3 +858,6 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
 .bot .m-fang{display:none;transform-box:fill-box;transform-origin:center;fill:none;stroke:#2b2b3a;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round} .bot[data-mouth=fang] .m-fang{display:block} .bot.talking .m-fang{display:none}
 .bot .m-square{display:none;transform-box:fill-box;transform-origin:center;fill:none;stroke:#2b2b3a;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round} .bot[data-mouth=square] .m-square{display:block} .bot.talking .m-square{display:none}
 .bot .m-lopsy{display:none;transform-box:fill-box;transform-origin:center;fill:none;stroke:#2b2b3a;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round} .bot[data-mouth=lopsy] .m-lopsy{display:block} .bot.talking .m-lopsy{display:none}
+/* The bubble over the toys (준: "말풍선이 장난감아래로 가서 가려져"): the toys' layer comes after the top of the board at the same
+   height, so while 퍼레 says something the top of the board (and its bubble) goes above them. */
+.hero:has(.bubble.on){z-index:4}
