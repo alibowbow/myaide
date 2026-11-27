@@ -396,21 +396,28 @@ async function open(browser, at, bridge, pages) {
   // 준: "퍼레의 판단력 … 강화해줘" — an app 퍼레 opened that did not come up is said once, and those words open the way through.
   // 준, 2026-11-27: "이 둘 중에 바로가기도 만들어줘", "일단 마이튜브 바로가기", "앱내 아이콘처럼 축약된 것 말고 좀더 홈 아이콘처럼".
   const shortsPage = await open(browser, '2026-11-27T22:33:00+09:00', true);
-  await check('마이튜브 and 화면 꾸미기 as small home icons without names in the empty space above the dots; a tap opens each', async () => {
+  await check('마이튜브, 업데이트 and 화면 꾸미기 as small home icons without names in the empty space above the dots; a tap opens each', async () => {
     const p = shortsPage.page;
     const s = await p.evaluate(() => [...document.querySelectorAll('#shorts [data-short]')].map(b => {
       const ic = b.querySelector('.ic').getBoundingClientRect(), dots = el('dots').getBoundingClientRect(), lib = el('stacks').getBoundingClientRect();
       return { id: b.dataset.short, w: ic.width, h: ic.height, text: b.textContent.trim(), name: b.getAttribute('aria-label'), bottom: b.getBoundingClientRect().bottom, dots: dots.top, below: ic.top >= lib.bottom - 1 };
     }));
-    assert.deepStrictEqual(s.map(x => x.id), ['mytube', 'decor']);
+    assert.deepStrictEqual(s.map(x => x.id), ['mytube', 'update', 'decor']);
     for (const x of s) {
       assert(x.w <= 44 && x.h <= 44 && x.w >= 36, 'small, smaller than an app icon: ' + JSON.stringify(x));
       assert.strictEqual(x.text, '', 'no name under it');
-      assert(/마이튜브|화면 꾸미기/.test(x.name), 'its name for the screen reader: ' + x.name);
+      assert(/마이튜브|화면 꾸미기|업데이트/.test(x.name), 'its name for the screen reader: ' + x.name);
       assert(x.below && x.bottom <= x.dots, 'under App Library, above the dots: ' + JSON.stringify(x));
     }
-    await p.evaluate(() => { window._calls.length = 0; document.querySelector('#shorts [data-short="mytube"]').click(); document.querySelector('#shorts [data-short="decor"]').click(); });
-    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open' || c[0] === 'settings').map(c => c[0] + ':' + JSON.parse(c[1])[0])), ['open:mytube', 'settings:decor']);
+    await p.evaluate(() => { window._calls.length = 0; ['mytube', 'update', 'decor'].forEach(id => document.querySelector('#shorts [data-short="' + id + '"]').click()); });
+    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open' || c[0] === 'settings').map(c => c[0] + ':' + JSON.parse(c[1])[0])), ['open:mytube', 'open:update', 'settings:decor']);
+    // 업데이트 (준: "업데이트 바로가기 버튼"): a red dot when the app found a newer build, gone when there is none.
+    assert.strictEqual(await p.evaluate(() => document.querySelectorAll('#shorts .dot').length), 0, 'no dot when up to date');
+    await p.evaluate(() => launcher.board({ weather: { code: 0, temp: 15, day: false }, env: { battery: 80 }, life: { heart: 60 }, update: '0.4.700' }));
+    const dot = await p.evaluate(() => { const b = document.querySelector('#shorts [data-short="update"]'); return { dots: b.querySelectorAll('.dot').length, name: b.getAttribute('aria-label') }; });
+    assert(dot.dots === 1 && /0\.4\.700/.test(dot.name), 'a newer build: a dot, and it says so: ' + JSON.stringify(dot));
+    await p.evaluate(() => launcher.board({ weather: { code: 0, temp: 15, day: false }, env: { battery: 80 }, life: { heart: 60 } }));
+    assert.strictEqual(await p.evaluate(() => document.querySelectorAll('#shorts .dot').length), 0, 'gone once updated');
     assert.deepStrictEqual(shortsPage.errors, []);
     await p.screenshot({ path: '/tmp/claude-0/-home-user/138b3987-18a5-5339-9471-114de8ffce30/scratchpad/shorts_home.png' });
     await shortsPage.ctx.close();

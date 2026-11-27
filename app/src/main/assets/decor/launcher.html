@@ -116,6 +116,10 @@ body.launcher{position:fixed;inset:0}
 /* 화면 꾸미기: a palette on teal, beside 마이튜브's violet. */
 .own-ic.decor{background:linear-gradient(155deg,#7ff0dc 0%,#19b3a3 50%,#0b7466 100%)}
 .own-ic.decor svg{width:60%;height:60%}
+/* 업데이트: an arrow into a tray on blue; a red dot when a newer build is out (준: "업데이트 바로가기 버튼"). */
+.own-ic.update{background:linear-gradient(155deg,#9cd2ff 0%,#3d8bfd 50%,#1f56d6 100%)}
+.own-ic.update svg{width:58%;height:58%}
+.shorts .app .dot{position:absolute;right:-3px;top:-3px;width:11px;height:11px;border-radius:50%;background:#ff4d4f;box-shadow:0 0 0 2px rgba(20,16,40,.55)}
 .app .label{font-size:11.5px;font-weight:650;letter-spacing:-.3px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:var(--halo)}
 .app .badge{right:-6px;top:-6px}
 
@@ -910,11 +914,15 @@ const SHORTS = [{id: "mytube", label: "마이튜브",
   icon: '<svg viewBox="0 0 24 24"><path d="M9 3.6 12 7.2 15.2 3.4" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
     + '<rect x="3.2" y="7.4" width="17.6" height="12.6" rx="4.2" fill="#fff"/>'
     + '<path d="M10.4 11.1c0-.55.6-.88 1.06-.58l3.5 2.3c.42.28.42.88 0 1.16l-3.5 2.3c-.46.3-1.06-.03-1.06-.58z" fill="#7a5cf0"/></svg>'},
+  {id: "update", label: "업데이트",
+  icon: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v10"/><path d="M7.5 10 12 14.5 16.5 10"/><path d="M5 15.5v2.2c0 .9.7 1.6 1.6 1.6h10.8c.9 0 1.6-.7 1.6-1.6v-2.2"/></svg>'},
   {id: "decor", label: "화면 꾸미기", settings: true,
   icon: '<svg viewBox="0 0 24 24"><path fill="#fff" fill-rule="evenodd" d="M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>'}];
+let newBuild = "";
 function drawShorts() {
   const box = el("shorts"); if (!box) return;
-  box.innerHTML = SHORTS.map(x => '<button class="app short" data-short="' + x.id + '" aria-label="' + esc(x.label) + ' 열기"><span class="ic"><span class="own-ic ' + x.id + '">' + x.icon + '</span></span></button>').join("");
+  box.innerHTML = SHORTS.map(x => '<button class="app short" data-short="' + x.id + '" aria-label="' + esc(x.id === "update" && newBuild ? "새 업데이트 " + newBuild + " 받기" : x.label + " 열기") + '"><span class="ic"><span class="own-ic ' + x.id + '">' + x.icon + '</span>'
+    + (x.id === "update" && newBuild ? '<i class="dot"></i>' : '') + '</span></button>').join("");
 }
 el("shorts").addEventListener("click", e => {
   const b = e.target.closest("[data-short]"); if (!b || !B) return;
@@ -1764,6 +1772,7 @@ window.launcher = {
   board(k) {
     setBoardData(k);
     weather(k.weather); minis(k); drawToday(k);
+    if ((k.update || "") !== newBuild) { newBuild = k.update || ""; drawShorts(); }
     requestAnimationFrame(() => boards.forEach(fit)); setTimeout(() => boards.forEach(fit), 900);
   },
   badges(k) { BADGES = k || {}; drawAll(); },

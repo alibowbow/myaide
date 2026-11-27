@@ -234,7 +234,7 @@ public final class MainActivity extends Activity {
         if (state != null) { recordingPage = state.getBoolean("recordingPage", false); mode = state.getString("mode", mode); query = state.getString("query", ""); tab = state.getInt("tab"); recordsView = state.getInt("records"); settingsPage = state.getString("page", ""); workId = state.getString("work", ""); composerImageAspect = state.getString("imageAspect", ""); composerImageEdit = state.getBoolean("imageEdit", false); }
         else if (fromSignIn(getIntent())) { tab = 2; settingsPage = signInPage(getIntent()); }
         else if (PhoneCalendar.PAGE.equals(getIntent().getStringExtra(PhoneCalendar.PAGE_EXTRA))) { tab = 2; settingsPage = PhoneCalendar.PAGE; }
-        else if (settingsPageAsked(getIntent()) != null) { tab = 2; settingsPage = settingsPageAsked(getIntent()); }
+        else if (settingsPageAsked(getIntent()) != null) { tab = 2; settingsPage = settingsPageAsked(getIntent()); updateNowAsked(getIntent()); }
         else { tab = getIntent().getIntExtra("tab", 0); workId = getIntent().hasExtra("work") ? getIntent().getStringExtra("work") : ""; }
         if (state != null && state.getInt("workView", 0) == 1 && tab == 3 && workId.isEmpty()) tab = 4;
         if (store.voiceActive) mode = store.voiceMode;
@@ -365,7 +365,7 @@ public final class MainActivity extends Activity {
         String menuTarget=intent.getStringExtra(MainNavigation.TARGET);if(java.util.List.of("voice","chat","work","gallery","settings").contains(menuTarget==null?"":menuTarget)){navigateMenu(menuTarget);if("chat".equals(menuTarget))askFrom(intent);return;}
         // The calendar's tap-to-open notification (a call without the permission): 설정 → 캘린더, where it is allowed.
         if (PhoneCalendar.PAGE.equals(intent.getStringExtra(PhoneCalendar.PAGE_EXTRA))) { openSettings(PhoneCalendar.PAGE); return; }
-        if (settingsPageAsked(intent) != null) { openSettings(settingsPageAsked(intent)); return; }
+        if (settingsPageAsked(intent) != null) { openSettings(settingsPageAsked(intent)); updateNowAsked(intent); return; }
         if (intent.hasExtra("work")) { workId = intent.getStringExtra("work"); if (galleryDialog != null) galleryDialog.dismiss(); if (videoDialog != null) videoDialog.dismiss(); }
         // Asked for the settings tab (the browser's 모델 연결 설정): its home with the AI 연결 group, not a page left open earlier.
         if (fromSignIn(intent)) openSettings(signInPage(intent)); else if (intent.hasExtra("tab")) { int asked = intent.getIntExtra("tab", 0); if (asked == 2) { settingsPage = ""; settingsQuery = ""; } showTab(asked); }
@@ -1784,6 +1784,31 @@ public final class MainActivity extends Activity {
     }
     /** Opens a settings page from outside (the floating bubble's 목소리 설정): its id in this extra. */
     static final String SETTINGS_PAGE = "gyeot.settings_page";
+    /**
+     * The home screen's 업데이트 shortcut (준: "새로운 업데이트가 있으면 바로 다운 받기까지 되고 없으면 업데이트 페이지 열리기"): with
+     * the update page, a check now; a newer build found is downloaded and handed to Android's installer at once (the page shows
+     * how it goes), none found leaves the page saying it is the newest.
+     */
+    static final String UPDATE_NOW = "gyeot.update_now";
+    private long updateAskedAt;
+    private void updateNowAsked(Intent intent) {
+        if (intent == null || !intent.getBooleanExtra(UPDATE_NOW, false)) return;
+        intent.removeExtra(UPDATE_NOW);
+        updateAskedAt = System.currentTimeMillis();
+        java.io.File ready = store.updater.ready;
+        if (ready != null && store.updater.available != null) { main.post(() -> openInstaller(ready)); updateAskedAt = 0; return; }
+        if (store.updater.available != null && !store.updater.busy) { main.post(this::installUpdate); updateAskedAt = 0; return; }
+        store.updater.check(false);
+        main.removeCallbacks(updateNowTick); main.postDelayed(updateNowTick, 400);
+    }
+    /** Until the check answered (or 30 seconds): then the download when there is a newer build. */
+    private final Runnable updateNowTick = new Runnable() { @Override public void run() {
+        if (updateAskedAt == 0 || isDestroyed()) return;
+        boolean answered = !store.updater.busy && store.settings.getLong("updateCheckedAt", 0) >= updateAskedAt - 1000;
+        if (!answered && System.currentTimeMillis() - updateAskedAt < 30_000) { main.postDelayed(this, 400); return; }
+        updateAskedAt = 0;
+        if (answered && store.updater.available != null) installUpdate();
+    } };
     private static String settingsPageAsked(Intent intent) {
         String page = intent == null ? null : intent.getStringExtra(SETTINGS_PAGE);
         return page != null && !page.isEmpty() && SETTINGS_PAGES.contains(page) ? page : null;

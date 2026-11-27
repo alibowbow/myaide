@@ -446,6 +446,8 @@ public final class HtmlWallpaper extends WallpaperService {
                 if (board.length() > 0) Jsons.put(out, "acts", board);
             }
         } catch (RuntimeException unreadable) { /* no acts shown */ }
+        // A newer build of 들퍼레 found by the last check: the 업데이트 shortcut gets a dot.
+        try { dev.jun.gyeot.core.UpdateCheck.Update u = ((GyeotApp) c.getApplicationContext()).store().updater.available; if (u != null) Jsons.put(out, "update", u.version); } catch (RuntimeException ignored) {}
         // The apps just opened (퍼레 dances after music, and so on); never on the lock screen.
         if (!locked) try { Jsons.put(out, "recent", new JSONArray(c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).getString("recentLabels", "[]"))); } catch (Exception ignored) {}
         // 퍼레's home and life (a Tamagotchi on the phone): the battery, music, the network; how close it feels, the days together.
@@ -515,6 +517,8 @@ public final class HtmlWallpaper extends WallpaperService {
             case "settings": open = new Intent(c, MainActivity.class).putExtra(MainNavigation.TARGET, "settings"); break;
             case "lab": open = new Intent(c, LabActivity.class); break;
             case "mytube": open = new Intent(c, MyTubeActivity.class); break;
+            // The home screen's 업데이트 shortcut: the update page, checking now, downloading a newer build at once.
+            case "update": open = new Intent(c, MainActivity.class).putExtra(MainActivity.SETTINGS_PAGE, "update").putExtra(MainActivity.UPDATE_NOW, true); break;
             case "pages": open = new Intent(c, PagesActivity.class); break;
             case "notices": open = new Intent(c, NoticeActivity.class); break;
             case "calendarSettings": open = new Intent(c, MainActivity.class).putExtra(PhoneCalendar.PAGE_EXTRA, PhoneCalendar.PAGE); break;
