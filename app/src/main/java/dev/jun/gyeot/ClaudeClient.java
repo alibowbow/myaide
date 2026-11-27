@@ -230,7 +230,7 @@ final class ClaudeClient {
                             // server tools takes, then the refusal stands. Refused before any work, so nothing paid repeats.
                             // Page reading named alone goes and search stays; search named takes page reading with it; a
                             // refusal that names neither, or both, takes both. Each one named or taken this way is reported.
-                            if (narrowed) throw new IllegalStateException(ClaudeProtocol.explain(response.status, ClaudeProtocol.errorType(json), message));
+                            if (narrowed) throw new dev.jun.gyeot.core.ProviderError(response.status, ClaudeProtocol.explain(response.status, ClaudeProtocol.errorType(json), message));
                             narrowed = true;
                             String lower = message.toLowerCase(java.util.Locale.ROOT);
                             boolean namesSearch = useSearch && lower.matches("(?s).*web[_ ]search.*"), namesFetch = useFetch && lower.matches("(?s).*web[_ ]fetch.*");
@@ -243,7 +243,7 @@ final class ClaudeClient {
                         if (useFetch && !message.toLowerCase(java.util.Locale.ROOT).contains("web_search")) { useFetch = false; level = 0; continue; }
                         if (useSearch) { useSearch = false; useFetch = false; level = 0; turn.searchDropped = true; notes.add("이 모델에서는 웹 검색이 거부돼 검색 없이 답했어요" + reason); continue; }
                     }
-                    throw new IllegalStateException(ClaudeProtocol.explain(response.status, ClaudeProtocol.errorType(json), message));
+                    throw new dev.jun.gyeot.core.ProviderError(response.status, ClaudeProtocol.explain(response.status, ClaudeProtocol.errorType(json), message));
                 }
                 onActivity.run();
                 if (interrupt != null) ticket = interrupt.open(cancel == null ? null : cancel.get());

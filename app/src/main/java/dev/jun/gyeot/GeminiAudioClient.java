@@ -15,6 +15,8 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Blocking media analysis. Cancellable Work overloads bind every active HTTP phase to its run control. */
 final class GeminiAudioClient {
     private GeminiAudioClient() {}
+    /** The model that answered this thread's last request and what it used ({model, core/Usage}), for 잡일's usage row (Chores). */
+    static final ThreadLocal<Object[]> SERVED = new ThreadLocal<>();
     static String transcribe(String key, File audio) throws Exception { return transcribe(key, audio, GeminiAudio.MIME); }
     static String transcribe(String key, File audio, String mime) throws Exception { return transcribe(key, audio, mime, () -> {}, null); }
     static String transcribe(String key, File audio, String mime, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
@@ -124,7 +126,9 @@ final class GeminiAudioClient {
                 guard.run(); int status = connection.getResponseCode(); guard.run(); JSONObject json = json(connection, status, guard);
                 if (status == 200) {
                     JSONObject usage = json.optJSONObject("usageMetadata");
-                    GeminiQuotas.used(model, usage == null ? 0 : usage.optInt("totalTokenCount")); guard.run(); return answer.apply(json);
+                    GeminiQuotas.used(model, usage == null ? 0 : usage.optInt("totalTokenCount"));
+                    SERVED.set(new Object[]{model, dev.jun.gyeot.core.Usage.gemini(usage)});
+                    guard.run(); return answer.apply(json);
                 }
                 JSONObject error = json.optJSONObject("error"); String message = error == null ? "" : error.optString("message");
                 IllegalStateException failure = new IllegalStateException(GeminiProtocol.explain(status + " " + message));

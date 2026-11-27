@@ -4,6 +4,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import dev.jun.gyeot.core.Limits;
 import dev.jun.gyeot.core.PlanUsage;
+import dev.jun.gyeot.core.Prices;
 import dev.jun.gyeot.core.Usage;
 import dev.jun.gyeot.core.WorkBook;
 import java.time.ZoneId;
@@ -30,7 +31,7 @@ final class UsageUi {
     static final long WEEK_MS = 7L * 24 * 60 * 60 * 1000;
     static final String[] ENGINES = {WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY, WorkBook.GROQ};
     /** The settings list's line until the last seven days are read, and when there is nothing in them. */
-    static final String ABOUT = "답마다 쓴 토큰과 계정별 남은 한도";
+    static final String ABOUT = "답마다 쓴 토큰·예상 비용과 계정별 남은 한도";
     /** One reader for the page and the list's line, whose thread ends after half a minute without work. */
     private static final ExecutorService READS = reader();
     /** The usage pages' reads, one at a time on their own thread, so a slow answer never holds the page's reads. */
@@ -46,8 +47,18 @@ final class UsageUi {
     private final Ui ui; private final AppStore store;
     UsageUi(Ui ui, AppStore store) { this.ui = ui; this.store = store; }
 
-    /** What the page shows: a row per connected account and the seven days' sums per company. */
-    record Page(List<Account> accounts, JSONArray totals) {}
+    /**
+     * What the page shows: a row per connected account, the seven days' sums per company, and for 예상 비용 the ledger's
+     * tokens for today, seven and thirty days (core/Prices.Tokens), with whether the Gemini key is marked 무료 and whether
+     * its tier is known at all (GeminiKeyRing).
+     */
+    record Page(List<Account> accounts, JSONArray totals, List<List<Prices.Tokens>> spend, boolean geminiFree, boolean geminiTier) {
+        Page(List<Account> accounts, JSONArray totals) { this(accounts, totals, List.of(List.of(), List.of(), List.of()), false, false); }
+    }
+    static final long MONTH_MS = 30L * 24 * 60 * 60 * 1000;
+    /** 예상 비용's periods, at the end of its heading line; the one shown is kept while the app runs. */
+    static final String[] PERIODS = {"오늘", "7일", "30일"};
+    private static volatile int period = 1;
     /**
      * One connected account: its name and route, its lines (a window each, then when they were seen), none for 모름, and
      * the settings page it is connected on (MainActivity.openSettings).
@@ -106,7 +117,18 @@ final class UsageUi {
             if (WorkBook.CHATGPT.equals(engine) && store.codexImages.connected()) accounts.add(codex(store, now, zone));
         }
         if (!store.ready(WorkBook.CHATGPT) && store.codexImages.connected()) accounts.add(0, codex(store, now, zone));
-        return new Page(accounts, store.usage.totals(now - WEEK_MS));
+        long midnight = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli();
+        boolean[] gemini = geminiTier(store);
+        return new Page(accounts, store.usage.totals(now - WEEK_MS), List.of(store.usage.tokens(midnight), store.usage.tokens(now - WEEK_MS), store.usage.tokens(now - MONTH_MS)), gemini[0], gemini[1]);
+    }
+    /** {marked 무료, its tier known}: the key the app's Gemini requests go with, as the user marked it (GeminiKeyRing). Reads the keys: never on the main thread. */
+    static boolean[] geminiTier(AppStore store) {
+        try {
+            String key = store.secrets.workKey(); if (key == null || key.isBlank()) return new boolean[]{false, false};
+            GeminiKeyRing.Key found = GeminiKeyRing.find(store.geminiKeys.keys(), key);
+            String tier = found == null ? "" : found.tier();
+            return new boolean[]{GeminiKeyRing.FREE.equals(tier), GeminiKeyRing.FREE.equals(tier) || GeminiKeyRing.PAID.equals(tier)};
+        } catch (Exception unreadable) { return new boolean[]{false, false}; }
     }
     /** The settings page that engine is connected on: Gemini's key is on "key", the others on their own page. */
     static String page(String engine) {
@@ -221,7 +243,75 @@ final class UsageUi {
         LinearLayout recent = recent(page.totals());
         if (recent.getChildCount() == 0) box.addView(ui.footer("아직 기록이 없어요. 답을 받을 때마다 쌓여요."));
         else box.addView(recent);
-        box.addView(ui.footer("메인 대화·작업창·예약·누르고 말하기에서 받은 답만 세요."));
+        box.addView(ui.footer("메인 대화·작업창·예약·누르고 말하기·퍼레·잡일·브라우저에서 받은 답과, 휴대폰이 모델 없이 바로 답한 것(기기 안)을 세요."));
+        cost(box, page);
+        routes(box, page);
+    }
+
+    // ── 예상 비용 (core/Prices): the ledger's tokens at each model's own price, by company and by where they were used ──
+    /** Its heading with the period's switcher at the end of the same line, then the two lists, then how it is counted. */
+    void cost(LinearLayout box, Page page) {
+        LinearLayout head = ui.row(); head.setGravity(android.view.Gravity.BOTTOM);
+        head.addView(ui.sectionHeader("예상 비용"), new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout body = ui.column();
+        LinearLayout periods = ui.switcher(PERIODS, period, i -> { period = i; body.removeAllViews(); spend(body, page); });
+        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-2, -2); at.rightMargin = ui.dp(12); at.bottomMargin = ui.dp(2);
+        head.addView(periods, at);
+        box.addView(head); box.addView(body, new LinearLayout.LayoutParams(-1, -2));
+        spend(body, page);
+        box.addView(ui.footer("회사 요금 페이지(" + Prices.CHECKED + " 확인)의 100만 토큰당 달러로 셈한 추정이에요. 1달러 = " + String.format(java.util.Locale.ROOT, "%,d", (long) Prices.KRW_PER_USD) + "원으로 고정해서 계산해요. "
+            + "구독 로그인(ChatGPT·Grok·Antigravity)과 무료(NVIDIA·Groq 무료 등급·Gemma·무료로 표시한 Gemini 키)는 돈으로 세지 않아요. 요금표에 없는 모델과 토큰을 알려 주지 않은 답은 ‘모름’이에요."));
+        box.addView(ui.details("요금표", priceTable()));
+    }
+    /** The period's two lists: by company, then by where (메인 대화, 작업창, 퍼레 …); "no answers" when there were none. */
+    private void spend(LinearLayout body, Page page) {
+        List<Prices.Tokens> groups = page.spend().get(Math.max(0, Math.min(2, period)));
+        if (groups.isEmpty()) { body.addView(ui.footer(PERIODS[period] + " 동안 받은 답이 없어요.")); return; }
+        List<Prices.Spend> companies = Prices.spend(groups, true, page.geminiFree(), page.geminiTier());
+        double usd = 0; long priced = 0;
+        for (Prices.Spend s : companies) { usd += s.usd(); priced += s.paid(); }
+        LinearLayout byCompany = ui.group();
+        for (Prices.Spend s : companies) ui.addRow(byCompany, ui.listRow(0, 0, company(s.key()), Prices.words(s) + " · 요청 " + s.requests() + "번", null, null), false);
+        body.addView(byCompany);
+        if (priced > 0) body.addView(ui.footer("합계 " + Prices.dollars(usd) + " (돈이 드는 요청 " + priced + "번)"));
+        TextView where = ui.sectionHeader("어디서 썼나"); where.setPadding(ui.dp(16), ui.dp(18), ui.dp(16), ui.dp(8)); body.addView(where);
+        LinearLayout bySurface = ui.group();
+        for (Prices.Spend s : Prices.spend(groups, false, page.geminiFree(), page.geminiTier()))
+            ui.addRow(bySurface, ui.listRow(0, 0, dev.jun.gyeot.core.BrainRoutes.surfaceLabel(s.key()), Prices.words(s) + " · 요청 " + s.requests() + "번", null, null), false);
+        body.addView(bySurface);
+    }
+    /** A ledger company in words: the AI's maker as the app names it, or 기기 안 for an answer made on the phone. */
+    static String company(String company) { return dev.jun.gyeot.core.BrainRoutes.DEVICE.equals(company) ? "기기 안 (모델 없음)" : WorkBook.author(company); }
+    /** Every price the page counts with, a line each, with where it was read. */
+    static String priceTable() {
+        StringBuilder out = new StringBuilder("100만 토큰당 달러: 입력 · 캐시 읽기 · 출력 (Claude는 캐시 쓰기도).");
+        String source = "";
+        for (java.util.Map.Entry<String, Prices.Price> e : Prices.table().entrySet()) {
+            Prices.Price p = e.getValue();
+            if (!p.source().equals(source)) { source = p.source(); out.append("\n\n").append(source); }
+            out.append("\n").append(e.getKey()).append("  $").append(Prices.money(p.input())).append(" · $").append(Prices.money(p.cacheRead()))
+                .append(p.cacheWrite() > 0 ? " · 쓰기 $" + Prices.money(p.cacheWrite()) : "").append(" · $").append(Prices.money(p.output()))
+                .append(p.note().isEmpty() ? "" : " (" + p.note() + ")");
+        }
+        return out.append("\n\nNVIDIA NIM·Groq 무료 등급·Gemma: 무료. 구독 로그인: 구독.").toString();
+    }
+
+    // ── 두뇌 배분 (core/BrainRoutes): which kind of request goes to which brain, and who takes over ──
+    void routes(LinearLayout box, Page page) {
+        box.addView(ui.sectionHeader("두뇌 배분"));
+        LinearLayout group = ui.group();
+        long local = 0;
+        for (Prices.Tokens t : page.spend().get(0)) if (dev.jun.gyeot.core.BrainRoutes.DEVICE.equals(t.company())) local += t.requests();
+        for (dev.jun.gyeot.core.BrainRoutes.Route r : dev.jun.gyeot.core.BrainRoutes.TABLE) {
+            boolean device = r.kind() == dev.jun.gyeot.core.BrainRoutes.Kind.DEVICE;
+            String line = r.brains() + (device ? " · 오늘 " + local + "번" : " · 막히면 " + r.fallback());
+            LinearLayout row = ui.listRow(0, 0, r.kind().label.equals(r.title()) ? r.title() : r.kind().label + " · " + r.title(), line, null, null);
+            TextView sub = ((Ui.ListRow) row).parts.subtitle(); if (sub != null) { sub.setSingleLine(false); sub.setMaxLines(2); }
+            ui.addRow(group, row, false);
+        }
+        ui.addRow(group, ui.switchRow("막히면 다음 모델로", "메인 대화에서 고른 모델이 한도·계정·서버 문제로 답하지 못하면, 연결된 다음 큰 모델이 한 번만 대신 답하고 답 아래에 적어요. 고른 모델은 그대로예요.",
+            store.settings.getBoolean(MainChatEngine.FALLBACK, true), on -> store.settings.edit().putBoolean(MainChatEngine.FALLBACK, on).apply()), false);
+        box.addView(group);
     }
     /**
      * A card per connected account: its name (and when it was seen), then each limit as a heading, "4시간 29분 후
@@ -319,7 +409,7 @@ final class UsageUi {
         LinearLayout group = ui.group();
         for (int i = 0; i < totals.length(); i++) {
             JSONObject total = totals.optJSONObject(i);
-            LinearLayout row = ui.listRow(R.drawable.ic_sparkle, Ui.INDIGO, WorkBook.author(total.optString("company")), summary(total), null, null);
+            LinearLayout row = ui.listRow(R.drawable.ic_sparkle, Ui.INDIGO, company(total.optString("company")), summary(total), null, null);
             // A line with cache and unknown counts is longer than a phone's row: it wraps instead of being cut.
             TextView line = ((Ui.ListRow) row).parts.subtitle(); if (line != null) { line.setSingleLine(false); line.setMaxLines(2); }
             ui.addRow(group, row, true);

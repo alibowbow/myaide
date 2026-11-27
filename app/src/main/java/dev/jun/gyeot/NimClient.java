@@ -114,7 +114,7 @@ final class NimClient {
                     // Refused before any work because of stream_options, named anywhere in the error (FastAPI puts the field only in
                     // detail[].loc): sent once more without asking for usage, at most once, and counted as unknown.
                     resend = usage && NimProtocol.refusesUsage(response.status, body);
-                    if (!resend) throw new IllegalStateException(NimProtocol.error(response.status, detail));
+                    if (!resend) throw new dev.jun.gyeot.core.ProviderError(response.status, NimProtocol.error(response.status, detail));
                     stream = null;
                 } else stream = read(response, inspectMerge ? value -> {} : onText, onStage, () -> { guard.run(); account.check(expected); });
             } catch (java.util.concurrent.CancellationException e) { throw e; }

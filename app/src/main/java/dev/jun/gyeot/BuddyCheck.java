@@ -125,6 +125,14 @@ final class BuddyCheck {
         if (asked(heard)) return Result.of(WORDS, s.said(), false, "두뇌로 감", "말 단계에서 가로챔: 자동 점검 열기", "");
         if (s.tool() != null && !names(BuddyTools.forTurn(heard)).contains(s.tool()))
             return Result.of(WORDS, s.said(), false, s.tool() + " 도구를 보냄", s.tool() + "가 보내는 도구 목록에 없음(퍼레 자신의 말로 안 들림)", "");
+        // 기기 안 (core/LocalAnswers) answers some words with no model: it must do the very thing the brain should, or nothing
+        // when nothing is to be done. (An app's name is checked against the installed apps only on the phone.)
+        dev.jun.gyeot.core.LocalAnswers.Answer local = dev.jun.gyeot.core.LocalAnswers.of(heard, java.time.ZonedDateTime.now(), null);
+        if (local != null) {
+            String here = "기기 안: " + (local.act() == null ? local.rule() + " (할 일 없음)" : describe(local.act().optString("tool"), local.act()));
+            boolean same = s.none() ? local.act() == null : local.act() != null && s.tool().equals(local.act().optString("tool")) && argsMatch(s.args(), local.act());
+            return Result.of(WORDS, s.said(), same, s.none() ? "할 일 없음" : describe(s.tool(), s.args()), here, "");
+        }
         return Result.of(WORDS, s.said(), true, "두뇌로 감", "두뇌로 감", "");
     }
     static String turnLabel(String kind) {

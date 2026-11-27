@@ -20,6 +20,8 @@ final class GroqWork {
     /** Whisper on the free tier takes files up to 25 MB; a bigger recording goes to Gemini. */
     static final long WHISPER_BYTES = 24L * 1024 * 1024;
 
+    /** What this thread's last converse() used (Chat Completions' usage, core/Usage.chat), for the usage ledger (Chores, BuddyTalk). */
+    static final ThreadLocal<dev.jun.gyeot.core.Usage> USED = new ThreadLocal<>();
     static boolean on() { AppStore s = GeminiQuotas.store(); return s != null && s.groq.connected(); }
     static String key() throws Exception {
         AppStore s = GeminiQuotas.store(); String key = s == null ? "" : s.secrets.get(SecretStore.GROQ);
@@ -48,6 +50,7 @@ final class GroqWork {
         if (text.isEmpty()) throw new IllegalStateException("Groq가 빈 답을 보냈어요.");
         JSONObject usage = answer.optJSONObject("usage");
         GeminiQuotas.used(model, usage == null ? 0 : usage.optInt("total_tokens"));
+        USED.set(dev.jun.gyeot.core.Usage.chat(usage));
         return text;
     }
     /** A streamed answer: its words, and the tools it called ({"name", "arguments"} each, arguments as the model wrote them). */
@@ -74,11 +77,13 @@ final class GroqWork {
             if (response.status != 200) {
                 String text = OpenAiAccount.Http.read(response.body, 256 * 1024);
                 if (url.startsWith(GroqAccount.API)) GeminiQuotas.refusedGroq(model, response.status, text);
-                throw new IllegalStateException("HTTP " + response.status);
+                throw new dev.jun.gyeot.core.ProviderError(response.status, "HTTP " + response.status);
             }
             java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(response.body, StandardCharsets.UTF_8));
             dev.jun.gyeot.core.ChatStream.Turn read = dev.jun.gyeot.core.ChatStream.read(in, onText);
             if (url.startsWith(GroqAccount.API)) GeminiQuotas.used(model, read.tokens());
+            // Only the total comes with a streamed answer: kept as that, its parts unknown.
+            USED.set(read.tokens() > 0 ? new dev.jun.gyeot.core.Usage(null, null, null, null, null, (long) read.tokens()) : dev.jun.gyeot.core.Usage.UNKNOWN);
             return new Turn(read.text(), read.calls());
         }
     }
@@ -162,7 +167,7 @@ final class GroqWork {
             if (response.status == 200) return new JSONObject(text);
             GeminiQuotas.refusedGroq(model, response.status, text);
             String why = ""; try { JSONObject error = new JSONObject(text).optJSONObject("error"); why = error == null ? "" : error.optString("message"); } catch (Exception notJson) {}
-            throw new IllegalStateException("Groq 오류 HTTP " + response.status + (why.isBlank() ? "" : " (" + (why.length() > 160 ? why.substring(0, 160) + "…" : why) + ")"));
+            throw new dev.jun.gyeot.core.ProviderError(response.status, "Groq 오류 HTTP " + response.status + (why.isBlank() ? "" : " (" + (why.length() > 160 ? why.substring(0, 160) + "…" : why) + ")"));
         }
     }
 }

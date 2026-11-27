@@ -135,8 +135,22 @@ public record Usage(Long input, Long cacheRead, Long cacheWrite, Long output, Lo
         if (saved == null || saved.isBlank()) return "";
         try { return foot(new JSONObject(saved)); } catch (Exception broken) { return ""; }
     }
-    /** As above, for one kept as an object (a 작업창 answer); null is nothing known. */
-    public static String foot(JSONObject saved) { return saved == null ? "" : foot(saved.optLong("first"), of(saved)); }
+    /**
+     * As above, for one kept as an object (a 작업창 answer); null is nothing known. When another model answered because the
+     * chosen one could not (core/Fallback), its note comes first: "Claude 한도 → GPT-6.1 Terra로 답했어요 · 첫 글자 1.1초 · …".
+     */
+    public static String foot(JSONObject saved) {
+        if (saved == null) return "";
+        String line = foot(saved.optLong("first"), of(saved)), via = via(saved);
+        return via.isEmpty() ? line : line.isEmpty() ? via : via + " · " + line;
+    }
+    /** The note of a kept answer another model gave (core/Fallback.note), or "". */
+    public static String via(JSONObject saved) { return saved == null ? "" : saved.optString("via").strip(); }
+    /** The same for one kept as a JSON string (메인 대화's usage column). */
+    public static String via(String saved) {
+        if (saved == null || saved.isBlank()) return "";
+        try { return via(new JSONObject(saved)); } catch (Exception broken) { return ""; }
+    }
     /** "첫 글자 1.1초 · 12.4k 토큰 · 캐시 78%": only the parts that are known; "" when none is. first is in milliseconds, 0 unknown. */
     public static String foot(long first, Usage usage) {
         StringBuilder line = new StringBuilder();

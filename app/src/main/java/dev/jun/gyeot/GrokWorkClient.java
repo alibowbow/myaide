@@ -142,7 +142,7 @@ final class GrokWorkClient {
                         if (search && ("web_search".equals(refused) || GrokWork.searchRefused(OpenAiProtocol.message(error, "")))) { search = false; notes.add(SEARCH_REFUSED); continue; }
                         if (code && "code_interpreter".equals(refused)) { code = false; notes.add("Grok 연결이 코드 실행을 거절해 실행 없이 답했어요."); continue; }
                     }
-                    throw new IllegalStateException(GrokWork.error(response.status, OpenAiProtocol.message(error, "")));
+                    throw new dev.jun.gyeot.core.ProviderError(response.status, GrokWork.error(response.status, OpenAiProtocol.message(error, "")));
                 }
                 stream = WorkClient.read(response, plans || inspectMerge ? text -> {} : onText, onStage, () -> { guard.run(); account.check(expectedAccount); }, "Grok");
             } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }

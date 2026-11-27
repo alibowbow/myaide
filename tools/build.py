@@ -400,6 +400,11 @@ if __name__ == '__main__':
     habits.mkdir(parents=True, exist_ok=True)
     javac(['-encoding', 'UTF-8', '-d', habits, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/HabitsRegression.java'])
     run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (habits, jars[-1]))), 'dev.jun.gyeot.core.HabitsRegression'])
+    # 두뇌 배분 (core/BrainRoutes, Fallback, LocalAnswers, Prices): who answers, who takes over once, what is answered on the phone, what it costs.
+    brains = BUILD / 'brain-checks'
+    brains.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', brains, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/BrainRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (brains, jars[-1]))), 'dev.jun.gyeot.core.BrainRegression', ROOT / 'app/src/main/assets/buddy/scenarios.json'])
     test_board(jars[-1])
     # The optional larger suites run when their tests folder is present.
     if (ROOT / 'tests/CoreTests.java').is_file(): test(jars)

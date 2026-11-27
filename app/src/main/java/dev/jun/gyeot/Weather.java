@@ -25,6 +25,16 @@ final class Weather {
     private static volatile JSONObject kept; private static volatile long keptAt;
     static boolean allowed(Context c) { return c.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED; }
 
+    /**
+     * The weather already kept, for 기기 안 (core/LocalAnswers): never fetched here, so it costs no network; null when there is
+     * none. Its age goes with it, and LocalAnswers says it only while it is fresh.
+     */
+    static dev.jun.gyeot.core.LocalAnswers.Sky kept(long now) {
+        JSONObject w = kept; long at = keptAt;
+        if (w == null || at <= 0) return null;
+        return new dev.jun.gyeot.core.LocalAnswers.Sky(w.optString("place"), w.optInt("temp"), BuddyTalk.sky(w.optInt("code"), w.optBoolean("day", true)),
+            w.has("hi") ? Integer.valueOf(w.optInt("hi")) : null, w.has("lo") ? Integer.valueOf(w.optInt("lo")) : null, now - at);
+    }
     /** {temp, code, day, hi, lo, place}, or null. */
     static JSONObject now(Context c) {
         long t = System.currentTimeMillis();

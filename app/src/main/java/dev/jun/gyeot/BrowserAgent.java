@@ -296,22 +296,25 @@ final class BrowserAgent {
                     engine.main.post(() -> { if (activeModel == attempt) engine.setTaskStatus(lease, brain + deciding); });
                 }
                 attempt.modelStarted = System.nanoTime();
+                // What the step's AI used, for the usage ledger (브라우저, under the AI and model that decided this step).
+                dev.jun.gyeot.core.Usage[] spent = {null}; String decided = brain, decidedModel = model;
                 String text = switch (brain) {
                     case "gpt" -> {
                         checkSpeedAccount();
                         var response = OpenAiClient.complete(store.openai, model, web -> plannerPrompt(), input, false, stepEffort, speed, () -> checkAttempt(attempt), attempt.network);
                         checkAttempt(attempt);
-                        attempt.speedNotice = response.speedNotice;
+                        attempt.speedNotice = response.speedNotice; spent[0] = response.usage;
                         yield response.text;
                     }
-                    case "claude" -> ClaudeClient.complete(store.claude, model, web -> plannerPrompt(), input, false, stepEffort, () -> checkAttempt(attempt), attempt.network).text;
-                    case "grok" -> GrokWorkClient.complete(store.grok, model, web -> plannerPrompt(), input, false, stepEffort, () -> checkAttempt(attempt), attempt.network).text;
-                    case "nim" -> NimClient.complete(store.nim, nimGeneration, model, plannerPrompt(), input, () -> {
+                    case "claude" -> { var r = ClaudeClient.complete(store.claude, model, web -> plannerPrompt(), input, false, stepEffort, () -> checkAttempt(attempt), attempt.network); spent[0] = r.usage; yield r.text; }
+                    case "grok" -> { var r = GrokWorkClient.complete(store.grok, model, web -> plannerPrompt(), input, false, stepEffort, () -> checkAttempt(attempt), attempt.network); spent[0] = r.usage; yield r.text; }
+                    case "nim" -> { var r = NimClient.complete(store.nim, nimGeneration, model, plannerPrompt(), input, () -> {
                         checkAttempt(attempt);
-                    }, attempt.network).text;
-                    case "gemini" -> GeminiWorkClient.complete(store.gemini.connected() ? store.gemini.key() : store.secrets.get(), model, web -> plannerPrompt(), input, false, stepEffort, () -> checkAttempt(attempt), attempt.network).text;
+                    }, attempt.network); spent[0] = r.usage; yield r.text; }
+                    case "gemini" -> { var r = GeminiWorkClient.complete(store.gemini.connected() ? store.gemini.key() : store.secrets.get(), model, web -> plannerPrompt(), input, false, stepEffort, () -> checkAttempt(attempt), attempt.network); spent[0] = r.usage; yield r.text; }
                     default -> throw new IllegalStateException("선택한 두뇌를 사용할 수 없어요.");
                 };
+                UsageLedger.count(store, UsageLedger.BROWSER, dev.jun.gyeot.core.WorkBook.engine(decided), decidedModel, spent[0]);
                 checkAttempt(attempt);
                 JSONObject action;
                 try { action = BrowserTools.plan(text); }
@@ -348,6 +351,13 @@ final class BrowserAgent {
                     }
                     String from = brain;
                     if (switchBrain()) { serverRetries = 0; engine.setTaskStatus(lease, from + " 서버 오류 → " + brain + "로 이어서"); step(); return; }
+                }
+                // Nor is an account or a model the provider refused (401/403, a model gone, no key): the next AI the user connected
+                // takes the step, read the same way as 메인 대화's handoff (core/Fallback). A stop or a content refusal is not handed on.
+                dev.jun.gyeot.core.Fallback.Why why = dev.jun.gyeot.core.Fallback.why(e);
+                if (why == dev.jun.gyeot.core.Fallback.Why.ACCOUNT || why == dev.jun.gyeot.core.Fallback.Why.GONE || why == dev.jun.gyeot.core.Fallback.Why.NO_KEY) {
+                    String from = brain;
+                    if (switchBrain()) { serverRetries = 0; engine.setTaskStatus(lease, from + " " + why.label + " → " + brain + "로 이어서"); step(); return; }
                 }
                 complete(BrowserEngine.error("두뇌 응답을 처리하지 못했어요. " + dev.jun.gyeot.core.Jsons.message(e, "")));
             }); }
@@ -1045,6 +1055,10 @@ final class BrowserAgent {
     private int serverRetries;
     /** Whether a model call failed on its server's side for a while: overloaded, unavailable, an internal error, a timeout. */
     static boolean serverTrouble(Throwable error) {
+        // The provider's own status, when its client kept it (core/ProviderError), read as 메인 대화's handoff reads it.
+        dev.jun.gyeot.core.Fallback.Why why = dev.jun.gyeot.core.Fallback.why(error);
+        if (why == dev.jun.gyeot.core.Fallback.Why.SERVER || why == dev.jun.gyeot.core.Fallback.Why.TIMEOUT) return true;
+        if (dev.jun.gyeot.core.Fallback.cancelled(error) || dev.jun.gyeot.core.Fallback.refused(error)) return false;
         for (Throwable e = error; e != null; e = e.getCause()) {
             if (e instanceof java.net.SocketTimeoutException || e instanceof java.net.ConnectException) return true;
             String m = e.getMessage() == null ? "" : e.getMessage().toLowerCase(java.util.Locale.ROOT);
@@ -1054,6 +1068,8 @@ final class BrowserAgent {
     }
     /** Whether a model call failed on its provider's usage or rate limit. */
     static boolean limitReached(Throwable error) {
+        if (dev.jun.gyeot.core.Fallback.why(error) == dev.jun.gyeot.core.Fallback.Why.LIMIT) return true;
+        if (dev.jun.gyeot.core.Fallback.cancelled(error) || dev.jun.gyeot.core.Fallback.refused(error)) return false;
         for (Throwable e = error; e != null; e = e.getCause()) {
             if (e instanceof dev.jun.gyeot.core.ModelLimit) return true;
             String message = e.getMessage() == null ? "" : e.getMessage().toLowerCase(java.util.Locale.ROOT);

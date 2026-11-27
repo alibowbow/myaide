@@ -742,7 +742,9 @@ final class MainChatPage implements AutoCloseable {
         }
         if (!cut && List.of("error", "interrupted", "cancelled").contains(state) && m.optLong("reply_to") > 0)
             foot.addView(ui.ghost("다시 보내기", () -> resend(m.optLong("reply_to"))));
-        String caption = stamp(m); String model = modelLabel(m); if (!model.isBlank()) caption += " · " + model;
+        // Another model answered because the chosen one could not (막히면 다음 모델로): its note says who, instead of the chosen model's name.
+        String caption = stamp(m), via = done ? Usage.via(m.optString("usage")) : ""; String model = modelLabel(m);
+        if (!via.isEmpty()) caption += " · " + via; else if (!model.isBlank()) caption += " · " + model;
         if (web.unsearched()) caption += " · " + MainSearch.UNSEARCHED;
         TextView meta = ui.text(caption, 11.5f, 450, MUTED); meta.setSingleLine(true); meta.setEllipsize(TextUtils.TruncateAt.END); meta.setPadding(ui.dp(done ? 6 : 2), 0, 0, 0);
         foot.addView(meta, new LinearLayout.LayoutParams(0, -2, 1));

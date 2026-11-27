@@ -175,7 +175,10 @@ final class BuddyTalk {
         ScopedModels m = ScopedModels.buddy(store); String engine = m.engine();
         if (engine == null || engine.isBlank() || !store.ready(engine)) throw new IllegalStateException("퍼레 두뇌로 고른 AI가 연결되지 않았어요.");
         String model = m.model(engine), effort = m.effort(engine, model);
-        return FileAiOperationsUi.complete(store, FileAiOperationsUi.Connection.capture(store, engine), model, effort, instructions, input, () -> {}, cancel);
+        String said = FileAiOperationsUi.complete(store, FileAiOperationsUi.Connection.capture(store, engine), model, effort, instructions, input, () -> {}, cancel);
+        // Counted as 퍼레's, under the AI chosen for it (its client tells no tokens here: 모름 in 예상 비용).
+        UsageLedger.count(store, UsageLedger.BUDDY, engine, model, dev.jun.gyeot.core.Usage.UNKNOWN);
+        return said;
     }
     static void brain(Context c, String which) { c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(BRAIN, which).apply(); }
     /** The newest Qwen the user's Groq key lists (its chat models, not guards, coders or vision), else Qwen3 32B. */
@@ -209,7 +212,12 @@ final class BuddyTalk {
             new Thread(() -> {
                 String reason = "빈 답";
                 try { String line = clean.apply(askCustom(store, instructions, input, null)); if (line != null) { done.accept(line); return; } }
-                catch (Exception unavailable) { reason = why("고른 AI", unavailable, timeoutMs); /* the quick brains next */ }
+                catch (Exception unavailable) {
+                    reason = why("고른 AI", unavailable, timeoutMs);
+                    // The AI declined what was asked: the quick brains are not asked it instead (core/Fallback).
+                    if (dev.jun.gyeot.core.Fallback.refused(unavailable) || dev.jun.gyeot.core.Fallback.cancelled(unavailable)) { failed.accept(reason); return; }
+                    /* the quick brains next */
+                }
                 if (nim || groq) quick(c, store, nim, groq, QWEN, instructions, input, temperature, timeoutMs, clean, done, failed); else failed.accept(reason);
             }, "gyeot-buddy-custom").start();
             return;
@@ -268,6 +276,7 @@ final class BuddyTalk {
                     // Qwen's thinking off for speed; a model that refuses the setting is asked again without it.
                     try { text = GroqWork.converse(model, instructions, messages, "none", temperature, timeoutMs, stopGroq); }
                     catch (Exception first) { if (answered.get()) throw first; text = GroqWork.converse(model, instructions, messages, null, temperature, timeoutMs, stopGroq); }
+                    UsageLedger.count(store, UsageLedger.BUDDY, dev.jun.gyeot.core.WorkBook.GROQ, model, GroqWork.USED.get());
                     String line = clean.apply(text); if (line != null) win.accept(line); else { reason.set("빈 답"); lost.run(); }
                 } catch (Exception e) { reason.set(why("Groq", e, timeoutMs)); lost.run(); }
             }, "gyeot-buddy-qwen").start();
@@ -279,6 +288,7 @@ final class BuddyTalk {
                 try {
                     WorkClient.Result r = NimClient.complete(store.nim, store.nim.generation(), NIM_MODEL, instructions, input, () -> { if (answered.get()) throw new java.util.concurrent.CancellationException(); }, stopNim);
                     if (System.currentTimeMillis() - begun > 4_000) nimSlowUntil = System.currentTimeMillis() + 10 * 60_000L;
+                    UsageLedger.count(store, UsageLedger.BUDDY, dev.jun.gyeot.core.WorkBook.NIM, NIM_MODEL, r.usage);
                     String line = clean.apply(r.text); if (line != null) win.accept(line); else { reason.set("빈 답"); lost.run(); }
                 } catch (Exception e) { nimSlowUntil = System.currentTimeMillis() + 5 * 60_000L; reason.set(why("NVIDIA", e, timeoutMs)); lost.run(); }
             }, "gyeot-buddy-nim").start();
@@ -332,6 +342,17 @@ final class BuddyTalk {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
         boolean custom = CUSTOM.equals(brain(c)) && !customLabel(store).isEmpty();
         boolean qwen = GroqWork.on() && !NIM.equals(brain(c));
+        // 기기 안 first (두뇌 배분's DEVICE kind): the time, a sum, a timer … answered with no model; a thing to do goes as the
+        // brain's own "할일:" line, so HomeActivity.chatAnswer does it exactly as it would the brain's.
+        dev.jun.gyeot.core.LocalAnswers.Answer here = local(c, question);
+        if (here != null) {
+            JSONObject act = here.act() == null ? null : loose(here.act().toString());
+            if (here.act() == null || act != null) {
+                chatBy = "기기 안 · " + here.rule(); localAsked = question.strip();
+                store.usage.local(UsageLedger.BUDDY, here.rule());
+                return act == null ? here.say() : (here.say().isEmpty() ? "" : here.say() + "\n") + "할일: " + act;
+            }
+        }
         String in = BuddyPrompt.chatInput(history, question.strip());
         if (custom) {
             // The AI the user chose for 퍼레 (화면 꾸미기 → 퍼레 두뇌); when it cannot answer, Qwen or NVIDIA below.
@@ -340,18 +361,24 @@ final class BuddyTalk {
                 chatBy = "고른 AI · " + customLabel(store);
                 return text.replaceAll("(?s)<think>.*?</think>", "").strip();
             } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
-            catch (Exception unavailable) { if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException(); if (!qwen && !store.nim.connected()) throw unavailable; }
+            catch (Exception unavailable) {
+                if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException();
+                // A content refusal is not asked of the quick brains instead (core/Fallback); anything else goes to them.
+                if (!qwen && !store.nim.connected() || dev.jun.gyeot.core.Fallback.refused(unavailable)) throw unavailable;
+            }
         }
         if (qwen) {
             String model = qwen(store), text;
             JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", in));
             try { text = GroqWork.converse(model, chatInstructions(c, store, question), messages, "none", 0.7, 30_000, cancel); }
             catch (Exception first) { if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException(); text = GroqWork.converse(model, chatInstructions(c, store, question), messages, null, 0.7, 30_000, cancel); }
+            UsageLedger.count(store, UsageLedger.BUDDY, dev.jun.gyeot.core.WorkBook.GROQ, model, GroqWork.USED.get());
             chatBy = "Groq · " + model;
             return text.replaceAll("(?s)<think>.*?</think>", "").strip();
         }
         WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), store.nim.model(), chatInstructions(c, store, question), in,
             () -> { if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException(); }, cancel, onDelta == null ? text -> {} : onDelta);
+        UsageLedger.count(store, UsageLedger.BUDDY, dev.jun.gyeot.core.WorkBook.NIM, store.nim.model(), answer.usage);
         chatBy = "NVIDIA · " + store.nim.model();
         return answer.text == null ? "" : answer.text.strip();
     }
@@ -411,7 +438,7 @@ final class BuddyTalk {
         // "<앱> 꺼 줘" is done at once, with no brain (준, 2026-11-27 over 네이버 지도: the brain said "네이버지도 닫을게 👋" and
         // called nothing): the app as named, when an app by that name is here, or the one on screen ("이거 꺼 줘").
         String closing = ask.guest() || ask.doIt() == null ? null : dev.jun.gyeot.core.VoiceTurns.closing(ask.said());
-        if (closing == null) { withBrain(c, ask); return; }
+        if (closing == null) { localOrBrain(c, ask); return; }
         new Thread(() -> {
             if (!closing.isEmpty() && BuddyActs.findApp(c, closing) == null) { withBrain(c, ask); return; }
             JSONObject act;
@@ -420,6 +447,39 @@ final class BuddyTalk {
             ask.doIt().accept(act);
             ask.done().accept(BuddyTools.say(act));
         }, "gyeot-buddy-close").start();
+    }
+    // ── 기기 안 (두뇌 배분's DEVICE kind, core/LocalAnswers): answered on the phone with no model ──
+    /** The last question 퍼레와 대화 answered on the phone, so learnChat does not ask the learning brain about "지금 몇 시야". */
+    private static volatile String localAsked = "";
+    /**
+     * What 퍼레 answers itself for said with no model (core/LocalAnswers), or null for the brain: an app is opened or closed
+     * there only when one is installed by exactly that name (BuddyActs.exactApp). Off the main thread (it reads the apps).
+     */
+    static dev.jun.gyeot.core.LocalAnswers.Answer local(Context c, String said) {
+        dev.jun.gyeot.core.LocalAnswers.Answer a;
+        try { a = dev.jun.gyeot.core.LocalAnswers.of(said, java.time.ZonedDateTime.now(), Weather.kept(System.currentTimeMillis())); }
+        catch (RuntimeException unread) { return null; }
+        if (a == null) return null;
+        if (a.act() != null && ("open_app".equals(a.rule()) || "close_app".equals(a.rule())) && BuddyActs.exactApp(c, a.act().optString("app")) == null) return null;
+        return a;
+    }
+    /**
+     * A turn of the voice talk: 기기 안 when it can answer (not for a guest, whose words never do a thing and who is not told the
+     * user's weather; a thing to do only where one may be done), recorded in the usage ledger as 기기 안 unless it is 퍼레 자동
+     * 점검's dry run; otherwise the brain. The thing goes through doIt as the brain's tool call would, so a timer still waits
+     * for its yes.
+     */
+    private static void localOrBrain(Context c, Ask ask) {
+        if (ask.guest()) { withBrain(c, ask); return; }
+        new Thread(() -> {
+            dev.jun.gyeot.core.LocalAnswers.Answer a = local(c, ask.said());
+            JSONObject act = a == null || a.act() == null ? null : loose(a.act().toString());
+            if (a == null || a.act() != null && (act == null || ask.doIt() == null)) { withBrain(c, ask); return; }
+            answeredBy = "기기 안 · " + a.rule(); toolsSent = 0;
+            if (!ask.dry()) ((GyeotApp) c.getApplicationContext()).store().usage.local(UsageLedger.BUDDY, a.rule());
+            if (act != null) ask.doIt().accept(act);
+            ask.done().accept(act != null && a.say().isEmpty() ? BuddyTools.say(act) : a.say());
+        }, "gyeot-buddy-local").start();
     }
     private static void withBrain(Context c, Ask ask) {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
@@ -467,7 +527,11 @@ final class BuddyTalk {
                 JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", input));
                 GroqWork.Turn t = null; String[] used = null;
                 for (String[] w : ways) {
-                    try { t = GroqWork.stream(w[0], w[1], w[2], withTools, messages, w[3], 0.7, tools, "auto", 9_000, sentences::add, null); used = w; answeredBy = w[4] + " · " + w[2]; break; }
+                    try {
+                        t = GroqWork.stream(w[0], w[1], w[2], withTools, messages, w[3], 0.7, tools, "auto", 9_000, sentences::add, null); used = w; answeredBy = w[4] + " · " + w[2];
+                        UsageLedger.count(store, UsageLedger.BUDDY, "Groq".equals(w[4]) ? dev.jun.gyeot.core.WorkBook.GROQ : dev.jun.gyeot.core.WorkBook.NIM, w[2], GroqWork.USED.get());
+                        break;
+                    }
                     catch (Exception next) { why = why(w[4], next, 9_000); if (!sentences.said().isEmpty()) break; }
                 }
                 if (t == null) throw new IllegalStateException(why);
@@ -581,6 +645,7 @@ final class BuddyTalk {
                 String effort = mine ? m.effort(m.engine(), model) : "low";
                 JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", input));
                 String line = clean.apply(GroqWork.converse(model, instructions, messages, store.groqModels.profile(model).normalize(effort).isEmpty() ? null : effort, temperature, 8_000, null));
+                UsageLedger.count(store, UsageLedger.BUDDY, dev.jun.gyeot.core.WorkBook.GROQ, model, GroqWork.USED.get());
                 if (line != null) { done.accept(line); return; }
             } catch (Exception slow) { /* Qwen and NVIDIA next */ }
             quick(c, store, nim, groq, QWEN, instructions, input, temperature, 8_000, clean, done, failed);
@@ -853,6 +918,8 @@ final class BuddyTalk {
         } catch (Exception unreadable) { turns.clear(); }
         int from = turns.size();
         if (question == null || question.isBlank()) return;
+        // Answered on the phone (기기 안): the time or a sum teaches nothing about the user, and no brain is asked for it.
+        if (question.strip().equals(localAsked)) { localAsked = ""; return; }
         turns.add(new String[]{"user", question.strip()});
         if (answer != null && !answer.isBlank()) turns.add(new String[]{"assistant", answer.strip()});
         learnTalk(c, turns, from, java.util.List.of());
@@ -1208,7 +1275,7 @@ final class BuddyTalk {
         if (e.optBoolean("airplane")) out.append("비행기 모드. ");
         return out.toString().strip();
     }
-    private static String sky(int code, boolean day) {
+    static String sky(int code, boolean day) {
         if (code == 0) return day ? "맑음" : "맑은 밤";
         if (code <= 2) return "구름 조금";
         if (code == 3) return "흐림";

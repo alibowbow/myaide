@@ -848,6 +848,16 @@ final class BuddyActs {
         String id = bestApp(apps, spoken);
         return id == null ? null : infos.get(id);
     }
+    /**
+     * The installed app whose label is exactly the spoken name (or that name's known alias), else null: 기기 안 (core/LocalAnswers)
+     * opens or closes an app with no model only then; a name that is only like a label goes to the brain as before. Off the main thread.
+     */
+    static LauncherActivityInfo exactApp(Context context, String spoken) {
+        LauncherActivityInfo info = findApp(context, spoken);
+        if (info == null) return null;
+        String want = appKey(spoken).replaceAll("앱$|어플$", ""), label = appKey(String.valueOf(info.getLabel())), alias = APP_ALIASES.getOrDefault(want, "");
+        return !want.isEmpty() && (label.equals(want) || !alias.isEmpty() && label.equals(alias)) ? info : null;
+    }
     /** Of apps (id → {label, package}), the one a spoken name means: the same label, else one starting with it, else one containing it; shorter first. */
     static String bestApp(Map<String, String[]> apps, String spoken) {
         String want = appKey(spoken).replaceAll("앱$|어플$", "");

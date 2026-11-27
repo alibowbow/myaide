@@ -105,6 +105,23 @@ public class BuddyCheckTests {
         try { BuddyCheck.parse("[{\"said\":\"x\",\"expect\":{\"turn\":\"SING\"}}]"); fail(); } catch (IllegalArgumentException e) { assertTrue(e.getMessage().contains("SING")); }
     }
 
+    /**
+     * 기기 안 (core/LocalAnswers, 두뇌 배분): words answered with no model must do the very thing a scenario expects; one that
+     * does another thing, or does a thing where nothing is to be done, fails in the words layer.
+     */
+    @Test public void deviceAnswersAgreeWithTheScenarios() {
+        BuddyCheck.Result timer = BuddyCheck.word(one("{\"said\":\"3분 타이머 맞춰 줘\",\"expect\":{\"tool\":\"timer\",\"args\":{\"seconds\":180}}}"));
+        assertTrue(timer.got(), timer.pass()); assertTrue(timer.got(), timer.got().startsWith("기기 안: timer"));
+        BuddyCheck.Result wrong = BuddyCheck.word(one("{\"said\":\"3분 타이머 맞춰 줘\",\"expect\":{\"tool\":\"timer\",\"args\":{\"seconds\":300}}}"));
+        assertFalse("five minutes were not said", wrong.pass());
+        BuddyCheck.Result sum = BuddyCheck.word(one("{\"said\":\"12 곱하기 7은?\",\"expect\":{\"tool\":\"calculator\",\"args\":{\"expression\":\"12\"}}}"));
+        assertTrue(sum.got(), sum.pass());
+        assertTrue("the time is no thing to do", BuddyCheck.word(one("{\"said\":\"지금 몇 시야\",\"expect\":{\"none\":true}}")).pass());
+        BuddyCheck.Result coin = BuddyCheck.word(one("{\"said\":\"동전 던져 줘\",\"expect\":{\"none\":true}}"));
+        assertFalse("a coin is a thing done", coin.pass()); assertTrue(coin.got(), coin.got().contains("coin"));
+        assertTrue("talk still goes to the brain", BuddyCheck.word(one("{\"said\":\"몇 시에 만날까\",\"expect\":{\"none\":true}}")).got().equals("두뇌로 감"));
+    }
+
     /** "자가 점검해 줘" opens the check; talk about it does not. */
     @Test public void knowsWhenItIsAskedToCheck() {
         for (String yes : new String[]{"자가 점검해 줘", "퍼레야 자동 점검 해 줘", "자가진단 해 봐", "스스로 점검해 볼래?"}) assertTrue(yes, BuddyCheck.asked(yes));

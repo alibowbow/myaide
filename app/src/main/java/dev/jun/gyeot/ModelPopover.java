@@ -109,7 +109,9 @@ final class ModelPopover {
     private void main() {
         card.removeAllViews();
         String engine = selection.engine(), current = selection.model(engine);
-        card.addView(caption(WorkBook.author(engine)));
+        // The chosen model's rough price beside its AI's name (core/Prices: "Claude · 100만 토큰 $4/$20", "ChatGPT · 구독", "NVIDIA NIM · 무료").
+        String price = current.isBlank() ? "" : WorkBook.GEMINI.equals(engine) ? dev.jun.gyeot.core.Prices.geminiTag(current) : dev.jun.gyeot.core.Prices.tag(engine, store.usageRoute(engine), current, false, true);
+        card.addView(caption(WorkBook.author(engine) + (price.isEmpty() ? "" : " · " + price)));
         JSONArray models = catalog.models(engine); int shown = 0; boolean currentShown = false;
         // Antigravity lists several companies' models (Gemini, Claude, GPT): all of them here, so Claude and GPT are not cut off
         // after the first few Geminis (준: "안티그래비티에서 제공하는 클로드와 지피티를 선택할 수가 없어").

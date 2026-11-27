@@ -257,6 +257,26 @@ final class MainChatEngine implements AutoCloseable {
     long enqueue(String text,JSONArray files){return enqueue(text,files,UsageLedger.MAIN,null);}
     /** As above; files the selected engine cannot take (a PDF on NIM) are refused before the message is kept. */
     long enqueue(String text,JSONArray files,String surface,Listener listener){settingsAndReconcile();if(closed)throw new IllegalStateException("대화가 닫혔어요.");ScopedModels chosen=ScopedModels.main(app);String engine=chosen.engine();if(!app.ready(engine))throw new IllegalStateException("메인 대화에서 사용할 AI를 먼저 연결해 주세요.");JSONObject selection=chosen.snapshot();String fingerprint=app.workConnectionFingerprint(engine);if(fingerprint.isBlank())throw new IllegalStateException("AI 연결을 확인해 주세요.");String refused=MainAttachments.refusedBy(engine,files);if(!refused.isEmpty())throw new IllegalArgumentException(refused);MainChatStore.Turn turn=history.enqueue(text,files,selection,fingerprint);AtomicReference<Runnable> abort=new AtomicReference<>();cancellations.put(turn.reply(),abort);Deltas deltas=new Deltas(turn.reply(),listener);streams.put(turn.reply(),deltas);app.changed();try{replies.execute(()->answer(turn,abort,deltas,surface));}catch(RejectedExecutionException e){history.cancel(turn.reply());cancellations.remove(turn.reply());streams.remove(turn.reply());app.changed();throw e;}return turn.reply();}
+    /** 설정 → 사용량's 막히면 다음 모델로 (on unless the user turned it off): the main chat may hand a failed turn to the next model once. */
+    static final String FALLBACK="brainFallback";
+    /**
+     * The selection a turn goes on with when using could not answer it (core/Fallback.why is not NONE): using's own with the
+     * engine set to the first of BrainRoutes.WORK_FALLBACK that is connected, bound to a connection and able to take the
+     * turn's files, on the model the user last chose for that engine here (else its default), at standard speed. Null when
+     * the user turned this off, the failure is not one another model helps with, or no other model is there. Never saved.
+     */
+    private JSONObject handoff(JSONObject using,Exception failed,MainRequest request,boolean shown,boolean ran,boolean hopped){
+        if(BrainRoutes.hop(failed,app.settings.getBoolean(FALLBACK,true),shown,ran,hopped)==Fallback.Why.NONE)return null;
+        List<String> chain=BrainRoutes.chain(BrainRoutes.Kind.WORK,using.optString("engine"),true,e->app.ready(e)&&request.filesRefused(e).isEmpty()&&!app.workConnectionFingerprint(e).isBlank());
+        if(chain.size()<2)return null;
+        String to=chain.get(1);JSONObject next=ScopedModels.copy(using);Jsons.put(next,"engine",to);Jsons.put(next,"speeds",new JSONObject());
+        String chosen;try{chosen=ScopedModels.frozen(app,next).model(to);}catch(RuntimeException unavailable){return null;}
+        if(chosen==null||chosen.isBlank())return null;
+        JSONObject models=next.optJSONObject("models");if(models==null){models=new JSONObject();Jsons.put(next,"models",models);}Jsons.put(models,to,chosen);
+        return next;
+    }
+    /** A model's name as the main chat shows it ("GPT-6.1 Terra"), its id when the catalog does not have it. */
+    private String label(String engine,String model){try{return new TeamRoster(app,ScopedModels.main(app)).label(engine,model);}catch(Exception unknown){return model;}}
     /** One request that answered, in the usage ledger: metadata only, counted unknown when the provider told nothing. */
     private void counted(String surface,JSONObject selection,String identity,Usage used){String engine=selection.optString("engine");app.usage.record(new UsageLedger.Row(System.currentTimeMillis(),surface,engine,model(selection),app.usageRoute(engine),identity,used==null?Usage.UNKNOWN:used));}
     private void connection(JSONObject selection,String fingerprint){String engine=selection.optString("engine");if(closed||!app.ready(engine)||fingerprint.isBlank()||!fingerprint.equals(app.workConnectionFingerprint(engine))||!inUse(selection).equals(inUse(ScopedModels.main(app).snapshot())))throw new CancellationException("메인 AI 연결이나 모델 선택이 바뀌어 이전 요청을 중단했어요.");}
@@ -439,6 +459,11 @@ final class MainChatEngine implements AutoCloseable {
         // The photos and PDFs attached to the question go with it as the provider's file parts, every time it is answered;
         // a text file's text is in the input already.
         List<MainRequest.Attachment> attached=attachments(turn);
+        // 막히면 다음 모델로 (두뇌 배분, core/Fallback): who answers this turn, at first the model chosen. Once, before a word or a
+        // function of it reached the user, a failure of that model or its account (no key, refused, limit, server, timeout, gone,
+        // never a stop or a content refusal) hands the turn to the next connected big model (handoff, BrainRoutes.WORK_FALLBACK);
+        // the answer says so in its foot (via) and the ledger counts the model that answered. The user's choice is not changed.
+        JSONObject using=selection;String usingEngine=engine,usingModel=model,usingIdentity=identity,via="",gaveUp="";MainSearch.Tools usingWeb=web;
         try{for(int attempt=0;;attempt++){
             String input=history.context(turn,new MainChatStore.Options(memory,summary,budget,longTerm,asked,events,video));
             if(attempt>0)deltas.restart();
@@ -447,21 +472,35 @@ final class MainChatEngine implements AutoCloseable {
             long sent=System.currentTimeMillis();long[] first={0};Usage[] used={null};
             Consumer<String> pieces=delta->{if(first[0]==0&&delta!=null&&!delta.isEmpty())first[0]=Math.max(1,System.currentTimeMillis()-sent);deltas.text(delta);};
             // The instructions and tools stay the same from reply to reply, so the provider may keep them cached under the conversation's key.
-            MainRequest request=MainRequest.of(instructions,input).onText(pieces).onUsage(u->used[0]=u).cache(cacheKey).tools(web.search(),web.fetch()).searchAlways(web.always()).files(attached).code(hosted);
-            if(provider.carries(engine).contains(MainRequest.Option.THINKING_SUMMARY))request=request.thinkingSummary(deltas::thinking);
-            try{MainAdapters.Reply got=tools==null?provider.reply(selection,request,guard,abort):provider.reply(selection,request,tools,guard,abort);counted(surface,selection,identity,used[0]);spent[0]=(used[0]==null?Usage.UNKNOWN:used[0]).json(first[0]);
-                return mode!=MainSearch.Mode.OFF&&(web.unsearched()||got.unsearched())?got.withoutSearch():new MainAdapters.Reply(got.text(),got.sources(),got.note(),got.suggestions(),false,got.unread(),got.usage(),got.limits());}
+            MainRequest request=MainRequest.of(instructions,input).onText(pieces).onUsage(u->used[0]=u).cache(cacheKey).tools(usingWeb.search(),usingWeb.fetch()).searchAlways(usingWeb.always()).files(attached).code(hosted&&MainRequest.hostsCode(usingEngine));
+            // The model that took over carries what it can of the request (a search, a summary it has no field for, left out).
+            if(!via.isEmpty())request=request.forEngine(usingEngine);
+            if(provider.carries(usingEngine).contains(MainRequest.Option.THINKING_SUMMARY))request=request.thinkingSummary(deltas::thinking);
+            try{MainAdapters.Reply got=tools==null?provider.reply(using,request,guard,abort):provider.reply(using,request,tools,guard,abort);counted(surface,using,usingIdentity,used[0]);spent[0]=(used[0]==null?Usage.UNKNOWN:used[0]).json(first[0]);if(!via.isEmpty())Jsons.put(spent[0],"via",via);
+                return mode!=MainSearch.Mode.OFF&&(usingWeb.unsearched()||got.unsearched())?got.withoutSearch():new MainAdapters.Reply(got.text(),got.sources(),got.note(),got.suggestions(),false,got.unread(),got.usage(),got.limits());}
             catch(CancellationException stopped){throw stopped;}
             catch(Exception failed){
                 String message=failed.getMessage()==null?"":failed.getMessage();
+                JSONObject next=handoff(using,failed,request,first[0]!=0,ran.get(),!via.isEmpty());
+                if(next!=null){
+                    guard.run();
+                    String to=next.optString("engine"),toModel=model(next),label=label(to,toModel);Fallback.Why why=Fallback.why(failed);
+                    via=Fallback.note(why,WorkBook.author(usingEngine),label);gaveUp=WorkBook.author(usingEngine)+" "+why.label+" → "+label+"도 답하지 못했어요. ";
+                    using=next;usingEngine=to;usingModel=toModel;usingIdentity=app.usageIdentity(to);usingWeb=MainSearch.tools(mode,to,provider.carries(to),query);
+                    // The history is cut to what the model taking over can read.
+                    int window=budget(app,next);if(window<budget){budget=window;if(memory)longTerm=app.recallMemory(query,Memory.budget(budget));}
+                    deltas.restart();deltas.status(via.replace("답했어요","답하는 중이에요"));
+                    attempt=-1;continue;
+                }
+                if(!gaveUp.isEmpty()&&!ContextWindow.overflow(message))throw new IllegalStateException(gaveUp+message,failed);
                 if(attempt>0)throw new IllegalStateException("대화 맥락을 줄여 한 번 더 보냈지만 답변을 받지 못했어요. "+message,failed);
                 if(!ContextWindow.overflow(message))throw failed;
                 // Too long only after functions ran (a long page read part by part): what they did stands, so the turn is not
                 // sent again and the window is not made smaller for what the conversation itself did not cause.
                 if(ran.get())throw new IllegalStateException("읽은 내용이 너무 길어서 답변을 마치지 못했어요. 이미 실행한 저장·수정은 그대로예요. 범위를 나눠서 다시 요청해 주세요.",failed);
-                int smaller=ContextWindow.shrink(engine,model,input.length()+instructions.length(),message);
+                int smaller=ContextWindow.shrink(usingEngine,usingModel,input.length()+instructions.length(),message);
                 if(smaller>=budget)throw failed;
-                guard.run();budget=smaller;app.settings.edit().putInt(limitKey(engine,model),smaller).apply();
+                guard.run();budget=smaller;app.settings.edit().putInt(limitKey(usingEngine,usingModel),smaller).apply();
                 // The notes about the user shrink with the window they are 2% of.
                 if(memory)longTerm=app.recallMemory(query,Memory.budget(budget));
             }
