@@ -29,6 +29,13 @@ public final class VoiceTurns {
         String t = bare(heard);
         return !t.isEmpty() && t.codePointCount(0, t.length()) <= LONGEST && MEDIA.matcher(t).matches();
     }
+    /** A thing 퍼레 was about to do, or just did, said to be the wrong one: 아니 멜론으로, 그거 말고, 다른 거, 잠깐, 취소. */
+    private static final Pattern CORRECTS = Pattern.compile("^(?:아니|아냐|아뇨)|그게아니라|말고|다른거|잠깐|취소|하지마");
+    /** Whether heard corrects what 퍼레 was about to do or just did (a no, a "not that", a wait), at any length. */
+    public static boolean corrects(String heard) {
+        String t = bare(heard);
+        return !t.isEmpty() && CORRECTS.matcher(t).find();
+    }
     /** What was said without spaces and punctuation. */
     static String bare(String heard) { return heard == null ? "" : heard.strip().replaceAll("[\\s\\p{Punct}·…~。，！？「」『』“”‘’]+", ""); }
 

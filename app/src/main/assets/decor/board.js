@@ -256,7 +256,7 @@ function makeBoard(slot) {
     const pick = e.target.closest ? e.target.closest(".pick") : null;
     if (pick) { answer(b, bubble.dataset.q || "", pick.textContent); return; }
     if (bubble.classList.contains("asking")) return; // a question waits for its answer
-    const go = bubble.dataset.go; bubble.classList.remove("on", "act");
+    const go = bubble.dataset.go; bubble.classList.remove("on", "act"); b._go = "";
     if (go && !lockedNow) (window.boardGo || (w => { location.href = "/do/" + encodeURIComponent(w); }))(go);
   });
   alive(b); toys(b); roam(b);
@@ -1136,20 +1136,27 @@ function drawCare(b) {
 let voiceOn = false, voiceAt = 0;
 // A talk the page heard nothing of for two minutes (it ended while another app was in front): over, the mouth still.
 setInterval(() => { if (voiceOn && !document.hidden && Date.now() - voiceAt > 120000) boardVoiceState("idle", ""); }, 10000);
-function boardVoiceState(state, text, ms) {
+/*
+  go: what a tap on the words being said opens (BuddyVoice: an app it opened did not come up, "fix:overlay" for the way
+  through). Those words stay, tappable, while it listens and nothing is heard yet; any other state lets them go.
+*/
+function boardVoiceState(state, text, ms, go) {
   voiceAt = Date.now();
   boards.forEach(b => {
     const buddy = $(b, ".buddy"), bubble = $(b, ".bubble"), svg = $(b, ".bot");
+    const more = () => { if (!b._go) return; const m = document.createElement("b"); m.className = "more"; m.textContent = " ›"; bubble.appendChild(m); fitBubble(bubble); };
     if (state === "gap") {
       // Nothing sounding between two sentences: the words said so far stay whole, the mouth rests.
       voiceOn = true; clearInterval(b._typing); svg.classList.remove("talking");
       const said = text || b._saying || "";
-      if (said) { bubble.textContent = said; bubble.classList.add("on"); fitBubble(bubble); }
+      if (said) { bubble.textContent = said; more(); bubble.classList.add("on"); fitBubble(bubble); }
       return;
     }
     clearTimeout(b._bubble); clearInterval(b._typing);
     buddy.classList.toggle("listening", state === "listening");
     if (state !== "speaking") { svg.classList.remove("talking"); b._saying = ""; }
+    if (state === "listening" && !text && b._go) { voiceOn = true; return; } // the tappable words stay until something is heard
+    if (state !== "speaking") b._go = "";
     if (state === "listening") {
       voiceOn = true; if (b._mood) b._mood(""); if (b._feel) b._feel("", 1);
       bubble.classList.remove("act"); bubble.dataset.go = "";
@@ -1159,10 +1166,11 @@ function boardVoiceState(state, text, ms) {
       voiceOn = true; thinking(b); clearTimeout(b._bubble);
     } else if (state === "speaking") {
       voiceOn = true; if (b._mood) b._mood(""); if (b._feel) b._feel("happy", 1800);
+      b._go = go || ""; bubble.dataset.go = b._go; bubble.classList.toggle("act", !!b._go);
       bubble.textContent = ""; bubble.classList.add("on"); svg.classList.add("talking");
       const chars = Array.from(text || ""); let i = 0; b._saying = text || "";
       const step = ms > 0 && chars.length ? Math.min(140, Math.max(40, ms / chars.length)) : 70;
-      b._typing = setInterval(() => { i++; bubble.textContent = chars.slice(0, i).join(""); fitBubble(bubble); if (i >= chars.length) clearInterval(b._typing); }, step);
+      b._typing = setInterval(() => { i++; bubble.textContent = chars.slice(0, i).join(""); fitBubble(bubble); if (i >= chars.length) { clearInterval(b._typing); more(); } }, step);
     } else {
       voiceOn = false; if (b._mood) b._mood("");
       if (text) { speak(b, {text}, 3200); if (state === "done" && b._feel) b._feel("wink", 1400); }

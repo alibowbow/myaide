@@ -312,7 +312,7 @@ final class BuddyTalk {
         + "{\"tool\":\"app_settings\",\"app\":\"카카오톡\"}(앱 정보·알림·권한 화면) · {\"tool\":\"downloads\"} · {\"tool\":\"gallery\"} · {\"tool\":\"contacts\",\"who\":\"이름\"} · {\"tool\":\"calculator\",\"expression\":\"35000*0.15\"} · "
         + "{\"tool\":\"email\",\"who\":\"이름\",\"subject\":\"제목\",\"text\":\"내용\"} · {\"tool\":\"translate\",\"text\":\"번역할 글\",\"to\":\"en\"} · {\"tool\":\"coin\"} · {\"tool\":\"dice\",\"count\":1} · {\"tool\":\"pick\",\"options\":[\"짜장면\",\"짬뽕\"]} · "
         + "{\"tool\":\"world_time\",\"place\":\"뉴욕\"} · {\"tool\":\"count_days\",\"date\":\"2026-12-25\",\"label\":\"크리스마스\"}(며칠 뒤가 언제냐면 \"add_days\":100). "
-        + "동전·주사위·골라 주기·계산·다른 나라 시각·날짜 세기는 답을 지어내지 말고 할일 줄을 써(답은 그 할일이 말해 주니 첫 줄은 '던져 볼게!'처럼 짧게). "
+        + "동전·주사위·골라 주기·계산·다른 나라 시각·날짜 세기는 답을 지어내지 말고 할일 줄을 써(답은 그 할일이 말해 주니 첫 줄은 '던져 볼게!'처럼 짧게). 알람·타이머의 첫 줄은 '알겠어!'만(시각·길이는 할일이 다시 말해 줘). "
         + "사용자가 기억해 달라, 잊어 달라, 호칭을 바꿔 달라, 조용히 있어 달라고 하면: {\"tool\":\"remember\",\"fact\":\"사용자는 차를 지하 2층에 세웠대\"} · {\"tool\":\"forget\",\"what\":\"고양이\"} · {\"tool\":\"call_me\",\"title\":\"주인공님\"} · {\"tool\":\"quiet\",\"hours\":2}(다시 말 걸어도 되면 0). "
         + "너(퍼레) 자신에게 하는 부탁도 직접 해: {\"tool\":\"buddy_toy\",\"toy\":\"주사위\"}(" + BuddyBoard.sample(BuddyBoard.TOYS, 14) + ") · "
         + "{\"tool\":\"buddy_outfit\",\"items\":[\"고양이 귀\"]}(" + BuddyBoard.sample(BuddyBoard.CLOTHES, 16) + ") · "
@@ -423,7 +423,8 @@ final class BuddyTalk {
      * doIt: the thing to do the answer names (null: nothing is done); part: each sentence as soon as it is written (null: the
      * whole only); done: the whole answer ("" when every sentence was one 퍼레 does not say unasked, BuddyMind.unasked);
      * failed: why no brain could answer, in a few words (why()); learnNow: what the user said may be learned from this answer;
-     * recent: what was done on the phone lately, for the brain to know ("" for nothing).
+     * recent: what just happened, for the brain to know, a line each with its own words ("방금 한 일: play · ‘아이유 좋은날’ ·
+     * YouTube (10초 전)", "방금 하려던 일: …", "퍼레가 방금 ‘…맞출까?’라고 물었어. …"; "" for nothing).
      */
     record Ask(String said, java.util.List<String[]> turns, boolean guest, Consumer<JSONObject> doIt, Consumer<String> part, Consumer<String> done,
                Consumer<String> failed, boolean learnNow, String recent) {}
@@ -507,7 +508,7 @@ final class BuddyTalk {
                         JSONArray calls = GroqWork.stream(used[0], used[1], used[2], instructions + BuddyTools.rule(true) + places(store), messages, used[3], 0.2, BuddyTools.orNothing(), "required", 6_000, null, null).calls();
                         none = BuddyTools.nothing(calls); a = BuddyTools.act(calls);
                     } catch (Exception refused) { /* the words alone */ }
-                    if (a == null && !none) BuddyMisses.add(c, said, "할 일 도구", "말로만 하겠다고 하고 도구를 부르지 않았어요", "");
+                    if (a == null && !none) BuddyMisses.add(c, said, "할 일 도구", "말로만 하겠다고 하고 도구를 부르지 않았어요", "", BuddyMisses.PROMISED);
                 }
                 String words = spoken(t.text());
                 if ((words == null || words.isBlank()) && a == null) { why = "빈 답"; throw new IllegalStateException(why); }
@@ -544,7 +545,7 @@ final class BuddyTalk {
         String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + lifeWords(c) + "\n"
             + (guest ? "" : "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + todayWords(c) + memoryWords(c, said, true)
                 + (note.isBlank() ? "" : "참고(비서 노트, 먼저 꺼내지 마):\n" + note + "\n")) + "\n";
-        return context + (recent == null || recent.isBlank() ? "" : "방금 한 일: " + recent + "\n")
+        return context + (recent == null || recent.isBlank() ? "" : recent.strip() + "\n")
             + (talk.length() == 0 ? "" : "지금까지 대화:\n" + talk) + who + ": " + said + "\n퍼레:";
     }
     /** How much of the talk so far goes with each answer: its last lines, each this long at most. */

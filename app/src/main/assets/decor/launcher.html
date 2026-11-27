@@ -1592,8 +1592,8 @@ window.launcher = {
   thought(line) { thought(line); },
   thoughtFail() { thoughtFail(); },
   life(k) { boardLife(k); },
-  /** 퍼레's voice talk as it goes; ms: how long the words being said take (the bubble types them over it). */
-  voice(state, text, ms) { boardVoiceState(state, text, ms); chatVoice(state, text); },
+  /** 퍼레's voice talk as it goes; ms: how long the words being said take (the bubble types them over it); go: what a tap on them opens. */
+  voice(state, text, ms, go) { boardVoiceState(state, text, ms, go); chatVoice(state, text); },
   env(k) { boardEnv(k); },
   /** The pages to the right changed (화면 꾸미기). */
   pages(list) { drawPages(list); },

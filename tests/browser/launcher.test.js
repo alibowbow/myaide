@@ -280,6 +280,29 @@ async function open(browser, at, bridge) {
     assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === "voice").map(c => JSON.parse(c[1]))), [['[]']], '퍼레 held: nothing typed');
     assert.deepStrictEqual(bridged.errors, []);
   });
+  // 준: "퍼레의 판단력 … 강화해줘" — an app 퍼레 opened that did not come up is said once, and those words open the way through.
+  await check('an app that did not open: its words stay while 퍼레 listens, one tap opens the way through', async () => {
+    const p = bridged.page, look = () => p.evaluate(() => { const b = document.querySelector('.bubble'); return { text: b.textContent, go: b.dataset.go, act: b.classList.contains('act'), on: b.classList.contains('on') }; });
+    await p.evaluate(() => closePad()); await p.clock.runFor(400);
+    const line = '어, ‘카카오톡’ 안 열렸어.';
+    await p.evaluate(l => launcher.voice('speaking', l, 1200, 'fix:overlay'), line);
+    await p.clock.runFor(1400);
+    await p.evaluate(() => { launcher.voice('gap', ''); launcher.voice('listening', ''); });
+    let now = await look();
+    assert(now.on && now.act && now.go === 'fix:overlay' && now.text.startsWith(line), 'kept while it listens: ' + JSON.stringify(now));
+    await p.evaluate(() => { window._calls.length = 0; document.querySelector('.bubble').click(); });
+    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open').map(c => JSON.parse(c[1])[0])), ['fix:overlay'], 'the way through');
+    // Words heard let them go; an answer of its own is not tappable.
+    await p.evaluate(l => { launcher.voice('speaking', l, 1200, 'fix:overlay'); }, line); await p.clock.runFor(1400);
+    await p.evaluate(() => launcher.voice('listening', '근데'));
+    now = await look();
+    assert(!now.act && now.go === '' && now.text === '근데', 'heard words replace them: ' + JSON.stringify(now));
+    await p.evaluate(() => launcher.voice('speaking', '좋아, 그럼 멜론으로 틀어 줄게', 900)); await p.clock.runFor(1200);
+    now = await look();
+    assert(!now.act && now.go === '', 'an answer is not tappable: ' + JSON.stringify(now));
+    await p.evaluate(() => launcher.voice('idle', ''));
+    assert.deepStrictEqual(bridged.errors, []);
+  });
   await bridged.ctx.close();
 
   // 준: "음성 대화로 주사위 꺼내봐 해도 안된다고해", "의상바꿔도 안되고", "음성대화로 퍼레의 상호작용이 안돼"

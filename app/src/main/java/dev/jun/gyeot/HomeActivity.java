@@ -192,7 +192,11 @@ public final class HomeActivity extends Activity {
     private final BuddyVoice.Show talkShown = new BuddyVoice.Show() {
         @Override public void state(String state, String text) { state(state, text, 0); }
         /** With ms, how long the words take to say: the bubble types them along with the sound. */
-        @Override public void state(String state, String text, int ms) { js("launcher.voice(" + JSONObject.quote(state) + "," + JSONObject.quote(text) + "," + Math.max(0, ms) + ")"); }
+        @Override public void state(String state, String text, int ms) { state(state, text, ms, ""); }
+        /** With go, what a tap on the words opens (an app that did not come up: the way through, "fix:overlay"). */
+        @Override public void state(String state, String text, int ms, String go) {
+            js("launcher.voice(" + JSONObject.quote(state) + "," + JSONObject.quote(text) + "," + Math.max(0, ms) + "," + JSONObject.quote(go == null ? "" : go) + ")");
+        }
     };
     private final BuddyVoice.Unlock talkUnlock = then -> main.post(() -> Fingerprint.ask(this, "퍼레의 비밀 기억", "지문으로 확인하면 말해 줄게", () -> { BuddyTalk.unlock(); then.run(); }, then));
     /** The typed talk the voice talk goes on from, kept while the microphone is asked for. */
@@ -674,6 +678,12 @@ public final class HomeActivity extends Activity {
         }
         /** 퍼레 홈's cards: the app's own screens. */
         public void open(String what) {
+            // The way through for something 퍼레 could not do (its words in the voice talk's bubble): one tap (BuddyMisses).
+            if (what != null && what.startsWith("fix:")) {
+                Intent fix = BuddyMisses.fixIntent(HomeActivity.this, what.substring(4));
+                if (fix != null) main.post(() -> { try { startActivity(fix.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); } catch (RuntimeException none) { Toast.makeText(HomeActivity.this, "이 휴대폰에서는 열 수 없어요.", Toast.LENGTH_SHORT).show(); } });
+                return;
+            }
             Intent t = HtmlWallpaper.target(HomeActivity.this, what == null ? "" : what);
             if (t != null && t.getComponent() != null) t.putExtra(HtmlWallpaper.FROM_HOME, true);
             if (t != null) main.post(() -> { try { startActivity(t); } catch (RuntimeException none) { Toast.makeText(HomeActivity.this, "열 수 있는 앱이 없어요.", Toast.LENGTH_SHORT).show(); } });

@@ -24,7 +24,10 @@ import org.json.JSONObject;
 final class BuddyActs {
     private BuddyActs() {}
 
-    /** heard: what the user said (an alarm or a timer runs only after a yes); overlay: 퍼레's window is over another app. */
+    /*
+     * heard: what the user said (an alarm or a timer runs at once when it says its time or length, else only after a yes);
+     * overlay: 퍼레's window is over another app.
+     */
     /** What failed in this act (fail()), kept by run() in BuddyMisses with the words that asked for it. */
     private static final ThreadLocal<String[]> MISS = new ThreadLocal<>();
     /** A failed act's words, with the tap that clears the way ("" none, BuddyMisses). */
@@ -33,19 +36,44 @@ final class BuddyActs {
     /** A thing done its way that may still go wrong later (no number found …): kept, while the act goes on. */
     private static void note(String why, String fix) { MISS.set(new String[]{why, fix == null ? "" : fix}); }
     /**
-     * With 폰 조작 connected, whether the app it opened came to the front (준: "4번" — 됐는지 확인까지); one that did not is kept
-     * in BuddyMisses with the words that asked for it.
+     * Who hears of an act that went wrong after it was started (BuddyVoice: 퍼레 says it once): what (the app's name) did not
+     * come up, with the tap that clears the way ("" none).
      */
-    private static void verify(Context context, String pkg, String what) {
-        if (!PhoneService.connected() || pkg == null) return;
-        String heard = HEARD.get();
-        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> PhoneService.whenShown(pkg, 4000, shown -> {
-            if (!shown) { BuddyMisses.add(context, heard, what, "열었는데 화면에 안 떴어요", ""); ((GyeotApp) context.getApplicationContext()).store().phoneLog("  · 퍼레 · " + what + " 열었는데 안 보여요"); }
+    interface Late { void notShown(String what, String fix); }
+    private static final ThreadLocal<Late> LATE = new ThreadLocal<>();
+    /** How an opened app is seen to come up (폰 조작: PhoneService.whenShown, on the main thread); tests put their own. */
+    interface Watch { boolean on(); void whenShown(String pkg, long withinMs, java.util.function.Consumer<Boolean> shown); }
+    static Watch watch = new Watch() {
+        @Override public boolean on() { return PhoneService.connected(); }
+        @Override public void whenShown(String pkg, long withinMs, java.util.function.Consumer<Boolean> shown) { PhoneService.whenShown(pkg, withinMs, shown); }
+    };
+    /**
+     * With 폰 조작 connected, whether the app it opened came to the front (준: "4번" — 됐는지 확인까지); one that did not is kept
+     * in BuddyMisses with the words that asked for it, and with the way through when it is this app's own (the overlay
+     * permission lets it start apps from behind). name: the app's name to say it did not come up (Late; open_app and share
+     * only: YouTube's search always shows, so nothing is said for it); null says nothing.
+     */
+    private static void verify(Context context, String pkg, String what, String name) {
+        Watch w = watch;
+        if (!w.on() || pkg == null) return;
+        String heard = HEARD.get(); Late late = name == null ? null : LATE.get();
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> w.whenShown(pkg, 4000, shown -> {
+            if (shown) return;
+            String fix = android.provider.Settings.canDrawOverlays(context) ? "" : "overlay";
+            BuddyMisses.add(context, heard, what, "열었는데 화면에 안 떴어요", fix, BuddyMisses.NOT_SHOWN);
+            ((GyeotApp) context.getApplicationContext()).store().phoneLog("  · 퍼레 · " + what + " 열었는데 안 보여요");
+            if (late != null) late.notShown(name, fix);
         }));
     }
-    static BuddyVoice.Outcome run(Context context, JSONObject act, String heard, boolean overlay) {
-        MISS.remove(); HEARD.set(heard);
-        BuddyVoice.Outcome o = runOnce(context, act, heard, overlay);
+    static BuddyVoice.Outcome run(Context context, JSONObject act, String heard, boolean overlay) { return run(context, act, heard, overlay, false, null); }
+    /**
+     * answers: heard answers 퍼레's own read-back ("아니 8시로" to "…7:00에 알람 맞출까?"), so an alarm whose hour it says is
+     * set without a second question; late: who hears of an app that did not come up (null: no one).
+     */
+    static BuddyVoice.Outcome run(Context context, JSONObject act, String heard, boolean overlay, boolean answers, Late late) {
+        MISS.remove(); HEARD.set(heard); LATE.set(late);
+        BuddyVoice.Outcome o;
+        try { o = runOnce(context, act, heard, overlay, answers); } finally { LATE.remove(); }
         String[] m = MISS.get(); MISS.remove();
         if (m != null) {
             String what = act.optString("tool") + " " + (act.optString("app") + " " + act.optString("destination") + " " + act.optString("query") + " " + act.optString("panel")).strip();
@@ -54,7 +82,30 @@ final class BuddyActs {
         }
         return o;
     }
-    private static BuddyVoice.Outcome runOnce(Context context, JSONObject act, String heard, boolean overlay) {
+    /**
+     * An act in a few words, for the brain's next answer and 퍼레가 못 한 일: its tool, then what it was about (the words to
+     * find, the place, the time, the length, the panel), then the app: "play · ‘아이유 좋은날’ · YouTube", "alarm · 07:30",
+     * "timer · 180초".
+     */
+    static String about(JSONObject a) {
+        if (a == null) return "";
+        String tool = a.optString("tool").strip();
+        java.util.List<String> parts = new java.util.ArrayList<>(java.util.List.of(tool));
+        switch (tool) {
+            case "alarm" -> parts.add(String.format(Locale.ROOT, "%02d:%02d", a.optInt("hour"), a.optInt("minute")));
+            case "timer" -> parts.add(a.optLong("seconds") + "초");
+            default -> {
+                for (String key : new String[]{"query", "destination", "text", "who", "title", "toy", "play", "thing"}) {
+                    String v = a.optString(key).strip(); if (v.isEmpty()) continue;
+                    parts.add("‘" + (v.length() > 40 ? v.substring(0, 40) + "…" : v) + "’"); break;
+                }
+                for (String key : new String[]{"command", "panel", "mode", "direction"}) { String v = a.optString(key).strip(); if (!v.isEmpty()) { parts.add(v); break; } }
+            }
+        }
+        String app = a.optString("app").strip(); if (!app.isEmpty()) parts.add(app);
+        return String.join(" · ", parts);
+    }
+    private static BuddyVoice.Outcome runOnce(Context context, JSONObject act, String heard, boolean overlay, boolean answers) {
         String tool = act.optString("tool").strip().toLowerCase(Locale.ROOT);
         try {
             switch (tool) {
@@ -63,7 +114,7 @@ final class BuddyActs {
                     LauncherActivityInfo info = findApp(context, name);
                     if (info == null) return fail("'" + name + "' 앱은 이 휴대폰에서 못 찾았어.", "store:" + name);
                     String route = open(context, info, overlay);
-                    if (DeviceActionRunner.started(route)) verify(context, info.getComponentName().getPackageName(), "open_app " + name);
+                    if (DeviceActionRunner.started(route)) verify(context, info.getComponentName().getPackageName(), "open_app " + name, String.valueOf(info.getLabel()));
                     return started(context, route, info.getLabel() + " 열었어", true);
                 }
                 case "search" -> {
@@ -127,7 +178,13 @@ final class BuddyActs {
             };
             if (name.isEmpty()) return fail("그건 아직 내가 못 해.", "");
             JSONObject args = new JSONObject(act.toString()); args.remove("tool");
-            if (DeviceActions.ALARM.equals(name) || DeviceActions.TIMER.equals(name)) args.put("confirmed", true);
+            if (DeviceActions.ALARM.equals(name) || DeviceActions.TIMER.equals(name)) {
+                args.put("confirmed", true);
+                // A time or a length the user said themselves is set at once and read back as it is set (준: "퍼레의 판단력");
+                // only a guessed one waits for a yes: none said, another than said, or an hour without 오전·오후 (7 or 19).
+                // Words that answer 퍼레's own read-back have heard the half of the day already.
+                if (DeviceActions.stated(tool, args, heard) && (DeviceActions.TIMER.equals(name) || answers || !DeviceActions.halfDayUnsaid(args.optInt("hour"), heard))) heard = "네";
+            }
             DeviceActions.Action action = DeviceActions.parse(name, args, heard == null ? "" : heard, java.time.ZonedDateTime.now());
             JSONObject r = DeviceActionRunner.run(context, action, overlay);
             if ("needs_confirmation".equals(r.optString("outcome")))
@@ -207,7 +264,7 @@ final class BuddyActs {
         if (pkg != null) { send.setPackage(pkg); if (send.resolveActivity(context.getPackageManager()) == null) return fail("그 앱으로는 보낼 수가 없어.", ""); }
         Intent go = task(pkg != null ? send : Intent.createChooser(send, "보낼 곳"));
         String route = DeviceActionRunner.start(context, go, overlay);
-        if (DeviceActionRunner.started(route)) verify(context, pkg, "share " + app);
+        if (DeviceActionRunner.started(route)) verify(context, pkg, "share " + app, app.isEmpty() ? null : app);
         return started(context, route, "", true);
     }
     /** The number for a name in the user's contacts (with the contacts permission), or null. Off the main thread. */
@@ -344,7 +401,7 @@ final class BuddyActs {
             Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text).setPackage(pkg);
             if (!title.isEmpty()) send.putExtra(Intent.EXTRA_SUBJECT, title).putExtra(Intent.EXTRA_TITLE, title);
             BuddyVoice.Outcome o = first(context, overlay, send);
-            if (o != null) { if (o.say().isEmpty()) verify(context, pkg, "memo"); return o; }
+            if (o != null) { if (o.say().isEmpty()) verify(context, pkg, "memo", null); return o; }
         }
         return named != null ? fail("그 앱에는 메모를 넣을 수가 없어.", "")
             : fail("메모 앱을 못 찾아서 못 적었어. 나한테 ‘기억해 줘’라고 하면 내가 대신 기억해 둘게.", "store:메모");
@@ -579,10 +636,31 @@ final class BuddyActs {
             if (t.resolveActivity(pm) == null) continue;
             String route = DeviceActionRunner.start(context, t, overlay);
             ((GyeotApp) context.getApplicationContext()).store().phoneLog("  · 퍼레 · " + pkg + " · ‘" + q + "’ " + (t.getAction() != null && t.getAction().contains("PLAY_FROM_SEARCH") ? "찾아 틀기" : "검색") + " · " + route);
-            if (DeviceActionRunner.started(route)) verify(context, pkg, "play " + q);
+            if (DeviceActionRunner.started(route)) {
+                verify(context, pkg, "play " + q, null);
+                if (t.getAction() != null && t.getAction().contains("PLAY_FROM_SEARCH")) playing(context, pkg, q);
+            }
             return started(context, route, "", true);
         }
         return fail("거기서 찾아 틀 수가 없어. 그 앱이 깔려 있는지 봐 줘.", act.optString("app").isBlank() ? "" : "store:" + act.optString("app"));
+    }
+    /** Checks made a few seconds after an act (off the main thread). */
+    private static final java.util.concurrent.ScheduledExecutorService LATER = java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> { Thread t = new Thread(r, "gyeot-buddy-acts-later"); t.setDaemon(true); return t; });
+    /** How long a music app is given to start playing what it was asked to find. */
+    static final long PLAYING_MS = 6000;
+    /**
+     * A music app asked to find and play (Melon, Spotify …): whether music plays PLAYING_MS later (its media session); when
+     * it does not, it is kept in 퍼레가 못 한 일 and the log, and nothing is said (the app's own screen shows what it found).
+     */
+    private static void playing(Context context, String pkg, String q) {
+        String heard = HEARD.get();
+        try {
+            LATER.schedule(() -> {
+                if (!Boolean.FALSE.equals(BuddyTalk.musicPlaying(context))) return;
+                BuddyMisses.add(context, heard, "play " + q + " · " + pkg, "찾아 틀라고 했는데 음악이 안 나와요", "", BuddyMisses.NOT_PLAYING);
+                ((GyeotApp) context.getApplicationContext()).store().phoneLog("  · 퍼레 · " + pkg + " · ‘" + q + "’ 틀라고 했는데 안 나와요");
+            }, PLAYING_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (RuntimeException stopped) { /* not checked */ }
     }
     /** The media volume: up or down a few steps, a level (0–100), muted or back (the phone shows its volume bar). */
     private static BuddyVoice.Outcome volume(Context context, JSONObject act) {

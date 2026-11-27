@@ -19,14 +19,21 @@ final class BuddyMisses {
     private BuddyMisses() {}
     private static final String PREFS = "buddyTalk", KEY = "misses";
     static final int MOST = 30;
-    /** fix: "overlay", "writeSettings", "place:<words>", "store:<app>", "contacts", "accessibility", "memory", or "" for none. */
-    record Miss(long at, String said, String what, String why, String fix) {}
+    /**
+     * fix: "overlay", "writeSettings", "place:<words>", "store:<app>", "contacts", "accessibility", "memory", or "" for none.
+     * kind: what went wrong (FAIL: it could not; NOT_SHOWN: the app it opened did not come up; NOT_PLAYING: the music app
+     * it asked did not play; PROMISED: words said it would and no tool came; CORRECTED: the user said it was the wrong thing).
+     */
+    record Miss(long at, String said, String what, String why, String fix, String kind) {}
+    static final String FAIL = "fail", NOT_SHOWN = "not_shown", NOT_PLAYING = "not_playing", PROMISED = "promised", CORRECTED = "corrected";
 
-    static synchronized void add(Context c, String said, String what, String why, String fix) {
+    static void add(Context c, String said, String what, String why, String fix) { add(c, said, what, why, fix, FAIL); }
+    static synchronized void add(Context c, String said, String what, String why, String fix, String kind) {
         try {
             SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
             JSONArray old = new JSONArray(p.getString(KEY, "[]")), now = new JSONArray();
-            now.put(new JSONObject().put("at", System.currentTimeMillis()).put("said", clip(said)).put("what", clip(what)).put("why", clip(why)).put("fix", fix == null ? "" : fix));
+            now.put(new JSONObject().put("at", System.currentTimeMillis()).put("said", clip(said)).put("what", clip(what)).put("why", clip(why)).put("fix", fix == null ? "" : fix)
+                .put("kind", kind == null || kind.isBlank() ? FAIL : kind));
             for (int i = 0; i < old.length() && now.length() < MOST; i++) now.put(old.get(i));
             p.edit().putString(KEY, now.toString()).apply();
         } catch (Exception unreadable) { /* not kept */ }
@@ -35,7 +42,7 @@ final class BuddyMisses {
         List<Miss> out = new ArrayList<>();
         try {
             JSONArray a = new JSONArray(c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, "[]"));
-            for (int i = 0; i < a.length(); i++) { JSONObject m = a.optJSONObject(i); if (m != null) out.add(new Miss(m.optLong("at"), m.optString("said"), m.optString("what"), m.optString("why"), m.optString("fix"))); }
+            for (int i = 0; i < a.length(); i++) { JSONObject m = a.optJSONObject(i); if (m != null) out.add(new Miss(m.optLong("at"), m.optString("said"), m.optString("what"), m.optString("why"), m.optString("fix"), m.optString("kind", FAIL))); }
         } catch (Exception unreadable) { /* none */ }
         return out;
     }
