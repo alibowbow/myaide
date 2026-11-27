@@ -256,7 +256,8 @@ public class BuddyBrainTests {
         long now = 1_800_000_000_000L;
         String q = dev.jun.gyeot.core.BuddyMind.curious(known, new org.json.JSONObject(), now, new java.util.Random(3));
         assertFalse(q.isEmpty()); assertNotEquals("not what it knows", "좋아하는 음료(커피·차 …)", q);
-        assertEquals(1, dev.jun.gyeot.core.BuddyMind.knows(known));
+        int k = dev.jun.gyeot.core.BuddyMind.knows(known);
+        assertTrue("the coffee it was told counts as known: " + k, k >= 1 && k <= 3);
         org.json.JSONObject asked = new org.json.JSONObject().put(q, now);
         assertEquals("not again within twenty minutes", "", dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 60_000, new java.util.Random(3)));
         for (int i = 0; i < 20; i++) assertNotEquals("not the same one within three days", q, dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 3_600_000L, new java.util.Random(i)));

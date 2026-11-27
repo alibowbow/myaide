@@ -279,9 +279,9 @@ final class BuddyTalk {
         + "{\"tool\":\"rotation\",\"mode\":\"landscape\"}(landscape=가로 고정·portrait=세로 고정·auto=자동 회전·toggle=반대로) · {\"tool\":\"volume\",\"direction\":\"up\"}(up·down·mute·unmute, 또는 \"level\":0~100) · "
         + "{\"tool\":\"brightness\",\"direction\":\"up\"}(up·down, 또는 \"level\":0~100) · {\"tool\":\"show_alarms\"} · "
         + "{\"tool\":\"settings\",\"panel\":\"wifi\"}(internet·wifi·bluetooth·volume·nfc·display·location·battery) · {\"tool\":\"search\",\"query\":\"검색어\"} · {\"tool\":\"map_search\",\"query\":\"근처 카페\"} · {\"tool\":\"share\",\"text\":\"보낼 글\",\"app\":\"카카오톡\"} · {\"tool\":\"message\",\"who\":\"이름\",\"text\":\"글\"} · {\"tool\":\"call\",\"who\":\"이름\"} · {\"tool\":\"camera\",\"mode\":\"photo\"}(photo·selfie·video) · {\"tool\":\"calendar_add\",\"title\":\"일정\",\"date\":\"내일\",\"hour\":15,\"minute\":0} · {\"tool\":\"open_url\",\"url\":\"naver.com\"}. "
-        + "너(퍼레) 자신에게 하는 부탁도 직접 해: {\"tool\":\"buddy_toy\",\"toy\":\"주사위\"}(" + String.join("·", BuddyBoard.words(BuddyBoard.TOYS)) + ") · "
-        + "{\"tool\":\"buddy_outfit\",\"items\":[\"고양이 귀\"]}(" + String.join("·", BuddyBoard.words(BuddyBoard.CLOTHES)) + ") · "
-        + "{\"tool\":\"buddy_move\",\"play\":\"춤\"}(" + String.join("·", BuddyBoard.words(BuddyBoard.PLAYS)) + ") · "
+        + "너(퍼레) 자신에게 하는 부탁도 직접 해: {\"tool\":\"buddy_toy\",\"toy\":\"주사위\"}(" + BuddyBoard.sample(BuddyBoard.TOYS, 14) + ") · "
+        + "{\"tool\":\"buddy_outfit\",\"items\":[\"고양이 귀\"]}(" + BuddyBoard.sample(BuddyBoard.CLOTHES, 16) + ") · "
+        + "{\"tool\":\"buddy_move\",\"play\":\"춤\"}(" + BuddyBoard.sample(BuddyBoard.PLAYS, 16) + ") · "
         + "{\"tool\":\"buddy_wish\",\"thing\":\"트램펄린\"}(갖고 싶은데 없는 것, 소원 목록에). "
         + "결제·송금처럼 못 하는 일은 할일 줄 없이 아직 못 한다고 말해. 대답에 주소(URL)는 절대 쓰지 마.\n";
     /** The saved places (내비게이션 → 자주 가는 곳): their words go as the destination as said, "집으로 가자" → {"tool":"navigate","destination":"집"}. */

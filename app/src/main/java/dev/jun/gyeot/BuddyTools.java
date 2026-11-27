@@ -60,15 +60,16 @@ final class BuddyTools {
         .put(fn("open_url", "웹 페이지를 연다.", props("url", "string", "주소 (예: naver.com)"), "url"))
         .put(fn("map_search", "지도에서 장소를 찾는다(근처 카페, 맛집 …).", props("query", "string", "찾을 것"), "query"))
         // 퍼레 itself (준: "음성대화로 퍼레의 상호작용이 안돼"): its toys, its clothes, its plays on the home screen
-        .put(fn("buddy_toy", "너(퍼레)의 장난감을 홈 화면에 꺼내서 갖고 논다. 다 치우려면 치우기.", props("toy", BuddyBoard.words(BuddyBoard.TOYS).toArray(new String[0]), "장난감"), "toy"))
+        // Hundreds of names (준: "시킬 수 있는 목록 … 아직 부족"): the brain says it in its own words, the phone finds the name (BuddyBoard.find).
+        .put(fn("buddy_toy", "너(퍼레)의 장난감을 홈 화면에 꺼내서 갖고 논다. 다 치우려면 치우기.", props("toy", "string", "장난감 이름 (예: " + BuddyBoard.sample(BuddyBoard.TOYS, 14) + ")"), "toy"))
         .put(outfit())
-        .put(fn("buddy_move", "너(퍼레)가 홈 화면에서 놀이·동작을 한다(춤, 점프, 요가 …).", props("play", BuddyBoard.words(BuddyBoard.PLAYS).toArray(new String[0]), "놀이"), "play"))
+        .put(fn("buddy_move", "너(퍼레)가 홈 화면에서 놀이·동작을 한다(춤, 점프, 요가 …).", props("play", "string", "놀이 이름 (예: " + BuddyBoard.sample(BuddyBoard.PLAYS, 16) + ")"), "play"))
         .put(fn("buddy_wish", "너(퍼레)가 갖고 싶은데 아직 없는 것을 소원 목록에 적는다(사용자가 만들어 줄 수도 있어).", props("thing", "string", "갖고 싶은 것 (예: 트램펄린)"), "thing"));
     /** buddy_outfit: one or more things to wear (an array the props helper does not make). */
     private static JSONObject outfit() {
         try {
-            JSONObject items = new JSONObject().put("type", "array").put("description", "입을 것(여러 개 가능). 기본=다 벗고 원래 모습, 아무거나=퍼레가 골라 입기")
-                .put("items", new JSONObject().put("type", "string").put("enum", new JSONArray(BuddyBoard.words(BuddyBoard.CLOTHES))));
+            JSONObject items = new JSONObject().put("type", "array").put("description", "입을 것(여러 개 가능). 기본=다 벗고 원래 모습, 아무거나=퍼레가 골라 입기. 예: " + BuddyBoard.sample(BuddyBoard.CLOTHES, 16))
+                .put("items", new JSONObject().put("type", "string"));
             return fn("buddy_outfit", "너(퍼레)의 옷·모자·소품을 갈아입는다.", new JSONObject().put("items", items), "items");
         } catch (Exception impossible) { throw new IllegalStateException(impossible); }
     }
