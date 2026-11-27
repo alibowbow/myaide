@@ -170,7 +170,7 @@ public final class MainActivity extends Activity {
     private String playingId = "";
     /** Updates the recording timer once a second while the screen is visible. */
     private final Handler ticker = new Handler(Looper.getMainLooper());
-    private final Runnable tick = () -> { if (store.recording || store.thinking() || workRunning()) refresh(); }; // refresh() schedules the next tick
+    private final Runnable tick = () -> { if (store.recording || ScreenRecordService.running() || store.thinking() || workRunning()) refresh(); }; // refresh() schedules the next tick
     private LinearLayout phoneRow;
     private Ui.Dial muteButton, stopButton, endButton;
     /** The home's greeting (hidden during a call) and its conversation card (shown during a call or once something was said). */
@@ -540,7 +540,7 @@ public final class MainActivity extends Activity {
         phoneGptCheckState = null;
         // Full screen belongs to the 비서 page: leaving it ends full screen; drawn again there, home() puts the new card back.
         closeFullHost(); if (selected != 0) voiceFull = false;
-        orb = null; orbTitle = null; orbSub = null; claudeBox = null; geminiWorkBox = null; muteButton = null; stopButton = null; endButton = null; homeIntro = null; liveCard = null; heroStage = null; heroHead = null; heroWords = null; heroCall = false; callAside.clear(); liveActions = null; shownSaid = ""; said = null; saidList = null; sayInput = null; typeButton = null; typing = false; sayRow = null; taskSummary = null; edgeState = null; assistState = null; archiveState = null; phoneRow = null; recordButton = null; recordsList = null; openAiBox = null; updateBox = null; sessionsBox = null; galleryBox = null; cameraBox = null; cameraButton = null; tab = selected; clearBody();
+        orb = null; orbTitle = null; orbSub = null; claudeBox = null; geminiWorkBox = null; muteButton = null; stopButton = null; endButton = null; homeIntro = null; liveCard = null; heroStage = null; heroHead = null; heroWords = null; heroCall = false; callAside.clear(); liveActions = null; shownSaid = ""; said = null; saidList = null; sayInput = null; typeButton = null; typing = false; sayRow = null; taskSummary = null; edgeState = null; assistState = null; archiveState = null; phoneRow = null; recordButton = null; if (screenRecordUi != null) screenRecordUi.forget(); recordsList = null; openAiBox = null; updateBox = null; sessionsBox = null; galleryBox = null; cameraBox = null; cameraButton = null; tab = selected; clearBody();
         if (header.getParent() instanceof ViewGroup parent) parent.removeView(header);
         navRow.removeAllViews(); navRow.setVisibility(View.GONE);
         LinearLayout.LayoutParams headerParams = new LinearLayout.LayoutParams(-1, -2); headerParams.bottomMargin = ui.dp(20); body.addView(header, headerParams);
@@ -899,13 +899,15 @@ public final class MainActivity extends Activity {
     /** Recording is its own home tab, not a Live API mode. Opening it never starts a microphone. */
     private void homeRecorder() {
         add(ui.sectionHeader("녹음"), 0);
-        add(ui.footer("녹음 시작을 누르면 소리를 저장해요. 저장한 녹음과 녹취는 목록에서 다시 볼 수 있어요."), 8);
+        add(ui.footer("녹음은 소리를, 화면 녹화는 화면을 영상으로 저장해요. 저장한 녹음과 녹취는 목록에서 다시 볼 수 있어요."), 8);
         LinearLayout recorderGroup = ui.group();
         TextView recordings = ui.text("목록 ›", 14, 600, ACCENT); recordings.setPadding(ui.dp(10), ui.dp(6), 0, ui.dp(6)); recordings.setContentDescription("녹음 목록 보기");
         recordings.setOnClickListener(v -> showRecords(0)); Ui.pressable(recordings, true);
         LinearLayout recorder = ui.listRow(R.drawable.ic_record, Ui.RED, "녹음", "눌러서 녹음 시작", recordings, this::toggleRecording);
         recordButton = (TextView) ((LinearLayout) recorder.getChildAt(1)).getChildAt(1);
         ui.addRow(recorderGroup, recorder, true);
+        // 화면 녹화: the whole screen at its own size (the phone's own recorder saves it scaled down).
+        ui.addRow(recorderGroup, screenRecord().row(), true);
         add(recorderGroup, 8);
         ScopedModels models = ScopedModels.recording(store);
         add(ui.listRow(R.drawable.ic_sparkle, ACCENT, "녹음 요약 모델 · 생각 깊이",
@@ -1360,7 +1362,8 @@ public final class MainActivity extends Activity {
         refreshWorkProgress(); refreshTeamProgress();
         if (tab == 4 && store.galleryVersion != galleryDrawn) { int y = scroll.getScrollY(); showTab(4); scroll.post(() -> scroll.scrollTo(0, y)); return; }
         if (recordButton != null) { recordButton.setText(store.recording ? "녹음 중 · " + AssistantService.durationText(System.currentTimeMillis() - store.recordingStartedAt) + " · 눌러서 멈추기" : "눌러서 녹음 시작"); recordButton.setTextColor(store.recording ? Ui.RED : MUTED); }
-        if ((store.recording || store.thinking() || workRunning()) && !ticker.hasCallbacks(tick)) ticker.postDelayed(tick, 1000);
+        if (screenRecordUi != null) screenRecordUi.refresh();
+        if ((store.recording || ScreenRecordService.running() || store.thinking() || workRunning()) && !ticker.hasCallbacks(tick)) ticker.postDelayed(tick, 1000);
         if (phoneGptCheckState != null) phoneGptCheckState.setText(phoneGptCheckResult);
         if (edgeState != null) { if (tab == 2 && edgeDrawn != store.edgeButton()) { showTab(2); return; } edgeState.setText(edgeStatus()); }
         if (assistState != null) assistState.setText(assistStatus());
@@ -4698,6 +4701,8 @@ public final class MainActivity extends Activity {
     private GmailUi gmail() { if (gmailUi == null) gmailUi = new GmailUi(this, ui, store, () -> { if (!isDestroyed() && tab == 2) showTab(2); }); return gmailUi; }
     private GoogleDriveUi drive() { if (driveUi == null) driveUi = new GoogleDriveUi(this, ui, store, () -> { if (!isDestroyed() && tab == 2) showTab(2); }); return driveUi; }
     private WakeWordUi wakeUi;
+    private ScreenRecordUi screenRecordUi;
+    private ScreenRecordUi screenRecord() { if (screenRecordUi == null) screenRecordUi = new ScreenRecordUi(this, ui, store); return screenRecordUi; }
     private WakeWordUi wakeWord() { if (wakeUi == null) wakeUi = new WakeWordUi(this, ui, store, () -> { if (!isDestroyed() && tab == 2) showTab(2); }); return wakeUi; }
     private CalendarSettingsUi calendarUi;
     private CalendarSettingsUi calendar() { if (calendarUi == null) calendarUi = new CalendarSettingsUi(this, ui, store, () -> { if (!isDestroyed() && tab == 2) showTab(2); }); return calendarUi; }

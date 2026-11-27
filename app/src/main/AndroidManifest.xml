@@ -22,6 +22,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- 화면 녹화: the screen capture runs in a foreground service while it records (Android 14 asks for this type). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 예약 작업 on time. The user grants it in Android settings (알람 및 리마인더); without it runs come late or by a tap. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
@@ -190,6 +192,12 @@
         <!-- The main chat's spoken conversation: started from the chat screen, so it keeps hearing with the screen off. -->
         <service android:name=".VoiceChatService" android:exported="false" android:foregroundServiceType="microphone" />
         <service android:name=".BuddyVoiceService" android:exported="false" android:foregroundServiceType="microphone" />
+        <!-- 화면 녹화: the whole screen at its own size into Movies/들퍼레. Started only after Android's consent (ScreenRecordActivity);
+             the microphone type only while a recording has sound. shortService answers the start when Android 14 allows no
+             other type, so the app is not ended for leaving it unanswered; it is never combined with the others. -->
+        <service android:name=".ScreenRecordService" android:exported="false" android:foregroundServiceType="mediaProjection|microphone|shortService" />
+        <activity android:name=".ScreenRecordActivity" android:exported="false" android:theme="@style/QuickTheme" android:taskAffinity=""
+            android:excludeFromRecents="true" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
         <service android:name=".MyTubeService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".LyriaService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".AssistantService" android:exported="false"
@@ -203,6 +211,14 @@
         <!-- Quick settings tile "들퍼레": only the system UI can bind it; a tap goes through QuickVoiceActivity. -->
         <service android:name=".QuickTile" android:exported="true" android:label="@string/quick_tile_label"
             android:icon="@drawable/ic_mic" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="true" />
+        </service>
+        <!-- Quick settings tile "화면 녹화": starts a recording through ScreenRecordActivity, stops it with another tap. -->
+        <service android:name=".ScreenRecordTile" android:exported="true" android:label="@string/screen_record_tile_label"
+            android:icon="@drawable/ic_video" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>

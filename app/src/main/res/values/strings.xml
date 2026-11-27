@@ -11,4 +11,5 @@
     <string name="quick_voice_short">바로 대화</string>
     <string name="quick_voice_long">들퍼레와 바로 대화</string>
     <string name="quick_tile_label">들퍼레</string>
+    <string name="screen_record_tile_label">화면 녹화</string>
 </resources>
