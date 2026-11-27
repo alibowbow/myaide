@@ -18,7 +18,8 @@ async function check(name, fn) {
   try { await fn(); console.log('PASS', name); } catch (e) { failed++; console.log('FAIL', name, '\n   ', e.message); }
 }
 
-async function open(browser, at) {
+/** bridge: the app's bridge played by the page itself, each call kept in window._calls as [name, args] (otherwise none). */
+async function open(browser, at, bridge) {
   const ctx = await browser.newContext({ viewport: { width: 412, height: 900 }, hasTouch: true, timezoneId: 'Asia/Seoul' });
   const page = await ctx.newPage();
   const errors = [];
@@ -29,12 +30,13 @@ async function open(browser, at) {
     let seed = 20261126; Math.random = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
     addEventListener('DOMContentLoaded', () => { const st = document.createElement('style'); st.textContent = '*,*::before,*::after{transition:none!important}'; document.head.appendChild(st); });
   });
+  if (bridge) await ctx.addInitScript(() => { window._calls = []; window.Gyeot = { call: (token, name, args) => window._calls.push([name, args]) }; });
   await page.route('**/*', route => {
     const u = new URL(route.request().url());
     if (u.host === 'gyeot.local') {
       if (u.pathname === '/') {
         const html = fs.readFileSync(path.join(DECOR, 'launcher.html'), 'utf8')
-          .replace('/*GYEOT*/', 'window.GYEOT=' + JSON.stringify({ launcher: true, pages: [{ src: 'https://piece.test/lp.html', title: 'LP' }], bg: 'aurora' }) + ';');
+          .replace('/*GYEOT*/', 'window.GYEOT=' + JSON.stringify({ launcher: true, pages: [{ src: 'https://piece.test/lp.html', title: 'LP' }], bg: 'aurora', token: bridge ? 'test' : undefined }) + ';');
         return route.fulfill({ body: html, contentType: 'text/html' });
       }
       const f = path.join(DECOR, path.basename(u.pathname));
@@ -263,6 +265,23 @@ async function open(browser, at) {
     await p.evaluate(() => closePad()); await p.clock.runFor(400);
     assert.deepStrictEqual(talk.errors, []);
   });
+  // 준: "음성상호작용을 더 강화해줘" — the voice talk from the box goes on from what was typed (BuddyVoice.start(seed)).
+  const bridged = await open(browser, '2026-11-26T14:00:00+09:00', true);
+  await check('퍼레와 대화: the voice talk goes on from the typed turns; 퍼레 held starts afresh', async () => {
+    const p = bridged.page;
+    await p.evaluate(() => boardChat()); await p.clock.runFor(600);
+    await p.evaluate(() => { el("q").value = "내일 부산 가"; el("padSend").click(); });
+    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === "chat").map(c => JSON.parse(c[1])[0])), ['내일 부산 가'], 'typed');
+    await p.evaluate(() => launcher.reply("좋겠다! 조심히 다녀와"));
+    await p.evaluate(() => { window._calls.length = 0; el("padMic").click(); });
+    const voice = await p.evaluate(() => window._calls.filter(c => c[0] === "voice").map(c => { const a = JSON.parse(c[1]); return a.length ? JSON.parse(a[0]) : 'nothing'; }));
+    assert.deepStrictEqual(voice, [[['user', '내일 부산 가'], ['assistant', '좋겠다! 조심히 다녀와']]], 'the two typed turns go with it');
+    await p.evaluate(() => { launcher.voice("done", ""); window._calls.length = 0; boardVoice(); });
+    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === "voice").map(c => JSON.parse(c[1]))), [['[]']], '퍼레 held: nothing typed');
+    assert.deepStrictEqual(bridged.errors, []);
+  });
+  await bridged.ctx.close();
+
   // 준: "음성 대화로 주사위 꺼내봐 해도 안된다고해", "의상바꿔도 안되고", "음성대화로 퍼레의 상호작용이 안돼"
   await check('asked by voice or in the talk, 퍼레 takes out a toy, changes clothes and keeps them, plays what it is asked', async () => {
     const p = talk.page;
