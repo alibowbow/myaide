@@ -168,7 +168,8 @@ async function open(browser, at, bridge) {
     const dice = await p.evaluate(() => { const r = document.querySelector('.tb.dice').getBoundingClientRect(); return {x: r.left + 8, y: r.top + 8}; });
     await p.evaluate(() => { window._said = []; const b = document.querySelector('.bubble'); new MutationObserver(() => window._said.push(b.textContent)).observe(b, {childList: true, characterData: true, subtree: true}); });
     await p.touchscreen.tap(dice.x, dice.y);
-    for (let i = 0; i < 30; i++) await p.clock.runFor(100);
+    // Until it lands (it rolls longer when it bounces off 퍼레's head: "헤딩!" first, then the number).
+    for (let i = 0; i < 80; i++) { await p.clock.runFor(100); if (i >= 29 && await p.evaluate(() => !document.querySelector('.tb.dice').classList.contains('rolling') && window._said.some(t => /^\d/.test(t)))) break; }
     const pips = await p.evaluate(() => document.querySelectorAll('.tb.dice i.on').length), said = await p.evaluate(() => window._said);
     assert(pips >= 1 && pips <= 6, 'pips ' + pips);
     assert(said.some(t => t.startsWith(String(pips))), 'said ' + said.join(' / ') + ' for ' + pips);
