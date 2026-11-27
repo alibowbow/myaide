@@ -35,10 +35,26 @@ public final class Utterance {
         }
         return state;
     }
+    /**
+     * Speech already begun (the user spoke over 퍼레, core/OverEar): what was said so far starts it, as if it opened just before
+     * it, and it goes on to its end from the samples added after. The room's quiet starts at the quietest 10 ms of what came
+     * before (the pauses between 퍼레's own words).
+     */
+    public static Utterance begun(short[] said, long waitMs) {
+        Utterance u = new Utterance(waitMs);
+        u.state = State.SPEAKING; u.opened = 0; u.speech = START;
+        for (int i = 0; i + BLOCK <= said.length; i += BLOCK) { float e = level(said, i); if (Float.isNaN(u.floor) || e < u.floor) u.floor = e; }
+        u.add(said, said.length);
+        return u;
+    }
+    /** The level (dBFS) of the BLOCK samples from at. */
+    private static float level(short[] samples, int at) {
+        double sum = 0; for (int i = at; i < at + BLOCK; i++) sum += (double) samples[i] * samples[i];
+        return (float) (10 * Math.log10(sum / BLOCK / (32768.0 * 32768.0) + 1e-10));
+    }
     private void step() {
         blocks++;
-        double sum = 0; for (short s : block) sum += (double) s * s;
-        float e = (float) (10 * Math.log10(sum / BLOCK / (32768.0 * 32768.0) + 1e-10));
+        float e = level(block, 0);
         if (Float.isNaN(floor)) floor = e;
         boolean voiced = e > floor + SPEECH_DB && e > FLOOR_DB;
         // Speech barely lifts the floor (a long sentence must not become the room's quiet); a quiet room's own sound does.

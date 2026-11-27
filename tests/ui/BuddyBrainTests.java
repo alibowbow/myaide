@@ -223,13 +223,7 @@ public class BuddyBrainTests {
         for (String piece : new String[]{"응! 지금", " 바로 틀어 줄게. 아이유", " 신곡 좋더라~ 7시에", " 또 듣자\n할일: {\"tool\":\"play\"}"}) s.add(piece);
         s.end();
         assertEquals(java.util.List.of("응! 지금 바로 틀어 줄게.", "아이유 신곡 좋더라~", "7시에 또 듣자"), said);
-        // Talking over 퍼레: its own echo and a short "응" do not stop it; half a second of the user's voice does.
-        dev.jun.gyeot.core.TalkOver over = new dev.jun.gyeot.core.TalkOver(); short[] f = new short[dev.jun.gyeot.core.TalkOver.FRAME];
-        java.util.Arrays.fill(f, (short) 600); for (int i = 0; i < 50; i++) assertFalse("echo", over.add(f, f.length));
-        java.util.Arrays.fill(f, (short) 5000); for (int i = 0; i < 10; i++) assertFalse("응", over.add(f, f.length));
-        java.util.Arrays.fill(f, (short) 600); for (int i = 0; i < 10; i++) assertFalse(over.add(f, f.length));
-        java.util.Arrays.fill(f, (short) 5000); boolean stopped = false; for (int i = 0; i < 30 && !stopped; i++) stopped = over.add(f, f.length);
-        assertTrue("talked over", stopped);
+        // Talking over 퍼레 (its own echo never stops it, the user does): talksOverWithoutCuttingItself.
     }
     /**
      * 퍼레's own answers that need no app (준: "시킬 수 있는 목록 … 아직 부족"): a coin, dice, a pick, a sum, the time in another
@@ -614,6 +608,129 @@ public class BuddyBrainTests {
         // How long words take before their sound tells it (the bubble types along), and the breath between two sentences.
         assertEquals(6 * 95, BuddyVoice.sayMs("안녕 반가워"));
         assertTrue(BuddyVoice.BETWEEN_MS < 200 && BuddyVoice.GAP_MS > BuddyVoice.BETWEEN_MS);
+    }
+
+    /** A 20 ms microphone frame whose RMS is level. */
+    private static short[] frame(double level) {
+        short[] f = new short[dev.jun.gyeot.core.OverEar.FRAME];
+        for (int i = 0; i < f.length; i++) f[i] = (short) (i % 2 == 0 ? level : -level);
+        return f;
+    }
+    /**
+     * Talking over 퍼레 (준: "퍼레가 말하는 중에 끼어들면 멈추고 듣기", core/OverEar): its own echo never stops it, however long it
+     * talks; a short "응" does not; the user does within half a second, and what they say is kept from just before their voice
+     * began. What plays is still known in the pause between two sentences (core/PlayLevel).
+     */
+    @Test public void talksOverWithoutCuttingItself() {
+        dev.jun.gyeot.core.PlayLevel playing = new dev.jun.gyeot.core.PlayLevel();
+        playing.add(0, 1000, 6000);
+        assertEquals("the 400 ms pause between two sentences still plays", 6000, playing.level(1400), 0);
+        playing.add(1400, 2400, 5000);
+        assertEquals(5000, playing.level(2000), 0);
+        assertEquals("nothing played lately", 0, playing.level(3200), 0);
+        playing.clear(); assertEquals("cut short", 0, playing.level(2000), 0);
+
+        // 퍼레's own echo through the echo canceller: 0.45 of what plays, for ten seconds.
+        dev.jun.gyeot.core.BargeIn barge = new dev.jun.gyeot.core.BargeIn();
+        dev.jun.gyeot.core.OverEar ear = new dev.jun.gyeot.core.OverEar(barge);
+        short[] echo = frame(0.45 * 6000), user = frame(2.5 * 0.45 * 6000);
+        for (int i = 0; i < 500; i++) assertEquals("its own voice, frame " + i, dev.jun.gyeot.core.OverEar.Step.ECHO, ear.add(echo, echo.length, 6000));
+        // A 300 ms "응" over it, then the echo again: it goes on.
+        for (int i = 0; i < 15; i++) assertEquals("응", dev.jun.gyeot.core.OverEar.Step.ECHO, ear.add(user, user.length, 6000));
+        for (int i = 0; i < 50; i++) assertEquals(dev.jun.gyeot.core.OverEar.Step.ECHO, ear.add(echo, echo.length, 6000));
+        // The next answer (what the echo sounds like kept): the user at 2.5 times the echo stops it within half a second.
+        ear = new dev.jun.gyeot.core.OverEar(barge); int frames = 0;
+        while (frames < 40 && ear.add(user, user.length, 6000) != dev.jun.gyeot.core.OverEar.Step.OVER) frames++;
+        assertTrue("talked over after " + (frames + 1) * 20 + " ms", (frames + 1) * 20 <= 500);
+
+        // What they said, from just before their voice began: 퍼레's echo (words of 250 ms with short pauses), the user over it
+        // from 1.2 s to 2.8 s (syllables of 240 ms, 60 ms between), 퍼레 stopped as soon as it hears them, then quiet.
+        java.util.Random r = new java.util.Random(3);
+        int rate = dev.jun.gyeot.core.WakeWord.RATE, size = dev.jun.gyeot.core.OverEar.FRAME, starts = 60 * size, ends = rate * 28 / 10, n = rate * 5;
+        short[] mic = new short[n];
+        dev.jun.gyeot.core.OverEar heard = new dev.jun.gyeot.core.OverEar(barge);
+        dev.jun.gyeot.core.OverEar.Step step = dev.jun.gyeot.core.OverEar.Step.ECHO; int over = -1;
+        for (int at = 0; at + size <= n; at += size) {
+            // 퍼레 speaks until the user stops it.
+            for (int i = at; i < at + size; i++) {
+                double t = i / (double) rate;
+                double e = over < 0 && i % 5280 < 4000 ? Math.sin(2 * Math.PI * 180 * t) * 2700 * Math.sqrt(2) : 0;
+                double v = i >= starts && i < ends && (i - starts) % 4800 < 3840 ? Math.sin(2 * Math.PI * 140 * t) * 7000 * Math.sqrt(2) + Math.sin(2 * Math.PI * 280 * t) * 2000 : 0;
+                mic[i] = (short) Math.max(-32768, Math.min(32767, Math.round(v + e + r.nextGaussian() * 30)));
+            }
+            short[] f = java.util.Arrays.copyOfRange(mic, at, at + size);
+            if (over < 0) {
+                step = heard.add(f, f.length, 6000);
+                if (step == dev.jun.gyeot.core.OverEar.Step.OVER) { over = at; step = heard.hear(4000); }
+                continue;
+            }
+            step = heard.add(f, f.length, 0);
+            if (step == dev.jun.gyeot.core.OverEar.Step.DONE || step == dev.jun.gyeot.core.OverEar.Step.SILENT) break;
+        }
+        assertTrue("stopped once they spoke: " + over, over > starts && over - starts <= rate / 2);
+        assertEquals(dev.jun.gyeot.core.OverEar.Step.DONE, step);
+        short[] said = heard.pcm();
+        int first = starts - 15 * dev.jun.gyeot.core.OverEar.FRAME, keep = rate * 3 / 10;
+        assertArrayEquals("it starts 300 ms before their voice and keeps its first 300 ms",
+            java.util.Arrays.copyOfRange(mic, first, starts + keep), java.util.Arrays.copyOf(said, starts + keep - first));
+        assertTrue("all of what they said: " + said.length, said.length >= ends - first);
+        // After an answer it hears the next words itself, with no barge-in check any more.
+        dev.jun.gyeot.core.OverEar next = new dev.jun.gyeot.core.OverEar(barge); next.listen(7000);
+        assertNotEquals(dev.jun.gyeot.core.OverEar.Step.OVER, next.add(user, user.length, 6000));
+        assertTrue(next.hearing());
+    }
+    /**
+     * The words 퍼레 answers itself, with no AI and no Typecast (준: "음성상호작용을 더 강화해줘", core/VoiceTurns): a bare call, an
+     * end, 그만 while music plays, 뭐라고?, 잠깐 right after being cut short, and a no to an alarm waiting for a yes; talk that only
+     * starts with those words is talk.
+     */
+    @Test public void handlesTurnWordsItself() throws Exception {
+        dev.jun.gyeot.core.VoiceTurns.Kind CALL = dev.jun.gyeot.core.VoiceTurns.Kind.CALL, BYE = dev.jun.gyeot.core.VoiceTurns.Kind.BYE, PAUSE = dev.jun.gyeot.core.VoiceTurns.Kind.PAUSE,
+            REPEAT = dev.jun.gyeot.core.VoiceTurns.Kind.REPEAT, HUSH = dev.jun.gyeot.core.VoiceTurns.Kind.HUSH, NO = dev.jun.gyeot.core.VoiceTurns.Kind.NO, NONE = dev.jun.gyeot.core.VoiceTurns.Kind.NONE;
+        Object[][] table = {
+            // heard, just cut, confirming, music on, what it is
+            {"퍼레야", false, false, false, CALL}, {"퍼레야!", false, false, false, CALL}, {"들퍼레", false, false, false, CALL},
+            {"그만할래", false, false, false, BYE}, {"됐어 고마워", false, false, false, BYE}, {"이제 그만하자.", false, false, true, BYE}, {"잘 자", false, false, false, BYE},
+            {"그만", false, false, true, PAUSE}, {"그만", false, false, false, BYE},
+            {"그만 먹고 싶어", false, false, true, NONE}, {"다 됐어?", false, false, false, NONE}, {"그만큼 좋아", false, false, false, NONE}, {"끝?", false, false, false, NONE},
+            {"뭐라고?", false, false, false, REPEAT}, {"다시 말해 줘", false, false, false, REPEAT},
+            {"잠깐", true, false, false, HUSH}, {"잠깐만", true, false, false, HUSH}, {"잠깐", false, false, false, NONE},
+            {"됐어", false, true, false, NO}, {"아니", false, true, false, NO}, {"아니", false, false, false, NONE}, {"됐어", false, false, false, NONE},
+            {"퍼레야 오늘 날씨 어때", false, false, false, NONE}, {"", false, false, false, NONE}, {null, false, false, false, NONE},
+        };
+        for (Object[] row : table)
+            assertEquals(String.valueOf(row[0]), row[4], dev.jun.gyeot.core.VoiceTurns.of((String) row[0], (boolean) row[1], (boolean) row[2], (boolean) row[3]));
+
+        // In a talk, with the phone's recognizer played by the test: a bare call is answered and it listens again; an end
+        // ends it; neither goes to the brain.
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        java.util.List<SpeechInput.Listener> ears = new java.util.ArrayList<>();
+        SpeechInput.Ears before = BuddyVoice.ears;
+        BuddyVoice.ears = new SpeechInput.Ears() {
+            @Override public SpeechInput.Ear open(android.content.Context c) {
+                return new SpeechInput.Ear() { @Override public void start(SpeechInput.Listener l) { ears.add(l); } @Override public void finish() {} @Override public void close() {} };
+            }
+            @Override public boolean available(android.content.Context c) { return true; }
+        };
+        try {
+            BuddyVoice talk = new BuddyVoice(app, app.store());
+            java.util.List<String> shown = new java.util.ArrayList<>();
+            talk.attach((state, text) -> shown.add(state + ":" + text), then -> then.run());
+            talk.start();
+            shadowOf(Looper.getMainLooper()).idle();
+            assertEquals(1, ears.size());
+            assertFalse("not listening before the recognizer is ready: " + shown, shown.contains("listening:"));
+            ears.get(0).ready(); assertEquals("listening:", shown.get(shown.size() - 1));
+            ears.get(0).heard("퍼레야");
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(400));
+            assertTrue(talk.on()); assertEquals("it listens again: " + shown, 2, ears.size());
+            ears.get(1).ready();
+            ears.get(1).heard("그만할래");
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(400));
+            assertFalse("ended", talk.on());
+            assertEquals("done:" + BuddyVoice.BYE_WORDS, shown.get(shown.size() - 1));
+            assertEquals("the brain was never asked", 0, talk.answers);
+        } finally { BuddyVoice.ears = before; }
     }
 
     /** 퍼레's short words in its own voice (준: "프리셋 보이스 100개", "타입캐스트로"): a hundred, kept by voice, no repeat of the last few. */
