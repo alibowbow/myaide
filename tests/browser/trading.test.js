@@ -2,9 +2,9 @@
   트레이딩 (app/src/main/assets/projects/trading.html) with the user's own TradingView (준: "Ai 브라우저 구글 로그인으로 트레이딩뷰도
   로그인 연동해 줄 수 있어?", "프로젝트에 트뷰"): the page as ProjectActivity serves it, its port to the app given here as
   connectApp gives it (a "gyeot-app" message with a MessagePort), TradingView's widget scripts answered empty (no network).
-  Checked: the page says it takes the app's chart (tv_ready, with the symbol and interval it would show); told mine, its cards
-  drop their widget charts and become the list that picks the app's chart (tv_symbol; 크게 보기 → tv_focus; an interval goes
-  with it), the picked card is marked, its sheets tell the app to step aside (tv_sheet); told not mine, the widget charts are back.
+  Checked: the page says it takes the app's chart (tv_ready, with the symbol and interval it would show); told mine, the page keeps
+  its own layout (the cards with their widget charts) and a card's 크게 보기 asks for the user's own chart of it (tv_focus; an
+  interval goes with the picked symbol), its sheets tell the app to step aside (tv_sheet); told not mine, 크게 보기 is the widget's.
   And the bridge's reader (app/src/main/assets/browser/content.js tradingviewAccount), on stand-ins of TradingView's pages: only
   the is-… class words and two yes/no answers leave a page, never a name or an address; nothing is read off TradingView.
   Run: node trading.test.js   (TRADING_SHOTS=<dir> also saves trading_mine.png and trading_widgets.png at a phone's width)
@@ -75,22 +75,21 @@ function accountReader() {
   check(widgetsBefore >= 1, 'signed out: the cards draw widget charts (' + widgetsBefore + ')');
   if (shots) await page.screenshot({ path: path.join(shots, 'trading_widgets.png') });
 
-  // Signed in: the app shows the user's chart; the cards become its list.
+  // Signed in: the page keeps its own layout, the cards with their widget charts (준: "이거 배열이 너무 이상해 원래 우리의 레이아웃으로
+  // 해줘"); a card's 크게 보기 asks the app for the user's own chart of it.
   await tell({ type: 'tv', mine: true, symbol: 'AMEX:SOXL' });
-  await page.waitForTimeout(150);
+  await page.waitForTimeout(300);
   check(await page.evaluate(() => document.body.classList.contains('mine')), 'mine: the page knows');
-  check(await page.evaluate(() => [...document.querySelectorAll('.chart')].every(c => getComputedStyle(c).display === 'none')), 'mine: no chart box in the cards');
-  check(await page.evaluate(() => document.querySelectorAll('.chart .tradingview-widget-container').length === 0), 'mine: no widget chart made');
-  check(await page.evaluate(() => document.querySelectorAll('.card.sel').length === 1 && document.querySelector('.card').classList.contains('sel')), 'mine: the first card is the one shown');
+  check(await page.evaluate(() => [...document.querySelectorAll('.chart')].every(c => getComputedStyle(c).display !== 'none')), 'mine: the cards keep their chart boxes');
   const tall = await page.evaluate(() => document.querySelector('.card').getBoundingClientRect().height);
-  check(tall < 80, 'mine: a card is one line high (' + Math.round(tall) + 'px)');
-  check(/내 트뷰/.test(await page.textContent('#count')), 'mine: the count line says the cards pick the chart');
+  check(tall > 300, 'mine: a card is as tall as before (' + Math.round(tall) + 'px)');
+  check(await page.evaluate(() => document.querySelectorAll('.card.sel').length === 0), 'mine: no card marked');
+  check(/내 트뷰/.test(await page.textContent('#count')), 'mine: the count line says 크게 보기 opens the user\'s chart');
   if (shots) await page.screenshot({ path: path.join(shots, 'trading_mine.png') });
   await said();
   await page.click('.card:nth-of-type(2) .name');
   let m = await said();
-  check(m.length === 1 && m[0].type === 'tv_symbol' && m[0].symbol === 'NASDAQ:NVDA' && m[0].interval === 'D', 'a card tapped: tv_symbol ' + JSON.stringify(m));
-  check(await page.evaluate(() => document.querySelectorAll('.card')[1].classList.contains('sel') && document.querySelectorAll('.card.sel').length === 1), 'the tapped card is marked');
+  check(m.every(x => x.type !== 'tv_symbol' && x.type !== 'tv_focus'), 'mine: a tap on a card opens nothing ' + JSON.stringify(m));
   await page.click('.card:nth-of-type(3) .small');
   m = await said();
   check(m.length === 1 && m[0].type === 'tv_focus' && m[0].symbol === 'NASDAQ:QQQ', '크게 보기: tv_focus ' + JSON.stringify(m));
@@ -114,8 +113,7 @@ function accountReader() {
   // Signed out again: the widget charts are back.
   await tell({ type: 'tv', mine: false });
   await page.waitForTimeout(300);
-  check(await page.evaluate(() => !document.body.classList.contains('mine') && [...document.querySelectorAll('.chart')].every(c => getComputedStyle(c).display !== 'none')), 'not mine: chart boxes back');
-  check(widgetScripts > widgetsBefore, 'not mine: widget charts drawn again');
+  check(await page.evaluate(() => !document.body.classList.contains('mine') && [...document.querySelectorAll('.chart')].every(c => getComputedStyle(c).display !== 'none')), 'not mine: chart boxes there');
   await page.click('.card:nth-of-type(2) .name');
   check((await said()).every(x => x.type !== 'tv_symbol'), 'not mine: a tap on a card picks nothing');
   await browser.close();

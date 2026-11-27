@@ -106,10 +106,10 @@ body.launcher{position:fixed;inset:0}
 .shorts .app{width:calc(var(--icon) + 18px)}
 .own-ic{display:grid;place-items:center;width:100%;height:100%;border-radius:23%;box-shadow:0 3px 8px rgba(20,24,50,.28),inset 0 1px 0 rgba(255,255,255,.35)}
 .own-ic svg{width:58%;height:58%;display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,.18))}
-/* 마이튜브: not YouTube's red and white play button (준: "마이튜브가 너무 유튜브 같다"): 퍼레's own little TV, two antennae with
-   yellow tips like its own, on lavender to violet. */
+/* 마이튜브: not YouTube's red and white play button (준: "마이튜브가 너무 유튜브 같다"): a little TV with two antennae, no feet and no
+   tips on them (준: "아래 발은 없애줘 노란 동그라미도 없애줘"), on lavender to violet. */
 .own-ic.mytube{background:linear-gradient(155deg,#c4b5fd 0%,#8b6cf6 48%,#5a3fd8 100%)}
-.own-ic.mytube svg{width:66%;height:66%}
+.own-ic.mytube svg{width:64%;height:64%;transform:translateY(-3%)}
 .app .label{font-size:11.5px;font-weight:650;letter-spacing:-.3px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:var(--halo)}
 .app .badge{right:-6px;top:-6px}
 
@@ -886,10 +886,8 @@ function delivPill(k) {
 /** 들퍼레's own places as home icons (only 마이튜브 for now; add more here): a tap opens it. */
 const SHORTS = [{id: "mytube", label: "마이튜브",
   icon: '<svg viewBox="0 0 24 24"><path d="M9 3.6 12 7.2 15.2 3.4" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
-    + '<circle cx="9" cy="3.4" r="1.25" fill="#ffd36e"/><circle cx="15.2" cy="3.2" r="1.25" fill="#ffd36e"/>'
     + '<rect x="3.2" y="7.4" width="17.6" height="12.6" rx="4.2" fill="#fff"/>'
-    + '<path d="M10.4 11.1c0-.55.6-.88 1.06-.58l3.5 2.3c.42.28.42.88 0 1.16l-3.5 2.3c-.46.3-1.06-.03-1.06-.58z" fill="#7a5cf0"/>'
-    + '<path d="M7.6 20v1.2M16.4 20v1.2" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>'}];
+    + '<path d="M10.4 11.1c0-.55.6-.88 1.06-.58l3.5 2.3c.42.28.42.88 0 1.16l-3.5 2.3c-.46.3-1.06-.03-1.06-.58z" fill="#7a5cf0"/>' + '</svg>'}];
 function drawShorts() {
   const box = el("shorts"); if (!box) return;
   box.innerHTML = SHORTS.map(x => '<button class="app short" data-short="' + x.id + '" aria-label="' + esc(x.label) + ' 열기"><span class="ic"><span class="own-ic ' + x.id + '">' + x.icon + '</span></span><span class="label">' + esc(x.label) + '</span></button>').join("");

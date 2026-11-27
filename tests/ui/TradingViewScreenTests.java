@@ -27,7 +27,8 @@ import static org.robolectric.Shadows.shadowOf;
 /**
  * 트레이딩 with the user's own TradingView (준: "Ai 브라우저 구글 로그인으로 트레이딩뷰도 로그인 연동해 줄 수 있어?", "프로젝트에 트뷰"):
  * the 트뷰 chip at the end of the bar in each sign-in state (compact: a slim capsule, the title keeps its room on a phone), and the
- * user's own chart (a stand-in here: no Gecko in Robolectric) placed above the page on a phone, beside it on a wide landscape
+ * user's own chart (a stand-in here: no Gecko in Robolectric) only over the whole page when a card's 크게 보기 asks (the page keeps
+ * its own layout otherwise), formerly placed above the page on a phone, beside it on a wide landscape
  * screen, all of the screen when made large, out of the way of the page's sheets, and gone when signed out or turned off.
  */
 @RunWith(RobolectricTestRunner.class)
@@ -99,7 +100,8 @@ public class TradingViewScreenTests {
         assertTrue(((TextView) field(a, "title")).getLayout().getEllipsisCount(0) == 0);
         shot(a, "trading-chip-signed-out");
 
-        // Signed in: 내 트뷰, and once the page says it takes it, the user's chart above the page.
+        // Signed in: 내 트뷰. The page keeps its own layout (준: "이거 배열이 너무 이상해 원래 우리의 레이아웃으로 해줘"): the user's chart
+        // only over the whole page when a card's 크게 보기 asks for it, back closes it.
         reset(ProjectMaker.class); reset(TradingViewLogin.class);
         a = open(app, trading(app, TradingViewLink.Login.IN)); settle(a);
         TextView mine = chip(a, "내 트뷰"); assertNotNull("signed in: 내 트뷰", mine);
@@ -107,45 +109,37 @@ public class TradingViewScreenTests {
         pane = (TradingViewPane) field(a, "pane"); View web = (View) field(a, "web"), stage = (View) field(a, "stage");
         assertEquals("before the page says it takes it: nothing", View.GONE, pane.host.getVisibility());
         page(a, "{\"type\":\"tv_ready\",\"symbol\":\"NASDAQ:NVDA\",\"interval\":\"60\"}");
-        assertEquals("the user's chart", View.VISIBLE, pane.host.getVisibility());
-        assertEquals("of the picked symbol and interval", TradingViewLink.chartUrl("NASDAQ:NVDA", "60"), pane.url());
-        // Robolectric's WebView is measured but never gets a frame (WebView.setFrame goes to a provider it does not have): its
-        // measured size is the size its parent gave it.
-        float stageHeight = dp(a, stage.getHeight()), chartHeight = dp(a, pane.host.getHeight()), pageHeight = dp(a, web.getMeasuredHeight());
-        TradingViewLink.Pane want = TradingViewLink.pane(Math.round(dp(a, stage.getWidth())), Math.round(stageHeight), false);
-        assertFalse(want.beside());
-        assertEquals("above the page, a little more than half (stage " + stageHeight + "dp)", want.size(), chartHeight, 1.5f);
-        assertTrue("the chart is at least 400dp on this phone (" + chartHeight + ")", chartHeight >= 400);
-        assertTrue("the page keeps its list below (" + pageHeight + "dp)", pageHeight >= 200 && web.isShown());
-        LinearLayout board = (LinearLayout) field(a, "board");
-        assertTrue("the chart above the page", board.getOrientation() == LinearLayout.VERTICAL && board.indexOfChild(pane.host) < board.indexOfChild(web) && pane.host.getTop() == 0);
-        assertEquals("the two fill the screen below the bar", stage.getHeight(), pane.host.getHeight() + web.getMeasuredHeight(), 3);
-        assertEquals("the full width", stage.getWidth(), pane.host.getWidth());
+        assertEquals("the page as it is: no chart over or beside it", View.GONE, pane.host.getVisibility());
+        assertEquals("", pane.url());
+        assertTrue("the page has the whole screen", web.isShown() && Math.abs(web.getMeasuredHeight() - stage.getHeight()) <= 3);
         shot(a, "trading-mine");
-        // A card picked: the chart follows; an address that is not a symbol changes nothing.
+        // A card picked or an interval changed: nothing opens; an address that is not a symbol is not taken.
         page(a, "{\"type\":\"tv_symbol\",\"symbol\":\"AMEX:SOXL\",\"interval\":\"D\"}");
-        assertEquals(TradingViewLink.chartUrl("AMEX:SOXL", "D"), pane.url());
+        assertEquals(View.GONE, pane.host.getVisibility());
         page(a, "{\"type\":\"tv_symbol\",\"symbol\":\"javascript:alert(1)\",\"interval\":\"x\"}");
-        assertEquals("a bad symbol is not taken", TradingViewLink.chartUrl("AMEX:SOXL", "D"), pane.url());
-        // 크게 보기: all of the screen; back makes it small again.
+        // 크게 보기: the user's chart of that card, all of the screen; back closes it.
         page(a, "{\"type\":\"tv_focus\",\"symbol\":\"AMEX:SOXL\",\"interval\":\"D\"}");
-        assertEquals("large: all of it", stage.getHeight(), pane.host.getHeight());
-        assertEquals("large: the page steps away", View.GONE, web.getVisibility());
+        assertEquals("크게 보기: the user's chart", View.VISIBLE, pane.host.getVisibility());
+        assertEquals("of that card and interval (a bad symbol before was not taken)", TradingViewLink.chartUrl("AMEX:SOXL", "D"), pane.url());
+        assertEquals("all of it", stage.getHeight(), pane.host.getHeight());
+        assertEquals("the page steps away", View.GONE, web.getVisibility());
         shot(a, "trading-mine-large");
         a.onBackPressed(); shadowOf(Looper.getMainLooper()).idle(); settle(a);
-        assertEquals("back: small again", want.size(), dp(a, pane.host.getHeight()), 1.5f);
+        assertEquals("back: closed", View.GONE, pane.host.getVisibility());
+        assertEquals("", pane.url());
         assertEquals(View.VISIBLE, web.getVisibility());
         // A sheet of the page (AI 분석, 종목 편집) has the whole screen while it is open.
+        page(a, "{\"type\":\"tv_focus\",\"symbol\":\"NASDAQ:NVDA\",\"interval\":\"60\"}");
         page(a, "{\"type\":\"tv_sheet\",\"open\":true}");
         assertEquals("a sheet open: the chart steps aside", View.GONE, pane.host.getVisibility());
-        assertEquals(stage.getHeight(), web.getMeasuredHeight());
         page(a, "{\"type\":\"tv_sheet\",\"open\":false}");
         assertEquals(View.VISIBLE, pane.host.getVisibility());
-        // 무료 위젯 차트로 보기: back to the page's widgets.
+        // 크게 보기를 무료 위젯으로: the user's chart closes; 크게 보기 makes the widget large again.
         TradingViewLogin.get(app).mine(false); shadowOf(Looper.getMainLooper()).idle(); settle(a);
         assertEquals("turned off: the widgets", View.GONE, pane.host.getVisibility());
         assertEquals("", pane.url());
         TradingViewLogin.get(app).mine(true); shadowOf(Looper.getMainLooper()).idle(); settle(a);
+        page(a, "{\"type\":\"tv_focus\",\"symbol\":\"NASDAQ:NVDA\",\"interval\":\"60\"}");
         assertEquals(View.VISIBLE, pane.host.getVisibility());
         // Signed out (the chart's own page said so): the widgets, and the chip says it.
         TradingViewLogin.get(app).heard(new org.json.JSONObject().put("known", true).put("classes", "is-not-authenticated is-not-pro").put("flag", false), "test");
@@ -160,6 +154,7 @@ public class TradingViewScreenTests {
         var controller = Robolectric.buildActivity(ProjectActivity.class, new Intent(app, ProjectActivity.class).putExtra(ProjectActivity.ID, id)).setup();
         ProjectActivity a = controller.get(); settle(a);
         page(a, "{\"type\":\"tv_ready\",\"symbol\":\"NASDAQ:QQQ\",\"interval\":\"W\"}");
+        page(a, "{\"type\":\"tv_focus\",\"symbol\":\"NASDAQ:QQQ\",\"interval\":\"W\"}");
         TradingViewPane pane = (TradingViewPane) field(a, "pane");
         assertEquals(TradingViewLink.chartUrl("NASDAQ:QQQ", "W"), pane.url());
         controller.pause().stop(); shadowOf(Looper.getMainLooper()).idle();
@@ -169,21 +164,19 @@ public class TradingViewScreenTests {
         assertEquals(View.VISIBLE, pane.host.getVisibility());
     }
 
-    @Test @Config(qualifiers="w900dp-h700dp-land-night-hdpi") public void wideBeside() throws Exception {
+    @Test @Config(qualifiers="w900dp-h700dp-land-night-hdpi") public void wideScreenKeepsThePage() throws Exception {
         Application app = RuntimeEnvironment.getApplication();
         ProjectActivity a = open(app, trading(app, TradingViewLink.Login.IN)); settle(a);
         page(a, "{\"type\":\"tv_ready\",\"symbol\":\"BINANCE:BTCUSDT\",\"interval\":\"240\"}");
         TradingViewPane pane = (TradingViewPane) field(a, "pane"); View web = (View) field(a, "web"), stage = (View) field(a, "stage");
-        LinearLayout board = (LinearLayout) field(a, "board");
-        assertEquals("wide landscape: beside the page", LinearLayout.HORIZONTAL, board.getOrientation());
-        TradingViewLink.Pane want = TradingViewLink.pane(Math.round(dp(a, stage.getWidth())), Math.round(dp(a, stage.getHeight())), false);
-        assertTrue(want.beside());
-        assertEquals("60% of the width", want.size(), dp(a, pane.host.getWidth()), 1.5f);
-        assertEquals("the full height", stage.getHeight(), pane.host.getHeight());
-        assertTrue("the page beside it (" + dp(a, web.getMeasuredWidth()) + "dp)", web.isShown() && dp(a, web.getMeasuredWidth()) >= 300);
-        assertEquals("the two fill the width", stage.getWidth(), pane.host.getWidth() + web.getMeasuredWidth(), 3);
+        assertEquals("wide landscape: the page as it is, no chart beside it", View.GONE, pane.host.getVisibility());
+        assertTrue(web.isShown() && Math.abs(web.getMeasuredWidth() - stage.getWidth()) <= 3);
         assertNotNull(chip(a, "내 트뷰"));
         shot(a, "trading-mine-wide");
+        page(a, "{\"type\":\"tv_focus\",\"symbol\":\"BINANCE:BTCUSDT\",\"interval\":\"240\"}");
+        assertEquals("크게 보기: the whole width", stage.getWidth(), pane.host.getWidth());
+        assertEquals("and height", stage.getHeight(), pane.host.getHeight());
+        assertEquals(View.GONE, web.getVisibility());
     }
 
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void otherProjectsKeepTheirBar() throws Exception {

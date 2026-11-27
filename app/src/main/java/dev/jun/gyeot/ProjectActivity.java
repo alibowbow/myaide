@@ -42,8 +42,9 @@ import static dev.jun.gyeot.Ui.*;
  * The page's own frame (never the charts' frames inside it) gets one message port to the app (connectApp): 트레이딩 asks
  * through it for an AI chart analysis and a news briefing; nothing else of the app is reachable from a page.
  * 트레이딩 with the user signed in to TradingView in the AI 브라우저 (TradingViewLogin, the 트뷰 chip at the end of the bar): the
- * chart is their own TradingView (TradingViewPane), above the page (beside it on a wide screen), and the page's cards become
- * the list that picks its symbol (trading.html's tv_* messages); signed out, the page's widgets as before.
+ * page keeps its own layout, the cards with their widget charts (준: "이거 배열이 너무 이상해 원래 우리의 레이아웃으로 해줘"), and a
+ * card's 크게 보기 opens their own TradingView (TradingViewPane) over the whole page, back closes it (trading.html's tv_* messages);
+ * signed out, 크게 보기 makes the widget large as before.
  */
 public final class ProjectActivity extends Activity implements ProjectMaker.Listener {
     static final String ID = "gyeot.project_id";
@@ -615,7 +616,8 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         if (tvPage && mine != toldMine) { toldMine = mine; toPage(dev.jun.gyeot.core.Jsons.obj("type", "tv", "mine", mine, "symbol", tvSymbol)); }
         if (!mine) tvLarge = false;
         layoutPane();
-        if (mine && started) pane.show(TradingViewLink.chartUrl(tvSymbol, tvInterval));
+        // Only made large (a card's 크게 보기): the page keeps its own layout otherwise (준: "원래 우리의 레이아웃으로 해줘").
+        if (mine && started && tvLarge) pane.show(TradingViewLink.chartUrl(tvSymbol, tvInterval));
         else if (pane != null) pane.release();
         tvChip();
     }
@@ -626,7 +628,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
      */
     private void layoutPane() {
         if (pane == null || board == null || web == null) return;
-        boolean shown = mineWanted() && !showingSource && !tvSheet;
+        boolean shown = mineWanted() && tvLarge && !showingSource && !tvSheet;
         WindowInsets insets = root.getRootWindowInsets();
         boolean typing = shown && pane.host.hasFocus() && insets != null && insets.isVisible(WindowInsets.Type.ime());
         float density = getResources().getDisplayMetrics().density;
@@ -677,8 +679,8 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
             return;
         }
         java.util.List<String> labels = new java.util.ArrayList<>(); java.util.List<Runnable> picks = new java.util.ArrayList<>();
-        if (mineWanted()) { labels.add(tvLarge ? "차트 작게 보기" : "차트 크게 보기"); picks.add(() -> { tvLarge = !tvLarge; applyMine(); }); }
-        labels.add(tv.mine() ? "무료 위젯 차트로 보기" : "내 트뷰 차트로 보기"); picks.add(() -> tv.mine(!tv.mine()));
+        if (mineWanted()) { labels.add(tvLarge ? "내 트뷰 차트 닫기" : "내 트뷰 차트 열기"); picks.add(() -> { tvLarge = !tvLarge; applyMine(); }); }
+        labels.add(tv.mine() ? "크게 보기를 무료 위젯으로" : "크게 보기를 내 트뷰로"); picks.add(() -> tv.mine(!tv.mine()));
         labels.add("AI 브라우저에서 열기"); picks.add(() -> { try { BrowserActivity.open(this, TradingViewLink.chartUrl(tvSymbol, tvInterval)); } catch (RuntimeException ignored) {} });
         labels.add("로그인 다시 확인"); picks.add(() -> tv.check(true));
         ui.miniMenu(tvChip, labels.toArray(new String[0]), -1, i -> picks.get(i).run());

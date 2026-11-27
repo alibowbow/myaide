@@ -394,7 +394,8 @@ public class BuddyBrainTests {
         String said = BuddyActs.run(app, BuddyTalk.loose("{tool:forget,about:커피 좋아한다는 거}"), "커피 좋아한다는 거 잊어 줘", false).say();
         assertTrue(said, said.contains("커피를 좋아한대") && said.contains("잊었어"));
         java.util.List<String> left = new java.util.ArrayList<>(); for (dev.jun.gyeot.core.BuddyMemory.Entry e : BuddyTalk.memories(app)) left.add(e.text());
-        assertEquals(java.util.List.of("사용자는 고양이 키워", "사용자는 내일 부산에 간대"), left);
+        // (in any order: two kept in the same millisecond may come either way, as on CI's quick runner)
+        assertEquals(java.util.Set.of("사용자는 고양이 키워", "사용자는 내일 부산에 간대"), new java.util.HashSet<>(left)); assertEquals(2, left.size());
         // Not learned again by itself (a talk, the night) for ninety days.
         long now = System.currentTimeMillis();
         java.util.Map<String, Long> forgot = BuddyTalk.forgot(app);
