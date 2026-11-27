@@ -66,8 +66,18 @@ public final class BuddyMemory {
             if (e.kind().equals(kind) && now - e.at() < quiet) return list;
         }
         List<Entry> out = new ArrayList<>(list);
-        out.add(new Entry(now, kind == null ? "" : kind, text.strip(), Math.max(1, Math.min(3, weight)), secret));
+        out.add(new Entry(free(out, now), kind == null ? "" : kind, text.strip(), Math.max(1, Math.min(3, weight)), secret));
         return fit(out, now);
+    }
+    /**
+     * at, or the first moment after it that no memory has: at is how a memory is named (the memory book deletes by it, a
+     * lesson corrects by it), so two never share it. The night's digest kept its first note line and the day at the same
+     * moment, and deleting one deleted both.
+     */
+    public static long free(List<Entry> list, long at) {
+        long t = at;
+        for (boolean taken = true; taken; ) { taken = false; for (Entry e : list) if (e.at() == t) { t++; taken = true; break; } }
+        return t;
     }
     /**
      * How much a memory is worth keeping now: how much it matters, how often the user told it (up to five times; a routine
@@ -115,7 +125,7 @@ public final class BuddyMemory {
         String text = line.apply(1);
         if (text == null || text.isBlank()) return list;
         List<Entry> out = new ArrayList<>(list);
-        out.add(new Entry(now, kind, text.strip(), 1, false));
+        out.add(new Entry(free(out, now), kind, text.strip(), 1, false));
         return fit(out, now);
     }
     /** The list with the promise kept at at done (kept, as the memory book shows it, but no longer brought up). */

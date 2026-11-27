@@ -203,6 +203,14 @@ async function open(browser, at, bridge) {
   await check('퍼레\'s face follows its words: teary for ㅠㅠ, surprised for 헉, a giggle as it says 히히', async () => {
     const p = day.page, has = c => p.evaluate(c => document.querySelector('.bot').classList.contains(c), c);
     const moving = c => p.evaluate(c => document.querySelector('.buddy').classList.contains(c), c);
+    // Free to move first: 퍼레 plays on its own every few seconds (then its words move nothing, below; a play's own faces
+    // would come over the words' too). None starts while this check runs (its care card counts as busy), and the one going
+    // on (its walk there too) ends.
+    await p.evaluate(() => { boards[0]._careOn = true; });
+    for (let pass = 0; pass < 2; pass++) {
+      for (let i = 0; i < 40 && await p.evaluate(() => boards[0]._inPlay()); i++) await p.clock.runFor(500);
+      if (pass === 0) await p.clock.runFor(5000);
+    }
     await p.evaluate(() => launcher.thought('흐잉… 우산이 젖었어 ㅠㅠ'));
     await p.clock.runFor(300);
     assert(await has('teary'), 'teary for ㅠㅠ');
@@ -234,6 +242,7 @@ async function open(browser, at, bridge) {
     // Every face it may make is one of its faces, every motion one of its motions.
     const unknown = await p.evaluate(() => FEEL_OF.filter(([re, face, motion]) => !FACES[face] || motion && !MOTIONS.some(m => m[0] === motion)).map(x => x[1] + '/' + x[2]));
     assert.deepStrictEqual(unknown, []);
+    await p.evaluate(() => { boards[0]._careOn = false; });
     assert.deepStrictEqual(day.errors, []);
   });
   await check('퍼레 is plain by default and dresses up now and then, never one outfit for long', async () => {

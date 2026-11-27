@@ -26,6 +26,13 @@ public final class PlayLevel {
         for (int i = 0; i < levels.length; i++) if (levelTo[i] >= now - 700 && levelFrom[i] <= now + 100) loudest = Math.max(loudest, levels[i]);
         return loudest;
     }
+    /**
+     * What plays now has ended at now (a sound whose length was not known ahead, the phone's voice): its span stops here, so
+     * the window above runs from its real end, not from a guess.
+     */
+    public synchronized void end(long now) {
+        for (int i = 0; i < levels.length; i++) if (levelFrom[i] <= now && levelTo[i] > now) levelTo[i] = now;
+    }
     /** Nothing plays any more (flushed, cut short). */
     public synchronized void clear() { java.util.Arrays.fill(levelTo, 0); java.util.Arrays.fill(levelFrom, 0); java.util.Arrays.fill(levels, 0); }
 }

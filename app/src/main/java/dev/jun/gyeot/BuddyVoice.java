@@ -130,7 +130,7 @@ final class BuddyVoice {
         held = null; meant = null; pendingAsk = null; heardNow = false; lateLine = ""; lateGo = "";
         on = true; silences = 0; failures = 0; generation++; lastTalk = android.os.SystemClock.uptimeMillis(); talkFrom = lastTalk;
         // What 퍼레's echo sounds like is learned afresh for this talk (the phone may be in another room, or on a speaker now).
-        barge = new dev.jun.gyeot.core.BargeIn(); cutAt = 0; lastLine = ""; lastSound = null; answers = 0;
+        barge = new dev.jun.gyeot.core.BargeIn(); cutAt = 0; lastLine = ""; lastSound = null; answers = 0; awaited = 0;
         music = false; overMusic = false; saidAt = 0; hintsFor("");
         store.buddyTalking = true; store.changed();
         BuddyVoiceService.start(context);
@@ -581,8 +581,9 @@ final class BuddyVoice {
         // A voice not the user's: the talk so far (typed, or kept from the last talk), and what was done in it, are not theirs to go on from.
         if (guest) { learn(); turns.clear(); learnedTo = 0; lastAct = null; meant = null; pendingAsk = null; }
         // A thing promised when the user cut in (talkedOver): a correction or a wait lets it go (the answer is told what it
-        // was), a yes does it, other words have it done first and are answered after.
-        org.json.JSONObject h = held; held = null;
+        // was), a yes does it, other words have it done first and are answered after. A guest's words neither do it nor let
+        // it go (a guest never does a thing on the phone): it waits for the user, or the quiet (quiet()).
+        org.json.JSONObject h = guest ? null : held; if (!guest) held = null;
         if (h != null && act != null) {
             dev.jun.gyeot.core.VoiceTurns.Kind k = turn(said, false);
             if (k == dev.jun.gyeot.core.VoiceTurns.Kind.NO || k == dev.jun.gyeot.core.VoiceTurns.Kind.HUSH || dev.jun.gyeot.core.VoiceTurns.corrects(said)) {
@@ -915,7 +916,7 @@ final class BuddyVoice {
             main.post(() -> {
                 if (!live()) { over.countDown(); return; }
                 if (whole != null) playWhole(whole, clip.text, over::countDown);
-                else speakPhone(words, low, () -> { if (live()) { spokenAt(sayMs(words)); show("speaking", clip.text, sayMs(words)); timing("휴대폰 목소리"); } }, over::countDown);
+                else speakPhone(words, low, () -> { if (live()) { phoneSounds(words); show("speaking", clip.text, sayMs(words)); timing("휴대폰 목소리"); } }, over::countDown);
             });
             while (live() && !over.await(50, java.util.concurrent.TimeUnit.MILLISECONDS)) { /* said, or the talk moved on */ }
         }
@@ -936,7 +937,7 @@ final class BuddyVoice {
             List<dev.jun.gyeot.core.SayQueue.Clip> now = new ArrayList<>(held); held.clear();
             for (dev.jun.gyeot.core.SayQueue.Clip c : now) {
                 String words = voiced(c.text);
-                speakPhone(words, low, () -> { if (live()) { spokenAt(sayMs(words)); show("speaking", c.text, sayMs(words)); timing("휴대폰 목소리"); } },
+                speakPhone(words, low, () -> { if (live()) { phoneSounds(words); show("speaking", c.text, sayMs(words)); timing("휴대폰 목소리"); } },
                     () -> { unsaid--; if (unsaid == 0 && queue.closed()) said(); });
             }
         }
@@ -1166,8 +1167,19 @@ final class BuddyVoice {
     /** A sound whose samples this app does not see starts now, for ms: its echo is measured against a usual speaking level. */
     private void spokenAt(long ms) { long now = android.os.SystemClock.uptimeMillis(); playLevel.add(now, now + Math.max(0, ms), SPOKEN); }
     /**
-     * The user spoke over 퍼레: what it was saying stops (the rest of the answer too), a thing already promised is done, then
-     * it listens; hearing: the over-mic is already cutting what they say.
+     * A line in the phone's voice starts sounding now: its level goes on until it is said (phoneSaid ends it), as how long
+     * the phone takes is not known (a guess that ran short left its last words unmeasured, and their echo could stop 퍼레).
+     * A silent line (an emoji alone) plays nothing: no level, so its quiet is not learned as 퍼레's echo.
+     */
+    private void phoneSounds(String words) {
+        if (words == null || words.isBlank()) return;
+        long now = android.os.SystemClock.uptimeMillis();
+        playLevel.add(now, now + Math.max(4000, sayMs(words) * 3L), SPOKEN);
+    }
+    /**
+     * The user spoke over 퍼레: what it was saying stops (the rest of the answer too), a thing already promised waits for what
+     * they say (held: think() does it or lets it go, the quiet does it), and it listens; hearing: the over-mic is already
+     * cutting what they say.
      */
     private void talkedOver(boolean hearing) {
         if (!on || !saying) return;
@@ -1182,7 +1194,8 @@ final class BuddyVoice {
         // A thing promised is held, not done: what they say may be "아니 멜론으로" (think()); silence does it (quiet()).
         org.json.JSONObject promised = todo; todo = null;
         if (promised != null && act != null) { held = promised; heldHeard = todoHeard; heldCorrects = todoCorrects; }
-        if (hearing && over != null) { listenAt = now; prepareCues(); show("listening", ""); return; }
+        // The user is speaking now (they cut in): nothing is said over them (late()) while the over-mic cuts their words.
+        if (hearing && over != null) { listenAt = now; heardNow = true; prepareCues(); show("listening", ""); return; }
         stopOver();
         main.postDelayed(this::listen, 150); // the microphone let go first
     }
@@ -1232,7 +1245,12 @@ final class BuddyVoice {
         int queued = line.words().isEmpty() ? phone.playSilentUtterance(900, TextToSpeech.QUEUE_ADD, id) : phone.speak(line.words(), TextToSpeech.QUEUE_ADD, null, id);
         if (queued != TextToSpeech.SUCCESS) { phoneSaying.remove(id); line.finished().run(); }
     }
-    private void phoneSaid(String id) { PhoneLine l = phoneSaying.remove(id); if (l != null) l.finished().run(); }
+    /** A line in the phone's voice said (or stopped): what it played ends now (phoneSounds), then finished. */
+    private void phoneSaid(String id) {
+        PhoneLine l = phoneSaying.remove(id); if (l == null) return;
+        playLevel.end(android.os.SystemClock.uptimeMillis());
+        l.finished().run();
+    }
     /** Said: what was promised is done now, then it listens again (the loop goes on until silence or a tap). */
     private void spoken() {
         saying = false; pipe = null;
@@ -1267,7 +1285,7 @@ final class BuddyVoice {
                 main.post(() -> {
                     if (!on || mine != generation) return;
                     did(a, o);
-                    if (o != null && o.confirm() != null) { turns.add(new String[]{"user", said}); done(o); return; }
+                    if (o != null && o.confirm() != null) { turns.add(talkTurn("user", said, false)); done(o); return; }
                     if (o != null && o.say() != null && !o.say().isBlank()) turns.add(new String[]{"assistant", o.say()});
                     then.run();
                 });

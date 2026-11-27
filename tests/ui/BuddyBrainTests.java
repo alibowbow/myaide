@@ -432,6 +432,14 @@ public class BuddyBrainTests {
             BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"forget\",\"what\":\"이직\"}"), "이직 얘기 잊어 줘", false);
             assertFalse(BuddyTalk.memories(app).contains(kept));
         } finally { java.lang.reflect.Field f = BuddyTalk.class.getDeclaredField("unlockedUntil"); f.setAccessible(true); f.setLong(null, 0); }
+        // The night's notes that go with it are on what the user named: "커피" takes the coffee note, not the one on friends
+        // because the coffee was with a friend.
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> mixed = java.util.List.of(
+            new dev.jun.gyeot.core.BuddyMemory.Entry(1, "fact", "사용자는 친구랑 커피를 마셨대", 2, false),
+            new dev.jun.gyeot.core.BuddyMemory.Entry(2, "profile", "친구가 많아요", 3, false),
+            new dev.jun.gyeot.core.BuddyMemory.Entry(3, "profile", "아침마다 커피를 마셔요", 3, false));
+        assertEquals(java.util.List.of("사용자는 친구랑 커피를 마셨대", "아침마다 커피를 마셔요"),
+            dev.jun.gyeot.core.BuddyMind.toForget(mixed, "커피").stream().map(dev.jun.gyeot.core.BuddyMemory.Entry::text).toList());
         // The text form knows the words for them too.
         assertEquals("forget", BuddyTalk.loose("{\"tool\":\"지워\",\"what\":\"커피\"}").optString("tool"));
         assertEquals("remember", BuddyTalk.loose("{\"tool\":\"buddy_remember\",\"text\":\"고양이\"}").optString("tool"));
@@ -534,6 +542,20 @@ public class BuddyBrainTests {
             BuddyTalk.dream(app, false, false, three.plusHours(2).plusMinutes(30));
             assertEquals("once a day", 2, asked.size());
         } finally { BuddyTalk.night = was; prefs.edit().remove("dreamt").remove("dreamTry").commit(); }
+        // Two kept in the same moment are two memories (at names one): the night's first note line and the day, two told in
+        // one millisecond; the memory book's delete of one keeps the other.
+        BuddyTalk.forgetAll(app);
+        long same = System.currentTimeMillis();
+        BuddyTalk.dreamt(app, dev.jun.gyeot.core.BuddyMind.dream("프로필: 주말엔 등산을 가요\n추억: 비 오는 날 같이 음악 들었어"), same);
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> night2 = BuddyTalk.memories(app);
+        assertEquals(2, night2.size()); assertNotEquals("the note line and the day", night2.get(0).at(), night2.get(1).at());
+        dev.jun.gyeot.core.BuddyMemory.Entry day2 = night2.stream().filter(e -> "episode".equals(e.kind())).findFirst().orElseThrow();
+        BuddyTalk.forget(app, day2.at());
+        assertEquals(java.util.List.of("주말엔 등산을 가요"), BuddyTalk.memories(app).stream().map(dev.jun.gyeot.core.BuddyMemory.Entry::text).toList());
+        BuddyTalk.forgetAll(app);
+        BuddyTalk.rememberStrong(app, "fact", "사용자는 귤을 좋아한대", false); BuddyTalk.rememberStrong(app, "fact", "사용자는 수영을 배운대", false);
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> both = BuddyTalk.memories(app);
+        assertEquals(2, both.size()); assertNotEquals("told in one millisecond", both.get(0).at(), both.get(1).at());
         // memory.json read once while it does not change; again when it does.
         java.io.File file = new java.io.File(new java.io.File(app.getFilesDir(), "buddy"), "memory.json");
         java.nio.file.Files.writeString(file.toPath(), dev.jun.gyeot.core.BuddyMemory.save(note));
@@ -879,6 +901,11 @@ public class BuddyBrainTests {
         assertEquals(5000, playing.level(2000), 0);
         assertEquals("nothing played lately", 0, playing.level(3200), 0);
         playing.clear(); assertEquals("cut short", 0, playing.level(2000), 0);
+        // A sound whose length is not known ahead (the phone's voice): measured until it is said, then the usual window.
+        playing.add(5000, 65_000, 4000); playing.end(6200);
+        assertEquals("said: the window from its real end", 4000, playing.level(6800), 0);
+        assertEquals("not a minute of a guess", 0, playing.level(7000), 0);
+        playing.clear();
 
         // 퍼레's own echo through the echo canceller: 0.45 of what plays, for ten seconds.
         dev.jun.gyeot.core.BargeIn barge = new dev.jun.gyeot.core.BargeIn();
@@ -1629,6 +1656,36 @@ public class BuddyBrainTests {
             settle(() -> BuddyMisses.list(app).size() == 2);
             shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(1000));
             assertEquals("said once: " + shown, 1, shown.stream().filter(late::equals).count());
+
+            // Cut short, then a guest's "응": a guest never does a thing on the phone, so the user's thing waits (it is not let
+            // go either) and the quiet after does it.
+            comesUp[0] = true; while (shadow.getNextStartedActivity() != null) { /* the shares above */ }
+            var think = BuddyVoice.class.getDeclaredMethod("think", String.class, boolean.class); think.setAccessible(true);
+            ears.get(11).heard("유튜브에서 아이유 좋은날 틀어 줘");
+            settle(() -> asks.size() == 9);
+            asks.get(8).doIt().accept(play); asks.get(8).part().accept("틀어 줄게!");
+            settle(saying);
+            over.invoke(talk, false);
+            settle(() -> ears.size() == 13);
+            think.invoke(talk, "응", true);
+            settle(() -> asks.size() == 10);
+            assertNull("a guest's yes does not do it", shadow.getNextStartedActivity());
+            assertNotNull("it waits for the user", field(talk, "held"));
+            assertNull("a guest's answer does nothing", asks.get(9).doIt());
+            asks.get(9).done().accept("");
+            settle(() -> ears.size() == 14);
+            ears.get(13).ready(); ears.get(13).silent("말이 없어요");
+            settle(() -> shadow.peekNextStartedActivity() != null);
+            android.content.Intent after = shadow.getNextStartedActivity();
+            assertNotNull("done on the quiet after", after); assertEquals("com.google.android.youtube", after.getPackage());
+
+            // A talk ended while an answer was awaited: the next one awaits none (else what did not open is never said in it).
+            settle(() -> ears.size() == 15);
+            ears.get(14).ready(); ears.get(14).heard("오늘 뭐 하지");
+            settle(() -> asks.size() == 11);
+            assertNotEquals(0, field(talk, "awaited"));
+            talk.stop(); talk.start();
+            assertEquals("a new talk awaits nothing", 0, field(talk, "awaited"));
         } finally { talk.stop(); BuddyVoice.ears = before; BuddyVoice.brain = was; BuddyActs.watch = watched; }
     }
 

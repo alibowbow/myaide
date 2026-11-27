@@ -537,7 +537,9 @@ public final class BuddyMind {
     /**
      * The memories a "잊어 줘" names (what: its words): every one holding all its words (BuddyTricks.matching), else the one
      * known that it is most about (related: a topic in common or nearly the same words); then the night's notes on the same
-     * subject, so it is not still told the next day. Private ones too: the caller asks for the fingerprint.
+     * subject, so it is not still told the next day: a note on what the user named, not on another word of what went ("커피
+     * 잊어 줘" takes "아침마다 커피를 마셔요", never "친구가 많아요" because the coffee was with a friend). Private ones too: the
+     * caller asks for the fingerprint.
      */
     public static List<BuddyMemory.Entry> toForget(List<BuddyMemory.Entry> all, String what) {
         List<String> texts = new ArrayList<>(); for (BuddyMemory.Entry e : all) texts.add(e.text());
@@ -546,7 +548,7 @@ public final class BuddyMind {
         if (out.isEmpty()) { List<BuddyMemory.Entry> best = related(all, what, 1, true); out.addAll(best); }
         if (out.isEmpty() || out.size() > 5) return out;
         for (BuddyMemory.Entry e : new ArrayList<>(out)) for (BuddyMemory.Entry p : all)
-            if ("profile".equals(p.kind()) && !out.contains(p) && shareTopic(p.text(), e.text())) out.add(p);
+            if ("profile".equals(p.kind()) && !out.contains(p) && shareTopic(p.text(), e.text()) && shareTopic(p.text(), what)) out.add(p);
         return out;
     }
     /** The subjects a "잊어 줘" lets go: its own words' topics found in what went (커피 for "커피 얘기 잊어"), else what went is about. */
@@ -699,7 +701,7 @@ public final class BuddyMind {
             }
             if (same != null) out = BuddyMemory.confirm(out, same.at(), now);
             else if (opposite != null) out = BuddyMemory.replace(out, opposite.at(), line, now, false, weight);
-            else out.add(new BuddyMemory.Entry(t++, "profile", line, weight, false));
+            else { long at = BuddyMemory.free(out, t); out.add(new BuddyMemory.Entry(at, "profile", line, weight, false)); t = at + 1; }
         }
         List<BuddyMemory.Entry> lines = new ArrayList<>();
         for (BuddyMemory.Entry e : out) if ("profile".equals(e.kind()) && !e.secret()) lines.add(e);
