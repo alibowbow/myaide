@@ -66,6 +66,18 @@ import org.json.JSONObject;
  */
 public final class HomeActivity extends Activity {
     static final String PREFS = "launcher", DOCK = "dock", RECENT = "recent", MOVED = "moved", ORDER = "order";
+    /** Opened from the 작업 표시줄's all-apps button: "apps" (Launchpad) or "search" (Launchpad with its search). */
+    static final String SHOW = "show";
+    /** The home screen is on screen (between onStart and onStop): the 작업 표시줄 (Taskbar) hides then. shownAt: its last onStart. */
+    static volatile boolean visible;
+    static volatile long shownAt;
+    /**
+     * The home screen while it exists (stopped behind other apps too): the 작업 표시줄 starts an app beside the one in front from
+     * it, because Android 14+ drops FLAG_ACTIVITY_LAUNCH_ADJACENT on a start with no source activity (Taskbar.launchBeside).
+     */
+    private static volatile java.lang.ref.WeakReference<HomeActivity> alive = new java.lang.ref.WeakReference<>(null);
+    static Activity alive() { HomeActivity a = alive.get(); return a == null || a.isFinishing() || a.isDestroyed() ? null : a; }
+    private String pendingShow;
     private static final String BASE = "https://gyeot.local/";
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-home"); t.setDaemon(true); return t; });
@@ -86,6 +98,7 @@ public final class HomeActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
+        alive = new java.lang.ref.WeakReference<>(this);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         launcher = getSystemService(LauncherApps.class);
         getWindow().setDecorFitsSystemWindows(false);
@@ -102,6 +115,7 @@ public final class HomeActivity extends Activity {
             return insets;
         });
         root.requestApplyInsets();
+        pendingShow = getIntent() == null ? null : getIntent().getStringExtra(SHOW);
         try { launcher.registerCallback(changed, main); } catch (RuntimeException ignored) {}
         prefs.registerOnSharedPreferenceChangeListener(pagesChanged);
         systemBars();
@@ -239,10 +253,18 @@ public final class HomeActivity extends Activity {
      */
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        String show = intent == null ? null : intent.getStringExtra(SHOW);
+        if (show != null) { if (ready && web != null) showPad(show); else pendingShow = show; return; }
         boolean front = shown || android.os.SystemClock.uptimeMillis() - pausedAt < 700;
         if (ready && web != null) web.evaluateJavascript(front ? "launcher.home()" : "launcher.closeAll&&launcher.closeAll()", null);
     }
     private long pausedAt;
+    /** The 작업 표시줄's all-apps button: Launchpad over whatever was open, with its search when the button was held. */
+    private void showPad(String show) {
+        if (web != null) web.evaluateJavascript("launcher.pad&&launcher.pad(" + "search".equals(show) + ")", null);
+    }
+    @Override protected void onStart() { super.onStart(); shownAt = android.os.SystemClock.uptimeMillis(); visible = true; PhoneService.taskbarChanged(); }
+    @Override protected void onStop() { visible = false; PhoneService.taskbarChanged(); super.onStop(); }
     @Override public void onBackPressed() {
         // A home screen does not close: back only closes what is open on it.
         if (ready && web != null) web.evaluateJavascript("launcher.back()", null);
@@ -252,6 +274,7 @@ public final class HomeActivity extends Activity {
         if (ready && web != null) web.evaluateJavascript("launcher.resized()", null);
     }
     @Override protected void onDestroy() {
+        if (alive.get() == this) alive = new java.lang.ref.WeakReference<>(null);
         try { launcher.unregisterCallback(changed); } catch (RuntimeException ignored) {}
         prefs.unregisterOnSharedPreferenceChangeListener(pagesChanged);
         if (NoticeListener.changed == badgesChanged) NoticeListener.changed = null;
@@ -522,6 +545,7 @@ public final class HomeActivity extends Activity {
                 ready = true;
                 if (web != null) web.evaluateJavascript("launcher.insets(" + top + "," + bottom + "," + keyboard + ")", null);
                 pushApps(); main.removeCallbacks(refresh); if (shown) refresh.run(); else pushBoard();
+                if (pendingShow != null) { showPad(pendingShow); pendingShow = null; }
                 // 퍼레 itself, asked by voice or in the talk (BuddyBoard): now that the page can hear it.
                 if (shown) BuddyBoard.shown(selfCall);
                 // The weather needs roughly where the phone is: asked once, here where the user sees why.

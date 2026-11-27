@@ -57,7 +57,8 @@ import static dev.jun.gyeot.core.Jsons.*;
 
 /**
  * Phone control through Android accessibility, armed only by the user. The screen is read only when the assistant asks;
- * events merely invalidate earlier readings and are never stored or sent anywhere.
+ * events merely invalidate earlier readings and are never stored or sent anywhere. The same window events let the optional
+ * taskbar (Taskbar) follow the screen: which app is in front, by package name, kept in memory for its recent apps.
  */
 public final class PhoneService extends AccessibilityService {
     interface Result { void done(JSONObject value); }
@@ -113,12 +114,29 @@ public final class PhoneService extends AccessibilityService {
     private long lastLook;
     private EdgeButton edge;
     private final Runnable edgeRefresh = () -> { try { if (edge != null) edge.refresh(); } catch (RuntimeException ignored) {} };
+    /** 들퍼레's own taskbar over the system bar while another app is in front (Taskbar); null when it could not start. */
+    private Taskbar taskbar;
+    /** The store changed (only its switch and phone control matter to the bar); the home screen came or went. */
+    private final Runnable taskbarRefresh = () -> { try { if (taskbar != null) taskbar.storeChanged(); } catch (RuntimeException ignored) {} };
+    private final Runnable taskbarLater = () -> { try { if (taskbar != null) taskbar.later(); } catch (RuntimeException ignored) {} };
+    private boolean screenWatched;
     private final BroadcastReceiver screen = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
-            if (edge == null) return;
-            if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) edge.screenOff(); else edge.refresh();
+            boolean off = Intent.ACTION_SCREEN_OFF.equals(intent.getAction());
+            try { if (edge != null) { if (off) edge.screenOff(); else edge.refresh(); } } catch (RuntimeException ignored) {}
+            try { if (taskbar != null) { if (off) taskbar.screenOff(); else taskbar.later(); } } catch (RuntimeException ignored) {}
         }
     };
+    /** The home screen came or went (HomeActivity): the taskbar looks again. */
+    static void taskbarChanged() {
+        PhoneService service = instance;
+        if (service != null) service.main.post(service.taskbarLater);
+    }
+    /** Why the taskbar is hidden right now (NONE: shown), for its settings row; null when it is not running. */
+    static dev.jun.gyeot.core.TaskbarPlan.Hidden taskbarHidden() {
+        PhoneService service = instance; Taskbar bar = service == null ? null : service.taskbar;
+        return bar == null ? null : bar.hidden();
+    }
 
     static boolean connected() { return instance != null; }
     /**
@@ -492,15 +510,24 @@ public final class PhoneService extends AccessibilityService {
         instance = this; gate.stop();
         // The optional edge button lives here because accessibility overlays need no running service or microphone.
         // An extra must never take phone control down with it: Android stops reconnecting a service that crashed.
-        if (edge == null && getApplication() instanceof GyeotApp app && app.store() != null) {
-            try {
+        if (getApplication() instanceof GyeotApp app && app.store() != null) {
+            if (edge == null) try {
                 edge = new EdgeButton(this, app.store()); app.store().observe(edgeRefresh);
-                IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_OFF); filter.addAction(Intent.ACTION_SCREEN_ON); filter.addAction(Intent.ACTION_USER_PRESENT);
-                registerReceiver(screen, filter, Context.RECEIVER_NOT_EXPORTED);
                 edge.refresh();
             } catch (RuntimeException failure) {
                 app.store().unobserve(edgeRefresh); if (edge != null) edge.close(); edge = null;
             }
+            if (taskbar == null) try {
+                taskbar = new Taskbar(this, app.store()); app.store().observe(taskbarRefresh);
+                taskbar.refresh();
+            } catch (RuntimeException failure) {
+                app.store().unobserve(taskbarRefresh); if (taskbar != null) taskbar.close(); taskbar = null;
+                DiagnosticsExport.record(this, "phone", failure);
+            }
+            if ((edge != null || taskbar != null) && !screenWatched) try {
+                IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_OFF); filter.addAction(Intent.ACTION_SCREEN_ON); filter.addAction(Intent.ACTION_USER_PRESENT);
+                registerReceiver(screen, filter, Context.RECEIVER_NOT_EXPORTED); screenWatched = true;
+            } catch (RuntimeException ignored) {}
         }
         changed();
     }
@@ -510,6 +537,14 @@ public final class PhoneService extends AccessibilityService {
         if (gate.armed() && (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED)) {
             lastWindowChange = SystemClock.uptimeMillis(); invalidate();
         }
+        // The taskbar follows windows coming and going, and which app came to the front (its package only, in memory).
+        if (taskbar != null && (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED))
+            try { taskbar.windowsChanged(event); } catch (RuntimeException ignored) {}
+    }
+    @Override public void onConfigurationChanged(android.content.res.Configuration config) {
+        super.onConfigurationChanged(config);
+        // Folded or unfolded, turned, light or dark: the taskbar lays itself out again.
+        try { if (taskbar != null) taskbar.configurationChanged(); } catch (RuntimeException ignored) {}
     }
     @Override public void onInterrupt() { stop(); }
     @Override public boolean onUnbind(Intent intent) { disconnect(); return super.onUnbind(intent); }
@@ -518,9 +553,14 @@ public final class PhoneService extends AccessibilityService {
         gate.stop(); invalidate(); forget(); removeStop(); if (instance == this) instance = null;
         if (edge != null) {
             if (getApplication() instanceof GyeotApp app && app.store() != null) app.store().unobserve(edgeRefresh);
-            try { unregisterReceiver(screen); } catch (IllegalArgumentException ignored) {}
             edge.close(); edge = null;
         }
+        if (taskbar != null) {
+            if (getApplication() instanceof GyeotApp app && app.store() != null) app.store().unobserve(taskbarRefresh);
+            try { taskbar.close(); } catch (RuntimeException ignored) {}
+            taskbar = null;
+        }
+        if (screenWatched) { try { unregisterReceiver(screen); } catch (IllegalArgumentException ignored) {} screenWatched = false; }
         changed();
     }
     private void changed() { if (getApplication() instanceof GyeotApp app && app.store() != null) app.store().changed(); }

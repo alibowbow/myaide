@@ -99,7 +99,7 @@ public final class MainActivity extends Activity {
     private LinearLayout body, header, statusRow, tabBar, workLog, sayRow, recordsList, openAiBox, claudeBox, geminiWorkBox, updateBox;
     /** Settings → Gemini: the Google subscription card while that page is open. */
     private ScrollView scroll;
-    private TextView titleView, status, error, applyBanner, exitBanner, taskSummary, updateBanner, edgeState, assistState, archiveState;
+    private TextView titleView, status, error, applyBanner, exitBanner, taskSummary, updateBanner, edgeState, taskbarState, assistState, archiveState;
     private View statusDot;
     /** The home screen's voice orb and its two lines of text; the recorder tile's state line. */
     private VoiceOrb orb;
@@ -112,7 +112,7 @@ public final class MainActivity extends Activity {
     /** Set when the app is left (onStop); onStart then draws settings again, so a grant made in Android's settings shows at once. */
     private boolean settingsLeft;
     /** The edge button setting as 바로 부르기 last drew its switch; the menu on the button itself can turn it off. */
-    private boolean edgeDrawn;
+    private boolean edgeDrawn, taskbarDrawn;
     /** Stable ids; gallery has its own tab without changing notification and shortcut targets. */
     private static final int[] TAB_ORDER = {0, 3, 5, 4, 2};
     private final java.util.Map<String, Integer> pageScroll = new java.util.HashMap<>();
@@ -319,7 +319,8 @@ public final class MainActivity extends Activity {
         // A call may start from here: the greeting is read into memory and the path to the Live host warmed (Greeter).
         store.greeter().warm();
         // Back from another app (Android's settings): settings is drawn again on its page and scroll, so a grant shows at once.
-        boolean back = settingsLeft; settingsLeft = false; if (back && tab == 2 && !showingMainChat && !"key".equals(settingsPage)) showTab(2);
+        // The home app may have just been changed there: the 작업 표시줄 row asks again (Taskbar.homeHeld caches it).
+        boolean back = settingsLeft; settingsLeft = false; if (back) Taskbar.forgetRole(); if (back && tab == 2 && !showingMainChat && !"key".equals(settingsPage)) showTab(2);
         // 차에서 호출어: the standby can only start while the app is in front (after a reboot it starts here).
         if (store.settings.getBoolean(WakeWordFiles.ENABLED, false) && WakeWordService.current == dev.jun.gyeot.core.WakeStandby.State.OFF) {
             try { WakeWordService.start(this); } catch (RuntimeException refused) { /* the settings page says how to turn it on */ }
@@ -540,7 +541,7 @@ public final class MainActivity extends Activity {
         phoneGptCheckState = null;
         // Full screen belongs to the 비서 page: leaving it ends full screen; drawn again there, home() puts the new card back.
         closeFullHost(); if (selected != 0) voiceFull = false;
-        orb = null; orbTitle = null; orbSub = null; claudeBox = null; geminiWorkBox = null; muteButton = null; stopButton = null; endButton = null; homeIntro = null; liveCard = null; heroStage = null; heroHead = null; heroWords = null; heroCall = false; callAside.clear(); liveActions = null; shownSaid = ""; said = null; saidList = null; sayInput = null; typeButton = null; typing = false; sayRow = null; taskSummary = null; edgeState = null; assistState = null; archiveState = null; phoneRow = null; recordButton = null; if (screenRecordUi != null) screenRecordUi.forget(); recordsList = null; openAiBox = null; updateBox = null; sessionsBox = null; galleryBox = null; cameraBox = null; cameraButton = null; tab = selected; clearBody();
+        orb = null; orbTitle = null; orbSub = null; claudeBox = null; geminiWorkBox = null; muteButton = null; stopButton = null; endButton = null; homeIntro = null; liveCard = null; heroStage = null; heroHead = null; heroWords = null; heroCall = false; callAside.clear(); liveActions = null; shownSaid = ""; said = null; saidList = null; sayInput = null; typeButton = null; typing = false; sayRow = null; taskSummary = null; edgeState = null; taskbarState = null; assistState = null; archiveState = null; phoneRow = null; recordButton = null; if (screenRecordUi != null) screenRecordUi.forget(); recordsList = null; openAiBox = null; updateBox = null; sessionsBox = null; galleryBox = null; cameraBox = null; cameraButton = null; tab = selected; clearBody();
         if (header.getParent() instanceof ViewGroup parent) parent.removeView(header);
         navRow.removeAllViews(); navRow.setVisibility(View.GONE);
         LinearLayout.LayoutParams headerParams = new LinearLayout.LayoutParams(-1, -2); headerParams.bottomMargin = ui.dp(20); body.addView(header, headerParams);
@@ -1365,7 +1366,8 @@ public final class MainActivity extends Activity {
         if (screenRecordUi != null) screenRecordUi.refresh();
         if ((store.recording || ScreenRecordService.running() || store.thinking() || workRunning()) && !ticker.hasCallbacks(tick)) ticker.postDelayed(tick, 1000);
         if (phoneGptCheckState != null) phoneGptCheckState.setText(phoneGptCheckResult);
-        if (edgeState != null) { if (tab == 2 && edgeDrawn != store.edgeButton()) { showTab(2); return; } edgeState.setText(edgeStatus()); }
+        if (edgeState != null) { if (tab == 2 && (edgeDrawn != store.edgeButton() || taskbarDrawn != store.taskbar())) { showTab(2); return; } edgeState.setText(edgeStatus()); }
+        if (taskbarState != null) taskbarState.setText(Taskbar.status(this, store));
         if (assistState != null) assistState.setText(assistStatus());
         if (archiveState != null) archiveState.setText(archiveStatus());
         if (phoneRow != null) {
@@ -4926,8 +4928,12 @@ public final class MainActivity extends Activity {
         LinearLayout press = ui.group();
         LinearLayout edge = ui.switchRow("화면 가장자리 버튼", edgeStatus(), store.edgeButton(), value -> { store.settings.edit().putBoolean("edgeButton", value).apply(); store.changed(); showTab(2); });
         edgeState = (TextView) edge.getChildAt(1); edgeDrawn = store.edgeButton(); ui.addRow(press, edge, false);
-        // The button shows only with 폰 조작's first step on; while it is off, the way there sits right under the switch.
-        if (store.edgeButton() && !PhoneService.connected())
+        // 작업 표시줄 (Taskbar): 들퍼레's own bar over the system bar while another app is in front, with split screen.
+        LinearLayout bar = ui.switchRow("작업 표시줄", Taskbar.status(this, store), store.taskbar(), value -> { store.settings.edit().putBoolean("taskbar", value).apply(); store.changed(); showTab(2); });
+        taskbarState = (TextView) bar.getChildAt(1); taskbarDrawn = store.taskbar(); ui.addRow(press, bar, false);
+        // Both show only with 폰 조작's first step on; while it is off, the way there sits right under the switches. The bar
+        // asks for it only where it can appear at all (들퍼레 the home app, a large screen): not everyone, since it is on by default.
+        if ((store.edgeButton() || (store.taskbar() && Taskbar.applies(this))) && !PhoneService.connected())
             ui.addRow(press, ui.listRow(0, 0, "폰 조작 1단계 켜러 가기", "접근성에서 ‘" + Brand.NAME + " 폰 조작’을 켜요", ui.chevron(), () -> openSettings("phone")), false);
         // The two live states below take up to two lines, so 「눌러서 바꾸기」 and the car's name are not cut at 360dp.
         LinearLayout home = ui.listRow(R.drawable.ic_home, Ui.BLUE, "홈 버튼 길게 누르기", assistStatus(), ui.chevron(), this::openAssistantSettings);
@@ -4936,6 +4942,7 @@ public final class MainActivity extends Activity {
         ui.addRow(press, ui.listRow(R.drawable.ic_bolt, Ui.ORANGE, "아이콘 길게 누르기 → ‘바로 대화’", "홈 화면에 따로 끌어 둘 수도 있어요", null, null), true);
         add(press, 0);
         add(ui.details("자세히", "가장자리 버튼 · 화면 쪽으로 살짝 밀거나 누르면 대화가 시작돼요. 위아래로 끌어 옮기고, 길게 누르면 메뉴(" + Brand.NAME + " 열기·반대쪽으로·잠깐 숨기기·버튼 끄기)가 열려요. 잠깐 숨기면 화면을 껐다 켤 때 다시 나타나요. 대화 중·폰 조작 중·잠금 화면에서는 숨어요. 폰 조작 1단계(접근성 ‘" + Brand.NAME + " 폰 조작’)가 필요하고, 접근성을 끄면 버튼도 바로 사라져요. 버튼은 화면 내용을 읽지 않아요.\n"
+            + "작업 표시줄 · " + Brand.I + " 홈 화면 앱이고 화면이 클 때, 다른 앱을 쓰는 동안 맨 아래 바에 모든 앱·독의 앱·최근 앱과 최근 앱·홈·뒤로 버튼을 원래 자리에 띄워요. 앱 아이콘을 화면 위로 끌어 놓거나 길게 눌러 ‘화면 나누기로 열기’를 고르면 지금 앱 옆에 열려요(어느 쪽에 열릴지는 Android가 정해요). 안 나뉘면 바 위에 뜨는 ‘최근 앱에서 나누기’를 눌러 최근 앱 화면에서 나눌 수 있어요. 홈 화면·최근 앱 화면·잠금 화면·키보드가 떠 있을 때·전체 화면에서는 숨고, 맨 오른쪽 접근성 버튼은 가리지 않아요. 숨은 까닭은 이 줄에 나와요.\n"
             + "홈 버튼 · Android 설정 → 기본 앱 → 디지털 어시스턴트 앱에서 " + Brand.EUL + " 골라요. 제스처를 쓰면 화면 아래 모서리에서 대각선으로 쓸어 올려요. 대신 Google(Gemini) 호출은 이 동작에서 빠지고, 같은 곳에서 Google을 고르면 되돌아가요."), 0);
 
         add(ui.sectionHeader("차에서"), 0);

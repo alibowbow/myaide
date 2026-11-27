@@ -262,6 +262,11 @@ final class AppStore {
     boolean announce() { return settings.getBoolean("announce", true); }
     boolean bubble() { return settings.getBoolean("bubble", false); }
     boolean edgeButton() { return settings.getBoolean("edgeButton", false); }
+    /**
+     * 작업 표시줄 (Taskbar): on unless turned off. It shows only where it belongs anyway: 들퍼레 the home app, a large screen,
+     * a button navigation bar, another app in front.
+     */
+    boolean taskbar() { return settings.getBoolean("taskbar", true); }
     boolean screenView() { return settings.getBoolean("screenView", false); }
     /**
      * Connectors the user added besides 마이아카이브 (MCP servers): only what is shown and the tool declarations live here;
