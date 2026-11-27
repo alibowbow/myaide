@@ -766,6 +766,7 @@ function framed(p) { return typeof p.frame === "string" && p.frame.startsWith("h
 function drawPages(list) {
   PAGES = (list || []).filter(p => p && typeof p.src === "string" && (p.src.startsWith("https://") || p.src.startsWith("page:")));
   pagesBox.querySelectorAll(".page.custom").forEach(n => n.remove());
+  lpPlaying(null, false);
   PAGES.forEach((p, i) => {
     const sec = document.createElement("section"); sec.className = "page custom";
     const f = document.createElement("iframe");
@@ -793,9 +794,25 @@ function frames() {
   pagesBox.querySelectorAll(".page.custom").forEach((sec, i) => {
     const f = sec.querySelector("iframe"), d = Math.abs(2 + i - pageAt);
     if (d <= 1 && !f.getAttribute("src")) f.setAttribute("src", f.dataset.src);
-    if (d >= 2 && f.getAttribute("src")) f.removeAttribute("src");
+    // (a page playing music stays, though far: 준 "Lp가 다른창 열면 재생이 끊겨")
+    if (d >= 2 && f.getAttribute("src") && !f.dataset.playing) f.removeAttribute("src");
   });
 }
+/*
+  The LP page says when it plays (준: "퍼레가 lp에서 노래 나오는 걸 인식못하네"): 퍼레 hears music at once (board.js boardPlaying), and its
+  page is not unloaded while it plays. The app's media notification asks it to play, pause or stop through launcher.lp().
+*/
+const LP_ORIGIN = "https://lp.gyeot.local";
+function lpPlaying(frame, on) {
+  pagesBox.querySelectorAll(".page.custom iframe").forEach(f => { if (!frame || f.contentWindow === frame) { if (on) f.dataset.playing = "1"; else delete f.dataset.playing; } });
+  const any = !!pagesBox.querySelector(".page.custom iframe[data-playing]");
+  if (typeof boardPlaying === "function") boardPlaying(any);
+  if (!any) frames();
+}
+addEventListener("message", e => {
+  if (e.origin !== LP_ORIGIN || !e.data || e.data.gyeot !== "playing") return;
+  lpPlaying(e.source, !!e.data.on);
+});
 addEventListener("resize", () => toPage(pageAt, false));
 requestAnimationFrame(() => toPage(1, false));
 drawPages(G.pages || []);
@@ -1724,6 +1741,8 @@ window.launcher = {
   /** 퍼레's voice talk as it goes; ms: how long the words being said take (the bubble types them over it); go: what a tap on them opens. */
   voice(state, text, ms, go) { boardVoiceState(state, text, ms, go); chatVoice(state, text); },
   env(k) { boardEnv(k); },
+  /** The LP page's media notification (or the audio focus) asks it to play, pause or stop: to its frame, wherever it is. */
+  lp(cmd) { pagesBox.querySelectorAll(".page.custom iframe").forEach(f => { try { if (f.getAttribute("src") && new URL(f.src).origin === LP_ORIGIN) f.contentWindow.postMessage({gyeot: "lp", cmd: String(cmd)}, LP_ORIGIN); } catch (e) {} }); return true; },
   /** The pages to the right changed (화면 꾸미기). */
   pages(list) { drawPages(list); },
   /** 퍼레's answer on the home screen: a piece as it streams, the whole when done, or why not. */

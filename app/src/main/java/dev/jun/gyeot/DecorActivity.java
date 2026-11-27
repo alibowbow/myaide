@@ -555,7 +555,9 @@ public final class DecorActivity extends Activity {
         ImageView close = ui.bareIcon(R.drawable.ic_close, 0xffffffff, "닫기", d::dismiss); close.setBackground(ui.shape(0x88000000, 99));
         FrameLayout.LayoutParams ca = new FrameLayout.LayoutParams(ui.dp(44), ui.dp(44), Gravity.TOP | Gravity.END); ca.setMargins(0, ui.dp(36), ui.dp(16), 0);
         frame.addView(close, ca);
-        d.setContentView(frame); d.setOnDismissListener(x -> web.destroy()); d.show();
+        // (the LP page tried here plays on like on a page; its notification's buttons reach it here until it is closed)
+        LpMedia.host(DecorActivity.this, cmd -> runOnUiThread(() -> web.evaluateJavascript(LpMedia.js(cmd), null)));
+        d.setContentView(frame); d.setOnDismissListener(x -> { LpMedia.host(DecorActivity.this, null); LpMedia.gone(DecorActivity.this); web.destroy(); }); d.show();
     }
     // ── pages ────────────────────────────────────────────────────────
 

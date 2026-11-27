@@ -104,7 +104,9 @@ const PAGES = '<!doctype html><html><head><meta name="viewport" content="width=d
   + '.page{flex:0 0 100%;height:100%;scroll-snap-align:start;position:relative;overflow:hidden}iframe{position:absolute;inset:0;width:100%;height:100%;border:0}#home{background:#223}</style></head>'
   + '<body><div id="pages"><section class="page" id="home"></section><section class="page"><iframe sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-forms" allow="autoplay" src="' + PIECE + '"></iframe></section></div>'
   + '<script>window.toPage=i=>{const p=document.getElementById("pages");p.scrollTo({left:i*p.clientWidth,behavior:"instant"})};'
-  + 'window.tellShown=on=>{const f=document.querySelector("iframe");f.contentWindow.postMessage({gyeot:"shown",on},new URL(f.src).origin)};</script></body></html>';
+  + 'window.tellShown=on=>{const f=document.querySelector("iframe");f.contentWindow.postMessage({gyeot:"shown",on},new URL(f.src).origin)};'
+  // (what the LP page tells the home screen: 퍼레 hears music, launcher.html lpPlaying)
+  + 'window.heard=[];addEventListener("message",e=>{if(e.origin==="https://lp.gyeot.local"&&e.data&&e.data.gyeot==="playing")heard.push(e.data)});</script></body></html>';
 
 async function open(browser, page_html, shelf, calls, deck, o = {}) {
   const ctx = await browser.newContext({ viewport: o.viewport || { width: 412, height: 900 }, deviceScaleFactor: o.dsf || 2, hasTouch: true, isMobile: true });
@@ -159,6 +161,7 @@ async function open(browser, page_html, shelf, calls, deck, o = {}) {
     }
     if (p === '/__gyeot/music/settings') { calls.settings = (calls.settings || 0) + 1; return json({ via: 'app' }); }
     if (p === '/__gyeot/deck/stats') { (calls.stats = calls.stats || []).push(Object.fromEntries(u.searchParams)); return route.fulfill({ status: 204, body: '' }); }
+    if (p === '/__gyeot/lp/state') { const st = Object.fromEntries(u.searchParams); delete st.k; (calls.state = calls.state || []).push(st); return json({ cmd: (calls.cmd || []).shift() || '' }); }
     m = p.match(/^\/__gyeot\/music\/([0-9a-f]{12})(\/art|\/remove)?$/);
     if (!m) return route.fulfill({ status: 404, body: '' });
     if (r.method() === 'DELETE' || m[2] === '/remove') { calls.del.push(m[1]); shelf.items = shelf.items.filter(t => t.id !== m[1]); shelf.rev++; return json(list()); }
@@ -730,6 +733,94 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       });
     } finally { await h.ctx.close(); }
   }
+  // 내 음악 in sides (준: "Lp레코드판에 5곡 이상 들어가면 노래테가 너무 좁아질 것 같은데?"): twelve files on the unfolded Fold's deck tab,
+  // in the launcher's pages (out of sight there too). The list says about four minutes each; the files are 3 s long.
+  {
+    const DURS = [228, 251, 236, 244, 262, 219, 247, 233, 241, 226, 255, 238];
+    const MANY = DURS.map((d, i) => { const id = 'ab12000000' + i.toString(16).padStart(2, '0'); FILES[id] = FILES[id] || wav(3, i % 2 ? 'tone' : 'pink', 21 + i);
+      return { id, title: '곡 ' + String(i + 1).padStart(2, '0'), artist: '시험 가수', dur: d, mime: 'audio/wav', size: FILES[id].length, seek: true, art: false }; });
+    const shelfS = { rev: 2, items: MANY.slice(), pick: '' }, callsS = { list: 0, pick: [], media: [], del: [] };
+    const sd = await open(browser, html, shelfS, callsS, { off: true }, { viewport: { width: 780, height: 820 }, pages: true });
+    const f = sd.frame, home = sd.page;
+    const listOpen = async () => { if (await f.evaluate(() => document.querySelector('#gyBar .gy-list').getAttribute('aria-expanded')) !== 'true') await f.locator('#gyBar .gy-list').tap();
+      await f.locator('.gy-chip', { hasText: '내 음악' }).tap(); };
+    const flights = () => f.evaluate(() => { window.__flew = 0; clearInterval(window.__flewT); const slot = document.getElementById('slot'); window.__flewT = setInterval(() => { if (slot.getAnimations().length) __flew++; }, 30); });
+    const flew = () => f.evaluate(() => { clearInterval(__flewT); return __flew; });
+    try {
+      await home.evaluate(() => { toPage(1); const fr = document.querySelector('iframe'); fr.contentWindow.postMessage({ gyeot: 'insets', top: 24, bottom: 24 }, new URL(fr.src).origin); });
+      await until(f, () => !!window.__gy && document.querySelector('.sleeve[data-album="3"]') && __gy.tab === 'deck', null, 15000, 'the add-on, the deck tab');
+      await check('twelve files on 내 음악: three sides of four (A면 · B면 · C면), one side on the record; each song\'s band a fingertip wide (≥ 28 px on the unfolded Fold\'s deck), not twelve thin ones', async () => {
+        assert.deepStrictEqual(await f.evaluate(() => __gy.sides), [[0, 4], [4, 8], [8, 12]]);
+        await f.evaluate(() => __lp.changeAlbum(3));
+        await until(f, () => __lp.albumIdx === 3 && !__lp.busy, null, 15000, '내 음악 on the platter');
+        const r = await f.evaluate(() => ({ n: __lp.ALBUMS[3].tracks.length, side: __gy.side, cat: __lp.ALBUMS[3].cat, lab: document.getElementById('lab3s').textContent, lands: __gy.lands(),
+          px: document.getElementById('deck').getBoundingClientRect().width / 1000, R: [__lp.R_OUT, __lp.R_IN], GAP: __lp.GAP }));
+        const edges = [r.R[0], ...r.lands.split(',').map(Number), r.R[1]], bands = edges.slice(1).map((e, i) => (edges[i] - e) * r.px);
+        const one = (r.R[0] - r.R[1]) * r.px * Math.min(...DURS) / (DURS.reduce((x, y) => x + y) + 11 * r.GAP);
+        console.log('     side A\'s bands: ' + bands.map(x => x.toFixed(1)).join(', ') + ' px (all twelve on one record: ' + one.toFixed(1) + ' px the narrowest)');
+        assert.deepStrictEqual([r.n, r.side, bands.length], [4, 0, 4]);
+        assert.match(r.cat, /A면 · 4곡/); assert.match(r.lab, /^SIDE A · 1 \/ 4/);
+        assert(Math.min(...bands) >= 27.5, 'each band about 28 px or more: ' + bands.map(x => x.toFixed(1)));
+        if (SHOTS) await home.screenshot({ path: path.join(SHOTS, 'side_a.png') });
+      });
+      await check('the list: each side under its header (A면 · 4곡 · m:ss, 판 위 on the record\'s), rows A1 … C4; a song of side C picked: the record turned over in the piece\'s flight to side C, that song playing, SIDE C on the label', async () => {
+        await listOpen();
+        const l = await f.evaluate(() => ({ heads: [...document.querySelectorAll('.gy-tracks .gy-side')].map(x => x.textContent), nums: [...document.querySelectorAll('.gy-tracks .gy-num')].map(x => x.textContent),
+          about: document.querySelector('.gy-about').textContent }));
+        assert.strictEqual(l.heads.length, 3, JSON.stringify(l.heads));
+        assert.match(l.heads[0], /^A면 · 4곡 · 16:\d\d판 위$/); assert.match(l.heads[1], /^B면 · 4곡 · 16:\d\d$/); assert.match(l.heads[2], /^C면 · 4곡 · 16:\d\d$/);
+        assert.deepStrictEqual(l.nums, ['A1', 'A2', 'A3', 'A4', 'B1', 'B2', 'B3', 'B4', 'C1', 'C2', 'C3', 'C4']);
+        assert.match(l.about, /^12곡 · 3면/);
+        await flights();
+        await f.locator('.gy-row[data-k="9"]').tap();
+        await until(f, () => __gy.side === 2 && __lp.trackIdx === 1 && __lp.playing && !__lp.busy && !__gy.audio.paused, null, 20000, 'C2 playing');
+        const c = await f.evaluate(() => ({ src: __gy.audio.src, lab: document.getElementById('lab3s').textContent, album: __gy.state().album, n: __lp.ALBUMS[3].tracks.length }));
+        const fl = await flew();
+        assert(fl > 5, 'the record flew out and in: ' + fl);
+        assert(c.src.includes(MANY[9].id), c.src);
+        assert.match(c.lab, /^SIDE C · 2 \/ 4/); assert.strictEqual(c.album, '내 음악 · C면'); assert.strictEqual(c.n, 4);
+        if (SHOTS) { await listOpen(); await f.waitForTimeout(200); await home.screenshot({ path: path.join(SHOTS, 'side_list.png') }); }
+      });
+      await check('at the end of a side the record turns over by itself (the piece\'s flight) and the next side plays from its first song', async () => {
+        await listOpen();
+        await f.locator('.gy-row[data-k="7"]').tap();
+        await until(f, () => __gy.side === 1 && __lp.trackIdx === 3 && __lp.playing && !__lp.busy && !__gy.audio.paused, null, 20000, 'B4 playing');
+        await flights();
+        await until(f, () => __gy.side === 2 && __lp.trackIdx === 0 && __lp.playing && !__lp.busy && !__gy.audio.paused, null, 20000, 'side C after B4, C1 playing');
+        const fl = await flew();
+        assert(fl > 5, 'turned over in the piece\'s flight: ' + fl);
+        assert((await f.evaluate(() => __gy.audio.src)).includes(MANY[8].id));
+      });
+      await check('⏮ on a side\'s first song and ⏭ on its last cross to the side before and after', async () => {
+        await f.locator('#gyBar .gy-play').tap();
+        await until(f, () => !__lp.playing && !__lp.busy, null, 8000, 'paused on C1');
+        await f.evaluate(() => document.getElementById('bPrev').click());
+        await until(f, () => __gy.side === 1 && __lp.trackIdx === 3 && !__lp.busy, null, 15000, 'B4 after ⏮');
+        assert.match(await f.evaluate(() => document.getElementById('lab3s').textContent), /^SIDE B · 4 \/ 4/);
+        await f.evaluate(() => document.getElementById('bNext').click());
+        await until(f, () => __gy.side === 2 && __lp.trackIdx === 0 && !__lp.busy, null, 15000, 'C1 after ⏭');
+        await f.evaluate(() => document.getElementById('bNext').click());
+        await until(f, () => __gy.side === 2 && __lp.trackIdx === 1 && !__lp.busy, null, 8000, 'C2: within a side as before');
+      });
+      await check('out of sight (no frames), a side\'s end turns the record over at once and the next side plays on', async () => {
+        await listOpen();
+        await f.locator('.gy-row[data-k="3"]').tap();
+        await until(f, () => __gy.side === 0 && __lp.trackIdx === 3 && __lp.playing && !__lp.busy && !__gy.audio.paused, null, 20000, 'A4 playing');
+        await home.evaluate(() => toPage(0));
+        await f.waitForTimeout(300);
+        const f0 = await f.evaluate(() => __gy.frames);
+        await until(f, () => __gy.side === 1 && __lp.trackIdx === 0 && __lp.playing && !__lp.busy && !__gy.audio.paused && __gy.audio.currentTime > 0.3, null, 12000, 'side B, B1 playing out of sight');
+        assert((await f.evaluate(() => __gy.audio.src)).includes(MANY[4].id));
+        assert.strictEqual(await f.evaluate(() => __gy.frames), f0, 'no frames all along');
+        await home.evaluate(() => toPage(1));
+        await until(f, n => __gy.frames > n, f0, 5000, 'frames again');
+        assert.match(await f.evaluate(() => document.getElementById('lab3s').textContent), /^SIDE B/);
+        await f.locator('#gyBar .gy-play').tap();
+        await until(f, () => !__lp.playing && !__lp.busy, null, 8000, 'paused');
+        assert.deepStrictEqual(sd.errors, []);
+      });
+    } finally { await sd.ctx.close(); }
+  }
   // Alone on the creator's own site (as the app serves it there: the add-on, never a key), where nothing answers 내 음악.
   const alone = await browser.newContext({ viewport: { width: 412, height: 900 }, hasTouch: true, isMobile: true });
   try {
@@ -1047,22 +1138,76 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       const f = await lp.evaluate(() => __gy.frames); await lp.waitForTimeout(300);
       assert.strictEqual(await lp.evaluate(() => __gy.frames), f, 'still no frames');
     });
-    await check('hidden (another app, the screen off), a file stops with the record; a tap plays it again', async () => {
-      await home.evaluate(() => toPage(1));
+    // 준: "Lp가 다른창 열면 재생이 끊겨": another app opened or the screen off, the LP plays on behind them, with the app's media
+    // notification (LpMedia, LpService); its 일시 정지 · 재생 · 끄기 reach the page; paused, the notification goes.
+    await check('hidden (another app, the screen off), a file plays on, the app told so (its media notification up) and the home screen too (퍼레 hears music); the notification\'s pause, play and stop reach the page; paused, the app told to drop it', async () => {
+      await home.evaluate(() => { toPage(1); heard.length = 0; });
       await until(lp, () => !__lp.busy && !__lp.runout, null, 20000, 'the arm home');
       await lp.locator('#gyBar .gy-play').tap();
       await until(lp, () => __lp.playing && !__lp.busy && !__gy.audio.paused, null, 15000, 'playing');
+      calls5.state = [];
       await lp.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
+      const t0 = await lp.evaluate(() => __gy.audio.currentTime);
+      await lp.waitForTimeout(1200);
+      const h = await lp.evaluate(() => ({ paused: __gy.audio.paused, playing: __lp.playing, t: __gy.audio.currentTime }));
+      assert.deepStrictEqual([h.paused, h.playing], [false, true], 'still playing hidden');
+      assert(h.t - t0 > 0.8, 'its clock goes on: ' + (h.t - t0).toFixed(2) + ' s');
+      const told = calls5.state.filter(x => x.hidden === '1');
+      assert(told.length >= 1 && told.every(x => x.playing === '1'), 'the app told it plays out of sight: ' + JSON.stringify(calls5.state));
+      assert.match(told[0].album, /^내 음악/); assert(told[0].title.length > 0, 'with its title');
+      // 일시 정지 on the notification: the app's answer to the page's next word (every 2 s while it plays)
+      calls5.cmd = ['pause'];
+      await until(lp, () => !__lp.playing && !__lp.busy && __gy.audio.paused, null, 8000, 'paused from the notification');
       await lp.waitForTimeout(300);
-      const h = await lp.evaluate(() => ({ paused: __gy.audio.paused, playing: __lp.playing }));
+      assert.strictEqual(calls5.state[calls5.state.length - 1].playing, '0', 'the app told it stopped (nothing left running)');
+      // 재생: through the home screen around it (LpMedia.js → launcher.lp → {gyeot: 'lp'}), at once
+      await home.evaluate(() => { const f = document.querySelector('iframe'); f.contentWindow.postMessage({ gyeot: 'lp', cmd: 'play' }, new URL(f.src).origin); });
+      await until(lp, () => __lp.playing && !__lp.busy && !__gy.audio.paused, null, 8000, 'played from the notification');
+      await lp.waitForTimeout(300);
+      assert.strictEqual(calls5.state[calls5.state.length - 1].playing, '1', 'the app told it plays again');
+      // 끄기: paused, the arm to its rest, the motor off
+      await home.evaluate(() => { const f = document.querySelector('iframe'); f.contentWindow.postMessage({ gyeot: 'lp', cmd: 'stop' }, new URL(f.src).origin); });
+      await until(lp, () => !__lp.playing && !__lp.busy && !__lp.motorOn && __gy.audio.paused, null, 10000, 'stopped from the notification');
       await lp.evaluate(() => { delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); });
-      assert.deepStrictEqual(h, { paused: true, playing: false });
-      await until(lp, () => !__lp.busy, null, 5000, 'the arm up');
       await lp.waitForTimeout(800);
       assert.strictEqual(await lp.evaluate(() => __gy.audio.paused), true, 'not by itself when shown again');
+      const said = await home.evaluate(() => heard.map(x => x.on));
+      assert.deepStrictEqual(said, [true, false, true, false], 'the home screen heard it play and stop: ' + JSON.stringify(await home.evaluate(() => heard)));
+      assert(await home.evaluate(() => heard[0].title.length > 0), 'with its title');
       await lp.locator('#gyBar .gy-play').tap();
       await until(lp, () => __lp.playing && !__gy.audio.paused, null, 15000, 'a tap plays it');
       assert.deepStrictEqual(w.errors, []);
+    });
+    await check('out of sight (no frames come), a record plays on (the synthesizer): its clock with the time, its notes set ahead (none late), and at a track\'s end the next track', async () => {
+      await lp.locator('#gyBar .gy-play').tap();
+      await until(lp, () => !__lp.playing && !__lp.busy, null, 8000, 'paused');
+      await lp.evaluate(() => __lp.changeAlbum(0));
+      await until(lp, () => __lp.albumIdx === 0 && !__lp.busy, null, 15000, 'the first record');
+      // its first track 4 s before its end; every note's start heard (late: asked for a time already gone)
+      await lp.evaluate(() => {
+        __lp.setTrack(0); __lp.setPos(__lp.trackDur(__lp.ALBUMS[0], __lp.ALBUMS[0].tracks[0]) - 4); __lp.refreshTrackUI();
+        const P = AudioScheduledSourceNode.prototype, start = P.start; window.__notes = 0; window.__late = [];
+        P.start = function (when, ...r) { if (when > 0 && this.context.state === 'running') { __notes++; const d = when - this.context.currentTime; if (d < -0.03) __late.push(+d.toFixed(3)); } return start.call(this, when, ...r); };
+      });
+      await lp.locator('#gyBar .gy-play').tap();
+      await until(lp, () => __lp.playing && !__lp.busy, null, 15000, 'the record playing');
+      await home.evaluate(() => toPage(0));
+      await lp.waitForTimeout(600);
+      const a = await lp.evaluate(() => ({ f: __gy.frames, n: __notes, k: __lp.trackIdx, t: performance.now() }));
+      // (the track's last bars, the 2.4 s between the tracks, then the next one's)
+      await until(lp, () => __lp.trackIdx === 1 && __lp.songPos > 0, null, 12000, 'the next track out of sight');
+      const m = await lp.evaluate(() => ({ n: __notes, pos: __lp.songPos }));
+      await lp.waitForTimeout(4000);
+      const b = await lp.evaluate(() => ({ f: __gy.frames, n: __notes, k: __lp.trackIdx, late: __late, playing: __lp.playing, pos: __lp.songPos, t: performance.now() }));
+      console.log('     out of sight ' + ((b.t - a.t) / 1000).toFixed(1) + ' s: ' + (b.n - a.n) + ' notes (' + (b.n - m.n) + ' in the next track\'s first 4 s), ' + b.late.length + ' late, track ' + (a.k + 1) + ' → ' + (b.k + 1));
+      assert.strictEqual(b.f, a.f, 'no frames out of sight');
+      assert.deepStrictEqual([b.playing, b.k], [true, 1], 'playing, the next track');
+      assert(Math.abs(b.pos - m.pos - 4) < 0.5, 'its clock with the time: ' + (b.pos - m.pos).toFixed(2) + ' s in 4 s');
+      assert(b.n - m.n >= 8, 'the next track\'s notes keep coming: ' + (b.n - m.n));
+      assert.deepStrictEqual(b.late, [], 'none late');
+      await home.evaluate(() => toPage(1));
+      await until(lp, n => __gy.frames > n, b.f, 5000, 'frames again');
+      assert.deepStrictEqual(w.errors, []);   // (playing on, in sight, for the next check)
     });
     await check('where the home screen says a page is out of sight (the wallpaper\'s board), the deck draws nothing though frames come', async () => {
       await home.evaluate(() => toPage(1));

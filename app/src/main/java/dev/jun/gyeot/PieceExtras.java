@@ -47,6 +47,8 @@ import java.util.function.Consumer;
  *   /__gyeot/music/<id>/art?k=              the picture found in it
  *   DELETE /__gyeot/music/<id>?k=           off the list (also GET …/<id>/remove)
  *   /__gyeot/deck/stats?k=&avg=…            the 3D deck's frame times, noted once a run in the diagnostic report
+ *   /__gyeot/lp/state?k=&playing=&title=&artist=&album=&hidden=  what the LP page plays (LpMedia: its media notification and the
+ *                                           audio focus while it plays, 퍼레 hearing it), answered with a command for it {cmd}
  *
  * The music answers only at the app's own address, with this run's key, which is only in the page served there. On the
  * creator's site the add-on's files still come (the piece's bar and list), never the music and never a key. A Referer, when
@@ -125,7 +127,7 @@ final class PieceExtras {
         String method = r.getMethod() == null ? "GET" : r.getMethod().toUpperCase(Locale.ROOT);
         WebResourceResponse file = addon(c, path);
         if (file != null) return file;
-        if (!path.startsWith("music/") && !path.startsWith("deck/")) return status(404, "Not Found");
+        if (!path.startsWith("music/") && !path.startsWith("deck/") && !path.equals("lp/state")) return status(404, "Not Found");
         if (!allowed(r, u)) return status(403, "Forbidden");
         PieceMusicStore store = PieceMusicStore.of(c);
         // Locked, a wallpaper shows nothing of the user's (HtmlWallpaper): no list of their music and no picker, but an answer
@@ -167,6 +169,13 @@ final class PieceExtras {
                 opener.accept(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", c.getPackageName(), null)));
                 return json(Jsons.obj("via", "app").toString());
             case "deck/stats": return stats(c, u);
+            case "lp/state": {
+                // What the page plays (LpMedia: the media notification and the audio focus while it plays, 퍼레 hearing it), and
+                // what the notification's buttons asked of it since (said on the lock screen too: nothing of the user's comes back)
+                dev.jun.gyeot.core.LpPlayback.State s = new dev.jun.gyeot.core.LpPlayback.State("1".equals(u.getQueryParameter("playing")), u.getQueryParameter("title"),
+                    u.getQueryParameter("artist"), u.getQueryParameter("album"), "1".equals(u.getQueryParameter("hidden")), System.currentTimeMillis());
+                return json(Jsons.obj("cmd", LpMedia.report(c, s)).toString());
+            }
             default: break;
         }
         String[] parts = path.substring(6).split("/");

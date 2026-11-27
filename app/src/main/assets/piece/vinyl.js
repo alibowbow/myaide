@@ -95,6 +95,7 @@
     if (e.origin !== 'https://gyeot.local' || !e.data) return;
     if (e.data.gyeot === 'insets') { heard = true; insets(e.data.top, e.data.bottom); }
     else if (e.data.gyeot === 'shown') inSight = !!e.data.on;
+    else if (e.data.gyeot === 'lp' && typeof e.data.cmd === 'string') command(e.data.cmd);   // (the media notification's buttons, via the home screen)
   });
   window.__gyInsets = (top, bottom) => { heard = true; insets(top, bottom); };
 
@@ -105,14 +106,41 @@
     clean: '휴대폰에서 고른 음악을 이 턴테이블에 올렸어요. 소리는 원곡 그대로이고, 레코드 표면 소리만 살짝 깔려요.' };
   const CRACKLE = { lp: 0.75, clean: 0.5 };
   const MINE = { id: 3, title: '내 음악', artist: '휴대폰의 음악', cat: 'MY MUSIC', liner: LINER[sound],
-    bpm: 60, beats: 4, wow: 0, crackle: CRACKLE[sound], rain: 0, scale: [], vu: VU, mine: null, tracks: [], starts: [], total: 1 };
+    bpm: 60, beats: 4, wow: 0, crackle: CRACKLE[sound], rain: 0, scale: [], vu: VU, mine: null, tracks: [], starts: [], total: 1,
+    all: [], sides: [], side: 0, sideName: 'A' };
+  /*
+    내 음악 in sides, as an LP's (준: "Lp레코드판에 5곡 이상 들어가면 노래테가 너무 좁아질 것 같은데?"): the record holds one side, at most four
+    songs and 25 minutes (a long song closes a side early; one longer than that has a side of its own), so each song's band is
+    a fingertip wide or more (four songs of four minutes: 40 of the grooves' 163 deck units, 29 px on the unfolded Fold's deck).
+    MINE.all is the whole list, MINE.tracks the side on the platter (all the piece knows), A면, B면 … in the list.
+  */
+  const SIDE_MOST = 4, SIDE_SECONDS = 25 * 60;
+  const sideName = s => { let n = '', x = s; do { n = String.fromCharCode(65 + x % 26) + n; x = Math.floor(x / 26) - 1; } while (x >= 0); return n; };
+  function sidesOf(all) {
+    const out = []; let from = 0, secs = 0;
+    all.forEach((T, i) => {
+      if (i > from && (i - from >= SIDE_MOST || secs + T.dur > SIDE_SECONDS)) { out.push({ from, to: i }); from = i; secs = 0; }
+      secs += T.dur;
+    });
+    if (all.length) out.push({ from, to: all.length });
+    return out;
+  }
+  const sideOf = g => Math.max(0, MINE.sides.findIndex(sd => g >= sd.from && g < sd.to));
+  /** A side on the platter's list (the record itself turns over with the piece's turnOver). */
+  function setSide(s) {
+    s = Math.max(0, Math.min(MINE.sides.length - 1, s | 0));
+    MINE.side = s; MINE.sideName = sideName(s);
+    const sd = MINE.sides[s] || { from: 0, to: 0 };
+    MINE.tracks = MINE.all.slice(sd.from, sd.to);
+    restack();
+  }
   let host = false, locked = false, rev = -1, waiting = null, pollT = 0, lockT = 0;
   const bad = new Map();
   function restack() {
     let s = 0; MINE.starts = [];
     for (const T of MINE.tracks) { MINE.starts.push(s); s += T.dur + L.GAP; }
     MINE.total = Math.max(1, s - L.GAP);
-    MINE.cat = 'MY MUSIC · ' + MINE.tracks.length + '곡 · ' + fmt(MINE.total);
+    MINE.cat = 'MY MUSIC · ' + (MINE.sides.length > 1 ? MINE.sideName + '면 · ' : '') + MINE.tracks.length + '곡 · ' + fmt(MINE.total);
   }
   const mineOn = () => L.albumIdx === 3 && ALBUMS[3] === MINE;
   const current = () => ALBUMS[L.albumIdx].tracks[L.trackIdx];
@@ -170,7 +198,6 @@
     function hand(g) { g = Math.max(0, Math.min(1, g)); if (Math.abs(g - handG) < 0.005) return; handG = g; if (trim && !swapping) trim.gain.setTargetAtTime(TRIM * g, L.actx.currentTime, 0.03); }
     function start(i, s) {
       const T = MINE.tracks[i]; if (!T) return;
-      if (document.hidden) { want = false; return; } // never starting unseen (it goes on when shown: visibilitychange)
       wire();
       if (!node) return; // no Web Audio: no sound outside the volume knob
       const url = q('/__gyeot/music/' + T.id);
@@ -193,7 +220,7 @@
     }
     // The first tap lets this element sound later without one (the web view asks a tap for each element once).
     function unlock() {
-      if (unlocked || unlocking || want || !MINE.tracks.length) return;
+      if (unlocked || unlocking || want || !MINE.all.length) return;
       unlocking = true;
       au.muted = true; au.src = SILENT; au.dataset.id = '';
       const p = au.play();
@@ -268,19 +295,22 @@
     if (!j || !Array.isArray(j.items)) return;
     const items = j.items.filter(it => it && /^[0-9a-f]{12}$/.test(it.id));
     // Never a moment on an empty 내 음악 (the piece's frame reads the current track): off it first, then empty.
-    if (mineOn() && !items.length && MINE.tracks.length) {
+    if (mineOn() && !items.length && MINE.all.length) {
       player.stop();
       (async () => { await idle(); if (L.playing) await L.pause(); await idle(); await L.changeAlbum(0); applyList(j); })();
       return;
     }
     rev = j.rev;
-    const was = new Map(MINE.tracks.map(t => [t.id, t]));
+    const was = new Map(MINE.all.map(t => [t.id, t]));
     const curId = mineOn() && current() ? current().id : null;
-    MINE.tracks = items.map(it => {
+    MINE.all = items.map(it => {
       const o = was.get(it.id), known = o && o.real;
       return { title: it.title || '제목 없는 곡', artist: it.artist || '', dur: known ? o.dur : it.dur > 0 ? it.dur : 180, real: !!known, id: it.id, seek: it.seek !== false, art: !!it.art, bars: 1 };
     });
-    restack();
+    MINE.sides = sidesOf(MINE.all);
+    // the side with the file on the platter (or the one that was there)
+    const g = curId ? MINE.all.findIndex(t => t.id === curId) : -1;
+    setSide(g >= 0 ? sideOf(g) : MINE.side);
     if (ALBUMS[3] !== MINE && ALBUMS.length === 3) ALBUMS.push(MINE);
     if (mineOn()) {
       const k = curId ? MINE.tracks.findIndex(t => t.id === curId) : -1;
@@ -305,11 +335,11 @@
     try { j = await (await fetch(q('/__gyeot/music/list.json?rev=' + rev), { cache: 'no-store' })).json(); } catch (e) { return; }
     if (j && j.locked) { lockedNow(); return; }
     locked = false; clearTimeout(lockT);
-    const before = MINE.tracks.length;
+    const before = MINE.all.length;
     if (j.rev !== rev) {
       const was = waiting; waiting = null;
       applyList(j);
-      if (was) { const added = MINE.tracks.length - before; note(added > 0 ? added + '곡을 담았어요' : '새로 담을 음악 파일이 없었어요'); }
+      if (was) { const added = MINE.all.length - before; note(added > 0 ? added + '곡을 담았어요' : '새로 담을 음악 파일이 없었어요'); }
     } else if (waiting) {
       if (j.pick === 'notification') note('알림을 눌러 파일을 골라 주세요');
       else if (j.pick === 'cancelled' || (j.pick === 'done' && Date.now() - waiting.since > 1500)) { note(j.pick === 'done' ? '새로 담을 음악 파일이 없었어요' : ''); waiting = null; drawSheet(false); }
@@ -339,14 +369,11 @@
   addEventListener('focus', refresh);
   let tappedAt = 0;
   document.addEventListener('pointerdown', () => { if (locked && Date.now() - tappedAt > 2000) { tappedAt = Date.now(); refresh(); } }, true);
-  // Hidden (another app in front, the screen off), a file stops as the synthesizer's records do, but for good: it has no
-  // notification to stop it from and holds no audio focus (calls, other music, directions would sound over it). The record
-  // stops with it; a tap plays it again.
+  // Hidden (another app in front, the screen off), the record plays on (준: "Lp가 다른창 열면 재생이 끊겨"): the app shows its
+  // media notification and holds the audio focus (calls, other music, directions pause or lower it), see the end of this file.
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) { refresh(); if (!scan.hidden && scanS.state && scanS.state !== 'list') askScan(false); return; }
-    if (!mineOn() || !(L.playing || player.want)) return;
-    player.stop();
-    if (L.playing && !L.busy) L.pause();
+    if (!document.hidden) { refresh(); if (!scan.hidden && scanS.state && scanS.state !== 'list') askScan(false); }
+    report(true);
   });
 
   /* ── the fourth sleeve and label ── */
@@ -358,7 +385,7 @@
     sleeveEl = document.createElement('button'); sleeveEl.type = 'button'; sleeveEl.className = 'sleeve'; sleeveEl.dataset.album = '3';
     sleeveEl.setAttribute('aria-pressed', String(L.albumIdx === 3));
     sleeveEl.innerHTML = '<span class="art a3"><span class="t">내 음악</span></span><span>내 음악</span>';
-    sleeveEl.addEventListener('click', () => { if (MINE.tracks.length) L.changeAlbum(3); else openSheet(3); });
+    sleeveEl.addEventListener('click', () => { if (MINE.all.length) L.changeAlbum(3); else openSheet(3); });
     box.appendChild(sleeveEl); box.classList.add('gy-four');
   }
   function label() {
@@ -382,7 +409,7 @@
     const i = L.albumIdx === 3 ? L.trackIdx : 0, T = MINE.tracks[i];
     $('lab3t').textContent = T ? clip(T.title, 24) : '내 음악';
     $('lab3a').textContent = T ? clip(T.artist, 30) : '';
-    $('lab3s').textContent = 'SIDE A · ' + (T ? (i + 1) + ' / ' + MINE.tracks.length : '33⅓ RPM');
+    $('lab3s').textContent = 'SIDE ' + MINE.sideName + ' · ' + (T ? (i + 1) + ' / ' + MINE.tracks.length : '33⅓ RPM');
     const art = $('lab3art'), pic = T && T.art ? q('/__gyeot/music/' + T.id + '/art') : '';
     if (pic) { if (art.getAttribute('href') !== pic) art.setAttribute('href', pic); art.style.display = ''; $('lab3note').style.display = 'none'; }
     else { art.removeAttribute('href'); art.style.display = 'none'; $('lab3note').style.display = ''; }
@@ -759,7 +786,7 @@
     const A = ALBUMS[view];
     headEl.querySelectorAll('.gy-sound').forEach(b => b.remove());
     if (A === MINE) {
-      aboutEl.textContent = MINE.tracks.length ? MINE.tracks.length + '곡 · ' + fmt(MINE.total) : '휴대폰의 음악';
+      aboutEl.textContent = MINE.all.length ? MINE.all.length + '곡' + (MINE.sides.length > 1 ? ' · ' + MINE.sides.length + '면' : '') + ' · ' + fmt(MINE.all.reduce((t, T) => t + T.dur, 0)) : '휴대폰의 음악';
       // 원음 / LP: how 내 음악 sounds (LP by default)
       const s = document.createElement('span'); s.className = 'gy-sound'; s.setAttribute('role', 'radiogroup'); s.setAttribute('aria-label', '내 음악 소리');
       s.innerHTML = [['clean', '원음'], ['lp', 'LP']].map(([k, w]) => '<button type="button" role="radio" data-s="' + k + '" aria-checked="' + (sound === k) + '">' + w + '</button>').join('');
@@ -767,10 +794,11 @@
       addsEl.innerHTML = ADDS.map(([kind, words, busy]) => '<button type="button" class="gy-add" data-kind="' + kind + '">' + (waiting && waiting.kind === kind ? busy : words) + '</button>').join('');
     } else { aboutEl.textContent = A.artist + ' · ' + A.tracks.length + '곡 · ' + fmt(A.total); addsEl.innerHTML = ''; }
     noteEl.textContent = noteWords;
-    if (A === MINE && !MINE.tracks.length) {
+    if (A === MINE && !MINE.all.length) {
       listEl.innerHTML = '<li class="gy-empty">휴대폰의 노래나 음악 파일을 골라 이 턴테이블에 올려요. LP로 들으면 살짝 흔들리는 회전과 따뜻한 음색, 원음이면 원곡 그대로예요.</li>';
       return;
     }
+    if (A === MINE) { listEl.innerHTML = mineRows(); scrollList(scroll); return; }
     const n = Math.min(A.tracks.length, shown);
     let html = '';
     for (let k = 0; k < n; k++) {
@@ -783,6 +811,29 @@
     }
     if (A.tracks.length > n) html += '<li><button type="button" class="gy-more">' + (A.tracks.length - n) + '곡 더 보기</button></li>';
     listEl.innerHTML = html;
+    scrollList(scroll);
+  }
+  /** 내 음악's list: every file under its side's header (A면 · 4곡 · 16:20, the side on the platter marked), 40 at a time. */
+  const mineAt = () => mineOn() && MINE.sides[MINE.side] ? MINE.sides[MINE.side].from + L.trackIdx : -1;
+  function mineRows() {
+    const n = Math.min(MINE.all.length, shown), cur = mineAt();
+    let html = '';
+    MINE.sides.forEach((sd, s) => {
+      if (sd.from >= n) return;
+      const songs = MINE.all.slice(sd.from, sd.to), secs = songs.reduce((t, T) => t + T.dur, 0) + L.GAP * (songs.length - 1);
+      html += '<li class="gy-side" data-s="' + s + '"><b>' + sideName(s) + '면</b> · ' + songs.length + '곡 · ' + fmt(secs) + (s === MINE.side && mineOn() ? '<i>판 위</i>' : '') + '</li>';
+      for (let g = sd.from; g < Math.min(sd.to, n); g++) {
+        const T = MINE.all[g], why = bad.get(T.id);
+        const sub = why ? '<small class="bad">' + esc(why) + '</small>' : T.artist ? '<small>' + esc(T.artist) + '</small>' : '';
+        html += '<li><button type="button" class="gy-row" data-k="' + g + '" aria-current="' + (g === cur) + '">'
+          + '<span class="gy-num">' + sideName(s) + (g - sd.from + 1) + '</span><span class="gy-ttl"><b>' + esc(T.title) + '</b>' + sub + '</span><span class="gy-dur">' + fmt(T.dur) + '</span></button>'
+          + '<button type="button" class="gy-x" data-id="' + T.id + '" aria-label="' + esc(T.title) + ' 목록에서 빼기">×</button></li>';
+      }
+    });
+    if (MINE.all.length > n) html += '<li><button type="button" class="gy-more">' + (MINE.all.length - n) + '곡 더 보기</button></li>';
+    return html;
+  }
+  function scrollList(scroll) {
     if (scroll) {
       const chip = chipsEl.querySelector('[aria-selected="true"]');
       chipsEl.scrollLeft = chip ? Math.max(0, chip.offsetLeft + chip.offsetWidth - chipsEl.clientWidth + 10) : 0;
@@ -793,7 +844,10 @@
   function marks() {
     if (sheet.hidden) return;
     chipsEl.querySelectorAll('.gy-chip').forEach(c => c.classList.toggle('on', +c.dataset.v === L.albumIdx));
-    listEl.querySelectorAll('.gy-row').forEach(b => b.setAttribute('aria-current', String(view === L.albumIdx && +b.dataset.k === L.trackIdx)));
+    const at = ALBUMS[view] === MINE ? mineAt() : L.trackIdx;
+    listEl.querySelectorAll('.gy-row').forEach(b => b.setAttribute('aria-current', String(view === L.albumIdx && +b.dataset.k === at)));
+    const on = listEl.querySelector('.gy-side i'), side = listEl.querySelector('.gy-side[data-s="' + MINE.side + '"]');
+    if (ALBUMS[view] === MINE && side && !side.querySelector('i') && mineOn()) { if (on) on.remove(); side.insertAdjacentHTML('beforeend', '<i>판 위</i>'); }
   }
   chipsEl.addEventListener('click', e => { const c = e.target.closest('.gy-chip'); if (!c) return; view = +c.dataset.v; shown = 40; note(''); drawSheet(true); });
   headEl.addEventListener('click', e => { const s = e.target.closest('[data-s]'); if (s) setSound(s.dataset.s); });
@@ -815,6 +869,7 @@
   /** A track picked in the list: its record on the platter, the arm to it, and playing. */
   let picking = false;
   async function pick(a, k) {
+    if (ALBUMS[a] === MINE) return pickMine(k);
     if (picking || !ALBUMS[a] || !ALBUMS[a].tracks[k]) return;
     picking = true;
     try {
@@ -832,6 +887,39 @@
       if (!L.playing) await L.play();
     } finally { picking = false; }
   }
+
+  /** A file picked in 내 음악's list (g of the whole list): its side on the platter (turned over if another was), then it. */
+  async function pickMine(g) {
+    if (picking || !MINE.all[g]) return;
+    picking = true;
+    try {
+      await idle();
+      const s = sideOf(g), i = g - MINE.sides[s].from;
+      if (L.albumIdx !== 3) { if (L.playing) await L.pause(); setSide(s); await L.changeAlbum(3); await idle(); }
+      else if (s !== MINE.side) { await L.turnOver(() => setSide(s), i, document.hidden || !framing()); await idle(); }
+      if (i !== L.trackIdx) {
+        if (L.playing) { await L.gotoTrack(i); return; }
+        L.setTrack(i); L.refreshTrackUI();
+      }
+      if (!L.playing) await L.play();
+    } finally { picking = false; }
+  }
+  // The end of a side: the record turned over to the next side (the piece's own flight; at once out of sight); ⏮ ⏭ past a
+  // side's ends: the side before or after (H26, H27).
+  const quickly = () => document.hidden || !framing();
+  window.__gySideEnd = () => {
+    if (!mineOn() || L.busy || MINE.side + 1 >= MINE.sides.length) return false;
+    const s = MINE.side + 1;
+    L.turnOver(() => setSide(s), 0, quickly());
+    return true;
+  };
+  window.__gyCross = i => {
+    if (!mineOn() || L.busy) return false;
+    const fwd = i >= MINE.tracks.length, s = MINE.side + (fwd ? 1 : -1);
+    if (s < 0 || s >= MINE.sides.length) return false;
+    L.turnOver(() => setSide(s), fwd ? 0 : MINE.sides[s].to - MINE.sides[s].from - 1, quickly());
+    return true;
+  };
 
   /* ── 휴대폰 노래: the phone's songs (its media index, recordings and short sounds left out by the app), as a checklist ── */
   const scan = document.createElement('section'); scan.id = 'gyScan'; scan.hidden = true; scan.setAttribute('role', 'dialog'); scan.setAttribute('aria-label', '휴대폰 노래');
@@ -925,7 +1013,7 @@
   scan.querySelector('.gy-sx').addEventListener('click', () => closeScan(true));
   sTake.addEventListener('click', async () => {
     let ids = scanS.items.filter(it => scanS.chosen.has(it.id)).map(it => it.id);
-    const room = MOST - MINE.tracks.length;
+    const room = MOST - MINE.all.length;
     if (room <= 0) { sNote.textContent = '내 음악은 ' + MOST + '곡까지 담겨요. 몇 곡을 빼고 담아 주세요.'; return; }
     const cut = ids.length > room; if (cut) ids = ids.slice(0, room);
     let j;
@@ -938,6 +1026,56 @@
     closeScan(true); view = 3; note(ids.length + '곡을 담는 중…' + (cut ? ' (' + MOST + '곡까지)' : '')); drawSheet(false);
     poll();
   });
+
+  /*
+    ── playing on out of sight (준: "Lp가 다른창 열면 재생이 끊겨") ──
+    The piece's frame does a side's work (its clock, the next track, the arm's moves); out of sight the browser draws no frames,
+    so a timer does it then (H1 tick; the bars are set 4 s ahead there, H25). The app hears what plays (/__gyeot/lp/state: a
+    media notification with its buttons and the audio focus while it plays, nothing when it stops) and answers with what its
+    buttons asked; the home screen hears it too (퍼레 hears music: {gyeot: 'playing'}), and sends the buttons' asks ({gyeot: 'lp'}).
+  */
+  let tickAt = performance.now();
+  setInterval(() => {
+    const now = performance.now(), dt = (now - tickAt) / 1000; tickAt = now;
+    if (!framing() && L.tick && (L.playing || L.busy || L.runout || L.tweening || L.omega > 0)) L.tick(dt);
+    report(false);
+  }, 200);
+  /** What the media notification and the home screen are told. */
+  function nowState() {
+    const A = ALBUMS[L.albumIdx], T = current();
+    return { playing: !!L.playing, title: T ? T.title : '', artist: T ? T.artist || (A === MINE ? '' : A.artist) : '',
+      album: A === MINE ? '내 음악' + (MINE.sides.length > 1 ? ' · ' + MINE.sideName + '면' : '') : A.title, hidden: !!document.hidden || inSight === false };
+  }
+  let told = '', toldAt = 0, toldOn = null, toldTitle = '', pausedAt = 0;
+  function report(force) {
+    const st = nowState(), now = Date.now();
+    if (st.playing !== toldOn || (st.playing && st.title !== toldTitle)) {
+      toldOn = st.playing; toldTitle = st.title; if (!st.playing) pausedAt = now;
+      if (window.parent !== window) try { parent.postMessage({ gyeot: 'playing', on: st.playing, title: st.title }, 'https://gyeot.local'); } catch (e) {}
+    }
+    if (!host) return;
+    const key = JSON.stringify(st);
+    // on a change, and every 2 s while it plays (or a while after: the notification's buttons are asked for then too)
+    if (!force && key === told && !((st.playing || now - pausedAt < 600000) && now - toldAt > 2000)) return;
+    told = key; toldAt = now;
+    const p = new URLSearchParams({ playing: st.playing ? '1' : '0', title: st.title, artist: st.artist, album: st.album, hidden: st.hidden ? '1' : '0' });
+    fetch(q('/__gyeot/lp/state?' + p.toString()), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(j => { if (j && j.cmd) command(j.cmd); }, () => {});
+  }
+  // a page going away (the frame unloaded) is no longer playing
+  addEventListener('pagehide', () => { if (host && toldOn) try { fetch(q('/__gyeot/lp/state?playing=0&hidden=1'), { keepalive: true, cache: 'no-store' }); } catch (e) {} });
+  /** The media notification's buttons (and the audio focus): play, pause, stop (the arm to its rest, the motor off). */
+  // (after the arm's move under way, so a call's pause is not lost to it)
+  function command(c) {
+    (async () => {
+      await idle();
+      if (c === 'play') { if (!L.playing) await L.play(); }
+      else if (c === 'pause') { if (L.playing) await L.pause(); }
+      else if (c === 'toggle') await L.toggle();
+      else if (c === 'stop') { if (L.playing) await L.pause(); await idle(); if (L.hold && L.hold()) await L.drop(null); }
+    })().catch(() => {}).then(() => report(true));
+    setTimeout(() => report(true), 50);
+  }
+  window.__gyCmd = c => command(String(c));   // (an app showing this page alone asks it straight)
 
   /* ── for the three.js deck ── */
   const labelKey = () => { const i = L.albumIdx; if (i !== 3) return 'lab' + i; const T = current(); return 'lab3:' + (T ? T.id + ':' + (T.art ? 1 : 0) : ''); };
@@ -990,7 +1128,11 @@
     get hand() { return held ? { w: held.w } : null; },
     get coupled() { return coupled; },
     get loud() { return qg; },
-    lands: () => lands ? lands.dataset.r : ''
+    lands: () => lands ? lands.dataset.r : '',
+    /** For checks: what the app and the home screen are told, and 내 음악's sides ([from, to) of the whole list) and the one on the platter. */
+    state: () => nowState(),
+    get sides() { return MINE.sides.map(sd => [sd.from, sd.to]); },
+    get side() { return MINE.side; }
   };
   trackFns.add(() => { drawBar(); label(); marks(); });
 

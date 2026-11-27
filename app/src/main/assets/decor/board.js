@@ -1066,9 +1066,22 @@ let chosen = (() => { try { const c = JSON.parse(localStorage.getItem("gyeotWear
 /** The cute things it may pick for itself (준: "의상은 좀 더 귀욤귀욤하게"). */
 const CUTE = ["catears", "bunny", "bow", "beret", "bucket", "beanie", "flowercrown", "sprout", "froghat", "mushroom", "tiara", "ribbon", "bell", "scarf", "mittens", "hoodie", "teddy", "lollipop", "roundglasses", "flower",
   "berry", "sailor", "panda", "bee", "froghood", "xmuffs", "antlers", "wizard", "detective", "chef2"];
+/**
+  The LP page playing on a page of this screen (launcher.html, home.html; 준: "퍼레가 lp에서 노래 나오는 걸 인식못하네"): music at once,
+  though the app's word on the phone (env, every quarter minute) has not come yet; and off at once when it says it stopped (the
+  app's word keeps other apps' music apart: musicApps).
+*/
+let lpOn = false, lpHeard = false;
+function boardPlaying(on) {
+  lpHeard = true;
+  if (lpOn === !!on) return;
+  lpOn = !!on; info = info || {};
+  boards.forEach(b => { envOf(b, info); if (b._careOn) drawCare(b); });
+}
 function envOf(b, k) {
   const svg = $(b, ".bot"); if (!svg || !k) return;
-  const e = k.env || {}, w = k.weather || {}, life = k.life || {}, h = new Date().getHours(), code = w.code, temp = w.temp;
+  const e0 = k.env || {}, music = lpOn || (lpHeard && e0.musicApps != null ? !!e0.musicApps : !!e0.music);
+  const e = music === !!e0.music ? e0 : Object.assign({}, e0, {music}), w = k.weather || {}, life = k.life || {}, h = new Date().getHours(), code = w.code, temp = w.temp;
   const rain = code != null && ((code >= 51 && code <= 67) || (code >= 80 && code <= 82) || code >= 95);
   const snow = code != null && ((code >= 71 && code <= 77) || code === 85 || code === 86);
   const cold = (temp != null && temp <= 5) || snow, heat = (e.heat || 0) >= 41, hot = (temp != null && temp >= 28) || heat, night = h < 6;

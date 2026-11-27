@@ -76,12 +76,22 @@ window.board = {
     for (const fr of frames) {
       const d = Math.abs(fr.i - pos);
       if (d < 1.02 && !fr.on) { fr.on = true; fr.f.src = fr.src; }
-      if (d >= 2 && fr.on) { fr.on = false; fr.f.src = "about:blank"; }
+      // (a page playing music stays, though far: 준 "Lp가 다른창 열면 재생이 끊겨")
+      if (d >= 2 && fr.on && !fr.playing) { fr.on = false; fr.f.src = "about:blank"; }
       tellShown(fr);
     }
   },
-  data(k) { setBoardData(k); }
+  data(k) { setBoardData(k); },
+  /** The LP page's media notification (or the audio focus) asks it to play, pause or stop. */
+  lp(cmd) { for (const fr of frames) try { if (fr.on && new URL(fr.f.src).origin === "https://lp.gyeot.local") fr.f.contentWindow.postMessage({gyeot: "lp", cmd: String(cmd)}, "https://lp.gyeot.local"); } catch (e) {} return true; }
 };
+// The LP page says when it plays: 퍼레 hears music at once (준: "퍼레가 lp에서 노래 나오는 걸 인식못하네"), and its page is not let go.
+addEventListener("message", e => {
+  if (e.origin !== "https://lp.gyeot.local" || !e.data || e.data.gyeot !== "playing") return;
+  for (const fr of frames) if (fr.f.contentWindow === e.source) fr.playing = !!e.data.on;
+  boardPlaying(frames.some(fr => fr.playing));
+  if (!frames.some(fr => fr.playing)) board.at(pos);
+});
 build();
 board.at(pos);
 addEventListener("resize", () => boards.forEach(fit));

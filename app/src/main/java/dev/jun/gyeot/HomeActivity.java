@@ -68,6 +68,8 @@ public final class HomeActivity extends Activity {
     static final String PREFS = "launcher", DOCK = "dock", RECENT = "recent", MOVED = "moved", ORDER = "order";
     /** Opened from the 작업 표시줄's all-apps button: "apps" (Launchpad) or "search" (Launchpad with its search). */
     static final String SHOW = "show";
+    /** A page of the home screen to show (LpService's notification: "LP"). */
+    static final String PAGE = "page";
     /** The home screen is on screen (between onStart and onStop): the 작업 표시줄 (Taskbar) hides then. shownAt: its last onStart. */
     static volatile boolean visible;
     static volatile long shownAt;
@@ -77,7 +79,7 @@ public final class HomeActivity extends Activity {
      */
     private static volatile java.lang.ref.WeakReference<HomeActivity> alive = new java.lang.ref.WeakReference<>(null);
     static Activity alive() { HomeActivity a = alive.get(); return a == null || a.isFinishing() || a.isDestroyed() ? null : a; }
-    private String pendingShow;
+    private String pendingShow, pendingPage;
     private static final String BASE = "https://gyeot.local/";
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-home"); t.setDaemon(true); return t; });
@@ -119,6 +121,9 @@ public final class HomeActivity extends Activity {
         });
         root.requestApplyInsets();
         pendingShow = getIntent() == null ? null : getIntent().getStringExtra(SHOW);
+        pendingPage = getIntent() == null ? null : getIntent().getStringExtra(PAGE);
+        // The LP page's media notification and the audio focus reach the page here, though the home screen is out of sight.
+        LpMedia.host(this, cmd -> js(LpMedia.js(cmd)));
         try { launcher.registerCallback(changed, main); } catch (RuntimeException ignored) {}
         prefs.registerOnSharedPreferenceChangeListener(pagesChanged);
         systemBars();
@@ -263,10 +268,13 @@ public final class HomeActivity extends Activity {
         super.onNewIntent(intent);
         String show = intent == null ? null : intent.getStringExtra(SHOW);
         if (show != null) { if (ready && web != null) showPad(show); else pendingShow = show; return; }
+        String page = intent == null ? null : intent.getStringExtra(PAGE);
+        if (page != null) { if (ready && web != null) goPage(page); else pendingPage = page; return; }
         boolean front = shown || android.os.SystemClock.uptimeMillis() - pausedAt < 700;
         if (ready && web != null) web.evaluateJavascript(front ? "launcher.home()" : "launcher.closeAll&&launcher.closeAll()", null);
     }
     private long pausedAt;
+    private void goPage(String page) { if (web != null) web.evaluateJavascript("launcher.goPage(" + org.json.JSONObject.quote(page) + ")", null); }
     /** The 작업 표시줄's all-apps button: Launchpad over whatever was open, with its search when the button was held. */
     private void showPad(String show) {
         if (web != null) web.evaluateJavascript("launcher.pad&&launcher.pad(" + "search".equals(show) + ")", null);
@@ -286,6 +294,7 @@ public final class HomeActivity extends Activity {
         prefs.unregisterOnSharedPreferenceChangeListener(pagesChanged);
         if (NoticeListener.changed == badgesChanged) NoticeListener.changed = null;
         if (NoticeListener.deliveryChanged == deliveryChanged) NoticeListener.deliveryChanged = null;
+        LpMedia.host(this, null); LpMedia.gone(this);
         main.removeCallbacksAndMessages(null); io.shutdownNow();
         if (web != null) { try { web.destroy(); } catch (RuntimeException ignored) {} web = null; }
         super.onDestroy();
@@ -523,6 +532,7 @@ public final class HomeActivity extends Activity {
                 if (web != null) web.evaluateJavascript("launcher.insets(" + top + "," + bottom + "," + keyboard + ")", null);
                 pushApps(); main.removeCallbacks(refresh); if (shown) refresh.run(); else pushBoard();
                 if (pendingShow != null) { showPad(pendingShow); pendingShow = null; }
+                if (pendingPage != null) { goPage(pendingPage); pendingPage = null; }
                 // 퍼레 itself, asked by voice or in the talk (BuddyBoard): now that the page can hear it.
                 if (shown) BuddyBoard.shown(selfCall);
                 // The weather needs roughly where the phone is: asked once, here where the user sees why.

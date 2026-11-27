@@ -1117,7 +1117,10 @@ final class BuddyTalk {
                 // A music app playing (준: "음악을 껐는데도 제자리에서 계속 음악감상 모드야"): its media session says so; any
                 // sound at all (isMusicActive) counted this app's own pages, whose sound engine stays on after the record stops.
                 Boolean playing = musicPlaying(c);
-                e.put("music", playing != null ? playing : am.isMusicActive());
+                // and the LP page playing (준: "퍼레가 lp에서 노래 나오는 걸 인식못하네"): what it said it plays, not the app's sound
+                // engine; apart too, so a screen that hears the LP page itself stop knows whether other music plays on
+                boolean apps = playing != null ? playing : am.isMusicActive(), lp = LpMedia.playing();
+                e.put("music", apps || lp); e.put("musicApps", apps); e.put("lp", lp);
                 boolean phones = false;
                 for (android.media.AudioDeviceInfo d : am.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS)) {
                     int t = d.getType();

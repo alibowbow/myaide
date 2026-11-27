@@ -206,6 +206,8 @@
             android:excludeFromRecents="true" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
         <service android:name=".MyTubeService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".LyriaService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <!-- LP 페이지가 다른 앱 뒤에서 재생되는 동안의 미디어 알림 (LpMedia): only while it plays. -->
+        <service android:name=".LpService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".AssistantService" android:exported="false"
             android:foregroundServiceType="microphone|mediaPlayback|dataSync" android:stopWithTask="false" />
         <provider android:name=".ManagedDocumentsProvider" android:authorities="dev.jun.gyeot.shared-documents"

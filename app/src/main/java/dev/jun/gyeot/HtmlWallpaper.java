@@ -95,6 +95,8 @@ public final class HtmlWallpaper extends WallpaperService {
             seen = prefs.getBoolean(SEEN, false);
             IntentFilter f = new IntentFilter(Intent.ACTION_SCREEN_OFF); f.addAction(Intent.ACTION_SCREEN_ON); f.addAction(Intent.ACTION_USER_PRESENT);
             try { registerReceiver(screen, f, Context.RECEIVER_NOT_EXPORTED); } catch (RuntimeException ignored) {}
+            // The LP page's media notification and the audio focus reach the page here (an LP page on the board, or alone).
+            LpMedia.host(HtmlWallpaper.this, cmd -> main.post(() -> { if (web != null) web.evaluateJavascript(LpMedia.js(cmd), null); }));
         }
         @Override public void onSurfaceChanged(SurfaceHolder holder, int format, int width, int height) {
             super.onSurfaceChanged(holder, format, width, height);
@@ -211,14 +213,14 @@ public final class HtmlWallpaper extends WallpaperService {
             main.removeCallbacks(refresh); release(); io.shutdownNow(); super.onDestroy();
         }
 
-        /** Not drawing while nobody sees it (only this WebView: the app's own pages keep their timers). */
+        /** Not drawing while nobody sees it (only this WebView: the app's own pages keep their timers); its LP page playing goes on. */
         private void sleep(boolean hidden) {
             if (web == null) return;
-            if (hidden) { web.onPause(); web.setVisibility(View.INVISIBLE); } else { web.setVisibility(View.VISIBLE); web.onResume(); }
+            if (hidden) { if (!LpMedia.playingIn(HtmlWallpaper.this)) web.onPause(); web.setVisibility(View.INVISIBLE); } else { web.setVisibility(View.VISIBLE); web.onResume(); }
         }
         private void release() {
             ready = false;
-            if (web != null) { try { web.destroy(); } catch (RuntimeException ignored) {} web = null; }
+            if (web != null) { LpMedia.gone(HtmlWallpaper.this); try { web.destroy(); } catch (RuntimeException ignored) {} web = null; }
             if (stage != null) { try { stage.dismiss(); } catch (RuntimeException ignored) {} stage = null; }
             if (display != null) { display.release(); display = null; }
         }

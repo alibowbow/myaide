@@ -14,13 +14,17 @@ const DECOR = path.join(__dirname, '../../app/src/main/assets/decor');
 const KNOB = '<html><body style="margin:0;height:100vh;background:#3a2a1a"><div id="k" style="position:absolute;left:0;right:0;bottom:0;height:320px;touch-action:none"></div>'
   + '<script>k.addEventListener("pointerdown",()=>parent.postMessage("knob","*"));'
   + 'addEventListener("message",e=>{if(e.data&&e.data.gyeot==="insets")parent.postMessage({heard:e.data,from:e.origin},"*")})</script></body></html>';
+/* The LP page as the app frames it (https://lp.gyeot.local, PieceExtras.frameUrl): it tells the home screen when it plays (vinyl.js
+   report), and keeps what the home screen asks of it (the media notification's buttons, launcher.lp). */
+const LP = '<html><body style="margin:0;height:100vh;background:#2a1a10"><script>window.asked=[];window.say=(on,title)=>parent.postMessage({gyeot:"playing",on,title},"https://gyeot.local");'
+  + 'addEventListener("message",e=>{if(e.origin==="https://gyeot.local"&&e.data&&e.data.gyeot==="lp")asked.push(e.data.cmd)})</script></body></html>';
 let failed = 0;
 async function check(name, fn) {
   try { await fn(); console.log('PASS', name); } catch (e) { failed++; console.log('FAIL', name, '\n   ', e.message); }
 }
 
 /** bridge: the app's bridge played by the page itself, each call kept in window._calls as [name, args] (otherwise none). */
-async function open(browser, at, bridge) {
+async function open(browser, at, bridge, pages) {
   const ctx = await browser.newContext({ viewport: { width: 412, height: 900 }, hasTouch: true, timezoneId: 'Asia/Seoul' });
   const page = await ctx.newPage();
   const errors = [];
@@ -37,13 +41,14 @@ async function open(browser, at, bridge) {
     if (u.host === 'gyeot.local') {
       if (u.pathname === '/') {
         const html = fs.readFileSync(path.join(DECOR, 'launcher.html'), 'utf8')
-          .replace('/*GYEOT*/', 'window.GYEOT=' + JSON.stringify({ launcher: true, pages: [{ src: 'https://piece.test/lp.html', frame: 'https://lp.piece.test/lp.html', title: 'LP' }], bg: 'aurora', token: bridge ? 'test' : undefined }) + ';');
+          .replace('/*GYEOT*/', 'window.GYEOT=' + JSON.stringify({ launcher: true, pages: pages || [{ src: 'https://piece.test/lp.html', frame: 'https://lp.piece.test/lp.html', title: 'LP' }], bg: 'aurora', token: bridge ? 'test' : undefined }) + ';');
         return route.fulfill({ body: html, contentType: 'text/html' });
       }
       const f = path.join(DECOR, path.basename(u.pathname));
       if (fs.existsSync(f)) return route.fulfill({ body: fs.readFileSync(f), contentType: f.endsWith('.js') ? 'text/javascript' : f.endsWith('.css') ? 'text/css' : 'application/octet-stream' });
     }
     if (u.host === 'piece.test' || u.host === 'lp.piece.test') return route.fulfill({ body: KNOB, contentType: 'text/html' });
+    if (u.host === 'lp.gyeot.local') return route.fulfill({ body: LP, contentType: 'text/html' });
     return route.fulfill({ status: 404, body: '' });
   });
   await page.goto('https://gyeot.local/');
@@ -556,6 +561,50 @@ async function open(browser, at, bridge) {
     } finally { await p.evaluate(() => toPage(1, false)); await p.clock.runFor(300); }
   });
   await own.ctx.close();
+
+  // 준: "퍼레가 lp에서 노래 나오는 걸 인식못하네": the LP page on a page of the home screen says it plays → 퍼레 hears music at once (its notes,
+  // a dance), not a quarter minute later from the app's word; stopped → off at once, unless other apps' music plays (the app's musicApps).
+  const lp = await open(browser, '2026-11-26T15:00:00+09:00', false, [{ src: 'https://piece.test/lp.html', frame: 'https://lp.gyeot.local/lp.html', title: 'LP' }]);
+  await check('the LP page says it plays: 퍼레 hears music at once (notes, it dances), its page stays though far; stopped: off at once, unless other music plays; the notification\'s asks reach it', async () => {
+    const p = lp.page, f = () => p.frames().find(x => x.url().startsWith('https://lp.gyeot.local/'));
+    for (let i = 0; i < 40 && !(f() && await f().evaluate(() => !!window.say).catch(() => false)); i++) { await p.clock.runFor(100); await p.waitForTimeout(50); }
+    const hears = () => p.evaluate(() => ({ music: !!boards[0]._env.music, notes: document.querySelector('.bot').classList.contains('w-notes'), dance: document.querySelector('.buddy').classList.contains('dance') }));
+    const settle = async () => { for (let i = 0; i < 4; i++) { await p.waitForTimeout(40); await p.clock.runFor(100); } };
+    assert.deepStrictEqual(await hears(), { music: false, notes: false, dance: false }, 'no music at first');
+    await f().evaluate(() => say(true, '좋은 날'));
+    await settle();
+    const on = await hears();
+    assert.deepStrictEqual([on.music, on.notes], [true, true], 'music at once: ' + JSON.stringify(on));
+    let danced = on.dance;
+    for (let i = 0; i < 10 && !danced; i++) { await p.clock.runFor(300); danced = (await hears()).dance; }
+    assert(danced, 'it dances to it');
+    // the app's quarter-minute word (no music of other apps; the LP it heard too) keeps it on
+    await p.evaluate(() => launcher.env({ battery: 80, music: true, musicApps: false, lp: true }));
+    assert.strictEqual((await hears()).music, true);
+    // far away (the home screen's other side): a page playing is not let go
+    await p.evaluate(() => toPage(0, false)); await p.clock.runFor(300);
+    assert.strictEqual(await p.evaluate(() => document.querySelector('.page.custom iframe').getAttribute('src')), 'https://lp.gyeot.local/lp.html', 'still there, playing');
+    // the media notification's 일시 정지 (LpMedia.js → launcher.lp)
+    await p.evaluate(() => launcher.lp('pause')); await settle();
+    assert.deepStrictEqual(await f().evaluate(() => asked), ['pause']);
+    await f().evaluate(() => say(false, '좋은 날'));
+    await settle();
+    // the app's word still says music (from before): the LP page's own word wins, other apps play none
+    assert.deepStrictEqual(await hears().then(h => [h.music, h.notes]), [false, false], 'off at once');
+    assert.strictEqual(await p.evaluate(() => document.querySelector('.page.custom iframe').getAttribute('src')), null, 'far, stopped: let go as any page');
+    // other apps' music: on, whatever the LP page says
+    await p.evaluate(() => launcher.env({ battery: 80, music: true, musicApps: true, lp: false }));
+    assert.strictEqual((await hears()).music, true, 'other music heard');
+    await p.evaluate(() => launcher.env({ battery: 80, music: false, musicApps: false, lp: false }));
+    assert.strictEqual((await hears()).music, false);
+    // a word from anywhere else is not taken
+    await p.evaluate(() => toPage(2, false)); await p.clock.runFor(300);
+    for (let i = 0; i < 40 && !(f() && await f().evaluate(() => !!window.say).catch(() => false)); i++) { await p.clock.runFor(100); await p.waitForTimeout(50); }
+    await p.evaluate(() => window.postMessage({ gyeot: 'playing', on: true }, '*')); await settle();
+    assert.strictEqual((await hears()).music, false, 'only the LP page\'s own word');
+    assert.deepStrictEqual(lp.errors, []);
+  });
+  await lp.ctx.close();
 
   await browser.close();
   console.log(failed ? failed + ' failed' : 'all passed');
