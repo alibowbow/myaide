@@ -4,7 +4,11 @@
   bars or big cards): the bar is 38 px high and at most 320 px wide, clear of the launcher's page dots and its 22 px edge strips.
   --gyB is the bottom the page must keep clear (the system bar), told by the home screen (vinyl.js).
 */
-:root{--gyB:48px;--gyBarH:38px}
+:root{--gyB:48px;--gyBarH:38px;
+  /* the piece's serif, then a Korean serif for 한글 (its own fonts have none), and never a slanted copy of an upright font:
+     an italic line in Korean stays upright rather than leaning like a broken font */
+  --serif:"Iowan Old Style","Palatino Linotype",Palatino,"P052","Book Antiqua",Georgia,serif,"Noto Serif KR","Noto Serif CJK KR","Nanum Myeongjo","AppleMyungjo"}
+html{font-synthesis:weight;font-synthesis-style:none}
 .room{padding-bottom:calc(30px + var(--gyB) + 26px + var(--gyBarH) + 10px)}
 
 #gyBar{position:fixed;z-index:40;left:50%;bottom:calc(var(--gyB) + 26px);transform:translateX(-50%);
@@ -73,7 +77,8 @@
 #gySheet button:focus-visible{outline:2px solid var(--brass-dk,#8a6d12);outline-offset:-2px}
 
 /* 내 음악 in the crate: a fourth sleeve (a record peeking from a walnut sleeve), and its cover in the liner notes */
-.sleeves{grid-template-columns:repeat(4,1fr);max-width:470px}
+.sleeves.gy-four{grid-template-columns:repeat(4,1fr);max-width:470px}
+.sleeves .sleeve{align-self:start} /* each sleeve's picture at the top of its cell, whatever its name's lines */
 .art.a3{background:
     radial-gradient(circle at 50% 42%,#f3d98a 0 2.6%,#c9a227 3.2%,rgba(201,162,39,0) 3.8%),
     radial-gradient(circle at 50% 42%,#5a2622 0 15%,rgba(90,38,34,0) 15.4%),
@@ -82,7 +87,6 @@
     linear-gradient(160deg,#76482f,#4a2f20 58%,#2a1a10)}
 .art.a3 .t{color:#f3e3bd}
 .art.a3.pic{background-size:cover;background-position:center}
-body.gy-mine .tracks li:nth-child(n+41){display:none}
 @media (prefers-reduced-motion:reduce){#gySheet{animation:none}}
 
 /* The three.js deck (deck3d.js): one canvas over the plinth, under the buttons; once it has drawn, the CSS deck's parts hide
@@ -90,3 +94,6 @@ body.gy-mine .tracks li:nth-child(n+41){display:none}
 .deck>canvas.gy-deck{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;border-radius:2.8%/3.6%;visibility:hidden}
 .deck.gy3d>canvas.gy-deck{visibility:visible}
 .deck.gy3d>svg.plinth,.deck.gy3d>.platter,.deck.gy3d>.slot,.deck.gy3d>.specular,.deck.gy3d>.spindle,.deck.gy3d>svg.arm{visibility:hidden}
+/* the start · stop key is drawn in 3D (lit with the rest, its LED with the motor): the piece's button stays, see-through, to press */
+.deck.gy3d>.startstop,.deck.gy3d>.startstop:active{background:none;border-color:transparent;box-shadow:none;color:transparent;transform:none}
+.deck.gy3d>.startstop i{visibility:hidden}

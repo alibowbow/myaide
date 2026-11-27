@@ -52,6 +52,8 @@ import static org.robolectric.Shadows.shadowOf;
 @Config(sdk=35, application=GyeotApp.class)
 public class LpPieceTests {
     static final String AUTH = "dev.jun.gyeot.test.music", PIECE = "/Claude-Opus-5.5-100-HTML-Files/057-vinyl-listening-room.html";
+    /** The app's own address for the LP piece, and the creator's site. */
+    static final String LP = "https://lp.gyeot.local", SITE = "https://miaai-lab.github.io";
     static final Map<String, byte[]> DOCS = new HashMap<>();
     static File dir;
 
@@ -97,9 +99,9 @@ public class LpPieceTests {
         };
     }
     static WebResourceRequest get(String path, String... headers) {
-        Map<String, String> h = new HashMap<>(); h.put("Referer", "https://miaai-lab.github.io" + PIECE);
+        Map<String, String> h = new HashMap<>(); h.put("Referer", LP + PIECE);
         for (int i = 0; i + 1 < headers.length; i += 2) h.put(headers[i], headers[i + 1]);
-        return req("GET", "https://miaai-lab.github.io/__gyeot/" + path, h);
+        return req("GET", LP + "/__gyeot/" + path, h);
     }
     static String k(String path) { return path + (path.contains("?") ? "&" : "?") + "k=" + PieceExtras.key(); }
     WebResourceResponse serve(WebResourceRequest r) { return PieceExtras.handle(app, r, i -> opened.add(i)); }
@@ -148,6 +150,10 @@ public class LpPieceTests {
         assertNull(PieceMusic.range("bytes=x-", 1000));
         assertEquals("Night Drive", PieceMusic.title("Night_Drive.mp3"));
         assertTrue(PieceMusic.audio("application/octet-stream", "a.flac")); assertFalse(PieceMusic.audio("text/plain", "a.mp3"));
+        // what the web view cannot play does not come onto the list
+        for (String[] no : new String[][] { {"audio/amr", "a.amr"}, {"audio/3gpp", "a.3gp"}, {"audio/midi", "a.mid"}, {"application/octet-stream", "a.midi"}, {null, "a.amr"}, {"audio/AMR; codecs=x", "a"} })
+            assertFalse(no[0] + " " + no[1], PieceMusic.audio(no[0], no[1]));
+        assertTrue(PieceMusic.audio("audio/mpeg", "a.mp3")); assertTrue(PieceMusic.audio("audio/ogg; codecs=opus", "a"));
         assertTrue(PieceMusic.validId(PieceMusic.id("content://x/1"))); assertEquals(PieceMusic.id("content://x/1"), PieceMusic.id("content://x/1"));
     }
 
@@ -157,6 +163,11 @@ public class LpPieceTests {
         assertEquals(403, serve(get("music/list.json")).getStatusCode());
         assertEquals("another page's key", 403, serve(get("music/list.json?k=" + "0".repeat(32))).getStatusCode());
         assertEquals("from another page", 403, serve(get(k("music/list.json"), "Referer", "https://miaai-lab.github.io/other/piece.html")).getStatusCode());
+        assertEquals("the LP page's path on the creator's site", 403, serve(get(k("music/list.json"), "Referer", SITE + PIECE)).getStatusCode());
+        // On the creator's site (where other pieces' code runs) nothing of 내 음악 is ever answered, even with the key.
+        assertEquals(404, serve(req("GET", SITE + "/__gyeot/" + k("music/list.json"), Map.of("Referer", SITE + PIECE))).getStatusCode());
+        assertEquals(404, serve(req("GET", SITE + "/__gyeot/" + k("music/pick?kind=files"), Map.of())).getStatusCode());
+        assertEquals(404, serve(req("GET", SITE + "/__gyeot/" + k("deck/stats?avg=1"), Map.of())).getStatusCode());
         WebResourceResponse list = serve(get(k("music/list.json")));
         assertEquals(200, list.getStatusCode()); assertEquals("no-store", header(list, "Cache-Control"));
         String body = text(list);
@@ -194,7 +205,9 @@ public class LpPieceTests {
         // Off the list: its read permission given back, and nothing served for it any more.
         app.getContentResolver().takePersistableUriPermission(doc("Night_Drive.mp3"), Intent.FLAG_GRANT_READ_URI_PERMISSION);
         int rev = j.getInt("rev");
-        WebResourceResponse left = serve(req("DELETE", "https://miaai-lab.github.io/__gyeot/" + k("music/" + id), Map.of()));
+        assertEquals("never on the creator's site", 404, serve(req("DELETE", SITE + "/__gyeot/" + k("music/" + id), Map.of())).getStatusCode());
+        assertNotNull("still on the list", PieceMusicStore.of(app).shelf().find(id));
+        WebResourceResponse left = serve(req("DELETE", LP + "/__gyeot/" + k("music/" + id), Map.of()));
         JSONObject after = new JSONObject(text(left));
         assertEquals(1, after.getJSONArray("items").length()); assertTrue(after.getInt("rev") > rev);
         assertEquals(404, serve(get(k("music/" + id))).getStatusCode());
@@ -204,23 +217,34 @@ public class LpPieceTests {
     }
 
     @Test public void theAddOnsFilesAndTheOpenerComeFromTheApp() throws Exception {
-        WebResourceResponse js = serve(req("GET", "https://miaai-lab.github.io/__gyeot/addon/vinyl.js", Map.of()));
-        assertEquals(200, js.getStatusCode()); assertEquals("text/javascript", js.getMimeType());
-        assertTrue(text(js).contains("window.__gy = {"));
-        assertEquals("text/css", serve(req("GET", "https://miaai-lab.github.io/__gyeot/addon/vinyl.css", Map.of())).getMimeType());
-        assertEquals(200, serve(req("GET", "https://miaai-lab.github.io/__gyeot/addon/deck3d.js", Map.of())).getStatusCode());
-        WebResourceResponse three = serve(req("GET", "https://miaai-lab.github.io/__gyeot/lib/three.module.js", Map.of()));
-        assertEquals(200, three.getStatusCode()); assertTrue(new String(read(three), 0, 120, StandardCharsets.UTF_8).contains("Three.js Authors"));
-        assertEquals("only the add-on's own names", 404, serve(req("GET", "https://miaai-lab.github.io/__gyeot/addon/other.js", Map.of())).getStatusCode());
+        // The LP piece's frames load it from the app's own address; every other address as it is.
+        assertEquals(LP + PIECE, PieceExtras.frameUrl(SITE + PIECE));
+        assertEquals(LP + PIECE + "?a=1#b", PieceExtras.frameUrl(SITE + PIECE + "?a=1#b"));
+        assertEquals(SITE + PIECE + "x", PieceExtras.frameUrl(SITE + PIECE + "x"));
+        assertEquals(SITE + "/Other/piece.html", PieceExtras.frameUrl(SITE + "/Other/piece.html"));
+        assertEquals("page:abc", PieceExtras.frameUrl("page:abc"));
+        assertEquals(LP + PIECE, PieceExtras.framed(new JSONObject(), SITE + PIECE).getString("frame"));
+        for (String at : new String[] { LP, SITE }) {
+            WebResourceResponse js = serve(req("GET", at + "/__gyeot/addon/vinyl.js", Map.of()));
+            assertEquals(at, 200, js.getStatusCode()); assertEquals("text/javascript", js.getMimeType());
+            assertTrue(text(js).contains("window.__gy = {"));
+            assertEquals("text/css", serve(req("GET", at + "/__gyeot/addon/vinyl.css", Map.of())).getMimeType());
+            assertEquals(200, serve(req("GET", at + "/__gyeot/addon/deck3d.js", Map.of())).getStatusCode());
+            WebResourceResponse three = serve(req("GET", at + "/__gyeot/lib/three.module.js", Map.of()));
+            assertEquals(200, three.getStatusCode()); assertTrue(new String(read(three), 0, 120, StandardCharsets.UTF_8).contains("Three.js Authors"));
+            assertEquals("only the add-on's own names", 404, serve(req("GET", at + "/__gyeot/addon/other.js", Map.of())).getStatusCode());
+        }
         // The 3D deck's walnut: three pictures, JPEG
         for (String w : new String[] { "col", "nor", "rgh" }) {
-            WebResourceResponse jpg = serve(req("GET", "https://miaai-lab.github.io/__gyeot/addon/walnut-" + w + ".jpg", Map.of()));
+            WebResourceResponse jpg = serve(req("GET", LP + "/__gyeot/addon/walnut-" + w + ".jpg", Map.of()));
             assertEquals(200, jpg.getStatusCode()); assertEquals("image/jpeg", jpg.getMimeType());
             byte[] b = read(jpg); assertTrue("a JPEG", b.length > 1000 && (b[0] & 0xff) == 0xff && (b[1] & 0xff) == 0xd8);
         }
-        assertEquals(404, serve(req("GET", "https://miaai-lab.github.io/__gyeot/addon/walnut-x.jpg", Map.of())).getStatusCode());
-        assertNull("another piece goes on to the web as before", serve(req("GET", "https://miaai-lab.github.io/Other/piece.html", Map.of())));
+        assertEquals(404, serve(req("GET", LP + "/__gyeot/addon/walnut-x.jpg", Map.of())).getStatusCode());
+        assertNull("another piece goes on to the web as before", serve(req("GET", SITE + "/Other/piece.html", Map.of())));
         assertNull(serve(req("GET", "https://example.com/__gyeot/music/list.json", Map.of())));
+        assertEquals("the app's own address holds the LP page only", 404, serve(req("GET", LP + "/Other/piece.html", Map.of())).getStatusCode());
+        assertTrue("the tuned page is put in only with a key", PieceExtras.keyless("<script>window.__GY = { key: \"" + PieceExtras.PLACE + "\" };</script>").contains("key: \"\""));
 
         JSONObject asked = new JSONObject(text(serve(get(k("music/pick?kind=folder"))))) ;
         assertTrue(asked.getBoolean("pending")); assertEquals("app", asked.getString("via"));
@@ -234,13 +258,19 @@ public class LpPieceTests {
         assertEquals("LP 3D 평균 9.8ms p95 14ms 30fps ×2 768×600 그리기 16번 삼각형 17880개",
             PieceExtras.statsLine(Uri.parse("https://miaai-lab.github.io/__gyeot/deck/stats?avg=9.8&p95=14&fps=30&pr=2&w=768&h=600&dc=16&tri=17880")));
         assertEquals("LP 3D 평균 ?ms p95 ?ms ?fps ×? ?×? · CSS 덱으로: no webgl2", PieceExtras.statsLine(Uri.parse("https://miaai-lab.github.io/__gyeot/deck/stats?css=no%20webgl2")));
-        // Locked: nothing of the user's music on the lock screen's wallpaper, and no picker.
+        // Locked: nothing of the user's music on the lock screen's wallpaper, and no picker; the page hears it is locked (and
+        // asks again when shown unlocked) rather than that there is no app.
+        PieceMusicStore.of(app).add(List.of(doc("Night_Drive.mp3")), null);
         shadowOf(app.getSystemService(android.app.KeyguardManager.class)).setKeyguardLocked(true);
-        assertEquals(403, serve(get(k("music/list.json"))).getStatusCode());
-        assertEquals(403, serve(get(k("music/pick?kind=files"))).getStatusCode());
+        for (String asked2 : new String[] { "music/list.json", "music/pick?kind=files" }) {
+            WebResourceResponse locked = serve(get(k(asked2)));
+            assertEquals(200, locked.getStatusCode());
+            String said = text(locked); JSONObject lj = new JSONObject(said);
+            assertTrue(said, lj.getBoolean("locked")); assertEquals(0, lj.getJSONArray("items").length()); assertFalse(said, said.contains("Night"));
+        }
         assertEquals(2, opened.size());
         shadowOf(app.getSystemService(android.app.KeyguardManager.class)).setKeyguardLocked(false);
-        assertEquals(200, serve(get(k("music/list.json"))).getStatusCode());
+        assertTrue("unlocked, the list again", text(serve(get(k("music/list.json")))).contains("Night Drive"));
         assertEquals(403, serve(get("deck/stats?avg=1")).getStatusCode());
     }
 
@@ -263,9 +293,10 @@ public class LpPieceTests {
         Intent got = new Intent().addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION); got.setClipData(clip);
         sa.receiveResult(pick, Activity.RESULT_OK, got);
         assertTrue("it closes at once", a.isFinishing());
+        PieceMusicStore.WORK.submit(() -> null).get(); // the reading ran on the store's own thread
         List<Uri> kept = new ArrayList<>(); app.getContentResolver().getPersistedUriPermissions().forEach(p -> kept.add(p.getUri()));
         assertTrue("the permission kept for what was picked: " + kept, kept.contains(doc("Night_Drive.mp3")) && kept.contains(doc("rain.ogg")));
-        PieceMusicStore.WORK.submit(() -> null).get(); // the reading ran on the store's own thread
+        assertFalse("and given back for what did not come onto the list (not sound): " + kept, kept.contains(doc("notes.txt")));
         PieceMusic.Shelf shelf = PieceMusicStore.of(app).shelf();
         assertEquals("the two sound files: " + shelf.items(), 2, shelf.items().size());
         assertEquals("Night Drive", shelf.items().get(0).title()); assertEquals("application/ogg", shelf.items().get(1).mime());
@@ -279,5 +310,21 @@ public class LpPieceTests {
         assertTrue(b.isFinishing());
         assertEquals("cancelled", PieceMusicStore.of(app).pick());
         assertEquals(2, PieceMusicStore.of(app).shelf().items().size());
+
+        // A folder with no music in it: nothing added, and its permission given back.
+        Uri empty = android.provider.DocumentsContract.buildTreeDocumentUri(AUTH, "empty");
+        Activity e = Robolectric.buildActivity(MusicPickActivity.class, new Intent(app, MusicPickActivity.class).putExtra(MusicPickActivity.KIND, "folder")).setup().get();
+        ShadowActivity.IntentForResult tree = shadowOf(e).getNextStartedActivityForResult();
+        shadowOf(e).receiveResult(tree.intent, Activity.RESULT_OK, new Intent().setData(empty).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION));
+        PieceMusicStore.WORK.submit(() -> null).get();
+        assertEquals(2, PieceMusicStore.of(app).shelf().items().size());
+        assertTrue("no permission kept for a folder with nothing on the list", app.getContentResolver().getPersistedUriPermissions().stream().noneMatch(p -> p.getUri().equals(empty)));
+        assertTrue("still those of the files on it", app.getContentResolver().getPersistedUriPermissions().stream().anyMatch(p -> p.getUri().equals(doc("rain.ogg"))));
+
+        // The picker left without an answer (the home button over it clears it): the page stops waiting.
+        org.robolectric.android.controller.ActivityController<MusicPickActivity> gone = Robolectric.buildActivity(MusicPickActivity.class, new Intent(app, MusicPickActivity.class).putExtra(MusicPickActivity.KIND, "files")).setup();
+        assertEquals("open", PieceMusicStore.of(app).pick());
+        gone.pause().stop().destroy();
+        assertEquals("cancelled", PieceMusicStore.of(app).pick());
     }
 }

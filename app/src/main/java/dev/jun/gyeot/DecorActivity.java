@@ -543,7 +543,7 @@ public final class DecorActivity extends Activity {
             @Override public void onPageFinished(android.webkit.WebView view, String loaded) { view.evaluateJavascript("window.__gyInsets&&__gyInsets(36,20)", null); }
         });
         if (url.startsWith(HtmlWallpaper.PAGE)) { try { web.loadDataWithBaseURL(null, PageStore.book(this).body(url.substring(HtmlWallpaper.PAGE.length())), "text/html", "utf-8", null); } catch (Exception e) { Toast.makeText(this, "페이지를 열지 못했어요.", Toast.LENGTH_SHORT).show(); return; } }
-        else web.loadUrl(url);
+        else web.loadUrl(PieceExtras.frameUrl(url));
         frame.addView(web, new FrameLayout.LayoutParams(-1, -1));
         ImageView close = ui.bareIcon(R.drawable.ic_close, 0xffffffff, "닫기", d::dismiss); close.setBackground(ui.shape(0x88000000, 99));
         FrameLayout.LayoutParams ca = new FrameLayout.LayoutParams(ui.dp(44), ui.dp(44), Gravity.TOP | Gravity.END); ca.setMargins(0, ui.dp(36), ui.dp(16), 0);

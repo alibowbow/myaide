@@ -392,7 +392,8 @@ public final class HomeActivity extends Activity {
     static final String PAGES = "pages";
     JSONArray pagesJson() {
         JSONArray out = new JSONArray();
-        for (dev.jun.gyeot.core.HomeBoard.Slot s : dev.jun.gyeot.core.HomeBoard.slots(prefs.getString(PAGES, ""), "", "")) if (s.web()) out.put(s.json());
+        // frame: where its frame loads it (the LP piece from the app's own address: PieceExtras.frameUrl)
+        for (dev.jun.gyeot.core.HomeBoard.Slot s : dev.jun.gyeot.core.HomeBoard.slots(prefs.getString(PAGES, ""), "", "")) if (s.web()) out.put(PieceExtras.framed(s.json(), s.src()));
         return out;
     }
     private final SharedPreferences.OnSharedPreferenceChangeListener pagesChanged = (p, key) -> { if (PAGES.equals(key)) js("launcher.pages(" + pagesJson() + ")"); };

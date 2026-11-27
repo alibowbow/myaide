@@ -761,6 +761,8 @@ pagesBox.addEventListener("scroll", () => { const i = Math.round(pagesBox.scroll
   every touch cannot trap the finger). A frame runs only while its page is near.
 */
 let PAGES = [];
+/** Where a piece's frame loads it: the app's own address for the LP piece (p.frame, from the app), else the piece's own. */
+function framed(p) { return typeof p.frame === "string" && p.frame.startsWith("https://") ? p.frame : p.src; }
 function drawPages(list) {
   PAGES = (list || []).filter(p => p && typeof p.src === "string" && (p.src.startsWith("https://") || p.src.startsWith("page:")));
   pagesBox.querySelectorAll(".page.custom").forEach(n => n.remove());
@@ -769,7 +771,7 @@ function drawPages(list) {
     const f = document.createElement("iframe");
     f.setAttribute("sandbox", "allow-scripts allow-same-origin allow-pointer-lock allow-forms");
     f.setAttribute("allow", "autoplay; accelerometer; gyroscope; fullscreen");
-    f.setAttribute("title", p.title || ""); f.dataset.src = p.src.startsWith("page:") ? "https://pages.gyeot.local/" + encodeURIComponent(p.src.slice(5)) : p.src;
+    f.setAttribute("title", p.title || ""); f.dataset.src = p.src.startsWith("page:") ? "https://pages.gyeot.local/" + encodeURIComponent(p.src.slice(5)) : framed(p);
     f.addEventListener("load", () => tellInsets(f));
     sec.appendChild(f);
     sec.insertAdjacentHTML("beforeend", '<div class="edge l"></div><div class="edge r"></div><div class="page-name">' + esc(p.title || "") + '</div>');

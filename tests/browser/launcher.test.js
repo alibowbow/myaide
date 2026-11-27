@@ -35,13 +35,13 @@ async function open(browser, at) {
     if (u.host === 'gyeot.local') {
       if (u.pathname === '/') {
         const html = fs.readFileSync(path.join(DECOR, 'launcher.html'), 'utf8')
-          .replace('/*GYEOT*/', 'window.GYEOT=' + JSON.stringify({ launcher: true, pages: [{ src: 'https://piece.test/lp.html', title: 'LP' }], bg: 'aurora' }) + ';');
+          .replace('/*GYEOT*/', 'window.GYEOT=' + JSON.stringify({ launcher: true, pages: [{ src: 'https://piece.test/lp.html', frame: 'https://lp.piece.test/lp.html', title: 'LP' }], bg: 'aurora' }) + ';');
         return route.fulfill({ body: html, contentType: 'text/html' });
       }
       const f = path.join(DECOR, path.basename(u.pathname));
       if (fs.existsSync(f)) return route.fulfill({ body: fs.readFileSync(f), contentType: f.endsWith('.js') ? 'text/javascript' : f.endsWith('.css') ? 'text/css' : 'application/octet-stream' });
     }
-    if (u.host === 'piece.test') return route.fulfill({ body: KNOB, contentType: 'text/html' });
+    if (u.host === 'piece.test' || u.host === 'lp.piece.test') return route.fulfill({ body: KNOB, contentType: 'text/html' });
     return route.fulfill({ status: 404, body: '' });
   });
   await page.goto('https://gyeot.local/');
@@ -385,6 +385,8 @@ async function open(browser, at) {
     await p.evaluate(() => toPage(0, false)); await p.clock.runFor(300); // far away: the frame is emptied, and loads again
     assert.strictEqual(await p.evaluate(() => document.querySelector('.page.custom iframe').getAttribute('src')), null);
     await p.evaluate(() => toPage(2, false));
+    // a page whose piece the app serves from its own address (the LP piece: PieceExtras.frameUrl) is framed from there
+    assert.strictEqual(await p.evaluate(() => document.querySelector('.page.custom iframe').getAttribute('src')), 'https://lp.piece.test/lp.html');
     try {
       await p.frameLocator('iframe').locator('#k').waitFor({ timeout: 15000 });
       for (let i = 0; i < 20 && !(await p.evaluate(() => window._heard.length)); i++) { await p.clock.runFor(100); await p.waitForTimeout(50); }

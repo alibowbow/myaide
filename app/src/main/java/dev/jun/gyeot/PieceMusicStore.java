@@ -76,10 +76,27 @@ final class PieceMusicStore {
     String pick() { return pick; }
     void pick(String state) { pick = state == null ? "" : state; }
 
-    /** Files and a folder the user just picked (their read permission already taken): read and added off the main thread. */
-    void addLater(List<Uri> files, Uri tree) {
-        try { WORK.execute(() -> { try { add(files, tree); } catch (RuntimeException failed) { DiagnosticsExport.record(app, "storage", failed); } finally { pick("done"); } }); }
-        catch (RuntimeException stopped) { pick("cancelled"); }
+    /**
+     * Files and a folder the user just picked (their read permission already taken: those newly taken in taken), read and added
+     * off the main thread; what was taken for anything that did not come onto the list is given back (an app keeps at most 512).
+     */
+    void addLater(List<Uri> files, Uri tree, List<Uri> taken) {
+        try { WORK.execute(() -> {
+            try { untake(add(files, tree), taken); }
+            catch (RuntimeException failed) { DiagnosticsExport.record(app, "storage", failed); untake(shelf(), taken); }
+            finally { pick("done"); }
+        }); }
+        catch (RuntimeException stopped) { untake(shelf(), taken); pick("cancelled"); }
+    }
+    /** Gives back each of taken that no track of the list is (a file) or came with (a folder). */
+    void untake(PieceMusic.Shelf now, List<Uri> taken) {
+        if (taken == null) return;
+        ContentResolver cr = app.getContentResolver();
+        for (Uri u : taken) {
+            String s = u.toString(); boolean used = false;
+            for (PieceMusic.Track t : now.items()) if (t.uri().equals(s) || t.tree().equals(s)) { used = true; break; }
+            if (!used) try { cr.releasePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (RuntimeException notHeld) {}
+        }
     }
     /** Reads each file (and a folder's music, two levels deep), then adds them to the list. On the background thread. */
     PieceMusic.Shelf add(List<Uri> files, Uri tree) {

@@ -13,8 +13,13 @@
       the tonearm follows the files' real lengths, the silent bands sit between them, the arm returns after the last.
 
   For the three.js deck (deck3d.js), window.__gy: onFrame(fn(dt)) in the piece's own frame (one loop; none while the page is
-  hidden), onTrack(fn) when the track, the record or 내 음악's list changes, state() (spin, arm angle and lift, …), label()
-  (the label's SVG group and a key that changes when it looks different), grooves() (the tracks' radii), report(stats).
+  hidden or out of the launcher's sight), onTrack(fn) when the track, the record or 내 음악's list changes, state() (spin, arm
+  angle and lift, …), label() (the label's SVG group and a key that changes when it looks different), grooves() (the tracks'
+  radii), report(stats), shown (whether the home screen says the page is in sight; null where nobody says).
+
+  A file goes on to the next one out of the launcher's sight too (no frames there: its end starts the next here), stops when
+  the page is hidden (another app, the screen off: it has no notification or audio focus of its own), and a page opened while
+  the phone is locked asks for 내 음악 again once it is shown unlocked.
 */
 (() => {
   'use strict';
@@ -34,7 +39,11 @@
 
   /* ── the hook ── */
   const frameFns = new Set(), trackFns = new Set();
-  window.__gyFrame = dt => { for (const f of frameFns) try { f(dt); } catch (e) { /* one listener never stops the others */ } };
+  // When the piece's frame last ran: a frame out of sight (a launcher's page next to the one shown) gets none, though its page
+  // is not hidden.
+  let lastFrame = 0, frameCount = 0;
+  window.__gyFrame = dt => { lastFrame = performance.now(); frameCount++; for (const f of frameFns) try { f(dt); } catch (e) { /* one listener never stops the others */ } };
+  const framing = () => performance.now() - lastFrame < 250;
   window.__gyTrack = () => { for (const f of trackFns) try { f(); } catch (e) {} };
 
   /* ── where the bottom of the screen is (the home screen tells; alone on a wallpaper, under the phone's dock) ── */
@@ -42,16 +51,20 @@
   let heard = false;
   function insets(top, bottom) { root.style.setProperty('--gyB', Math.max(0, Math.round(+bottom || 0)) + 'px'); }
   insets(0, window.parent !== window ? 48 : 120);
+  // and whether the page is in sight, where the home screen says so (the wallpaper's board slides its pages: the browser keeps
+  // running a page next to the one shown); null where nobody says (the launcher's pages: the browser stops those itself)
+  let inSight = null;
   addEventListener('message', e => {
-    if (e.origin !== 'https://gyeot.local' || !e.data || e.data.gyeot !== 'insets') return;
-    heard = true; insets(e.data.top, e.data.bottom);
+    if (e.origin !== 'https://gyeot.local' || !e.data) return;
+    if (e.data.gyeot === 'insets') { heard = true; insets(e.data.top, e.data.bottom); }
+    else if (e.data.gyeot === 'shown') inSight = !!e.data.on;
   });
   window.__gyInsets = (top, bottom) => { heard = true; insets(top, bottom); };
 
   /* ── 내 음악 ── */
   const MINE = { id: 3, title: '내 음악', artist: '휴대폰의 음악', cat: 'MY MUSIC', liner: '휴대폰에서 고른 음악을 이 턴테이블에 올렸어요. 소리는 원곡 그대로이고, 레코드 표면 소리만 살짝 깔려요.',
     bpm: 60, beats: 4, wow: 0, crackle: 0.5, rain: 0, scale: [], vu: VU, mine: null, tracks: [], starts: [], total: 1 };
-  let host = false, rev = -1, waiting = null, pollT = 0;
+  let host = false, locked = false, rev = -1, waiting = null, pollT = 0, lockT = 0;
   const bad = new Map();
   function restack() {
     let s = 0; MINE.starts = [];
@@ -72,6 +85,7 @@
     }
     function start(i, s) {
       const T = MINE.tracks[i]; if (!T) return;
+      if (document.hidden) { want = false; return; } // never starting unseen (it goes on when shown: visibilitychange)
       wire();
       if (!node) return; // no Web Audio: no sound outside the volume knob
       const url = q('/__gyeot/music/' + T.id);
@@ -104,14 +118,16 @@
       const T = MINE.tracks.find(t => t.id === au.dataset.id);
       if (!T || !isFinite(au.duration) || au.duration <= 0) return;
       T.real = true;
-      if (Math.abs(au.duration - T.dur) > 0.5) { T.dur = au.duration; restack(); if (mineOn()) L.applyAlbum(); }
+      if (Math.abs(au.duration - T.dur) > 0.5) { T.dur = au.duration; restack(); if (mineOn()) retime(MINE.tracks.indexOf(T)); }
     });
     au.addEventListener('playing', () => { badRun = 0; bad.delete(au.dataset.id); });
     au.addEventListener('ended', () => {
-      // Hidden, the piece's frame (which turns the page) is stopped: the next file starts here.
-      if (!want || !document.hidden || !mineOn()) return;
+      // The piece's frame turns to the next file. Out of sight in the launcher (the page next to the one shown) it gets no
+      // frames, though its page is not hidden: then the next file starts here, and after the last the side ends.
+      if (!want || !mineOn() || framing()) return;
       const i = L.trackIdx;
       if (i < MINE.tracks.length - 1) { L.setTrack(i + 1); L.refreshTrackUI(); start(i + 1, 0); }
+      else { want = false; if (L.endOfSide) L.endOfSide(); }
     });
     au.addEventListener('error', () => {
       if (!want || !au.dataset.id || !mineOn()) return;
@@ -123,7 +139,7 @@
         await idle(); if (mineOn() && current() && current().id === id) L.gotoTrack(L.trackIdx + 1);
       });
     });
-    return { au, start, stop, pos, unlock };
+    return { au, start, stop, pos, unlock, get want() { return want; } };
   })();
   MINE.mine = player;
   // A tenth of a second of silence (8 kHz, 8-bit WAV): only to let the element sound after the first tap.
@@ -139,6 +155,18 @@
     if (T && T.seek === false && e.target && e.target.closest && e.target.closest('#prog')) { e.stopPropagation(); e.preventDefault(); say('이 곡은 건너뛰며 들을 수 없어요'); }
   }, true);
 
+  /** A file's real length came (its element read it): the record's bands, its line in the piece's list, the clock, the sheet. */
+  function retime(k) {
+    const A = MINE, rec = $('record');
+    if (rec) {
+      const band = n => { if (A.starts[n] == null) return '-9%'; const t = A.starts[n] - L.GAP / 2; return ((L.R_OUT - (L.R_OUT - L.R_IN) * t / A.total) / 300 * 100).toFixed(2) + '%'; };
+      rec.style.setProperty('--g1', band(1)); rec.style.setProperty('--g2', band(2));
+    }
+    const b = document.querySelectorAll('#tracks button')[k], d = b && b.querySelector('.dur');
+    if (d && A.tracks[k]) d.textContent = fmt(L.trackDur(A, A.tracks[k]));
+    const cat = $('cat'); if (cat) cat.textContent = A.cat;
+    L.refreshTrackUI(); drawSheet(false);
+  }
   function applyList(j) {
     if (!j || !Array.isArray(j.items)) return;
     const items = j.items.filter(it => it && /^[0-9a-f]{12}$/.test(it.id));
@@ -169,10 +197,17 @@
     }
     sleeve(); label(); drawSheet(false); window.__gyTrack();
   }
+  /** Locked, the app says nothing of the list: asked again when the page is shown, tapped, or every 15 s while it is seen. */
+  function lockedNow() {
+    locked = true; clearTimeout(lockT);
+    lockT = setTimeout(() => { if (!locked) return; if (document.hidden) lockedNow(); else refresh(); }, 15000);
+  }
   async function refresh() {
     if (!host) return;
     let j;
     try { j = await (await fetch(q('/__gyeot/music/list.json?rev=' + rev), { cache: 'no-store' })).json(); } catch (e) { return; }
+    if (j && j.locked) { lockedNow(); return; }
+    locked = false; clearTimeout(lockT);
     const before = MINE.tracks.length;
     if (j.rev !== rev) {
       const was = waiting; waiting = null;
@@ -189,11 +224,13 @@
     if (Date.now() - waiting.since > 180000) { waiting = null; note(''); drawSheet(false); return; }
     pollT = setTimeout(async () => { await refresh(); poll(); }, 1200);
   }
+  // Tapped again while it waits (the picker went away without an answer), the picker opens again.
   async function addMusic(kind) {
-    if (waiting) return;
+    clearTimeout(pollT);
     waiting = { since: Date.now(), kind }; note(kind === 'folder' ? '폴더를 고르는 창을 열어요…' : '파일을 고르는 창을 열어요…'); drawSheet(false);
     try {
       const j = await (await fetch(q('/__gyeot/music/pick?kind=' + kind), { cache: 'no-store' })).json();
+      if (j.locked) { waiting = null; lockedNow(); note('잠금을 풀면 고를 수 있어요'); drawSheet(false); return; }
       if (j.via === 'notification') note('알림을 눌러 파일을 골라 주세요');
     } catch (e) { waiting = null; note('여기서는 파일을 고를 수 없어요'); drawSheet(false); return; }
     poll();
@@ -203,7 +240,17 @@
     catch (e) { note('목록에서 빼지 못했어요'); }
   }
   addEventListener('focus', refresh);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+  let tappedAt = 0;
+  document.addEventListener('pointerdown', () => { if (locked && Date.now() - tappedAt > 2000) { tappedAt = Date.now(); refresh(); } }, true);
+  // Hidden (another app in front, the screen off), a file stops as the synthesizer's records do, but for good: it has no
+  // notification to stop it from and holds no audio focus (calls, other music, directions would sound over it). The record
+  // stops with it; a tap plays it again.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) { refresh(); return; }
+    if (!mineOn() || !(L.playing || player.want)) return;
+    player.stop();
+    if (L.playing && !L.busy) L.pause();
+  });
 
   /* ── the fourth sleeve and label ── */
   const SVGNS = 'http://www.w3.org/2000/svg';
@@ -215,7 +262,7 @@
     sleeveEl.setAttribute('aria-pressed', String(L.albumIdx === 3));
     sleeveEl.innerHTML = '<span class="art a3"><span class="t">내 음악</span></span><span>내 음악</span>';
     sleeveEl.addEventListener('click', () => { if (MINE.tracks.length) L.changeAlbum(3); else openSheet(3); });
-    box.appendChild(sleeveEl);
+    box.appendChild(sleeveEl); box.classList.add('gy-four');
   }
   function label() {
     const svg = document.querySelector('#record svg.label'); if (!svg || !host) return;
@@ -320,7 +367,7 @@
       aboutEl.textContent = MINE.tracks.length ? MINE.tracks.length + '곡 · ' + fmt(MINE.total) : '휴대폰의 음악';
       for (const [kind, words] of [['files', '+ 파일 추가'], ['folder', '+ 폴더']]) {
         const b = document.createElement('button'); b.type = 'button'; b.className = 'gy-add'; b.dataset.kind = kind;
-        b.textContent = waiting && waiting.kind === kind ? '고르는 중…' : words; b.disabled = !!waiting;
+        b.textContent = waiting && waiting.kind === kind ? '고르는 중…' : words;
         headEl.appendChild(b);
       }
     } else aboutEl.textContent = A.artist + ' · ' + A.tracks.length + '곡 · ' + fmt(A.total);
@@ -354,7 +401,7 @@
     listEl.querySelectorAll('.gy-row').forEach(b => b.setAttribute('aria-current', String(view === L.albumIdx && +b.dataset.k === L.trackIdx)));
   }
   chipsEl.addEventListener('click', e => { const c = e.target.closest('.gy-chip'); if (!c) return; view = +c.dataset.v; shown = 40; note(''); drawSheet(true); });
-  headEl.addEventListener('click', e => { const b = e.target.closest('.gy-add'); if (b && !b.disabled) addMusic(b.dataset.kind); });
+  headEl.addEventListener('click', e => { const b = e.target.closest('.gy-add'); if (b) addMusic(b.dataset.kind); });
   let sureT = 0;
   listEl.addEventListener('click', e => {
     const more = e.target.closest('.gy-more'); if (more) { shown += 40; drawSheet(false); return; }
@@ -424,8 +471,11 @@
       fetch(q('/__gyeot/deck/stats?' + p.toString()), { cache: 'no-store' }).catch(() => {});
     },
     stats: null,
-    /** For checks: the audio element that plays 내 음악. */
-    audio: player.au
+    /** Whether the home screen says the page is in sight (null: nobody says). */
+    get shown() { return inSight; },
+    /** For checks: the audio element that plays 내 음악, and how many frames the piece has run. */
+    audio: player.au,
+    get frames() { return frameCount; }
   };
   trackFns.add(() => { drawBar(); label(); marks(); });
 
@@ -433,8 +483,10 @@
   drawBar();
   if (KEY) {
     fetch(q('/__gyeot/music/list.json'), { cache: 'no-store' }).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(j => {
-      host = true; applyList(j); if (!ALBUMS.includes(MINE)) ALBUMS.push(MINE); sleeve(); label();
+      host = true;
       for (const k in toReport) window.__gy.report(toReport[k]);
+      if (j && j.locked) { lockedNow(); return; } // opened while locked: the list once it is unlocked
+      applyList(j); if (!ALBUMS.includes(MINE)) ALBUMS.push(MINE); sleeve(); label();
     }, () => { /* opened outside the app: the three records only */ });
   }
   dispatchEvent(new Event('gy:ready'));

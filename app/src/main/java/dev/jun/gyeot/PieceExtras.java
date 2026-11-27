@@ -25,31 +25,36 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 /**
- * The LP piece's add-on, answered by the app under the piece's own address (https://miaai-lab.github.io/__gyeot/…), so the
- * page reads it as its own (no cross-origin rules; Web Audio reads the music's real samples, so the VU meters show the real
- * loudness). Nothing here goes to the network: the add-on's files are the app's assets, 내 음악 is PieceMusicStore. Every
- * other request of a piece goes on to HtmlWallpaper.tuned (the fixed pieces).
+ * The LP piece's add-on and 내 음악. The app serves the LP piece from an address of its own, https://lp.gyeot.local/<the piece's
+ * path> (frameUrl: the launcher's and the wallpaper's frames, the wallpaper alone, the preview), fetched from the creator's
+ * site and tuned (HtmlWallpaper.piece), so that page is the only code on that origin: another piece on a page (code someone
+ * else may change, on miaai-lab.github.io) cannot read it, its key or its answers, and the browser keeps them apart. The page
+ * reads the add-on as its own (no cross-origin rules; Web Audio reads the music's real samples, so the VU meters show the
+ * real loudness). Nothing here goes to the network but the piece itself: the add-on's files are the app's assets, 내 음악 is
+ * PieceMusicStore. Every request of a piece on the creator's site goes on to HtmlWallpaper.tuned (the fixed pieces).
  *
  *   /__gyeot/lib/three.module.js            three.js 0.170.0 (assets/piece, MIT)
  *   /__gyeot/addon/vinyl.css|vinyl.js|deck3d.js   the add-on (assets/piece)
  *   /__gyeot/addon/walnut-col|nor|rgh.jpg  the 3D deck's walnut (a Poly Haven scan, CC0, graded to walnut)
- *   /__gyeot/music/list.json?k=             the list: titles and lengths, never a file's address
+ *   /__gyeot/music/list.json?k=             the list: titles and lengths, never a file's address ({locked} while locked)
  *   /__gyeot/music/pick?k=&kind=files|folder  Android's picker (MusicPickActivity), answered at once {pending, rev, via}
  *   /__gyeot/music/<id>?k=                  the file's bytes, with Range (seeking)
  *   /__gyeot/music/<id>/art?k=              the picture found in it
  *   DELETE /__gyeot/music/<id>?k=           off the list (also GET …/<id>/remove)
  *   /__gyeot/deck/stats?k=&avg=…            the 3D deck's frame times, noted once a run in the diagnostic report
  *
- * The music answers only with this run's key, which the app puts in the tuned page (and only for a request from the LP page,
- * when the request says where it comes from); its list and picker not while the phone is locked. Called on the web view's
- * request thread, never the main one.
+ * The music answers only at the app's own address, with this run's key, which is only in the page served there. On the
+ * creator's site the add-on's files still come (the piece's bar and list), never the music and never a key. A Referer, when
+ * the request has one, must be the LP page too (a small extra; the origin is what keeps the rest out). The list and the
+ * picker give nothing while the phone is locked. Called on the web view's request thread, never the main one.
  */
 final class PieceExtras {
     private PieceExtras() {}
     static final String PREFIX = "/__gyeot/", PLACE = "__GY_KEY__";
+    /** The app's own address for the LP piece (only that page's code runs there). */
+    static final String LP_HOST = "lp.gyeot.local";
+    static final String LP = "/Claude-Opus-5.5-100-HTML-Files/057-vinyl-listening-room.html";
     private static final String KEY = newKey();
-    /** The pages allowed to use 내 음악 (a Referer from anywhere else is refused). */
-    private static final String LP = "/Claude-Opus-5.5-100-HTML-Files/057-vinyl-listening-room.html";
     private static volatile boolean statsNoted, cssNoted;
 
     private static String newKey() {
@@ -58,32 +63,69 @@ final class PieceExtras {
         return s.toString();
     }
     static String key() { return KEY; }
-    /** A tuned page with this run's key in its place. */
+    /** A tuned page with this run's key in its place (served only at LP_HOST). */
     static String keyed(String page) { return page.replace(PLACE, KEY); }
+    /** A tuned page with no key (on the creator's site: the add-on without 내 음악). */
+    static String keyless(String page) { return page.replace(PLACE, ""); }
+    /** Where a page's frame loads a piece: the LP piece from the app's own address, any other address as it is. */
+    static String frameUrl(String src) {
+        if (src == null) return null;
+        String at = "https://" + HtmlShowcase.HOST + LP;
+        if (!src.regionMatches(true, 0, at, 0, at.length())) return src;
+        String rest = src.substring(at.length());
+        return rest.isEmpty() || rest.startsWith("?") || rest.startsWith("#") ? "https://" + LP_HOST + LP + rest : src;
+    }
 
-    /** A piece's request: the add-on's own address answered here, everything else as HtmlWallpaper.tuned does. */
+    /** A page's slot for the launcher or the board, with where its frame loads it ("frame"). */
+    static org.json.JSONObject framed(org.json.JSONObject slot, String src) { Jsons.put(slot, "frame", frameUrl(src)); return slot; }
+
+    /** A piece's request: the app's own address for the LP piece answered here, the creator's site as HtmlWallpaper.tuned does. */
     static WebResourceResponse handle(Context c, WebResourceRequest r, Consumer<Intent> opener) {
         Uri u = r.getUrl();
         String host = u.getHost() == null ? "" : u.getHost().toLowerCase(Locale.ROOT), path = u.getPath() == null ? "" : u.getPath();
-        if (!HtmlShowcase.HOST.equals(host) || !path.startsWith(PREFIX)) return HtmlWallpaper.tuned(c, r);
-        try { return serve(c, r, u, path.substring(PREFIX.length()), opener); }
-        catch (Exception failed) { DiagnosticsExport.record(c, "storage", failed); return status(500, "Server Error"); }
+        try {
+            if (LP_HOST.equals(host)) {
+                if (path.startsWith(PREFIX)) return serve(c, r, u, path.substring(PREFIX.length()), opener);
+                if (path.equals(LP) && "GET".equalsIgnoreCase(r.getMethod() == null ? "GET" : r.getMethod())) return page(c);
+                return status(404, "Not Found");
+            }
+            if (HtmlShowcase.HOST.equals(host) && path.startsWith(PREFIX)) {
+                WebResourceResponse file = addon(c, path.substring(PREFIX.length()));
+                return file != null ? file : status(404, "Not Found");
+            }
+        } catch (Exception failed) { DiagnosticsExport.record(c, "storage", failed); return status(500, "Server Error"); }
+        return HtmlWallpaper.tuned(c, r);
     }
-
-    private static WebResourceResponse serve(Context c, WebResourceRequest r, Uri u, String path, Consumer<Intent> opener) throws Exception {
-        String method = r.getMethod() == null ? "GET" : r.getMethod().toUpperCase(Locale.ROOT);
+    /** The LP page at the app's own address: tuned with this run's key; as it came when a fix no longer matches; offline, a wait. */
+    private static WebResourceResponse page(Context c) {
+        HtmlWallpaper.Piece p = HtmlWallpaper.piece(c, LP);
+        String body = p == null ? OFFLINE : p.tuned() != null ? keyed(p.tuned()) : p.raw();
+        return new WebResourceResponse("text/html", "utf-8", 200, "OK", Map.of("Cache-Control", "no-store"), new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)));
+    }
+    private static final String OFFLINE = "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><body style='margin:0;height:100vh;display:grid;"
+        + "place-items:center;background:#1f3b2d;color:#efe6d8;font:15px/1.5 serif'>인터넷이 연결되면 LP 페이지를 불러와요"
+        + "<script>addEventListener('online',()=>location.reload());setTimeout(()=>location.reload(),30000)</script></body>";
+    /** The add-on's own files (none of the user's): three.js, the add-on, the walnut. */
+    private static WebResourceResponse addon(Context c, String path) {
         if (path.equals("lib/three.module.js")) return asset(c, "piece/three-0.170.0.module.min.js", "text/javascript");
         if (path.matches("addon/(vinyl\\.css|vinyl\\.js|deck3d\\.js)")) {
             String name = path.substring(6);
             return asset(c, "piece/" + name, name.endsWith(".css") ? "text/css" : "text/javascript");
         }
         if (path.matches("addon/walnut-(col|nor|rgh)\\.jpg")) return asset(c, "piece/" + path.substring(6), "image/jpeg");
+        return null;
+    }
+
+    private static WebResourceResponse serve(Context c, WebResourceRequest r, Uri u, String path, Consumer<Intent> opener) throws Exception {
+        String method = r.getMethod() == null ? "GET" : r.getMethod().toUpperCase(Locale.ROOT);
+        WebResourceResponse file = addon(c, path);
+        if (file != null) return file;
         if (!path.startsWith("music/") && !path.startsWith("deck/")) return status(404, "Not Found");
         if (!allowed(r, u)) return status(403, "Forbidden");
         PieceMusicStore store = PieceMusicStore.of(c);
-        // Locked, a wallpaper shows nothing of the user's (HtmlWallpaper): no list of their music and no picker; a file already
-        // playing goes on (its bytes are asked by id).
-        if ((path.equals("music/list.json") || path.equals("music/pick")) && locked(c)) return status(403, "Locked");
+        // Locked, a wallpaper shows nothing of the user's (HtmlWallpaper): no list of their music and no picker, but an answer
+        // that says so (the page asks again once it is shown unlocked); a file already playing goes on (its bytes are asked by id).
+        if ((path.equals("music/list.json") || path.equals("music/pick")) && locked(c)) return json(Jsons.obj("locked", true, "rev", -1, "items", new org.json.JSONArray(), "pick", "").toString());
         switch (path) {
             case "music/list.json": return json(PieceMusic.page(store.shelf(), store.pick()).toString());
             case "music/pick": {
@@ -113,14 +155,14 @@ final class PieceExtras {
         android.app.KeyguardManager k = c.getSystemService(android.app.KeyguardManager.class);
         return k != null && k.isKeyguardLocked();
     }
-    /** The key, and when the request says where it comes from, the LP page itself. */
+    /** The key, and when the request says where it comes from, the LP page itself (the origin is what keeps other pages out). */
     private static boolean allowed(WebResourceRequest r, Uri u) {
         String k = u.getQueryParameter("k");
         if (k == null || !MessageDigest.isEqual(k.getBytes(StandardCharsets.UTF_8), KEY.getBytes(StandardCharsets.UTF_8))) return false;
         String from = header(r, "Referer");
         if (from == null || from.isEmpty()) return true;
         Uri f = Uri.parse(from);
-        return HtmlShowcase.HOST.equalsIgnoreCase(f.getHost() == null ? "" : f.getHost()) && LP.equals(f.getPath());
+        return LP_HOST.equalsIgnoreCase(f.getHost() == null ? "" : f.getHost()) && LP.equals(f.getPath());
     }
     static String header(WebResourceRequest r, String name) {
         Map<String, String> h = r.getRequestHeaders();

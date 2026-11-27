@@ -8,6 +8,8 @@
     - "내 폴더에 있는 음악들도 재생가능하게 해줘", "파일 선택해서 리스트 추가 할 수 있게": + 파일 추가 asks the app's picker, the
       files then on the list play on the turntable (the audio element, not the synthesizer), the arm and the clock follow, the
       next file comes at the end, the VU meters read them at the records' level.
+  The app serves the LP piece from its own address (https://lp.gyeot.local/<the piece's path>, PieceExtras.frameUrl), where no
+  other piece's code runs; on the creator's site it comes with the add-on but no key (no 내 음악).
   The piece is read from its site once into tests/browser/.cache (outside git: a piece is never copied into the app or the
   repository). Without a connection the checks are SKIPPED, said so plainly, and the run does not count as passed.
   The web view asks a tap before sound (setMediaPlaybackRequiresUserGesture): Chromium runs with the same rule.
@@ -23,7 +25,7 @@ const fs = require('fs'), path = require('path'), assert = require('assert');
 const ROOT = path.join(__dirname, '../..');
 const ASSETS = path.join(ROOT, 'app/src/main/assets/piece');
 const FIXES = JSON.parse(fs.readFileSync(path.join(ROOT, 'app/src/main/resources/dev/jun/gyeot/core/piece-057.json'), 'utf8'));
-const HOST = 'https://miaai-lab.github.io', PIECE = HOST + FIXES.path, KEY = 'testkey0123456789abcdef';
+const HOST = 'https://miaai-lab.github.io', LPH = 'https://lp.gyeot.local', SITE_PIECE = HOST + FIXES.path, PIECE = LPH + FIXES.path, KEY = 'testkey0123456789abcdef';
 const CACHE = path.join(__dirname, '.cache'), COPY = path.join(CACHE, '057-vinyl-listening-room.html');
 const SHOTS = process.env.VINYL_SHOTS || '';
 let failed = 0, passed = 0;
@@ -34,7 +36,7 @@ async function check(name, fn) {
 async function live() {
   try {
     const ctx = await request.newContext(process.env.HTTPS_PROXY ? { proxy: { server: process.env.HTTPS_PROXY } } : {});
-    const r = await ctx.get(PIECE, { timeout: 20000 });
+    const r = await ctx.get(SITE_PIECE, { timeout: 20000 });
     if (!r.ok()) throw new Error('HTTP ' + r.status());
     const body = await r.text(); await ctx.dispose();
     fs.mkdirSync(CACHE, { recursive: true }); fs.writeFileSync(COPY, body);
@@ -73,8 +75,9 @@ function wav(seconds, kind, seed) {
   return b;
 }
 const FILES = { 'a1b2c3d4e5f6': wav(6, 'pink', 7), '0f1e2d3c4b5a': wav(5, 'tone', 9), '99aa88bb77cc': wav(4, 'pink', 11) };
+// (A1's length as the phone first said it is wrong: the page corrects it when its element reads the file)
 const ITEMS = [
-  { id: 'a1b2c3d4e5f6', title: '분홍 소리 시험', artist: '들퍼레 시험', dur: 6, mime: 'audio/wav', size: FILES['a1b2c3d4e5f6'].length, seek: true, art: false },
+  { id: 'a1b2c3d4e5f6', title: '분홍 소리 시험', artist: '들퍼레 시험', dur: 9, mime: 'audio/wav', size: FILES['a1b2c3d4e5f6'].length, seek: true, art: false },
   { id: '0f1e2d3c4b5a', title: 'A Quiet Tone', artist: '', dur: 5, mime: 'audio/wav', size: FILES['0f1e2d3c4b5a'].length, seek: true, art: false }];
 
 /** The launcher's page around the piece's frame: the system bar 24 px, the page dots at bottom+10 (as launcher.html). */
@@ -83,9 +86,16 @@ const FRAME = '<!doctype html><html><head><meta name="viewport" content="width=d
   + '.pager{position:fixed;left:0;right:0;bottom:34px;display:flex;justify-content:center;gap:7px;z-index:5;pointer-events:none}.pager i{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.28)}.pager i.on{background:#f5f5f7}</style></head>'
   + '<body><iframe sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-forms" allow="autoplay" src="' + PIECE + '"></iframe><div class="edge l"></div><div class="edge r"></div>'
   + '<div class="pager"><i></i><i></i><i class="on"></i></div><script>const f=document.querySelector("iframe");f.addEventListener("load",()=>f.contentWindow.postMessage({gyeot:"insets",top:24,bottom:24},new URL(f.src).origin));</script></body></html>';
+/** Two pages side by side as the launcher's (a sideways scroller, launcher.html #pages): another page shown, the LP page next to it, out of sight. */
+const PAGES = '<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;height:100%;background:#000;overflow:hidden}'
+  + '#pages{position:absolute;inset:0;display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;overscroll-behavior:none;scrollbar-width:none}'
+  + '.page{flex:0 0 100%;height:100%;scroll-snap-align:start;position:relative;overflow:hidden}iframe{position:absolute;inset:0;width:100%;height:100%;border:0}#home{background:#223}</style></head>'
+  + '<body><div id="pages"><section class="page" id="home"></section><section class="page"><iframe sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-forms" allow="autoplay" src="' + PIECE + '"></iframe></section></div>'
+  + '<script>window.toPage=i=>{const p=document.getElementById("pages");p.scrollTo({left:i*p.clientWidth,behavior:"instant"})};'
+  + 'window.tellShown=on=>{const f=document.querySelector("iframe");f.contentWindow.postMessage({gyeot:"shown",on},new URL(f.src).origin)};</script></body></html>';
 
-async function open(browser, page_html, shelf, calls, deck) {
-  const ctx = await browser.newContext({ viewport: { width: 412, height: 900 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+async function open(browser, page_html, shelf, calls, deck, o = {}) {
+  const ctx = await browser.newContext({ viewport: { width: 412, height: 900 }, deviceScaleFactor: o.dsf || 2, hasTouch: true, isMobile: true });
   await ctx.addInitScript(o => { window.__GY_DECK = o; }, deck || {});
   const page = await ctx.newPage();
   const errors = [];
@@ -94,7 +104,8 @@ async function open(browser, page_html, shelf, calls, deck) {
   await page.route('**/*', async route => {
     const r = route.request(), u = new URL(r.url());
     if (u.host === 'gyeot.local' && u.pathname === '/frame.html') return route.fulfill({ body: FRAME, contentType: 'text/html' });
-    if (u.origin !== HOST) return route.fulfill({ status: 404, body: '' });
+    if (u.host === 'gyeot.local' && u.pathname === '/pages.html') return route.fulfill({ body: PAGES, contentType: 'text/html' });
+    if (u.origin !== LPH) return route.fulfill({ status: 404, body: '' });
     if (u.pathname === FIXES.path) return route.fulfill({ body: page_html, contentType: 'text/html; charset=utf-8' });
     const p = u.pathname;
     if (p === '/__gyeot/lib/three.module.js') return route.fulfill({ body: fs.readFileSync(path.join(ASSETS, 'three-0.170.0.module.min.js')), contentType: 'text/javascript' });
@@ -104,9 +115,12 @@ async function open(browser, page_html, shelf, calls, deck) {
     if (u.searchParams.get('k') !== KEY) return route.fulfill({ status: 403, body: '' });
     const json = o => route.fulfill({ body: JSON.stringify(o), contentType: 'application/json', headers: { 'Cache-Control': 'no-store' } });
     const list = () => ({ rev: shelf.rev, items: shelf.items, pick: shelf.pick });
-    if (p === '/__gyeot/music/list.json') { calls.list++; return json(list()); }
+    const locked = { locked: true, rev: -1, items: [], pick: '' };
+    if (p === '/__gyeot/music/list.json') { calls.list++; return json(shelf.locked ? locked : list()); }
     if (p === '/__gyeot/music/pick') {
+      if (shelf.locked) return json(locked);
       calls.pick.push(u.searchParams.get('kind')); shelf.pick = 'open';
+      if (shelf.pickNever) return json({ pending: true, rev: shelf.rev, via: 'app' }); // (the picker gone without an answer)
       // The user picks two files in Android's picker a moment later (MusicPickActivity → PieceMusicStore).
       setTimeout(() => { shelf.items = ITEMS.slice(); shelf.rev++; shelf.pick = 'done'; }, 700);
       return json({ pending: true, rev: shelf.rev, via: 'app' });
@@ -125,11 +139,12 @@ async function open(browser, page_html, shelf, calls, deck) {
     return route.fulfill({ status: 206, body: bytes.subarray(first, last + 1), headers: { 'Content-Type': 'audio/wav', 'Accept-Ranges': 'bytes',
       'Content-Range': 'bytes ' + first + '-' + last + '/' + bytes.length, 'Content-Length': String(last - first + 1) } });
   });
-  await page.goto('https://gyeot.local/frame.html');
+  await page.goto('https://gyeot.local/' + (o.pages ? 'pages.html' : 'frame.html'));
   const frame = page.frames().find(f => f.url().startsWith(PIECE)) || await new Promise(res => page.on('frameattached', f => res(f)));
   await frame.waitForLoadState('load');
   return { page, ctx, frame, errors };
 }
+const T = { test: true };
 const until = async (frame, fn, arg, ms = 12000, what = '') => {
   try { await frame.waitForFunction(fn, arg, { timeout: ms, polling: 100 }); }
   catch (e) { throw new Error('waited ' + ms + ' ms for ' + (what || fn.toString().slice(0, 140)) + ': ' + JSON.stringify(await frame.evaluate(() => window.__lp && { a: __lp.albumIdx, t: __lp.trackIdx, playing: __lp.playing, busy: __lp.busy, pos: __lp.songPos }).catch(() => null))); }
@@ -159,6 +174,11 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
     await check('the add-on is on the page: its bar, and 내 음악\'s sleeve once the app has answered', async () => {
       await until(frame, () => !!document.getElementById('gyBar') && document.querySelector('.sleeve[data-album="3"]'), null, 10000, 'the add-on and 내 음악\'s sleeve');
       await frame.waitForTimeout(400);
+      // four records in the crate, four columns, every sleeve's picture at the same height (a one-line name too)
+      const c = await frame.evaluate(() => ({ cols: getComputedStyle(document.querySelector('.sleeves')).gridTemplateColumns.split(' ').length,
+        tops: [...document.querySelectorAll('.sleeve .art')].map(a => Math.round(a.getBoundingClientRect().top)) }));
+      assert.strictEqual(c.cols, 4);
+      assert.strictEqual(new Set(c.tops).size, 1, 'the sleeves\' pictures in a line: ' + c.tops);
     });
 
     await check('the page opens without a script error', async () => assert.deepStrictEqual(errors, []));
@@ -206,7 +226,7 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       await until(frame, () => document.querySelectorAll('.gy-row').length === 2, null, 8000, 'two files on the list');
       assert.deepStrictEqual(calls.pick, ['files']);
       const rows = await frame.evaluate(() => [...document.querySelectorAll('.gy-row')].map(b => b.querySelector('.gy-num').textContent + ' ' + b.querySelector('b').textContent + ' ' + b.querySelector('.gy-dur').textContent));
-      assert.deepStrictEqual(rows, ['A1 분홍 소리 시험 0:06', 'A2 A Quiet Tone 0:05']);
+      assert.deepStrictEqual(rows, ['A1 분홍 소리 시험 0:09', 'A2 A Quiet Tone 0:05'], 'the lengths the phone said');
       assert.match(await frame.locator('.gy-note').textContent(), /2곡을 담았어요/);
       assert.deepStrictEqual(await frame.evaluate(() => [...document.querySelectorAll('.gy-add')].map(b => b.textContent + (b.disabled ? ' (off)' : ''))), ['+ 파일 추가', '+ 폴더'], 'ready to add more');
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'preview_list_mine.png') });
@@ -218,6 +238,11 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
         for (let i = 0; i < 30; i++) { an.getFloatTimeDomainData(b); let s = 0; for (const x of b) s += x * x; e += s / b.length; n++; await new Promise(r => setTimeout(r, 50)); } an.disconnect(); return 10 * Math.log10(e / n); });
       await frame.locator('.gy-row', { hasText: '분홍 소리 시험' }).tap();
       await until(frame, () => __lp.albumIdx === 3 && __lp.playing && !__lp.busy && !__gy.audio.paused && __gy.audio.currentTime > 0.3, null, 15000, '내 음악 A1 playing');
+      // its real length from the file: the piece's list line and the clock corrected in place (the list not built again)
+      await frame.evaluate(() => { window._line = document.querySelector('#tracks button'); });
+      await until(frame, () => Math.abs(__lp.ALBUMS[3].tracks[0].dur - 6) < 0.1, null, 5000, 'A1\'s real length');
+      const fixed = await frame.evaluate(() => ({ same: document.querySelector('#tracks button') === window._line, dur: document.querySelector('#tracks button .dur').textContent, total: document.getElementById('tDur').textContent }));
+      assert.deepStrictEqual(fixed, { same: true, dur: '0:06', total: '0:06' });
       const a0 = await armAngle(frame), t0 = await frame.locator('#tEl').textContent();
       const st = await frame.evaluate(() => ({ src: __gy.audio.src, session: __lp.session, label: getComputedStyle(document.getElementById('lab3')).display, title: document.getElementById('lab3t').textContent,
         cover: document.getElementById('cover').className, sleeve: document.querySelector('.sleeve[data-album="3"]').getAttribute('aria-pressed') }));
@@ -254,6 +279,16 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       await until(frame, () => __lp.trackIdx === 1 && __lp.playing && !__lp.busy && !__gy.audio.paused, null, 10000, '⏭ to A2');
       assert(calls.media.length >= 3, 'the files were read from /__gyeot/music: ' + calls.media.join(','));
     });
+    await check('the VU needles hold when frames come far apart (a busy phone): near 0 VU, never off the scale', async () => {
+      // each frame made 95 ms long (the piece takes at most 0.1 s a frame): one step a frame would swing the needles off
+      await frame.evaluate(() => { window._slow = __gy.onFrame(() => { const t = performance.now(); while (performance.now() - t < 95); }); });
+      try {
+        await frame.waitForTimeout(500);
+        const n = []; for (let i = 0; i < 12; i++) { n.push(await needle(frame)); await frame.waitForTimeout(120); }
+        console.log('     needle with 95 ms frames: ' + n.map(x => x.toFixed(0)).join(' ') + '°');
+        assert(n.every(x => x > 8 && x < 34), 'between 8° and 34° (0 VU is 20.8°): ' + n.map(x => x.toFixed(1)).join(' '));
+      } finally { await frame.evaluate(() => window._slow && window._slow()); }
+    });
     await check('the bar\'s ⏯ pauses and plays, and a file taken off the list (two taps on ×) leaves it', async () => {
       await frame.evaluate(() => scrollTo(0, 0));
       await frame.locator('#gyBar .gy-play').tap();
@@ -281,20 +316,22 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
     });
     await check('no script error all along', async () => assert.deepStrictEqual(errors, []));
   } finally { await ctx.close(); }
-  // Alone (a wallpaper of one page, the full-screen preview) and where the app does not answer 내 음악 (a browser).
+  // Alone on the creator's own site (as the app serves it there: the add-on, never a key), where nothing answers 내 음악.
   const alone = await browser.newContext({ viewport: { width: 412, height: 900 }, hasTouch: true, isMobile: true });
   try {
-    const page = await alone.newPage(), errs = [];
+    const page = await alone.newPage(), errs = [], asked = [];
     page.on('pageerror', e => errs.push(e.message));
+    const keyless = tune(original, fixes).split('__GY_KEY__').join('');
     await page.route('**/*', route => {
       const u = new URL(route.request().url());
-      if (u.origin === HOST && u.pathname === FIXES.path) return route.fulfill({ body: html, contentType: 'text/html; charset=utf-8' });
+      if (u.pathname.startsWith('/__gyeot/music') || u.pathname.startsWith('/__gyeot/deck')) asked.push(u.pathname);
+      if (u.origin === HOST && u.pathname === FIXES.path) return route.fulfill({ body: keyless, contentType: 'text/html; charset=utf-8' });
       const m = u.pathname.match(/^\/__gyeot\/addon\/(vinyl\.css|vinyl\.js|deck3d\.js)$/);
       if (u.origin === HOST && m) return route.fulfill({ body: fs.readFileSync(path.join(ASSETS, m[1])), contentType: m[1].endsWith('.css') ? 'text/css' : 'text/javascript' });
       return route.fulfill({ status: 404, body: '' });
     });
-    await page.goto(PIECE);
-    await check('alone, without the app\'s answers: the bar above the phone\'s dock, the three records\' lists, no 내 음악, no error', async () => {
+    await page.goto(SITE_PIECE);
+    await check('on the creator\'s site, no key: the bar above the phone\'s dock, the three records\' lists, no 내 음악 (not even asked), no error', async () => {
       await page.waitForSelector('#gyBar');
       await page.waitForTimeout(600);
       const b = await page.evaluate(() => { const r = document.getElementById('gyBar').getBoundingClientRect(); return { bottom: r.bottom, vh: innerHeight }; });
@@ -302,15 +339,49 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       await page.locator('#gyBar .gy-list').tap();
       assert.deepStrictEqual(await page.evaluate(() => [...document.querySelectorAll('.gy-chip')].map(c => c.textContent)), ['Moss & Lantern', 'Tidewater', 'Brass Const.']);
       assert.strictEqual(await page.evaluate(() => document.querySelectorAll('.sleeve').length), 3);
+      assert.strictEqual(await page.evaluate(() => getComputedStyle(document.querySelector('.sleeves')).gridTemplateColumns.split(' ').length), 3, 'the crate\'s own three columns');
+      assert.strictEqual(await page.evaluate(() => getComputedStyle(document.documentElement).fontSynthesisStyle), 'none', 'Korean never slanted by the browser');
+      assert.deepStrictEqual(asked, [], 'nothing of 내 음악 asked without a key');
       assert.deepStrictEqual(errs, []);
     });
-  } finally { await alone.close(); await browser.close(); }
+  } finally { await alone.close(); }
+  // Locked (a wallpaper on the lock screen): the app says so; the page asks again once it is shown unlocked. And a picker that
+  // went away without an answer: its button opens it again.
+  {
+    const shelfL = { rev: 3, items: ITEMS.slice(), pick: '', locked: true }, callsL = { list: 0, pick: [], media: [], del: [] };
+    const o = await open(browser, html, shelfL, callsL, { off: true });
+    try {
+      await check('opened while locked: no 내 음악 yet; shown unlocked, its list comes', async () => {
+        await until(o.frame, () => !!document.getElementById('gyBar'), null, 10000, 'the add-on');
+        await o.frame.waitForTimeout(800);
+        assert.strictEqual(await o.frame.evaluate(() => document.querySelectorAll('.sleeve').length), 3, 'nothing of the user\'s while locked');
+        const asked = callsL.list;
+        shelfL.locked = false;
+        await o.frame.evaluate(() => dispatchEvent(new Event('focus')));
+        await until(o.frame, () => document.querySelectorAll('.sleeve').length === 4 && __lp.ALBUMS[3] && __lp.ALBUMS[3].tracks.length === 2, null, 6000, '내 음악 once unlocked');
+        assert(callsL.list > asked, 'asked again');
+      });
+      await check('the picker gone without an answer: + 파일 추가 opens it again', async () => {
+        shelfL.pickNever = true;
+        await o.frame.locator('#gyBar .gy-list').tap();
+        await o.frame.locator('.gy-chip', { hasText: '내 음악' }).tap();
+        await o.frame.locator('.gy-add', { hasText: '+ 파일 추가' }).tap();
+        await until(o.frame, () => [...document.querySelectorAll('.gy-add')].some(b => b.textContent === '고르는 중…' && !b.disabled), null, 3000, 'waiting, still pressable');
+        await o.frame.locator('.gy-add', { hasText: '고르는 중…' }).tap();
+        await until(o.frame, () => true, null, 500);
+        await o.frame.waitForTimeout(400);
+        assert.deepStrictEqual(callsL.pick, ['files', 'files'], 'asked twice');
+        assert.deepStrictEqual(o.errors, []);
+      });
+    } finally { await o.ctx.close(); }
+  }
+  await browser.close();
   // The three.js deck, on its own page: drawn at one device pixel per CSS pixel and never stepping down to the CSS deck
   // here (software WebGL), as the phone draws it otherwise.
   const b3 = await chromium.launch({ args: ['--autoplay-policy=user-gesture-required'] });
   try {
     const shelf3 = { rev: 1, items: [], pick: '' }, calls3 = { list: 0, pick: [], media: [], del: [] };
-    const { ctx, frame, errors } = await open(b3, html, shelf3, calls3, { adapt: false, pr: 1 });
+    const { ctx, frame, errors } = await open(b3, html, shelf3, calls3, { test: true, adapt: false, pr: 1 });
     await until(frame, () => !!document.getElementById('gyBar'), null, 20000, 'the add-on');
     await check('the three.js deck draws in place of the CSS deck: walnut, the record, the arm; the CSS deck\'s parts hidden, its buttons still there', async () => {
       await until(frame, () => window.__gyDeck && (__gyDeck.ready || __gyDeck.css), null, 60000, 'the 3D deck');
@@ -388,7 +459,132 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       assert.strictEqual(away.home, false);
     });
     await check('3D: no script error', async () => assert.deepStrictEqual(errors, []));
+    await check('3D given up (as when too slow): the CSS deck back, the context let go, the app told why once', async () => {
+      await frame.evaluate(() => __gyDeck.off('test'));
+      const d = await frame.evaluate(() => { const deck = document.getElementById('deck');
+        return { css: __gyDeck.css, lost: __gyDeck.lost(), canvas: !!deck.querySelector('canvas.gy-deck'), cls: deck.classList.contains('gy3d'), plinth: getComputedStyle(deck.querySelector('svg.plinth')).visibility,
+          handles: ['probe', 'bench', '_'].filter(k => k in __gyDeck) }; });
+      assert.deepStrictEqual(d, { css: 'test', lost: true, canvas: false, cls: false, plinth: 'visible', handles: [] });
+      await frame.waitForTimeout(400);
+      assert.deepStrictEqual((calls3.stats || []).filter(q => q.css).map(q => q.css), ['test']);
+      const n = await frame.evaluate(() => __gyDeck.draws); await frame.waitForTimeout(800);
+      assert.strictEqual(await frame.evaluate(() => __gyDeck.draws), n, 'no more frames');
+      assert.deepStrictEqual(errors, []);
+    });
     await ctx.close();
+
+    // At most 30 frames a second, counted without drawing (software WebGL here draws far fewer, so a slow draw cannot hide a
+    // missing limit), at a phone's 3 device pixels per CSS pixel: drawn at 2. Then the steps down when slow, to the CSS deck.
+    const shelf4 = { rev: 1, items: [], pick: '' }, calls4 = { list: 0, pick: [], media: [], del: [] };
+    const q = await open(b3, html, shelf4, calls4, { test: true, adapt: false, noRender: true }, { dsf: 3 });
+    await until(q.frame, () => !!document.getElementById('gyBar'), null, 20000, 'the add-on');
+    await check('3D at most 30 frames a second while the record turns, at most 2 device pixels per CSS pixel', async () => {
+      await until(q.frame, () => window.__gyDeck && (__gyDeck.ready || __gyDeck.css), null, 90000, 'the 3D deck');
+      const st = await q.frame.evaluate(() => ({ s: __gyDeck.stats(), w: document.getElementById('deck').getBoundingClientRect().width, dpr: devicePixelRatio }));
+      assert.strictEqual(st.dpr, 3);
+      assert.strictEqual(st.s.pr, 2, 'pixel ratio ' + st.s.pr);
+      assert(Math.abs(st.s.w - Math.round(st.w * 2)) <= 1, 'the canvas at 2×: ' + st.s.w + ' for ' + st.w);
+      await q.frame.locator('#recHit').tap();
+      await until(q.frame, () => __lp.playing && __lp.omega > 150, null, 20000, 'playing, the platter up to speed');
+      const a = await q.frame.evaluate(() => ({ n: __gyDeck.draws, f: __gy.frames, t: performance.now() }));
+      await q.frame.waitForTimeout(3000);
+      const b = await q.frame.evaluate(() => ({ n: __gyDeck.draws, f: __gy.frames, t: performance.now() }));
+      const s = (b.t - a.t) / 1000, n = b.n - a.n, f = b.f - a.f;
+      console.log('     in ' + s.toFixed(2) + ' s: ' + f + ' frames of the piece, ' + n + ' drawn');
+      assert(f > s * 40, 'the piece\'s frames come faster than 30 a second here (' + f + '), so the limit is what holds the deck');
+      assert(n <= Math.ceil(s * 30) + 2, 'at most 30 a second: ' + n + ' in ' + s.toFixed(2) + ' s');
+      assert(n >= s * 20, 'and it does draw while turning: ' + n);
+    });
+    await check('3D too slow: fewer pixels (2 → 1.6 → 1.3), then the CSS deck and the context let go', async () => {
+      const seen = [];
+      await q.frame.evaluate(() => { __gyDeck.opt.slow = [0, 0]; __gyDeck.opt.adapt = true; });
+      for (let i = 0; i < 400; i++) {
+        const st = await q.frame.evaluate(() => ({ pr: __gyDeck.stats().pr, css: __gyDeck.css }));
+        if (seen[seen.length - 1] !== st.pr) seen.push(st.pr);
+        if (st.css) break;
+        await q.frame.waitForTimeout(100);
+      }
+      const d = await q.frame.evaluate(() => ({ css: __gyDeck.css, lost: __gyDeck.lost && __gyDeck.lost(), canvas: !!document.querySelector('#deck canvas.gy-deck'), cls: document.getElementById('deck').classList.contains('gy3d') }));
+      assert.deepStrictEqual(seen, [2, 1.6, 1.3], 'the steps: ' + seen);
+      assert.match(String(d.css), /^slow \d+ms$/);
+      assert.deepStrictEqual([d.lost, d.canvas, d.cls], [true, false, false]);
+      await q.frame.waitForTimeout(300);
+      assert.deepStrictEqual((calls4.stats || []).filter(x => x.css).map(x => x.css.replace(/\d+/, 'N')), ['slow Nms'], 'the app told why');
+      assert.deepStrictEqual(q.errors, []);
+    });
+    await q.ctx.close();
+
+    // Out of sight in the launcher (the page next to the one shown): the piece gets no frames, though its page is not hidden.
+    const shelf5 = { rev: 2, items: ITEMS.slice(), pick: '' }, calls5 = { list: 0, pick: [], media: [], del: [] };
+    const w = await open(b3, html, shelf5, calls5, { test: true, adapt: false, pr: 1 }, { pages: true });
+    const lp = w.frame, home = w.page;
+    await check('the page next to the one shown: no frames, and nothing of the 3D deck made (three.js not even read)', async () => {
+      await until(lp, () => !!document.getElementById('gyBar') && document.querySelector('.sleeve[data-album="3"]'), null, 20000, 'the add-on');
+      // (a few frames come as it loads, before the browser sees it is out of sight; then none)
+      await lp.waitForTimeout(1500);
+      const f0 = await lp.evaluate(() => __gy.frames);
+      await lp.waitForTimeout(1500);
+      const d = await lp.evaluate(() => ({ frames: __gy.frames, started: __gyDeck.started, canvas: !!document.querySelector('#deck canvas'), hidden: document.hidden,
+        three: performance.getEntriesByType('resource').some(e => /three\.module/.test(e.name)) }));
+      console.log('     frames as it loaded out of sight: ' + f0);
+      assert.deepStrictEqual(d, { frames: f0, started: false, canvas: false, hidden: false, three: false });
+    });
+    await check('shown, the deck begins; out of sight again, it draws nothing', async () => {
+      await home.evaluate(() => toPage(1));
+      await until(lp, () => window.__gyDeck && (__gyDeck.ready || __gyDeck.css), null, 90000, 'the 3D deck once seen');
+      assert.strictEqual(await lp.evaluate(() => __gyDeck.css), null);
+      await lp.locator('#gyBar .gy-list').tap();
+      await lp.locator('.gy-chip', { hasText: '내 음악' }).tap();
+      await lp.locator('.gy-row', { hasText: '분홍 소리 시험' }).tap();
+      await until(lp, () => __lp.albumIdx === 3 && __lp.playing && !__lp.busy && !__gy.audio.paused && __gy.audio.currentTime > 0.2, null, 20000, 'A1 playing');
+      await home.evaluate(() => toPage(0));
+      await lp.waitForTimeout(400);
+      const a = await lp.evaluate(() => ({ n: __gyDeck.draws, f: __gy.frames }));
+      await lp.waitForTimeout(1500);
+      const b = await lp.evaluate(() => ({ n: __gyDeck.draws, f: __gy.frames }));
+      assert.deepStrictEqual([b.f - a.f, b.n - a.n], [0, 0], 'frames and draws out of sight');
+    });
+    await check('out of sight, a file\'s end starts the next one, and after the last the side ends', async () => {
+      await until(lp, () => __lp.trackIdx === 1 && !__gy.audio.paused && /0f1e2d3c4b5a/.test(__gy.audio.src) && __gy.audio.currentTime > 0.3, null, 12000, 'A2 after A1, out of sight');
+      assert.strictEqual(await lp.evaluate(() => document.querySelector('#gyBar .gy-t').textContent), 'A Quiet Tone');
+      await until(lp, () => !__lp.playing && __lp.runout && __gy.audio.ended, null, 12000, 'the side ended after A2');
+      const f = await lp.evaluate(() => __gy.frames); await lp.waitForTimeout(300);
+      assert.strictEqual(await lp.evaluate(() => __gy.frames), f, 'still no frames');
+    });
+    await check('hidden (another app, the screen off), a file stops with the record; a tap plays it again', async () => {
+      await home.evaluate(() => toPage(1));
+      await until(lp, () => !__lp.busy && !__lp.runout, null, 20000, 'the arm home');
+      await lp.locator('#gyBar .gy-play').tap();
+      await until(lp, () => __lp.playing && !__lp.busy && !__gy.audio.paused, null, 15000, 'playing');
+      await lp.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
+      await lp.waitForTimeout(300);
+      const h = await lp.evaluate(() => ({ paused: __gy.audio.paused, playing: __lp.playing }));
+      await lp.evaluate(() => { delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); });
+      assert.deepStrictEqual(h, { paused: true, playing: false });
+      await until(lp, () => !__lp.busy, null, 5000, 'the arm up');
+      await lp.waitForTimeout(800);
+      assert.strictEqual(await lp.evaluate(() => __gy.audio.paused), true, 'not by itself when shown again');
+      await lp.locator('#gyBar .gy-play').tap();
+      await until(lp, () => __lp.playing && !__gy.audio.paused, null, 15000, 'a tap plays it');
+      assert.deepStrictEqual(w.errors, []);
+    });
+    await check('where the home screen says a page is out of sight (the wallpaper\'s board), the deck draws nothing though frames come', async () => {
+      await home.evaluate(() => toPage(1));
+      await until(lp, () => __gy.frames > 0 && __lp.playing, null, 5000, 'in sight, playing');
+      await home.evaluate(() => tellShown(false));
+      await lp.waitForTimeout(300);
+      const a = await lp.evaluate(() => ({ n: __gyDeck.draws, f: __gy.frames, shown: __gy.shown }));
+      await lp.waitForTimeout(1200);
+      const b = await lp.evaluate(() => ({ n: __gyDeck.draws, f: __gy.frames }));
+      await home.evaluate(() => tellShown(true));
+      await lp.waitForTimeout(600);
+      const c = await lp.evaluate(() => __gyDeck.draws);
+      assert.strictEqual(a.shown, false);
+      assert(b.f - a.f > 20, 'frames still come: ' + (b.f - a.f));
+      assert.strictEqual(b.n - a.n, 0, 'nothing drawn while said out of sight');
+      assert(c > b.n, 'drawn again once in sight: ' + b.n + ' → ' + c);
+    });
+    await w.ctx.close();
   } finally { await b3.close(); }
   // WebGL off: the piece's own CSS deck, as before.
   const plain = await chromium.launch({ args: ['--disable-webgl', '--disable-3d-apis'] });

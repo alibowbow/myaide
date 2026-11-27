@@ -4,21 +4,26 @@ import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
+import android.content.UriPermission;
 import android.net.Uri;
 import android.os.Bundle;
 import android.widget.Toast;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 내 음악's see-through 파일 추가 (the LP page's sheet, through PieceExtras): Android's own file picker for music files (several
  * at once) or a folder, the read permission kept for good for what was picked, and the rest (names, lengths, pictures) read
- * on PieceMusicStore's thread after this window has closed. Closed without picking, nothing changes.
+ * on PieceMusicStore's thread after this window has closed. Closed without picking, nothing changes; closed without an answer
+ * at all (the home button over the picker clears it), the page hears it was cancelled. A permission taken here for what does
+ * not come onto the list (not sound, unreadable, past the list's most, a folder with no music) is given back (PieceMusicStore).
  */
 public final class MusicPickActivity extends Activity {
     static final String KIND = "kind", FILES = "files", FOLDER = "folder";
     private static final int PICK = 1;
-    private boolean asked;
+    private boolean asked, answered;
 
     /** The picker for music files: openable documents of any sound type (ogg files say application/ogg), several at once. */
     static Intent files() {
@@ -43,10 +48,16 @@ public final class MusicPickActivity extends Activity {
         }
     }
     @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putBoolean("asked", asked); }
+    /** Gone without the picker's answer (the home screen came to front over it): the page stops waiting. */
+    @Override protected void onDestroy() {
+        if (!answered && !isChangingConfigurations()) PieceMusicStore.of(this).pick("cancelled");
+        super.onDestroy();
+    }
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (request != PICK) return;
+        answered = true;
         PieceMusicStore store = PieceMusicStore.of(this);
         if (result != RESULT_OK || data == null) { store.pick("cancelled"); finish(); return; }
         List<Uri> files = new ArrayList<>(); Uri tree = null;
@@ -57,18 +68,20 @@ public final class MusicPickActivity extends Activity {
             for (int i = 0; clip != null && i < clip.getItemCount(); i++) if (clip.getItemAt(i).getUri() != null) files.add(clip.getItemAt(i).getUri());
             if (files.isEmpty() && data.getData() != null) files.add(data.getData());
         }
-        // Only the permission here, at once (it may not last once this window is gone); the reading on the store's thread.
-        int flags = Intent.FLAG_GRANT_READ_URI_PERMISSION;
-        if (tree != null) keep(tree, flags);
-        List<Uri> kept = new ArrayList<>();
-        for (Uri u : files) if (keep(u, flags)) kept.add(u);
-        if (kept.isEmpty() && tree == null) { store.pick("cancelled"); finish(); return; }
-        store.addLater(kept, tree);
+        if (files.isEmpty() && tree == null) { store.pick("cancelled"); finish(); return; }
+        // Only the permission here, at once (it may not last once this window is gone); the reading on the store's thread,
+        // which gives back what it took for anything that does not come onto the list.
+        Set<Uri> held = new HashSet<>();
+        try { for (UriPermission p : getContentResolver().getPersistedUriPermissions()) if (p.isReadPermission()) held.add(p.getUri()); } catch (RuntimeException unknown) {}
+        List<Uri> taken = new ArrayList<>();
+        if (tree != null && keep(tree) && !held.contains(tree)) taken.add(tree);
+        for (Uri u : files) if (keep(u) && !held.contains(u)) taken.add(u);
+        store.addLater(files, tree, taken);
         finish();
     }
-    /** The read permission kept across restarts; a provider that gives none still lends it while the app runs. */
-    private boolean keep(Uri uri, int flags) {
-        try { getContentResolver().takePersistableUriPermission(uri, flags); } catch (SecurityException notPersistable) { /* read while it lasts */ }
-        return true;
+    /** The read permission kept across restarts; false when the provider gives none to keep (it still lends it while the app runs). */
+    private boolean keep(Uri uri) {
+        try { getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION); return true; }
+        catch (SecurityException notPersistable) { return false; }
     }
 }

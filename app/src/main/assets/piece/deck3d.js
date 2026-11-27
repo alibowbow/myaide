@@ -14,17 +14,29 @@
       while it spins, as on a real record) are drawn once, at twice the size and averaged down, into two pictures (without the
       record, A; with it, B), again only when the deck changes size or another record's rings come home. A frame is picture B
       and what moves on it: the label and the dust turning, the strobe dots, the arm and its shadow, the cue lever, the lamps
-      (16 draws, 18 thousand triangles). While a record flies out and in, its body is drawn live over A;
-    - one canvas, the deck only; the frame times go once to the app's diagnostic report ("LP 3D 평균 …", __gy.report).
+      and LEDs (18 to 22 draws, 19 thousand triangles). While a record flies out and in, its body is drawn live over A;
+    - one canvas, the deck only; the frame times go once to the app's diagnostic report ("LP 3D 평균 …", __gy.report);
+    - nothing is made before the page is seen: three.js is read, the light baked and the canvas made once the piece's frames
+      have kept coming for 0.7 s with the deck in view, which they do only while the page is on screen (a launcher's page next
+      to the one shown gets a few as it loads, then none; the wallpaper's board, which slides its pages, says which is in
+      sight: __gy.shown). The CSS deck stays until then. A resize or a new record's bake waits for frames too;
+    - when it gives up (the phone too slow, an error), everything it held on the GPU goes (its pictures, bakes, buffers, and
+      the context itself), and the CSS deck is the deck again.
 
   How it is made to look real (engine/story/engine3d/GRAPHICS.md, in its order):
     ① light: a lamp up and to the left (where the piece's lampLight comes from) whose pool fades toward the bottom right and
-       casts soft shadows (VSM, into the bake); the room around the deck (a ceiling diffuser and the lamp's shade up to the left,
-       a cool window to the right, the felt walls) lights every surface by its roughness (PMREM). The arm's moving shadow is a
-       shader that finds, for each point near the arm, how high it is (record, platter, plinth) and so how far the shadow falls.
+       casts soft shadows (VSM, into the bake); the room around the deck (a crisp ceiling panel and the lamp's shade up to the
+       left, a cool window to the right, a soft light on the far side, the felt walls) lights every surface by its roughness
+       (PMREM): the lacquer shows the panel as a reflection with a shape, the vinyl's grooves catch light on both sides of the
+       spindle (the bow tie of a record under a lamp). The arm's moving shadow is a shader that finds, for each point near the
+       arm, how high it is (record, platter, plinth) and so how far the shadow falls. Tone mapping: Neutral, its toe softened
+       (softNeutral: Neutral alone turned the shaded walnut to orange paint).
     ② parts that meet: the platter sits in a well in the plinth, the mat in the platter's rim, the record on the mat with its
        raised bead and label, the spindle through the label's hole; the arm is a tube along the piece's own curve into a gimbal
-       on a turned post, a counterweight with real grooves, a headshell and cartridge with the stylus on the groove.
+       on a turned post, a counterweight with real grooves, a brushed aluminium headshell (brass edge and top plate, two
+       screws) over a dark grey cartridge whose front and stylus guard show past it, the stylus on the groove; the strobe lamp a
+       glass dome in a turned brass bezel, the hinges a leaf and three knuckles on a pin, the nameplate chamfered brass with the
+       name in black enamel, the start · stop key satin silver with its words and LED (the piece's button over it, see-through).
     ③ surfaces: a scanned walnut (Poly Haven "dark_wood", CC0, graded to walnut) under a clear lacquer; turned aluminium and
        brushed brass with their lines (anisotropy); the vinyl's grooves are finer than a pixel, so they are its anisotropy and
        roughness ring by ring: a radial sheen in the grooves, mirror-smooth rings where the tracks part, at their real radii.
@@ -36,22 +48,25 @@
   x = its x, z = its y (down the screen), y up; the plinth's top is y = 0. The camera looks straight down from above the deck's
   middle with the field of view that makes y = 0 fill the box exactly, so the DOM buttons stay over what they press.
 */
-import * as THREE from 'three';
+/** three.js, read on the first frame the page is seen (not at load: the page next to the one shown never needs it). */
+let THREE = null, LAMP = null, AIM = null;
 
 const G = window.__gy, L = G && G.lp, deck = document.getElementById('deck');
-const OPT = Object.assign({ adapt: true, fps: 30 }, window.__GY_DECK || {});
+// (test: checks' handles — probe, bench, the scene — and noRender/slow/toe, which only a check uses)
+const OPT = Object.assign({ adapt: true, fps: 30, slow: [55, 80] }, window.__GY_DECK || {});
+if (!OPT.test) { delete OPT.noRender; delete OPT.toe; OPT.slow = [55, 80]; }
 const TAU = Math.PI * 2, D2R = Math.PI / 180;
 const CAM_H = 3000;
 const REC = { x: 400, z: 390 }, PIV = { x: 850, z: 150 };
 /** Heights: the mat's top, the grooves' surface (where the stylus rides), the arm's axis. */
 const Y = { mat: 24, groove: 26.6, label: 27.05, arm: 48 };
-/** The key light: a lamp up and to the left of the deck (where the piece's lampLight comes from), 0.9 m above it. Its pool of
- *  light fades toward the bottom right as the piece's own gradient does; shadows fall down and to the right. */
-const LAMP = new THREE.Vector3(-500, 2000, -450), AIM = new THREE.Vector3(500, 0, 390);
+/* The key light (LAMP, AIM: made with three): a lamp up and to the left of the deck (where the piece's lampLight comes from),
+   0.9 m above it. Its pool of light fades toward the bottom right as the piece's own gradient does; shadows fall down and to
+   the right. */
 const ASSET = '/__gyeot/addon/';
 
 const stats = { css: null, prep: {}, frames: 0, work: [], gaps: [], gpu: [], pr: 0, w: 0, h: 0, calls: 0, triangles: 0, programs: 0, reported: false };
-const api = window.__gyDeck = { ready: false, css: null, draws: 0, opt: OPT, stats: () => summary(), stylus: null, bench: null, _: {} };
+const api = window.__gyDeck = { ready: false, started: false, css: null, draws: 0, opt: OPT, stats: () => summary() };
 
 /* ───────────────────────────── geometry ───────────────────────────── */
 
@@ -192,20 +207,43 @@ function shadeLayer(W) {
   // the platter's well: its lip darkens toward the gap
   g.save(); g.filter = 'blur(' + (7 * k).toFixed(1) + 'px)'; g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = 14; g.beginPath(); g.arc(400, 390, 347, 0, TAU); g.stroke(); g.restore();
   blob(disc(850, 150, 74), 6, 0.55); blob(disc(944, 150, 21), 4, 0.6); blob(disc(873, 561, 20), 4, 0.6);
-  blob(box(152, 634, 34, 24), 4, 0.6); blob(box(726, 750, 236, 32), 3, 0.45); blob(box(952, 474, 38, 26), 3, 0.55);
+  blob(disc(152, 634, 16), 4, 0.6); blob(box(118, 716, 140, 56), 4, 0.5); blob(box(726, 750, 236, 32), 3, 0.45); blob(box(952, 474, 38, 26), 3, 0.55);
   blob(box(944, 252, 20, 62), 3, 0.5); blob(box(952, 485, 14, 232), 3, 0.4);
-  blob(disc(214, 727, 6.5), 2, 0.6); blob(disc(287, 727, 6.5), 2, 0.6); blob(box(198, 6, 100, 16), 3, 0.5); blob(box(802, 6, 100, 16), 3, 0.5);
+  blob(disc(214, 727, 6.5), 2, 0.6); blob(disc(287, 727, 6.5), 2, 0.6); blob(box(200, 10, 104, 20), 3, 0.55); blob(box(804, 10, 104, 20), 3, 0.55);
   const t = tex(c); return t;
 }
-/** The nameplate's face: brushed brass with the engraved name. */
+/**
+ * The nameplate's face: brushed brass with the name engraved and filled with black enamel (the letters are not metal: they
+ * stay black whatever the brass reflects), and a thin bright chamfer line inside its edge. [colour, metal/roughness].
+ */
 function plateFace() {
-  const [c, g] = canvas2d(1024, 128), rnd = seeded(77);
-  g.fillStyle = '#9a7a34'; g.fillRect(0, 0, 1024, 128);
-  for (let i = 0; i < 900; i++) { const y = rnd() * 128, a = 0.03 + rnd() * 0.06; g.fillStyle = rnd() < 0.5 ? 'rgba(255,245,210,' + a + ')' : 'rgba(80,60,10,' + a + ')'; g.fillRect(0, y, 1024, 0.6 + rnd()); }
-  g.font = '58px "Didot","Bodoni 72",' + FONT; g.textAlign = 'center'; g.textBaseline = 'middle'; if ('letterSpacing' in g) g.letterSpacing = '14px';
-  g.fillStyle = 'rgba(255,236,190,.28)'; g.fillText('HI-FI WALNUT · W-33', 514, 70);
-  g.fillStyle = '#0e0901'; g.fillText('HI-FI WALNUT · W-33', 512, 67);
-  return tex(c);
+  const W = 1024, H = 128, [c, g] = canvas2d(W, H), [m, h] = canvas2d(W, H), rnd = seeded(77);
+  g.fillStyle = '#b8924a'; g.fillRect(0, 0, W, H);
+  for (let i = 0; i < 900; i++) { const y = rnd() * H, a = 0.03 + rnd() * 0.06; g.fillStyle = rnd() < 0.5 ? 'rgba(255,245,210,' + a + ')' : 'rgba(80,60,10,' + a + ')'; g.fillRect(0, y, W, 0.6 + rnd()); }
+  g.strokeStyle = 'rgba(255,240,200,.55)'; g.lineWidth = 3; g.strokeRect(9, 9, W - 18, H - 18);
+  h.fillStyle = 'rgb(0,92,255)'; h.fillRect(0, 0, W, H);                // G roughness 0.36, B metal 1
+  const name = (ctx, fill) => {
+    ctx.font = '600 56px "Didot","Bodoni 72",' + FONT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; if ('letterSpacing' in ctx) ctx.letterSpacing = '13px';
+    ctx.fillStyle = fill; ctx.fillText('HI-FI WALNUT · W-33', W / 2 + 6, H / 2 + 3);
+  };
+  name(g, '#120c04'); name(h, 'rgb(0,170,0)');                            // the enamel: rough 0.67, not metal
+  return [tex(c), tex(m, { srgb: false })];
+}
+/**
+ * The start · stop key's top: silver satin with fine vertical brushing, the piece's own words in its small capitals, and the
+ * LED's socket (the LED is its own little light). Returns the picture and where the LED sits (0…1 across the key).
+ */
+function keyFace() {
+  const W = 512, H = 194, [c, g] = canvas2d(W, H), rnd = seeded(13);
+  const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, '#eceef1'); gr.addColorStop(0.55, '#c3c7cc'); gr.addColorStop(1, '#a7acb3');
+  g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  for (let x = 0; x < W; x += 1.5) { g.fillStyle = rnd() < 0.5 ? 'rgba(255,255,255,' + (0.04 + rnd() * 0.06) + ')' : 'rgba(0,0,0,' + (0.02 + rnd() * 0.04) + ')'; g.fillRect(x, 0, 1, H); }
+  g.font = '600 40px ' + FONT; if ('letterSpacing' in g) g.letterSpacing = '6px';
+  const words = 'START · STOP', tw = g.measureText(words).width, led = 0.07 * W, gap = 0.08 * W, x0 = (W - (led + gap + tw)) / 2;
+  g.textBaseline = 'middle'; g.textAlign = 'left'; g.fillStyle = '#26282c'; g.fillText(words, x0 + led + gap, H / 2 + 3);
+  g.fillStyle = '#2a1d0d'; g.beginPath(); g.arc(x0 + led / 2, H / 2, led / 2 + 4, 0, TAU); g.fill();
+  const t = tex(c, { aniso: 8 }); t.ledAt = (x0 + led / 2) / W;
+  return t;
 }
 /** The platter's rim (v from r 296 to 330): turned aluminium with a bright printed ring; its dots turn on their own (dotsFace). */
 function rimFace() {
@@ -256,6 +294,7 @@ function armSilhouette() {
   g.lineWidth = 12; g.beginPath(); g.moveTo(22, 0); g.bezierCurveTo(220, 0, 403, -39, 459, -16.5); g.stroke();
   g.save(); g.translate(500, 0); g.rotate(22 * D2R);
   g.beginPath(); g.moveTo(-50, -10); g.lineTo(-40, -12); g.lineTo(10, -13); g.lineTo(12, 13); g.lineTo(-40, 12); g.lineTo(-50, 10); g.closePath(); g.fill();
+  g.fillRect(10, -9, 8, 18);                                     // the cartridge's front past the shell
   g.lineWidth = 3.2; g.beginPath(); g.moveTo(9, -12); g.quadraticCurveTo(27, -16, 39, -32); g.stroke();
   g.restore();
   const t = tex(c, { srgb: false, aniso: 4 });
@@ -373,20 +412,24 @@ function room(renderer) {
   plane(8, 4, lit(0x1f3b2d, 0.18), 0, 0.8, 4, 0);
   plane(8, 4, lit(0x1f3b2d, 0.2), -4, 0.8, 0, 0, Math.PI / 2);
   plane(8, 4, lit(0x1f3b2d, 0.16), 4, 0.8, 0, 0, Math.PI / 2);
-  // the softbox: brightest in its middle, its edge soft
-  const [c, g] = canvas2d(128, 128), gr = g.createRadialGradient(64, 64, 6, 64, 64, 64);
-  gr.addColorStop(0, '#fff'); gr.addColorStop(0.55, 'rgba(255,255,255,.75)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
-  const soft = new THREE.CanvasTexture(c);
-  const panel = (k, c) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(k), map: soft, transparent: true, side: THREE.DoubleSide, depthWrite: false });
-  plane(1.4, 1.4, panel(4, 0xfaf6f0), -0.62, 2.38, -0.5, Math.PI / 2);        // a ceiling diffuser up and to the left: the lacquer's sheen
-  plane(1.5, 1.1, panel(6, 0xffdcb4), -1.35, 2.0, -1.15, Math.PI / 2);        // the lamp's shade, off to the side: curved parts catch it
-  plane(1.6, 1.3, lit(0xcfdcff, 2.6), 3.98, 1.25, -0.6, 0, -Math.PI / 2);   // a cool window, right
-  plane(1.0, 0.6, lit(0xffe2c0, 2.2), 0.9, 2.38, 1.3, Math.PI / 2);        // a second, small warm panel behind
-  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 8), lit(0xffd7a0, 60)); bulb.position.set(-1.7, 1.45, -1.3); s.add(bulb);
+  // the ceiling's light panel: a crisp-edged rectangle with a frame across it (in the lacquer a reflection reads as one only
+  // when it has a shape: a soft round glow there looked like faded wood)
+  const [c, g] = canvas2d(256, 128);
+  g.fillStyle = '#000'; g.fillRect(0, 0, 256, 128);
+  const gr = g.createLinearGradient(0, 0, 256, 0); gr.addColorStop(0, '#d8d8d8'); gr.addColorStop(0.5, '#fff'); gr.addColorStop(1, '#d8d8d8');
+  g.fillStyle = gr; g.fillRect(6, 6, 244, 116);
+  g.fillStyle = '#000'; g.fillRect(126, 6, 4, 116);                          // the frame's bar across it
+  const shaped = new THREE.CanvasTexture(c);
+  const panel = (k, c, map) => new THREE.MeshBasicMaterial({ color: new THREE.Color(c).multiplyScalar(k), map, side: THREE.DoubleSide });
+  plane(1.05, 0.5, panel(3.2, 0xf7f5f2, shaped), -0.72, 2.38, -0.55, Math.PI / 2); // a ceiling panel up and to the left: the lacquer's sheen
+  plane(1.2, 0.9, lit(0xffe9d2, 3.4), -1.35, 2.0, -1.15, Math.PI / 2);        // the lamp's shade, off to the side: curved parts catch it
+  plane(1.6, 1.3, lit(0xd6e0ff, 2.6), 3.98, 1.25, -0.6, 0, -Math.PI / 2);   // a cool window, right
+  plane(1.0, 0.6, lit(0xfff0e0, 2.0), 0.9, 2.38, 1.3, Math.PI / 2);        // a second, small panel behind
+  plane(1.4, 0.8, lit(0xf2f0ec, 1.3), 1.25, 1.5, 1.6, Math.PI / 2);        // the far side's light: the vinyl's second sheen
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 8), lit(0xffe6c8, 40)); bulb.position.set(-1.7, 1.45, -1.3); s.add(bulb);
   const pm = new THREE.PMREMGenerator(renderer);
   const env = pm.fromScene(s, 0.02, 0.05, 20).texture;
-  pm.dispose(); soft.dispose(); s.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+  pm.dispose(); shaped.dispose(); s.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
   return env;
 }
 
@@ -400,20 +443,30 @@ function materials(T) {
   const alu = (o = {}) => P(Object.assign({ color: 0xd2d5d9, metalness: 1, roughness: 0.3, anisotropy: 0.7, anisotropyRotation: Math.PI / 2 }, o));
   const brass = (o = {}) => P(Object.assign({ color: 0xc39a42, metalness: 1, roughness: 0.32, anisotropy: 0.45, anisotropyRotation: Math.PI / 2 }, o));
   return {
-    wood: P({ map: T.col, normalMap: T.nor, normalScale: new THREE.Vector2(0.55, 0.55), roughnessMap: T.rgh, roughness: 0.85, metalness: 0,
-      clearcoat: 0.85, clearcoatRoughness: 0.1, specularIntensity: 0.6 }),
+    // walnut under lacquer (GRAPHICS.md's numbers: clearcoat 0.55, its roughness 0.16); the room lights it at half, so the
+    // lamp's pool and the panel's shaped reflection read, not a haze over the grain; the scan a touch warmer (saturation 0.4
+    // in the lamp's pool to 0.6 in the shade, as the piece's own CSS walnut: 0.47 to 0.63)
+    wood: P({ map: T.col, color: OPT.test && OPT.woodTint != null ? OPT.woodTint : 0xfff0dd, normalMap: T.nor, normalScale: new THREE.Vector2(0.55, 0.55), roughnessMap: T.rgh, roughness: 0.85, metalness: 0,
+      clearcoat: 0.55, clearcoatRoughness: 0.16, specularIntensity: 0.6, envMapIntensity: 0.5 }),
     print: P({ map: T.print, transparent: true, depthWrite: false, metalness: 0.35, roughness: 0.45, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
     shade: new THREE.MeshBasicMaterial({ map: T.shade, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3 }),
     satin: P({ color: 0x17120e, roughness: 0.5, metalness: 0, clearcoat: 0.6, clearcoatRoughness: 0.2 }),
     well: P({ color: 0x0b0806, roughness: 0.8 }),
     alu: alu(), turned: alu({ roughness: 0.24, anisotropy: 0.85 }), turnedL: alu({ roughness: 0.24, anisotropy: 0.85 }),
     ghost: new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false }),
-    brass: brass(), brassS: brass(),
-    plate: P({ map: T.plate, metalness: 1, roughness: 0.42, anisotropy: 0.6, anisotropyRotation: Math.PI / 2 }),
-    chrome: P({ color: 0xf3f5f8, metalness: 1, roughness: 0.07 }), chromeS: P({ color: 0xf3f5f8, metalness: 1, roughness: 0.09 }),
+    brass: brass(), brassS: brass(), hinge: brass({ roughness: 0.2, anisotropy: 0.3 }),
+    plate: P({ map: T.plate, metalnessMap: T.plateMR, roughnessMap: T.plateMR, metalness: 1, roughness: 1, anisotropy: 0.5, anisotropyRotation: Math.PI / 2 }),
+    // (the spindle's chrome a little satin: a mirror there showed the dark room, a black bead, not steel)
+    chrome: P({ color: 0xf3f5f8, metalness: 1, roughness: 0.07 }), chromeS: P({ color: 0xf6f7f9, metalness: 1, roughness: 0.3 }),
     tube: P({ color: 0xe4e7eb, metalness: 1, roughness: 0.12, anisotropy: 0.3 }),
     anod: P({ color: 0x2a2b30, metalness: 0.85, roughness: 0.32 }), anodS: P({ color: 0x2a2b30, metalness: 0.85, roughness: 0.32 }),
+    // the headshell brushed aluminium (its edges catch the lamp), the cartridge a dark grey body with a gloss of its own
+    // (a flat metal top seen from straight above mirrors the dark ceiling over it: satin enough to gather the lamp and the panel)
+    shell: alu({ color: 0xdfe2e6, roughness: 0.48, anisotropy: 0.5, anisotropyRotation: 0 }),
+    cart: P({ color: 0x4a4e56, roughness: 0.4, metalness: 0.15, clearcoat: 0.8, clearcoatRoughness: 0.15 }),
+    slot: new THREE.MeshBasicMaterial({ color: 0x0c0c0e }),
     plastic: P({ color: 0x0e0e10, roughness: 0.42, clearcoat: 0.3, clearcoatRoughness: 0.3 }),
+    key: P({ map: T.key, roughness: 0.42, metalness: 0, clearcoat: 0.35, clearcoatRoughness: 0.3 }),
     rubber: P({ color: 0x141415, roughness: 0.86, sheen: 0.4, sheenRoughness: 0.6, sheenColor: 0x404040 }),
     rim: P({ map: T.rim, metalnessMap: T.rimMR, roughnessMap: T.rimMR, metalness: 1, roughness: 1, anisotropy: 0.8, anisotropyRotation: Math.PI / 2 }),
     mat: P({ color: 0x161617, roughness: 0.82, normalMap: T.matN, normalScale: new THREE.Vector2(0.7, 0.7), sheen: 0.35, sheenRoughness: 0.5, sheenColor: 0x3a3a3a }),
@@ -423,7 +476,9 @@ function materials(T) {
     dots: new THREE.MeshBasicMaterial({ color: 0x1c1c1f, alphaMap: T.dots, transparent: true, depthWrite: false }),
     dust: new THREE.MeshBasicMaterial({ map: spot(), color: 0xc8c4bc, transparent: true, depthWrite: false, opacity: 0.7 }),
     strobe: new THREE.MeshBasicMaterial({ map: T.strobe, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }),
-    lens: new THREE.MeshBasicMaterial({ color: 0xffb04a }),
+    // the strobe lamp's glass: a dark amber dome with a clear gloss (a highlight of the room on it); lit, it glows from inside
+    lens: P({ color: 0x5a3410, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.04, transparent: true, opacity: 0.78, emissive: 0x000000 }),
+    led: new THREE.MeshBasicMaterial({ color: 0x3a2508 }), keyLed: new THREE.MeshBasicMaterial({ color: 0x5a3b16 }),
     led45: P({ color: 0x3a2508, roughness: 0.2, clearcoat: 1 })
   };
 }
@@ -454,10 +509,18 @@ function build(M) {
   const pr = new THREE.PlaneGeometry(1000, 780); pr.rotateX(-Math.PI / 2); add(still, at(pr, 500, 1.15, 390), M.print, { cast: false, order: 2 });
   const sd = new THREE.PlaneGeometry(1000, 780); sd.rotateX(-Math.PI / 2); add(still, at(sd, 500, 1.2, 390), M.shade, { cast: false, recv: false, order: 3 });
 
-  /* hinges on the back edge */
+  /* hinges on the back edge: a leaf screwed to the plinth and a barrel of three knuckles on its pin (round: the lamp draws a
+     bright line along it, the knuckles' gaps dark) */
   for (const x of [198, 802]) {
-    add(still, slab(x, 7, 96, 14, 0, 2.2, 3, 0.8), M.brassS);
-    const b = new THREE.CylinderGeometry(3.2, 3.2, 96, 20); b.rotateZ(Math.PI / 2); add(still, at(b, x, 3.2, 1.5), M.brassS);
+    add(still, slab(x, 15, 92, 12, 0, 1.8, 2.4, 0.6), M.hinge);
+    const parts = [];
+    for (const [k0, k1] of [[-46, -16.5], [-15, 15], [16.5, 46]]) {
+      const b = new THREE.CylinderGeometry(5.6, 5.6, k1 - k0, 28, 1, false); b.rotateZ(Math.PI / 2); parts.push(at(b, x + (k0 + k1) / 2, 5.6, 6.5));
+    }
+    for (const sx of [-26, 26]) parts.push(at(ring([[0, 2.3], [1.6, 2.2], [2.6, 1.6], [2.9, 0.6]], 16, { R: 3 }), x + sx, 0, 16));
+    add(still, merge(parts), M.hinge);
+    const pin = new THREE.CylinderGeometry(2.2, 2.2, 95, 12); pin.rotateZ(Math.PI / 2); add(still, at(pin, x, 5.6, 6.5), M.well, { cast: false });
+    for (const sx of [-26, 26]) add(still, at(new THREE.BoxGeometry(4.4, 0.5, 0.7), x + sx, 2.4, 16), M.slot, { cast: false });
   }
   /* the tonearm board: a satin black disc in a raised brass ring, the turned post, the gimbal on it */
   add(still, turned([[0, 1], [67.6, 1], [68.4, 0.6], [68.6, 0]], 128, 70, PIV.x, PIV.z), M.satin, { cast: false });
@@ -477,13 +540,15 @@ function build(M) {
   add(still, slab(952, 485, 12, 230, 0, 1.4, 6, 0.5), M.satin);
   add(still, slab(952, 474, 34, 22, 0, 7.5, 3, 1.4), M.brassS);
   add(still, slab(952, 474, 24, 1.6, 7.3, 7.9, 0.6, 0.2), M.anodS, { cast: false });
-  /* the strobe lamp's housing, the LEDs' bezels, the 45 LED (never lit) */
-  add(still, slab(152, 634, 30, 20, 0, 8.5, 4, 1.6), M.satin);
-  add(still, slab(152, 634, 24, 15, 8.2, 9.2, 2.4, 0.4), M.brassS, { cast: false });
+  /* the strobe lamp: a round satin base, a turned brass bezel with a lip round its glass (the glass is drawn live), the LEDs'
+     bezels, the 45 LED (never lit) */
+  add(still, turned([[0, 4.2], [14.8, 4.2], [15.6, 3.6], [16, 2.2], [16.4, 0]], 64, 16, 152, 634), M.satin);
+  add(still, turned([[8.4, 6.2], [8.9, 7.6], [9.8, 8.4], [11.2, 8.6], [12.4, 8.1], [13.1, 6.9], [13.4, 4.2]], 64, 14, 152, 634), M.brassS);
+  add(still, turned([[0, 6.0], [8.6, 6.0]], 48, 9, 152, 634), M.well, { cast: false });
   for (const x of [214, 287]) add(still, turned([[3.6, 2.4], [4.4, 2.6], [5.4, 2.4], [6.2, 1.4], [6.5, 0]], 48, 6.5, x, 727), M.brassS);
   add(still, turned([[0, 3.6], [2.4, 3.3], [3.6, 2.4], [3.9, 1]], 24, 4, 287, 727), M.led45, { cast: false });
-  /* the nameplate */
-  const np = slab(726, 750, 232, 28, 0, 2.4, 3, 0.7); planar(np, 610, 736, 232, 28); add(still, np, M.plate);
+  /* the nameplate: brass with a chamfered edge and the name in black enamel */
+  const np = slab(726, 750, 232, 28, 0, 2.8, 3, 1.2); planar(np, 610, 736, 232, 28); add(still, np, M.plate);
   /* the platter (turned aluminium, its rim), the mat's ribs in it, the spindle: the same at any turn */
   add(still, at(ring([[280, 22], [296.4, 22], [296.4, 22], [297.6, 22.6], [299, 23.6], [300.4, 24], [300.4, 24], [325.6, 24], [325.6, 24], [328.2, 23.5],
     [329.6, 22.2], [330, 20.4], [330, 20.4], [330, -10]], 256, { v: r => Math.max(0, Math.min(1, (r - 296) / 34)) }), REC.x, 0, REC.z), M.rim);
@@ -527,28 +592,40 @@ function build(M) {
   const brassParts = [along(cw, 64, 25)];
   // the headshell (the piece's outline, 22° to the tube), the cartridge, its screws, the stylus on the groove, the finger lift
   const hy = -Y.arm, headM = new THREE.Matrix4().makeRotationY(-22 * D2R).setPosition(500, 0, 0), toHead = g => g.applyMatrix4(headM);
+  // the shell: brushed aluminium with a brass edge, a brass plate on its top, two slotted screws through it; under it the
+  // cartridge, a dark grey body whose front shows past the shell with the stylus guard's lip
   const hs = new THREE.Shape(); hs.moveTo(-50, -10); hs.lineTo(-40, -12); hs.lineTo(10, -13); hs.lineTo(12, 13); hs.lineTo(-40, 12); hs.lineTo(-50, 10); hs.closePath();
-  add(liftG, toHead(lift(hs, hy + 43, hy + 47.2, 1, 4)), M.anod);
+  add(liftG, toHead(lift(hs, hy + 43, hy + 47.2, 1.3, 6)), M.shell);
   const trim = new THREE.Shape(); trim.moveTo(-40, -12.6); trim.lineTo(10, -13.6); trim.lineTo(10, -11.6); trim.lineTo(-40, -10.8); trim.closePath();
-  brassParts.push(toHead(lift(trim, hy + 46.6, hy + 47.6, 0.3, 2)), toHead(slab(-28.5, 0, 5, 19.4, hy + 31.2, hy + 43.4, 1, 0.6)));
+  brassParts.push(toHead(lift(trim, hy + 46.6, hy + 47.8, 0.3, 2)), toHead(slab(-28.5, 0, 5, 19.4, hy + 31.2, hy + 43.4, 1, 0.6)),
+    toHead(slab(-38, 0, 12, 15, hy + 47, hy + 48.1, 1.6, 0.4)));
   add(liftG, merge(brassParts), M.brass);
-  add(liftG, toHead(slab(-14, 0, 34, 19, hy + 31.4, hy + 43.2, 2, 1.2)), M.plastic);
-  const screw = z => at(ring([[0, 1.1], [1.2, 1], [1.8, 0.5], [1.9, 0]], 12, { R: 2 }), -19, hy + 47.2, z);
+  add(liftG, toHead(slab(-8, 0, 44, 18, hy + 31.4, hy + 43.2, 3, 1.8)), M.cart);
+  add(liftG, toHead(slab(15.2, 0, 3.4, 14, hy + 30.6, hy + 36.4, 1.2, 0.6)), M.cart);
+  const screw = z => at(ring([[0, 1.5], [1.3, 1.42], [2.1, 0.9], [2.4, 0]], 16, { R: 2.4 }), -19, hy + 47.2, z);
   const cant = new THREE.CylinderGeometry(0.45, 0.7, 6.4, 8); cant.rotateZ(-0.9); cant.translate(-1.4, hy + Y.groove + 2.6, 0);
   const tip = new THREE.ConeGeometry(0.7, 1.4, 8); tip.rotateX(Math.PI); tip.translate(0, hy + Y.groove + 0.7, 0);
   const lift3 = new THREE.QuadraticBezierCurve3(new THREE.Vector3(9, hy + 45.6, -12), new THREE.Vector3(27, hy + 46.6, -16), new THREE.Vector3(39, hy + 50, -32));
-  add(liftG, toHead(merge([screw(-5), screw(5), cant, tip, new THREE.TubeGeometry(lift3, 24, 1.6, 10, false)])), M.chrome);
+  add(liftG, toHead(merge([screw(-5.5), screw(5.5), cant, tip, new THREE.TubeGeometry(lift3, 24, 1.6, 10, false)])), M.chrome);
   // the cue lever: brass in its slot, tipping up as the arm lifts
   const cue = new THREE.Group(); cue.position.set(944, 1.6, 256); live.add(cue);
   add(cue, merge([slab(0, -13, 7, 29, 0, 4.6, 3.5, 1.2), at(ring([[0, 3.2], [5.2, 3.1], [7.4, 2.2], [8, 0], [7.4, -2.2], [5.2, -3.1], [0, -3.2]], 32, { R: 8 }), 0, 6, -26)]), M.brass);
-  // what glows: the strobe lamp's lens and its light on the plinth, the 33⅓ LED
-  const lens = add(live, slab(152, 634, 20, 12, 8.6, 9.8, 2, 0.4), M.lens, { cast: false, recv: false });
-  const led = add(live, turned([[0, 3.6], [2.4, 3.3], [3.6, 2.4], [3.9, 1]], 24, 4, 214, 727), M.lens, { cast: false, recv: false });
+  // what glows: the strobe lamp (its glass dome lit from inside) and its light on the plinth, the 33⅓ LED
+  const lens = add(live, turned([[0, 9.6], [2.6, 9.45], [5, 8.95], [7, 8.0], [8.3, 6.9], [8.6, 6.1]], 48, 9, 152, 634), M.lens, { cast: false, recv: false, order: 9 });
+  const led = add(live, turned([[0, 3.6], [2.4, 3.3], [3.6, 2.4], [3.9, 1]], 24, 4, 214, 727), M.led, { cast: false, recv: false });
+  // the start · stop key (the piece's own button lies see-through over it and takes the press): satin silver and its words,
+  // baked with the plinth; its LED lit with the motor
+  const KEY = { x: 48, z: 688, w: 136, d: 51.5 };
+  const kg = slab(KEY.x + KEY.w / 2, KEY.z + KEY.d / 2, KEY.w, KEY.d, 0, 5.2, 4, 1.5); planar(kg, KEY.x, KEY.z, KEY.w, KEY.d);
+  add(still, kg, M.key, { cast: false });
+  const ledX = KEY.x + KEY.w * (M.key.map && M.key.map.ledAt || 0.2);
+  add(live, at(ring([[0, 1.3], [2.4, 1.2], [3.6, 0.7], [4, 0]], 20, { R: 4 }), ledX, 5.2, KEY.z + KEY.d / 2), M.keyLed, { cast: false, recv: false });
   const glowM = new THREE.MeshBasicMaterial({ map: spot(), color: 0xff9a3c, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
   const glowG = new THREE.PlaneGeometry(1, 1); glowG.rotateX(-Math.PI / 2);
   const glow = new THREE.Mesh(glowG, glowM); glow.position.set(152, 10, 634); glow.scale.set(120, 1, 110); glow.renderOrder = 20; live.add(glow);
   const glow2 = new THREE.Mesh(glowG, glowM.clone()); glow2.position.set(214, 4, 727); glow2.scale.set(26, 1, 26); glow2.renderOrder = 20; live.add(glow2);
-  return { still, live, vinylHome, disc, vinyl, label, dust, dots, glowRim, yaw, liftG, cue, lens, led, glow, glow2 };
+  const glow3 = new THREE.Mesh(glowG, glowM.clone()); glow3.position.set(ledX, 7, KEY.z + KEY.d / 2); glow3.scale.set(22, 1, 22); glow3.renderOrder = 20; live.add(glow3);
+  return { still, live, vinylHome, disc, vinyl, label, dust, dots, glowRim, yaw, liftG, cue, lens, led, glow, glow2, glow3 };
 }
 
 /** The arm's moving shadow: for each point near the arm, how high it is (record, platter, plinth) says how far the arm's shadow falls. */
@@ -587,26 +664,104 @@ function summary() {
   return { css: s.css, frames: s.frames, avg: +mean(w).toFixed(2), p95: +p95(w).toFixed(2), gapAvg: +mean(g).toFixed(2), gapP95: +p95(g).toFixed(2),
     fps: g.length ? +(1000 / mean(g)).toFixed(1) : 0, gpu: s.gpu.length ? +mean(s.gpu).toFixed(2) : null, pr: s.pr, w: s.w, h: s.h, calls: s.calls, triangles: s.triangles, programs: s.programs, prep: s.prep };
 }
-function fallback(why, R) {
+/**
+ * Khronos PBR Neutral (the engine's tone mapping: it keeps a paint's colour where ACES drains it), with its toe a fraction as
+ * deep. Neutral takes nearly all of the darkest channel out of a dark colour (meant to take the 4 % white sheen off a lit
+ * one): in the lamp's shade the walnut's blue went to nothing and the wood read as orange paint (saturation 0.85 where the
+ * scan has 0.5). Its highlight roll-off is unchanged.
+ */
+const TOE = 0.5;
+function softNeutral(toe) {
+  const C = THREE.ShaderChunk, from = 'vec3 CustomToneMapping( vec3 color ) { return color; }';
+  if (C.tonemapping_pars_fragment.includes(from)) C.tonemapping_pars_fragment = C.tonemapping_pars_fragment.replace(from, [
+    'vec3 CustomToneMapping( vec3 color ) {',
+    '  const float StartCompression = 0.8 - 0.04; const float Desaturation = 0.15;',
+    '  color *= toneMappingExposure;',
+    '  float x = min( color.r, min( color.g, color.b ) );',
+    '  color -= ( x < 0.08 ? x - 6.25 * x * x : 0.04 ) * ' + Number(toe).toFixed(3) + ';',
+    '  float peak = max( color.r, max( color.g, color.b ) );',
+    '  if ( peak < StartCompression ) return color;',
+    '  float d = 1. - StartCompression;',
+    '  float newPeak = 1. - d * d / ( peak + d - StartCompression );',
+    '  color *= newPeak / peak;',
+    '  float g = 1. - 1. / ( Desaturation * ( peak - newPeak ) + 1. );',
+    '  return mix( color, vec3( newPeak ), g );',
+    '}'].join('\n'));
+  return THREE.CustomToneMapping;
+}
+
+/**
+ * Everything the deck holds on the GPU and in the page, so that giving up lets all of it go: the scenes' geometries,
+ * materials and pictures, the bakes, the room's light, the observers, the renderer, and the context itself (lost on purpose:
+ * a phone too slow for the deck gets its memory back at once, not when the page goes).
+ */
+function release(o) {
+  const tex = t => { try { if (t && t.isTexture) t.dispose(); } catch (e) {} };
+  try {
+    for (const sc of o.scenes) if (sc) sc.traverse(x => {
+      if (x.geometry) x.geometry.dispose();
+      for (const m of x.material ? [].concat(x.material) : []) {
+        for (const k of Object.keys(m)) tex(m[k]);
+        if (m.uniforms) for (const u of Object.values(m.uniforms)) tex(u && u.value);
+        m.dispose();
+      }
+    });
+  } catch (e) {}
+  for (const t of o.textures) tex(t);
+  for (const rt of o.targets()) { try { rt && rt.dispose(); } catch (e) {} }
+  tex(o.env);
+  for (const ob of o.observers) { try { ob.disconnect(); } catch (e) {} }
+  try { o.R && o.R.dispose(); } catch (e) {}
+  try { const lc = o.gl && !o.gl.isContextLost() && o.gl.getExtension('WEBGL_lose_context'); if (lc) lc.loseContext(); } catch (e) {}
+  try { o.cv && o.cv.remove(); } catch (e) {}
+  o.scenes.length = 0; o.textures.length = 0; o.observers.length = 0; o.R = null; o.env = null;
+}
+function fallback(why, o) {
   stats.css = api.css = why;
   try { deck.classList.remove('gy3d'); } catch (e) {}
-  if (R) { try { R.canvas.remove(); } catch (e) {} }
+  if (o) release(o);
+  for (const k of ['stylus', 'probe', 'bench', 'bakeMs', 'state', 'off', 'lost', '_']) delete api[k];
+  if (o && o.gl && OPT.test) api.lost = () => o.gl.isContextLost();
+  api.ready = false;
   if (G && G.report) G.report({ css: why });
 }
 
-async function main() {
+/**
+ * The deck begins once the piece's frames have kept coming for 0.7 s: only a page on screen gets them (see the top). A page
+ * out of sight gets a few as it loads (a quarter of a second here) before the browser stops them, so the first is no sign.
+ */
+function boot() {
   if (!G || !L || !deck || !L.arm) return;
   if (OPT.off) { api.css = stats.css = 'off'; return; }               // (checks of other things turn it off)
+  // and only while the deck itself is in view (the page scrolled down to its crate, it waits) and the home screen, where it
+  // says, says the page is in sight
+  let first = 0, last = 0, inView = true;
+  const io = new IntersectionObserver(es => { for (const e of es) inView = e.isIntersecting; });
+  io.observe(deck);
+  const unwait = G.onFrame(() => {
+    const now = performance.now();
+    if (!first || now - last > 400 || !inView || G.shown === false) first = now; // a pause starts the count again
+    last = now;
+    if (now - first < 700 || api.started) return;
+    io.disconnect(); unwait(); api.started = true; main();
+  });
+}
+
+async function main() {
   const t0 = performance.now(), mark = k => { stats.prep[k] = Math.round(performance.now() - t0); };
   const cv = document.createElement('canvas'); cv.className = 'gy-deck'; cv.setAttribute('aria-hidden', 'true');
   const gl = cv.getContext('webgl2', { antialias: true, alpha: true, premultipliedAlpha: true, depth: true, stencil: false, powerPreference: 'default', preserveDrawingBuffer: false });
-  if (!gl) return fallback('no webgl2');
+  if (!gl) return fallback('no webgl2');                            // (three.js is not even read then)
+  try { THREE = await import('three'); } catch (e) { return fallback('no three', { gl, scenes: [], textures: [], observers: [], targets: () => [] }); }
+  LAMP = new THREE.Vector3(-500, 2000, -450); AIM = new THREE.Vector3(500, 0, 390);
+  mark('three');
   // the bakes are kept in half floats (the light before its tone mapping); without them everything is drawn each frame
   const half = !OPT.noBake && !!(gl.getExtension('EXT_color_buffer_half_float') || gl.getExtension('EXT_color_buffer_float'));
-  let R;
+  let R, rtA = null, rtB = null;
+  const own = { gl, cv, R: null, env: null, scenes: [], textures: [], observers: [], targets: () => [rtA, rtB] };
   try {
-    R = new THREE.WebGLRenderer({ canvas: cv, context: gl, antialias: true, alpha: true });
-    R.outputColorSpace = THREE.SRGBColorSpace; R.toneMapping = THREE.NeutralToneMapping; R.toneMappingExposure = 1.0;
+    R = own.R = new THREE.WebGLRenderer({ canvas: cv, context: gl, antialias: true, alpha: true });
+    R.outputColorSpace = THREE.SRGBColorSpace; R.toneMapping = softNeutral(OPT.test && OPT.toe != null ? OPT.toe : TOE); R.toneMappingExposure = 1.0;
     R.shadowMap.enabled = true; R.shadowMap.type = THREE.VSMShadowMap; R.shadowMap.autoUpdate = false; R.shadowMap.needsUpdate = true;
     R.setClearColor(0x000000, 0);
     const plinth = deck.querySelector('svg.plinth');
@@ -618,11 +773,13 @@ async function main() {
     mark('wood');
     const rings = vinylRings(); rings.update();
     const [rim, rimMR] = rimFace();
-    const T = { col, nor, rgh, rings, rim, rimMR, dots: dotsFace(), strobe: strobeFace(), matN: matRibs(), plate: plateFace(), print: null, shade: null, label: null };
+    const [plate, plateMR] = plateFace();
+    const T = { col, nor, rgh, rings, rim, rimMR, dots: dotsFace(), strobe: strobeFace(), matN: matRibs(), plate, plateMR, key: keyFace(), print: null, shade: null, label: null };
     const lab0 = await labelPicture().catch(() => null);
     T.label = tex(lab0 ? lab0.canvas : canvas2d(4, 4)[0], { channel: 1, aniso: 8 });
+    own.textures.push(col, nor, rgh, rings.aniso, rings.rough, rim, rimMR, T.dots, T.strobe, T.matN, plate, plateMR, T.key);
     mark('pictures');
-    const env = room(R);
+    const env = own.env = room(R);
     mark('pmrem');
     const M = materials(T);
     const B = build(M);
@@ -633,10 +790,14 @@ async function main() {
     const key = () => { const l = new THREE.SpotLight(0xfff3e6, 1.03e7, 0, 0.5, 0.65, 2); l.position.copy(LAMP); l.target.position.copy(AIM); return l; };
     const S = new THREE.Scene(), D = new THREE.Scene();
     S.environment = D.environment = env;
+    own.scenes.push(S, D);
     // the lamp casts its soft shadows (VSM) into the first bake only; the record, baked over it, needs none (kB)
     const kS = key(); kS.castShadow = true; kS.shadow.mapSize.set(1536, 1536); kS.shadow.radius = 7; kS.shadow.blurSamples = 16; kS.shadow.bias = -0.0003;
     kS.shadow.camera.near = 1100; kS.shadow.camera.far = 2700;
     const kB = key(); kB.visible = false;
+    // the vinyl's second sheen: a soft light low on the far side, so the grooves catch light on both sides of the spindle (the
+    // bow tie a real record shows under one lamp, from the room's other bright side); in the record's bake only
+    const kB2 = new THREE.SpotLight(0xf4f0ea, 2.6e6, 0, 0.62, 0.9, 2); kB2.position.set(1650, 1500, 1300); kB2.target.position.set(400, 0, 390); kB2.visible = false;
     const kD = key(); D.add(kD, kD.target, B.live);
     const shadow = armShadow(armSilhouette()); D.add(shadow);
     const recShadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: spot(0.6), color: 0x000000, transparent: true, depthWrite: false, opacity: 0 }));
@@ -654,10 +815,11 @@ async function main() {
       fragmentShader: 'uniform sampler2D map, base; varying vec2 vUv; void main(){ vec4 v = texture2D(map, vUv); gl_FragColor = v + texture2D(base, vUv) * (1.0 - v.a); }' });
     const downS = new THREE.Scene(), dq = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), downM); dq.frustumCulled = false; downS.add(dq);
     const overS = new THREE.Scene(), oq = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), overM); oq.frustumCulled = false; overS.add(oq);
-    if (half) { S.add(kS, kS.target, kB, kB.target, B.still, B.vinylHome); D.add(bg); }
-    else D.add(B.still);                                         // no half-float targets: the still parts drawn each frame too
+    own.scenes.push(downS, overS);
+    if (half) { S.add(kS, kS.target, kB, kB.target, kB2, kB2.target, B.still, B.vinylHome); D.add(bg); }
+    else { D.add(B.still); B.vinylHome.visible = false; D.add(B.vinylHome); } // no half-float targets: the still parts drawn each frame too
     const ss = new THREE.Vector2();
-    let rtA = null, rtB = null, needB = !half, bakeSoon = 0, pr = OPT.pr || Math.min(2, window.devicePixelRatio || 1), cssW = 0, cssH = 0;
+    let needB = !half, bakeSoon = 0, pr = OPT.pr || Math.min(2, window.devicePixelRatio || 1), cssW = 0, cssH = 0;
 
     function size() {
       const r = deck.getBoundingClientRect(); cssW = Math.max(1, Math.round(r.width)); cssH = Math.max(1, Math.round(r.height));
@@ -681,14 +843,14 @@ async function main() {
         downM.uniforms.map.value = tmp.texture; R.setRenderTarget(rtA); R.render(downS, camera);
       }
       if (which.includes('B')) {                                 // the record alone, laid over A
-        B.still.visible = kS.visible = false; B.vinylHome.visible = kB.visible = true;
+        B.still.visible = kS.visible = false; B.vinylHome.visible = kB.visible = kB2.visible = true;
         R.setRenderTarget(tmp); R.clear(); R.render(S, camera);
         overM.uniforms.map.value = tmp.texture; overM.uniforms.base.value = rtA.texture; R.setRenderTarget(rtB); R.render(overS, camera);
-        B.still.visible = kS.visible = true; B.vinylHome.visible = kB.visible = false;
+        B.still.visible = kS.visible = true; B.vinylHome.visible = kB.visible = kB2.visible = false;
       }
       R.setRenderTarget(null); tmp.dispose();
       // what only the bake reads leaves the GPU (three uploads it again if a bake needs it: a new size)
-      if (which.includes('A')) { kS.shadow.dispose(); for (const t of [T.col, T.nor, T.rgh, T.print, T.shade, T.plate, T.rim, T.rimMR, T.matN]) t && t.dispose(); }
+      if (which.includes('A')) { kS.shadow.dispose(); for (const t of [T.col, T.nor, T.rgh, T.print, T.shade, T.plate, T.plateMR, T.rim, T.rimMR, T.matN]) t && t.dispose(); }
       if (which.includes('B')) needB = false;
       stats.prep.lastBake = Math.round(performance.now() - t);
     }
@@ -697,8 +859,8 @@ async function main() {
     B.vinyl.visible = true; await R.compileAsync(D, camera); B.vinyl.visible = false;
     if (half) {
       await R.compileAsync(downS, camera); await R.compileAsync(overS, camera);
-      B.still.visible = kS.visible = false; B.vinylHome.visible = kB.visible = true; await R.compileAsync(S, camera);
-      B.still.visible = kS.visible = true; B.vinylHome.visible = kB.visible = false;
+      B.still.visible = kS.visible = false; B.vinylHome.visible = kB.visible = kB2.visible = true; await R.compileAsync(S, camera);
+      B.still.visible = kS.visible = true; B.vinylHome.visible = kB.visible = kB2.visible = false;
     }
     mark('shaders');
     bake();
@@ -707,12 +869,16 @@ async function main() {
     /* following the piece */
     const slot = document.getElementById('slot');
     let drawn = null, dirty = true, visible = true, lastDraw = 0, labelKey = lab0 ? lab0.key : '', labelBusy = false, strobePh = 0, lastFrameAt = 0, cont = 0;
+    // when the piece's frame last came (only while the page is seen), and a resize waiting for it
+    let seenAt = performance.now(), resizedAt = 0;
+    const seen = () => performance.now() - seenAt < 250;
     function labelCheck() {
       const lb = G.label(), k = lb && lb.key;
       if (!k || k === labelKey || labelBusy) return;
       labelBusy = true;
       labelPicture().then(p => {
         labelBusy = false; if (!p) return;
+        if (stopped) return;
         const t = tex(p.canvas, { channel: 1, aniso: 8 }), old = M.label.map; M.label.map = t; old && old.dispose(); labelKey = p.key; dirty = true;
         if (G.label().key !== labelKey) labelCheck();
       }, () => { labelBusy = false; labelKey = k; });
@@ -739,7 +905,8 @@ async function main() {
       // the record: the piece turns it clockwise on screen, i.e. −spin about +y here; while it flies, its own body is drawn
       // home again with new rings (another record): its own body over the first picture until the second is baked, when idle
       const baked = home && !needB;
-      if (half && home && needB && !bakeSoon) bakeSoon = (window.requestIdleCallback || setTimeout)(() => { bakeSoon = 0; if (!stopped && !lost) { bake('B'); dirty = true; } }, { timeout: 400 });
+      // (only while the page is seen: one that went out of sight meanwhile bakes on its next frame)
+      if (half && home && needB && !bakeSoon) bakeSoon = (window.requestIdleCallback || setTimeout)(() => { bakeSoon = 0; if (!stopped && !lost && seen()) { bake('B'); dirty = true; } }, { timeout: 400 });
       bgM.uniforms.map.value = (baked ? rtB : rtA) && (baked ? rtB : rtA).texture;
       if (!half) B.vinylHome.visible = false;
       if (sl) {
@@ -763,9 +930,12 @@ async function main() {
       shadow.rotation.y = -s.a * D2R; shadow.position.set(PIV.x + 225 * c + 22, 28.2, PIV.z + 225 * sn + 26);
       // the lamps
       const on = s.on;
-      M.lens.color.setHex(on ? 0xffb04a : 0x4a2c0c).multiplyScalar(on ? 2.4 : 1);
-      B.glow.material.opacity = on ? 0.55 : 0; B.glow2.material.opacity = on ? 0.5 : 0; M.strobe.opacity = on ? 0.85 : 0;
-      B.glow.visible = B.glow2.visible = B.glowRim.visible = on;
+      // the strobe lamp's glass: a warm glow inside it when lit, brighter than white so it blooms; the 33⅓ LED
+      M.lens.emissive.setHex(on ? 0xffb050 : 0x000000); M.lens.emissiveIntensity = on ? 3 : 0;
+      M.led.color.setHex(on ? 0xffb04a : 0x3a2508).multiplyScalar(on ? 2.4 : 1);
+      M.keyLed.color.setHex(on ? 0xffb347 : 0x5a3b16).multiplyScalar(on ? 2.2 : 1);
+      B.glow.material.opacity = on ? 0.55 : 0; B.glow2.material.opacity = on ? 0.5 : 0; B.glow3.material.opacity = on ? 0.45 : 0; M.strobe.opacity = on ? 0.85 : 0;
+      B.glow.visible = B.glow2.visible = B.glow3.visible = B.glowRim.visible = on;
     }
     // the GPU's own time for a frame, where the browser lets a page measure it (desktop mostly; many phones do not)
     const timer = gl.getExtension('EXT_disjoint_timer_query_webgl2'), queries = [];
@@ -780,7 +950,7 @@ async function main() {
       const w0 = performance.now(), q = timer && queries.length < 4 && stats.frames % 4 === 0 ? gl.createQuery() : null;
       pose(s);
       if (q) gl.beginQuery(timer.TIME_ELAPSED_EXT, q);
-      R.render(D, camera);
+      if (!OPT.noRender) R.render(D, camera);
       if (q) { gl.endQuery(timer.TIME_ELAPSED_EXT); queries.push(q); }
       if (timer) gpuTime();
       const w1 = performance.now();
@@ -795,18 +965,30 @@ async function main() {
     function adapt() {
       // The phone cannot keep up when frames come far apart while the platter turns: fewer pixels, then the CSS deck.
       const g = stats.gaps.slice(-60).sort((a, b) => a - b), p = g[Math.floor(g.length * 0.95)];
-      if (p <= 55) return;
+      if (p <= OPT.slow[0]) return;
       if (pr > 1.35) { pr = pr > 1.75 ? 1.6 : 1.3; size(); bake(); stats.work.length = stats.gaps.length = 0; dirty = true; return; }
-      if (p > 80) off('slow ' + Math.round(p) + 'ms');
+      if (p > OPT.slow[1]) off('slow ' + Math.round(p) + 'ms');
     }
     let stopped = false, lost = false;
-    function off(why) { stopped = true; unFrame(); unTrack(); fallback(why, R); try { R.dispose(); } catch (e) {} }
+    function off(why) {
+      if (stopped) return;
+      stopped = true; unFrame(); unTrack(); clearTimeout(bakeSoon);
+      if (bakeSoon && window.cancelIdleCallback) cancelIdleCallback(bakeSoon);
+      fallback(why, own);
+    }
     function frame(dt) {
       if (stopped || lost) return;
+      seenAt = performance.now();
+      // a size change waits for the page to be seen, and for the size to settle
+      if (resizedAt && seenAt - resizedAt > 160) {
+        resizedAt = 0;
+        const r = deck.getBoundingClientRect();
+        if (Math.round(r.width) !== cssW || Math.round(r.height) !== cssH) { size(); bake(); dirty = true; }
+      }
       // the strobe dots as the lamp (100 flashes a second) shows them: still at 33⅓, drifting while the platter speeds up
       const per = L.omega / 100, al = ((per % 2) + 3) % 2 - 1;
       strobePh = (strobePh + al * 100 * dt) % 360;
-      if (!visible || document.hidden) return;
+      if (!visible || document.hidden || G.shown === false) return;
       const now = performance.now();
       if (now - lastFrameAt < 1000 / OPT.fps - 2.5) return;    // at most 30 a second
       const s = sample();
@@ -816,14 +998,17 @@ async function main() {
     }
     const unFrame = G.onFrame(frame);
     const unTrack = G.onTrack(() => { if (rings.update()) { needB = true; dirty = true; } labelCheck(); });
-    new IntersectionObserver(es => { for (const e of es) visible = e.isIntersecting; if (visible) dirty = true; }).observe(deck);
-    let rz = 0;
-    new ResizeObserver(() => { clearTimeout(rz); rz = setTimeout(() => { if (stopped || lost) return; const r = deck.getBoundingClientRect(); if (Math.round(r.width) === cssW && Math.round(r.height) === cssH) return; size(); bake(); dirty = true; }, 160); }).observe(deck);
-    cv.addEventListener('webglcontextlost', e => { e.preventDefault(); lost = true; deck.classList.remove('gy3d'); stats.css = 'context lost'; }, false);
+    // (within the page: the deck scrolled out of view; a frame out of the launcher's sight gets no frames at all)
+    const io = new IntersectionObserver(es => { for (const e of es) visible = e.isIntersecting; if (visible) dirty = true; });
+    io.observe(deck); own.observers.push(io);
+    const ro = new ResizeObserver(() => { resizedAt = performance.now(); dirty = true; });
+    ro.observe(deck); own.observers.push(ro);
+    cv.addEventListener('webglcontextlost', e => { if (stopped) return; e.preventDefault(); lost = true; deck.classList.remove('gy3d'); stats.css = 'context lost'; }, false);
     cv.addEventListener('webglcontextrestored', () => {
+      if (stopped) return;
       lost = false; rtA = rtB = null;
       // what was drawn on the GPU is gone with it: the room's light again, then the bakes
-      try { S.environment = D.environment = room(R); size(); bake(); dirty = true; draw(sample(), performance.now()); deck.classList.add('gy3d'); stats.css = null; } catch (e) { off('restore failed'); }
+      try { S.environment = D.environment = own.env = room(R); size(); bake(); dirty = true; draw(sample(), performance.now()); deck.classList.add('gy3d'); stats.css = null; } catch (e) { off('restore failed'); }
     }, false);
 
     /* the first frame, then the 3D deck in place of the CSS one */
@@ -831,6 +1016,10 @@ async function main() {
     mark('first');
     deck.classList.add('gy3d');
     api.ready = true;
+    if (!OPT.test) return;
+    // ── for checks only (tests/browser/vinyl.test.js): not on a phone ──
+    api.off = why => off(why || 'test');
+    api.lost = () => gl.isContextLost();
     api.stylus = () => {
       // where the stylus tip is on screen (CSS px from the deck's top left), and where the piece's own arm puts it
       B.liftG.updateMatrixWorld(true);
@@ -856,7 +1045,7 @@ async function main() {
     api._ = { THREE, R, S, D, B, M, camera, rings, stats, pose, sample, size, bake, draw: () => draw(sample(), performance.now()) };
   } catch (e) {
     console.warn('deck3d: ' + (e && e.message));
-    fallback('init ' + String(e && e.message || e).slice(0, 30), R);
+    fallback('init ' + String(e && e.message || e).slice(0, 30), own);
   }
 }
-main();
+boot();

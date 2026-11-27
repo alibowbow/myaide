@@ -104,6 +104,16 @@
    "put": "case '1': case '2': case '3': case '4': { const i = +e.key - 1; if (ALBUMS[i] && ALBUMS[i].tracks.length) changeAlbum(i); else if (window.__gyEmpty) try { window.__gyEmpty(i); } catch (_) {} break; }"
   },
   {
+   "why": "H15 the piece's own list of 내 음악 holds its first 40 files (the add-on's sheet shows them all, 40 at a time)",
+   "find": "A.tracks.forEach((T, k) => {",
+   "put": "A.tracks.forEach((T, k) => {\n      if (A.mine && k >= 40) return;"
+  },
+  {
+   "why": "H14 the VU needles stepped in pieces of at most 16 ms: one step a frame diverges once frames come more than about 68 ms apart (a busy phone, the 3D deck baking)",
+   "find": "stepNeedle(VU.l, tl, dt); stepNeedle(VU.r, tr, dt);",
+   "put": "for (let s = dt; s > 1e-4; s -= 0.016) { const h = Math.min(0.016, s); stepNeedle(VU.l, tl, h); stepNeedle(VU.r, tr, h); }"
+  },
+  {
    "why": "H10 the add-on draws in the piece's own frame (one loop; it stops when the piece is hidden)",
    "find": "if (!pd) updateProgress(false);",
    "put": "if (!pd) updateProgress(false);\n    if (window.__gyFrame) try { window.__gyFrame(dt); } catch (e) {}"
@@ -111,7 +121,7 @@
   {
    "why": "H1 the piece's state and steps, for the add-on (getters: the piece's own variables, live)",
    "find": "setPlayUI(false);\n  drawArm();\n  raf = requestAnimationFrame(frame);",
-   "put": "setPlayUI(false);\n  drawArm();\n  window.__lp = {\n    ALBUMS, NUM, arm, GAP, TAIL, REST, R_OUT, R_IN, PX, PY, CX, CY, AL,\n    get albumIdx() { return albumIdx; }, get trackIdx() { return trackIdx; }, get songPos() { return songPos; },\n    get playing() { return playing; }, get busy() { return busy; }, get runout() { return runout; },\n    get motorOn() { return motorOn; }, get omega() { return omega; }, get spin() { return spin; },\n    get tweening() { return !!tween; }, get actx() { return actx; }, get master() { return master; },\n    get session() { return session; }, get vol() { return vol; }, get muted() { return muted; },\n    play, pause, toggle, gotoTrack, changeAlbum, seekTo, applyAlbum, refreshTrackUI, updateProgress, ensureAudio, setSurface,\n    thump(t, big) { if (actx) thump(t, big); },\n    angleForRadius, radiusAt, albumPos, trackDur, fmt,\n    setTrack(i, keep) { trackIdx = i; if (!keep) { songPos = 0; runout = false; } },\n    setPos(s) { songPos = s; }\n  };\n  raf = requestAnimationFrame(frame);"
+   "put": "setPlayUI(false);\n  drawArm();\n  window.__lp = {\n    ALBUMS, NUM, arm, GAP, TAIL, REST, R_OUT, R_IN, PX, PY, CX, CY, AL,\n    get albumIdx() { return albumIdx; }, get trackIdx() { return trackIdx; }, get songPos() { return songPos; },\n    get playing() { return playing; }, get busy() { return busy; }, get runout() { return runout; },\n    get motorOn() { return motorOn; }, get omega() { return omega; }, get spin() { return spin; },\n    get tweening() { return !!tween; }, get actx() { return actx; }, get master() { return master; },\n    get session() { return session; }, get vol() { return vol; }, get muted() { return muted; },\n    play, pause, toggle, gotoTrack, changeAlbum, seekTo, applyAlbum, refreshTrackUI, updateProgress, ensureAudio, setSurface, endOfSide,\n    thump(t, big) { if (actx) thump(t, big); },\n    angleForRadius, radiusAt, albumPos, trackDur, fmt,\n    setTrack(i, keep) { trackIdx = i; if (!keep) { songPos = 0; runout = false; } },\n    setPos(s) { songPos = s; }\n  };\n  raf = requestAnimationFrame(frame);"
   },
   {
    "why": "the add-on itself: the list bar and sheet, 내 음악 (vinyl.js) and the three.js deck (deck3d.js), from the app",

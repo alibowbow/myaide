@@ -115,10 +115,14 @@ public final class PieceMusic {
         name = name.replace('_', ' ').strip();
         return name.isEmpty() ? "제목 없는 곡" : name.length() > 120 ? name.substring(0, 120) : name;
     }
-    private static final Set<String> EXTENSIONS = Set.of("mp3", "m4a", "aac", "mp4", "ogg", "oga", "opus", "flac", "wav", "wave", "weba", "webm", "mka", "3gp", "amr", "mid", "midi");
-    /** Whether a document is sound by its type, or by its name when the provider says nothing useful. */
+    /** What the web view's audio element plays (not AMR, 3GP or MIDI: they would only show '재생할 수 없는 형식' on the list). */
+    private static final Set<String> EXTENSIONS = Set.of("mp3", "m4a", "aac", "mp4", "ogg", "oga", "opus", "flac", "wav", "wave", "weba", "webm", "mka");
+    private static final Set<String> UNPLAYABLE = Set.of("audio/amr", "audio/amr-wb", "audio/3gpp", "audio/3gpp2", "audio/midi", "audio/mid", "audio/x-midi", "audio/sp-midi", "audio/x-mid");
+    /** Whether a document is sound the page can play, by its type, or by its name when the provider says nothing useful. */
     public static boolean audio(String mime, String name) {
         String m = mime == null ? "" : mime.toLowerCase(Locale.ROOT);
+        int semi = m.indexOf(';'); if (semi >= 0) m = m.substring(0, semi).strip();
+        if (UNPLAYABLE.contains(m)) return false;
         if (m.startsWith("audio/") || m.equals("application/ogg") || m.equals("application/x-flac")) return true;
         if (!m.isEmpty() && !m.equals("application/octet-stream") && !m.equals("*/*")) return false;
         String n = name == null ? "" : name.toLowerCase(Locale.ROOT);
