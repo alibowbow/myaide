@@ -154,7 +154,13 @@ async function open(browser, at, bridge) {
     const pips = await p.evaluate(() => document.querySelectorAll('.tb.dice i.on').length), said = await p.evaluate(() => window._said);
     assert(pips >= 1 && pips <= 6, 'pips ' + pips);
     assert(said.some(t => t.startsWith(String(pips))), 'said ' + said.join(' / ') + ' for ' + pips);
-    const cube = await p.evaluate(() => { const r = document.querySelector('.tb.cube').getBoundingClientRect(); return {x: r.left + 10, y: r.top + 10}; });
+    // The dice's number may still be in 퍼레's bubble (it lifts the top of the board): let it go, then tap a point of the cube that
+    // is the cube on screen (not 퍼레 or a widget it rests on).
+    await p.evaluate(() => document.querySelector('.bubble').classList.remove('on')); await p.clock.runFor(100);
+    const cube = await p.evaluate(() => { const e = document.querySelector('.tb.cube'), r = e.getBoundingClientRect();
+      for (const fy of [.5, .3, .7, .15, .85]) for (const fx of [.5, .3, .7, .15, .85]) { const x = r.left + r.width * fx, y = r.top + r.height * fy, at = document.elementFromPoint(x, y); if (at && e.contains(at)) return {x, y}; }
+      return {x: r.left + r.width / 2, y: r.top + r.height / 2, blocked: (document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) || {}).className}; });
+    assert(!cube.blocked, 'the cube can be touched: ' + JSON.stringify(cube));
     await p.touchscreen.tap(cube.x, cube.y);
     await p.clock.runFor(200);
     const lights = await p.evaluate(() => Array.from(document.querySelectorAll('.tpanel .tg button')).map(b => b.classList.contains('on')));
