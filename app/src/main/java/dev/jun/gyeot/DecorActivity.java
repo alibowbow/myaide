@@ -535,7 +535,13 @@ public final class DecorActivity extends Activity {
         FrameLayout frame = new FrameLayout(this);
         android.webkit.WebView web = new android.webkit.WebView(this);
         android.webkit.WebSettings s = web.getSettings(); s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true); s.setAllowFileAccess(false); s.setAllowContentAccess(false);
-        web.setWebViewClient(new android.webkit.WebViewClient());
+        // The piece as it will be on a page: its fixes and the LP page's add-on (PieceExtras), low over the bottom here (no dock).
+        web.setWebViewClient(new android.webkit.WebViewClient() {
+            @Override public android.webkit.WebResourceResponse shouldInterceptRequest(android.webkit.WebView view, android.webkit.WebResourceRequest request) {
+                return PieceExtras.handle(DecorActivity.this, request, pick -> runOnUiThread(() -> { try { startActivity(pick); } catch (RuntimeException refused) { PieceMusicStore.of(DecorActivity.this).pick("cancelled"); } }));
+            }
+            @Override public void onPageFinished(android.webkit.WebView view, String loaded) { view.evaluateJavascript("window.__gyInsets&&__gyInsets(36,20)", null); }
+        });
         if (url.startsWith(HtmlWallpaper.PAGE)) { try { web.loadDataWithBaseURL(null, PageStore.book(this).body(url.substring(HtmlWallpaper.PAGE.length())), "text/html", "utf-8", null); } catch (Exception e) { Toast.makeText(this, "페이지를 열지 못했어요.", Toast.LENGTH_SHORT).show(); return; } }
         else web.loadUrl(url);
         frame.addView(web, new FrameLayout.LayoutParams(-1, -1));

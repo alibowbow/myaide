@@ -12,7 +12,8 @@ const { chromium } = require('playwright');
 const fs = require('fs'), path = require('path'), assert = require('assert');
 const DECOR = path.join(__dirname, '../../app/src/main/assets/decor');
 const KNOB = '<html><body style="margin:0;height:100vh;background:#3a2a1a"><div id="k" style="position:absolute;left:0;right:0;bottom:0;height:320px;touch-action:none"></div>'
-  + '<script>k.addEventListener("pointerdown",()=>parent.postMessage("knob","*"))</script></body></html>';
+  + '<script>k.addEventListener("pointerdown",()=>parent.postMessage("knob","*"));'
+  + 'addEventListener("message",e=>{if(e.data&&e.data.gyeot==="insets")parent.postMessage({heard:e.data,from:e.origin},"*")})</script></body></html>';
 let failed = 0;
 async function check(name, fn) {
   try { await fn(); console.log('PASS', name); } catch (e) { failed++; console.log('FAIL', name, '\n   ', e.message); }
@@ -375,6 +376,27 @@ async function open(browser, at) {
     for (const thing of ['w-roundglasses', 'w-book', 'w-heartglasses', 'w-cape', 'w-nerdglasses', 'w-mustache']) assert(!wear.includes(thing), thing + ' in ' + wear.join(' '));
   });
   await evening.ctx.close();
+
+  // A page of its own (the day page's run is seeded: its toys and plays must not be moved by this one).
+  const own = await open(browser, '2026-11-26T14:00:00+09:00');
+  await check('a page of the user\'s own hears where the system bar is (the LP page\'s list bar sits above it and the dots)', async () => {
+    const p = own.page;
+    await p.evaluate(() => { window._heard = []; addEventListener('message', e => { if (e.data && e.data.heard) window._heard.push(e.data); }); });
+    await p.evaluate(() => toPage(0, false)); await p.clock.runFor(300); // far away: the frame is emptied, and loads again
+    assert.strictEqual(await p.evaluate(() => document.querySelector('.page.custom iframe').getAttribute('src')), null);
+    await p.evaluate(() => toPage(2, false));
+    try {
+      await p.frameLocator('iframe').locator('#k').waitFor({ timeout: 15000 });
+      for (let i = 0; i < 20 && !(await p.evaluate(() => window._heard.length)); i++) { await p.clock.runFor(100); await p.waitForTimeout(50); }
+      await p.evaluate(() => launcher.insets(30, 26, 0));
+      for (let i = 0; i < 20 && (await p.evaluate(() => window._heard.length)) < 2; i++) { await p.clock.runFor(100); await p.waitForTimeout(50); }
+      const heard = await p.evaluate(() => window._heard);
+      assert(heard.length >= 2, 'told when it loaded and when the bars changed: ' + JSON.stringify(heard));
+      assert.strictEqual(heard[0].from, 'https://gyeot.local');
+      assert.deepStrictEqual(heard[heard.length - 1], { heard: { gyeot: 'insets', top: 30, bottom: 26 }, from: 'https://gyeot.local' });
+    } finally { await p.evaluate(() => toPage(1, false)); await p.clock.runFor(300); }
+  });
+  await own.ctx.close();
 
   await browser.close();
   console.log(failed ? failed + ' failed' : 'all passed');

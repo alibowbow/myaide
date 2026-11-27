@@ -770,6 +770,7 @@ function drawPages(list) {
     f.setAttribute("sandbox", "allow-scripts allow-same-origin allow-pointer-lock allow-forms");
     f.setAttribute("allow", "autoplay; accelerometer; gyroscope; fullscreen");
     f.setAttribute("title", p.title || ""); f.dataset.src = p.src.startsWith("page:") ? "https://pages.gyeot.local/" + encodeURIComponent(p.src.slice(5)) : p.src;
+    f.addEventListener("load", () => tellInsets(f));
     sec.appendChild(f);
     sec.insertAdjacentHTML("beforeend", '<div class="edge l"></div><div class="edge r"></div><div class="page-name">' + esc(p.title || "") + '</div>');
     pagesBox.appendChild(sec);
@@ -777,6 +778,14 @@ function drawPages(list) {
   el("dots").innerHTML = Array.from({length: 2 + PAGES.length}, () => "<i></i>").join("");
   if (pageAt > 1 + PAGES.length) toPage(1, false); else dotsAt(pageAt);
   frames();
+}
+/*
+  The bars a page should keep clear of, told to its frame (the LP page's list bar sits above the system bar and the page dots):
+  {gyeot: "insets", top, bottom} in CSS px, to the frame's own origin only.
+*/
+let INSETS = {top: 0, bottom: 0};
+function tellInsets(f) {
+  try { if (f.contentWindow && f.getAttribute("src")) f.contentWindow.postMessage({gyeot: "insets", top: INSETS.top, bottom: INSETS.bottom}, new URL(f.src).origin); } catch (e) {}
 }
 function frames() {
   pagesBox.querySelectorAll(".page.custom").forEach((sec, i) => {
@@ -1636,6 +1645,7 @@ window.launcher = {
   badges(k) { BADGES = k || {}; drawAll(); },
   insets(top, bottom, kb) {
     document.documentElement.style.setProperty("--top", top + "px"); document.documentElement.style.setProperty("--bottom", bottom + "px");
+    INSETS = {top: +top || 0, bottom: +bottom || 0}; pagesBox.querySelectorAll(".page.custom iframe").forEach(tellInsets);
     document.documentElement.style.setProperty("--kb", (kb || 0) + "px"); boards.forEach(fit);
     if (chatting) { const body = el("padBody"); requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; }); }
   },

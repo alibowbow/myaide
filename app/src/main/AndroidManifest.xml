@@ -198,6 +198,9 @@
         <service android:name=".ScreenRecordService" android:exported="false" android:foregroundServiceType="mediaProjection|microphone|shortService" />
         <activity android:name=".ScreenRecordActivity" android:exported="false" android:theme="@style/QuickTheme" android:taskAffinity=""
             android:excludeFromRecents="true" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
+        <!-- 내 음악 on the LP page: Android's own file picker for music files or a folder, over the page; closes by itself. -->
+        <activity android:name=".MusicPickActivity" android:exported="false" android:theme="@style/QuickTheme" android:taskAffinity=""
+            android:excludeFromRecents="true" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
         <service android:name=".MyTubeService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".LyriaService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".AssistantService" android:exported="false"

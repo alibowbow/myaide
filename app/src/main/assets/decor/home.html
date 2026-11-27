@@ -46,6 +46,9 @@ function build() { G.slots.forEach((slot, i) => {
     f.setAttribute("sandbox", "allow-scripts allow-same-origin allow-pointer-lock");
     f.setAttribute("allow", "autoplay; accelerometer; gyroscope");
     f.setAttribute("title", slot.title || "");
+    // Under the phone's own home screen: the status bar above, its dock and the system bar below (the LP page's list bar
+    // sits above them).
+    f.addEventListener("load", () => { try { if (f.src.startsWith("https://")) f.contentWindow.postMessage({gyeot: "insets", top: 28, bottom: 24 + 120}, new URL(f.src).origin); } catch (e) {} });
     el.appendChild(f);
     frames.push({i, f, src: slot.src.startsWith("page:") ? "https://pages.gyeot.local/" + encodeURIComponent(slot.src.slice(5)) : slot.src, on: false, far: 0});
   }

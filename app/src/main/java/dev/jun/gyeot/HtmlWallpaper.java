@@ -147,7 +147,7 @@ public final class HtmlWallpaper extends WallpaperService {
                     try { return html(PageStore.book(HtmlWallpaper.this).body(Uri.decode(u.getLastPathSegment() == null ? "" : u.getLastPathSegment()))); }
                     catch (Exception gone) { return html(waiting("이 페이지를 찾지 못했어요")); }
                 }
-                return tuned(request);
+                return PieceExtras.handle(HtmlWallpaper.this, request, Web.this::openPick);
             }
             @Override public void onPageFinished(WebView view, String url) {
                 if (!board || url == null || !url.startsWith(HOME)) return;
@@ -263,6 +263,21 @@ public final class HtmlWallpaper extends WallpaperService {
                 });
             } catch (RuntimeException stopped) { /* the engine is going */ }
         }
+        /**
+         * 내 음악's 파일 추가 from a piece on the wallpaper (no window of the app is in front): the picker opens the way voice opens
+         * a screen, else a notification that opens it with one tap (the page's sheet then says so).
+         */
+        private void openPick(Intent pick) {
+            main.post(() -> {
+                Intent open = new Intent(pick).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                String route;
+                try { route = DeviceActionRunner.start(HtmlWallpaper.this, open, false); } catch (RuntimeException none) { route = "notification"; }
+                if (!DeviceActionRunner.started(route)) {
+                    boolean posted = DeviceActionRunner.post(HtmlWallpaper.this, open, "눌러서 음악 파일을 골라요");
+                    PieceMusicStore.of(HtmlWallpaper.this).pick(posted ? "notification" : "cancelled");
+                }
+            });
+        }
         /** A tap on the board: the app's screen, through the route voice uses (the edge handle's accessibility service, or the overlay). */
         private void act(String what) {
             if (locked || what == null) return;
@@ -330,23 +345,28 @@ public final class HtmlWallpaper extends WallpaperService {
     static WebResourceResponse html(String body) {
         return new WebResourceResponse("text/html", "utf-8", new ByteArrayInputStream(body.getBytes(StandardCharsets.UTF_8)));
     }
-    /** Showcase pieces fixed (PieceTune: the turntables' record noise), by path; "" when a piece's fixes no longer match. */
+    /**
+     * Showcase pieces fixed (PieceTune: the turntables' record noise, the LP page's add-on), by path; "" when a piece's fixes no
+     * longer match. Kept only while the app runs (the LP page's add-on key is this run's: PieceExtras).
+     */
     private static final Map<String, String> TUNED = new java.util.concurrent.ConcurrentHashMap<>();
     /**
      * A piece with fixes, fetched once and kept while the app runs; null to let the web view load the piece as it is (not one
-     * with fixes, offline, or changed so a fix no longer matches). Called on the web view's own request thread.
+     * with fixes, offline, or changed so a fix no longer matches: which one goes in the diagnostic report, once a run). Called
+     * on the web view's own request thread. The 내 음악 and add-on addresses go through PieceExtras.handle first.
      */
-    static WebResourceResponse tuned(WebResourceRequest request) {
+    static WebResourceResponse tuned(Context c, WebResourceRequest request) {
         Uri u = request.getUrl(); String path = u.getPath();
         if (!"GET".equalsIgnoreCase(request.getMethod()) || !PieceTune.knows(u.getHost(), path)) return null;
         String page = TUNED.get(path);
         if (page == null) {
             String body = get("https://" + HtmlShowcase.HOST + path, 2_000_000);
             if (body == null) return null;
-            String fixed = PieceTune.tune(path, body);
-            page = fixed == null ? "" : fixed; TUNED.put(path, page);
+            PieceTune.Tuned fixed = PieceTune.apply(path, body);
+            if (fixed.html() == null) DiagnosticsExport.record(c, "other", "꾸미기 작품이 바뀌어 고침 " + fixed.failed() + "번째가 맞지 않아 원본으로 띄웠어요 (" + fixed.why() + ")");
+            page = fixed.html() == null ? "" : fixed.html(); TUNED.put(path, page);
         }
-        return page.isEmpty() ? null : html(page);
+        return page.isEmpty() ? null : html(PieceExtras.keyed(page));
     }
     static WebResourceResponse missing() {
         return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found", Map.of(), new ByteArrayInputStream(new byte[0]));

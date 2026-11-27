@@ -1,0 +1,122 @@
+{
+ "piece": "Opus 5.5 · 057 Hi-Fi Walnut — Vinyl Listening Room",
+ "path": "/Claude-Opus-5.5-100-HTML-Files/057-vinyl-listening-room.html",
+ "note": "Each find is exact text that must occur once in the page as the fixes before it left it; when one does not, the piece is shown as it is (core/PieceTune). tests/browser/vinyl.test.js checks them against the live piece.",
+ "fixes": [
+  {
+   "why": "noise: the loop four times longer, so the ear does not hear it go round",
+   "find": "const cLen = Math.floor(sr * 3.6), cb",
+   "put": "const cLen = Math.floor(sr * 14.4), cb"
+  },
+  {
+   "why": "noise: the hiss a third as loud",
+   "find": "d[i] = (w - lp) * 0.0065;",
+   "put": "d[i] = (w - lp) * 0.0022;"
+  },
+  {
+   "why": "noise: five pops a second instead of twenty",
+   "find": "const pops = Math.floor(3.6 * 20);",
+   "put": "const pops = Math.floor(14.4 * 5);"
+  },
+  {
+   "why": "noise: softer pops",
+   "find": "amp = 0.015 + Math.pow(Math.random(), 3) * 0.3,",
+   "put": "amp = 0.008 + Math.pow(Math.random(), 4) * 0.09,"
+  },
+  {
+   "why": "noise: the scratch still ticks once a turn over the longer loop",
+   "find": "for (const t0 of [0.42, 2.22])",
+   "put": "for (const t0 of [0.42, 2.22, 4.02, 5.82, 7.62, 9.42, 11.22, 13.02])"
+  },
+  {
+   "why": "noise: a softer scratch",
+   "find": "d[pos + j] += 0.2 * Math.exp(-j / 26)",
+   "put": "d[pos + j] += 0.05 * Math.exp(-j / 30)"
+  },
+  {
+   "why": "noise: a softer scratch thump",
+   "find": "+ 0.05 * Math.sin(j / sr * 2 * Math.PI * 85)",
+   "put": "+ 0.02 * Math.sin(j / sr * 2 * Math.PI * 85)"
+  },
+  {
+   "why": "noise: through a warm lowpass",
+   "find": "cs.connect(chp); chp.connect(crackleGain);",
+   "put": "const clp = actx.createBiquadFilter(); clp.type = 'lowpass'; clp.frequency.value = 4600; clp.Q.value = 0.5; cs.connect(chp); chp.connect(clp); clp.connect(crackleGain);"
+  },
+  {
+   "why": "noise: the surface quieter under the music",
+   "find": "on ? 0.55 * A.crackle : 0",
+   "put": "on ? 0.36 * A.crackle : 0"
+  },
+  {
+   "why": "H12 track numbers past iv., and A1, A2 … for 내 음악 (a Proxy: the piece reads NUM[k] as before)",
+   "find": "const NUM = ['i.', 'ii.', 'iii.', 'iv.'];",
+   "put": "const NUM = new Proxy(['i.', 'ii.', 'iii.', 'iv.'], { get(a, k) { if (typeof k === 'string' && /^\\d+$/.test(k)) { const A = ALBUMS[albumIdx]; if (A && A.mine) return 'A' + (+k + 1); if (a[k] === undefined) return (+k + 1) + '.'; } return a[k]; } });"
+  },
+  {
+   "why": "H2 a file's track lasts as long as the file",
+   "find": "function trackDur(A, T) { return T.bars * barLen(A, T) + TAIL; }",
+   "put": "function trackDur(A, T) { return T.dur != null ? T.dur : T.bars * barLen(A, T) + TAIL; }"
+  },
+  {
+   "why": "H3 a file's clock is its audio element",
+   "find": "function songNow() { return startSong + (actx.currentTime - startAudio); }",
+   "put": "function songNow() { const M = ALBUMS[albumIdx].mine; if (M) { try { return M.pos(); } catch (e) { return songPos; } } return startSong + (actx.currentTime - startAudio); }"
+  },
+  {
+   "why": "H4 a file plays from its audio element: no synthesizer session, no bar scheduler",
+   "find": "function startAt(s) {",
+   "put": "function startAt(s) {\n    const M = ALBUMS[albumIdx].mine;\n    if (M) { clearInterval(schedTimer); schedTimer = 0; endSession(); try { M.start(trackIdx, s); } catch (e) {} return; }"
+  },
+  {
+   "why": "H5 stopping stops a file too (pause, another track, another record)",
+   "find": "function stopAudio() {",
+   "put": "function stopAudio() {\n    for (const A of ALBUMS) if (A.mine) try { A.mine.stop(); } catch (e) {}"
+  },
+  {
+   "why": "H6 at a file's end the next file starts from its beginning",
+   "find": "startSong -= trackDur(A, T) + GAP; trackIdx++; nextBar = 0; songPos = songNow();",
+   "put": "if (A.mine) { trackIdx++; songPos = 0; startAt(0); } else { startSong -= trackDur(A, T) + GAP; trackIdx++; nextBar = 0; songPos = songNow(); }"
+  },
+  {
+   "why": "H7 a label for every record there is (lab3: 내 음악)",
+   "find": "for (let k = 0; k < 3; k++) $('lab' + k).style.display = k === albumIdx ? '' : 'none';",
+   "put": "for (let k = 0; k < ALBUMS.length; k++) { const lab = $('lab' + k); if (lab) lab.style.display = k === albumIdx ? '' : 'none'; }"
+  },
+  {
+   "why": "H8 a record with fewer than three tracks: no band (NaN% would drop the whole record background)",
+   "find": "const band = k => { const t = A.starts[k] - GAP / 2;",
+   "put": "const band = k => { if (A.starts[k] == null) return '-9%'; const t = A.starts[k] - GAP / 2;"
+  },
+  {
+   "why": "H11 the add-on hears when the track or the record changes (refreshTrackUI's end)",
+   "find": "updateProgress(true);\n  }\n  let lastSec = -1;",
+   "put": "updateProgress(true);\n    if (window.__gyTrack) try { window.__gyTrack(); } catch (e) {}\n  }\n  let lastSec = -1;"
+  },
+  {
+   "why": "H9 the VU meters read a real recording (far louder than the synthesizer) at its own calibration",
+   "find": "20 * Math.log10(rms) + 17;",
+   "put": "20 * Math.log10(rms) + (ALBUMS[albumIdx].vu != null ? ALBUMS[albumIdx].vu : 17);"
+  },
+  {
+   "why": "H13 key 4 is 내 음악 (an empty one opens the list to add files)",
+   "find": "case '1': case '2': case '3': changeAlbum(+e.key - 1); break;",
+   "put": "case '1': case '2': case '3': case '4': { const i = +e.key - 1; if (ALBUMS[i] && ALBUMS[i].tracks.length) changeAlbum(i); else if (window.__gyEmpty) try { window.__gyEmpty(i); } catch (_) {} break; }"
+  },
+  {
+   "why": "H10 the add-on draws in the piece's own frame (one loop; it stops when the piece is hidden)",
+   "find": "if (!pd) updateProgress(false);",
+   "put": "if (!pd) updateProgress(false);\n    if (window.__gyFrame) try { window.__gyFrame(dt); } catch (e) {}"
+  },
+  {
+   "why": "H1 the piece's state and steps, for the add-on (getters: the piece's own variables, live)",
+   "find": "setPlayUI(false);\n  drawArm();\n  raf = requestAnimationFrame(frame);",
+   "put": "setPlayUI(false);\n  drawArm();\n  window.__lp = {\n    ALBUMS, NUM, arm, GAP, TAIL, REST, R_OUT, R_IN, PX, PY, CX, CY, AL,\n    get albumIdx() { return albumIdx; }, get trackIdx() { return trackIdx; }, get songPos() { return songPos; },\n    get playing() { return playing; }, get busy() { return busy; }, get runout() { return runout; },\n    get motorOn() { return motorOn; }, get omega() { return omega; }, get spin() { return spin; },\n    get tweening() { return !!tween; }, get actx() { return actx; }, get master() { return master; },\n    get session() { return session; }, get vol() { return vol; }, get muted() { return muted; },\n    play, pause, toggle, gotoTrack, changeAlbum, seekTo, applyAlbum, refreshTrackUI, updateProgress, ensureAudio, setSurface,\n    thump(t, big) { if (actx) thump(t, big); },\n    angleForRadius, radiusAt, albumPos, trackDur, fmt,\n    setTrack(i, keep) { trackIdx = i; if (!keep) { songPos = 0; runout = false; } },\n    setPos(s) { songPos = s; }\n  };\n  raf = requestAnimationFrame(frame);"
+  },
+  {
+   "why": "the add-on itself: the list bar and sheet, 내 음악 (vinyl.js) and the three.js deck (deck3d.js), from the app",
+   "find": "</body>",
+   "put": "<link rel=\"stylesheet\" href=\"/__gyeot/addon/vinyl.css\">\n<script type=\"importmap\">{\"imports\":{\"three\":\"/__gyeot/lib/three.module.js\"}}</script>\n<script>window.__GY = { key: \"__GY_KEY__\" };</script>\n<script src=\"/__gyeot/addon/vinyl.js\"></script>\n<script type=\"module\" src=\"/__gyeot/addon/deck3d.js\"></script>\n</body>"
+  }
+ ]
+}
