@@ -3220,7 +3220,7 @@ public final class MainActivity extends Activity {
             String current = selection.model(engine); JSONArray models = engineModels(engine);
             shown[0] = engine + "\u0000" + models + "\u0000" + current + "\u0000" + selection.effort(engine, current) + "\u0000" + store.openai.modelsStatus();
             providers.removeAllViews(); String[] ids = {WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY, WorkBook.GROQ};
-            providers.addView(ui.pills(new String[]{"ChatGPT", "Claude", "Gemini", "Grok", "NIM"}, java.util.Arrays.asList(ids).indexOf(engine), index -> {
+            providers.addView(ui.pills(new String[]{"ChatGPT", "Claude", "Gemini", "Grok", "NIM", "Antigravity", "Groq"}, java.util.Arrays.asList(ids).indexOf(engine), index -> {
                 if (ids[index].equals(selection.engine())) return;
                 try { selection.chooseEngine(ids[index]); } catch (Exception e) { store.error(e.getMessage()); return; }
                 search.setText(""); fill[0].run();
