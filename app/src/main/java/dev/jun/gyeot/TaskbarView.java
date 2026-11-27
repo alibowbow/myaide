@@ -85,10 +85,11 @@ final class TaskbarView extends FrameLayout {
      * Lays the bar out for a screen screenWidth wide whose system bar is barHeight tall and starts at barTop (screen pixels),
      * at this density. What does not fit is left out: recent apps first, then the dock's last ones.
      */
-    void show(List<Item> dock, List<Item> recent, int screenWidth, int barHeight, int barTop, boolean dark, float density) {
+    void show(List<Item> dock, List<Item> recent, int screenWidth, int barHeight, int barTop, boolean dark, float density) { show(dock, recent, screenWidth, barHeight, barTop, dark, density, -1); }
+    void show(List<Item> dock, List<Item> recent, int screenWidth, int barHeight, int barTop, boolean dark, float density, int buttonsLeft) {
         this.dark = dark; this.screenWidth = screenWidth; this.barTop = barTop; this.barHeight = barHeight;
         this.density = density; slop = ViewConfiguration.get(getContext()).getScaledTouchSlop();
-        layout = TaskbarPlan.layout(screenWidth, barHeight, density, dock.size(), recent.size());
+        layout = TaskbarPlan.layout(screenWidth, barHeight, density, dock.size(), recent.size(), buttonsLeft);
         opaqueEnd = layout.opaqueEnd(); fade = layout.fade();
         removeAllViews();
         int glyph = dark ? DARK_GLYPH : LIGHT_GLYPH;
@@ -103,7 +104,8 @@ final class TaskbarView extends FrameLayout {
         }
         for (int j = 0; j < layout.shownRecent(); j++) app(recent.get(j), layout.recent()[j]);
         String[] names = {"최근 앱", "홈", "뒤로"}; int[] kinds = {Glyph.RECENTS, Glyph.HOME, Glyph.BACK};
-        for (int k = 0; k < 3; k++) {
+        // (none now: the system's own buttons stay uncovered, TaskbarPlan.layout)
+        for (int k = 0; k < layout.nav().length; k++) {
             int which = k;
             ImageView nav = button(new Glyph(kinds[k], glyph, density), names[k], Math.min(layout.navWidth(), 2 * (opaqueEnd - layout.nav()[k])), layout.nav()[k]);
             nav.setOnClickListener(v -> { tick(v); actions.nav(which); });
@@ -170,6 +172,9 @@ final class TaskbarView extends FrameLayout {
     }
 
     @Override protected void onDraw(Canvas canvas) {
+        // No fill of its own: the system bar under it (its app area is empty) shows through, so the bar is one piece with the
+        // system's own buttons beside it, in whatever colour the app in front gives it.
+        if (layout != null && layout.nav().length == 0) return;
         int color = barColor(), h = getHeight(), solid = Math.max(0, Math.min(getWidth(), opaqueEnd) - fade);
         fill.setShader(null); fill.setColor(color);
         canvas.drawRect(0, 0, solid, h, fill);

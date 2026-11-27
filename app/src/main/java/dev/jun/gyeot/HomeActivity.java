@@ -72,6 +72,8 @@ public final class HomeActivity extends Activity {
     static final String PAGE = "page";
     /** The home screen is on screen (between onStart and onStop): the 작업 표시줄 (Taskbar) hides then. shownAt: its last onStart. */
     static volatile boolean visible;
+    /** In front and taking input (onResume … onPause): the taskbar hides at once, whatever window event came last. */
+    static volatile boolean resumed;
     static volatile long shownAt;
     /**
      * The home screen while it exists (stopped behind other apps too): the 작업 표시줄 starts an app beside the one in front from
@@ -235,7 +237,7 @@ public final class HomeActivity extends Activity {
         if (talk.on()) talk.stop(); else talk.start(seed);
     }
     @Override protected void onResume() {
-        super.onResume(); shown = true;
+        super.onResume(); shown = true; resumed = true; PhoneService.taskbarChanged();
         NoticeListener.changed = badgesChanged; NoticeListener.deliveryChanged = deliveryChanged;
         main.removeCallbacks(refresh); if (ready) { refresh.run(); pushBadges(); if (web != null) web.evaluateJavascript("launcher.shown&&launcher.shown()", null); }
         BuddyVoice talk = BuddyVoice.current(); if (talk != null) talk.attach(talkShown, talkUnlock);
@@ -244,6 +246,7 @@ public final class HomeActivity extends Activity {
     /** 퍼레 itself, asked by voice or in the talk (BuddyBoard): a launcher.self() call to the page. */
     private final java.util.function.Consumer<String> selfCall = call -> js(call);
     @Override protected void onPause() {
+        resumed = false; PhoneService.taskbarChanged();
         BuddyBoard.away();
         shown = false; pausedAt = android.os.SystemClock.uptimeMillis(); NoticeListener.changed = null; NoticeListener.deliveryChanged = null; main.removeCallbacks(refresh); main.removeCallbacks(boardSoon);
         prefs.edit().putLong("awaySince", System.currentTimeMillis()).apply();

@@ -6,8 +6,8 @@ import java.util.List;
  * 들퍼레 작업 표시줄 (준: "그게 있어야 화면 나누기로 앱 멀티태스크 실행이 가능하거든"): Samsung draws its taskbar only with One UI
  * Home; with 들퍼레 as the home app it falls back to a plain bar whose app area is empty and whose buttons move elsewhere.
  * While another app is in front, 들퍼레 lays its own bar exactly over that one: an all-apps button, the dock's apps, a thin
- * divider, a few recent apps, and recents · home · back where One UI keeps them (72%, 81%, 90%). The far right (the
- * accessibility button) stays the system's own. Plain numbers only, so every rule here is tested off the phone.
+ * divider and a few recent apps, up to the system's own recents · home · back, which it never covers (in the user's own theme
+ * and places). Plain numbers only, so every rule here is tested off the phone.
  */
 public final class TaskbarPlan {
     private TaskbarPlan() {}
@@ -113,6 +113,11 @@ public final class TaskbarPlan {
     }
     /** The centers of recents, home and back. */
     public static int[] nav(int width) { return new int[]{Math.round(width * RECENTS), Math.round(width * HOME), Math.round(width * BACK)}; }
+    /**
+     * Where the system's own buttons start when they cannot be read from the screen: Samsung's plain bar keeps recents · home
+     * · back further left than One UI's taskbar (59%, 72%, 85% on 준's Fold, 2026-11-27), each about 9% wide.
+     */
+    public static final float BUTTONS_LEFT = 0.53f;
 
     /**
      * Where everything sits on a bar width wide (the screen's width), in pixels from its left edge. dock and recent: how
@@ -122,23 +127,31 @@ public final class TaskbarPlan {
         public int shownDock() { return dock.length; }
         public int shownRecent() { return recent.length; }
     }
-    public static Layout layout(int width, int barHeight, float density, int dockCount, int recentCount) {
+    public static Layout layout(int width, int barHeight, float density, int dockCount, int recentCount) { return layout(width, barHeight, density, dockCount, recentCount, -1); }
+    /**
+     * The bar stops before the system's own recents · home · back (buttonsLeft: the left edge of the leftmost, read from the
+     * screen; -1: not read, BUTTONS_LEFT of the width) and draws none of its own (준: "탭버튼 홈버튼 뒤로가기 버튼 위치 모양이 자꾸
+     * 바껴": its own were at One UI's places and in its own shapes, the phone's are elsewhere and in the user's theme).
+     */
+    public static Layout layout(int width, int barHeight, float density, int dockCount, int recentCount, int buttonsLeft) {
         int slot = Math.max(Math.round(44 * density), Math.min(Math.round(56 * density), Math.round(width * 0.06f)));
         int icon = Math.min(Math.round(34 * density), Math.round(barHeight * 0.78f));
-        int[] nav = nav(width); int navWidth = Math.round(width * NAV_WIDTH);
+        int[] nav = new int[0]; int navWidth = 0;
         int gap = slot / 4, margin = Math.round(8 * density);
-        int limitLeft = margin, limitRight = nav[0] - navWidth / 2 - margin;
+        int edge = buttonsLeft > width / 4 && buttonsLeft < width ? buttonsLeft : Math.round(width * BUTTONS_LEFT);
+        int opaqueEnd = Math.max(0, edge - Math.round(4 * density));
+        int limitLeft = margin, limitRight = opaqueEnd - margin;
         int d = Math.max(0, dockCount), r = Math.max(0, Math.min(MOST_RECENT, recentCount));
         while (groupWidth(slot, gap, d, r) > limitRight - limitLeft && (d > 0 || r > 0)) { if (r > 0) r--; else d--; }
         int group = groupWidth(slot, gap, d, r);
-        int left = Math.round(width * GROUP_CENTER) - group / 2;
-        left = Math.max(limitLeft, Math.min(left, limitRight - group));
+        // In the middle of the room left of the system's buttons (One UI's 42.5% no longer leaves the room it needs).
+        int left = limitLeft + Math.max(0, (limitRight - limitLeft - group) / 2);
         int[] dock = new int[d], recent = new int[r];
         for (int i = 0; i < d; i++) dock[i] = left + slot * (1 + i) + slot / 2;
         int divider = d > 0 && r > 0 ? left + slot * (1 + d) + gap / 2 : -1;
         int recentLeft = left + slot * (1 + d) + (d > 0 && r > 0 ? gap : 0);
         for (int j = 0; j < r; j++) recent[j] = recentLeft + slot * j + slot / 2;
-        return new Layout(slot, icon, left + slot / 2, dock, divider, recent, nav, navWidth, Math.round(width * OPAQUE_END), Math.round(12 * density));
+        return new Layout(slot, icon, left + slot / 2, dock, divider, recent, nav, navWidth, opaqueEnd, 0);
     }
     private static int groupWidth(int slot, int gap, int dock, int recent) { return slot * (1 + dock + recent) + (dock > 0 && recent > 0 ? gap : 0); }
 

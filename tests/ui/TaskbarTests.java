@@ -61,7 +61,7 @@ import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
 
 /**
- * 들퍼레 작업 표시줄 (Taskbar): its place over the system bar, the nav buttons at One UI's 72/81/90%, the accessibility button
+ * 들퍼레 작업 표시줄 (Taskbar): its place over the system bar, up to the system's own nav buttons (never covered), the accessibility button
  * left free, what fits, when it shows and hides (the recents screen and an app opened from home included), the split steps
  * as the controller runs them (started from the home screen activity, the split read from the windows' places alone, no
  * toggle over a split, the log line, the chip to the recents screen), why it is hidden on its settings row and in the phone
@@ -101,18 +101,20 @@ public class TaskbarTests {
         assertEquals(Hidden.NONE, TaskbarPlan.hidden(covered)); assertEquals(BAR, TaskbarPlan.barHeight(covered));
     }
 
-    @Test public void navButtonsAtOneUisPlacesAndTheAccessibilityButtonFree() {
-        int[] nav = TaskbarPlan.nav(W);
-        assertEquals(Math.round(W * 0.72f), nav[0]); assertEquals(Math.round(W * 0.81f), nav[1]); assertEquals(Math.round(W * 0.90f), nav[2]);
-        // On the 1080 px screenshot: recents ≈780, home ≈875, back ≈970, as Samsung's own taskbar.
-        int[] shot = TaskbarPlan.nav(1080);
-        assertTrue(Math.abs(shot[0] - 780) <= 10 && Math.abs(shot[1] - 875) <= 10 && Math.abs(shot[2] - 970) <= 10);
-        TaskbarPlan.Layout l = TaskbarPlan.layout(1080, 63, 1.31f, 4, 3);
-        // The accessibility button sits at ≈1040-1048 of 1080: the bar stops before 94%.
-        assertTrue("opaque end " + l.opaqueEnd(), l.opaqueEnd() <= Math.round(1080 * 0.94f) && l.opaqueEnd() < 1040 - 20);
-        TaskbarPlan.Layout big = TaskbarPlan.layout(W, BAR, D, 4, 3);
-        assertTrue(big.opaqueEnd() <= W * 0.94f + 1);
-        assertTrue("back's touch area ends inside the bar", big.nav()[2] + Math.min(big.navWidth(), 2 * (big.opaqueEnd() - big.nav()[2])) / 2 <= big.opaqueEnd());
+    /**
+     * The system's own recents · home · back are never covered (준, 2026-11-27: "탭버튼 홈버튼 뒤로가기 버튼 위치 모양이 자꾸 바껴":
+     * the bar drew its own at One UI's 72/81/90% while the phone's, in the user's theme, sit at 59/72/85%): the bar stops
+     * before the leftmost one read from the screen, else before 53% of the width, and draws none of its own.
+     */
+    @Test public void theSystemsOwnButtonsStayUncovered() {
+        TaskbarPlan.Layout read = TaskbarPlan.layout(1080, 63, 1.31f, 4, 3, 615);
+        assertEquals("no buttons of its own", 0, read.nav().length);
+        assertTrue("it ends before the system's recents (615): " + read.opaqueEnd(), read.opaqueEnd() <= 615 - 4 && read.opaqueEnd() > 560);
+        TaskbarPlan.Layout guessed = TaskbarPlan.layout(W, BAR, D, 4, 3);
+        assertEquals("not read: 53% of the width", Math.round(W * 0.53f) - Math.round(4 * D), guessed.opaqueEnd());
+        assertEquals("a reading that cannot be the buttons is not used", guessed.opaqueEnd(), TaskbarPlan.layout(W, BAR, D, 4, 3, 12).opaqueEnd());
+        assertEquals(guessed.opaqueEnd(), TaskbarPlan.layout(W, BAR, D, 4, 3, W + 40).opaqueEnd());
+        assertEquals("no fade: the system bar shows through", 0, guessed.fade());
     }
 
     @Test public void iconsThatFitAndTheGroupWhereOneUiHasIt() {
@@ -121,15 +123,16 @@ public class TaskbarTests {
         assertTrue("a divider between the dock and the recent apps", l.divider() > l.dock()[3] && l.divider() < l.recent()[0]);
         assertTrue("icons 32-36dp: " + l.icon() / D, l.icon() >= 32 * D - 1 && l.icon() <= 36 * D + 1);
         assertTrue("slots apart", l.slot() >= 44 * D - 1);
-        int groupRight = l.recent()[2] + l.slot() / 2, navLeft = l.nav()[0] - l.navWidth() / 2;
-        assertTrue("the apps end before recents: " + groupRight + " < " + navLeft, groupRight < navLeft);
-        // All-apps near One UI's 21%.
-        assertTrue("all-apps at " + l.apps() / (float) W, Math.abs(l.apps() / (float) W - 0.21f) < 0.04f);
+        int groupRight = l.recent()[2] + l.slot() / 2;
+        assertTrue("the apps end before the system's buttons: " + groupRight + " < " + l.opaqueEnd(), groupRight < l.opaqueEnd());
+        // The group in the middle of the room left of the system's buttons.
+        int groupLeft = l.apps() - l.slot() / 2;
+        assertTrue("centered: " + groupLeft + " and " + (l.opaqueEnd() - groupRight), Math.abs(groupLeft - (l.opaqueEnd() - groupRight)) <= Math.round(2 * D) + 1);
         // Too many: the recent apps go first, then the dock's last ones; nothing crosses into the nav buttons.
         TaskbarPlan.Layout many = TaskbarPlan.layout(W, BAR, D, 12, 3);
         assertEquals(0, many.shownRecent()); assertTrue(many.shownDock() < 12 && many.shownDock() >= 6);
         assertEquals(-1, many.divider());
-        assertTrue(many.dock()[many.shownDock() - 1] + many.slot() / 2 < many.nav()[0] - many.navWidth() / 2);
+        assertTrue(many.dock()[many.shownDock() - 1] + many.slot() / 2 < many.opaqueEnd());
         assertTrue(many.apps() - many.slot() / 2 >= 0);
         // A tablet in landscape: wider slots, still clear of the buttons.
         TaskbarPlan.Layout wide = TaskbarPlan.layout(2960, 108, 2.25f, 6, 3);
@@ -222,7 +225,7 @@ public class TaskbarTests {
     private static List<View> views(WindowManager manager) { return ((ShadowWindowManagerImpl) Shadow.extract(manager)).getViews(); }
     private static void idle() { for (int i = 0; i < 20; i++) { shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(200)); try { Thread.sleep(20); } catch (InterruptedException e) { return; } } }
 
-    @Test @Config(qualifiers="w825dp-h960dp-360dpi") public void overlayOverTheBarHidesOnHomeAndWorksTheButtons() {
+    @Test @Config(qualifiers="w825dp-h960dp-360dpi") public void overlayOverTheBarHidesOnHomeAndLeavesTheButtons() {
         GyeotApp app = (GyeotApp) RuntimeEnvironment.getApplication(); AppStore store = app.store();
         PhoneService service = Robolectric.buildService(PhoneService.class).create().get();
         RoleManager roles = service.getSystemService(RoleManager.class);
@@ -243,22 +246,21 @@ public class TaskbarTests {
             WindowManager.LayoutParams p = (WindowManager.LayoutParams) view.getLayoutParams();
             assertEquals(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, p.type);
             assertEquals("the system bar's height", BAR, p.height);
-            assertEquals("up to 94%: the accessibility button stays the system's", Math.round(w * 0.94f), p.width);
+            assertEquals("up to the system's own buttons (53% when they cannot be read): they stay the system's", TaskbarPlan.layout(w, BAR, service.getResources().getDisplayMetrics().density, 0, 0).opaqueEnd(), p.width);
             assertEquals(android.view.Gravity.BOTTOM | android.view.Gravity.LEFT, p.gravity);
             assertTrue("touches outside its rect pass through", (p.flags & WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL) != 0);
             assertTrue("never takes the keyboard", (p.flags & WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) != 0);
             assertEquals("laid over the bar, not pushed above it", 0, p.getFitInsetsTypes());
-            // Recents, home and back work through the global actions.
-            for (String[] b : new String[][]{{"최근 앱", "" + AccessibilityService.GLOBAL_ACTION_RECENTS}, {"홈", "" + AccessibilityService.GLOBAL_ACTION_HOME}, {"뒤로", "" + AccessibilityService.GLOBAL_ACTION_BACK}}) {
-                View button = described(view, b[0]); assertNotNull(b[0], button);
-                assertTrue(button.performClick());
-                List<Integer> done = shadowOf(service).getGlobalActionsPerformed();
-                assertEquals(b[0], Integer.parseInt(b[1]), (int) done.get(done.size() - 1));
-            }
+            // Recents, home and back are the system's own: none drawn here.
+            for (String b : new String[]{"최근 앱", "홈", "뒤로"}) assertNull(b + " is the system's", described(view, b));
             // The home screen comes: gone; the keyboard: gone; another app again: back.
             HomeActivity.visible = true; bar.refresh();
             assertEquals(Hidden.HOME, bar.hidden());
             assertFalse(views(manager).contains(view));
+            // In front (resumed), it stays gone even when an app's window event comes after it (a screen recorder's countdown).
+            HomeActivity.visible = false; HomeActivity.resumed = true; bar.refresh();
+            assertEquals("home resumed: no bar, whatever came last", Hidden.HOME, bar.hidden());
+            HomeActivity.resumed = false; HomeActivity.visible = true; bar.refresh();
             HomeActivity.visible = false; windows.add(window(AccessibilityWindowInfo.TYPE_INPUT_METHOD, new Rect(0, h / 2, w, h))); shadowOf(service).setWindows(windows); bar.refresh();
             assertEquals(Hidden.KEYBOARD, bar.hidden());
             windows.remove(2); shadowOf(service).setWindows(windows); bar.refresh();
@@ -566,9 +568,7 @@ public class TaskbarTests {
     @Test @Config(qualifiers="w825dp-h960dp-360dpi") public void barDrawnLightAndDarkOverAnApp() throws Exception {
         TaskbarView light = bar(false), dark = bar(true);
         for (TaskbarView view : new TaskbarView[]{light, dark}) {
-            assertEquals(Math.round(W * 0.72f), centerX(described(view, "최근 앱")), 2);
-            assertEquals(Math.round(W * 0.81f), centerX(described(view, "홈")), 2);
-            assertEquals(Math.round(W * 0.90f), centerX(described(view, "뒤로")), 2);
+            for (String b : new String[]{"최근 앱", "홈", "뒤로"}) assertNull(b + " is the system's", described(view, b));
             assertNotNull(described(view, "모든 앱")); assertNotNull(described(view, "독 앱 0")); assertNotNull(described(view, "최근 앱 2"));
             assertNull("icons only, no labels", find(view, x -> x instanceof TextView));
             ImageView icon = (ImageView) described(view, "독 앱 0");
@@ -577,8 +577,8 @@ public class TaskbarTests {
             assertEquals("square, whatever the drawable", side, tall, 0.5f);
             assertEquals("the bar's own height", BAR, view.getHeight());
         }
-        // Over a mock app: the system's fallback buttons (59%, 72%, 85%) are covered (85% sits clear of our own glyphs), the
-        // accessibility button (97%) is not.
+        // Over a mock app: the system's fallback buttons (59%, 72%, 85%) and the accessibility button (97%) all show; under the
+        // apps the system bar itself shows through (no fill of its own).
         int panel = 420; Bitmap shot = Bitmap.createBitmap(W, panel * 2, Bitmap.Config.ARGB_8888); Canvas c = new Canvas(shot);
         int[] covered = new int[2], free = new int[2];
         for (int k = 0; k < 2; k++) {
@@ -587,10 +587,12 @@ public class TaskbarTests {
             mockApp(c, panel, isDark);
             c.save(); c.translate(0, panel - BAR); view.draw(c); c.restore();
             c.restore();
-            covered[k] = shot.getPixel(Math.round(W * 0.85f), panel * k + panel - BAR / 2);
+            int page = isDark ? 0xff202124 : 0xffe6e9e2;
+            covered[k] = shot.getPixel(Math.round(W * 0.59f), panel * k + panel - BAR / 2);
             free[k] = shot.getPixel(Math.round(W * 0.97f) + 14, panel * k + panel - BAR / 2);
-            assertEquals("the plain bar's own button is under ours", view.barColor(), covered[k]);
-            assertNotEquals("the accessibility button shows", view.barColor(), free[k]);
+            assertNotEquals("the system's recents shows (59%)", page, covered[k]);
+            assertNotEquals("the accessibility button shows", page, free[k]);
+            assertEquals("between the apps, the system bar itself (no fill of ours)", page, shot.getPixel(view.layout().opaqueEnd() - 3, panel * k + panel - 6));
         }
         File dir = new File(System.getProperty("ui.output", "build/ui-verification")); dir.mkdirs();
         try (FileOutputStream out = new FileOutputStream(new File(dir, "taskbar_preview.png"))) { shot.compress(Bitmap.CompressFormat.PNG, 100, out); }

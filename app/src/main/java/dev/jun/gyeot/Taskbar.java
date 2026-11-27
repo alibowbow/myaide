@@ -205,7 +205,9 @@ final class Taskbar implements AutoCloseable {
     private TaskbarPlan.State state() {
         Rect screen = screen(); float d = density;
         boolean enabled = store.taskbar(), home = enabled && homeHeld(service), locked = home && locked();
-        TaskbarPlan.Top top = TaskbarPlan.top(HomeActivity.visible, Math.max(homeAt, HomeActivity.shownAt), recentsAt, appAt);
+        // 들퍼레's home in front (resumed): no bar, whatever window event came last (a screen recorder's countdown, an app going
+        // away behind it) — it stayed on the home screen for seconds (2026-11-27).
+        TaskbarPlan.Top top = HomeActivity.resumed ? TaskbarPlan.Top.HOME : TaskbarPlan.top(HomeActivity.visible, Math.max(homeAt, HomeActivity.shownAt), recentsAt, appAt);
         // The window list is read only when nothing cheaper already hides the bar.
         boolean look = enabled && home && !locked && top != TaskbarPlan.Top.HOME && Math.min(screen.width(), screen.height()) / d >= 600;
         Set<Integer> appWindows = new HashSet<>();
@@ -245,15 +247,44 @@ final class Taskbar implements AutoCloseable {
     /** The windows on screen as plain rectangles (only their type, place and id); this bar's own windows left out. */
     private List<TaskbarPlan.Win> windows(Set<Integer> appWindows) {
         List<TaskbarPlan.Win> out = new ArrayList<>();
+        Rect screen = screen(); int found = -1;
         try {
             for (AccessibilityWindowInfo w : service.getWindows()) {
                 if (w.getType() == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY) continue;
                 Rect b = new Rect(); w.getBoundsInScreen(b);
                 out.add(new TaskbarPlan.Win(w.getType(), b.left, b.top, b.right, b.bottom));
                 if (w.getType() == AccessibilityWindowInfo.TYPE_APPLICATION && appWindows != null) appWindows.add(w.getId());
+                // The system bar along the bottom: where its own buttons start (the bar stops before them).
+                if (w.getType() == AccessibilityWindowInfo.TYPE_SYSTEM && b.bottom >= screen.height() - 2 && b.right >= screen.width() - 2 && b.top > screen.height() * 0.8f) {
+                    int left = buttonsLeft(w); if (left > 0) found = found < 0 ? left : Math.min(found, left);
+                }
             }
         } catch (RuntimeException unavailable) { /* none read */ }
+        if (found > 0) buttonsLeft = found;
         return out;
+    }
+    /** The system's own buttons' left edge last read (-1: never read; TaskbarPlan.BUTTONS_LEFT then). */
+    private int buttonsLeft = -1;
+    private static final String[] BUTTON_IDS = {"com.android.systemui:id/recent_apps", "com.android.systemui:id/home", "com.android.systemui:id/back"};
+    private static final java.util.regex.Pattern BUTTON_NAMES = java.util.regex.Pattern.compile("(?i)^(최근 앱|최근 실행 앱|홈|뒤로|recent apps|recents|overview|home|back)$");
+    /** The leftmost of recents · home · back in the system bar's window (by their ids, else their names), or -1. */
+    private static int buttonsLeft(AccessibilityWindowInfo window) {
+        android.view.accessibility.AccessibilityNodeInfo root = window.getRoot(); if (root == null) return -1;
+        int left = -1; Rect b = new Rect();
+        for (String id : BUTTON_IDS)
+            for (android.view.accessibility.AccessibilityNodeInfo n : root.findAccessibilityNodeInfosByViewId(id)) {
+                if (!n.isVisibleToUser()) continue; n.getBoundsInScreen(b); if (b.width() > 0) left = left < 0 ? b.left : Math.min(left, b.left);
+            }
+        if (left > 0) return left;
+        // Not by id (another maker's bar): by the names the buttons say, a few levels down.
+        java.util.ArrayDeque<android.view.accessibility.AccessibilityNodeInfo> todo = new java.util.ArrayDeque<>(); todo.add(root); int seen = 0;
+        while (!todo.isEmpty() && seen++ < 80) {
+            android.view.accessibility.AccessibilityNodeInfo n = todo.poll();
+            CharSequence said = n.getContentDescription();
+            if (said != null && BUTTON_NAMES.matcher(said.toString().trim()).matches() && n.isVisibleToUser()) { n.getBoundsInScreen(b); if (b.width() > 0) left = left < 0 ? b.left : Math.min(left, b.left); }
+            for (int i = 0; i < n.getChildCount(); i++) { android.view.accessibility.AccessibilityNodeInfo c = n.getChild(i); if (c != null) todo.add(c); }
+        }
+        return left;
     }
     private static String lowest(List<TaskbarPlan.Win> windows) {
         TaskbarPlan.Win low = null;
@@ -302,13 +333,13 @@ final class Taskbar implements AutoCloseable {
     private void show(int height) {
         Rect screen = screen(); boolean dark = dark();
         List<TaskbarView.Item> dock = items(dockIds, Set.of()), recent = recent(dock);
-        StringBuilder key = new StringBuilder().append(screen.width()).append('x').append(screen.height()).append('/').append(height).append(dark).append('@').append(density);
+        StringBuilder key = new StringBuilder().append(screen.width()).append('x').append(screen.height()).append('/').append(height).append(dark).append('@').append(density).append('<').append(buttonsLeft);
         for (TaskbarView.Item i : dock) key.append('|').append(i.id()).append(i.icon() != null);
         key.append('#'); for (TaskbarView.Item i : recent) key.append('|').append(i.id()).append(i.icon() != null);
         if (!key.toString().equals(drawn) || view.layout() == null) {
             if (attached && view.touching()) { later(); return; }
             drawn = key.toString();
-            view.show(dock, recent, screen.width(), height, screen.height() - height, dark, density);
+            view.show(dock, recent, screen.width(), height, screen.height() - height, dark, density, buttonsLeft);
         }
         int width = view.layout().opaqueEnd();
         boolean changed = params.width != width || params.height != height;
