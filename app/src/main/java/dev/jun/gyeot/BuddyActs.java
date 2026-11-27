@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.content.pm.LauncherActivityInfo;
 import android.content.pm.LauncherApps;
 import android.os.UserHandle;
+import dev.jun.gyeot.core.BuddyTricks;
 import dev.jun.gyeot.core.DeviceActions;
 import java.util.HashMap;
 import java.util.Locale;
@@ -14,8 +15,10 @@ import org.json.JSONObject;
 /**
  * What 퍼레 does on the phone when asked (준: "퍼레는 폰조작이 안되네"), from the home screen or over another app (준: "퍼레
  * 대화모드일때는 다른 앱 위에 그려지게 해줘"): an app opened by its name, a web search, and the edge assistant's own phone
- * actions (DeviceActions: a route, an alarm, a timer, music, the torch, a settings panel, the screen's rotation), and the
- * volume and brightness, started the way Android allows from
+ * actions (DeviceActions: a route, an alarm, a timer, music, the torch, a settings panel, the screen's rotation), the
+ * volume and brightness, the apps' own ways (a share, a text, the dialer, the camera, an event, a memo, a mail, a translator,
+ * the gallery, contacts, downloads, the recorder, an app's info), and 퍼레's own answers that need no app (BuddyTricks: a
+ * coin, dice, a pick, a sum, the time elsewhere, days to a date, its stopwatch, its memory, its quiet), started the way Android allows from
  * where it is now (DeviceActionRunner.start: in front, the accessibility service, or the overlay). Any thread.
  */
 final class BuddyActs {
@@ -81,6 +84,33 @@ final class BuddyActs {
                 case "map_search" -> { String q = act.optString("query").strip(); if (q.isEmpty()) return fail("뭘 찾을지 알려 줘.", ""); JSONObject r = DeviceActionRunner.run(context, DeviceActions.search(q, true), overlay); return r.optBoolean("ok") ? new BuddyVoice.Outcome("", DeviceActionRunner.started(r.optString("route")), null) : fail(r.optString("say", "지도를 못 열었어."), ""); }
                 case "volume" -> { return volume(context, act); }
                 case "brightness" -> { return brightness(context, act, overlay); }
+                case "show_timers" -> { return timers(context, overlay); }
+                case "calendar_view" -> { return calendarView(context, act, overlay); }
+                case "memo" -> { return memo(context, act, overlay); }
+                case "recorder" -> { return recorder(context, overlay); }
+                case "app_settings" -> { return appSettings(context, act, overlay); }
+                case "downloads" -> { return downloads(context, overlay); }
+                case "gallery" -> { return gallery(context, overlay); }
+                case "contacts" -> { return contacts(context, act, overlay); }
+                case "calculator" -> { return calculator(context, act, overlay); }
+                case "email" -> { return email(context, act, overlay); }
+                case "translate" -> { return translate(context, act, overlay); }
+                // 퍼레's own, no app: the answer worked out here (BuddyTricks), never made up by the brain.
+                case "stopwatch" -> { return stopwatch(context, act); }
+                case "coin" -> { java.util.Random r = java.util.concurrent.ThreadLocalRandom.current(); return said(BuddyTricks.coinSay(BuddyTricks.heads(r), r)); }
+                case "dice" -> { java.util.Random r = java.util.concurrent.ThreadLocalRandom.current(); return said(BuddyTricks.diceSay(BuddyTricks.dice(act.optInt("count", 1), act.optInt("sides", 6), r))); }
+                case "pick" -> { return pick(act); }
+                case "world_time" -> { return worldTime(act); }
+                case "count_days" -> { return countDays(act); }
+                case "remember" -> { return remember(context, act); }
+                case "forget" -> { return forget(context, act); }
+                case "call_me" -> {
+                    String t = BuddyTricks.title(act.optString("title"));
+                    if (t.isEmpty()) return fail("어떻게 부를지 열두 글자 안으로 알려 줘.", "");
+                    BuddyTalk.title(context, t);
+                    return said("");
+                }
+                case "quiet" -> { return quiet(context, act); }
                 // 퍼레 itself on the home screen (BuddyBoard): at once while it is in front, else when it is shown again.
                 case "buddy_wish" -> { BuddyTalk.wish(context, act.optString("thing", act.optString("toy"))); return new BuddyVoice.Outcome("", false, null); }
                 case "buddy_toy", "buddy_outfit", "buddy_move" -> {
@@ -229,7 +259,7 @@ final class BuddyActs {
         java.time.ZoneId zone = java.time.ZoneId.systemDefault(); java.time.LocalDate today = java.time.LocalDate.now(zone);
         String d = act.optString("date").strip().toLowerCase(Locale.ROOT);
         java.time.LocalDate day = d.isEmpty() || d.equals("today") || d.equals("오늘") ? today : d.equals("tomorrow") || d.equals("내일") ? today.plusDays(1) : d.equals("모레") ? today.plusDays(2) : null;
-        if (day == null) try { day = java.time.LocalDate.parse(d); } catch (RuntimeException unclear) { day = today; }
+        if (day == null) try { day = java.time.LocalDate.parse(d); } catch (RuntimeException unclear) { day = BuddyTricks.day(d, today); if (day == null) day = today; }
         // A year the brain guessed wrong (2024-11-27 said "tomorrow" in 2026): the same day this year, or next year once past.
         if (day.isBefore(today)) { day = day.withYear(today.getYear()); if (day.isBefore(today)) day = day.plusYears(1); }
         boolean timed = act.has("hour");
@@ -252,6 +282,264 @@ final class BuddyActs {
         Intent view = task(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)));
         if (view.resolveActivity(context.getPackageManager()) == null) return fail("브라우저를 못 찾았어.", "");
         return started(context, DeviceActionRunner.start(context, view, overlay), "", true);
+    }
+
+    // ── more of the apps' own ways (2026-11-26): the clock's timers, a day in the calendar, a memo, a recorder, an app's info,
+    //    the downloads, the gallery, a person's card, a sum, a mail, a translator; each tells what is missing and how to get it ──
+    private static BuddyVoice.Outcome said(String words) { return new BuddyVoice.Outcome(words == null ? "" : words, false, null); }
+    /** The first of these some app here handles, started (or what kept it from opening); null when none is handled. */
+    private static BuddyVoice.Outcome first(Context context, boolean overlay, Intent... tries) {
+        android.content.pm.PackageManager pm = context.getPackageManager();
+        for (Intent t : tries) {
+            if (t == null) continue;
+            task(t);
+            if (t.resolveActivity(pm) == null) continue;
+            return started(context, DeviceActionRunner.start(context, t, overlay), "", true);
+        }
+        return null;
+    }
+    /** The app with one of these names (as open_app finds it), started; null when none is here. */
+    private static BuddyVoice.Outcome byName(Context context, boolean overlay, String... names) {
+        for (String n : names) { LauncherActivityInfo info = findApp(context, n); if (info != null) return started(context, open(context, info, overlay), "", true); }
+        return null;
+    }
+    /** The first of these packages that is here, by its launcher, started; null when none is. */
+    private static BuddyVoice.Outcome byPackage(Context context, boolean overlay, String... packages) {
+        android.content.pm.PackageManager pm = context.getPackageManager();
+        for (String p : packages) { Intent launch = pm.getLaunchIntentForPackage(p); if (launch != null) return started(context, DeviceActionRunner.start(context, task(launch), overlay), "", true); }
+        return null;
+    }
+    private static boolean contactsAllowed(Context context) { return context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) == android.content.pm.PackageManager.PERMISSION_GRANTED; }
+    private static String person(String who) { return who == null ? "" : who.strip().replaceAll("(한테|에게|께|의)$", ""); }
+    /** The clock app's timers (its alarms, where the timer is a tab away, when it shows no timers screen). */
+    private static BuddyVoice.Outcome timers(Context context, boolean overlay) {
+        BuddyVoice.Outcome o = first(context, overlay, new Intent(android.provider.AlarmClock.ACTION_SHOW_TIMERS), new Intent(android.provider.AlarmClock.ACTION_SHOW_ALARMS));
+        return o != null ? o : fail("타이머를 보여 줄 시계 앱을 못 찾았어.", "store:시계");
+    }
+    /** The calendar app on a day (CalendarContract's time link: it reads nothing itself, so no permission). */
+    private static BuddyVoice.Outcome calendarView(Context context, JSONObject act, boolean overlay) {
+        java.time.ZoneId zone = java.time.ZoneId.systemDefault(); java.time.LocalDate today = java.time.LocalDate.now(zone);
+        java.time.LocalDate day = BuddyTricks.day(act.optString("date"), today); if (day == null) day = today;
+        android.net.Uri.Builder time = android.provider.CalendarContract.CONTENT_URI.buildUpon().appendPath("time");
+        android.content.ContentUris.appendId(time, day.atTime(9, 0).atZone(zone).toInstant().toEpochMilli());
+        BuddyVoice.Outcome o = first(context, overlay, new Intent(Intent.ACTION_VIEW).setData(time.build()), Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALENDAR));
+        if (o == null) o = byName(context, overlay, "캘린더", "Calendar");
+        if (o == null) return fail("일정을 보여 줄 캘린더 앱을 못 찾았어.", "store:캘린더");
+        return o.say().isEmpty() && !day.equals(today) ? new BuddyVoice.Outcome(BuddyTricks.dateWords(day, today) + " 일정 열었어!", o.leaves(), null) : o;
+    }
+    /** Notes apps that take a new note as shared text, the phone's own first. */
+    private static final String[] NOTES = {"com.samsung.android.app.notes", "com.google.android.keep", "com.microsoft.office.onenote", "com.socialnmobile.dictapp.notepad.color.note", "com.evernote", "notion.id"};
+    /** A new note in a notes app (shared text: the user keeps it there), or the notes app itself when there is nothing to write. */
+    private static BuddyVoice.Outcome memo(Context context, JSONObject act, boolean overlay) {
+        String text = act.optString("text").strip(), title = act.optString("title").strip(), app = act.optString("app").strip();
+        String named = app.isEmpty() ? null : packageFor(context, app);
+        if (!app.isEmpty() && named == null) return fail("'" + app + "' 앱이 이 휴대폰에 없어.", "store:" + app);
+        String[] apps = named != null ? new String[]{named} : NOTES;
+        if (text.isEmpty()) {
+            BuddyVoice.Outcome o = byPackage(context, overlay, apps);
+            if (o == null && named == null) o = byName(context, overlay, "메모", "노트", "Keep");
+            return o != null ? o : fail("메모 앱을 못 찾았어.", "store:메모");
+        }
+        for (String pkg : apps) {
+            Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text).setPackage(pkg);
+            if (!title.isEmpty()) send.putExtra(Intent.EXTRA_SUBJECT, title).putExtra(Intent.EXTRA_TITLE, title);
+            BuddyVoice.Outcome o = first(context, overlay, send);
+            if (o != null) { if (o.say().isEmpty()) verify(context, pkg, "memo"); return o; }
+        }
+        return named != null ? fail("그 앱에는 메모를 넣을 수가 없어.", "")
+            : fail("메모 앱을 못 찾아서 못 적었어. 나한테 ‘기억해 줘’라고 하면 내가 대신 기억해 둘게.", "store:메모");
+    }
+    /** The voice recorder: the phone's own recorder app, else any app that records a sound. */
+    private static BuddyVoice.Outcome recorder(Context context, boolean overlay) {
+        BuddyVoice.Outcome o = byPackage(context, overlay, "com.sec.android.app.voicenote", "com.google.android.apps.recorder");
+        if (o == null) o = byName(context, overlay, "음성 녹음", "녹음", "Recorder");
+        if (o == null) o = first(context, overlay, new Intent(android.provider.MediaStore.Audio.Media.RECORD_SOUND_ACTION));
+        return o != null ? o : fail("녹음 앱을 못 찾았어.", "store:음성 녹음");
+    }
+    /** An app's info screen in Settings (its notifications, permissions, storage): the user changes them there. */
+    private static BuddyVoice.Outcome appSettings(Context context, JSONObject act, boolean overlay) {
+        String app = act.optString("app").strip();
+        if (app.isEmpty()) return fail("어느 앱 설정인지 알려 줘.", "");
+        String pkg = packageFor(context, app);
+        if (pkg == null) return fail("'" + app + "' 앱은 이 휴대폰에서 못 찾았어.", "store:" + app);
+        BuddyVoice.Outcome o = first(context, overlay, new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + pkg)));
+        return o != null ? o : fail("앱 정보 화면을 못 열었어.", "");
+    }
+    /** The downloaded files (the system's downloads list, else the files app). */
+    private static BuddyVoice.Outcome downloads(Context context, boolean overlay) {
+        BuddyVoice.Outcome o = first(context, overlay, new Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS), Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_FILES));
+        if (o == null) o = byName(context, overlay, "내 파일", "Files", "파일");
+        return o != null ? o : fail("받은 파일을 보여 줄 파일 앱을 못 찾았어.", "store:파일 관리자");
+    }
+    /** The phone's gallery (the app that says it is one, else one by its name). */
+    private static BuddyVoice.Outcome gallery(Context context, boolean overlay) {
+        BuddyVoice.Outcome o = first(context, overlay, Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_GALLERY));
+        if (o == null) o = byName(context, overlay, "갤러리", "Google 포토", "포토", "Photos", "Gallery");
+        return o != null ? o : fail("사진을 보여 줄 갤러리 앱을 못 찾았어.", "store:갤러리");
+    }
+    /** The card of someone in the user's contacts (with the contacts permission), or null. Off the main thread. */
+    static android.net.Uri contactOf(Context context, String who) {
+        if (who == null || who.isBlank() || !contactsAllowed(context)) return null;
+        android.net.Uri uri = android.net.Uri.withAppendedPath(android.provider.ContactsContract.Contacts.CONTENT_FILTER_URI, android.net.Uri.encode(person(who)));
+        try (android.database.Cursor c = context.getContentResolver().query(uri, new String[]{android.provider.ContactsContract.Contacts._ID, android.provider.ContactsContract.Contacts.LOOKUP_KEY}, null, null, null)) {
+            if (c != null && c.moveToFirst()) return android.provider.ContactsContract.Contacts.getLookupUri(c.getLong(0), c.getString(1));
+        } catch (RuntimeException unreadable) { /* none */ }
+        return null;
+    }
+    /** The contacts app, on the person said when they are in it. */
+    private static BuddyVoice.Outcome contacts(Context context, JSONObject act, boolean overlay) {
+        String who = act.optString("who").strip();
+        android.net.Uri card = contactOf(context, who);
+        if (card != null) { BuddyVoice.Outcome o = first(context, overlay, new Intent(Intent.ACTION_VIEW, card)); if (o != null) return o; }
+        BuddyVoice.Outcome o = first(context, overlay, Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CONTACTS), new Intent(Intent.ACTION_VIEW, android.provider.ContactsContract.Contacts.CONTENT_URI));
+        if (o == null) o = byName(context, overlay, "연락처", "Contacts");
+        if (o == null) return fail("연락처 앱을 못 찾았어.", "");
+        if (who.isEmpty() || !o.say().isEmpty()) return o;
+        boolean allowed = contactsAllowed(context);
+        note("‘" + who + "’ 연락처를 못 찾아서 연락처 앱만 열었어요", allowed ? "" : "contacts");
+        return new BuddyVoice.Outcome("‘" + who + "’ 연락처를 못 찾아서 연락처 앱만 열었어." + (allowed ? "" : " 연락처를 허용해 주면 바로 찾아 줄게."), o.leaves(), null);
+    }
+    /** A sum worked out and said (BuddyTricks.calc); with none, or one it cannot read, the calculator app. */
+    private static BuddyVoice.Outcome calculator(Context context, JSONObject act, boolean overlay) {
+        String expr = act.optString("expression").strip();
+        if (!expr.isEmpty()) {
+            try { Double v = BuddyTricks.calc(expr); if (v != null) return said(BuddyTricks.calcSay(v, java.util.concurrent.ThreadLocalRandom.current())); }
+            catch (ArithmeticException byZero) { return said("0으로는 나눌 수가 없어!"); }
+        }
+        BuddyVoice.Outcome o = first(context, overlay, Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CALCULATOR));
+        if (o == null) o = byName(context, overlay, "계산기", "Calculator");
+        if (o == null) return fail(expr.isEmpty() ? "계산기 앱을 못 찾았어." : "그 식은 내가 못 풀었고 계산기 앱도 못 찾았어. 숫자랑 더하기·곱하기로 다시 말해 줘!", "store:계산기");
+        return expr.isEmpty() || !o.say().isEmpty() ? o : new BuddyVoice.Outcome("그 식은 내가 못 풀어서 계산기를 열었어!", o.leaves(), null);
+    }
+    /** Someone's mail address in the user's contacts (with the contacts permission), or null. Off the main thread. */
+    static String emailOf(Context context, String who) {
+        if (who == null || who.isBlank() || !contactsAllowed(context)) return null;
+        android.net.Uri uri = android.net.Uri.withAppendedPath(android.provider.ContactsContract.CommonDataKinds.Email.CONTENT_FILTER_URI, android.net.Uri.encode(person(who)));
+        try (android.database.Cursor c = context.getContentResolver().query(uri, new String[]{android.provider.ContactsContract.CommonDataKinds.Email.ADDRESS}, null, null, null)) {
+            if (c != null && c.moveToFirst()) return c.getString(0);
+        } catch (RuntimeException unreadable) { /* none */ }
+        return null;
+    }
+    /** A new mail written in the mail app (the user presses send): to, subject, words. */
+    private static BuddyVoice.Outcome email(Context context, JSONObject act, boolean overlay) {
+        String who = act.optString("who").strip(), to = act.optString("to").strip(), subject = act.optString("subject").strip(), text = act.optString("text").strip();
+        if (!to.matches("[^@\\s]+@[^@\\s]+\\.[^@\\s]+")) to = "";
+        if (to.isEmpty() && !who.isEmpty()) { String found = emailOf(context, who); if (found != null) to = found; }
+        Intent mail = task(new Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:")));
+        if (!to.isEmpty()) mail.putExtra(Intent.EXTRA_EMAIL, new String[]{to});
+        if (!subject.isEmpty()) mail.putExtra(Intent.EXTRA_SUBJECT, subject);
+        if (!text.isEmpty()) mail.putExtra(Intent.EXTRA_TEXT, text);
+        if (mail.resolveActivity(context.getPackageManager()) == null) return fail("메일 앱을 못 찾았어.", "store:Gmail");
+        boolean unknown = to.isEmpty() && !who.isEmpty();
+        if (unknown) note("‘" + who + "’ 메일 주소를 몰라서 받는 사람은 비워 뒀어요", contactsAllowed(context) ? "" : "contacts");
+        BuddyVoice.Outcome o = started(context, DeviceActionRunner.start(context, mail, overlay), "", true);
+        if (!o.say().isEmpty()) return o;
+        return new BuddyVoice.Outcome(unknown ? "‘" + who + "’ 메일 주소를 몰라서 받는 사람은 비워 뒀어. 골라 줘!" : "메일 써 놨어, 보내기만 눌러 줘!", o.leaves(), null);
+    }
+    private static final String[] TRANSLATORS = {"com.naver.labs.translator", "com.google.android.apps.translate"};
+    /**
+     * Words translated in a translator: Papago's or Google Translate's own text action (it shows the translation over the
+     * screen), else the text shared to it, else Google Translate on the web (first, when a language other than the usual
+     * Korean↔English is asked: the apps pick theirs themselves).
+     */
+    private static BuddyVoice.Outcome translate(Context context, JSONObject act, boolean overlay) {
+        String text = act.optString("text").strip();
+        if (text.isEmpty()) return fail("번역할 말을 같이 알려 줘.", "");
+        if (text.length() > 1000) text = text.substring(0, 1000);
+        String to = BuddyTricks.language(act.optString("to"), text);
+        boolean usual = to.equals(text.codePoints().anyMatch(c -> c >= 0xAC00 && c <= 0xD7A3) ? "en" : "ko");
+        Intent web = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://translate.google.com/?sl=auto&tl=" + android.net.Uri.encode(to) + "&text=" + android.net.Uri.encode(text) + "&op=translate"));
+        java.util.List<Intent> tries = new java.util.ArrayList<>();
+        if (!usual) tries.add(web);
+        for (String pkg : TRANSLATORS) tries.add(new Intent(Intent.ACTION_PROCESS_TEXT).setType("text/plain").putExtra(Intent.EXTRA_PROCESS_TEXT, text).putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true).setPackage(pkg));
+        for (String pkg : TRANSLATORS) tries.add(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text).setPackage(pkg));
+        if (usual) tries.add(web);
+        BuddyVoice.Outcome o = first(context, overlay, tries.toArray(new Intent[0]));
+        return o != null ? o : fail("번역할 앱도 브라우저도 못 찾았어.", "store:파파고");
+    }
+
+    // ── 퍼레's own, with no app ──
+    /** 퍼레's stopwatch (no clock app has an official one): started, read, stopped; kept across restarts. */
+    private static BuddyVoice.Outcome stopwatch(Context context, JSONObject act) {
+        android.content.SharedPreferences p = context.getSharedPreferences("buddyTalk", Context.MODE_PRIVATE);
+        long since = p.getLong("stopwatch", 0), now = System.currentTimeMillis();
+        boolean running = since > 0 && since <= now;
+        String none = "지금 재고 있는 건 없어. 시작하자고 하면 바로 잴게!";
+        switch (act.optString("command", "start").strip().toLowerCase(Locale.ROOT)) {
+            case "check", "lap", "read", "status" -> { return said(running ? "지금 " + BuddyTricks.elapsed(now - since) + "째야!" : none); }
+            case "stop", "end", "reset" -> {
+                if (!running) return said(none);
+                p.edit().remove("stopwatch").apply();
+                return said("멈췄어, " + BuddyTricks.elapsed(now - since) + "!");
+            }
+            default -> {
+                p.edit().putLong("stopwatch", now).apply();
+                return said(running ? "아까 건 " + dev.jun.gyeot.core.Brand.josa(BuddyTricks.elapsed(now - since), "이었어", "였어") + ". 처음부터 다시 잴게!" : "");
+            }
+        }
+    }
+    /** One of the choices, at random. */
+    private static BuddyVoice.Outcome pick(JSONObject act) {
+        java.util.List<String> options = BuddyTricks.options(act.opt("options"));
+        if (options.isEmpty()) return said("뭐 중에서 고를지 알려 줘!");
+        if (options.size() == 1) return said("‘" + options.get(0) + "’ 하나뿐이네, 그걸로 가자!");
+        java.util.Random r = java.util.concurrent.ThreadLocalRandom.current();
+        return said(BuddyTricks.pickSay(options.get(r.nextInt(options.size())), r));
+    }
+    /** The time in a city (BuddyTricks: its time zone, the gap from here). */
+    private static BuddyVoice.Outcome worldTime(JSONObject act) {
+        String place = act.optString("place").strip();
+        String[] z = BuddyTricks.place(place, act.optString("zone"));
+        if (z == null) return fail("‘" + place + "’" + dev.jun.gyeot.core.Brand.josa(place, "이", "가").substring(place.length()) + " 어딘지 몰라서 시각을 못 셌어. 도시 이름으로 말해 줘!", "");
+        return said(BuddyTricks.worldTime(z[1], java.time.ZoneId.of(z[0]), java.time.ZonedDateTime.now()));
+    }
+    /** Days to a day or since it, or the day so many days on (BuddyTricks). */
+    private static BuddyVoice.Outcome countDays(JSONObject act) {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        String date = act.optString("date").strip(), label = act.optString("label").strip();
+        java.time.LocalDate day = BuddyTricks.day(date, today);
+        if (day == null) return fail("날짜를 못 알아들었어. 12월 25일처럼 말해 줘!", "");
+        if (act.has("add_days")) return said(BuddyTricks.addDays(day, act.optLong("add_days"), today));
+        // A day by its name (크리스마스) is its own label.
+        if (label.isEmpty() && !date.matches(".*\\d.*") && !date.matches("(?i)오늘|내일|모레|글피|어제|그제|그저께|today|tomorrow|yesterday")) label = date;
+        return said(BuddyTricks.countDays(day, label, today));
+    }
+    /** What the user asks to be remembered, as a memory of theirs (weight 2, private when it is); never a password or account number. */
+    private static final java.util.regex.Pattern SECRET_VALUE = java.util.regex.Pattern.compile("비밀 ?번호|비번|패스워드|password|계좌|카드 ?번호|주민 ?(등록)? ?번호|인증 ?번호|otp|pin ?번호|보안 ?코드|cvc", java.util.regex.Pattern.CASE_INSENSITIVE);
+    private static BuddyVoice.Outcome remember(Context context, JSONObject act) {
+        String fact = act.optString("fact").strip().replaceAll("\\s+", " ");
+        if (fact.isEmpty()) return fail("뭘 기억할지 알려 줘.", "");
+        if (SECRET_VALUE.matcher(fact).find()) return said("비밀번호나 계좌 같은 번호는 내 기억에 안 적어 둬.");
+        String text = fact.startsWith("사용자") ? fact : "사용자가 기억해 달랬어: " + fact;
+        if (text.length() > 90) text = text.substring(0, 90);
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : BuddyTalk.memories(context)) if (dev.jun.gyeot.core.BuddyMind.similarity(e.text(), text) >= 0.6) return said("그건 벌써 기억하고 있어!");
+        BuddyTalk.rememberStrong(context, "fact", text, dev.jun.gyeot.core.BuddyMind.secret(text));
+        return said("");
+    }
+    /** The memories a "잊어 줘" names, deleted (at most five; more, or all of them, in 퍼레의 기억 behind the fingerprint). */
+    private static BuddyVoice.Outcome forget(Context context, JSONObject act) {
+        String what = act.optString("what").strip();
+        if (what.isEmpty()) return fail("뭘 잊을지 알려 줘.", "");
+        if (what.replaceAll("\\s+", "").matches("(내)?(기억|것|거)?(을|를)?(다|전부|모두|싹|싹다|모든것|모든기억|전부다)(기억)?"))
+            return fail("기억을 한꺼번에 지우는 건 ‘퍼레의 기억’에서 직접 해 줘. 지문으로 열 수 있어.", "memory");
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> all = BuddyTalk.memories(context);
+        java.util.List<String> texts = new java.util.ArrayList<>(); for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) texts.add(e.text());
+        java.util.List<Integer> hit = BuddyTricks.matching(texts, what);
+        if (hit.isEmpty()) return said("‘" + what + "’ 기억은 원래 없었어.");
+        if (hit.size() > 5) return fail("‘" + what + "’ 기억이 " + hit.size() + "개나 돼서 그대로 뒀어. ‘퍼레의 기억’에서 골라 지워 줘.", "memory");
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> gone = new java.util.ArrayList<>(); for (int i : hit) gone.add(all.get(i));
+        BuddyTalk.forget(context, gone);
+        return said(hit.size() == 1 ? "‘" + what + "’ 기억 지웠어." : "‘" + what + "’ 기억 " + hit.size() + "개 지웠어.");
+    }
+    /** A quiet while (0–12 hours, one when not said; 0 talks again): the home screen's 퍼레 starts no talk, and answers when called. */
+    private static BuddyVoice.Outcome quiet(Context context, JSONObject act) {
+        double hours = act.has("hours") ? act.optDouble("hours", 1) : act.has("minutes") ? act.optDouble("minutes", 60) / 60 : 1;
+        if (Double.isNaN(hours) || Double.isInfinite(hours)) hours = 1;
+        hours = Math.max(0, Math.min(12, hours));
+        if (hours <= 0) { BuddyTalk.hush(context, 0); return said(""); }
+        long ms = Math.round(hours * 3_600_000);
+        BuddyTalk.hush(context, ms);
+        return said(BuddyTricks.clock(java.time.ZonedDateTime.now().plusSeconds(ms / 1000)) + "까지는 먼저 말 안 걸게. 부르면 바로 대답할게!");
     }
     /** The apps a song or a video is found and played in, by the words for them. */
     private static final String[][] PLAYERS = {

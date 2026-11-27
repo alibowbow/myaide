@@ -79,6 +79,12 @@
         <intent><action android:name="android.media.action.VIDEO_CAMERA" /></intent>
         <intent><action android:name="android.intent.action.INSERT" /><data android:mimeType="vnd.android.cursor.dir/event" /></intent>
         <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="https" /></intent>
+        <!-- 퍼레's more tools: the clock's timers, a recorder, the downloads, a new mail, a translator's text action. -->
+        <intent><action android:name="android.intent.action.SHOW_TIMERS" /></intent>
+        <intent><action android:name="android.provider.MediaStore.RECORD_SOUND" /></intent>
+        <intent><action android:name="android.intent.action.VIEW_DOWNLOADS" /></intent>
+        <intent><action android:name="android.intent.action.SENDTO" /><data android:scheme="mailto" /></intent>
+        <intent><action android:name="android.intent.action.PROCESS_TEXT" /><data android:mimeType="text/plain" /></intent>
         <package android:name="com.android.vending" />
         <package android:name="com.android.settings" />
     </queries>

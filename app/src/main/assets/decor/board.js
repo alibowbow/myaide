@@ -677,7 +677,7 @@ function nextLine(k, prev, opened) {
   return lines.find(l => !said(l.key)) || null;
 }
 function talk(opened) {
-  if (!seenNow || !info || (info.env && info.env.dnd)) return;
+  if (!seenNow || !info || (info.env && (info.env.dnd || info.env.hush))) return;
   // Asleep at dawn: it says its news once it is awake, not in its sleep.
   if (sleepHours() && boards.some(b => !awake(b))) return;
   const now = Date.now();
@@ -703,6 +703,8 @@ function boardSeen(on) {
   if (away > 90000) setTimeout(() => {
     if (nextLine(info, before, false)) { talk(true); return; }
     // Coming back: the AI's greeting (at most every five minutes) or a preset one (talk.js "back").
+    // Do not disturb, or asked to keep quiet a while (퍼레's quiet tool, env.hush): no greeting of its own.
+    if (info && info.env && (info.env.dnd || info.env.hush)) return;
     if (window.boardThink && Date.now() - (window._thoughtAt || 0) > 300000 && (typeof TALK === "undefined" || TALK.mix("back", true) !== "preset")) { window._thoughtAt = Date.now(); thinkAt = Date.now(); boards.forEach(thinking); window.boardThink("back"); }
     else if (seenNow && info && !(info.env && info.env.dnd) && Date.now() - lastSpoke > 45000) { const own = preset("back"); if (own) { lastSpoke = Date.now(); boards.forEach(b => { if (b._feel) b._feel("happy", 1600); speak(b, {text: own}, 5000); }); } else talk(true); }
     else talk(true);
@@ -989,7 +991,7 @@ function envOf(b, k) {
   const cold = (temp != null && temp <= 5) || snow, heat = (e.heat || 0) >= 41, hot = (temp != null && temp >= 28) || heat, night = h < 6;
   const sunny = code != null && code <= 1 && w.day !== false && temp != null && temp >= 24;
   const hungry = e.battery != null && e.battery <= 20 && !e.charging;
-  b._env = {music: !!e.music, phones: !!e.phones, charging: !!e.charging, hungry, cold, hot, heat, rain, snow, offline: !!e.offline, heart: life.heart, night, battery: e.battery, roomFree: e.roomFree, silent: !!e.silent, save: !!e.powerSave, dnd: !!e.dnd, airplane: !!e.airplane};
+  b._env = {music: !!e.music, phones: !!e.phones, charging: !!e.charging, hungry, cold, hot, heat, rain, snow, offline: !!e.offline, heart: life.heart, night, battery: e.battery, roomFree: e.roomFree, silent: !!e.silent, save: !!e.powerSave, dnd: !!e.dnd || !!e.hush, airplane: !!e.airplane};
   /*
     What it wears, one thing per place (head, face, neck, hand, body), from the weather, the hour, the season and the day, and
     from the phone (준: "3배로 늘려줘" for 차림): a nightcap at night, a Santa hat in late December, a beanie or earmuffs in the cold,
@@ -1046,7 +1048,7 @@ function envOf(b, k) {
   if (!b._dressed) WEAR.forEach(x => svg.classList.toggle("w-" + x, (own || wear).includes(x)));
   svg.classList.toggle("w-bolt", !!e.charging); svg.classList.toggle("w-sweat", hot && !night);
   svg.classList.toggle("w-notes", !!e.music); svg.classList.toggle("w-q", !!e.offline);
-  svg.classList.toggle("w-save", !!e.powerSave); svg.classList.toggle("w-dnd", !!e.dnd);
+  svg.classList.toggle("w-save", !!e.powerSave); svg.classList.toggle("w-dnd", !!e.dnd || !!e.hush);
   const cb = $(b, ".care-btn"); if (cb) cb.style.setProperty("--fill", Math.max(8, Math.min(100, life.heart == null ? 55 : life.heart)) + "%");
   $(b, ".buddy").classList.toggle("lowpower", !!e.powerSave);
   const was = b._was; b._was = {charging: !!e.charging, music: !!e.music, heat, save: !!e.powerSave};

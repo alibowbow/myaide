@@ -196,7 +196,23 @@ public class BuddyBrainTests {
         assertEquals("navigate", home.optString("tool")); assertEquals("walk", home.optString("mode")); assertEquals("집으로 안내할게!", BuddyTools.say(home));
         assertEquals("show_alarms", BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "show_alarms").put("arguments", "{}"))).optString("tool"));
         assertNull(BuddyTools.act(new org.json.JSONArray()));
-        assertEquals(24, BuddyTools.TOOLS.length());
+        assertEquals(45, BuddyTools.TOOLS.length());
+        // Every tool once, with its Korean description (준: "시킬 수 있는 목록 … 아직 부족").
+        java.util.Set<String> names = new java.util.HashSet<>();
+        for (int i = 0; i < BuddyTools.TOOLS.length(); i++) {
+            org.json.JSONObject f = BuddyTools.TOOLS.getJSONObject(i).getJSONObject("function");
+            assertTrue("once: " + f.getString("name"), names.add(f.getString("name")));
+            assertTrue(f.getString("name"), f.getString("description").codePoints().anyMatch(c -> c >= 0xAC00 && c <= 0xD7A3));
+        }
+        for (String t : new String[]{"stopwatch", "show_timers", "calendar_view", "memo", "recorder", "app_settings", "downloads", "gallery", "contacts", "calculator", "email", "translate",
+                "coin", "dice", "pick", "world_time", "count_days", "remember", "forget", "call_me", "quiet"}) {
+            assertTrue("a tool " + t, names.contains(t));
+            assertTrue("in the text form " + t, BuddyTalk.ACTS.contains("\"tool\":\"" + t + "\""));
+        }
+        assertTrue(BuddyTools.RULE.contains("지어내지"));
+        assertTrue(BuddyTools.promised("동전 던져 줘", "좋아, 던져 볼게!")); assertTrue(BuddyTools.promised("나 내일 시험이야, 기억해 줘", "응, 기억할게!"));
+        assertTrue(BuddyTools.promised("이제 형이라고 불러", "알겠어, 형이라고 부를게!")); assertTrue(BuddyTools.promised("한 시간만 조용히 해 줘", "응, 조용히 있을게."));
+        assertFalse("a song is not a title", BuddyTools.promised("노래 불러 줘", "라라라~ 한 곡 부를게!"));
         assertTrue(BuddyTools.promised("3분 타이머 맞춰 줘", "3분 타이머 시작할게!"));
         assertFalse("small talk is never forced into a tool", BuddyTools.promised("오늘 기분 어때", "나 오늘 완전 좋아!"));
         assertFalse(BuddyTools.promised("유튜브 틀어 줘", "어떤 노래가 좋아?"));
@@ -214,6 +230,183 @@ public class BuddyBrainTests {
         java.util.Arrays.fill(f, (short) 600); for (int i = 0; i < 10; i++) assertFalse(over.add(f, f.length));
         java.util.Arrays.fill(f, (short) 5000); boolean stopped = false; for (int i = 0; i < 30 && !stopped; i++) stopped = over.add(f, f.length);
         assertTrue("talked over", stopped);
+    }
+    /**
+     * 퍼레's own answers that need no app (준: "시킬 수 있는 목록 … 아직 부족"): a coin, dice, a pick, a sum, the time in another
+     * city, the days to a day, a stopwatch's reading, worked out here rather than made up by the brain.
+     */
+    @Test public void worksThingsOutItself() throws Exception {
+        java.util.Random r = new java.util.Random(7);
+        assertTrue(dev.jun.gyeot.core.BuddyTricks.coinSay(true, r).contains("앞면")); assertTrue(dev.jun.gyeot.core.BuddyTricks.coinSay(false, r).contains("뒷면"));
+        int[] two = dev.jun.gyeot.core.BuddyTricks.dice(2, 6, r); assertEquals(2, two.length);
+        for (int d : two) assertTrue(d >= 1 && d <= 6);
+        assertEquals("3이랑 5, 합쳐서 8!", dev.jun.gyeot.core.BuddyTricks.diceSay(new int[]{3, 5}));
+        assertEquals(java.util.List.of("짜장면", "짬뽕", "볶음밥"), dev.jun.gyeot.core.BuddyTricks.options("짜장면, 짬뽕 아니면 볶음밥"));
+        assertEquals(java.util.List.of("a", "b"), dev.jun.gyeot.core.BuddyTricks.options(new org.json.JSONArray().put("a").put("a").put("b")));
+        // Sums as said or written.
+        assertEquals(84.0, dev.jun.gyeot.core.BuddyTricks.calc("12*7"), 1e-9);
+        assertEquals(84.0, dev.jun.gyeot.core.BuddyTricks.calc("12 곱하기 7"), 1e-9);
+        assertEquals(5250.0, dev.jun.gyeot.core.BuddyTricks.calc("35000*0.15"), 1e-9);
+        assertEquals(105000.0, dev.jun.gyeot.core.BuddyTricks.calc("3만5천*3"), 1e-9);
+        assertEquals(7500.0, dev.jun.gyeot.core.BuddyTricks.calc("50000의 15%"), 1e-9);
+        assertEquals(30000.0, dev.jun.gyeot.core.BuddyTricks.calc("100만원의 3%"), 1e-9);
+        assertEquals(49.0, dev.jun.gyeot.core.BuddyTricks.calc("(3+4)^2"), 1e-9);
+        assertEquals(6666.666666, dev.jun.gyeot.core.BuddyTricks.calc("(12,000+8,000)/3"), 1e-5);
+        assertNull(dev.jun.gyeot.core.BuddyTricks.calc("안녕")); assertNull(dev.jun.gyeot.core.BuddyTricks.calc("3+"));
+        try { dev.jun.gyeot.core.BuddyTricks.calc("5/0"); fail("by zero"); } catch (ArithmeticException expected) { /* said as such */ }
+        assertEquals("1,234,567", dev.jun.gyeot.core.BuddyTricks.number(1234567)); assertEquals("0.3333", dev.jun.gyeot.core.BuddyTricks.number(1 / 3.0)); assertEquals("6,666.6667", dev.jun.gyeot.core.BuddyTricks.number(20000 / 3.0));
+        // The time elsewhere, from Seoul at 9 in the morning.
+        java.time.ZonedDateTime seoul = java.time.ZonedDateTime.of(2026, 11, 27, 9, 0, 0, 0, java.time.ZoneId.of("Asia/Seoul"));
+        String[] ny = dev.jun.gyeot.core.BuddyTricks.place("뉴욕은", null);
+        assertEquals("America/New_York", ny[0]);
+        assertEquals("뉴욕은 지금 어제 오후 7:00야. 여기보다 14시간 느려.", dev.jun.gyeot.core.BuddyTricks.worldTime(ny[1], java.time.ZoneId.of(ny[0]), seoul));
+        assertEquals("인도는 지금 오전 5:30야. 여기보다 3시간 30분 느려.", dev.jun.gyeot.core.BuddyTricks.worldTime("인도", java.time.ZoneId.of(dev.jun.gyeot.core.BuddyTricks.place("인도", "")[0]), seoul));
+        assertEquals("America/Los_Angeles", dev.jun.gyeot.core.BuddyTricks.place("LA 지금 몇 시", null)[0]);
+        assertEquals("America/Chicago", dev.jun.gyeot.core.BuddyTricks.place("dallas", null)[0]);
+        assertEquals("Europe/Paris", dev.jun.gyeot.core.BuddyTricks.place("", "Europe/Paris")[0]);
+        assertNull(dev.jun.gyeot.core.BuddyTricks.place("어딘가", null));
+        // Days to a day, since one, and so many days on.
+        java.time.LocalDate today = java.time.LocalDate.of(2026, 11, 27);
+        assertEquals(java.time.LocalDate.of(2026, 12, 25), dev.jun.gyeot.core.BuddyTricks.day("크리스마스", today));
+        assertEquals(java.time.LocalDate.of(2027, 3, 1), dev.jun.gyeot.core.BuddyTricks.day("3월 1일", today));
+        assertEquals(java.time.LocalDate.of(2026, 8, 19), dev.jun.gyeot.core.BuddyTricks.day("2026-08-19", today));
+        assertEquals(today.plusDays(2), dev.jun.gyeot.core.BuddyTricks.day("모레", today));
+        assertNull(dev.jun.gyeot.core.BuddyTricks.day("언젠가", today));
+        assertEquals("크리스마스까지 28일 남았어!", dev.jun.gyeot.core.BuddyTricks.countDays(java.time.LocalDate.of(2026, 12, 25), "크리스마스", today));
+        assertEquals("만난 날부터 오늘까지 100일 지났어. 그날을 1일로 세면 101일째야.", dev.jun.gyeot.core.BuddyTricks.countDays(java.time.LocalDate.of(2026, 8, 19), "만난 날", today));
+        assertEquals("여행은 바로 오늘이야!", dev.jun.gyeot.core.BuddyTricks.countDays(today, "여행", today));
+        String later = dev.jun.gyeot.core.BuddyTricks.addDays(today, 100, today);
+        assertTrue(later, later.startsWith("오늘부터 100일 뒤는 2027년 3월 7일 ") && later.endsWith("요일이야."));
+        // A stopwatch's reading, a title, a language, which memories a "잊어 줘" means.
+        assertEquals("3.2초", dev.jun.gyeot.core.BuddyTricks.elapsed(3_200)); assertEquals("1분 5초", dev.jun.gyeot.core.BuddyTricks.elapsed(65_000)); assertEquals("1시간", dev.jun.gyeot.core.BuddyTricks.elapsed(3_600_000));
+        assertEquals("주인공님", dev.jun.gyeot.core.BuddyTricks.title("주인공님이라고 불러 줘")); assertEquals("형", dev.jun.gyeot.core.BuddyTricks.title("나를 형이라고 불러"));
+        assertEquals("", dev.jun.gyeot.core.BuddyTricks.title("아주아주아주아주긴호칭이에요정말로"));
+        assertEquals("이제 ‘주인공님’이라고 부를게!", BuddyTools.called("주인공님")); assertEquals("이제 ‘대장’이라고 부를게!", BuddyTools.called("대장")); assertEquals("이제 ‘형아’라고 부를게!", BuddyTools.called("형아"));
+        assertEquals("en", dev.jun.gyeot.core.BuddyTricks.language("", "안녕하세요")); assertEquals("ko", dev.jun.gyeot.core.BuddyTricks.language(null, "hello"));
+        assertEquals("ja", dev.jun.gyeot.core.BuddyTricks.language("일본어로", "안녕")); assertEquals("zh-CN", dev.jun.gyeot.core.BuddyTricks.language("zh-CN", "안녕"));
+        java.util.List<String> kept = java.util.List.of("사용자는 고양이를 좋아한대요", "사용자는 커피를 좋아한대", "사용자가 기억해 달랬어: 차는 지하 2층에 세웠어");
+        assertEquals(java.util.List.of(0), dev.jun.gyeot.core.BuddyTricks.matching(kept, "고양이"));
+        assertEquals(java.util.List.of(0), dev.jun.gyeot.core.BuddyTricks.matching(kept, "고양이 좋아한다는 거"));
+        assertEquals(java.util.List.of(2), dev.jun.gyeot.core.BuddyTricks.matching(kept, "지하 2층"));
+        assertEquals(java.util.List.of(), dev.jun.gyeot.core.BuddyTricks.matching(kept, "강아지"));
+
+        // Through BuddyActs, as the brain calls them; their words are the answer.
+        android.content.Context c = org.robolectric.RuntimeEnvironment.getApplication();
+        assertTrue(BuddyActs.run(c, BuddyTalk.loose("{\"tool\":\"coin\"}"), "동전 던져 줘", false).say().matches(".*(앞면|뒷면).*"));
+        assertTrue(BuddyActs.run(c, BuddyTalk.loose("{\"tool\":\"dice\",\"count\":2}"), "주사위 두 개", false).say().contains("합쳐서"));
+        assertTrue(BuddyActs.run(c, BuddyTalk.loose("{\"tool\":\"pick\",\"options\":[\"짜장면\",\"짬뽕\"]}"), "골라 줘", false).say().matches(".*(짜장면|짬뽕).*"));
+        assertTrue(BuddyActs.run(c, BuddyTalk.loose("{\"tool\":\"calc\",\"expr\":\"35000*0.15\"}"), "35000원의 15퍼센트", false).say().contains("5,250"));
+        assertEquals("0으로는 나눌 수가 없어!", BuddyActs.run(c, BuddyTalk.loose("{\"tool\":\"calculator\",\"expression\":\"5/0\"}"), "", false).say());
+        assertTrue(BuddyActs.run(c, BuddyTalk.loose("{\"tool\":\"world_time\",\"place\":\"뉴욕\"}"), "뉴욕 몇 시야", false).say().startsWith("뉴욕은 지금 "));
+        assertTrue(BuddyActs.run(c, BuddyTalk.loose("{\"tool\":\"count_days\",\"date\":\"크리스마스\"}"), "크리스마스 며칠 남았어", false).say().startsWith("크리스마스"));
+        assertEquals("", BuddyActs.run(c, BuddyTalk.loose("{\"tool\":\"stopwatch\",\"command\":\"start\"}"), "스톱워치 켜 줘", false).say());
+        assertTrue(BuddyActs.run(c, BuddyTalk.loose("{\"tool\":\"stopwatch\",\"command\":\"check\"}"), "몇 초야", false).say().endsWith("째야!"));
+        assertTrue(BuddyActs.run(c, BuddyTalk.loose("{\"tool\":\"stopwatch\",\"command\":\"stop\"}"), "멈춰", false).say().startsWith("멈췄어, "));
+        assertTrue(BuddyActs.run(c, BuddyTalk.loose("{\"tool\":\"stopwatch\",\"command\":\"stop\"}"), "멈춰", false).say().contains("없어"));
+        // The text form, as the quick brains write it.
+        assertEquals("coin", BuddyTalk.act("던져 볼게!\n할일: {\"tool\":\"flip_coin\"}").optString("tool"));
+        org.json.JSONObject sum = BuddyTalk.act("계산해 볼게 {tool: calc, expr: 12*7}");
+        assertEquals("calculator", sum.optString("tool")); assertEquals("12*7", sum.optString("expression"));
+        assertEquals(java.util.List.of("a", "b"), dev.jun.gyeot.core.BuddyTricks.options(BuddyTalk.loose("{\"tool\":\"choose\",\"choices\":[\"a\",\"b\"]}").opt("options")));
+        assertEquals("world_time", BuddyTalk.loose("{\"tool\":\"timezone\",\"city\":\"파리\"}").optString("tool")); assertEquals("파리", BuddyTalk.loose("{\"tool\":\"timezone\",\"city\":\"파리\"}").optString("place"));
+        // Its short lines when the brain said none.
+        assertEquals("동전 던진다!", BuddyTools.say(new org.json.JSONObject().put("tool", "coin")));
+        assertEquals("", BuddyTools.say(new org.json.JSONObject().put("tool", "world_time").put("place", "뉴욕")));
+        assertEquals("이제 ‘주인공님’이라고 부를게!", BuddyTools.say(new org.json.JSONObject().put("tool", "call_me").put("title", "주인공님이라고")));
+        assertEquals("다시 말 걸게!", BuddyTools.say(new org.json.JSONObject().put("tool", "quiet").put("hours", 0)));
+    }
+    /** What the user asks of 퍼레 itself: keep this in mind, forget that, call me so, keep quiet a while. */
+    @Test public void keepsAndLetsGoWhenAsked() throws Exception {
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        BuddyMisses.clear(app);
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"remember\",\"fact\":\"차는 지하 2층 B구역에 세웠어\"}"), "차 지하 2층 B구역에 세웠어 기억해 줘", false);
+        java.util.List<dev.jun.gyeot.core.BuddyMemory.Entry> m = BuddyTalk.memories(app);
+        assertEquals(1, m.size()); assertEquals("fact", m.get(0).kind()); assertTrue(m.get(0).text(), m.get(0).text().contains("지하 2층"));
+        assertEquals("그건 벌써 기억하고 있어!", BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"remember\",\"fact\":\"차는 지하 2층 B구역에 세웠어\"}"), "", false).say());
+        assertTrue(BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"remember\",\"fact\":\"은행 비밀번호는 0000이야\"}"), "", false).say().contains("안 적어"));
+        assertEquals(1, BuddyTalk.memories(app).size());
+        BuddyTalk.rememberStrong(app, "fact", "사용자는 고양이를 좋아한대요", false);
+        // Forgotten by its words; all at once only in 퍼레의 기억, the way there kept.
+        assertEquals("‘고양이’ 기억 지웠어.", BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"forget\",\"what\":\"고양이\"}"), "고양이 얘기 잊어 줘", false).say());
+        assertEquals(1, BuddyTalk.memories(app).size());
+        assertTrue(BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"forget\",\"what\":\"강아지\"}"), "", false).say().contains("원래 없었어"));
+        BuddyVoice.Outcome all = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"forget\",\"what\":\"전부\"}"), "다 잊어버려", false);
+        assertTrue(all.say(), all.say().contains("퍼레의 기억")); assertEquals(1, BuddyTalk.memories(app).size());
+        assertEquals("memory", BuddyMisses.list(app).get(0).fix()); assertEquals("퍼레의 기억 열기", BuddyMisses.fixLabel("memory"));
+        assertTrue(BuddyMisses.fixIntent(app, "memory").getBooleanExtra(DecorActivity.MEMORY, false));
+        // What it calls the user.
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"callme\",\"name\":\"주인공님이라고 불러 줘\"}"), "주인공님이라고 불러 줘", false);
+        assertEquals("주인공님", BuddyTalk.title(app));
+        // A quiet while: the board starts no talk (env.hush), the brain is told; 0 talks again.
+        String quiet = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"quiet\",\"hours\":2}"), "두 시간만 조용히 해 줘", false).say();
+        assertTrue(quiet, quiet.contains("먼저 말 안 걸게"));
+        assertTrue(BuddyTalk.hushed(app)); assertTrue(BuddyTalk.env(app).optBoolean("hush"));
+        assertTrue(BuddyTalk.hushUntil(app) - System.currentTimeMillis() > 7_000_000L);
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"hush\",\"hours\":0}"), "이제 말해도 돼", false);
+        assertFalse(BuddyTalk.hushed(app)); assertFalse(BuddyTalk.env(app).optBoolean("hush"));
+        String board; try (java.io.InputStream in = app.getAssets().open("decor/board.js")) { board = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8); }
+        assertTrue("the board keeps quiet while hushed", board.contains("info.env.hush") && board.contains("dnd: !!e.dnd || !!e.hush"));
+    }
+    /** More apps their own way: the clock's timers, a recorder, downloads, a mail, an app's info, a translator, a day in the calendar, 방해 금지. */
+    @Test public void usesMoreAppsTheirOwnWay() throws Exception {
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        app.store().appVisible = true;
+        org.robolectric.shadows.ShadowPackageManager pm = shadowOf(app.getPackageManager());
+        java.util.function.BiConsumer<String, android.content.IntentFilter> handles = (component, filter) -> {
+            android.content.ComponentName c = android.content.ComponentName.unflattenFromString(component); pm.addActivityIfNotPresent(c);
+            filter.addCategory(android.content.Intent.CATEGORY_DEFAULT); pm.addIntentFilterForActivity(c, filter);
+        };
+        handles.accept("com.clock/.Timers", new android.content.IntentFilter(android.provider.AlarmClock.ACTION_SHOW_TIMERS));
+        handles.accept("com.rec/.Record", new android.content.IntentFilter(android.provider.MediaStore.Audio.Media.RECORD_SOUND_ACTION));
+        handles.accept("com.files/.Downloads", new android.content.IntentFilter(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS));
+        android.content.IntentFilter mail = new android.content.IntentFilter(android.content.Intent.ACTION_SENDTO); mail.addDataScheme("mailto");
+        handles.accept("com.mail/.Compose", mail);
+        android.content.IntentFilter info = new android.content.IntentFilter(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS); info.addDataScheme("package");
+        handles.accept("com.android.settings/.AppInfo", info);
+        handles.accept("com.android.settings/.Zen", new android.content.IntentFilter("android.settings.ZEN_MODE_PRIORITY_SETTINGS"));
+        android.content.IntentFilter web = new android.content.IntentFilter(android.content.Intent.ACTION_VIEW); web.addDataScheme("https");
+        handles.accept("com.browser/.Open", web);
+        android.content.IntentFilter day = new android.content.IntentFilter(android.content.Intent.ACTION_VIEW); day.addDataScheme("content"); day.addDataAuthority("com.android.calendar", null);
+        handles.accept("com.calendar/.Day", day);
+        org.robolectric.shadows.ShadowApplication shadow = shadowOf(app);
+        BuddyMisses.clear(app);
+
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"show_timers\"}"), "타이머 보여 줘", false);
+        assertEquals(android.provider.AlarmClock.ACTION_SHOW_TIMERS, shadow.getNextStartedActivity().getAction());
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"recorder\"}"), "녹음 켜 줘", false);
+        assertEquals(android.provider.MediaStore.Audio.Media.RECORD_SOUND_ACTION, shadow.getNextStartedActivity().getAction());
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"downloads\"}"), "받은 파일 보여 줘", false);
+        assertEquals(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS, shadow.getNextStartedActivity().getAction());
+
+        BuddyVoice.Outcome sent = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"email\",\"to\":\"friend@example.com\",\"subject\":\"안부\",\"text\":\"잘 지내?\"}"), "메일 써 줘", false);
+        android.content.Intent written = shadow.getNextStartedActivity();
+        assertEquals("mailto:", String.valueOf(written.getData())); assertEquals("friend@example.com", written.getStringArrayExtra(android.content.Intent.EXTRA_EMAIL)[0]);
+        assertEquals("잘 지내?", written.getStringExtra(android.content.Intent.EXTRA_TEXT)); assertEquals("메일 써 놨어, 보내기만 눌러 줘!", sent.say());
+        BuddyVoice.Outcome mom = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"email\",\"who\":\"엄마\",\"text\":\"곧 갈게\"}"), "엄마한테 메일", false);
+        shadow.getNextStartedActivity();
+        assertTrue(mom.say(), mom.say().contains("메일 주소를 몰라서")); assertEquals("contacts", BuddyMisses.list(app).get(0).fix());
+
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"app_settings\",\"app\":\"카톡\"}"), "카톡 알림 설정 열어 줘", false);
+        android.content.Intent details = shadow.getNextStartedActivity();
+        assertEquals(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, details.getAction()); assertEquals("package:com.kakao.talk", String.valueOf(details.getData()));
+
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"translate\",\"text\":\"안녕\",\"to\":\"일본어\"}"), "안녕을 일본어로 번역해 줘", false);
+        android.net.Uri translated = shadow.getNextStartedActivity().getData();
+        assertEquals("translate.google.com", translated.getHost()); assertEquals("ja", translated.getQueryParameter("tl")); assertEquals("안녕", translated.getQueryParameter("text"));
+
+        BuddyVoice.Outcome tomorrow = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"calendar_view\",\"date\":\"내일\"}"), "내일 일정 보여 줘", false);
+        android.content.Intent opened = shadow.getNextStartedActivity();
+        assertTrue(String.valueOf(opened.getData()), String.valueOf(opened.getData()).startsWith("content://com.android.calendar/time/"));
+        assertTrue(tomorrow.say(), tomorrow.say().endsWith("일정 열었어!"));
+
+        BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"settings\",\"panel\":\"dnd\"}"), "방해 금지 설정 열어 줘", false);
+        assertEquals("android.settings.ZEN_MODE_PRIORITY_SETTINGS", shadow.getNextStartedActivity().getAction());
+
+        // Missing apps: why, the way to get one, and what it can do in their place.
+        BuddyVoice.Outcome memo = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"memo\",\"text\":\"우유 사기\"}"), "우유 사기 메모해 줘", false);
+        assertTrue(memo.say(), memo.say().contains("기억해 줘")); assertEquals("store:메모", BuddyMisses.list(app).get(0).fix());
+        assertTrue(BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"gallery\"}"), "사진 보여 줘", false).say().contains("갤러리"));
+        assertTrue(BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"app_settings\",\"app\":\"없는앱\"}"), "", false).say().contains("없는앱"));
     }
     /**
      * 퍼레 itself by voice or in the talk (준: "음성 대화로 주사위 꺼내봐 해도 안된다고해", "의상바꿔도 안되고", "음성대화로 퍼레의
