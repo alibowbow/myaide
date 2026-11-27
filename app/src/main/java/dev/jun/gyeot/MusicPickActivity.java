@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.UriPermission;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Bundle;
 import android.widget.Toast;
@@ -19,10 +20,13 @@ import java.util.Set;
  * on PieceMusicStore's thread after this window has closed. Closed without picking, nothing changes; closed without an answer
  * at all (the home button over the picker clears it), the page hears it was cancelled. A permission taken here for what does
  * not come onto the list (not sound, unreadable, past the list's most, a folder with no music) is given back (PieceMusicStore).
+ * For 휴대폰 노래 (kind songs) it asks Android for READ_MEDIA_AUDIO instead, over the page, and says how it went
+ * (PieceMusicStore.perm: granted, denied, blocked when Android will not ask again, cancelled); the page then lists the songs or
+ * says what is missing with a tap to the app's settings, and the file picker keeps working either way.
  */
 public final class MusicPickActivity extends Activity {
-    static final String KIND = "kind", FILES = "files", FOLDER = "folder";
-    private static final int PICK = 1;
+    static final String KIND = "kind", FILES = "files", FOLDER = "folder", SONGS = "songs";
+    private static final int PICK = 1, READ_SONGS = 2;
     private boolean asked, answered;
 
     /** The picker for music files: openable documents of any sound type (ogg files say application/ogg), several at once. */
@@ -37,6 +41,7 @@ public final class MusicPickActivity extends Activity {
         asked = state != null && state.getBoolean("asked");
         if (asked) return; // recreated while the picker shows: its answer comes here
         asked = true;
+        if (songs()) { askSongs(); return; }
         boolean tree = FOLDER.equals(getIntent().getStringExtra(KIND));
         try {
             startActivityForResult(tree ? folder() : files(), PICK);
@@ -50,8 +55,27 @@ public final class MusicPickActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putBoolean("asked", asked); }
     /** Gone without the picker's answer (the home screen came to front over it): the page stops waiting. */
     @Override protected void onDestroy() {
-        if (!answered && !isChangingConfigurations()) PieceMusicStore.of(this).pick("cancelled");
+        if (!answered && !isChangingConfigurations()) { if (songs()) PieceMusicStore.of(this).perm("cancelled"); else PieceMusicStore.of(this).pick("cancelled"); }
         super.onDestroy();
+    }
+    private boolean songs() { return SONGS.equals(getIntent().getStringExtra(KIND)); }
+    /** READ_MEDIA_AUDIO for the media index's songs: given already, nothing to ask; else Android's own question. */
+    private void askSongs() {
+        PieceMusicStore store = PieceMusicStore.of(this);
+        if (checkSelfPermission(android.Manifest.permission.READ_MEDIA_AUDIO) == PackageManager.PERMISSION_GRANTED) { answered = true; store.perm("granted"); finish(); return; }
+        store.perm("asking");
+        requestPermissions(new String[]{android.Manifest.permission.READ_MEDIA_AUDIO}, READ_SONGS);
+    }
+    @Override public void onRequestPermissionsResult(int request, String[] names, int[] results) {
+        super.onRequestPermissionsResult(request, names, results);
+        if (request != READ_SONGS) return;
+        answered = true;
+        PieceMusicStore store = PieceMusicStore.of(this);
+        if (results == null || results.length == 0) store.perm("cancelled");               // the question went away unanswered
+        else if (results[0] == PackageManager.PERMISSION_GRANTED) store.perm("granted");
+        // refused: asked again next time, or (after a second no, or "don't ask again") only the app's settings can give it
+        else store.perm(shouldShowRequestPermissionRationale(android.Manifest.permission.READ_MEDIA_AUDIO) ? "denied" : "blocked");
+        finish();
     }
 
     @Override protected void onActivityResult(int request, int result, Intent data) {

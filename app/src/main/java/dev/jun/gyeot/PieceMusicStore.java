@@ -10,6 +10,7 @@ import android.graphics.BitmapFactory;
 import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.provider.DocumentsContract;
+import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.util.AtomicFile;
 import dev.jun.gyeot.core.PieceMusic;
@@ -26,7 +27,9 @@ import java.util.concurrent.Executors;
  * 내 음악's list, kept in files/piece-music/shelf.json (AtomicFile), with the pictures found in the files
  * (files/piece-music/art/<id>.jpg, 512 px). Read once and kept: read again only when the file's size or time changed. The
  * files are the user's own documents, opened through the read permission they gave with Android's picker (kept for good;
- * given back when a file leaves the list). Reading a picked file's details runs on one background thread, never the main one.
+ * given back when a file leaves the list), or the songs of Android's media index the user chose in 휴대폰 노래 (read with the
+ * READ_MEDIA_AUDIO permission, asked when they first open it). Reading a picked file's details runs on one background thread,
+ * never the main one; the media index is asked on the caller's (the web view's request thread).
  */
 final class PieceMusicStore {
     private static PieceMusicStore one;
@@ -44,7 +47,7 @@ final class PieceMusicStore {
     private final File dir, file, art;
     private PieceMusic.Shelf shelf = PieceMusic.EMPTY;
     private long shelfLength = -1, shelfTime = -1;
-    private volatile String pick = "";
+    private volatile String pick = "", perm = "";
 
     private PieceMusicStore(Context app) {
         this.app = app;
@@ -75,6 +78,61 @@ final class PieceMusicStore {
     /** How the last 파일 추가 is going, for the page: "open", "notification", "cancelled", "done" or "". */
     String pick() { return pick; }
     void pick(String state) { pick = state == null ? "" : state; }
+    /** How the last ask for reading the phone's songs went: "asking", "notification" (a tap on it asks), "granted", "denied", "blocked" (asked no more), "cancelled" or "". */
+    String perm() { return perm; }
+    void perm(String state) { perm = state == null ? "" : state; }
+
+    /**
+     * Every sound file Android's media index knows (all volumes), with what it says of each (PieceMusic.song() picks the songs).
+     * Needs READ_MEDIA_AUDIO; empty without. Not on the main thread (the web view's request thread asks it).
+     */
+    List<PieceMusic.Found> scan() {
+        List<PieceMusic.Found> out = new ArrayList<>();
+        Uri base = MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL);
+        String[] cols = { MediaStore.Audio.Media._ID, MediaStore.Audio.Media.DISPLAY_NAME, MediaStore.Audio.Media.TITLE, MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.DURATION, MediaStore.Audio.Media.DATA, MediaStore.Audio.Media.RELATIVE_PATH, MediaStore.Audio.Media.MIME_TYPE,
+            MediaStore.Audio.Media.SIZE, MediaStore.Audio.Media.IS_MUSIC, MediaStore.Audio.Media.IS_RINGTONE, MediaStore.Audio.Media.IS_NOTIFICATION,
+            MediaStore.Audio.Media.IS_ALARM, MediaStore.Audio.Media.IS_PODCAST, MediaStore.Audio.Media.IS_AUDIOBOOK, MediaStore.Audio.Media.IS_RECORDING };
+        int[] bits = { PieceMusic.MUSIC, PieceMusic.RINGTONE, PieceMusic.NOTIFICATION, PieceMusic.ALARM, PieceMusic.PODCAST, PieceMusic.AUDIOBOOK, PieceMusic.RECORDING };
+        try (Cursor c = app.getContentResolver().query(base, cols, null, null, null)) {
+            if (c == null) return out;
+            int[] at = new int[cols.length];
+            for (int i = 0; i < cols.length; i++) at[i] = c.getColumnIndex(cols[i]);
+            while (c.moveToNext() && out.size() < SCAN_ROWS) {
+                if (at[0] < 0 || c.isNull(at[0])) continue;
+                long id = c.getLong(at[0]);
+                String name = text(c, at[1]), data = text(c, at[5]), rel = text(c, at[6]);
+                int flags = 0;
+                for (int b = 0; b < bits.length; b++) { int k = at[9 + b]; if (k >= 0 && !c.isNull(k) && c.getInt(k) != 0) flags |= bits[b]; }
+                // (no IS_MUSIC column at all: an index that does not tell, taken as music, the other rules still apply)
+                if (at[9] < 0) flags |= PieceMusic.MUSIC;
+                long dur = at[4] < 0 || c.isNull(at[4]) ? 0 : c.getLong(at[4]), size = at[8] < 0 || c.isNull(at[8]) ? -1 : c.getLong(at[8]);
+                String path = !data.isEmpty() ? data : rel;
+                out.add(new PieceMusic.Found(android.content.ContentUris.withAppendedId(base, id).toString(), name, path, text(c, at[2]), text(c, at[3]), dur, text(c, at[7]), size, flags));
+            }
+        } catch (RuntimeException unreadable) { /* no permission, or the index is busy: nothing found */ }
+        return out;
+    }
+    private static String text(Cursor c, int i) { try { return i < 0 || c.isNull(i) ? "" : c.getString(i); } catch (RuntimeException odd) { return ""; } }
+    private static final int SCAN_ROWS = 20000;
+
+    /** Songs chosen in 휴대폰 노래 (their media index entries), read and added off the main thread like picked files. */
+    void addMediaLater(List<PieceMusic.Found> chosen) {
+        try { WORK.execute(() -> {
+            try {
+                PieceMusic.Shelf now = shelf();
+                List<PieceMusic.Track> found = new ArrayList<>();
+                for (PieceMusic.Found f : chosen) {
+                    if (now.items().size() + found.size() >= PieceMusic.MOST) break;
+                    PieceMusic.Track t = read(Uri.parse(f.uri()), null, f.name(), f.size(), now, f);
+                    if (t != null) found.add(t);
+                }
+                synchronized (this) { save(PieceMusic.add(shelf(), found)); }
+            } catch (RuntimeException failed) { DiagnosticsExport.record(app, "storage", failed); }
+            finally { pick("done"); }
+        }); }
+        catch (RuntimeException stopped) { pick("cancelled"); }
+    }
 
     /**
      * Files and a folder the user just picked (their read permission already taken: those newly taken in taken), read and added
@@ -102,12 +160,15 @@ final class PieceMusicStore {
     PieceMusic.Shelf add(List<Uri> files, Uri tree) {
         List<PieceMusic.Track> found = new ArrayList<>();
         PieceMusic.Shelf now = shelf();
-        for (Uri u : files) { PieceMusic.Track t = read(u, null, null, -1, now); if (t != null) found.add(t); }
+        for (Uri u : files) { PieceMusic.Track t = read(u, null, null, -1, now, null); if (t != null) found.add(t); }
         if (tree != null) found.addAll(folder(tree, now));
         synchronized (this) { return save(PieceMusic.add(shelf(), found)); }
     }
-    /** One file: its name and size from its provider, its title, artist, length and picture from the file itself; null when not sound. */
-    PieceMusic.Track read(Uri uri, Uri tree, String knownName, long knownSize, PieceMusic.Shelf now) {
+    /**
+     * One file: its name and size from its provider, its title, artist, length and picture from the file itself (else what the
+     * media index said of it, hint); null when not sound.
+     */
+    PieceMusic.Track read(Uri uri, Uri tree, String knownName, long knownSize, PieceMusic.Shelf now, PieceMusic.Found hint) {
         if (uri == null || now.has(uri.toString())) return null;
         ContentResolver cr = app.getContentResolver();
         String name = knownName; long size = knownSize;
@@ -137,6 +198,11 @@ final class PieceMusicStore {
             pic = picture(id, m.getEmbeddedPicture());
         } catch (RuntimeException | OutOfMemoryError unreadable) { /* the page learns the length when it plays */ }
         finally { try { m.release(); } catch (Exception ignored) {} }
+        if (hint != null) {
+            if (title == null || title.isBlank()) title = hint.shownTitle();
+            if (artist.isEmpty()) artist = hint.shownArtist();
+            if (dur <= 0) dur = hint.durMs();
+        }
         String shown = title == null || title.isBlank() ? PieceMusic.title(name) : title.strip();
         return new PieceMusic.Track(id, uri.toString(), tree == null ? "" : tree.toString(), shown, artist, Math.max(0, dur), mime, size, System.currentTimeMillis(), pic);
     }
@@ -180,7 +246,7 @@ final class PieceMusicStore {
             files.sort((a, b) -> String.CASE_INSENSITIVE_ORDER.compare(a[1] == null ? "" : a[1], b[1] == null ? "" : b[1]));
             for (String[] f : files) {
                 if (out.size() >= FOLDER_MOST) break;
-                PieceMusic.Track t = read(DocumentsContract.buildDocumentUriUsingTree(tree, f[0]), tree, f[1], Long.parseLong(f[2]), now);
+                PieceMusic.Track t = read(DocumentsContract.buildDocumentUriUsingTree(tree, f[0]), tree, f[1], Long.parseLong(f[2]), now, null);
                 if (t != null) out.add(t);
             }
         }

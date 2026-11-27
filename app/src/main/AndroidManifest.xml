@@ -37,6 +37,9 @@
     <uses-permission android:name="android.permission.READ_CALENDAR" />
     <!-- 퍼레's "엄마한테 전화해 줘": the number from the contacts, put in the dialer (the user presses call). -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- LP 페이지 내 음악의 '휴대폰 노래': the songs in Android's media index (music only, recordings left out), asked when
+         the user first opens that list; without it the file picker still adds music. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <!-- 들퍼레 홈 화면's weather: roughly where the phone is (Weather), asked once on the home screen. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />

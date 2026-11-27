@@ -13,11 +13,19 @@
   The piece is read from its site once into tests/browser/.cache (outside git: a piece is never copied into the app or the
   repository). Without a connection the checks are SKIPPED, said so plainly, and the run does not count as passed.
   The web view asks a tap before sound (setMediaPlaybackRequiresUserGesture): Chromium runs with the same rule.
+  On the Galaxy Z Fold (준: "갤폴드인데 lp페이지는 여전히 스크롤 해야해 차라리 탭으로 구분하면 어떨까", "우측 조작패널들 조작이 안돼 피치 큐",
+  "mp3들은 자동인식해서 목록들을 쭉 가져오면 안될까 … 음성대화녹음파일들은 파일명 보고 자동으로 걸러", "내음악을 원음대로 재생만 돼 lp모드가
+  없어"): a wide, short screen shows 턴테이블 · 앰프 · 곡목록 one at a time with no page scroll (a tall one keeps the long page, and
+  folding switches it live); the PITCH fader bends a file's rate (its pitch with it) and a record's clock, platter and voices,
+  the CUE lever lifts the arm and lowers it again, both drawn moving in the CSS and the 3D deck; + 휴대폰 노래 lists the songs
+  the app found (asking for the permission first, one tap to the settings when refused) drawing only the rows in sight, and
+  adds the chosen ones; 내 음악 plays through the LP chain or 원음, switched in its sheet.
   The three.js deck (deck3d.js; 준: "디테일한 three js로 해줘", "플스4느낌", and "Three js로 가면 휴대폰 성능저하심하려나"): it draws in
   place of the CSS deck, the record turns while playing and stops when paused, the arm is where the piece's arm is, it draws
   nothing while nothing moves and at most 30 frames a second, and with WebGL off the piece's own deck is there. Chromium draws
   WebGL here in software (SwiftShader): the frame time printed is this computer's, the draw calls and triangles the phone's.
-  Run: node vinyl.test.js   (VINYL_SHOTS=<dir> also saves preview_list_closed.png and preview_list_open.png;
+  Run: node vinyl.test.js   (VINYL_SHOTS=<dir> also saves preview_list_closed.png, preview_list_open.png, scan_sheet.png,
+  tabs_deck|amp|list.png, tabs_deck_3d.png and tall.png;
   VINYL_PLAIN=1 serves the piece with the noise fixes only, to see the checks fail without the add-on)
 */
 const { chromium, request } = require('playwright');
@@ -74,7 +82,11 @@ function wav(seconds, kind, seed) {
   for (let i = 0; i < n; i++) { const v = Math.max(-32767, Math.min(32767, Math.round(x[i] * k * 32767))); b.writeInt16LE(v, 44 + i * 4); b.writeInt16LE(v, 46 + i * 4); }
   return b;
 }
-const FILES = { 'a1b2c3d4e5f6': wav(6, 'pink', 7), '0f1e2d3c4b5a': wav(5, 'tone', 9), '99aa88bb77cc': wav(4, 'pink', 11) };
+const FILES = { 'a1b2c3d4e5f6': wav(6, 'pink', 7), '0f1e2d3c4b5a': wav(5, 'tone', 9), '99aa88bb77cc': wav(4, 'pink', 11), '5050aaaa0001': wav(40, 'pink', 13) };
+/* The phone's songs as the app lists them (PieceExtras /music/scan: recordings and short sounds already left out, 7 of them,
+   sorted by artist): 300, one of them (A Quiet Tone) on the list already. */
+const SONGS = [...Array(300)].map((_, i) => ({ id: i === 1 ? '5050aaaa0001' : i === 5 ? '0f1e2d3c4b5a' : 'c0ffee' + i.toString(16).padStart(6, '0'),
+  title: i === 1 ? '좋은 날' : i === 5 ? 'A Quiet Tone' : '노래 ' + String(i).padStart(3, '0'), artist: i < 4 ? '아이유' : '가수 ' + Math.floor(i / 10), dur: 180 + i, on: false }));
 // (A1's length as the phone first said it is wrong: the page corrects it when its element reads the file)
 const ITEMS = [
   { id: 'a1b2c3d4e5f6', title: '분홍 소리 시험', artist: '들퍼레 시험', dur: 9, mime: 'audio/wav', size: FILES['a1b2c3d4e5f6'].length, seek: true, art: false },
@@ -95,7 +107,7 @@ const PAGES = '<!doctype html><html><head><meta name="viewport" content="width=d
   + 'window.tellShown=on=>{const f=document.querySelector("iframe");f.contentWindow.postMessage({gyeot:"shown",on},new URL(f.src).origin)};</script></body></html>';
 
 async function open(browser, page_html, shelf, calls, deck, o = {}) {
-  const ctx = await browser.newContext({ viewport: { width: 412, height: 900 }, deviceScaleFactor: o.dsf || 2, hasTouch: true, isMobile: true });
+  const ctx = await browser.newContext({ viewport: o.viewport || { width: 412, height: 900 }, deviceScaleFactor: o.dsf || 2, hasTouch: true, isMobile: true });
   await ctx.addInitScript(o => { window.__GY_DECK = o; }, deck || {});
   const page = await ctx.newPage();
   const errors = [];
@@ -125,6 +137,27 @@ async function open(browser, page_html, shelf, calls, deck, o = {}) {
       setTimeout(() => { shelf.items = ITEMS.slice(); shelf.rev++; shelf.pick = 'done'; }, 700);
       return json({ pending: true, rev: shelf.rev, via: 'app' });
     }
+    if (p === '/__gyeot/music/scan') {
+      // 휴대폰 노래 (PieceExtras): without the permission, ask=1 asks (Android's question: answered after a moment), ask=0 says how it went
+      if (shelf.locked) return json(locked);
+      const sc = shelf.scan || { perm: 'granted', items: [], hidden: 0 }, ask = u.searchParams.get('ask') !== '0';
+      (calls.scan = calls.scan || []).push(ask ? 'ask' : 'again');
+      if (sc.perm !== 'granted') {
+        if (ask) { sc.perm = 'asking'; setTimeout(() => { sc.perm = sc.answer || 'denied'; }, 600); }
+        return json({ perm: sc.perm });
+      }
+      return json({ perm: 'granted', items: sc.items.map(it => Object.assign({}, it, { on: shelf.items.some(t => t.id === it.id) })), hidden: sc.hidden });
+    }
+    if (p === '/__gyeot/music/add-media') {
+      const ids = (u.searchParams.get('ids') || '').split(',').filter(x => /^[0-9a-f]{12}$/.test(x)), sc = shelf.scan || { items: [] };
+      (calls.addMedia = calls.addMedia || []).push(ids); shelf.pick = 'open';
+      setTimeout(() => {
+        for (const id of ids) { const it = sc.items.find(x => x.id === id); if (it && !shelf.items.some(t => t.id === id)) shelf.items.push({ id, title: it.title, artist: it.artist, dur: it.dur, mime: 'audio/wav', size: 1000, seek: true, art: false }); }
+        shelf.rev++; shelf.pick = 'done';
+      }, 600);
+      return json({ pending: true, rev: shelf.rev, n: ids.length, via: 'app' });
+    }
+    if (p === '/__gyeot/music/settings') { calls.settings = (calls.settings || 0) + 1; return json({ via: 'app' }); }
     if (p === '/__gyeot/deck/stats') { (calls.stats = calls.stats || []).push(Object.fromEntries(u.searchParams)); return route.fulfill({ status: 204, body: '' }); }
     m = p.match(/^\/__gyeot\/music\/([0-9a-f]{12})(\/art|\/remove)?$/);
     if (!m) return route.fulfill({ status: 404, body: '' });
@@ -150,6 +183,21 @@ const until = async (frame, fn, arg, ms = 12000, what = '') => {
   catch (e) { throw new Error('waited ' + ms + ' ms for ' + (what || fn.toString().slice(0, 140)) + ': ' + JSON.stringify(await frame.evaluate(() => window.__lp && { a: __lp.albumIdx, t: __lp.trackIdx, playing: __lp.playing, busy: __lp.busy, pos: __lp.songPos }).catch(() => null))); }
 };
 const armAngle = f => f.evaluate(() => __lp.arm.angle);
+/** A drag on a control of the deck (in the frame), by dx, dy CSS pixels, with the mouse (pointer events). */
+async function drag(page, frame, sel, dx, dy, steps = 8) {
+  const b = await frame.locator(sel).boundingBox(), x = b.x + b.width / 2, y = b.y + b.height / 2;
+  await page.mouse.move(x, y); await page.mouse.down();
+  for (let i = 1; i <= steps; i++) await page.mouse.move(x + dx * i / steps, y + dy * i / steps);
+  await page.mouse.up();
+}
+async function doubleTap(page, frame, sel) {
+  const b = await frame.locator(sel).boundingBox(), x = b.x + b.width / 2, y = b.y + b.height / 2;
+  await page.mouse.click(x, y); await page.waitForTimeout(90); await page.mouse.click(x, y);
+}
+/** The master's level now, in dB (as the VU meters hear it). */
+const level = f => f.evaluate(async () => { const an = __lp.actx.createAnalyser(); an.fftSize = 2048; __lp.master.connect(an); const b = new Float32Array(2048); let e = 0;
+  for (let i = 0; i < 20; i++) { an.getFloatTimeDomainData(b); let s = 0; for (const x of b) s += x * x; e += s / b.length; await new Promise(r => setTimeout(r, 50)); } an.disconnect(); return 10 * Math.log10(e / 20); });
+const knobY = f => f.evaluate(() => +(/translate\(0 ([-\d.]+)\)/.exec(document.getElementById('gyPitchKnob').getAttribute('transform') || '') || [0, 0])[1]);
 const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElementById('ndL').getAttribute('transform')) || [0, -50])[1]);
 
 (async () => {
@@ -228,7 +276,7 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       const rows = await frame.evaluate(() => [...document.querySelectorAll('.gy-row')].map(b => b.querySelector('.gy-num').textContent + ' ' + b.querySelector('b').textContent + ' ' + b.querySelector('.gy-dur').textContent));
       assert.deepStrictEqual(rows, ['A1 분홍 소리 시험 0:09', 'A2 A Quiet Tone 0:05'], 'the lengths the phone said');
       assert.match(await frame.locator('.gy-note').textContent(), /2곡을 담았어요/);
-      assert.deepStrictEqual(await frame.evaluate(() => [...document.querySelectorAll('.gy-add')].map(b => b.textContent + (b.disabled ? ' (off)' : ''))), ['+ 파일 추가', '+ 폴더'], 'ready to add more');
+      assert.deepStrictEqual(await frame.evaluate(() => [...document.querySelectorAll('.gy-add')].map(b => b.textContent + (b.disabled ? ' (off)' : ''))), ['+ 휴대폰 노래', '+ 파일 추가', '+ 폴더'], 'ready to add more');
       if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'preview_list_mine.png') });
     });
     let synthDb = 0;
@@ -314,8 +362,199 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       await frame.locator('#gyBar .gy-play').tap();
       await until(frame, () => __lp.playing && !__lp.busy && !__gy.audio.paused, null, 8000, 'playing again from the bar');
     });
+    await check('+ 휴대폰 노래 refused: what is missing, a tap to the app\'s settings; allowed there, the songs come when the page is back', async () => {
+      shelf.scan = { perm: 'ask', answer: 'denied', items: SONGS, hidden: 7 };
+      await frame.locator('#gyBar .gy-list').tap();
+      await frame.locator('.gy-chip', { hasText: '내 음악' }).tap();
+      await frame.locator('.gy-add', { hasText: '+ 휴대폰 노래' }).tap();
+      await until(frame, () => !!document.querySelector('#gyScan .gy-snote [data-do="settings"]'), null, 6000, 'the refusal said');
+      const v = await frame.evaluate(() => ({ sheet: document.getElementById('gySheet').hidden, scan: document.getElementById('gyScan').hidden, note: document.querySelector('#gyScan .gy-snote').textContent,
+        buttons: [...document.querySelectorAll('#gyScan .gy-snote [data-do]')].map(b => b.textContent) }));
+      assert.deepStrictEqual([v.sheet, v.scan], [true, false], 'the checklist in the list\'s place');
+      assert.match(v.note, /권한/); assert.match(v.note, /파일 추가는 그대로/);
+      assert.deepStrictEqual(v.buttons, ['허용하기', '설정 열기']);
+      assert.deepStrictEqual(calls.scan.slice(0, 2), ['ask', 'again'], 'asked once, then waited for the answer');
+      await frame.locator('#gyScan [data-do="settings"]').tap();
+      await until(frame, () => /설정/.test(document.querySelector('#gyScan .gy-snote').textContent) && !document.querySelector('#gyScan [data-do]'), null, 3000, 'the settings opened');
+      assert.strictEqual(calls.settings, 1);
+      // allowed in the settings, back on the page: the list comes without another tap
+      shelf.scan.perm = 'granted';
+      await frame.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await until(frame, () => document.querySelectorAll('#gyScan .gy-srow').length > 0, null, 5000, 'the songs once allowed');
+    });
+    await check('휴대폰 노래: the songs the app found in a checklist (only the rows in sight drawn), 모두 선택, three chosen onto 내 음악', async () => {
+      const v = await frame.evaluate(() => { const s = document.getElementById('gyScan').getBoundingClientRect();
+        return { title: document.querySelector('.gy-stitle').textContent, rows: document.querySelectorAll('.gy-srow').length, pad: document.querySelector('.gy-spad').style.height,
+          first: [...document.querySelectorAll('.gy-srow')].slice(0, 3).map(r => r.querySelector('b').textContent + ' · ' + r.querySelector('small').textContent + ' · ' + r.querySelector('.gy-dur').textContent),
+          on: [...document.querySelectorAll('.gy-srow[aria-disabled="true"]')].map(r => r.querySelector('b').textContent + ' ' + r.querySelector('.gy-dur').textContent),
+          sum: document.querySelector('.gy-ssum').textContent, take: document.querySelector('.gy-take').disabled, top: s.top, bottom: s.bottom, vh: innerHeight, y: scrollY }; });
+      assert.strictEqual(v.title, '휴대폰 노래 300곡');
+      assert.deepStrictEqual(v.first, ['노래 000 · 아이유 · 3:00', '좋은 날 · 아이유 · 3:01', '노래 002 · 아이유 · 3:02'], 'title · artist · length, in the app\'s order');
+      assert(v.rows > 4 && v.rows <= 24, 'only the rows in sight on the page: ' + v.rows + ' of 300');
+      assert.strictEqual(v.pad, 300 * 40 + 'px');
+      assert.deepStrictEqual(v.on, ['A Quiet Tone 담김'], 'a song on the list already: shown, not to choose');
+      assert.match(v.sum, /녹음·짧은 소리 7개는 뺐어요/);
+      assert.strictEqual(v.take, true, '담기 waits for a choice');
+      assert(v.top >= 0 && v.bottom <= v.vh - 24 - 26 - 38 && v.y === 0, 'over the bar, on screen: ' + v.top + '…' + v.bottom);
+      await frame.evaluate(() => { const l = document.querySelector('.gy-slist'); l.scrollTop = l.scrollHeight; });
+      await until(frame, () => [...document.querySelectorAll('.gy-srow b')].some(b => b.textContent === '노래 299'), null, 2000, 'the last song drawn when scrolled to');
+      assert(await frame.evaluate(() => document.querySelectorAll('.gy-srow').length) <= 24, 'still only the rows in sight');
+      await frame.evaluate(() => { document.querySelector('.gy-slist').scrollTop = 0; });
+      await frame.locator('.gy-all').tap();
+      assert.deepStrictEqual(await frame.evaluate(() => [document.querySelector('.gy-all').textContent, document.querySelector('.gy-take').textContent]), ['모두 해제', '299곡 담기'], 'every song not on the list');
+      await frame.locator('.gy-all').tap();
+      assert.deepStrictEqual(await frame.evaluate(() => [document.querySelector('.gy-all').textContent, document.querySelector('.gy-take').disabled]), ['모두 선택', true]);
+      for (const t of ['좋은 날', '노래 002', '노래 003']) await frame.locator('.gy-srow', { hasText: t }).tap();
+      await frame.locator('.gy-srow', { hasText: 'A Quiet Tone' }).tap({ force: true });   // (on the list already: nothing)
+      assert.strictEqual(await frame.locator('.gy-take').textContent(), '3곡 담기');
+      if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'scan_sheet.png') });
+      await frame.locator('.gy-take').tap();
+      await until(frame, () => !document.getElementById('gySheet').hidden && document.querySelectorAll('#gySheet .gy-row').length === 4, null, 8000, 'the three on 내 음악');
+      assert.deepStrictEqual(calls.addMedia, [['5050aaaa0001', 'c0ffee000002', 'c0ffee000003']], 'their ids only (the app looks each up again)');
+      assert.match(await frame.locator('.gy-note').textContent(), /3곡을 담았어요/);
+      assert.deepStrictEqual(await frame.evaluate(() => [...document.querySelectorAll('#gySheet .gy-row b')].map(b => b.textContent)), ['A Quiet Tone', '좋은 날', '노래 002', '노래 003']);
+    });
+    await check('내 음악 plays as an LP by default (wow delay, warm filters, saturation, narrower stereo); 원음 goes straight to the master; switched while playing, kept', async () => {
+      await frame.locator('#gySheet .gy-row', { hasText: '좋은 날' }).tap();
+      await until(frame, () => __lp.playing && !__lp.busy && !__gy.audio.paused && /5050aaaa0001/.test(__gy.audio.src) && __gy.audio.currentTime > 0.3, null, 15000, '좋은 날 playing');
+      const lp = await frame.evaluate(() => ({ sound: __gy.sound, chain: __gy.chain(), liner: document.getElementById('liner').textContent, on: document.querySelector('.gy-sound [aria-checked="true"]') && document.querySelector('.gy-sound [aria-checked="true"]').textContent }));
+      assert.strictEqual(lp.sound, 'lp');
+      assert.deepStrictEqual(lp.chain, ['MediaElementAudioSourceNode', 'GainNode', 'GainNode', 'DelayNode', 'BiquadFilterNode', 'BiquadFilterNode', 'WaveShaperNode', 'ChannelSplitterNode', 'ChannelMergerNode', 'GainNode']);
+      assert.match(lp.liner, /LP로 들어요/);
+      const dbLp = await level(frame);
+      await frame.locator('#gySheet .gy-sound [data-s="clean"]').tap();
+      await until(frame, () => __gy.sound === 'clean' && __gy.chain().length === 2, null, 2000, '원음');
+      const clean = await frame.evaluate(() => ({ chain: __gy.chain(), kept: localStorage.getItem('gy.lp.sound'), liner: document.getElementById('liner').textContent, playing: !__gy.audio.paused }));
+      assert.deepStrictEqual(clean.chain, ['MediaElementAudioSourceNode', 'GainNode'], 'the file as it is');
+      assert.strictEqual(clean.kept, 'clean'); assert.match(clean.liner, /원곡 그대로/); assert.strictEqual(clean.playing, true, 'it plays on');
+      const dbClean = await level(frame);
+      console.log('     the master with 내 음악: LP ' + dbLp.toFixed(1) + ' dB, 원음 ' + dbClean.toFixed(1) + ' dB');
+      assert(dbLp > -45 && dbClean > -45 && Math.abs(dbLp - dbClean) < 3, 'sound in both, about as loud: ' + dbLp.toFixed(1) + ' / ' + dbClean.toFixed(1));
+      await frame.locator('#gySheet .gy-sound [data-s="lp"]').tap();
+      await until(frame, () => __gy.sound === 'lp' && __gy.chain().includes('WaveShaperNode'), null, 2000, 'LP again');
+      await frame.locator('#gyBar .gy-list').tap();
+      assert.strictEqual(await frame.evaluate(() => document.getElementById('gySheet').hidden), true);
+    });
+    await check('PITCH: dragged up, a file plays faster and higher (its rate, its pitch not kept) and the knob moves; a double tap back to 0', async () => {
+      const k = await frame.evaluate(() => 780 / document.getElementById('deck').getBoundingClientRect().height);  // deck units per px
+      await drag(page, frame, '.gy-pitch', 0, -42 / k);                       // half the travel: +4 %
+      await until(frame, () => __gy.pitch > 3, null, 2000, 'the fader moved');
+      const p = await frame.evaluate(() => ({ pitch: __gy.pitch, rate: __gy.audio.playbackRate, keep: __gy.audio.preservesPitch, speed: __lp.speed, aria: document.querySelector('.gy-pitch').getAttribute('aria-valuenow') }));
+      assert(p.pitch >= 3.5 && p.pitch <= 4.5, 'about +4 %: ' + p.pitch);
+      assert(Math.abs(p.rate - (1 + p.pitch / 100)) < 1e-6, 'the file\'s rate: ' + p.rate);
+      assert.strictEqual(p.keep, false, 'its pitch bends with it (not a time stretch)');
+      assert(Math.abs(p.speed - p.rate) < 1e-9, 'the piece\'s speed too (the arm, the platter): ' + p.speed);
+      assert.strictEqual(p.aria, String(p.pitch));
+      assert(Math.abs(await knobY(frame) + p.pitch / 8 * 84) < 0.05, 'the knob up by its share of the travel');
+      const t0 = await frame.evaluate(() => ({ a: __gy.audio.currentTime, w: performance.now() }));
+      await frame.waitForTimeout(1500);
+      const t1 = await frame.evaluate(() => ({ a: __gy.audio.currentTime, w: performance.now() }));
+      console.log('     at +' + p.pitch + ' %: the file ran ' + ((t1.a - t0.a) / ((t1.w - t0.w) / 1000)).toFixed(3) + '× real time');
+      await doubleTap(page, frame, '.gy-pitch');
+      await until(frame, () => __gy.pitch === 0, null, 2000, 'back to 0');
+      assert.deepStrictEqual(await frame.evaluate(() => [__gy.audio.playbackRate, __lp.speed]), [1, 1]);
+      assert.strictEqual(await knobY(frame), 0);
+    });
+    await check('CUE: a tap lifts the arm off the playing record (the sound stops, the platter turns on, the lever up); a tap lowers it and it plays on from there; start · stop under it stops the motor', async () => {
+      await until(frame, () => __lp.playing && !__lp.busy && !__gy.audio.paused, null, 8000, 'playing');
+      await frame.locator('.gy-cue').tap();
+      await until(frame, () => !__lp.playing && !__lp.busy && __lp.arm.lift > 0.99 && document.querySelector('.gy-cue').getAttribute('aria-pressed') === 'true', null, 5000, 'the arm lifted (said on the lever)');
+      const up = await frame.evaluate(() => ({ paused: __gy.audio.paused, motor: __lp.motorOn, omega: __lp.omega, lever: document.getElementById('cueLever').getAttribute('transform'), pressed: document.querySelector('.gy-cue').getAttribute('aria-pressed'), pos: __lp.songPos }));
+      assert.deepStrictEqual([up.paused, up.motor, up.lever, up.pressed], [true, true, 'rotate(-38.0 0 4)', 'true'], 'paused, the motor on, the CSS deck\'s lever up');
+      await frame.waitForTimeout(700);
+      const still = await frame.evaluate(() => ({ pos: __lp.songPos, omega: __lp.omega }));
+      assert.strictEqual(still.pos, up.pos, 'the clock waits');
+      assert(still.omega > 150, 'the platter keeps turning: ' + still.omega);
+      await frame.locator('.gy-cue').tap();
+      await until(frame, () => __lp.playing && !__lp.busy && !__gy.audio.paused && __lp.arm.lift === 0, null, 6000, 'the arm down, playing');
+      const down = await frame.evaluate(() => ({ t: __gy.audio.currentTime, lever: document.getElementById('cueLever').getAttribute('transform') }));
+      assert(Math.abs(down.t - up.pos) < 1.5, 'on from where it was lifted: ' + up.pos.toFixed(2) + ' → ' + down.t.toFixed(2));
+      assert.match(down.lever, /^rotate\(-?0\.0 0 4\)$/, 'the lever down');
+      await frame.locator('.gy-cue').tap();
+      await until(frame, () => !__lp.playing && !__lp.busy && __lp.arm.lift > 0.99, null, 5000, 'lifted again');
+      await frame.locator('#deckBtn').tap();
+      await until(frame, () => !__lp.motorOn, null, 2000, 'the motor stopped');
+      assert.strictEqual(await frame.evaluate(() => __lp.playing), false, 'and nothing plays');
+      await frame.locator('#gyBar .gy-play').tap();
+      await until(frame, () => __lp.playing && !__lp.busy && !__gy.audio.paused, null, 8000, 'playing again from the bar');
+    });
     await check('no script error all along', async () => assert.deepStrictEqual(errors, []));
   } finally { await ctx.close(); }
+  // The unfolded Fold (a screen wide for its height): one part at a time, no page scroll; folded, the long page again.
+  {
+    const shelfT = { rev: 2, items: ITEMS.slice(), pick: '' }, callsT = { list: 0, pick: [], media: [], del: [] };
+    const t = await open(browser, html, shelfT, callsT, { off: true }, { viewport: { width: 780, height: 820 } });
+    const parts = { deck: '#deck', amp: '#amp', list: '.panel' };
+    const fit = k => t.frame.evaluate(([k, parts]) => {
+      const r = s => document.querySelector(s).getBoundingClientRect();
+      return { tab: __gy.tab, sh: document.scrollingElement.scrollHeight, sw: document.scrollingElement.scrollWidth, ih: innerHeight, iw: innerWidth, y: scrollY,
+        part: r(parts[k]).toJSON(), bar: r('#gyBar').top, brand: r('.brand').bottom, stage: r('.stage').toJSON(),
+        others: Object.keys(parts).filter(x => x !== k).map(x => document.querySelector(parts[x]).getClientRects().length ? 'shown' : 'none'), shown: [...document.querySelectorAll('.gy-tabs [aria-selected="true"]')].map(b => b.textContent) };
+    }, [k, parts]);
+    try {
+      await check('a wide, short screen (the unfolded Fold, 780×820): 턴테이블 · 앰프 · 곡목록 in the brand row; each part fits whole, clear of the bar, and nothing scrolls the page', async () => {
+        await until(t.frame, () => !!window.__gy && document.querySelector('.sleeve[data-album="3"]'), null, 10000, 'the add-on');
+        const g = await t.frame.evaluate(() => { const r = document.querySelector('.gy-tabs').getBoundingClientRect(), b = document.querySelector('.brand').getBoundingClientRect();
+          return { tabbed: document.documentElement.classList.contains('gy-tabbed'), tab: __gy.tab, names: [...document.querySelectorAll('.gy-tabs button')].map(b => b.textContent),
+            h: r.height, w: r.width, inRow: r.top >= b.top - 1 && r.bottom <= b.bottom + 1, right: b.right - r.right }; });
+        assert.deepStrictEqual([g.tabbed, g.tab, g.names], [true, 'deck', ['턴테이블', '앰프', '곡목록']]);
+        assert(g.h <= 36 && g.w <= 260, 'small pills: ' + g.w + '×' + g.h);
+        assert(g.inRow && g.right <= 1, 'at the end of the brand row');
+        for (const k of ['deck', 'amp', 'list']) {
+          await t.frame.locator('.gy-tabs [data-tab="' + k + '"]').tap();
+          const m = await fit(k);
+          assert.strictEqual(m.tab, k);
+          assert(m.sh <= m.ih && m.sw <= m.iw && m.y === 0, k + ': the page does not scroll (' + m.sh + ' of ' + m.ih + ')');
+          assert(m.part.height > 100 && m.part.top >= m.brand && m.part.bottom <= m.bar - 4, k + ': whole, between the brand row and the bar: ' + m.part.top + '…' + m.part.bottom + ' (bar ' + m.bar + ')');
+          assert.deepStrictEqual(m.others, ['none', 'none'], k + ': the other parts hidden');
+          if (SHOTS) await t.page.screenshot({ path: path.join(SHOTS, 'tabs_' + k + '.png') });
+          if (k === 'deck') assert(Math.abs(m.part.width - Math.min(m.stage.width, m.stage.height * 1000 / 780)) < 2, 'the deck as large as fits: ' + m.part.width + ' in ' + m.stage.width + '×' + m.stage.height);
+          if (k === 'list') {
+            const l = await t.frame.evaluate(() => { const box = document.querySelector('.panel').getBoundingClientRect(), r = s => document.querySelector(s).getBoundingClientRect();
+              return { tracks: getComputedStyle(document.getElementById('tracks')).overflowY, play: r('#bPlay').bottom <= box.bottom, crate: r('.sleeves').bottom <= box.bottom + 1, sleeves: document.querySelectorAll('.sleeve').length }; });
+            assert.deepStrictEqual(l, { tracks: 'auto', play: true, crate: true, sleeves: 4 }, 'the tracks scroll in their own box; the transport and the crate in sight');
+          }
+        }
+      });
+      await check('the last tab is remembered: the page opened again shows it', async () => {
+        await t.frame.locator('.gy-tabs [data-tab="amp"]').tap();
+        await t.frame.evaluate(() => { window._before = 1; setTimeout(() => location.reload(), 50); });
+        await until(t.frame, () => !window._before && !!window.__gy && __gy.tab === 'amp', null, 10000, 'the 앰프 tab again, on the page opened again');
+        assert.strictEqual(await t.frame.evaluate(() => getComputedStyle(document.getElementById('deck')).display), 'none');
+      });
+      await check('folded (412×900, the cover screen): the piece\'s long page again, no tabs; unfolded, the tabs come back', async () => {
+        await t.page.setViewportSize({ width: 412, height: 900 });
+        await until(t.frame, () => !document.documentElement.classList.contains('gy-tabbed'), null, 3000, 'the long page');
+        const m = await t.frame.evaluate(() => ({ tabs: getComputedStyle(document.querySelector('.gy-tabs')).display, parts: ['#deck', '#amp', '.panel'].map(s => getComputedStyle(document.querySelector(s)).display), sh: document.scrollingElement.scrollHeight, ih: innerHeight, tab: __gy.tab }));
+        assert.strictEqual(m.tabs, 'none'); assert(!m.parts.includes('none'), 'every part on the page: ' + m.parts);
+        assert(m.sh > m.ih * 1.5, 'the long page (scrolls as before): ' + m.sh); assert.strictEqual(m.tab, null);
+        if (SHOTS) await t.page.screenshot({ path: path.join(SHOTS, 'tall.png') });
+        await t.page.setViewportSize({ width: 780, height: 820 });
+        await until(t.frame, () => document.documentElement.classList.contains('gy-tabbed') && __gy.tab === 'amp', null, 3000, 'the tabs again');
+      });
+      await check('PITCH on a record (the synthesizer): its clock, its platter and its voices at the fader\'s speed', async () => {
+        await t.frame.locator('.gy-tabs [data-tab="deck"]').tap();
+        await t.frame.locator('#gyBar .gy-play').tap();
+        await until(t.frame, () => __lp.playing && !__lp.busy && !!__lp.session && __lp.omega > 190, null, 15000, 'the record playing, up to speed');
+        const k = await t.frame.evaluate(() => 780 / document.getElementById('deck').getBoundingClientRect().height);
+        await drag(t.page, t.frame, '.gy-pitch', 0, -100 / k);                  // past the top: +8 %
+        await until(t.frame, () => __gy.pitch === 8 && __lp.omega > 214, null, 6000, '+8 %, the platter faster');
+        const a = await t.frame.evaluate(() => ({ s: __lp.songPos, t: __lp.actx.currentTime, speed: __lp.speed }));
+        await t.frame.waitForTimeout(2000);
+        const b = await t.frame.evaluate(() => ({ s: __lp.songPos, t: __lp.actx.currentTime }));
+        const run = (b.s - a.s) / (b.t - a.t);
+        console.log('     at +8 %: the record\'s clock ran ' + run.toFixed(3) + '× the sound\'s; the platter ' + (await t.frame.evaluate(() => __lp.omega)).toFixed(1) + '°/s');
+        assert.strictEqual(a.speed, 1.08);
+        assert(Math.abs(run - 1.08) < 0.025, 'the song\'s time at 1.08: ' + run);
+        assert(Math.abs(await knobY(t.frame) + 84) < 0.05, 'the knob at the top mark');
+        await t.frame.locator('.gy-pitch').focus(); await t.frame.press('.gy-pitch', 'Home');
+        await until(t.frame, () => __gy.pitch === 0 && __lp.speed === 1, null, 2000, 'back to 0 (Home)');
+        await t.frame.locator('#gyBar .gy-play').tap();
+        await until(t.frame, () => !__lp.playing && !__lp.busy, null, 6000, 'paused');
+        assert.deepStrictEqual(t.errors, []);
+      });
+    } finally { await t.ctx.close(); }
+  }
   // Alone on the creator's own site (as the app serves it there: the add-on, never a key), where nothing answers 내 음악.
   const alone = await browser.newContext({ viewport: { width: 412, height: 900 }, hasTouch: true, isMobile: true });
   try {
@@ -458,6 +697,24 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       assert(blue > 6, 'the navy Brass Constellations label (blue over red, the median of 16 points: ' + blue + ')');
       assert.strictEqual(away.home, false);
     });
+    await check('3D: the pitch fader\'s slider and the anti-skate mark move in the 3D deck too (drawn again), the CSS deck\'s own copies hidden', async () => {
+      const k = await frame.evaluate(() => document.getElementById('deck').getBoundingClientRect().width / 1000);
+      const n0 = await frame.evaluate(() => __gyDeck.draws);
+      await drag(frame.page(), frame, '.gy-pitch', 0, -42 * k);              // +4 %
+      await until(frame, () => __gy.pitch > 3 && Math.abs(__gyDeck._.B.pitch.position.z - (474 - __gy.pitch / 8 * 84)) < 0.01 && __gyDeck.draws > 0, null, 3000, 'the slider up');
+      await frame.waitForTimeout(200);
+      const d = await frame.evaluate(k => { const z = __gyDeck._.B.pitch.position.z; return { z, n: __gyDeck.draws, art: getComputedStyle(document.querySelector('#deck svg.gy-art')).visibility,
+        at: __gyDeck.probe([[952 * k, (z + 6) * k], [952 * k, (474 + 6) * k]]) }; }, k);   // (beside its dark middle line)
+      const brass = p => p[0] - p[2] > 30;                                   // (the lamp is far: a dim brass, as baked before)
+      assert(d.n > n0, 'drawn again: ' + n0 + ' → ' + d.n);
+      assert(brass(d.at[0]), 'brass where the slider is now: ' + d.at[0]);
+      assert(!brass(d.at[1]), 'and the slot where it was: ' + d.at[1]);
+      assert.strictEqual(d.art, 'hidden', 'the CSS deck\'s moving parts hidden under the 3D one');
+      await drag(frame.page(), frame, '.gy-skate', 24, 0);
+      await until(frame, () => Math.abs(__gyDeck._.B.skate.rotation.y) > 0.2, null, 3000, 'the anti-skate mark turned');
+      await doubleTap(frame.page(), frame, '.gy-pitch');
+      await until(frame, () => __gy.pitch === 0 && __gyDeck._.B.pitch.position.z === 474, null, 3000, 'the slider home');
+    });
     await check('3D: no script error', async () => assert.deepStrictEqual(errors, []));
     await check('3D given up (as when too slow): the CSS deck back, the context let go, the app told why once', async () => {
       await frame.evaluate(() => __gyDeck.off('test'));
@@ -472,6 +729,36 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       assert.deepStrictEqual(errors, []);
     });
     await ctx.close();
+
+    // The unfolded Fold: the 3D deck in its tab, as large as fits; hidden with another tab, nothing drawn or baked for it.
+    const shelf6 = { rev: 1, items: [], pick: '' }, calls6 = { list: 0, pick: [], media: [], del: [] };
+    const t3 = await open(b3, html, shelf6, calls6, { test: true, adapt: false, pr: 1 }, { viewport: { width: 780, height: 820 } });
+    await until(t3.frame, () => !!document.getElementById('gyBar'), null, 20000, 'the add-on');
+    await check('3D in its tab (780×820): drawn as large as the deck; hidden with another tab it draws and bakes nothing; shown again, the same size, drawing', async () => {
+      await until(t3.frame, () => window.__gyDeck && (__gyDeck.ready || __gyDeck.css), null, 90000, 'the 3D deck');
+      const s0 = await t3.frame.evaluate(() => ({ s: __gyDeck.stats(), w: document.getElementById('deck').getBoundingClientRect().width, tab: __gy.tab }));
+      assert.strictEqual(s0.s.css, null); assert.strictEqual(s0.tab, 'deck');
+      assert(Math.abs(s0.s.w - Math.round(s0.w)) <= 1 && s0.w > 700, 'the canvas the deck\'s size: ' + s0.s.w + ' for ' + s0.w);
+      if (SHOTS) await t3.page.screenshot({ path: path.join(SHOTS, 'tabs_deck_3d.png') });
+      await t3.frame.locator('#gyBar .gy-play').tap();
+      await until(t3.frame, () => __lp.playing && __lp.omega > 150, null, 20000, 'playing, the platter up to speed');
+      const a0 = await t3.frame.evaluate(() => __gyDeck.draws); await t3.frame.waitForTimeout(800);
+      assert(await t3.frame.evaluate(() => __gyDeck.draws) > a0, 'drawing while the record turns');
+      await t3.frame.locator('.gy-tabs [data-tab="amp"]').tap();
+      await t3.frame.waitForTimeout(500);
+      const h0 = await t3.frame.evaluate(() => __gyDeck.draws); await t3.frame.waitForTimeout(1500);
+      const h1 = await t3.frame.evaluate(() => ({ n: __gyDeck.draws, s: __gyDeck.stats(), playing: __lp.playing }));
+      assert.strictEqual(h1.n - h0, 0, 'nothing drawn while its tab is hidden (the record still playing: ' + h1.playing + ')');
+      assert.deepStrictEqual([h1.s.w, h1.s.resized], [s0.s.w, 0], 'no size of 0 and no bake for a hidden deck');
+      await t3.frame.locator('.gy-tabs [data-tab="deck"]').tap();
+      await t3.frame.waitForTimeout(900);
+      const b1 = await t3.frame.evaluate(() => ({ n: __gyDeck.draws, s: __gyDeck.stats() }));
+      assert(b1.n > h1.n, 'drawn again once shown: ' + h1.n + ' → ' + b1.n);
+      assert.deepStrictEqual([b1.s.w, b1.s.resized, b1.s.css], [s0.s.w, 0, null], 'the same size, nothing baked again');
+      await t3.frame.locator('#gyBar .gy-play').tap();
+      assert.deepStrictEqual(t3.errors, []);
+    });
+    await t3.ctx.close();
 
     // At most 30 frames a second, counted without drawing (software WebGL here draws far fewer, so a slow draw cannot hide a
     // missing limit), at a phone's 3 device pixels per CSS pixel: drawn at 2. Then the steps down when slow, to the CSS deck.

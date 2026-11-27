@@ -273,8 +273,11 @@ public final class HtmlWallpaper extends WallpaperService {
                 String route;
                 try { route = DeviceActionRunner.start(HtmlWallpaper.this, open, false); } catch (RuntimeException none) { route = "notification"; }
                 if (!DeviceActionRunner.started(route)) {
-                    boolean posted = DeviceActionRunner.post(HtmlWallpaper.this, open, "눌러서 음악 파일을 골라요");
-                    PieceMusicStore.of(HtmlWallpaper.this).pick(posted ? "notification" : "cancelled");
+                    // (what it opens: the file picker, the question for the phone's songs, or the app's settings page)
+                    boolean songs = MusicPickActivity.SONGS.equals(pick.getStringExtra(MusicPickActivity.KIND)), settings = pick.getComponent() == null;
+                    boolean posted = DeviceActionRunner.post(HtmlWallpaper.this, open, songs ? "눌러서 휴대폰 노래를 읽도록 허용해요" : settings ? "눌러서 들퍼레 설정을 열어요" : "눌러서 음악 파일을 골라요");
+                    if (songs) PieceMusicStore.of(HtmlWallpaper.this).perm(posted ? "notification" : "cancelled");
+                    else if (!settings) PieceMusicStore.of(HtmlWallpaper.this).pick(posted ? "notification" : "cancelled");
                 }
             });
         }
