@@ -75,6 +75,13 @@ final class BuddyTools {
             props("to", "string", "받는 메일 주소, 말했으면", "who", "string", "받는 사람 이름, 말했으면", "subject", "string", "제목", "text", "string", "내용")))
         .put(fn("translate", "번역 앱(파파고·Google 번역)에서 글을 번역해 보여 준다. 짧은 말은 너가 바로 말해 줘도 돼.",
             props("text", "string", "번역할 글", "to", "string", "어느 말로 (en, ja, zh-CN, ko, es, fr, de, vi …), 말하지 않았으면 빼기"), "text"))
+        // 준: "실시간 음악생성 lyria 연동 실패" (음악 만들어 달라는 말에 유튜브를 찾았다), "유튜브 꺼줘 실패" ('잠깐 멈출게'만), "우측 lp페이지 전환도 못알아들어"
+        .put(fn("make_music", "음악을 그 자리에서 새로 만들어 튼다(Lyria 실시간 음악 생성). '음악 만들어 줘', '배경음악 만들어 줘', '잔잔한 피아노 만들어 틀어 줘'처럼 만들어 달라고 할 때. 있는 노래를 찾아 틀 때는 play.",
+            props("mood", "string", "분위기·장르·악기를 영어로 짧게 (예: calm piano, warm / upbeat lo-fi hip hop / cozy jazz cafe)", "bpm", "integer", "빠르기 60~200, 말하지 않았으면 빼기"), "mood"))
+        .put(fn("close_app", "앱을 끈다: 그 앱에서 나오는 소리를 멈추고 홈 화면으로 나간다. '유튜브 꺼 줘', '그 앱 닫아 줘'처럼 앱을 끄라고 할 때(소리만 멈추라는 말은 media pause).",
+            props("app", "string", "끌 앱 이름, 말했으면 (예: 유튜브)")))
+        .put(fn("home_page", "들퍼레 홈 화면의 페이지로 넘긴다: 홈, 오늘(왼쪽), 사용자가 넣은 페이지(LP 등)는 그 이름, 또는 오른쪽·왼쪽.",
+            props("page", "string", "페이지 이름 (홈, 오늘, LP, 오른쪽, 왼쪽 …)"), "page"))
         // 앱 없이 퍼레가 직접 (답은 도구가 정한다: 지어내지 않게)
         .put(fn("stopwatch", "너(퍼레)의 스톱워치: 시작, 지금 몇 초째인지, 멈추기.", props("command", new String[]{"start", "check", "stop"}, "시작·지금 몇 초째·멈추기"), "command"))
         .put(fn("coin", "동전을 던져 앞면·뒷면을 정한다(결과는 도구가 정한다).", null))
@@ -245,6 +252,9 @@ final class BuddyTools {
             case "calculator" -> a.optString("expression").isBlank() ? "계산기 열게!" : "계산해 볼게!";
             case "email" -> "메일 써 둘게!";
             case "translate" -> "번역해 볼게!";
+            case "make_music" -> "음악 만들어 볼게!";
+            case "close_app" -> a.optString("app").isBlank() ? "끌게!" : a.optString("app").strip() + " 끌게!";
+            case "home_page" -> "넘길게!";
             // The answer itself is the act's own words, said after these (BuddyActs: coin, dice, pick, the time, the days).
             case "stopwatch" -> "start".equals(a.optString("command", "start")) ? "스톱워치 시작!" : "";
             case "coin" -> "동전 던진다!";

@@ -139,6 +139,8 @@ public final class PhoneService extends AccessibilityService {
     }
 
     static boolean connected() { return instance != null; }
+    /** The home screen, as the home button (준: "유튜브 꺼줘"): false when the service is not on. */
+    static boolean home() { PhoneService s = instance; return s != null && s.performGlobalAction(GLOBAL_ACTION_HOME); }
     /**
      * 내비게이션 → 안내 시작 대신 누르기: right after the app opened an app on the user's word (Naver Map's navigation), its
      * button with one of these labels is pressed once it shows, within withinMs; only in that app's window, only a button

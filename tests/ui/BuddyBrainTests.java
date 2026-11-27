@@ -197,7 +197,7 @@ public class BuddyBrainTests {
         assertEquals("navigate", home.optString("tool")); assertEquals("walk", home.optString("mode")); assertEquals("집으로 안내할게!", BuddyTools.say(home));
         assertEquals("show_alarms", BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "show_alarms").put("arguments", "{}"))).optString("tool"));
         assertNull(BuddyTools.act(new org.json.JSONArray()));
-        assertEquals(45, BuddyTools.TOOLS.length());
+        assertEquals(48, BuddyTools.TOOLS.length());
         // Every tool once, with its Korean description (준: "시킬 수 있는 목록 … 아직 부족").
         java.util.Set<String> names = new java.util.HashSet<>();
         for (int i = 0; i < BuddyTools.TOOLS.length(); i++) {
@@ -224,11 +224,11 @@ public class BuddyBrainTests {
         for (int i = 0; i < BuddyTools.PHONE.length(); i++) phone.add(BuddyTools.PHONE.getJSONObject(i).getJSONObject("function").getString("name"));
         for (int i = 0; i < BuddyTools.SELF.length(); i++) own.add(BuddyTools.SELF.getJSONObject(i).getJSONObject("function").getString("name"));
         assertEquals(java.util.Set.of("buddy_toy", "buddy_outfit", "buddy_move", "buddy_wish", "remember", "forget", "call_me", "quiet"), own);
-        assertEquals("each tool in one set", 45, phone.size() + own.size());
+        assertEquals("each tool in one set", 48, phone.size() + own.size());
         java.util.Set<String> both = new java.util.HashSet<>(phone); both.retainAll(own); assertTrue(both.isEmpty());
         for (String answer : new String[]{"coin", "dice", "pick", "calculator", "world_time", "count_days", "stopwatch"}) assertTrue("an answer that needs no app goes every turn: " + answer, phone.contains(answer));
         org.json.JSONArray light = BuddyTools.forTurn("손전등 켜 줘");
-        assertEquals(37, light.length());
+        assertEquals(40, light.length());
         // 퍼레's eight carry its long lists of names (toys, clothes, plays): about a fifth of all the tools' words.
         assertTrue("lighter: " + light.toString().length() + " of " + BuddyTools.TOOLS.toString().length(), light.toString().length() < 0.85 * BuddyTools.TOOLS.toString().length());
         assertFalse(BuddyTools.rule(false).contains("buddy_toy")); assertTrue(BuddyTools.rule(true).contains("buddy_toy")); assertEquals(BuddyTools.RULE, BuddyTools.rule(true));
@@ -240,8 +240,8 @@ public class BuddyBrainTests {
         org.json.JSONArray nothing = new org.json.JSONArray().put(new org.json.JSONObject().put("name", "nothing").put("arguments", "{}"));
         assertNull("nothing is no act", BuddyTools.act(nothing)); assertTrue(BuddyTools.nothing(nothing)); assertFalse(BuddyTools.nothing(new org.json.JSONArray()));
         org.json.JSONArray retry = BuddyTools.orNothing();
-        assertEquals(46, retry.length()); assertEquals("nothing", retry.getJSONObject(45).getJSONObject("function").getString("name"));
-        assertEquals("the full list stays as it was", 45, BuddyTools.TOOLS.length());
+        assertEquals(49, retry.length()); assertEquals("nothing", retry.getJSONObject(48).getJSONObject("function").getString("name"));
+        assertEquals("the full list stays as it was", 48, BuddyTools.TOOLS.length());
         // 준: "3번" — each sentence said as soon as it is written; a word or two waits for the next; no act text, digits kept.
         java.util.List<String> said = new java.util.ArrayList<>();
         BuddyTalk.Sentences s = new BuddyTalk.Sentences(said::add);
@@ -414,7 +414,7 @@ public class BuddyBrainTests {
         // "그건 틀렸어 지워": the one it is about, by its topic.
         said = BuddyActs.run(app, BuddyTalk.loose("{\"tool\":\"forget\",\"what\":\"부산 가는 거\"}"), "그건 틀렸어 지워", false).say();
         assertTrue(said, said.contains("부산"));
-        // The words send 퍼레's own tools (all 45), and the fingerprint comes first for a private one.
+        // The words send 퍼레's own tools (all 48), and the fingerprint comes first for a private one.
         for (String w : new String[]{"그건 틀렸어 지워", "커피 얘기 잊어 줘", "이거 기억해 둬", "방금 거 되돌려 줘", "그거 까먹어"}) {
             assertTrue(w, BuddyTools.self(w)); assertEquals(w, BuddyTools.TOOLS.length(), BuddyTools.forTurn(w).length());
         }
@@ -748,9 +748,14 @@ public class BuddyBrainTests {
         org.json.JSONObject wish = BuddyTools.act(new org.json.JSONArray().put(new org.json.JSONObject().put("name", "buddy_wish").put("arguments", "{\"thing\":\"썰매\"}")));
         assertEquals("buddy_wish", wish.optString("tool")); assertEquals("썰매, 소원 목록에 적어 둘게!", BuddyTools.say(wish));
     }
-    @Test public void hearsItsName() {
+    @Test public void hearsItsName() throws Exception {
         // 준: "퍼레가 자기 이름을 못알아듣고 자꾸 벌레 버려 이런걸로 알아들어"
         assertEquals("퍼레야", dev.jun.gyeot.core.BuddyMind.nameHeard("벌레야"));
+        // 준: "실시간 음악생성 lyria 연동 실패", "유튜브 꺼줘 실패", "우측 lp페이지 전환도 못알아들어": tools of their own, also as text
+        assertEquals("make_music", BuddyTalk.act("음악 만들어 볼게!\n할일: {\"tool\":\"lyria\",\"mood\":\"calm piano\"}").optString("tool"));
+        assertEquals("close_app", BuddyTalk.act("끌게!\n할일: {\"tool\":\"close_app\",\"app\":\"유튜브\"}").optString("tool"));
+        assertEquals("home_page", BuddyTalk.act("넘길게!\n할일: {\"tool\":\"page\",\"page\":\"LP\"}").optString("tool"));
+        assertEquals("유튜브 끌게!", BuddyTools.say(new org.json.JSONObject().put("tool", "close_app").put("app", "유튜브")));
         // 준: "퍼레가 자기 이름 잘 못알아듣는것"
         assertEquals("퍼레야, 지금 몇 시야", dev.jun.gyeot.core.BuddyMind.nameHeard("펠레야 지금 몇 시야"));
         assertEquals("퍼레야", dev.jun.gyeot.core.BuddyMind.nameHeard("포래야"));

@@ -76,6 +76,16 @@ async function open(browser, at, bridge) {
 
   const day = await open(browser, '2026-11-26T14:00:00+09:00');
   await check('the home screen opens without a script error', async () => assert.deepStrictEqual(day.errors, []));
+  // 준: "우측 lp페이지 전환도 못알아들어": 퍼레's home_page tool turns to a page by its name.
+  await check('퍼레 turns the home screen to a page by name: LP, 홈, 오른쪽, 오늘', async () => {
+    const p = day.page, at = () => p.evaluate(() => pageAt);
+    assert.strictEqual(await p.evaluate(() => launcher.goPage('LP')), true); assert.strictEqual(await at(), 2, 'LP');
+    await p.evaluate(() => launcher.goPage('홈')); assert.strictEqual(await at(), 1, '홈');
+    await p.evaluate(() => launcher.goPage('오른쪽 페이지')); assert.strictEqual(await at(), 2, '오른쪽');
+    await p.evaluate(() => launcher.goPage('오늘')); assert.strictEqual(await at(), 0, '오늘');
+    assert.strictEqual(await p.evaluate(() => launcher.goPage('없는 페이지')), false);
+    await p.evaluate(() => launcher.goPage('홈')); await p.clock.runFor(600);
+  });
   await check('on the LP page the bottom of the screen belongs to the page, not the hidden dock', async () => {
     const p = day.page;
     await p.evaluate(() => { window._knob = 0; addEventListener('message', e => { if (e.data === 'knob') window._knob++; }); });

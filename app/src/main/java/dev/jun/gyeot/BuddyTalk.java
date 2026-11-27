@@ -311,6 +311,7 @@ final class BuddyTalk {
         + "{\"tool\":\"show_timers\"} · {\"tool\":\"stopwatch\",\"command\":\"start\"}(start·check·stop) · {\"tool\":\"calendar_view\",\"date\":\"오늘\"} · {\"tool\":\"memo\",\"text\":\"메모할 글\"} · {\"tool\":\"recorder\"} · "
         + "{\"tool\":\"app_settings\",\"app\":\"카카오톡\"}(앱 정보·알림·권한 화면) · {\"tool\":\"downloads\"} · {\"tool\":\"gallery\"} · {\"tool\":\"contacts\",\"who\":\"이름\"} · {\"tool\":\"calculator\",\"expression\":\"35000*0.15\"} · "
         + "{\"tool\":\"email\",\"who\":\"이름\",\"subject\":\"제목\",\"text\":\"내용\"} · {\"tool\":\"translate\",\"text\":\"번역할 글\",\"to\":\"en\"} · {\"tool\":\"coin\"} · {\"tool\":\"dice\",\"count\":1} · {\"tool\":\"pick\",\"options\":[\"짜장면\",\"짬뽕\"]} · "
+        + "음악을 새로 만들어 달라고 하면(찾아 틀기 말고) {\"tool\":\"make_music\",\"mood\":\"calm piano, warm\"} · 앱을 꺼 달라고 하면(유튜브 꺼 줘) {\"tool\":\"close_app\",\"app\":\"유튜브\"} · 홈 화면 페이지를 넘겨 달라면 {\"tool\":\"home_page\",\"page\":\"LP\"}(홈·오늘·LP·오른쪽·왼쪽) · "
         + "{\"tool\":\"world_time\",\"place\":\"뉴욕\"} · {\"tool\":\"count_days\",\"date\":\"2026-12-25\",\"label\":\"크리스마스\"}(며칠 뒤가 언제냐면 \"add_days\":100). "
         + "동전·주사위·골라 주기·계산·다른 나라 시각·날짜 세기는 답을 지어내지 말고 할일 줄을 써(답은 그 할일이 말해 주니 첫 줄은 '던져 볼게!'처럼 짧게). 알람·타이머의 첫 줄은 '알겠어!'만(시각·길이는 할일이 다시 말해 줘). "
         + "사용자가 기억해 달라, 잊어 달라, 호칭을 바꿔 달라, 조용히 있어 달라고 하면: {\"tool\":\"remember\",\"fact\":\"사용자는 차를 지하 2층에 세웠대\"}(털어놓은 고민 같은 건 \"private\":true) · {\"tool\":\"forget\",\"what\":\"고양이\"}('그건 틀렸어 지워'도, 방금 잊은 걸 되돌리면 \"undo\":true) · {\"tool\":\"call_me\",\"title\":\"주인공님\"} · {\"tool\":\"quiet\",\"hours\":2}(다시 말 걸어도 되면 0). "
@@ -357,6 +358,7 @@ final class BuddyTalk {
         java.util.Map.entry("calc", "calculator"), java.util.Map.entry("calculate", "calculator"), java.util.Map.entry("math", "calculator"), java.util.Map.entry("계산", "calculator"),
         java.util.Map.entry("mail", "email"), java.util.Map.entry("sendemail", "email"), java.util.Map.entry("sendmail", "email"), java.util.Map.entry("메일", "email"),
         java.util.Map.entry("translation", "translate"), java.util.Map.entry("번역", "translate"),
+        java.util.Map.entry("makemusic", "make_music"), java.util.Map.entry("lyria", "make_music"), java.util.Map.entry("generate_music", "make_music"), java.util.Map.entry("close", "close_app"), java.util.Map.entry("quit_app", "close_app"), java.util.Map.entry("page", "home_page"), java.util.Map.entry("go_page", "home_page"),
         java.util.Map.entry("flipcoin", "coin"), java.util.Map.entry("coinflip", "coin"), java.util.Map.entry("동전", "coin"),
         java.util.Map.entry("rolldice", "dice"), java.util.Map.entry("rolldie", "dice"), java.util.Map.entry("roll", "dice"), java.util.Map.entry("die", "dice"),
         java.util.Map.entry("pickone", "pick"), java.util.Map.entry("choose", "pick"), java.util.Map.entry("decide", "pick"), java.util.Map.entry("choice", "pick"), java.util.Map.entry("골라", "pick"),

@@ -166,6 +166,23 @@ final class BuddyActs {
                 case "calculator" -> { return calculator(context, act, overlay); }
                 case "email" -> { return email(context, act, overlay); }
                 case "translate" -> { return translate(context, act, overlay); }
+                // Music made there and then (Lyria RealTime, 준: "실시간 음악생성 lyria 연동 실패"): not a song looked up on YouTube.
+                case "make_music" -> {
+                    String mood = act.optString("mood", act.optString("query")).strip();
+                    String why = LyriaPlayer.get(context).play(mood.isEmpty() ? "calm, warm, gentle" : mood, act.optInt("bpm", 0));
+                    return why.isEmpty() ? said("") : fail(why, "");
+                }
+                // An app turned off (준: "유튜브 꺼줘 실패": it only paused): its sound stops and the home screen comes.
+                case "close_app" -> { return closeApp(context, act, overlay); }
+                // A page of the home screen (준: "우측 lp페이지 전환도 못알아들어"): at once when the home screen is in front, else it comes first.
+                case "home_page" -> {
+                    String call = "launcher.goPage(" + org.json.JSONObject.quote(act.optString("page", "홈").strip()) + ")";
+                    if (!BuddyBoard.send(call)) {
+                        Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).setPackage(context.getPackageName()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+                        DeviceActionRunner.start(context, home, overlay);
+                    }
+                    return said("");
+                }
                 // 퍼레's own, no app: the answer worked out here (BuddyTricks), never made up by the brain.
                 case "stopwatch" -> { return stopwatch(context, act); }
                 case "coin" -> { java.util.Random r = java.util.concurrent.ThreadLocalRandom.current(); return said(BuddyTricks.coinSay(BuddyTricks.heads(r), r)); }
@@ -197,6 +214,8 @@ final class BuddyActs {
                 case "show_alarms" -> DeviceActions.SHOW_ALARMS; case "rotation" -> DeviceActions.ROTATION; default -> "";
             };
             if (name.isEmpty()) return fail("그건 아직 내가 못 해.", "");
+            // "음악 꺼/그만/멈춰" while 퍼레's own made music plays: that music stops.
+            if (DeviceActions.MEDIA.equals(name) && LyriaPlayer.on() && !"play".equals(act.optString("command")) && !"next".equals(act.optString("command"))) { LyriaPlayer.stopIfPlaying(); return said(""); }
             JSONObject args = new JSONObject(act.toString()); args.remove("tool");
             if (DeviceActions.ALARM.equals(name) || DeviceActions.TIMER.equals(name)) {
                 args.put("confirmed", true);
@@ -364,6 +383,20 @@ final class BuddyActs {
     // ── more of the apps' own ways (2026-11-26): the clock's timers, a day in the calendar, a memo, a recorder, an app's info,
     //    the downloads, the gallery, a person's card, a sum, a mail, a translator; each tells what is missing and how to get it ──
     private static BuddyVoice.Outcome said(String words) { return new BuddyVoice.Outcome(words == null ? "" : words, false, null); }
+    /** The app's sound stopped (and 퍼레's own music if that is what plays), then the home screen, as the home button would. */
+    private static BuddyVoice.Outcome closeApp(Context context, JSONObject act, boolean overlay) {
+        String name = act.optString("app").strip();
+        try {
+            DeviceActions.Action pause = DeviceActions.parse(DeviceActions.MEDIA, new JSONObject().put("command", "pause"), "", java.time.ZonedDateTime.now());
+            DeviceActionRunner.run(context, pause, overlay);
+        } catch (Exception nothingPlaying) { /* nothing to stop */ }
+        if (name.isEmpty() || name.contains("음악") || name.contains("배경")) LyriaPlayer.stopIfPlaying();
+        if (!PhoneService.home()) {
+            Intent home = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            DeviceActionRunner.start(context, home, overlay);
+        }
+        return said("");
+    }
     /** The first of these some app here handles, started (or what kept it from opening); null when none is handled. */
     private static BuddyVoice.Outcome first(Context context, boolean overlay, Intent... tries) {
         android.content.pm.PackageManager pm = context.getPackageManager();

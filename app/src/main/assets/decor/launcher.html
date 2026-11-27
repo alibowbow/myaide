@@ -1682,6 +1682,28 @@ window.launcher = {
     퍼레 itself, asked by voice or in the talk (BuddyBoard.java): clothes at once (the talk's 퍼레 too); a toy or a play on the
     home screen, after the talk is closed when it is open.
   */
+  /**
+    A page of the home screen by name (퍼레's home_page tool; 준: "우측 lp페이지 전환도 못알아들어"): 홈, 오늘, a page's own title
+    (LP …), or 오른쪽·왼쪽 from the page now. False when there is no such page.
+  */
+  goPage(name) {
+    const n = String(name || "").replace(/\s+/g, "").toLowerCase(), last = 1 + PAGES.length;
+    let to = -1;
+    if (/^(홈|홈화면|처음|메인|home)$/.test(n)) to = 1;
+    else if (/^(오늘|투데이|today|맨왼쪽|왼쪽끝)$/.test(n)) to = 0;
+    else if (/^(맨오른쪽|오른쪽끝|마지막)/.test(n)) to = last;
+    else if (/^(오른쪽|다음|옆|right|next)/.test(n)) to = Math.min(last, pageAt + 1);
+    else if (/^(왼쪽|이전|left|prev)/.test(n)) to = Math.max(0, pageAt - 1);
+    else {
+      const want = n.replace(/(페이지|화면|판)$/, "");
+      let i = PAGES.findIndex(p => { const t = String(p.title || "").replace(/\s+/g, "").toLowerCase(); return t && (t === want || t.includes(want) || want.includes(t)); });
+      if (i < 0 && /lp|엘피|턴테이블|레코드|음악|vinyl/.test(want)) i = PAGES.findIndex(p => /lp|vinyl|turntable|턴테이블|레코드/i.test(String(p.title || "") + " " + String(p.src || "")));
+      if (i >= 0) to = 2 + i;
+    }
+    if (to < 0) return false;
+    if (el("pad").classList.contains("on")) closePad();
+    toPage(to, true); return true;
+  },
   self(o) {
     if (!o) return false;
     if (o.wear) { const done = selfAct(o); const pal = document.querySelector(".chatpal .bot"); if (pal && chosen) WEAR.forEach(w => pal.classList.toggle("w-" + w, chosen.wear.includes(w))); return done; }
