@@ -109,7 +109,8 @@ final class TradingViewPane {
                             if (!(message instanceof JSONObject json)) return;
                             main.post(() -> {
                                 if (session != s) return;
-                                if (json.optBoolean("ready")) { TradingViewLogin.ask(source); return; }
+                                // The chart only, its side panel folded (content.js tradingviewChartOnly); then whether it is signed in.
+                                if (json.optBoolean("ready")) { chartOnly(source); TradingViewLogin.ask(source); return; }
                                 JSONObject said = json.optJSONObject("tradingview");
                                 if (said != null && "account".equals(said.optString("event"))) TradingViewLogin.get(activity).heard(said, "트레이딩 차트");
                             });
@@ -122,6 +123,10 @@ final class TradingViewPane {
         }, failed -> loadPending(s));
         session = s;
         return s;
+    }
+    /** The big chart shows the chart alone (준: "옆에 목록은 디폴트로 끈 상태로 차트만"): TradingView's side panel folded. */
+    static void chartOnly(WebExtension.Port port) {
+        try { port.postMessage(dev.jun.gyeot.core.Jsons.obj("tradingview", "chart_only")); } catch (RuntimeException gone) {}
     }
     /** The bridge is bound (or could not be: the chart still loads, it only cannot say whether it is signed in). */
     private void loadPending(GeckoSession s) {

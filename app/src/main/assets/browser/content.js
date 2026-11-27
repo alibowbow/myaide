@@ -642,11 +642,25 @@
     if (!known && tries<10) { setTimeout(()=>tradingviewAccount(connection, tries+1), 500); return; }
     say({known, classes, flag, guest});
   }
+  // 트레이딩's big chart (준: "내트뷰 큰창 띄울 시에 옆에 목록은 디폴트로 끈 상태로 차트만 보이게"): the right panel (watchlist,
+  // details, news …) folded each time the app opens the chart, by TradingView's own button for it, so its icon bar stays and a
+  // tap opens it again. Asked again for a while: the saved layout may open the panel a moment after the page shows.
+  // Never after the user touched the page: a panel they open themselves stays open.
+  let chartTouched=false;
+  function tradingviewChartOnly(tries) {
+    if (!/(^|\.)tradingview\.com$/.test(location.hostname) || !/^\/chart\b/.test(location.pathname)) return;
+    if (tries===0) addEventListener('pointerdown', ()=>{ chartTouched=true; }, {capture:true, once:true});
+    if (chartTouched) return;
+    const area=document.querySelector('.layout__area--right');
+    const on=area && area.getBoundingClientRect().width>120 && area.querySelector('[data-name="right-toolbar"] button[aria-pressed="true"]');
+    if (on) { on.click(); return; }
+    if (tries<40) setTimeout(()=>tradingviewChartOnly(tries+1), 500);
+  }
   function connect() {
   const connection=browser.runtime.connectNative('gyeot_browser'); port=connection;
   connection.onMessage.addListener(async message => {
     if (Object.hasOwn(message, 'mytube')) { mytube(message.mytube, connection); return; }
-    if (Object.hasOwn(message, 'tradingview')) { if (message.tradingview==='account') tradingviewAccount(connection, 0); return; }
+    if (Object.hasOwn(message, 'tradingview')) { if (message.tradingview==='account') tradingviewAccount(connection, 0); else if (message.tradingview==='chart_only') tradingviewChartOnly(0); return; }
     if (Object.hasOwn(message, 'page_zoom')) {
       try { pageZoom(message.page_zoom); connection.postMessage({page_zoom:true,ok:true,percent:message.page_zoom}); }
       catch(e) { connection.postMessage({page_zoom:true,ok:false,error:tidy(e.message,250)}); }

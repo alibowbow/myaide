@@ -123,7 +123,16 @@ public class TradingViewScreenTests {
         assertEquals("of that card and interval (a bad symbol before was not taken)", TradingViewLink.chartUrl("AMEX:SOXL", "D"), pane.url());
         assertEquals("all of it", stage.getHeight(), pane.host.getHeight());
         assertEquals("the page steps away", View.GONE, web.getVisibility());
+        // One tap back to the cards (준: "내트뷰에서 다시 트레이딩 격자형 보기로 바로 돌아가는 버튼이 없어"): 격자, in the bar while the chart is large.
+        TextView grid = chip(a, "격자"); assertNotNull("격자 in the bar", grid);
+        assertTrue("shown, compact (" + dp(a, grid.getWidth()) + "dp)", grid.isShown() && dp(a, grid.getWidth()) <= 90 && dp(a, grid.getHeight()) <= 48);
+        assertTrue(((TextView) field(a, "title")).getLayout().getEllipsisCount(0) == 0 || dp(a, ((TextView) field(a, "title")).getWidth()) >= 60);
         shot(a, "trading-mine-large");
+        grid.performClick(); shadowOf(Looper.getMainLooper()).idle(); settle(a);
+        assertEquals("격자: the chart closes", View.GONE, pane.host.getVisibility());
+        assertEquals(View.VISIBLE, web.getVisibility());
+        assertFalse("격자 gone with it", grid.isShown());
+        page(a, "{\"type\":\"tv_focus\",\"symbol\":\"AMEX:SOXL\",\"interval\":\"D\"}");
         a.onBackPressed(); shadowOf(Looper.getMainLooper()).idle(); settle(a);
         assertEquals("back: closed", View.GONE, pane.host.getVisibility());
         assertEquals("", pane.url());

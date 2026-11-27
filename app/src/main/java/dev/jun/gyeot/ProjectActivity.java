@@ -56,7 +56,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
     private TextView title, subtitle, model, busyText; private EditText input; private ImageView send;
     private LinearLayout busyBar; private String loaded = "";
     /** 트레이딩: the 트뷰 chip, the sign-in, the user's own chart and the line holding it with the page. */
-    private boolean trading, started; private TextView tvChip; private TradingViewLogin tv; private TradingViewPane pane; private LinearLayout board;
+    private boolean trading, started; private TextView tvChip, gridChip, aiPill; private TradingViewLogin tv; private TradingViewPane pane; private LinearLayout board;
     /** The page takes the user's chart (it said tv_ready), was told so, the chart made large, a sheet of the page open over it. */
     private boolean tvPage, toldMine, tvLarge, tvSheet;
     /** The symbol and interval the page's list picked for the chart. */
@@ -138,10 +138,17 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         ai.setOnClickListener(v -> toggleComposer(!composerOpen)); Ui.pressable(ai, false);
         // 트레이딩: the 트뷰 chip before AI로 고치기 (its 새로 고침 is in the menu, so the title keeps its room on a phone).
         if (trading) {
+            // While the user's chart has the whole screen: one tap back to the cards (준: "내트뷰에서 다시 트레이딩 격자형 보기로 바로
+            // 돌아가는 버튼이 없어"), first in the row.
+            gridChip = ui.smallChip("격자", () -> { if (tvLarge) { tvLarge = false; applyMine(); } }); gridChip.setSingleLine(true);
+            android.graphics.drawable.Drawable grid = getDrawable(R.drawable.ic_grid).mutate(); grid.setTint(TEXT); grid.setBounds(0, 0, ui.dp(16), ui.dp(16));
+            gridChip.setCompoundDrawablesRelative(grid, null, null, null); gridChip.setCompoundDrawablePadding(ui.dp(5)); gridChip.setPadding(ui.dp(10), 0, ui.dp(12), 0);
+            gridChip.setContentDescription("격자 보기로 돌아가기"); gridChip.setVisibility(View.GONE);
+            LinearLayout.LayoutParams g = new LinearLayout.LayoutParams(-2, -2); g.setMarginEnd(ui.dp(6)); bar.addView(gridChip, g);
             tvChip = ui.smallChip("", this::tvChipTapped); tvChip.setSingleLine(true);
             LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-2, -2); at.setMarginEnd(ui.dp(6)); bar.addView(tvChip, at); tvChip();
         }
-        bar.addView(ai, new LinearLayout.LayoutParams(-2, ui.dp(44)));
+        bar.addView(ai, new LinearLayout.LayoutParams(-2, ui.dp(44))); aiPill = ai;
         if (!trading) bar.addView(ui.bareIcon(R.drawable.ic_refresh, TEXT, "새로 고침", this::reload), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         ImageView more = ui.bareIcon(R.drawable.ic_more, TEXT, "프로젝트 메뉴", () -> {}); more.setOnClickListener(this::menu);
         bar.addView(more, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
@@ -644,6 +651,10 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         if (!sameParams(web.getLayoutParams(), page)) web.setLayoutParams(page);
         int chartShown = shown ? View.VISIBLE : View.GONE, pageShown = shown && place.size() < 0 ? View.GONE : View.VISIBLE;
         if (pane.host.getVisibility() != chartShown) pane.host.setVisibility(chartShown);
+        if (gridChip != null && gridChip.getVisibility() != chartShown) gridChip.setVisibility(chartShown);
+        // The page is not shown under the chart: AI로 고치기 steps aside for 격자, so the title keeps its room on a phone.
+        int aiShown = shown ? View.GONE : View.VISIBLE;
+        if (aiPill != null && aiPill.getVisibility() != aiShown && !composerOpen) aiPill.setVisibility(aiShown);
         if (web.getVisibility() != pageShown) web.setVisibility(pageShown);
         pane.drawing(shown && started);
     }

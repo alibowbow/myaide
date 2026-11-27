@@ -47,6 +47,38 @@ function accountReader() {
 
 (async () => {
   const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : {});
+  // content.js's tradingviewChartOnly on a stand-in of TradingView's chart page (its right area and the right toolbar's pressed
+  // button, as tradingview.com/chart serves them on 2026-11-27): the big chart shows the chart alone (준: "옆에 목록은 디폴트로 끈
+  // 상태로 차트만"), folded by TradingView's own button; a panel that opens late is folded too; one already folded is left.
+  {
+    const src = fs.readFileSync(path.join(__dirname, '../../app/src/main/assets/browser/content.js'), 'utf8');
+    const fn = src.slice(src.indexOf('  let chartTouched='), src.indexOf('  function connect()'));
+    const stand = (late, open) => `<html><body style="margin:0"><div class="layout__area--right" style="position:fixed;right:0;top:0;bottom:0;width:${open && !late ? 346 : 45}px">
+      <div data-name="right-toolbar"><button data-name="base" aria-pressed="${open && !late ? 'true' : 'false'}">w</button><button data-name="alerts" aria-pressed="false">a</button></div></div>
+      <script>window.clicks = 0; const area = document.querySelector('.layout__area--right'), base = document.querySelector('[data-name=base]');
+      base.onclick = () => { window.clicks++; const on = base.getAttribute('aria-pressed') !== 'true'; base.setAttribute('aria-pressed', String(on)); area.style.width = on ? '346px' : '45px'; };
+      ${late ? 'setTimeout(() => base.click(), 1500);' : ''}</script></body></html>`;
+    const run = async (url, html, touch) => {
+      const p = await browser.newPage({ viewport: { width: 1100, height: 700 } });
+      await p.route('**/*', r => r.fulfill({ body: html, contentType: 'text/html' }));
+      await p.goto(url);
+      await p.evaluate('(() => {' + fn + '\ntradingviewChartOnly(0); return 1; })()');
+      if (touch) { await p.waitForTimeout(300); await p.mouse.click(300, 300); }
+      await p.waitForTimeout(3500);
+      const got = await p.evaluate(() => ({ w: document.querySelector('.layout__area--right').getBoundingClientRect().width, clicks: window.clicks }));
+      await p.close(); return got;
+    };
+    let g = await run('https://www.tradingview.com/chart/?symbol=NASDAQ%3ANVDA&interval=D', stand(false, true));
+    check(g.w === 45 && g.clicks === 1, 'chart only: the open side panel folded by its own button ' + JSON.stringify(g));
+    g = await run('https://kr.tradingview.com/chart/abc/?symbol=AMEX%3ASOXL', stand(true, true));
+    check(g.w === 45 && g.clicks === 2, 'chart only: a panel the saved layout opens a moment later is folded too ' + JSON.stringify(g));
+    g = await run('https://www.tradingview.com/chart/?symbol=X', stand(false, false));
+    check(g.w === 45 && g.clicks === 0, 'chart only: already folded, left as it is ' + JSON.stringify(g));
+    g = await run('https://www.tradingview.com/chart/?symbol=X', stand(true, true), true);
+    check(g.w === 346 && g.clicks === 1, 'chart only: once the user touched the page, a panel that opens is theirs ' + JSON.stringify(g));
+    g = await run('https://www.tradingview.com/symbols/NVDA/', stand(false, true));
+    check(g.w === 346 && g.clicks === 0, 'chart only: not a chart page, nothing touched ' + JSON.stringify(g));
+  }
   const page = await browser.newPage({ viewport: { width: 411, height: 420 }, deviceScaleFactor: 2 });
   let widgetScripts = 0;
   await page.route('**/*', route => {
