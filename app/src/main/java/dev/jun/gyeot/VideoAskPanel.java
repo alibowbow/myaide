@@ -225,6 +225,15 @@ final class VideoAskPanel {
     private View plusButton;
     /** How many pictures one request draws (+ → 그림 장수), 1 to 4. */
     private int pictureCount() { return Math.max(1, Math.min(4, store.settings.getInt("mytubePictures", 1))); }
+    /** The shape of the pictures (+ → 그림 비율: 세로, 가로, 정사각, 9:16, 16:9) and how much they say (+ → 그림 분량: 간단, 노멀, 상세). */
+    private String pictureAspect() { return store.settings.getString("mytubeAspect", "portrait"); }
+    private String pictureDetail() { return store.settings.getString("mytubeDetail", "normal"); }
+    private static String named(String[][] choices, String id) { for (String[] c : choices) if (c[0].equals(id)) return c[1]; return choices[0][1]; }
+    private void choose(String[][] choices, String now, String key, String told) {
+        String[] names = new String[choices.length]; int at = 0;
+        for (int k = 0; k < choices.length; k++) { names[k] = choices[k][1]; if (choices[k][0].equals(now)) at = k; }
+        ui.miniMenu(plusButton, names, at, c -> { store.settings.edit().putString(key, choices[c][0]).apply(); Toast.makeText(activity, String.format(told, choices[c][1]), Toast.LENGTH_SHORT).show(); });
+    }
     /** + → 직접 적어서 그리기: the next words sent are drawn; the box says so until then. */
     private boolean drawNext;
     private void drawNext(boolean on) { drawNext = on; input.setHint(on ? "어떤 그림을 그릴까요? 예: 핵심만 인포그래픽으로" : "질문하기…"); }
@@ -236,15 +245,19 @@ final class VideoAskPanel {
         if (video == null) return;
         String[][] ways = {{"그래픽 레코딩", "대본을 요약해서 그래픽 레코딩 스타일로 그려줘"}, {"인포그래픽", "핵심 내용과 숫자를 인포그래픽으로 그려줘"}, {"4컷 만화", "영상 내용을 4컷 만화로 그려줘"}};
         int n = pictureCount();
-        String[] labels = {"그래픽 레코딩", "인포그래픽", "4컷 만화", "직접 적어서 그리기", "HTML 페이지로 만들기", "그림 장수 · " + n + "장"};
+        String[] labels = {"그래픽 레코딩", "인포그래픽", "4컷 만화", "직접 적어서 그리기", "HTML 페이지로 만들기", "그림 장수 · " + n + "장",
+            "그림 비율 · " + named(VideoChat.ASPECTS, pictureAspect()), "그림 분량 · " + named(VideoChat.DETAILS, pictureDetail())};
         ui.miniMenu(plusButton, labels, -1, i -> {
             if (i < 3) { if (!busy()) ask(VideoChat.Turn.user(ways[i][0] + (n > 1 ? " " + n + "장" : ""), DRAW + ways[i][1], false)); }
             else if (i == 3) { drawNext(true); input.requestFocus(); }
             else if (i == 4) { if (!busy()) ask(VideoChat.Turn.user("HTML 페이지로 시각화", PAGE + "이 영상을 한눈에 보이게 HTML 페이지로 시각화해 줘", false)); }
-            else {
+            else if (i == 5) {
                 String[] counts = {"1장", "2장", "3장", "4장"};
                 ui.miniMenu(plusButton, counts, n - 1, c -> { store.settings.edit().putInt("mytubePictures", c + 1).apply(); Toast.makeText(activity, "한 번에 " + (c + 1) + "장씩 그려요", Toast.LENGTH_SHORT).show(); });
             }
+            // 준: "유튜브 이미지로 정리가 세로모드 밖에 안돼", "간단 노멀 상세를 설정 가능하게": the shape and how much a picture says, kept.
+            else if (i == 6) choose(VideoChat.ASPECTS, pictureAspect(), "mytubeAspect", "그림을 %s로 그려요");
+            else choose(VideoChat.DETAILS, pictureDetail(), "mytubeDetail", "그림을 %s 분량으로 정리해요");
         });
     }
     private MainChatPictures pictures;
@@ -360,6 +373,7 @@ final class VideoAskPanel {
         boolean page = !question.summary() && question.sent().startsWith(PAGE);
         boolean picture = !page && !question.summary() && (question.sent().startsWith(DRAW) || VideoChat.asksPicture(question.shown()));
         int count = picture ? pictureCount() : 1;
+        String aspect = pictureAspect(), detail = pictureDetail();
         job.status = question.summary() ? "Gemini가 영상을 보는 중" : page ? "페이지를 만드는 중" : picture ? "그릴 내용을 정리하는 중" : "생각하는 중"; waiting.setText(job.status); draw();
         // On the app's own threads: closing the panel or leaving 마이튜브 does not end it; only 멈추기 does.
         RUN.execute(() -> {
@@ -393,7 +407,7 @@ final class VideoAskPanel {
                 } else if (picture) {
                     // The AI chosen here writes the pictures' prompts from the video, then GPT image draws them one by one.
                     status(v, job, "그릴 내용을 정리하는 중");
-                    String planned = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.pictures(count), VideoChat.chatInput(v, script, sent) + (count > 1 ? "\n\n그림 " + count + "장으로 그려 주세요." : ""), job.stop, name -> by[0] = name);
+                    String planned = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.pictures(count, aspect, detail), VideoChat.chatInput(v, script, sent) + (count > 1 ? "\n\n그림 " + count + "장으로 그려 주세요." : ""), job.stop, name -> by[0] = name);
                     guard.run();
                     List<org.json.JSONObject> plans = new ArrayList<>();
                     int from = planned == null ? -1 : planned.indexOf('{'), to = planned == null ? -1 : planned.lastIndexOf('}');
@@ -403,7 +417,9 @@ final class VideoAskPanel {
                         if (many != null) { for (int k = 0; k < many.length() && plans.size() < count; k++) { org.json.JSONObject one = many.optJSONObject(k); if (one != null && !one.optString("prompt").isBlank()) plans.add(one); } }
                         else if (!plan.optString("prompt").isBlank()) plans.add(plan);
                     } catch (org.json.JSONException notJson) { /* the words themselves below */ }
-                    if (plans.isEmpty()) plans.add(new org.json.JSONObject().put("prompt", planned == null ? question.shown() : planned.strip()).put("aspect", "portrait"));
+                    if (plans.isEmpty()) plans.add(new org.json.JSONObject().put("prompt", planned == null ? question.shown() : planned.strip()).put("aspect", aspect));
+                    // A plan that names no shape gets the one set.
+                    for (org.json.JSONObject one : plans) if (one.optString("aspect").isBlank()) one.put("aspect", aspect);
                     StringBuilder marks = new StringBuilder(); String failed = ""; int drawn = 0;
                     for (int k = 0; k < plans.size(); k++) {
                         status(v, job, "GPT 이미지가 그리는 중" + (plans.size() > 1 ? " (" + (k + 1) + "/" + plans.size() + ")" : ""));

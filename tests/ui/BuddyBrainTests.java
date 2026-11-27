@@ -744,6 +744,28 @@ public class BuddyBrainTests {
         assertEquals(dev.jun.gyeot.core.Deliveries.Stage.READY, dev.jun.gyeot.core.Deliveries.of(ready.json()).stage());
         assertEquals("배민 배달: 조리 완료(라이더 기다리는 중) (3분 전 알림)", dev.jun.gyeot.core.Deliveries.words(ready, at + 3 * 60_000L, seoul));
     }
+    /**
+     * 마이튜브의 그림 (준: "유튜브 이미지로 정리가 세로모드 밖에 안돼", "너무 간단하게 요약하는 것 밖에 안돼. 간단 노멀 상세를 설정 가능하게"):
+     * the shape set goes to the plan (and a wide one is laid out in columns), and the text to show grows with the amount set.
+     */
+    @Test public void picturesOfAVideoTakeTheShapeAndAmountSet() {
+        String brief = dev.jun.gyeot.core.VideoChat.pictures(1, "portrait", "brief");
+        assertTrue("간단 is the handful of labels it was", brief.contains("5 to 8 of them") && brief.contains("\"aspect\": \"portrait\""));
+        String normal = dev.jun.gyeot.core.VideoChat.pictures(1, "portrait", "normal"), full = dev.jun.gyeot.core.VideoChat.pictures(1, "portrait", "full");
+        assertTrue(normal.contains("10 to 16 pieces of text") && !normal.contains("5 to 8 of them"));
+        assertTrue(full.contains("22 to 32 pieces of text") && full.contains("exact numbers, names, steps"));
+        assertEquals("노멀 by default", normal, dev.jun.gyeot.core.VideoChat.pictures(1));
+        String wide = dev.jun.gyeot.core.VideoChat.pictures(1, "landscape", "normal");
+        assertTrue(wide.contains("\"aspect\": \"landscape\"") && wide.contains("aspect is landscape (the shape the user set)") && wide.contains("columns from left to right"));
+        assertFalse(wide.contains("\"aspect\": \"portrait\""));
+        assertTrue(dev.jun.gyeot.core.VideoChat.pictures(1, "16:9", "full").contains("\"aspect\": \"16:9\""));
+        assertTrue(dev.jun.gyeot.core.VideoChat.pictures(1, "square", "brief").contains("lay the sections out in a grid"));
+        assertTrue("an unknown shape is 세로", dev.jun.gyeot.core.VideoChat.pictures(1, "banana", "normal").contains("\"aspect\": \"portrait\""));
+        String three = dev.jun.gyeot.core.VideoChat.pictures(3, "landscape", "full");
+        assertTrue(three.contains("{\"pictures\": [{\"prompt\": \"...\", \"aspect\": \"landscape\"}, ...]} with exactly 3 items") && three.contains("22 to 32 pieces of text"));
+        for (String[] a : dev.jun.gyeot.core.VideoChat.ASPECTS)
+            assertEquals(a[0], a[0], dev.jun.gyeot.core.Drawing.directArguments(new org.json.JSONObject(java.util.Map.of("prompt", "x", "aspect", a[0])).toString()).optString("aspect"));
+    }
     /** What it does not know about the user it asks (준: "아는것이 전투기 밖에 없어?", "모르면 질문을 하면 되자너"). */
     @Test public void asksWhatItDoesNotKnow() throws Exception {
         String known = "사용자는 전투기 3D 모델링을 한대\n사용자는 커피를 좋아한대";

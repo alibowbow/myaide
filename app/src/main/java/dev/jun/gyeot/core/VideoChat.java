@@ -120,10 +120,34 @@ public final class VideoChat {
      * For several pictures at once (+ → 그림 장수): the same, as {"pictures": [{"prompt", "aspect"}, …]} with exactly count of
      * them, the video's content split across them in its order (part 1 of N, 2 of N …), each a whole picture with its own title.
      */
-    public static String pictures(int count) {
-        if (count <= 1) return PICTURE;
-        return PICTURE.replace("into one prompt for GPT image", "into " + count + " prompts for GPT image, one per picture")
-            .replace("{\"prompt\": \"...\", \"aspect\": \"portrait\"}", "{\"pictures\": [{\"prompt\": \"...\", \"aspect\": \"portrait\"}, ...]} with exactly " + count + " items")
+    public static String pictures(int count) { return pictures(count, "portrait", "normal"); }
+    /** The shapes a picture of a video may have (+ → 그림 비율): its id for GPT image, and its name. */
+    public static final String[][] ASPECTS = {{"portrait", "세로"}, {"landscape", "가로"}, {"square", "정사각"}, {"9:16", "세로 9:16"}, {"16:9", "가로 16:9"}};
+    /** How much a picture of a video says (+ → 그림 분량): 간단, 노멀, 상세. */
+    public static final String[][] DETAILS = {{"brief", "간단"}, {"normal", "노멀"}, {"full", "상세"}};
+    private static final String BRIEF_TEXT = "a short title and short labels only (at most about 25 Korean characters each, 5 to 8 of them)";
+    /**
+     * The same for a shape and an amount the user set (준: "유튜브 이미지로 정리가 세로모드 밖에 안돼", "너무 간단하게 요약하는 것 밖에
+     * 안돼. 간단 노멀 상세를 설정 가능하게"): aspect is that shape unless the request itself names another, and the text to show
+     * grows from a handful of labels (간단) to headings with their points (노멀) to a dense page with the numbers, names and
+     * examples (상세).
+     */
+    public static String pictures(int count, String aspect, String detail) {
+        String shape = "portrait"; for (String[] a : ASPECTS) if (a[0].equals(aspect)) shape = a[0];
+        boolean wide = shape.equals("landscape") || shape.equals("16:9");
+        String text = "brief".equals(detail) ? BRIEF_TEXT
+            : "full".equals(detail) ? "a title, 6 to 8 section headings, and under each heading 2 to 4 points that carry what the video actually says: its exact numbers, names, steps, "
+                + "reasons and examples, then a one-line conclusion at the end (22 to 32 pieces of text in all, each at most about 32 Korean characters); small but clearly legible "
+                + "lettering in a dense layout that fills the whole picture, nothing important in the video left out"
+            : "a title, 4 to 6 section headings, and under each heading 2 short points with the video's key numbers and names (10 to 16 pieces of text in all, each at most about "
+                + "28 Korean characters)";
+        String one = PICTURE.replace(BRIEF_TEXT, text)
+            .replace("{\"prompt\": \"...\", \"aspect\": \"portrait\"}", "{\"prompt\": \"...\", \"aspect\": \"" + shape + "\"}")
+            .replace("aspect is portrait unless the user asks for another", "aspect is " + shape + " (the shape the user set) unless the user's last request itself names another")
+            + (wide ? " The picture is wide: lay the sections out in columns from left to right, the title across the top." : shape.equals("square") ? " The picture is square: lay the sections out in a grid." : "");
+        if (count <= 1) return one;
+        return one.replace("into one prompt for GPT image", "into " + count + " prompts for GPT image, one per picture")
+            .replace("{\"prompt\": \"...\", \"aspect\": \"" + shape + "\"}", "{\"pictures\": [{\"prompt\": \"...\", \"aspect\": \"" + shape + "\"}, ...]} with exactly " + count + " items")
             + " With " + count + " pictures, split the video's content across them in its order so together they cover it (a 4컷 만화 request: "
             + count + " different comics, one per part), each a whole picture in the same style with its own short title that names its part (예: \"1/" + count + " …\"); "
             + "do not repeat the same picture.";

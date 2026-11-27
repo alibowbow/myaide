@@ -463,6 +463,12 @@ async function open(browser, at, bridge, pages) {
     // and left away a while: 퍼레 does not take one out again on its own right after
     for (let i = 0; i < 40; i++) await p.clock.runFor(500);
     assert.strictEqual(await p.evaluate(() => boards[0]._toys.count()), 0, 'still put away 20 s later');
+    // Asked for a toy while 퍼레 is in a play (the ask waits its turn), then to put them away: the toy does not come out afterwards.
+    await p.evaluate(() => launcher.self({play: 'yoga'})); await p.clock.runFor(300);
+    await p.evaluate(() => launcher.self({toy: 'ball'})); await p.clock.runFor(100);
+    await p.evaluate(() => launcher.self({toy: 'away'}));
+    for (let i = 0; i < 24; i++) await p.clock.runFor(500);
+    assert.strictEqual(await p.evaluate(() => boards[0]._toys.count()), 0, 'a toy asked before "away" stays away');
     await p.evaluate(() => launcher.self({wear: ['catears', 'scarf']}));
     await p.clock.runFor(30000);
     // Through a play it keeps them on (the play's things on top) …

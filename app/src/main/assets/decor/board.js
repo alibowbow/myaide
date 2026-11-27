@@ -1574,9 +1574,12 @@ function roam(b) {
   b._play = kind => { if (PLAYS[kind] && !playing) { playing = true; PLAYS[kind](() => { playing = false; }); } };
   b._playNames = () => Object.keys(PLAYS);
   // A play the user asked for (selfAct): as soon as the one going on ends (at most eight seconds), dressed for it.
-  b._ask = (kind, tries) => {
+  b._ask = (kind, tries, at) => {
     if (!PLAYS[kind]) return;
-    if (playing && (tries || 0) < 20) { setTimeout(() => b._ask(kind, (tries || 0) + 1), 400); return; }
+    at = at || Date.now();
+    // Asked for a toy, then to put them away before 퍼레 got to it (it was in a play): the toy does not come out after all.
+    if (TOY_OF[kind] && b._toysAway && at <= b._toysAway) return;
+    if (playing && (tries || 0) < 20) { setTimeout(() => b._ask(kind, (tries || 0) + 1, at), 400); return; }
     playing = true; inPlay = true; saidInPlay = 2; dress(kind);
     const ended = () => { playing = false; inPlay = false; undress(); lived("play", kind, 1, "사용자가 하자고 해서"); if (TOY_OF[kind]) lived("toy", TOY_OF[kind], 1, "사용자가 꺼내 줘서"); };
     try { PLAYS[kind](ended); } catch (err) { ended(); }
@@ -1644,6 +1647,7 @@ function toys(b) {
     const it = Object.assign({kind, el, x: 0, y: 0, vx: 0, vy: 0, a: 0, va: 0, r: 9, bounce: .6, friction: .98, grav: 1, drag: 0, held: false, born: now(), life: 90000, rest: 0, solid: true}, o || {});
     items.push(it); wire(it); draw(it); wake(); return it;
   };
+  let cleared = 0; // how many times all were put away: what was still coming (a shower's next streaks) stops
   const gone = it => { const i = items.indexOf(it); if (i >= 0) items.splice(i, 1); it.el.classList.add("bye"); setTimeout(() => it.el.remove(), 400); if (it.panel) it.panel.remove(); };
   const draw = it => { it.el.style.transform = "translate3d(" + (it.x - it.r).toFixed(1) + "px," + (it.y - it.r).toFixed(1) + "px,0) rotate(" + it.a.toFixed(3) + "rad)"; };
   /** Where 퍼레 holds a thing: by its hand, on the board. */
@@ -1905,9 +1909,11 @@ function toys(b) {
 
   // ── 유성우: streaks across the sky; afterwards 퍼레 asks about the wish (its choices) ──
   const shower = () => {
-    const w = W(); let k = 0;
+    const w = W(), mine = cleared; let k = 0;
     const one = () => {
-      if (k++ >= 12) { setTimeout(() => { if (!$(b, ".bubble").classList.contains("on")) speak(b, {text: "별똥별에 소원 빌었어?"}, 9000); }, 1200); return; }
+      if (mine !== cleared) return; // put away meanwhile: no more of them
+      // A word in passing, not a question left up (준: "맥락과 무관한 무의미한 질문들", "오랫동안 풍선띄우는건 자제").
+      if (k++ >= 12) { setTimeout(() => { if (mine === cleared && !$(b, ".bubble").classList.contains("on")) speak(b, {text: "별똥별이다, 소원 빌어야지"}, 3200); }, 1200); return; }
       const it = make("meteor", "", {r: 6, free: true, solid: false, life: 1600, vx: -rnd(380, 560), vy: rnd(160, 260),
         tick: (it, dt) => { it.x += it.vx * dt; it.y += it.vy * dt; it.a = Math.atan2(it.vy, it.vx); if (it.x < -30 || it.y > W().height) gone(it); },
         tap: it => { it.el.classList.add("caught"); say("소원 빌었다!", 1400); if (b._feel) b._feel("awed", 1400); }});
@@ -1928,7 +1934,7 @@ function toys(b) {
     spin(it) { it.tap(it); },
     count: () => items.length,
     /** All put away (the user asked). */
-    clear() { items.slice().forEach(gone); },
+    clear() { cleared++; items.slice().forEach(gone); },
     tree: treeOut, treeHang, treeX: () => { treeOut(); const r = tree.getBoundingClientRect(); return r.left + r.width / 2; },
     treeGlow(ms) { treeOut(); tree.classList.add("lit"); setTimeout(() => { if (tree) tree.classList.remove("lit"); }, ms || 4000); },
     sleigh: sleighRide
