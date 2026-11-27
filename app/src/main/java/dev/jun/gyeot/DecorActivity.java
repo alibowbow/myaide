@@ -355,7 +355,7 @@ public final class DecorActivity extends Activity {
     private View dayLogRow() {
         AppStore store = ((GyeotApp) getApplication()).store();
         boolean on = DayLogs.on(store);
-        android.widget.Switch toggle = ui.toggle("", on, value -> { DayLogs.turn(store, value); draw(); });
+        android.widget.Switch toggle = ui.toggle("", on, value -> { DayLogs.turn(this, store, value); draw(); });
         toggle.setContentDescription("하루 기록 " + (on ? "켜짐" : "꺼짐")); toggle.setPadding(0, 0, 0, 0); toggle.setMinHeight(0); toggle.setMinimumHeight(0); toggle.setSwitchPadding(0);
         String keep = keepLabel(DayLogs.keep(store));
         LinearLayout row = ui.listRow(R.drawable.ic_history, Ui.BLUE, "하루 기록", on ? "켜짐 · " + keep + " 보관" : "꺼짐 · 아무것도 적지 않아요", toggle, this::dayLogSheet);
@@ -372,7 +372,7 @@ public final class DecorActivity extends Activity {
         AppStore store = ((GyeotApp) getApplication()).store();
         Ui.Sheet sheet = ui.selectionSheet("하루 기록", "알림·쓴 앱·다녀온 곳·주문·예약·대화를 날마다 짧게 적어 두고, 퍼레가 지난 일을 이 기록으로 답해요. 이 휴대폰에만 있어요.");
         LinearLayout group = ui.group();
-        View use = ui.switchRow("하루 기록 쓰기", null, DayLogs.on(store), value -> { DayLogs.turn(store, value); draw(); });
+        View use = ui.switchRow("하루 기록 쓰기", null, DayLogs.on(store), value -> { DayLogs.turn(this, store, value); draw(); });
         ui.addRow(group, use, true);
         LinearLayout keepRow = ui.row(); keepRow.setGravity(Gravity.CENTER_VERTICAL); keepRow.setPadding(ui.dp(16), ui.dp(10), ui.dp(14), ui.dp(10));
         TextView keepName = ui.text("보관 기간", 15, 520, Ui.TEXT); keepRow.addView(keepName, new LinearLayout.LayoutParams(0, -2, 1));

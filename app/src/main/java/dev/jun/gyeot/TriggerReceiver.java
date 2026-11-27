@@ -11,7 +11,7 @@ import android.content.Intent;
  *  - Boot: after the phone restarts or the app is updated, the places are watched again and the receivers set as needed
  *    (Android drops proximity alerts on a restart; the jobs are persisted). On while any trigger is on.
  *  - Bluetooth: a paired device connecting or going (ACL, a protected broadcast only Android sends). On while a device
- *    trigger is on and 근처 기기 is allowed.
+ *    trigger is on or 하루 기록 is (the car's lines, DayLogs.bluetooth), and 근처 기기 is allowed.
  *  - Place: Android's proximity alert for one place trigger. Not exported and with no filter: only this app's own
  *    PendingIntent (from LocationManager) reaches it.
  */

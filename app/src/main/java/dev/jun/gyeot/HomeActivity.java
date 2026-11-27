@@ -244,6 +244,19 @@ public final class HomeActivity extends Activity {
         if (ready) BuddyBoard.shown(selfCall);
         dev.jun.gyeot.core.BuddyJobs.unlisten(jobsChanged); dev.jun.gyeot.core.BuddyJobs.listen(jobsChanged);
         if (ready) pushJobs(true);
+        // 하루 기록: a saved place the phone is at now (its last fix, no new one), and 퍼레's routine suggestion once a day.
+        DayLogs.here(this);
+        if (ready) habits();
+    }
+    /**
+     * 퍼레's routine suggestion (BuddyHabits, core/Habits): looked for at most once a day, off the main thread; the one found is
+     * said once in passing with two small choices (board.js boardRoutine), and the page says back whether it was shown and
+     * what was picked (the bridge's "routine").
+     */
+    private void habits() {
+        android.content.Context app = getApplicationContext();
+        try { io.execute(() -> { dev.jun.gyeot.core.Habits.Suggestion s = BuddyHabits.due(app); if (s != null) js("launcher.routine&&launcher.routine(" + BuddyHabits.page(s) + ")"); }); }
+        catch (RuntimeException stopped) { /* the next time */ }
     }
     // ── 맡은 일 (BuddyJobs, 준 "문 하나"): a small line under the search with 중지, and one passing word when one ends ──
     private final java.util.function.Consumer<dev.jun.gyeot.core.BuddyJobs.Job> jobsChanged = job -> main.post(() -> { if (shown && ready) pushJobs(!job.running()); });
@@ -565,6 +578,14 @@ public final class HomeActivity extends Activity {
                 case "lived" -> { String kind = a.optString(0, ""), key = a.optString(1, ""), why = a.optString(3, ""); double joy = a.optDouble(2, 0); try { io.execute(() -> BuddyTalk.lived(HomeActivity.this, kind, key, joy, why)); } catch (RuntimeException ignored) {} }
                 case "care" -> { String kind = a.optString(0, ""); try { io.execute(() -> js("launcher.life(" + BuddyTalk.care(HomeActivity.this, kind) + ")")); } catch (RuntimeException ignored) {} }
                 case "home" -> { try { io.execute(() -> js("launcher.env(" + BuddyTalk.env(HomeActivity.this) + ")")); } catch (RuntimeException ignored) {} }
+                // 퍼레's routine suggestion: shown, or the choice tapped under it ("yes", "no"); a yes is said back in one line.
+                case "routine" -> {
+                    String key = a.optString(0, ""), what = a.optString(1, "");
+                    try { io.execute(() -> {
+                        String[] back = BuddyHabits.heard(HomeActivity.this, key, what);
+                        if (!back[0].isEmpty()) js("launcher.jobDone&&launcher.jobDone(" + Jsons.obj("id", "routine", "text", back[0], "go", back[1].isEmpty() ? "" : "fix:" + back[1]) + ")");
+                    }); } catch (RuntimeException ignored) {}
+                }
                 case "think" -> { String why = a.optString(0, "tap"); try { io.execute(() -> BuddyTalk.think(HomeActivity.this, why, line -> js("launcher.thought(" + JSONObject.quote(line) + ")"), () -> js("launcher.thoughtFail()"))); } catch (RuntimeException ignored) {} }
                 default -> {}
             }
@@ -578,6 +599,7 @@ public final class HomeActivity extends Activity {
                 if (web != null) web.evaluateJavascript("launcher.insets(" + top + "," + bottom + "," + keyboard + ")", null);
                 pushApps(); main.removeCallbacks(refresh); if (shown) refresh.run(); else pushBoard();
                 if (shown) pushJobs(true);
+                if (shown) habits();
                 if (pendingShow != null) { showPad(pendingShow); pendingShow = null; }
                 if (pendingPage != null) { goPage(pendingPage); pendingPage = null; }
                 // 퍼레 itself, asked by voice or in the talk (BuddyBoard): now that the page can hear it.

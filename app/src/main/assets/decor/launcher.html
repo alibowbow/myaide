@@ -1477,6 +1477,8 @@ function ask() {
 }
 window.boardChat = openChat;
 window.boardThink = why => { if (B) B.think(why); };
+// The routine suggestion was shown, or one of its choices tapped ("shown", "yes", "no"): the app keeps it, and a yes makes the trigger.
+window.boardRoutineHeard = (key, what) => { if (B) B.routine(key, what); };
 // 퍼레's life (core/BuddyLife): what the user did for it; the app answers with launcher.life. Its home (the battery, music …)
 // is asked every quarter minute while the home screen is seen, so a charger or a song is noticed soon.
 window.boardCare = kind => { if (B && B.care) B.care(kind); };
@@ -1843,6 +1845,8 @@ window.launcher = {
   /** 퍼레's jobs now (BuddyJobs.json: [{id, line, state, stop, open}]), and one that ended: its passing word ({id, text, go}). */
   jobs(list) { drawJobs(list); },
   jobDone(line) { boardJobDone(line); },
+  /** 퍼레's routine suggestion (BuddyHabits: {key, text, yes, no}): said once in passing with its two choices; false when it was said already. */
+  routine(o) { return boardRoutine(o); },
   /** 퍼레's answer on the home screen: a piece as it streams, the whole when done, or why not. */
   stream(piece) {
     const last = thread[thread.length - 1]; if (!last || !last.pending) return;

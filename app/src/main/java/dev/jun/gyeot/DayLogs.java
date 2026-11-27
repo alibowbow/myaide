@@ -29,7 +29,9 @@ import org.json.JSONObject;
  * 하루 타임라인 on the phone (core/DayLog): the book in the app's own storage (files/daylog), on unless the user turned it off
  * (화면 꾸미기 → 하루 기록), and the small hooks the sources call: 알림 비서's notices, food, parcels, bookings and plans; the app
  * in front (폰 조작's window events) and the screen going off; a route or a map search; a place looked up; the neighbourhood
- * the weather already knows (coarse location only when allowed before); 퍼레's acts and jobs; talks and titles. Each hook only
+ * the weather already knows (coarse location only when allowed before); 퍼레's acts and jobs; talks and titles; the phone's
+ * moments 퍼레's habits are found from (core/Habits): the car's and other paired audio devices' Bluetooth, the charger, and
+ * arriving at or leaving a saved place (a fix the phone already has, or a place trigger's alert). Each hook only
  * hands its line to DayLog (written on its own thread). Asked about: day_recall's answer, a day's digest for the prompts, and
  * the main chat's lines for a past question; the calendar's events of those days are read live, never copied.
  */
@@ -47,11 +49,15 @@ final class DayLogs {
         if (LISTENING.compareAndSet(false, true)) BuddyJobs.listen(DayLogs::job);
     }
     static boolean on(AppStore store) { return store.settings.getBoolean(ON, true); }
-    /** Turned off: nothing more is kept (what is kept stays until 모두 지우기); the app in front is forgotten. */
-    static void turn(AppStore store, boolean on) {
+    /**
+     * Turned off: nothing more is kept (what is kept stays until 모두 지우기); the app in front is forgotten. The car's and the
+     * charger's receivers follow it (TriggerWatch.sync: on while 하루 기록 is, or a trigger needs them).
+     */
+    static void turn(Context c, AppStore store, boolean on) {
         store.settings.edit().putBoolean(ON, on).apply();
         if (!on) DayLog.run(SESSIONS::forget);
         store.changed();
+        TriggerWatch.start(c);
     }
     static int keep(AppStore store) { return store.settings.getInt(KEEP, DayLog.KEEP_DAYS); }
     /** Keeps this many days from now on; older ones go at once. */
@@ -116,6 +122,94 @@ final class DayLogs {
     }
     /** A talk with 퍼레 (BuddyTalk.learnTalk: the voice talk and 퍼레와 대화): its topic. */
     static void talk(List<String[]> turns, int from) { if (DayLog.on()) DayLog.add(DayLog.talk(turns, from, "퍼레", clock.getAsLong())); }
+
+    // ── the phone's moments (what 퍼레's habits are found from, core/Habits) ──
+    /**
+     * A paired device's ACL link (TriggerWatch.bluetooth, on the triggers' thread): the car (호출어's car, a car trigger's
+     * device, or a device with a car's name) as "차에 탐"/"차에서 내림", another paired audio device by its name; anything else
+     * (a watch, a keyboard) is no line.
+     */
+    static void bluetooth(Context c, boolean in, String address, String name, boolean audio, boolean bonded) {
+        if (!DayLog.on()) return;
+        long at = clock.getAsLong();
+        if (car(c, address, name)) DayLog.add(DayLog.car(name, address, in, at));
+        else if (audio && bonded) DayLog.add(DayLog.device(name, address, in, at));
+    }
+    /** Whether a device is the car: the one 호출어 was given, a car trigger's, or one whose name is a car's. */
+    static boolean car(Context c, String address, String name) {
+        String a = address == null ? "" : address.strip();
+        if (!a.isEmpty()) {
+            try { if (a.equalsIgnoreCase(((GyeotApp) c.getApplicationContext()).store().settings.getString(WakeWordFiles.CAR, ""))) return true; } catch (RuntimeException none) { /* not known */ }
+            for (dev.jun.gyeot.core.Triggers.Trigger t : TriggerStore.list(c)) if (t.when().car() && a.equalsIgnoreCase(t.when().id())) return true;
+        }
+        return dev.jun.gyeot.core.Triggers.carName(name);
+    }
+    /** The charger plugged in or out (TriggerWatch's power receiver, while the app runs). */
+    static void charge(boolean in) { if (DayLog.on()) DayLog.add(DayLog.charge(in, clock.getAsLong())); }
+    /** Which saved places the phone was last seen in or out of (kept, so an arrival is a change and not a first look). */
+    private static final String VISITS = "visits";
+    private static volatile Map<String, String> seen;
+    private static volatile long lookedAt;
+    private static android.content.SharedPreferences visitPrefs(Context c) { return c.getApplicationContext().getSharedPreferences("gyeot_daylog", Context.MODE_PRIVATE); }
+    private static Map<String, String> seen(Context c) {
+        Map<String, String> now = seen;
+        if (now != null) return now;
+        Map<String, String> read = new java.util.LinkedHashMap<>();
+        try { JSONObject o = new JSONObject(visitPrefs(c).getString(VISITS, "{}")); for (java.util.Iterator<String> k = o.keys(); k.hasNext(); ) { String n = k.next(); read.put(n, o.optString(n)); } } catch (Exception broken) { /* none */ }
+        seen = read;
+        return read;
+    }
+    private static void seen(Context c, Map<String, String> now) {
+        seen = now;
+        visitPrefs(c).edit().putString(VISITS, new JSONObject(now).toString()).apply();
+    }
+    /** A place trigger's proximity alert (TriggerWatch.place): Android says the phone came into or left that place's circle. */
+    static void proximity(Context c, String place, boolean in) {
+        if (!DayLog.on() || place == null || place.isBlank()) return;
+        long at = clock.getAsLong(); Context app = c.getApplicationContext(); String name = place.strip();
+        DayLog.run(() -> {
+            Map<String, String> was = new java.util.LinkedHashMap<>(seen(app));
+            String before = was.get(name);
+            if ((in ? "in" : "out").equals(before)) return;
+            was.put(name, in ? "in" : "out"); seen(app, was);
+            // Android says "entering" again whenever the alert is set anew (each start of the app): a first look is no arrival.
+            if (before != null) DayLog.add(DayLog.visit(name, in, at));
+        });
+    }
+    /**
+     * The home screen came to the front (HomeActivity, at most every two minutes): the fix the phone already has (no new one is
+     * asked for; only with a location permission given before, and only a recent, close one) against the saved places, so
+     * "집 도착" is a line. On the day log's thread.
+     */
+    static void here(Context c) {
+        if (!DayLog.on()) return;
+        long now = clock.getAsLong();
+        if (Math.abs(now - lookedAt) < 2 * 60_000L) return;
+        lookedAt = now;
+        Context app = c.getApplicationContext();
+        DayLog.run(() -> {
+            android.location.Location fix = lastFix(app);
+            if (fix == null || now - fix.getTime() > 10 * 60_000L) return;
+            List<DayLog.Spot> spots = new ArrayList<>();
+            for (dev.jun.gyeot.core.SavedPlaces.Saved s : ((GyeotApp) app).store().savedPlaces()) if (!s.words().isEmpty()) spots.add(new DayLog.Spot(s.words().get(0), s.lat(), s.lng()));
+            if (spots.isEmpty()) return;
+            DayLog.Visits v = DayLog.visits(spots, seen(app), fix.getLatitude(), fix.getLongitude(), fix.hasAccuracy() ? fix.getAccuracy() : 1000, now);
+            if (!v.seen().equals(seen(app))) seen(app, v.seen());
+            for (DayLog.Event e : v.lines()) DayLog.add(e);
+        });
+    }
+    /** The newest fix any app got (no new one is asked for), with a location permission already given; null otherwise. */
+    @SuppressWarnings("MissingPermission")
+    static android.location.Location lastFix(Context c) {
+        if (c.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+            && c.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null;
+        android.location.LocationManager lm = c.getSystemService(android.location.LocationManager.class);
+        if (lm == null) return null;
+        android.location.Location best = null;
+        try { for (String p : lm.getProviders(true)) { android.location.Location l = lm.getLastKnownLocation(p); if (l != null && (best == null || l.getTime() > best.getTime())) best = l; } }
+        catch (RuntimeException refused) { return null; }
+        return best;
+    }
 
     // ── apps used: the app in front ────────────────────────────────
     /** What a window that came to the front is: an app's name, HOME (a home screen or recents), or null (the keyboard, the shade, no app). */

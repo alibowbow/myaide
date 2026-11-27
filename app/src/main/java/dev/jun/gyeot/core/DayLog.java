@@ -49,6 +49,8 @@ public final class DayLog {
 
     public static final String NOTICE = "notice", CALENDAR = "calendar", APP = "app", ORDER = "order", PLAN = "plan", PLACE = "place",
         TALK = "talk", CHAT = "chat", WORK = "work", LAB = "lab", ACT = "act", JOB = "job";
+    /** The phone's moments (what 퍼레's habits are found from, core/Habits): the car's Bluetooth, another paired audio device, the charger, a saved place. */
+    public static final String CAR = "car", DEVICE = "device", CHARGE = "charge", VISIT = "visit";
     /** Days kept unless the user chose another (KEEPS: the choices). */
     public static final int KEEP_DAYS = 90;
     public static final int[] KEEPS = {7, 30, 90, 365};
@@ -285,6 +287,59 @@ public final class DayLog {
         if (topic == null) return null;
         return Event.of(at, TALK, n(source).isBlank() ? "퍼레" : source, "‘" + cut(topic, 30) + "’" + (others > 0 ? " 외 " + others + "번" : ""), "", "");
     }
+    // ── the phone's moments: the car, a paired audio device, the charger, a saved place ──
+    /** A device's address as kept in a group (upper case, nothing else). */
+    private static String address(String a) { return n(a).strip().toUpperCase(Locale.ROOT).replaceAll("[^0-9A-F:]", ""); }
+    /**
+     * The car's Bluetooth connecting (in) or going: the car 조건 알림 and 호출어 know, or a device with a car's name. Its group
+     * keeps the device's address, so a link back within MERGE_MS is the same drive and the habit knows which car.
+     */
+    public static Event car(String device, String address, boolean in, long at) {
+        String name = n(device).strip();
+        return Event.of(at, CAR, name.isEmpty() ? "차" : name, in ? "차에 탐" : "차에서 내림", "", "").withGroup("car:" + (in ? "in" : "out") + ":" + address(address));
+    }
+    /** Another paired audio device (earbuds, a speaker) connecting or going, by its name; null without one. */
+    public static Event device(String device, String address, boolean in, long at) {
+        String name = n(device).strip();
+        if (name.isEmpty()) return null;
+        return Event.of(at, DEVICE, name, "‘" + cut(name, 24) + "’ " + (in ? "연결" : "연결 끊김"), "", "").withGroup("bt:" + (in ? "in" : "out") + ":" + address(address));
+    }
+    /** The charger plugged in (in) or out. */
+    public static Event charge(boolean in, long at) { return Event.of(at, CHARGE, "충전", in ? "충전기 꽂음" : "충전기 뺌", "", "").withGroup("charge:" + (in ? "in" : "out")); }
+    /** Arrived at a saved place (in) or left it, by the user's word for it ("집", "회사"); null without one. */
+    public static Event visit(String place, boolean in, long at) {
+        String p = n(place).strip();
+        if (p.isEmpty()) return null;
+        return Event.of(at, VISIT, "장소", "‘" + cut(p, 24) + "’" + (in ? " 도착" : "에서 나옴"), p, "").withGroup("visit:" + (in ? "in" : "out") + ":" + cut(p, 40));
+    }
+    /** A saved place as the day log watches it: the user's word for it and where it is. */
+    public record Spot(String name, double lat, double lng) {}
+    /** A saved place's circle (m), how far past it counts as gone, and the worst fix that is believed. */
+    public static final int VISIT_RADIUS = 150, VISIT_MARGIN = 150, VISIT_ACCURACY = 250;
+    /** What a fix says: each place "in", "out" or as it was (at the edge, or a fix too rough), and the arrivals and leavings as lines. */
+    public record Visits(Map<String, String> seen, List<Event> lines) {}
+    /**
+     * A location fix the phone already had (no new one is asked for), against the saved places: a place first seen only says
+     * where the phone is (it is no arrival); after that, out → in is an arrival and in → out a leaving. A fix rougher than
+     * VISIT_ACCURACY (a coarse location is a few km) changes nothing.
+     */
+    public static Visits visits(List<Spot> spots, Map<String, String> seen, double lat, double lng, double accuracy, long at) {
+        Map<String, String> next = new LinkedHashMap<>(); List<Event> lines = new ArrayList<>();
+        Map<String, String> was = seen == null ? Map.of() : seen;
+        boolean good = !Double.isNaN(lat) && !Double.isNaN(lng) && accuracy >= 0 && accuracy <= VISIT_ACCURACY;
+        for (Spot s : spots == null ? List.<Spot>of() : spots) {
+            if (s == null || n(s.name()).isBlank() || Double.isNaN(s.lat()) || Double.isNaN(s.lng())) continue;
+            String before = was.getOrDefault(s.name(), "");
+            String now = before;
+            if (good) {
+                double d = Triggers.meters(s.lat(), s.lng(), lat, lng);
+                now = d <= VISIT_RADIUS ? "in" : d >= VISIT_RADIUS + VISIT_MARGIN + accuracy ? "out" : before;
+            }
+            if (!now.isEmpty()) next.put(s.name(), now);
+            if (!before.isEmpty() && !now.equals(before)) { Event e = visit(s.name(), now.equals("in"), at); if (e != null) lines.add(e); }
+        }
+        return new Visits(next, lines);
+    }
     /** A titled thing begun (a 작업창 room, a research, a main chat message, a voice call's title), with what opens it. */
     public static Event titled(String kind, String app, String title, String ref, long at) {
         String t = n(title).replaceAll("\\s+", " ").strip();
@@ -481,7 +536,7 @@ public final class DayLog {
         try { return onCheck.getAsBoolean(); } catch (RuntimeException unreadable) { return false; }
     }
     public static int keep() { try { return Math.max(1, Math.min(3650, keepDays.getAsInt())); } catch (RuntimeException unreadable) { return KEEP_DAYS; } }
-    /** A line now, from any thread (the triggers' "car", "charge", "arrive" too); nothing while it is off. */
+    /** A line now, from any thread (the phone's moments too: CAR, DEVICE, CHARGE, VISIT); nothing while it is off. */
     public static void add(String kind, String app, String text) { add(kind, app, text, "", ""); }
     public static void add(String kind, String app, String text, String place, String ref) { add(Event.of(System.currentTimeMillis(), kind, app, text, place, ref)); }
     /** An event, kept on the day log's own thread; nothing while it is off. */
@@ -746,7 +801,7 @@ public final class DayLog {
             if (ORDER.equals(e.kind())) return e.place().isEmpty() ? 0 : 3;
             return 0;
         }
-        return switch (e.kind()) { case PLAN, CALENDAR, ORDER -> 4; case PLACE -> e.group().startsWith("area:") ? 1 : 4; case JOB, ACT, WORK, LAB, TALK, CHAT -> 3; case APP -> 2; default -> 1; };
+        return switch (e.kind()) { case PLAN, CALENDAR, ORDER -> 4; case PLACE -> e.group().startsWith("area:") ? 1 : 4; case JOB, ACT, WORK, LAB, TALK, CHAT -> 3; case APP, VISIT -> 2; case CHARGE, DEVICE -> 0; default -> 1; };
     }
 
     /** Where the lines come from: the book's days, with the calendar's events read live (DayLogs). */
@@ -939,6 +994,8 @@ public final class DayLog {
             switch (e.kind()) {
                 case CALENDAR, PLAN -> sections.get("일정·약속").add(hm + " " + e.app() + " " + what(e));
                 case PLACE -> sections.get("장소").add(e.group().startsWith("area:") ? e.place() + " 근처" : hm + " " + e.app() + " " + what(e));
+                case VISIT -> sections.get("장소").add(hm + " " + e.text());
+                case CHARGE, DEVICE -> { } // the charger and the earbuds tell the prompts nothing (they are for habits and recall)
                 case ORDER -> sections.get("주문·택배").add(hm + " " + e.app() + " " + what(e));
                 case APP -> apps.merge(e.app(), e.duration(), Long::sum);
                 case NOTICE -> {

@@ -395,6 +395,11 @@ if __name__ == '__main__':
     triggers.mkdir(parents=True, exist_ok=True)
     javac(['-encoding', 'UTF-8', '-d', triggers, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/TriggersRegression.java'])
     run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (triggers, jars[-1]))), 'dev.jun.gyeot.core.TriggersRegression'])
+    # 퍼레's routine suggestion (core/Habits): a moment → app habit only when it is real, never money, never asked twice.
+    habits = BUILD / 'habit-checks'
+    habits.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', habits, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/HabitsRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (habits, jars[-1]))), 'dev.jun.gyeot.core.HabitsRegression'])
     test_board(jars[-1])
     # The optional larger suites run when their tests folder is present.
     if (ROOT / 'tests/CoreTests.java').is_file(): test(jars)

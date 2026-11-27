@@ -43,7 +43,12 @@ final class WakeWordUi {
             && activity.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED;
     }
     private void ask() { activity.requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO, Manifest.permission.BLUETOOTH_CONNECT}, PERMISSION_REQUEST); }
-    void permissionResult() { if (permitted() && store.settings.getBoolean(WakeWordFiles.ENABLED, false)) WakeWordService.start(activity); refresh.run(); }
+    void permissionResult() {
+        if (permitted() && store.settings.getBoolean(WakeWordFiles.ENABLED, false)) WakeWordService.start(activity);
+        // 근처 기기 just given: 하루 기록 hears the car's link from now on (TriggerWatch.sync opens its door).
+        TriggerWatch.start(activity);
+        refresh.run();
+    }
 
     /**
      * The page, in the order it is set up: the switch first (it says what the standby is doing),

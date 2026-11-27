@@ -151,10 +151,15 @@ public class TriggersTests {
         assertEquals("a link back within minutes is the same drive", 1, stored(car.id()).times());
         new TriggerReceiver.Bluetooth().onReceive(app, new Intent("dev.jun.gyeot.FAKE").putExtra(BluetoothDevice.EXTRA_DEVICE, kia)); settleIo();
         assertEquals("only Android's broadcasts", 1, stored(car.id()).times());
-        // No device trigger left: the receiver is off again.
+        // No device trigger left: the receiver stays on only for 하루 기록 (the car's lines, HabitsTests); with it off, off again.
         TriggerStore.change(app, all -> Triggers.remove(all, car.id())); TriggerWatch.sync(app);
-        assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED, pm.getComponentEnabledSetting(new ComponentName(app, TriggerReceiver.Bluetooth.class)));
-        assertEquals("nothing on: the boot door is off too", PackageManager.COMPONENT_ENABLED_STATE_DISABLED, pm.getComponentEnabledSetting(new ComponentName(app, TriggerReceiver.Boot.class)));
+        assertEquals("하루 기록 still hears the car", PackageManager.COMPONENT_ENABLED_STATE_ENABLED, pm.getComponentEnabledSetting(new ComponentName(app, TriggerReceiver.Bluetooth.class)));
+        AppStore store = app.store();
+        store.settings.edit().putBoolean(DayLogs.ON, false).commit(); TriggerWatch.sync(app);
+        try {
+            assertEquals(PackageManager.COMPONENT_ENABLED_STATE_DISABLED, pm.getComponentEnabledSetting(new ComponentName(app, TriggerReceiver.Bluetooth.class)));
+            assertEquals("nothing on: the boot door is off too", PackageManager.COMPONENT_ENABLED_STATE_DISABLED, pm.getComponentEnabledSetting(new ComponentName(app, TriggerReceiver.Boot.class)));
+        } finally { store.settings.edit().putBoolean(DayLogs.ON, true).commit(); }
     }
 
     // ── a delivery app's notice, as NoticeListener hands it over ──

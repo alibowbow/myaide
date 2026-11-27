@@ -178,7 +178,7 @@ public class DayLogTests {
 
     /** Off: nothing kept, whatever comes; day_recall says it is off, with the one tap that turns it on. */
     @Test public void offKeepsNothing() throws Exception {
-        DayLogs.turn(store, false);
+        DayLogs.turn(app, store, false);
         label("com.kakao.talk", "카카오톡");
         NoticeListener listener = Robolectric.buildService(NoticeListener.class).create().get();
         listener.onNotificationPosted(posted(app, "com.kakao.talk", 9, "민수", "내일 7시 강남역에서 보자", System.currentTimeMillis()));
@@ -194,7 +194,7 @@ public class DayLogTests {
         assertEquals("daylog", miss.fix()); assertEquals("하루 기록 켜기", BuddyMisses.fixLabel(miss.fix()));
         Intent fix = BuddyMisses.fixIntent(app, miss.fix());
         assertTrue("its sheet", fix.getBooleanExtra(DecorActivity.DAYLOG, false));
-        DayLogs.turn(store, true);
+        DayLogs.turn(app, store, true);
     }
 
     /** "지난주 그 집 어디였지?": the booking and the route of last week, with their time and app; nothing found says where it looked. */
@@ -251,9 +251,9 @@ public class DayLogTests {
         int start = night.indexOf("하루 기록:"), end = night.indexOf("지금까지의 발견 노트");
         assertTrue("the day's part is short: " + (end - start), start >= 0 && end - start <= BuddyTalk.DAY_DIGEST + 20);
         // Off: none.
-        DayLogs.turn(store, false);
+        DayLogs.turn(app, store, false);
         assertEquals("", DayLogs.digest(app, yesterday, 900));
-        DayLogs.turn(store, true);
+        DayLogs.turn(app, store, true);
     }
 
     private static View find(View view, Predicate<View> match) {

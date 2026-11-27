@@ -294,6 +294,7 @@ function makeBoard(slot) {
   bubble.addEventListener("click", e => {
     e.stopPropagation();
     const pick = e.target.closest ? e.target.closest(".pick") : null;
+    if (pick && pick.dataset.routine) { routinePicked(b, pick); return; }
     if (pick) { answer(b, bubble.dataset.q || "", pick.textContent); return; }
     if (bubble.classList.contains("asking")) return; // a question waits for its answer
     const go = bubble.dataset.go; bubble.classList.remove("on", "act"); b._go = "";
@@ -588,7 +589,7 @@ function hearts(b, n) {
 /** 퍼레 is thinking (the AI writes its line): the thinking face, dots in the bubble, until the line arrives. */
 function thinking(b) {
   const bubble = $(b, ".bubble");
-  bubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>'; bubble.dataset.go = ""; bubble.classList.remove("act", "sfx", "asking"); bubble.classList.add("on"); fitBubble(bubble);
+  bubble.innerHTML = '<span class="typing"><i></i><i></i><i></i></span>'; bubble.dataset.go = ""; bubble.classList.remove("act", "sfx", "asking", "mine"); bubble.classList.add("on"); fitBubble(bubble);
   if (b._mood) b._mood("thinking");
   clearTimeout(b._bubble); b._bubble = setTimeout(() => { if (!b._spoken) bubble.classList.remove("on"); }, 15000);
   b._spoken = false;
@@ -631,7 +632,7 @@ function thought(said) {
     const bubble = $(b, ".bubble"), svg = $(b, ".bot"); b._spoken = true;
     let i = 0; const chars = Array.from(line), feel = feelOf(line);
     if (b._mood) b._mood(""); if (b._feel) b._feel(feel ? feel[0] : "happy", Math.max(1600, chars.length * 38 + 1200));
-    bubble.textContent = ""; bubble.classList.remove("sfx", "asking"); bubble.classList.add("on"); if (svg) svg.classList.add("talking");
+    bubble.textContent = ""; bubble.classList.remove("sfx", "asking", "mine"); bubble.classList.add("on"); if (svg) svg.classList.add("talking");
     clearInterval(b._typing);
     b._typing = setInterval(() => {
       i++; bubble.textContent = chars.slice(0, i).join(""); fitBubble(bubble);
@@ -704,7 +705,7 @@ function speak(b, line, ms) {
   const bubble = $(b, ".bubble");
   bubble.textContent = line.text; bubble.dataset.go = line.go || "";
   if (line.go) { const more = document.createElement("b"); more.className = "more"; more.textContent = " ›"; bubble.appendChild(more); }
-  bubble.classList.toggle("act", !!line.go); bubble.classList.toggle("sfx", !!line.sfx); bubble.classList.remove("asking"); bubble.classList.add("on");
+  bubble.classList.toggle("act", !!line.go); bubble.classList.toggle("sfx", !!line.sfx); bubble.classList.remove("asking", "mine"); bubble.classList.add("on");
   clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on", "act"), ms || 6500);
   // 퍼레's own ready words never wait for an answer (준: "맥락과 무관한 무의미한 질문들이 반복돼": "새로운 거 알게 됐어?" with
   // 응!/아니/글쎄~ after an app): only the AI's questions, asked about something it wants to know, come with choices (thought).
@@ -792,10 +793,58 @@ function sayJobWord() {
     speak(b, {text: line.text, go: line.go || ""}, Math.min(4500, 2400 + line.text.length * 55));
   });
 }
+/*
+  퍼레's routine suggestion (BuddyHabits, core/Habits: "같은 행동이 반복되면 퍼레가 루틴을 딱 한 번 제안해요"): a habit the day log saw,
+  said once in passing with two small choices (준: "흘러가듯이 슬쩍", "오랫동안 풍선띄우는건 자제"): gone in ROUTINE_MS unless a
+  choice is tapped; never while locked (nothing of the user's day then), in the voice talk, on do not disturb or while asked
+  to keep quiet, and not over words just said (it waits for them). The app hears that it was shown, and the choice.
+*/
+const ROUTINE_MS = 8000;
+let routineWord = null; const routineSaid = {};
+function boardRoutine(o) {
+  if (!o || !o.key || !o.text || routineSaid[o.key]) return false;
+  routineWord = o; clearTimeout(sayRoutine._t); sayRoutine._t = setTimeout(sayRoutine, 1200);
+  return true;
+}
+function sayRoutine() {
+  const o = routineWord;
+  if (!o || !seenNow || voiceOn || lockedNow || !boards.length || (info && info.env && (info.env.dnd || info.env.hush))) return;
+  // Over words just said it waits for them; under 퍼레와 대화 or on a page of the user's own (퍼레 out of sight), until it is seen.
+  const hidden = document.body.classList.contains("covered") || document.body.classList.contains("on-custom") || !boards.some(inView);
+  const wait = hidden ? 3000 : 5000 - (Date.now() - lastSpoke);
+  if (wait > 0) { clearTimeout(sayRoutine._t); sayRoutine._t = setTimeout(sayRoutine, wait + 300); return; }
+  routineWord = null; routineSaid[o.key] = 1; lastSpoke = Date.now();
+  boards.forEach(b => {
+    b._spoke = Date.now();
+    if (b._feel) b._feel("curious", 1800);
+    const bubble = $(b, ".bubble");
+    clearInterval(b._typing); bubble.textContent = o.text; bubble.dataset.go = ""; bubble.dataset.q = "";
+    bubble.classList.remove("act", "sfx", "mine");
+    const box = document.createElement("div"); box.className = "picks";
+    [[o.yes || "열어 줘", "yes"], [o.no || "괜찮아", "no"]].forEach(([word, answer]) => {
+      const c = document.createElement("button"); c.className = "pick"; c.type = "button"; c.textContent = word; c.dataset.routine = o.key; c.dataset.answer = answer; box.appendChild(c);
+    });
+    bubble.appendChild(box); bubble.classList.add("on", "asking");
+    clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on", "asking"), ROUTINE_MS);
+    fitBubble(bubble);
+  });
+  if (window.boardRoutineHeard) window.boardRoutineHeard(o.key, "shown");
+}
+/** Whether 퍼레 of this board is on the screen (not on a page scrolled away). */
+function inView(b) { const r = $(b, ".buddy").getBoundingClientRect(), vw = document.documentElement.clientWidth || innerWidth; return r.width > 0 && r.right > 0 && r.left < vw; }
+/** A choice tapped under the suggestion: it shows as the user's, and the app makes the trigger (yes) or keeps the no; its words follow. */
+function routinePicked(b, pick) {
+  const bubble = $(b, ".bubble"), key = pick.dataset.routine, answer = pick.dataset.answer;
+  bubble.classList.remove("asking"); bubble.textContent = pick.textContent; bubble.classList.add("mine"); fitBubble(bubble);
+  move(b, "hop", 760); if (b._feel) b._feel(answer === "yes" ? "excited" : "happy", 1400);
+  clearTimeout(b._bubble); b._bubble = setTimeout(() => bubble.classList.remove("on", "mine"), 1800);
+  if (window.boardRoutineHeard) window.boardRoutineHeard(key, answer);
+}
 /** The host says when the screen is seen (the home screen app's resume, the wallpaper shown) and when it is not. */
 function boardSeen(on) {
   if (!on) { if (seenNow) hiddenAt = Date.now(); seenNow = false; return; }
   const away = hiddenAt ? Date.now() - hiddenAt : 0; seenNow = true;
+  if (routineWord) { clearTimeout(sayRoutine._t); sayRoutine._t = setTimeout(sayRoutine, 2400); }
   if (jobWord) { setTimeout(sayJobWord, 900); return; }
   // At dawn: asleep when the screen comes on, awake a few seconds later (its sleepy word in place of a greeting).
   if (sleepHours()) { boards.forEach(b => { if (!awake(b)) { if (b._mood) b._mood("sleepy"); wake(b); } }); return; }

@@ -566,6 +566,75 @@ async function open(browser, at, bridge, pages) {
     assert.deepStrictEqual(jobs.errors, []);
   });
   await jobs.ctx.close();
+  // 퍼레's routine suggestion (BuddyHabits, core/Habits): a habit said once in passing with two small choices, gone in seconds.
+  const habit = await open(browser, '2026-11-27T20:00:00+09:00', true);
+  await check('a routine suggestion: said once in passing with two small choices (열어 줘 / 괜찮아), gone in seconds unless tapped; a tap tells the app; never twice, never while away or locked', async () => {
+    const p = habit.page;
+    const look = () => p.evaluate(() => { const b = document.querySelector('.buddy .bubble'), r = b.getBoundingClientRect();
+      return { on: b.classList.contains('on'), asking: b.classList.contains('asking'), mine: b.classList.contains('mine'), text: b.childNodes[0] ? b.childNodes[0].textContent : '',
+        picks: [...b.querySelectorAll('.pick')].map(c => { const x = c.getBoundingClientRect(); return { word: c.textContent, h: Math.round(x.height), inside: x.left >= r.left && x.right <= r.right && x.bottom <= r.bottom + 1 }; }),
+        left: Math.round(r.left), right: Math.round(r.right), vw: document.documentElement.clientWidth }; });
+    const heard = () => p.evaluate(() => window._calls.filter(c => c[0] === 'routine').map(c => JSON.parse(c[1])));
+    await p.clock.runFor(60000);                       // the opening greeting well past
+    const car = { key: 'car|com.nhn.android.nmap', text: '차 타면 네이버 지도 자주 켜더라. 다음부터 차 타면 바로 열어 줄까?', yes: '열어 줘', no: '괜찮아' };
+    assert.strictEqual(await p.evaluate(o => launcher.routine(o), car), true);
+    await p.clock.runFor(1500);
+    let now = await look();
+    assert(now.on && now.asking, 'said: ' + JSON.stringify(now));
+    assert.strictEqual(now.text, car.text);
+    assert.deepStrictEqual(now.picks.map(x => x.word), ['열어 줘', '괜찮아']);
+    assert(now.picks.every(x => x.h <= 30 && x.inside), 'two small chips inside the bubble: ' + JSON.stringify(now.picks));
+    assert(now.left >= 0 && now.right <= now.vw, 'on screen: ' + now.left + '..' + now.right);
+    assert.deepStrictEqual(await heard(), [[car.key, 'shown']], 'the app hears it was shown, once');
+    if (process.env.GYEOT_PREVIEW) await p.screenshot({ path: path.join(process.env.GYEOT_PREVIEW, 'routine-bubble.png') });
+    // Not tapped: gone in a few seconds (준: "오랫동안 풍선띄우는건 자제"), and never said again.
+    const showing = async text => { const x = await look(); return x.on && x.text === text; };
+    await p.clock.runFor(8200);
+    assert(!(await showing(car.text)), 'gone in seconds');
+    assert.strictEqual(await p.evaluate(o => launcher.routine(o), car), false, 'once only');
+    for (let i = 0; i < 16; i++) { await p.clock.runFor(500); assert(!(await showing(car.text)), 'not said again'); }
+    assert.strictEqual((await heard()).length, 1);
+    // Another, tapped: the tap goes to the app, the choice shows as the user's, and the app's one line follows.
+    const charge = { key: 'charge|com.google.android.youtube', text: '충전기 꽂으면 YouTube 자주 켜더라. 다음부터 충전기 꽂으면 바로 열어 줄까?', yes: '열어 줘', no: '괜찮아' };
+    await p.evaluate(o => launcher.routine(o), charge);
+    await p.clock.runFor(1500);
+    const chip = await p.evaluate(() => { const r = document.querySelector('.bubble .pick').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+    await p.touchscreen.tap(chip.x, chip.y);
+    await p.clock.runFor(200);
+    assert.deepStrictEqual((await heard()).slice(-2), [[charge.key, 'shown'], [charge.key, 'yes']], 'the tap tells the app');
+    now = await look();
+    assert(now.mine && now.text === '열어 줘' && !now.asking, 'the choice as the user\'s: ' + JSON.stringify(now));
+    await p.evaluate(() => launcher.jobDone({ id: 'routine', text: '좋아! 충전기를 꽂으면 YouTube 열게. 매번.', go: '' }));
+    await p.clock.runFor(300);
+    now = await look();
+    assert(now.on && now.text.startsWith('좋아! 충전기를 꽂으면 YouTube 열게'), 'said back in one line: ' + JSON.stringify(now));
+    assert(!now.mine, '퍼레\'s own words, not in the user\'s colour');
+    if (process.env.GYEOT_PREVIEW) await p.screenshot({ path: path.join(process.env.GYEOT_PREVIEW, 'routine-yes.png') });
+    await p.clock.runFor(5000);
+    assert(!((await look()).on && (await look()).text.startsWith('좋아!')), 'gone in a few seconds');
+    // Away: kept until the screen is seen again; locked: not said (nothing of the user's day then).
+    const home = { key: 'visit:집|com.netflix.mediaclient', text: '집에 오면 넷플릭스 자주 켜더라. 다음부터 집에 오면 바로 열어 줄까?', yes: '열어 줘', no: '괜찮아' };
+    await p.evaluate(o => { launcher.hidden(); launcher.routine(o); }, home);
+    await p.clock.runFor(3000);
+    assert(!(await showing(home.text)), 'not while away');
+    await p.evaluate(() => launcher.board({ weather: { code: 2, temp: 12, day: false }, env: { battery: 80 }, life: { heart: 60 }, locked: true }));
+    await p.evaluate(() => launcher.shown());
+    await p.clock.runFor(9000);
+    assert(!((await look()).text || '').startsWith('집에 오면'), 'not while locked');
+    // Under 퍼레와 대화 (퍼레 out of sight): it waits until the talk is closed.
+    await p.evaluate(() => { launcher.board({ weather: { code: 2, temp: 12, day: false }, env: { battery: 80 }, life: { heart: 60 } }); window.boardChat(); launcher.hidden(); launcher.shown(); });
+    await p.clock.runFor(9000);
+    assert.strictEqual((await heard()).filter(h => h[0] === home.key).length, 0, 'not said under the talk');
+    await p.evaluate(() => closePad());
+    for (let i = 0; i < 40 && !((await look()).text || '').startsWith('집에 오면'); i++) await p.clock.runFor(500);
+    assert(((await look()).text || '').startsWith('집에 오면'), 'said once seen again, unlocked');
+    const no = await p.evaluate(() => { const r = document.querySelectorAll('.bubble .pick')[1].getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+    await p.touchscreen.tap(no.x, no.y);
+    await p.clock.runFor(200);
+    assert.deepStrictEqual((await heard()).slice(-1), [[home.key, 'no']], '괜찮아 tells the app');
+    assert.deepStrictEqual(habit.errors, []);
+  });
+  await habit.ctx.close();
   await check('an app that did not open: its words stay while 퍼레 listens, one tap opens the way through', async () => {
     const p = bridged.page, look = () => p.evaluate(() => { const b = document.querySelector('.bubble'); return { text: b.textContent, go: b.dataset.go, act: b.classList.contains('act'), on: b.classList.contains('on') }; });
     await p.evaluate(() => closePad()); await p.clock.runFor(400);

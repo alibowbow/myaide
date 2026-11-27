@@ -50,6 +50,9 @@ import java.util.concurrent.Executors;
  *    and is set again after a reboot (TriggerReceiver.Boot) and whenever the app starts.
  *  - PRICE: a persisted network job at least five minutes apart while a price trigger exists (Upbit for won, Binance for
  *    dollars); Doze holds it back further, never on the main thread.
+ * 하루 기록 (DayLogs) hears the same doors while it is on, with no trigger needed: the ACL receiver (근처 기기 allowed before,
+ * for 호출어 or a device trigger; no new permission asked) writes the car's and other audio devices' links, the power
+ * receiver of this process the charger (only while the app already runs: it wakes nothing), a proximity alert the place.
  */
 final class TriggerWatch {
     private TriggerWatch() {}
@@ -83,8 +86,10 @@ final class TriggerWatch {
     static void receivers(Context app, List<Triggers.Trigger> all) {
         Set<String> kinds = Triggers.kinds(all);
         component(app, TriggerReceiver.Boot.class, !kinds.isEmpty());
-        component(app, TriggerReceiver.Bluetooth.class, kinds.contains(Triggers.BLUETOOTH) && bluetoothAllowed(app));
-        power(app, kinds.contains(Triggers.POWER), Triggers.needsLevel(all));
+        // 하루 기록 on: the car and the charger are its lines too (DayLogs.bluetooth, DayLogs.charge), with no trigger.
+        boolean dayLog = dev.jun.gyeot.core.DayLog.on();
+        component(app, TriggerReceiver.Bluetooth.class, (kinds.contains(Triggers.BLUETOOTH) || dayLog) && bluetoothAllowed(app));
+        power(app, kinds.contains(Triggers.POWER) || dayLog, Triggers.needsLevel(all));
     }
     private static void component(Context c, Class<?> receiver, boolean on) {
         PackageManager pm = c.getPackageManager(); ComponentName name = new ComponentName(c, receiver);
@@ -102,7 +107,7 @@ final class TriggerWatch {
     }
 
     // the charger and the battery, while the app runs
-    private static BroadcastReceiver powerReceiver; private static boolean powerLevel; private static Handler handler;
+    private static BroadcastReceiver powerReceiver; private static boolean powerLevel; private static Context powerOn; private static Handler handler;
     private static synchronized Handler handler() {
         if (handler == null) { HandlerThread t = new HandlerThread("gyeot-trigger-power"); t.start(); handler = new Handler(t.getLooper()); }
         return handler;
@@ -110,18 +115,20 @@ final class TriggerWatch {
     /** The looper the power receiver runs on (tests idle it). */
     static android.os.Looper looper() { return handler().getLooper(); }
     private static synchronized void power(Context app, boolean want, boolean level) {
-        if (powerReceiver != null && (!want || level != powerLevel)) { try { app.unregisterReceiver(powerReceiver); } catch (RuntimeException gone) { /* gone */ } powerReceiver = null; }
+        // Registered on another application object (a test's former one): registered again on this one.
+        if (powerReceiver != null && (!want || level != powerLevel || powerOn != app)) { try { powerOn.unregisterReceiver(powerReceiver); } catch (RuntimeException gone) { /* gone */ } powerReceiver = null; powerOn = null; }
         if (!want || powerReceiver != null) return;
         IntentFilter f = new IntentFilter(Intent.ACTION_POWER_CONNECTED); f.addAction(Intent.ACTION_POWER_DISCONNECTED);
         if (level) f.addAction(Intent.ACTION_BATTERY_CHANGED);
         BroadcastReceiver r = new BroadcastReceiver() { @Override public void onReceive(Context ctx, Intent i) { power(app, i); } };
-        try { app.registerReceiver(r, f, null, handler(), Context.RECEIVER_EXPORTED); powerReceiver = r; powerLevel = level; } catch (RuntimeException refused) { /* the job still reads it */ }
+        try { app.registerReceiver(r, f, null, handler(), Context.RECEIVER_EXPORTED); powerReceiver = r; powerLevel = level; powerOn = app; } catch (RuntimeException refused) { /* the job still reads it */ }
     }
     /** A power broadcast or a battery reading, shown to the power triggers. */
     static void power(Context c, Intent i) {
         if (i == null) return;
         String edge = Intent.ACTION_POWER_CONNECTED.equals(i.getAction()) ? Triggers.PLUGGED : Intent.ACTION_POWER_DISCONNECTED.equals(i.getAction()) ? Triggers.UNPLUGGED : "";
         if (edge.isEmpty() && !Intent.ACTION_BATTERY_CHANGED.equals(i.getAction())) return;
+        if (!edge.isEmpty()) DayLogs.charge(edge.equals(Triggers.PLUGGED));
         handle(c, edge.isEmpty() ? reading(i, "") : Triggers.Event.power(edge, edge.equals(Triggers.PLUGGED), -1, false, System.currentTimeMillis()));
     }
     /** The battery now (Android's sticky battery broadcast), or null. */
@@ -226,14 +233,24 @@ final class TriggerWatch {
         if (edge.isEmpty()) return;
         BluetoothDevice device = i.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice.class);
         if (device == null) return;
-        String name = "";
+        String name = ""; boolean audio = false, bonded = false;
         try { name = device.getName() == null ? "" : device.getName(); } catch (SecurityException denied) { /* no name */ }
+        try {
+            android.bluetooth.BluetoothClass kind = device.getBluetoothClass();
+            audio = kind != null && kind.getMajorDeviceClass() == android.bluetooth.BluetoothClass.Device.Major.AUDIO_VIDEO;
+            bonded = device.getBondState() == BluetoothDevice.BOND_BONDED;
+        } catch (SecurityException denied) { /* not known */ }
+        try { DayLogs.bluetooth(c, Triggers.CONNECT.equals(edge), device.getAddress(), name, audio, bonded); } catch (RuntimeException failed) { /* no line */ }
         handle(c, Triggers.Event.bluetooth(edge, device.getAddress(), name, System.currentTimeMillis()));
     }
     /** Android's proximity alert for one place trigger (TriggerReceiver.Place). */
     static void place(Context c, Intent i) {
         if (i == null || !PLACE_ACTION.equals(i.getAction()) || i.getData() == null || !i.hasExtra(LocationManager.KEY_PROXIMITY_ENTERING)) return;
-        handle(c, Triggers.Event.proximity(i.getData().getSchemeSpecificPart(), i.getBooleanExtra(LocationManager.KEY_PROXIMITY_ENTERING, false), System.currentTimeMillis()));
+        String id = i.getData().getSchemeSpecificPart(); boolean entering = i.getBooleanExtra(LocationManager.KEY_PROXIMITY_ENTERING, false);
+        // 하루 기록: arrived at or left the place this alert watches (DayLogs.proximity).
+        Triggers.Trigger t = Triggers.find(TriggerStore.list(c), id);
+        if (t != null) DayLogs.proximity(c, t.when().name(), entering);
+        handle(c, Triggers.Event.proximity(id, entering, System.currentTimeMillis()));
     }
 
     // prices
