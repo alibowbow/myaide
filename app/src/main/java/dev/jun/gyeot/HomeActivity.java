@@ -362,23 +362,6 @@ public final class HomeActivity extends Activity {
     private final AtomicReference<Runnable> chatCancel = new AtomicReference<>();
     private volatile long chatTicket;
     /**
-     * 퍼레 대화's instructions: 퍼레 as itself (BuddyTalk.persona), the phone's state, the day, what it knows and remembers now; the
-     * assistant's note about the user without their work unless the question is about it (BuddyMind.everyday), as a reference
-     * not to bring up first.
-     */
-    private String chatInstructions(AppStore store, String question) {
-        String about = "";
-        try { String all = Briefing.profile(store); about = dev.jun.gyeot.core.BuddyMind.asksWork(question) ? all : dev.jun.gyeot.core.BuddyMind.everyday(all); } catch (RuntimeException ignored) {}
-        String now = new java.text.SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", java.util.Locale.KOREA).format(new java.util.Date());
-        return BuddyTalk.persona(this) + "\n지금은 " + now + ". 사용자가 홈 화면에서 너에게 글로 말을 걸었어.\n"
-            + "한국어로, 너답게 친근한 반말(~야, ~해)로 밝고 상냥하게 답해. 존댓말은 쓰지 마. 핵심부터 2~6문장. 표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써. 어울리면 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘 하나까지(반짝이·별은 빼고).\n"
-            + "모르는 것은 지어내지 말고 모른다고 말해.\n" + BuddyTalk.corrected(this, question) + BuddyTalk.ACTS + BuddyTalk.places(store)
-            + "사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 아래 '휴대폰 상태'의 숫자로 답해. 묻지 않으면 꺼내지 말고 정리·삭제를 권하지 마.\n"
-            + "휴대폰 상태: " + BuddyTalk.facts(this) + "\n" + BuddyTalk.todayWords(this) + BuddyTalk.memoryWords(this, question, true)
-            + BuddyTalk.worldWords(this)
-            + (about.isBlank() ? "" : "참고(비서 노트, 먼저 꺼내지 마):\n" + about);
-    }
-    /**
      * A written answer shown, and the thing it names done (BuddyTalk.ACTS; typed, so an alarm needs no spoken yes); without
      * the sentences 퍼레 does not say to the question (BuddyMind.unasked: cheering, rest, chores, coins), "응응!" when that was all.
      * What the user told is learned with the six turns before it (history) as what came before.
@@ -396,21 +379,6 @@ public final class HomeActivity extends Activity {
         String more = o == null || o.say() == null ? "" : o.say().strip();
         js("launcher.reply(" + JSONObject.quote(more.isEmpty() ? shown : shown + "\n" + more) + ")");
     }
-    /** The question with the turns before it (at most six, each cut short), as the model reads them. */
-    private static String chatInput(String history, String question) {
-        StringBuilder in = new StringBuilder();
-        try {
-            JSONArray turns = new JSONArray(history == null || history.isBlank() ? "[]" : history);
-            int from = Math.max(0, turns.length() - 6);
-            for (int i = from; i < turns.length(); i++) {
-                JSONObject t = turns.optJSONObject(i); if (t == null) continue;
-                String text = t.optString("text"); if (text.length() > 1200) text = text.substring(0, 1200) + "…";
-                in.append("me".equals(t.optString("who")) ? "사용자: " : "퍼레: ").append(text).append("\n");
-            }
-        } catch (Exception ignored) {}
-        return in.length() == 0 ? question : "지금까지의 대화:\n" + in + "\n사용자의 새 질문: " + question;
-    }
-
     // ── the page's own files ────────────────────────────────────
     private WebResourceResponse own(String path) {
         try {
@@ -593,6 +561,12 @@ public final class HomeActivity extends Activity {
         private boolean fingerprinted;
         public void chat(String question, String history) {
             if (question == null || question.isBlank() || question.length() > 4000) return;
+            // "자가 점검해 줘" (퍼레 자동 점검): its sheet, with no brain asked.
+            if (BuddyCheck.asked(question)) {
+                js("launcher.reply(" + JSONObject.quote("자동 점검 열게! 끝나면 실패한 것만 보여 줄게.") + ")");
+                main.post(() -> { try { startActivity(new Intent(HomeActivity.this, DecorActivity.class).putExtra(DecorActivity.CHECK, true)); } catch (RuntimeException none) { /* the reply said it */ } });
+                return;
+            }
             AppStore store = ((GyeotApp) getApplication()).store();
             // 퍼레's brain (BuddyTalk.brain): Groq's Qwen unless the user chose NVIDIA; the other when the chosen one is not connected.
             boolean custom = BuddyTalk.CUSTOM.equals(BuddyTalk.brain(HomeActivity.this)) && !BuddyTalk.customLabel(store).isEmpty();
@@ -608,29 +582,10 @@ public final class HomeActivity extends Activity {
             Thread t = new Thread(() -> {
                 AtomicReference<Runnable> cancel = new AtomicReference<>(); chatCancel.set(() -> { Runnable r = cancel.get(); if (r != null) r.run(); });
                 try {
-                    if (custom) {
-                        // The AI the user chose for 퍼레 (화면 꾸미기 → 퍼레 두뇌); when it cannot answer, Qwen or NVIDIA below.
-                        try {
-                            String text = BuddyTalk.askCustom(store, chatInstructions(store, question), chatInput(history, question.strip()), cancel);
-                            String said = text.replaceAll("(?s)<think>.*?</think>", "").strip();
-                            if (ticket == chatTicket) chatAnswer(question, history, said);
-                            return;
-                        } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
-                        catch (Exception unavailable) { if (ticket != chatTicket) return; if (!qwen && !store.nim.connected()) throw unavailable; }
-                    }
-                    if (qwen) {
-                        String model = BuddyTalk.qwen(store), in = chatInput(history, question.strip()), text;
-                        JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", in));
-                        try { text = GroqWork.converse(model, chatInstructions(store, question), messages, "none", 0.7, 30_000, cancel); }
-                        catch (Exception first) { if (ticket != chatTicket) throw new java.util.concurrent.CancellationException(); text = GroqWork.converse(model, chatInstructions(store, question), messages, null, 0.7, 30_000, cancel); }
-                        text = text.replaceAll("(?s)<think>.*?</think>", "").strip();
-                        if (ticket == chatTicket) chatAnswer(question, history, text);
-                        return;
-                    }
-                    WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), store.nim.model(), chatInstructions(store, question), chatInput(history, question.strip()),
-                        () -> { if (ticket != chatTicket) throw new java.util.concurrent.CancellationException(); }, cancel,
+                    // 퍼레와 대화's brain, as 퍼레 자동 점검 asks it too (BuddyTalk.chatText).
+                    String text = BuddyTalk.chatText(HomeActivity.this, question, history, cancel, () -> ticket == chatTicket,
                         delta -> { if (ticket == chatTicket && !delta.isEmpty()) js("launcher.stream(" + JSONObject.quote(delta) + ")"); });
-                    if (ticket == chatTicket) chatAnswer(question, history, answer.text == null ? "" : answer.text.strip());
+                    if (ticket == chatTicket) chatAnswer(question, history, text);
                 } catch (java.util.concurrent.CancellationException stopped) { /* a newer question, or stopped */ }
                 catch (Exception e) {
                     String why = e instanceof java.io.IOException ? "인터넷이 끊겼거나 " + (qwen ? "Groq" : "NVIDIA") + "가 답하지 않았어요. 잠시 뒤 다시 물어봐 주세요." : e.getMessage() == null ? "답을 받지 못했어요." : e.getMessage();

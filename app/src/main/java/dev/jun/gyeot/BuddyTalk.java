@@ -27,8 +27,8 @@ import org.json.JSONObject;
 final class BuddyTalk {
     private BuddyTalk() {}
     private static final String PREFS = "buddyTalk";
-    /** NVIDIA's quick model (half a second in a test on 2026-11-26; the account's Ultra took sixteen). */
-    static final String NIM_MODEL = "nvidia/nemotron-3.5-bolt-e4b";
+    /** NVIDIA's quick model (BuddyPrompt.NIM_MODEL). */
+    static final String NIM_MODEL = BuddyPrompt.NIM_MODEL;
     private static final AtomicBoolean busy = new AtomicBoolean();
     private static volatile long nimSlowUntil;
 
@@ -302,25 +302,59 @@ final class BuddyTalk {
     static void reply(Context c, String said, java.util.List<String[]> turns, Consumer<String> done, Runnable failed) { reply(c, said, turns, false, null, done, failed); }
 
     // ── doing things on the phone (준: "퍼레는 폰조작이 안되네": it said "네이버 지도 바로 열어볼게" and a link, and opened nothing) ──
-    /** What 퍼레 may do on the phone, as the model writes it: a second line "할일: {json}" after its words. */
-    static final String ACTS = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 찾기, 알람, 타이머, 음악 재생·멈춤·다음 곡, 유튜브·음악 앱에서 노래나 영상 찾아 틀기, 손전등, 화면 가로·세로 고정과 자동 회전, 소리 크기, 화면 밝기, 와이파이·블루투스·방해 금지 같은 설정 화면, 인터넷 검색, 스톱워치, 그날 일정 보기, 메모, 녹음, 계산, 메일 쓰기, 번역, 동전·주사위·골라 주기, 다른 나라 시각, 날짜 세기) 너가 직접 해. "
-        + "첫 줄에 짧은 대답(예: '네이버 지도 열게!'), 둘째 줄에 '할일: ' 다음에 JSON 하나만 써. 형식: {\"tool\":\"open_app\",\"app\":\"앱 이름\"} · {\"tool\":\"navigate\",\"destination\":\"장소\"}(걸어서·대중교통·자전거라고 하면 \"mode\":\"walk|public|bicycle\") · "
-        + "{\"tool\":\"alarm\",\"hour\":7,\"minute\":30} · {\"tool\":\"timer\",\"seconds\":180} · {\"tool\":\"media\",\"command\":\"play\"}(play·pause·next·previous, 지금 나오는 것) · {\"tool\":\"play\",\"query\":\"노래·영상 검색어\",\"app\":\"YouTube\"}(유튜브·유튜브 뮤직·멜론·스포티파이에서 찾아 틀기, 앱을 말하지 않으면 app 빼기) · {\"tool\":\"torch\",\"on\":true} · "
-        + "{\"tool\":\"rotation\",\"mode\":\"landscape\"}(landscape=가로 고정·portrait=세로 고정·auto=자동 회전·toggle=반대로) · {\"tool\":\"volume\",\"direction\":\"up\"}(up·down·mute·unmute, 또는 \"level\":0~100) · "
-        + "{\"tool\":\"brightness\",\"direction\":\"up\"}(up·down, 또는 \"level\":0~100) · {\"tool\":\"show_alarms\"} · "
-        + "{\"tool\":\"settings\",\"panel\":\"wifi\"}(" + String.join("·", dev.jun.gyeot.core.DeviceActions.PANEL_NAMES) + ") · {\"tool\":\"search\",\"query\":\"검색어\"} · {\"tool\":\"map_search\",\"query\":\"근처 카페\"} · {\"tool\":\"share\",\"text\":\"보낼 글\",\"app\":\"카카오톡\"} · {\"tool\":\"message\",\"who\":\"이름\",\"text\":\"글\"} · {\"tool\":\"call\",\"who\":\"이름\"} · {\"tool\":\"camera\",\"mode\":\"photo\"}(photo·selfie·video) · {\"tool\":\"calendar_add\",\"title\":\"일정\",\"date\":\"내일\",\"hour\":15,\"minute\":0} · {\"tool\":\"open_url\",\"url\":\"naver.com\"} · "
-        + "{\"tool\":\"show_timers\"} · {\"tool\":\"stopwatch\",\"command\":\"start\"}(start·check·stop) · {\"tool\":\"calendar_view\",\"date\":\"오늘\"} · {\"tool\":\"memo\",\"text\":\"메모할 글\"} · {\"tool\":\"recorder\"} · "
-        + "{\"tool\":\"app_settings\",\"app\":\"카카오톡\"}(앱 정보·알림·권한 화면) · {\"tool\":\"downloads\"} · {\"tool\":\"gallery\"} · {\"tool\":\"contacts\",\"who\":\"이름\"} · {\"tool\":\"calculator\",\"expression\":\"35000*0.15\"} · "
-        + "{\"tool\":\"email\",\"who\":\"이름\",\"subject\":\"제목\",\"text\":\"내용\"} · {\"tool\":\"translate\",\"text\":\"번역할 글\",\"to\":\"en\"} · {\"tool\":\"coin\"} · {\"tool\":\"dice\",\"count\":1} · {\"tool\":\"pick\",\"options\":[\"짜장면\",\"짬뽕\"]} · "
-        + "음악을 새로 만들어 달라고 하면(찾아 틀기 말고) {\"tool\":\"make_music\",\"mood\":\"calm piano, warm\"} · 앱을 꺼 달라고 하면(유튜브 꺼 줘) {\"tool\":\"close_app\",\"app\":\"유튜브\"} · 홈 화면 페이지를 넘겨 달라면 {\"tool\":\"home_page\",\"page\":\"LP\"}(홈·오늘·LP·오른쪽·왼쪽) · "
-        + "{\"tool\":\"world_time\",\"place\":\"뉴욕\"} · {\"tool\":\"count_days\",\"date\":\"2026-12-25\",\"label\":\"크리스마스\"}(며칠 뒤가 언제냐면 \"add_days\":100). "
-        + "동전·주사위·골라 주기·계산·다른 나라 시각·날짜 세기는 답을 지어내지 말고 할일 줄을 써(답은 그 할일이 말해 주니 첫 줄은 '던져 볼게!'처럼 짧게). 알람·타이머의 첫 줄은 '알겠어!'만(시각·길이는 할일이 다시 말해 줘). "
-        + "사용자가 기억해 달라, 잊어 달라, 호칭을 바꿔 달라, 조용히 있어 달라고 하면: {\"tool\":\"remember\",\"fact\":\"사용자는 차를 지하 2층에 세웠대\"}(털어놓은 고민 같은 건 \"private\":true) · {\"tool\":\"forget\",\"what\":\"고양이\"}('그건 틀렸어 지워'도, 방금 잊은 걸 되돌리면 \"undo\":true) · {\"tool\":\"call_me\",\"title\":\"주인공님\"} · {\"tool\":\"quiet\",\"hours\":2}(다시 말 걸어도 되면 0). "
-        + "너(퍼레) 자신에게 하는 부탁도 직접 해: {\"tool\":\"buddy_toy\",\"toy\":\"주사위\"}(" + BuddyBoard.sample(BuddyBoard.TOYS, 14) + ") · "
-        + "{\"tool\":\"buddy_outfit\",\"items\":[\"고양이 귀\"]}(" + BuddyBoard.sample(BuddyBoard.CLOTHES, 16) + ") · "
-        + "{\"tool\":\"buddy_move\",\"play\":\"춤\"}(" + BuddyBoard.sample(BuddyBoard.PLAYS, 16) + ") · "
-        + "{\"tool\":\"buddy_wish\",\"thing\":\"트램펄린\"}(갖고 싶은데 없는 것, 소원 목록에). "
-        + "결제·송금처럼 못 하는 일은 할일 줄 없이 아직 못 한다고 말해. 대답에 주소(URL)는 절대 쓰지 마.\n";
+    /** What 퍼레 may do on the phone, as the model writes it: a second line "할일: {json}" after its words (BuddyPrompt.ACTS). */
+    static final String ACTS = BuddyPrompt.ACTS;
+    // ── 퍼레와 대화, typed on the home screen (HomeActivity.chat) ──
+    /**
+     * 퍼레와 대화's instructions: 퍼레 as itself (persona), the things to do in the text form (ACTS), the phone's state, the day,
+     * what it knows and remembers now; the assistant's note about the user without their work unless the question is about
+     * it (BuddyMind.everyday), as a reference not to bring up first.
+     */
+    static String chatInstructions(Context c, AppStore store, String question) {
+        String about = "";
+        try { String all = Briefing.profile(store); about = dev.jun.gyeot.core.BuddyMind.asksWork(question) ? all : dev.jun.gyeot.core.BuddyMind.everyday(all); } catch (RuntimeException ignored) {}
+        String now = new SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date());
+        return BuddyPrompt.chatRules(persona(c), now) + corrected(c, question) + ACTS + places(store)
+            + BuddyPrompt.CHAT_PHONE
+            + "휴대폰 상태: " + facts(c) + "\n" + todayWords(c) + memoryWords(c, question, true)
+            + worldWords(c)
+            + (about.isBlank() ? "" : "참고(비서 노트, 먼저 꺼내지 마):\n" + about);
+    }
+    /** Which brain wrote the last answer of 퍼레와 대화 (chatText), for 퍼레 자동 점검's report. */
+    static volatile String chatBy = "";
+    /**
+     * 퍼레와 대화's written answer, its thinking taken out (HomeActivity.chat, and 퍼레 자동 점검 the very same way): the AI
+     * chosen for 퍼레 (CUSTOM), else Groq's Qwen unless the user chose NVIDIA, else NVIDIA NIM streamed (onDelta gets its
+     * pieces). current: false once a newer question came (then CancellationException). Throws why no brain could answer.
+     * Off the main thread.
+     */
+    static String chatText(Context c, String question, String history, AtomicReference<Runnable> cancel, java.util.function.BooleanSupplier current, Consumer<String> onDelta) throws Exception {
+        AppStore store = ((GyeotApp) c.getApplicationContext()).store();
+        boolean custom = CUSTOM.equals(brain(c)) && !customLabel(store).isEmpty();
+        boolean qwen = GroqWork.on() && !NIM.equals(brain(c));
+        String in = BuddyPrompt.chatInput(history, question.strip());
+        if (custom) {
+            // The AI the user chose for 퍼레 (화면 꾸미기 → 퍼레 두뇌); when it cannot answer, Qwen or NVIDIA below.
+            try {
+                String text = askCustom(store, chatInstructions(c, store, question), in, cancel);
+                chatBy = "고른 AI · " + customLabel(store);
+                return text.replaceAll("(?s)<think>.*?</think>", "").strip();
+            } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
+            catch (Exception unavailable) { if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException(); if (!qwen && !store.nim.connected()) throw unavailable; }
+        }
+        if (qwen) {
+            String model = qwen(store), text;
+            JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", in));
+            try { text = GroqWork.converse(model, chatInstructions(c, store, question), messages, "none", 0.7, 30_000, cancel); }
+            catch (Exception first) { if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException(); text = GroqWork.converse(model, chatInstructions(c, store, question), messages, null, 0.7, 30_000, cancel); }
+            chatBy = "Groq · " + model;
+            return text.replaceAll("(?s)<think>.*?</think>", "").strip();
+        }
+        WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), store.nim.model(), chatInstructions(c, store, question), in,
+            () -> { if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException(); }, cancel, onDelta == null ? text -> {} : onDelta);
+        chatBy = "NVIDIA · " + store.nim.model();
+        return answer.text == null ? "" : answer.text.strip();
+    }
     /** The saved places (내비게이션 → 자주 가는 곳): their words go as the destination as said, "집으로 가자" → {"tool":"navigate","destination":"집"}. */
     static String places(AppStore store) {
         java.util.List<dev.jun.gyeot.core.SavedPlaces.Saved> saved = store.savedPlaces(); if (saved.isEmpty()) return "";
@@ -328,93 +362,10 @@ final class BuddyTalk {
         for (dev.jun.gyeot.core.SavedPlaces.Saved one : saved) out.append(" ").append(String.join("/", one.words())).append("(").append(one.name().isEmpty() ? one.address() : one.name()).append(")");
         return out.append("\n").toString();
     }
-    private static final java.util.regex.Pattern ACT_LINE = java.util.regex.Pattern.compile("(?m)^\\s*할\\s*일\\s*[:：]\\s*(\\{.*\\})\\s*$");
-    /** A {…} naming a tool, as the quick brains write it: with or without 할일:, quotes or underscores. */
-    private static final java.util.regex.Pattern BRACES = java.util.regex.Pattern.compile("\\{[^{}]*\\}");
-    private static final java.util.regex.Pattern PAIR = java.util.regex.Pattern.compile("[\"']?([A-Za-z_]+)[\"']?\\s*[:=]\\s*(?:\"([^\"]*)\"|'([^']*)'|([^,}]*))");
-    /** The tool names the quick brains use for ours (준: "{tool:openapp,app:YouTube}"를 말로 외쳤다). */
-    private static final java.util.Map<String, String> TOOLS = java.util.Map.ofEntries(
-        java.util.Map.entry("openapp", "open_app"), java.util.Map.entry("open", "open_app"), java.util.Map.entry("app", "open_app"), java.util.Map.entry("launch", "open_app"), java.util.Map.entry("launchapp", "open_app"), java.util.Map.entry("앱열기", "open_app"),
-        java.util.Map.entry("navigation", "navigate"), java.util.Map.entry("navi", "navigate"), java.util.Map.entry("directions", "navigate"), java.util.Map.entry("route", "navigate"), java.util.Map.entry("길안내", "navigate"), java.util.Map.entry("길찾기", "navigate"),
-        java.util.Map.entry("setalarm", "alarm"), java.util.Map.entry("settimer", "timer"), java.util.Map.entry("flashlight", "torch"), java.util.Map.entry("light", "torch"),
-        java.util.Map.entry("setting", "settings"), java.util.Map.entry("showalarms", "show_alarms"), java.util.Map.entry("websearch", "search"), java.util.Map.entry("google", "search"),
-        java.util.Map.entry("playmusic", "play"), java.util.Map.entry("music", "play"), java.util.Map.entry("youtube", "play"), java.util.Map.entry("playvideo", "play"), java.util.Map.entry("재생", "play"),
-        java.util.Map.entry("mediacontrol", "media"), java.util.Map.entry("rotate", "rotation"), java.util.Map.entry("sound", "volume"),
-        java.util.Map.entry("send", "share"), java.util.Map.entry("kakao", "share"), java.util.Map.entry("sms", "message"), java.util.Map.entry("text", "message"), java.util.Map.entry("sendmessage", "message"),
-        java.util.Map.entry("dial", "call"), java.util.Map.entry("phone", "call"), java.util.Map.entry("photo", "camera"), java.util.Map.entry("selfie", "camera"),
-        java.util.Map.entry("calendar", "calendar_add"), java.util.Map.entry("calendaradd", "calendar_add"), java.util.Map.entry("addevent", "calendar_add"), java.util.Map.entry("schedule", "calendar_add"),
-        java.util.Map.entry("openurl", "open_url"), java.util.Map.entry("url", "open_url"), java.util.Map.entry("web", "open_url"), java.util.Map.entry("mapsearch", "map_search"), java.util.Map.entry("nearby", "map_search"),
-        java.util.Map.entry("toy", "buddy_toy"), java.util.Map.entry("buddytoy", "buddy_toy"), java.util.Map.entry("outfit", "buddy_outfit"), java.util.Map.entry("buddyoutfit", "buddy_outfit"),
-        java.util.Map.entry("dress", "buddy_outfit"), java.util.Map.entry("wear", "buddy_outfit"), java.util.Map.entry("move", "buddy_move"), java.util.Map.entry("buddymove", "buddy_move"), java.util.Map.entry("dance", "buddy_move"),
-        java.util.Map.entry("wish", "buddy_wish"), java.util.Map.entry("buddywish", "buddy_wish"),
-        java.util.Map.entry("showtimers", "show_timers"), java.util.Map.entry("timers", "show_timers"), java.util.Map.entry("timerlist", "show_timers"),
-        java.util.Map.entry("chronometer", "stopwatch"), java.util.Map.entry("스톱워치", "stopwatch"),
-        java.util.Map.entry("calendarview", "calendar_view"), java.util.Map.entry("showcalendar", "calendar_view"), java.util.Map.entry("agenda", "calendar_view"), java.util.Map.entry("viewcalendar", "calendar_view"),
-        java.util.Map.entry("note", "memo"), java.util.Map.entry("notes", "memo"), java.util.Map.entry("newnote", "memo"), java.util.Map.entry("takenote", "memo"), java.util.Map.entry("메모", "memo"),
-        java.util.Map.entry("record", "recorder"), java.util.Map.entry("voicerecorder", "recorder"), java.util.Map.entry("recordaudio", "recorder"), java.util.Map.entry("녹음", "recorder"),
-        java.util.Map.entry("appsettings", "app_settings"), java.util.Map.entry("appinfo", "app_settings"), java.util.Map.entry("appdetails", "app_settings"),
-        java.util.Map.entry("download", "downloads"), java.util.Map.entry("showdownloads", "downloads"),
-        java.util.Map.entry("photos", "gallery"), java.util.Map.entry("album", "gallery"), java.util.Map.entry("pictures", "gallery"), java.util.Map.entry("갤러리", "gallery"),
-        java.util.Map.entry("contact", "contacts"), java.util.Map.entry("showcontact", "contacts"), java.util.Map.entry("연락처", "contacts"),
-        java.util.Map.entry("calc", "calculator"), java.util.Map.entry("calculate", "calculator"), java.util.Map.entry("math", "calculator"), java.util.Map.entry("계산", "calculator"),
-        java.util.Map.entry("mail", "email"), java.util.Map.entry("sendemail", "email"), java.util.Map.entry("sendmail", "email"), java.util.Map.entry("메일", "email"),
-        java.util.Map.entry("translation", "translate"), java.util.Map.entry("번역", "translate"),
-        java.util.Map.entry("makemusic", "make_music"), java.util.Map.entry("lyria", "make_music"), java.util.Map.entry("generate_music", "make_music"), java.util.Map.entry("close", "close_app"), java.util.Map.entry("quit_app", "close_app"), java.util.Map.entry("page", "home_page"), java.util.Map.entry("go_page", "home_page"),
-        java.util.Map.entry("flipcoin", "coin"), java.util.Map.entry("coinflip", "coin"), java.util.Map.entry("동전", "coin"),
-        java.util.Map.entry("rolldice", "dice"), java.util.Map.entry("rolldie", "dice"), java.util.Map.entry("roll", "dice"), java.util.Map.entry("die", "dice"),
-        java.util.Map.entry("pickone", "pick"), java.util.Map.entry("choose", "pick"), java.util.Map.entry("decide", "pick"), java.util.Map.entry("choice", "pick"), java.util.Map.entry("골라", "pick"),
-        java.util.Map.entry("worldtime", "world_time"), java.util.Map.entry("worldclock", "world_time"), java.util.Map.entry("timezone", "world_time"), java.util.Map.entry("timein", "world_time"),
-        java.util.Map.entry("countdays", "count_days"), java.util.Map.entry("dday", "count_days"), java.util.Map.entry("daysuntil", "count_days"), java.util.Map.entry("days", "count_days"),
-        java.util.Map.entry("memorize", "remember"), java.util.Map.entry("keep", "remember"), java.util.Map.entry("기억", "remember"), java.util.Map.entry("기억해", "remember"),
-        java.util.Map.entry("buddyremember", "remember"), java.util.Map.entry("remembermemory", "remember"),
-        java.util.Map.entry("forgetmemory", "forget"), java.util.Map.entry("잊기", "forget"), java.util.Map.entry("잊어", "forget"), java.util.Map.entry("지워", "forget"), java.util.Map.entry("지우기", "forget"),
-        java.util.Map.entry("buddyforget", "forget"), java.util.Map.entry("unremember", "forget"),
-        java.util.Map.entry("callme", "call_me"), java.util.Map.entry("nickname", "call_me"), java.util.Map.entry("settitle", "call_me"), java.util.Map.entry("호칭", "call_me"),
-        java.util.Map.entry("hush", "quiet"), java.util.Map.entry("silence", "quiet"), java.util.Map.entry("quietmode", "quiet"), java.util.Map.entry("조용히", "quiet"));
-    /** The thing to do the answer names ("할일: {…}", or a bare {…} with a tool), its tool one of ACTS', or null. */
-    static JSONObject act(String text) {
-        if (text == null) return null;
-        java.util.regex.Matcher m = BRACES.matcher(text.replaceAll("(?s)<think>.*?</think>", ""));
-        while (m.find()) { JSONObject a = loose(m.group()); if (a != null) return a; }
-        return null;
-    }
-    /** One {…}: JSON, else its key: value pairs as written; null when it names no tool. */
-    static JSONObject loose(String braces) {
-        JSONObject a;
-        try { a = new JSONObject(braces); }
-        catch (Exception notJson) {
-            a = new JSONObject(); java.util.regex.Matcher p = PAIR.matcher(braces.substring(1, braces.length() - 1));
-            while (p.find()) { String v = p.group(2) != null ? p.group(2) : p.group(3) != null ? p.group(3) : p.group(4).strip(); try { a.put(p.group(1), v.matches("-?\\d+") && v.length() < 9 ? (Object) Integer.parseInt(v) : v.equals("true") || v.equals("false") ? (Object) Boolean.parseBoolean(v) : v); } catch (Exception ignored) {} }
-        }
-        String tool = a.optString("tool", a.optString("action")).strip().toLowerCase(Locale.ROOT);
-        if (tool.isEmpty()) return null;
-        String key = tool.replaceAll("[\\s_-]", "");
-        String known = TOOLS.getOrDefault(key, TOOLS.getOrDefault(tool, tool));
-        if (known.equals("showalarms")) known = "show_alarms";
-        if (known.equals("calendaradd")) known = "calendar_add"; if (known.equals("openurl")) known = "open_url"; if (known.equals("mapsearch")) known = "map_search";
-        if (known.equals("buddytoy")) known = "buddy_toy"; if (known.equals("buddyoutfit")) known = "buddy_outfit"; if (known.equals("buddymove")) known = "buddy_move"; if (known.equals("buddywish")) known = "buddy_wish";
-        // "music" with a command is the one playing now (pause, next), not a search.
-        if (known.equals("play") && !a.optString("command").isBlank() && a.optString("query").isBlank() && a.optString("song").isBlank()) known = "media";
-        try {
-            a.put("tool", known);
-            // The words for each thing as the brains vary them.
-            if (known.equals("open_app") && a.optString("app").isBlank()) a.put("app", a.optString("name", a.optString("target", a.optString("package"))));
-            if (known.equals("navigate") && a.optString("destination").isBlank()) a.put("destination", a.optString("place", a.optString("to", a.optString("address", a.optString("query")))));
-            if (known.equals("search") && a.optString("query").isBlank()) a.put("query", a.optString("q", a.optString("keyword", a.optString("text"))));
-            if (known.equals("play") && a.optString("query").isBlank()) a.put("query", a.optString("song", a.optString("title", a.optString("q", a.optString("keyword")))));
-            if ((known.equals("memo") || known.equals("translate")) && a.optString("text").isBlank()) a.put("text", a.optString("content", a.optString("note", a.optString("query", a.optString("body")))));
-            if (known.equals("email") && a.optString("text").isBlank()) a.put("text", a.optString("body", a.optString("content")));
-            if (known.equals("calculator") && a.optString("expression").isBlank()) a.put("expression", a.optString("expr", a.optString("query", a.optString("text", a.optString("formula")))));
-            if (known.equals("pick") && !a.has("options")) { Object o = a.opt("choices") != null ? a.opt("choices") : a.opt("items") != null ? a.opt("items") : a.opt("list"); if (o != null) a.put("options", o); }
-            if (known.equals("world_time") && a.optString("place").isBlank()) a.put("place", a.optString("city", a.optString("country", a.optString("location", a.optString("where")))));
-            if (known.equals("count_days") && a.optString("date").isBlank()) a.put("date", a.optString("day", a.optString("target", a.optString("when"))));
-            if (known.equals("remember") && a.optString("fact").isBlank()) a.put("fact", a.optString("text", a.optString("what", a.optString("thing", a.optString("content", a.optString("memory"))))));
-            if (known.equals("forget") && a.optString("what").isBlank()) a.put("what", a.optString("about", a.optString("text", a.optString("fact", a.optString("thing", a.optString("query", a.optString("subject")))))));
-            if (known.equals("call_me") && a.optString("title").isBlank()) a.put("title", a.optString("name", a.optString("nickname", a.optString("call"))));
-            if (known.equals("contacts") && a.optString("who").isBlank() && !a.optString("name").isBlank()) a.put("who", a.optString("name"));
-        } catch (Exception ignored) {}
-        return a;
-    }
+    /** The thing to do the answer names ("할일: {…}", or a bare {…} with a tool), its tool one of ACTS', or null (BuddyPrompt.act). */
+    static JSONObject act(String text) { return BuddyPrompt.act(text); }
+    /** One {…}: JSON, else its key: value pairs as written; null when it names no tool (BuddyPrompt.loose). */
+    static JSONObject loose(String braces) { return BuddyPrompt.loose(braces); }
     /** What was heard with 퍼레's name put back where the recognizer took it for 벌레, 버려 … (only while its name is 퍼레). */
     static String heard(Context c, String said) {
         if (said == null || said.isBlank()) return said;
@@ -433,7 +384,16 @@ final class BuddyTalk {
      * YouTube (10초 전)", "방금 하려던 일: …", "퍼레가 방금 ‘…맞출까?’라고 물었어. …"; "" for nothing).
      */
     record Ask(String said, java.util.List<String[]> turns, boolean guest, Consumer<JSONObject> doIt, Consumer<String> part, Consumer<String> done,
-               Consumer<String> failed, boolean learnNow, String recent) {}
+               Consumer<String> failed, boolean learnNow, String recent, boolean dry) {
+        Ask(String said, java.util.List<String[]> turns, boolean guest, Consumer<JSONObject> doIt, Consumer<String> part, Consumer<String> done,
+            Consumer<String> failed, boolean learnNow, String recent) { this(said, turns, guest, doIt, part, done, failed, learnNow, recent, false); }
+    }
+    /*
+     * dry: 퍼레 자동 점검 (BuddyCheckUi) asking the brain as the voice talk does, to see which thing it would do: doIt only
+     * records it (nothing is opened, set, sent or said), nothing is learned and no miss is kept for it.
+     */
+    /** Which brain answered the last voice turn ("Groq · openai/gpt-oss-120b", "글 형식"), for 퍼레 자동 점검's report. */
+    static volatile String answeredBy = "";
     static void reply(Context c, String said, java.util.List<String[]> turns, boolean guest, Consumer<JSONObject> doIt, Consumer<String> done, Runnable failed) {
         reply(c, said, turns, guest, doIt, null, done, failed);
     }
@@ -468,25 +428,17 @@ final class BuddyTalk {
         // A guest's words never do a thing on the phone.
         Consumer<JSONObject> doIt = guest ? null : ask.doIt();
         Consumer<String> done = ask.done(), failed = ask.failed();
-        String instructions = persona(c) + "\n지금 " + (guest ? "누군가와" : "사용자와") + " 목소리로 대화하고 있어.\n"
-            + (guest ? "- 지금 들리는 목소리는 '" + title(c) + "'(휴대폰 주인) 목소리가 아니야. 처음 듣는 목소리라고 반갑게 대하되, 주인의 기억·일정·하루·개인적인 이야기는 절대 꺼내지 말고, 주인에 대해 물어도 알려 주지 마. 상대를 '" + title(c) + "'(이)라고 부르지 마.\n" : "")
-            + "- 사용자의 마지막 말에 바로, 친구처럼 답해. 물으면 핵심만 짧게 알려 주고, 모르면 솔직하게 말해.\n"
-            + "- 음성 인식이 네 이름을 '벌레·버려·버레·거래야'처럼 잘못 받아 적을 때가 있어. 그런 말이 혼자 들리거나 맨 앞에 오면 너를 부른 거야.\n"
-            + "- 사용자의 말은 음성 인식으로 받아 적은 거라 물음표가 자주 빠져. '들려', '했어', '뭐야', '어때', '있어'처럼 질문일 수도 있는 말은 너에게 묻는 질문으로 받아들여 대답해(예: '음악 소리 들려' → 들리는지 대답).\n"
-            + "- 소리 내어 읽기 좋게: 1~2문장, 80자 안쪽, 친근한 구어체 반말(~야, ~해). 기호·목록·괄호·영어 약어 없이(이모지는 어울리면 하나까지, 반짝이·별은 빼고).\n"
-            + "- 귀엽고 밝게, 가끔 너의 기억을 자연스럽게 꺼내도 좋아.\n"
-            + "- 사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 '휴대폰 상태'의 숫자로 정확히 답해. 묻지 않으면 저장공간 이야기는 꺼내지 말고, 정리·삭제를 권하지 마.\n"
+        String instructions = BuddyPrompt.voiceRules(persona(c), title(c), guest)
             // The user setting right what 퍼레 knew (not a thing just done: "아니 멜론으로" is about that, Ask.recent).
             + (guest || ask.recent() != null && !ask.recent().isBlank() ? "" : corrected(c, said))
             + worldWords(c);
         // 퍼레's own tools only when the words are about 퍼레, now or in the last exchange ("고양이 귀 써 볼까?" → "응"): most turns weigh less.
-        String lastTurns = turns.isEmpty() ? "" : turns.get(turns.size() - 1)[1] + (turns.size() > 1 ? "\n" + turns.get(turns.size() - 2)[1] : "");
-        boolean self = BuddyTools.self(said) || BuddyTools.self(lastTurns);
+        boolean self = BuddyPrompt.self(said, turns);
         JSONArray tools = doIt == null ? null : self ? BuddyTools.TOOLS : BuddyTools.PHONE;
         String withText = instructions + (doIt == null ? "" : ACTS + places(store)), withTools = doIt == null ? instructions : instructions + BuddyTools.rule(self) + places(store);
         String input = replyInput(c, said, turns, guest, ask.recent());
         AtomicReference<JSONObject> todo = new AtomicReference<>();
-        Runnable asText = () -> speedy(c, withText, input, 0.7, text -> {
+        Runnable asText = () -> { answeredBy = "글 형식(도구 없이)"; speedy(c, withText, input, 0.7, text -> {
             todo.set(doIt == null ? null : act(text));
             String words = spoken(text);
             return words == null ? null : sayable(words, said);
@@ -495,7 +447,7 @@ final class BuddyTalk {
             if (learn && todo.get() == null && !l.isBlank()) learnLater(c, said, l);
             if (doIt != null && todo.get() != null) doIt.accept(todo.get());
             done.accept(l);
-        }, failed);
+        }, failed); };
         boolean nimOn = store.nim.connected();
         if (!GroqWork.on() && !nimOn) { toolsSent = 0; asText.run(); return; }
         toolsSent = tools == null ? 0 : tools.length();
@@ -515,7 +467,7 @@ final class BuddyTalk {
                 JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", input));
                 GroqWork.Turn t = null; String[] used = null;
                 for (String[] w : ways) {
-                    try { t = GroqWork.stream(w[0], w[1], w[2], withTools, messages, w[3], 0.7, tools, "auto", 9_000, sentences::add, null); used = w; break; }
+                    try { t = GroqWork.stream(w[0], w[1], w[2], withTools, messages, w[3], 0.7, tools, "auto", 9_000, sentences::add, null); used = w; answeredBy = w[4] + " · " + w[2]; break; }
                     catch (Exception next) { why = why(w[4], next, 9_000); if (!sentences.said().isEmpty()) break; }
                 }
                 if (t == null) throw new IllegalStateException(why);
@@ -530,7 +482,7 @@ final class BuddyTalk {
                         JSONArray calls = GroqWork.stream(used[0], used[1], used[2], instructions + BuddyTools.rule(true) + places(store), messages, used[3], 0.2, BuddyTools.orNothing(), "required", 6_000, null, null).calls();
                         none = BuddyTools.nothing(calls); a = BuddyTools.act(calls);
                     } catch (Exception refused) { /* the words alone */ }
-                    if (a == null && !none) BuddyMisses.add(c, said, "할 일 도구", "말로만 하겠다고 하고 도구를 부르지 않았어요", "", BuddyMisses.PROMISED);
+                    if (a == null && !none && !ask.dry()) BuddyMisses.add(c, said, "할 일 도구", "말로만 하겠다고 하고 도구를 부르지 않았어요", "", BuddyMisses.PROMISED);
                 }
                 String words = spoken(t.text());
                 if ((words == null || words.isBlank()) && a == null) { why = "빈 답"; throw new IllegalStateException(why); }
@@ -558,20 +510,15 @@ final class BuddyTalk {
         String when = new SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date(now));
         String note = "";
         if (!guest) try { String all = Briefing.profile(store); note = dev.jun.gyeot.core.BuddyMind.asksWork(said) ? all : dev.jun.gyeot.core.BuddyMind.everyday(all); } catch (RuntimeException ignored) {}
-        StringBuilder talk = new StringBuilder();
-        String who = guest ? "상대" : "사용자";
-        // The talk so far, its last TALK_TURNS lines each cut to TALK_LINE: a long talk does not grow every request (Groq's free tier counts tokens a minute).
-        for (String[] t : turns.subList(Math.max(0, turns.size() - TALK_TURNS), turns.size()))
-            talk.append("user".equals(t[0]) ? who + ": " : "퍼레: ").append(cut(t[1], TALK_LINE)).append('\n');
         String house = said.matches("(?s).*(배터리|충전|밥|음악|노래|와이파이|인터넷|데이터|절전|뜨거|방해|비행기 모드|무음).*") ? home(c) : "";
         String context = "지금: " + when + "\n" + (house.isEmpty() ? "" : "휴대폰(너의 집): " + house + "\n") + lifeWords(c) + "\n"
             + (guest ? "" : "휴대폰 상태(물을 때만 알려 줄 것): " + facts(c) + "\n" + todayWords(c) + memoryWords(c, said, true)
                 + (note.isBlank() ? "" : "참고(비서 노트, 먼저 꺼내지 마):\n" + note + "\n")) + "\n";
-        return context + (recent == null || recent.isBlank() ? "" : recent.strip() + "\n")
-            + (talk.length() == 0 ? "" : "지금까지 대화:\n" + talk) + who + ": " + said + "\n퍼레:";
+        // The talk so far, its last lines each cut short: a long talk does not grow every request (Groq's free tier counts tokens a minute).
+        return context + BuddyPrompt.voiceTail(recent, turns, guest, said);
     }
     /** How much of the talk so far goes with each answer: its last lines, each this long at most. */
-    static final int TALK_TURNS = 8, TALK_LINE = 200;
+    static final int TALK_TURNS = BuddyPrompt.TALK_TURNS, TALK_LINE = BuddyPrompt.TALK_LINE;
     /** How many tools went with the last answer (0: the text form), for the voice talk's timing line. */
     static volatile int toolsSent;
     private static String cut(String line, int most) {
@@ -639,23 +586,8 @@ final class BuddyTalk {
             quick(c, store, nim, groq, QWEN, instructions, input, temperature, 8_000, clean, done, failed);
         }, "gyeot-buddy-voice").start();
     }
-    /** An answer as it is spoken: no thinking, no marks, at most two lines joined, not too long. */
-    static String spoken(String text) {
-        if (text == null) return null;
-        String t = text.replaceAll("(?s)<think>.*?</think>", "").replaceAll("^\\s*퍼레\\s*[:：]\\s*", "").strip();
-        StringBuilder out = new StringBuilder();
-        for (String line : t.split("\\n")) {
-            if (ACT_LINE.matcher(line).find() || line.strip().startsWith("할일") || line.strip().startsWith("할 일")) continue;
-            String l = line.replaceAll("\\{[^{}]*\\}", " ").replaceAll("\\{[^}]*$", "").replaceAll("https?://\\S+", "").replaceAll("[✨⭐🌟💫🌠]", "").replaceAll("^\\s*(?:[-•*#]+\\s*|\\d+[.)]\\s+)", "").replaceAll("[\"“”*_`#]", "").strip();
-            if (l.isEmpty()) continue;
-            if (out.length() > 0) out.append(' ');
-            out.append(l);
-            if (out.length() > 60) break;
-        }
-        String s = out.toString().strip();
-        if (s.isEmpty()) return null;
-        return s.length() <= 140 ? s : s.substring(0, 140).replaceAll("[^.!?요]*$", "").strip();
-    }
+    /** An answer as it is spoken: no thinking, no marks, at most two lines joined, not too long (BuddyPrompt.spoken). */
+    static String spoken(String text) { return BuddyPrompt.spoken(text); }
     private static final java.util.regex.Pattern PICKS = java.util.regex.Pattern.compile("(?m)^\\s*고르기\\s*[:：]\\s*(.+)$");
     /** The choices the brain wrote under a question ("고르기: 응 / 아니 / 글쎄"), two or three short ones joined by " / ", or "". */
     static String picks(String line, String text) {

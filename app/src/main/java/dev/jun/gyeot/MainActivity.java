@@ -5456,6 +5456,9 @@ public final class MainActivity extends Activity {
         // Two lines, so the cost note is not cut at 360dp.
         LinearLayout check = ui.listRow(R.drawable.ic_wave, Ui.PURPLE, "미디어 연결 점검", "음성·전사 모델 연결 시간 · 요금이 들 수 있어요", ui.chevron(), this::confirmMediaCheck);
         TextView cost = ((Ui.ListRow) check).parts.subtitle(); cost.setSingleLine(false); cost.setMaxLines(2); ui.addRow(fix, check, true);
+        // 퍼레 자동 점검: its words, its brain (a dry run, nothing done) and the phone's readiness, the failures with their fix.
+        String buddyChecked = BuddyCheckUi.last(this);
+        ui.addRow(fix, ui.listRow(R.drawable.ic_check, Ui.GREEN, "퍼레 자동 점검", buddyChecked.isEmpty() ? "말 · 두뇌 · 준비 상태 · 실제로 하지는 않아요" : "마지막 " + buddyChecked, ui.chevron(), () -> BuddyCheckUi.show(this)), true);
         ui.addRow(fix, ui.listRow(R.drawable.ic_history, Ui.TEAL, "최근 폰 조작 기록", "단계별 기록 · 복사해서 보내기", ui.chevron(), this::phoneLogSheet), true);
         add(fix, 16);
         LinearLayout clear = ui.group();

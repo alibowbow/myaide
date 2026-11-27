@@ -548,6 +548,15 @@ final class BuddyVoice {
      * it sounded. "잠깐" right after the user cut it short: it just listens. A no to an alarm or a timer waiting for a yes.
      */
     private boolean answeredHere(String said, boolean guest) {
+        // "자가 점검해 줘" (퍼레 자동 점검): the talk ends and the check's sheet opens; nothing goes to the brain.
+        if (!guest && BuddyCheck.asked(said)) {
+            show("thinking", said); turns.add(talkTurn("user", said, guest));
+            boolean over = screen == null && overlay.shown();
+            end("done", "자동 점검 열게!");
+            try { DeviceActionRunner.start(context, new android.content.Intent(context, DecorActivity.class).putExtra(DecorActivity.CHECK, true).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK), over); }
+            catch (RuntimeException refused) { store.phoneLog("● 퍼레 음성: 자동 점검을 열지 못함 (" + refused.getClass().getSimpleName() + ")"); }
+            return true;
+        }
         dev.jun.gyeot.core.VoiceTurns.Kind kind = turn(said, false);
         if (kind == dev.jun.gyeot.core.VoiceTurns.Kind.BYE) kind = turn(said, music);
         int mine = generation;

@@ -18,6 +18,13 @@ APK는 `build/` 폴더에 만들어져요.
 python3 tools/build.py --test-only --compile-app
 ```
 
+퍼레가 말을 알아듣고 맞는 도구를 고르는지 보려면(`app/src/main/assets/buddy/scenarios.json`의 문장을 앱과 같은 요청으로 NVIDIA NIM에 보내요. 키나 인터넷이 없으면 말 단계만 봐요):
+
+```bash
+python3 tools/buddy_eval.py            # 음성 대화
+python3 tools/buddy_eval.py --path all # 퍼레와 대화(글)까지
+```
+
 ## 구성
 
 - `app/` 앱 소스
