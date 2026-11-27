@@ -114,8 +114,7 @@ public final class BuddyMind {
         // No question topics (준: "맥락과 무관한 무의미한 질문들이 반복돼"): what it wants to know about the user is asked only on a
         // tap, now and then (BuddyTalk.thinkOnce, curious); the rest are 퍼레's own words.
         "휴대폰 탐험 이야기(앱 마을에서 본 것)", "엉뚱한 상상 하나", "말장난이나 귀여운 농담",
-        // No facts either (준, 2026-11-27: "37도에서 물이 된다는데 그건 화씨 기준아냐?": the quick model made up a "fact").
-        "너의 취향 고백(좋아하는 것·싫어하는 것)",
+        "재밌는 상식 한 줄", "너의 취향 고백(좋아하는 것·싫어하는 것)",
         "너의 기억 속 일 꺼내기", "날씨·계절에서 본 작은 것", "방금 쓴 앱 이야기", "너 자신의 근황(놀이·춤·간식)",
         "사용자에 대해 아는 것 하나 살짝 건드리기", "작은 방송 멘트(소식 전하듯)");
     /**

@@ -414,6 +414,16 @@ public final class HtmlWallpaper extends WallpaperService {
         }
         JSONObject out = HomeBoard.json(new HomeBoard.Known(now, locked, calendarOn, next, left, notices, noticeCount, ideas, working, lab, name, quotes()));
         try { JSONObject w = Weather.now(c); if (w != null) { Jsons.put(out, "weather", w); BuddyTalk.weatherMemory(c, w); } } catch (RuntimeException ignored) {}
+        // Food on its way (core/Deliveries): its stage, when it comes, and 퍼레's words for it; never on the lock screen.
+        if (!locked && NoticeListener.on(c) && NoticeListener.allowed(c)) try {
+            dev.jun.gyeot.core.Deliveries.Delivery d = NoticeListener.delivery(c);
+            if (d != null) {
+                java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+                JSONObject dj = d.json(); Jsons.put(dj, "line", dev.jun.gyeot.core.Deliveries.line(d, zone));
+                if (d.eta() > 0) Jsons.put(dj, "when", dev.jun.gyeot.core.Deliveries.clock(d.eta(), zone).replace("오전 ", "").replace("오후 ", ""));
+                Jsons.put(out, "delivery", dj);
+            }
+        } catch (RuntimeException unreadable) { /* no delivery shown */ }
         // The apps just opened (퍼레 dances after music, and so on); never on the lock screen.
         if (!locked) try { Jsons.put(out, "recent", new JSONArray(c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).getString("recentLabels", "[]"))); } catch (Exception ignored) {}
         // 퍼레's home and life (a Tamagotchi on the phone): the battery, music, the network; how close it feels, the days together.
@@ -469,6 +479,12 @@ public final class HtmlWallpaper extends WallpaperService {
     }
     static Intent target(Context c, String what) {
         Intent open;
+        // The food's own app (퍼레's word about a delivery, the 배달 pill): only a delivery app's package (core/Deliveries).
+        if (what.startsWith("delivery:")) {
+            String pkg = what.substring("delivery:".length());
+            Intent launch = dev.jun.gyeot.core.Deliveries.app(pkg, "") ? c.getPackageManager().getLaunchIntentForPackage(pkg) : null;
+            return launch == null ? null : launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        }
         switch (what) {
             case "chat": open = new Intent(c, MainActivity.class).putExtra(MainNavigation.TARGET, "chat"); break;
             case "home", "ideas": open = new Intent(c, MainActivity.class); break;

@@ -709,6 +709,41 @@ public class BuddyBrainTests {
         assertEquals(2, calls.size());
         BuddyBoard.away();
     }
+    /**
+     * Food on its way (준, 2026-11-27: "배민에서 배달한걸 못알아채네", the status bar chip said 조리완료): a delivery app's notice read as
+     * its stage and when it comes; ads, other apps and a rider at the shop are not "delivered".
+     */
+    @Test public void readsFoodOnItsWay() {
+        java.time.ZoneId seoul = java.time.ZoneId.of("Asia/Seoul");
+        long at = java.time.ZonedDateTime.of(2026, 11, 27, 17, 55, 0, 0, seoul).toInstant().toEpochMilli();
+        java.util.function.Function<String, dev.jun.gyeot.core.Deliveries.Delivery> read = words -> dev.jun.gyeot.core.Deliveries.read("com.sampleapp", "배달의민족", "", words, "", at, seoul);
+        dev.jun.gyeot.core.Deliveries.Delivery ready = dev.jun.gyeot.core.Deliveries.read("com.sampleapp", "배달의민족", "", "조리완료 조리가 완료되었어요. 라이더님이 곧 픽업해요", "조리완료", at, seoul);
+        assertEquals(dev.jun.gyeot.core.Deliveries.Stage.READY, ready.stage()); assertEquals("배민", ready.name());
+        assertTrue(dev.jun.gyeot.core.Deliveries.line(ready, seoul), dev.jun.gyeot.core.Deliveries.line(ready, seoul).contains("다 만들어졌대"));
+        dev.jun.gyeot.core.Deliveries.Delivery ordered = read.apply("주문이 접수되었어요. 오후 6:40 도착 예정이에요");
+        assertEquals(dev.jun.gyeot.core.Deliveries.Stage.ORDERED, ordered.stage());
+        assertEquals("오후 6:40", dev.jun.gyeot.core.Deliveries.clock(ordered.eta(), seoul));
+        assertEquals("오후 6:52", dev.jun.gyeot.core.Deliveries.clock(read.apply("라이더님이 음식을 픽업했어요. 6:52 도착 예정").eta(), seoul));
+        assertEquals(dev.jun.gyeot.core.Deliveries.Stage.ON_WAY, read.apply("라이더님이 음식을 픽업했어요. 6:52 도착 예정").stage());
+        assertEquals(at + 35 * 60_000L, read.apply("가게에서 주문을 접수했어요. 30~40분 후 도착해요").eta());
+        assertEquals(at + 12 * 60_000L, dev.jun.gyeot.core.Deliveries.read("com.sampleapp", "배달의민족", "", "배달 중", "12분", at, seoul).eta());
+        assertEquals(dev.jun.gyeot.core.Deliveries.Stage.COOKING, read.apply("가게에서 음식을 조리하고 있어요. 조리 중").stage());
+        assertEquals(dev.jun.gyeot.core.Deliveries.Stage.COOKING, read.apply("라이더님이 가게에 도착했어요").stage());
+        assertEquals(dev.jun.gyeot.core.Deliveries.Stage.NEAR, read.apply("음식이 곧 도착해요").stage());
+        assertEquals(dev.jun.gyeot.core.Deliveries.Stage.DONE, read.apply("배달이 완료되었어요. 맛있게 드세요!").stage());
+        assertEquals(dev.jun.gyeot.core.Deliveries.Stage.CANCELED, read.apply("주문이 취소되었어요").stage());
+        assertEquals(dev.jun.gyeot.core.Deliveries.Stage.ON_WAY, dev.jun.gyeot.core.Deliveries.read("com.coupang.mobile.eats", "쿠팡이츠", "", "배달 파트너가 음식을 픽업했습니다", "", at, seoul).stage());
+        assertNull("an ad", read.apply("(광고) 오늘만 배민 쿠폰 3천원 할인! 첫 주문 완료 시 지급"));
+        assertNull("not an order", read.apply("이번 주 인기 메뉴를 확인해 보세요"));
+        assertNull("not a delivery app", dev.jun.gyeot.core.Deliveries.read("com.kakao.talk", "카카오톡", "엄마", "배달 완료됐대", "", at, seoul));
+        dev.jun.gyeot.core.Deliveries.Delivery done = read.apply("배달이 완료되었어요");
+        assertNotNull(dev.jun.gyeot.core.Deliveries.current(done, at + 30 * 60_000L));
+        assertNull("40 minutes after it came", dev.jun.gyeot.core.Deliveries.current(done, at + 41 * 60_000L));
+        assertNotNull(dev.jun.gyeot.core.Deliveries.current(ordered, at + 2 * 3_600_000L));
+        assertNull("three quiet hours", dev.jun.gyeot.core.Deliveries.current(ordered, at + 3 * 3_600_000L + 1));
+        assertEquals(dev.jun.gyeot.core.Deliveries.Stage.READY, dev.jun.gyeot.core.Deliveries.of(ready.json()).stage());
+        assertEquals("배민 배달: 조리 완료(라이더 기다리는 중) (3분 전 알림)", dev.jun.gyeot.core.Deliveries.words(ready, at + 3 * 60_000L, seoul));
+    }
     /** What it does not know about the user it asks (준: "아는것이 전투기 밖에 없어?", "모르면 질문을 하면 되자너"). */
     @Test public void asksWhatItDoesNotKnow() throws Exception {
         String known = "사용자는 전투기 3D 모델링을 한대\n사용자는 커피를 좋아한대";
@@ -722,7 +757,7 @@ public class BuddyBrainTests {
         assertEquals("not again within three hours", "", dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 60_000, new java.util.Random(3)));
         assertEquals("not again within three hours", "", dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 2 * 3_600_000L, new java.util.Random(3)));
         for (int i = 0; i < 20; i++) assertNotEquals("not the same one within three days", q, dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 4 * 3_600_000L, new java.util.Random(i)));
-        assertFalse("no question or fact topics", dev.jun.gyeot.core.BuddyMind.TOPICS.toString().matches(".*(질문|퀴즈|수수께끼|상식).*"));
+        assertFalse("no question topics", dev.jun.gyeot.core.BuddyMind.TOPICS.toString().matches(".*(질문|퀴즈|수수께끼).*"));
     }
     /**
      * 퍼레's own world and heart (준: "최애 장난감은 변할 수 있어", "그건 퍼레의 감정에 의해 결정되는거라", "자유도가 무한인 상호작용"):

@@ -88,6 +88,9 @@ public final class HomeActivity extends Activity {
     private final Runnable refresh = new Runnable() { @Override public void run() { pushBoard(); main.postDelayed(this, 60_000); } };
     private final Runnable pushBadges = this::pushBadges;
     private final Runnable badgesChanged = () -> { main.removeCallbacks(pushBadges); main.postDelayed(pushBadges, 500); };
+    private final Runnable boardSoon = this::pushBoard;
+    /** The food's stage changed (NoticeListener): the board again in a moment, so 퍼레 says it now and not within the minute. */
+    private final Runnable deliveryChanged = () -> { main.removeCallbacks(boardSoon); main.postDelayed(boardSoon, 700); };
     private final LauncherApps.Callback changed = new LauncherApps.Callback() {
         @Override public void onPackageRemoved(String p, UserHandle u) { pushApps(); }
         @Override public void onPackageAdded(String p, UserHandle u) { pushApps(); }
@@ -228,7 +231,7 @@ public final class HomeActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume(); shown = true;
-        NoticeListener.changed = badgesChanged;
+        NoticeListener.changed = badgesChanged; NoticeListener.deliveryChanged = deliveryChanged;
         main.removeCallbacks(refresh); if (ready) { refresh.run(); pushBadges(); if (web != null) web.evaluateJavascript("launcher.shown&&launcher.shown()", null); }
         BuddyVoice talk = BuddyVoice.current(); if (talk != null) talk.attach(talkShown, talkUnlock);
         if (ready) BuddyBoard.shown(selfCall);
@@ -237,7 +240,7 @@ public final class HomeActivity extends Activity {
     private final java.util.function.Consumer<String> selfCall = call -> js(call);
     @Override protected void onPause() {
         BuddyBoard.away();
-        shown = false; pausedAt = android.os.SystemClock.uptimeMillis(); NoticeListener.changed = null; main.removeCallbacks(refresh);
+        shown = false; pausedAt = android.os.SystemClock.uptimeMillis(); NoticeListener.changed = null; NoticeListener.deliveryChanged = null; main.removeCallbacks(refresh); main.removeCallbacks(boardSoon);
         prefs.edit().putLong("awaySince", System.currentTimeMillis()).apply();
         // The voice talk goes on over the next app (준: "퍼레가 말할때 브라우저라도 켜면 바로 꺼져버려").
         BuddyVoice talk = BuddyVoice.current(); if (talk != null) talk.detach();
@@ -282,6 +285,7 @@ public final class HomeActivity extends Activity {
         try { launcher.unregisterCallback(changed); } catch (RuntimeException ignored) {}
         prefs.unregisterOnSharedPreferenceChangeListener(pagesChanged);
         if (NoticeListener.changed == badgesChanged) NoticeListener.changed = null;
+        if (NoticeListener.deliveryChanged == deliveryChanged) NoticeListener.deliveryChanged = null;
         main.removeCallbacksAndMessages(null); io.shutdownNow();
         if (web != null) { try { web.destroy(); } catch (RuntimeException ignored) {} web = null; }
         super.onDestroy();

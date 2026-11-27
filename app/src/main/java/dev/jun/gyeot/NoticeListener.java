@@ -6,6 +6,7 @@ import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
+import dev.jun.gyeot.core.Deliveries;
 import dev.jun.gyeot.core.Notices;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -66,7 +67,82 @@ public final class NoticeListener extends NotificationListenerService {
         return out;
     }
 
+    // ── food on its way (core/Deliveries; 준: "배민에서 배달한걸 못알아채네") ──
+    // 배민's tracker is an ongoing live notification (the status bar chip "조리완료"), left out of the notices below: read here
+    // whatever kind it is, the newest kept so 퍼레 still knows after it is gone (배달 완료).
+    private static volatile Deliveries.Delivery lastDelivery;
+    /** Told when the food's stage changes, while the home screen is shown (it draws its board again at once). */
+    static volatile Runnable deliveryChanged;
+    private static final String DELIVERY_PREFS = "gyeot_delivery";
+    /** A delivery app's notification as words: every short text in it (Samsung's live notifications keep theirs under their own keys), and its chip. */
+    static String[] deliveryWords(StatusBarNotification posted) {
+        Notification n = posted.getNotification(); if (n == null) return null;
+        Bundle extras = n.extras; StringBuilder all = new StringBuilder(); String chip = "";
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+        if (extras != null) for (String key : extras.keySet()) {
+            Object v; try { v = extras.get(key); } catch (RuntimeException unreadable) { continue; }
+            java.util.List<CharSequence> values = new java.util.ArrayList<>();
+            if (v instanceof CharSequence cs) values.add(cs); else if (v instanceof CharSequence[] many) values.addAll(java.util.Arrays.asList(many));
+            for (CharSequence cs : values) {
+                if (cs == null) continue; String t = cs.toString().strip();
+                if (t.isEmpty() || t.length() > 300 || t.matches("[\\w.$]+\\.[\\w.$]+") || !seen.add(t)) continue;
+                String k = key.toLowerCase(java.util.Locale.ROOT);
+                if (chip.isEmpty() && (k.contains("chip") || k.contains("shortcritical"))) chip = t;
+                all.append(t).append(' ');
+            }
+        }
+        if (n.tickerText != null && seen.add(n.tickerText.toString().strip())) all.append(n.tickerText).append(' ');
+        return new String[]{all.toString().strip(), chip};
+    }
+    static Deliveries.Delivery deliveryOf(Context c, StatusBarNotification posted) {
+        String pkg = posted.getPackageName(), label = pkg;
+        try { PackageManager pm = c.getPackageManager(); label = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString(); } catch (Exception ignored) {}
+        if (!Deliveries.app(pkg, label)) return null;
+        String[] words = deliveryWords(posted); if (words == null) return null;
+        return Deliveries.read(pkg, label, "", words[0], words[1], posted.getPostTime(), java.time.ZoneId.systemDefault());
+    }
+    /** The food on its way now, or null: the delivery apps' notifications showing now, else the last one read (3 hours at most). */
+    static Deliveries.Delivery delivery(Context c) {
+        long now = System.currentTimeMillis();
+        Deliveries.Delivery best = lastDelivery;
+        if (best == null) try {
+            String json = c.getSharedPreferences(DELIVERY_PREFS, Context.MODE_PRIVATE).getString("last", "");
+            if (!json.isEmpty()) { org.json.JSONObject o = new org.json.JSONObject(json); best = lastDelivery = Deliveries.of(o); }
+        } catch (Exception broken) { best = null; }
+        NoticeListener l = live;
+        if (l != null) try {
+            StatusBarNotification[] all = l.getActiveNotifications();
+            for (StatusBarNotification n : all == null ? new StatusBarNotification[0] : all) {
+                if (n == null || c.getPackageName().equals(n.getPackageName())) continue;
+                best = Deliveries.newer(best, deliveryOf(c, n));
+            }
+        } catch (RuntimeException unavailable) { /* the last one read */ }
+        return Deliveries.current(best, now);
+    }
+    private void readDelivery(StatusBarNotification posted) {
+        if (posted == null || getPackageName().equals(posted.getPackageName()) || !on(this)) return;
+        String pkg = posted.getPackageName(), label = pkg;
+        try { PackageManager pm = getPackageManager(); label = pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString(); } catch (Exception ignored) {}
+        if (!Deliveries.app(pkg, label)) return;
+        Deliveries.Delivery d = deliveryOf(this, posted);
+        AppStore store = ((GyeotApp) getApplicationContext()).store();
+        if (d == null) {
+            // What the app said that was not read as an order (for 오류 진단 보고서, to teach the reader new words).
+            String[] words = deliveryWords(posted); String w = words == null ? "" : words[0];
+            store.phoneLog("● 배달 앱 알림(단계 못 읽음): " + label + " · " + (w.length() > 80 ? w.substring(0, 80) + "…" : w));
+            return;
+        }
+        Deliveries.Delivery before = lastDelivery;
+        lastDelivery = Deliveries.newer(before, d);
+        getSharedPreferences(DELIVERY_PREFS, MODE_PRIVATE).edit().putString("last", lastDelivery.json().toString()).apply();
+        if (before == null || before.stage() != d.stage()) {
+            store.phoneLog("● 배달: " + Deliveries.words(d, d.at(), java.time.ZoneId.systemDefault()));
+            Runnable r = deliveryChanged; if (r != null) try { r.run(); } catch (RuntimeException ignored) {}
+        }
+    }
+
     @Override public void onNotificationPosted(StatusBarNotification posted) {
+        try { readDelivery(posted); } catch (RuntimeException unreadable) { /* not an order after all */ }
         tell();
         try {
             if (posted == null || !on(this) || getPackageName().equals(posted.getPackageName())) return;

@@ -326,7 +326,8 @@ async function open(browser, at, bridge) {
     assert(room.stageH > 300, 'the room is the whole talk: ' + room.stageH);
     assert(room.bodyTop <= room.stageTop + 2, 'the talk starts right under the bar');
     let ys = new Set();
-    for (let i = 0; i < 40; i++) { await p.clock.runFor(1000); ys.add(await p.evaluate(() => Math.round(document.querySelector('.chatpal').getBoundingClientRect().top / 20))); }
+    // (up to 90 s: after being made dizzy it may rest a while first; once it has moved up or down, enough)
+    for (let i = 0; i < 90 && ys.size < 2; i++) { await p.clock.runFor(1000); ys.add(await p.evaluate(() => Math.round(document.querySelector('.chatpal').getBoundingClientRect().top / 20))); }
     assert(ys.size >= 2, '퍼레 goes up and down');
     // The voice talk from the box (준: "아래 입력창 우측에 버튼으로"): heard and said come into the talk.
     const mic = await p.evaluate(() => { const r = el("padMic").getBoundingClientRect(), s = el("padSend").getBoundingClientRect(); return {w: r.width, beside: Math.abs(r.top - s.top) < 4}; });
@@ -388,6 +389,30 @@ async function open(browser, at, bridge) {
     assert.deepStrictEqual(bridged.errors, []);
   });
   // 준: "퍼레의 판단력 … 강화해줘" — an app 퍼레 opened that did not come up is said once, and those words open the way through.
+  // 준, 2026-11-27: "배민에서 배달한걸 못알아채네" (the status bar said 조리완료, 퍼레 said "휴, 땀 났다").
+  const food = await open(browser, '2026-11-27T17:55:00+09:00', true);
+  await check('food on its way (배민 조리완료): 퍼레 says it at once, a small pill says when it comes, a tap on either opens 배민', async () => {
+    const p = food.page;
+    await p.clock.runFor(60000);                       // the opening greeting well past (one word in 45 s)
+    await p.evaluate(() => { const at = Date.now(); launcher.board({ weather: { code: 0, temp: 15, day: false }, env: { battery: 80 }, life: { heart: 60 },
+      delivery: { app: 'com.sampleapp', name: '배민', stage: 'ready', eta: at + 45 * 60000, when: '6:40', at, line: '음식 다 만들어졌대! 이제 라이더님만 오면 돼 · 6:40쯤 도착' } }); });
+    await p.clock.runFor(1500);
+    const said = await p.evaluate(() => document.querySelector('.bubble').textContent);
+    assert(said.includes('다 만들어졌대'), '퍼레 says it: ' + said);
+    const pill = await p.evaluate(() => { const b = document.querySelector('.mini-pill.deliv'); if (!b) return null; const r = b.getBoundingClientRect(); return {text: b.textContent.trim(), h: Math.round(r.height)}; });
+    assert(pill && pill.text === '배민 6:40 도착', 'the pill: ' + JSON.stringify(pill));
+    assert(pill.h <= 40, 'a small pill: ' + pill.h);
+    await p.evaluate(() => { window._calls.length = 0; document.querySelector('.mini-pill.deliv').click(); });
+    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open').map(c => JSON.parse(c[1])[0])), ['delivery:com.sampleapp']);
+    // Said once: the same stage again (the tracker posts it again) says nothing new; the next stage does.
+    await p.clock.runFor(50000);
+    await p.evaluate(() => { const at = Date.now(); launcher.board({ weather: { code: 0, temp: 15, day: false }, env: { battery: 80 }, life: { heart: 60 },
+      delivery: { app: 'com.sampleapp', name: '배민', stage: 'onway', eta: at + 20 * 60000, when: '6:40', at, line: '음식 출발했대 🛵 6:40쯤 도착이래' } }); });
+    await p.clock.runFor(1500);
+    assert((await p.evaluate(() => document.querySelector('.bubble').textContent)).includes('출발했대'));
+    assert.strictEqual(await p.evaluate(() => document.querySelector('.mini-pill.deliv').textContent.trim()), '배민 6:40 도착');
+    await food.ctx.close();
+  });
   await check('an app that did not open: its words stay while 퍼레 listens, one tap opens the way through', async () => {
     const p = bridged.page, look = () => p.evaluate(() => { const b = document.querySelector('.bubble'); return { text: b.textContent, go: b.dataset.go, act: b.classList.contains('act'), on: b.classList.contains('on') }; });
     await p.evaluate(() => closePad()); await p.clock.runFor(400);

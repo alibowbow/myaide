@@ -737,6 +737,11 @@ function nextLine(k, prev, opened) {
     const min = Math.round((n.begin - now) / 60000);
     if (min >= 0 && min <= 15) lines.push({key: "soon15:" + n.title + n.begin, text: (min <= 1 ? "곧" : min + "분 뒤") + " ‘" + n.title + "’ 시작이야" + (n.place ? " · " + n.place : ""), go: "calendar", feel: "surprised"});
   }
+  // Food on its way (준: "배민에서 배달한걸 못알아채네"): each stage once (주문 접수, 조리 중, 조리 완료, 배달 중, 곧 도착, 배달 완료),
+  // before anything else; a tap on the bubble opens the delivery app.
+  const d = !k.locked && k.delivery;
+  if (d && d.stage && d.line) lines.unshift({key: "deliv:" + d.app + ":" + d.stage + ":" + Math.floor((d.at || 0) / 10800000), text: d.line, go: d.app ? "delivery:" + d.app : "",
+    feel: d.stage === "done" || d.stage === "near" ? "excited" : d.stage === "canceled" ? "sad" : "yum"});
   if (opened) {
     // The hour's greeting from the presets, at most once in three hours (준: "저녁이라고 물론 맥락에 맞는 말을 한다지만 반복적인
     // 패턴이 있어"), or one of the AI's everyday lines.

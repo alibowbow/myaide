@@ -847,9 +847,16 @@ el("ideas").addEventListener("click", e => {
   if (use || !info.suggestions.length) closeIdeas(); else openIdeas();
   minis(info);
 });
+/** The food on its way as a small pill first ("배민 6:40 도착", "배민 조리 완료"): a tap opens the delivery app. */
+const DELIV = {ordered: "주문 접수", cooking: "조리 중", ready: "조리 완료", onway: "배달 중", near: "곧 도착", done: "배달 완료", canceled: "주문 취소"};
+function delivPill(k) {
+  const d = !k.locked && k.delivery; if (!d || !DELIV[d.stage]) return "";
+  const words = d.when && (d.stage === "onway" || d.stage === "ready" || d.stage === "cooking" || d.stage === "ordered") ? d.when + " 도착" : DELIV[d.stage];
+  return '<button class="mini-pill deliv" data-mini="delivery" data-app="' + esc(d.app || "") + '"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="17" r="2.5"/><circle cx="18" cy="17" r="2.5"/><path d="M8.5 17h7M14 17l-2-7h-3M17 8h-3l3 9M4 11h5"/></svg>' + esc(d.name || "배달") + ' <b>' + esc(words) + '</b></button>';
+}
 function minis(k) {
   const box = el("minis"), n = k.locked ? 0 : (k.noticeCount || 0), ideas = k.locked ? [] : (k.suggestions || []);
-  box.innerHTML = (n ? '<button class="mini-pill" data-mini="notices"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/></svg>알림 <b>' + n + '</b></button>' : "")
+  box.innerHTML = delivPill(k) + (n ? '<button class="mini-pill" data-mini="notices"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2.2 2.2 0 0 0 4 0"/></svg>알림 <b>' + n + '</b></button>' : "")
     + (ideas.length ? '<button class="mini-pill" data-mini="idea"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17c0-3-3-4-3-8a6 6 0 0 1 12 0c0 4-3 5-3 8z"/><path d="M9.5 20h5M11 22.5h2"/></svg>제안 <b>' + ideas.length + '</b></button>' : "");
   box.style.display = box.innerHTML ? "" : "none";
   box.parentElement.classList.toggle("has-minis", !!box.innerHTML);
@@ -857,6 +864,7 @@ function minis(k) {
 el("minis").addEventListener("click", e => {
   const p = e.target.closest(".mini-pill"); if (!p || !info) return;
   if (p.dataset.mini === "notices") { if (B) B.open("notices"); return; }
+  if (p.dataset.mini === "delivery") { if (B && p.dataset.app) B.open("delivery:" + p.dataset.app); return; }
   openIdeas();
 });
 /* The background: the night aurora, or the user's own wallpaper under a dark veil (the home screen's menu switches). */

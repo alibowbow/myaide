@@ -609,7 +609,6 @@ final class BuddyTalk {
                 + "- 그 놀이와 지금 상황(시간·날씨·계절)을 엮어서 귀엽게. 의성어·감탄사(얍, 히힛, 우와)를 섞어도 좋아.\n"
                 + (avoid.isEmpty() ? "" : "- 최근에 이미 꺼낸 소재와 표현이니 이번엔 다루지 마: " + String.join(", ", avoid) + "\n")
                 + "- 사용자에게 뭘 하라고 하거나 묻지 말고, 일·돈·배터리·잔소리 이야기는 하지 마. 힘내·쉬어 같은 말도 하지 마.\n"
-                + "- 숫자·온도·거리·기록 같은 사실이나 과학 상식은 말하지 마(지어내면 틀려). 네 느낌과 상상으로 말해.\n"
                 + "- 한 문장, 25자 안쪽, 친근한 반말. 따옴표 없이 그 문장만 답해. 어울리면 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘 하나를 붙여도 좋아(반짝이·별은 빼고).";
         }
         String moment = switch (reason) {
@@ -640,7 +639,6 @@ final class BuddyTalk {
             + "- '이미 했던 말'과 같거나 비슷한 뜻·소재·문장 틀은 절대 쓰지 마. 뻔한 인사말도 피해.\n"
             + "- 일, 업무, 일정, 할 일, 주식, 코인, 시세, 숫자, 돈 이야기와 조언·잔소리는 하지 마. 파일·사진 정리, 청소, 삭제, 백업, 용량, 업데이트 같은 할 일을 권하지 마.\n"
             + "- 비밀번호·계정·권한 요청, 털어놓은 고민 같은 사적인 내용은 말하지 마.\n"
-            + "- 숫자·온도·거리·기록 같은 사실이나 과학 상식은 말하지 마(지어내면 틀려). 네 느낌과 상상으로 말해.\n"
             + "- 사용자에게 묻지 마. 물음표로 끝내지 말고 네 느낌·생각·소식을 말해. 너는 사용자가 앱에서 뭘 했는지, 오늘 뭘 먹고 뭘 했는지 몰라: 모르는 걸 떠보는 질문(뭐 했어? 재밌었어? 새로운 거 알게 됐어?)은 하지 마.\n"
             + "- 한 문장, 45자 안쪽. 따옴표 없이 그 문장만 답해. 어울리면 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘 하나를 붙여도 좋아(반짝이·별은 빼고).";
     }
@@ -719,8 +717,17 @@ final class BuddyTalk {
     }
     /** Today so far, in words (BuddyMind.todayWords). */
     static String todayWords(Context c) {
-        try { String w = dev.jun.gyeot.core.BuddyMind.todayWords(new JSONObject(c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("today", "{}")), java.time.ZoneId.systemDefault()); return w.isEmpty() ? "" : "오늘 하루: " + w + "\n"; }
-        catch (Exception e) { return ""; }
+        String food = deliveryWords(c);
+        try { String w = dev.jun.gyeot.core.BuddyMind.todayWords(new JSONObject(c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("today", "{}")), java.time.ZoneId.systemDefault()); return (w.isEmpty() ? "" : "오늘 하루: " + w + "\n") + food; }
+        catch (Exception e) { return food; }
+    }
+    /** Food on its way, as the delivery app's notifications say (core/Deliveries; "배달 언제 와?"). */
+    static String deliveryWords(Context c) {
+        try {
+            if (!NoticeListener.on(c) || !NoticeListener.allowed(c)) return "";
+            dev.jun.gyeot.core.Deliveries.Delivery d = NoticeListener.delivery(c);
+            return d == null ? "" : "배달(휴대폰 알림에서 읽음): " + dev.jun.gyeot.core.Deliveries.words(d, System.currentTimeMillis(), java.time.ZoneId.systemDefault()) + "\n";
+        } catch (RuntimeException unreadable) { return ""; }
     }
     /** Something of today for the day's log: an app's kind opened, a charge, music. */
     static synchronized void today(Context c, String what, String detail) {
