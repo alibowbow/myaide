@@ -159,7 +159,8 @@
     <div class="ai-tools"><div class="seg" id="aiKind"><button data-kind="analyze">AI 차트 분석</button><button data-kind="news">최신 뉴스</button></div>
       <button class="chip" id="aiModel" aria-label="분석할 AI 바꾸기"></button>
       <button class="chip" id="aiAgain">다시</button>
-      <button class="chip" id="aiDel" hidden>지우기</button></div>
+      <button class="chip" id="aiDel" hidden>지우기</button>
+      <button class="chip" id="aiCopy" hidden aria-label="출처와 링크 없이 글로 복사">텍스트 복사</button></div>
     <div id="aiStyleBox"><div class="styles" id="aiStyles" role="tablist" aria-label="분석 스타일"></div><div class="style-about" id="aiStyleAbout"></div>
       <input class="custom" id="aiCustom" maxlength="300" placeholder="원하는 관점 · 예: 실적 발표 앞두고 단기 변동성 위주로" hidden>
       <button class="primary go" id="aiGo">분석하기</button></div>
@@ -441,6 +442,7 @@
     // 지우기 (준: "분석 지우는게 없어"): the answer and its questions; a second tap within 3 seconds does it.
     $('aiDel').hidden = !saved || !!open.status; if (!delArmed) { $('aiDel').textContent = '지우기'; $('aiDel').classList.remove('armed'); }
     $('aiFollow').hidden = !saved || !!open.error || (!!open.status && !open.asking);
+    $('aiCopy').hidden = kind !== 'news' || !saved || !!open.error || !!open.status;
     $('aiAsk').textContent = answering ? '멈추기' : kind === 'news' ? '묻기 (Grok)' : '묻기';
   }
   // 이어서 묻기: the answer shown, the questions before and the new one go to the same AI (news: Grok, searching again).
@@ -459,6 +461,47 @@
     const panel = $('ai').querySelector('.panel'); setTimeout(() => { panel.scrollTop = panel.scrollHeight; }, 50);
   }
   $('aiAsk').onclick = followUp;
+  /*
+    텍스트 복사 (준: "트레이딩 뉴스 출처&링크 빼고 마크다운 없이 텍스트로 복사하기 버튼"): the briefing as plain words to paste anywhere:
+    no sources (a link, its source name, [1]-style marks, an address, a 출처 line or section), no Markdown (## headings become
+    a line of their own after a blank one, ** and ` go, a list item starts with •, a table row is its cells joined by ·).
+  */
+  function plain(text) {
+    let t = String(text || '').replace(/\r/g, '');
+    t = t.replace(/\n#{1,6}\s*(?:출처|참고(?:\s*자료)?|소스|링크|sources?|references?)\s*:?\s*\n[\s\S]*$/i, '\n');
+    t = t.replace(/\[\[\d+\]\]\((?:https?:\/\/[^\s)]+)\)/g, '').replace(/\[[^\]\n]*\]\((?:https?:\/\/[^\s)]+)\)/g, '')
+      .replace(/<?https?:\/\/[^\s>)]+>?/g, '').replace(/\[\d{1,2}\]/g, '');
+    const out = [];
+    for (const raw of t.split('\n')) {
+      let l = raw.trim();
+      if (/^(?:[-*•]\s*)?(?:출처|소스|참고|sources?)\s*[:：]/i.test(l)) continue;
+      const h = l.match(/^#{1,6}\s+(.*)$/); if (h) l = h[1];
+      if (/^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/.test(l)) continue;
+      if (/^\|.*\|$/.test(l)) l = l.slice(1, -1).split('|').map(x => x.trim()).filter(Boolean).join(' · ');
+      l = l.replace(/^>\s?/, '').replace(/^[-*•]\s+/, '• ').replace(/^(\d+)[.)]\s+/, '$1. ')
+        .replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1').replace(/(^|[\s(])\*(\S(?:.*?\S)?)\*(?=[\s.,)!?]|$)/g, '$1$2').replace(/`([^`]*)`/g, '$1')
+        .replace(/\s*[(（]\s*(?:출처|source)\s*[:：][^)）]*[)）]/gi, '').replace(/\s*[,·]\s*(?:출처|source)\s*[:：][^)）]*(?=[)）])/gi, '')
+        .replace(/\s*(?:[—–-]\s*)?(?:출처|source)\s*[:：]\s*[^,.;)）]*$/i, '')
+        .replace(/\s*([,·])(?:\s*[,·])+/g, '$1').replace(/[(（]\s*[,·\-—–/]?\s*[)）]/g, '').replace(/[(（]\s*([^()（）]*?)\s*[,·\-—–/]\s*[)）]/g, '($1)')
+        .replace(/\s+([,.])/g, '$1').replace(/\s*[,·\-—–:/]\s*$/, '').replace(/\s{2,}/g, ' ').trim();
+      if (l === '•') continue;
+      if (h && out.length) out.push('');
+      out.push(l);
+    }
+    return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  function copyText(text) {
+    const fallback = () => { const box = document.createElement('textarea'); box.value = text; box.setAttribute('readonly', ''); box.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+      document.body.appendChild(box); box.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (e) {} box.remove(); return ok; };
+    try { if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text).then(() => true, fallback); } catch (e) {}
+    return Promise.resolve(fallback());
+  }
+  $('aiCopy').onclick = () => {
+    if (!open) return;
+    const saved = answers[open.kind + '|' + open.sym.s]; if (!saved) return;
+    copyText(plain(saved.text)).then(ok => { const b = $('aiCopy'); b.textContent = ok ? '복사했어요' : '복사하지 못했어요'; clearTimeout(b._t); b._t = setTimeout(() => { b.textContent = '텍스트 복사'; }, 1600); });
+  };
+  window.gyeotPlain = plain;
   $('aiDel').onclick = () => {
     if (!open || open.status) return;
     const key = open.kind + '|' + open.sym.s;

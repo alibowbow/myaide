@@ -142,6 +142,26 @@ function accountReader() {
   m = await said();
   check(m.some(x => x.type === 'tv_sheet' && x.open === false), 'back closes it and the chart comes back');
 
+  // 텍스트 복사 on the news (준: "트레이딩 뉴스 출처&링크 빼고 마크다운 없이 텍스트로 복사하기 버튼"): plain words, no source, link or Markdown.
+  {
+    await page.evaluate(() => { window.__copied = null; navigator.clipboard.writeText = t => { window.__copied = t; return Promise.resolve(); }; });
+    await page.click('.card:nth-of-type(1) [data-news]');
+    m = await said(); const id = (m.find(x => x.type === 'news') || {}).id;
+    check(!!id, 'news asked: ' + JSON.stringify(m));
+    check(await page.evaluate(() => document.getElementById('aiCopy').hidden), 'no 텍스트 복사 before an answer');
+    const news = '## 한 줄 요약\n**반도체 강세**에 SOXL이 9% 올랐어요 [1].\n\n## 주요 뉴스\n- 엔비디아 실적이 예상을 넘었어요 (11/26, [Reuters](https://www.reuters.com/x))\n'
+      + '- TSMC 증설 발표 — [Bloomberg](https://bloomberg.com/y)\n- 금리 동결 전망 (11/25, 출처: CNBC)\n* `AMD` 신제품 https://amd.com/z\n\n## X에서 오가는 이야기\n| 누가 | 말 |\n|---|---|\n| 애널리스트 | *과열* 경고 |\n\n## 출처\n- [Reuters](https://www.reuters.com/x)\n- https://bloomberg.com/y';
+    await tell({ type: 'result', id, ok: true, text: news, model: 'Grok', source: 'web · X' });
+    await page.waitForTimeout(150);
+    check(await page.evaluate(() => !document.getElementById('aiCopy').hidden), '텍스트 복사 shows under a news answer');
+    await page.click('#aiCopy'); await page.waitForTimeout(150);
+    const copied = await page.evaluate(() => window.__copied);
+    const want = '한 줄 요약\n반도체 강세에 SOXL이 9% 올랐어요.\n\n주요 뉴스\n• 엔비디아 실적이 예상을 넘었어요 (11/26)\n• TSMC 증설 발표\n• 금리 동결 전망 (11/25)\n• AMD 신제품\n\nX에서 오가는 이야기\n누가 · 말\n애널리스트 · 과열 경고';
+    check(copied === want, 'plain words, no source, link or Markdown:\n' + copied);
+    check(/복사했어요/.test(await page.textContent('#aiCopy')), 'the button says it copied');
+    await page.click('#ai .small[data-close]'); await said();
+  }
+
   // Signed out again: the widget charts are back.
   await tell({ type: 'tv', mine: false });
   await page.waitForTimeout(300);
