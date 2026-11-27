@@ -115,7 +115,7 @@ final class BuddyActs {
             case "alarm" -> parts.add(String.format(Locale.ROOT, "%02d:%02d", a.optInt("hour"), a.optInt("minute")));
             case "timer" -> parts.add(a.optLong("seconds") + "초");
             default -> {
-                for (String key : new String[]{"query", "destination", "text", "who", "title", "toy", "play", "thing"}) {
+                for (String key : new String[]{"query", "request", "question", "destination", "text", "who", "title", "toy", "play", "thing"}) {
                     String v = a.optString(key).strip(); if (v.isEmpty()) continue;
                     parts.add("‘" + (v.length() > 40 ? v.substring(0, 40) + "…" : v) + "’"); break;
                 }
@@ -182,6 +182,11 @@ final class BuddyActs {
                         DeviceActionRunner.start(context, home, overlay);
                     }
                     return said("");
+                }
+                // 문 하나 (준): a job of many steps, handed to the engine that does it (BuddyHands), its line and 중지 in BuddyJobs.
+                case "phone_job", "web_job", "work_job", "schedule_job", "research_job" -> {
+                    BuddyHands.Started s = BuddyHands.start(context, act, heard);
+                    return s.ok() ? said(s.say()) : fail(s.say(), s.fix());
                 }
                 // 퍼레's own, no app: the answer worked out here (BuddyTricks), never made up by the brain.
                 case "stopwatch" -> { return stopwatch(context, act); }

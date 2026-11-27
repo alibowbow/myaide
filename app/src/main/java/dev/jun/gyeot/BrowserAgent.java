@@ -181,6 +181,9 @@ final class BrowserAgent {
         liveness = new BrowserLongTaskPolicy("lane:" + lease, clock);
         preexistingMutationFence = engine.mutationUnresolved(lease);
     }
+    /** Its tab's lease (what engine.stopTask stops) and its journal (steps, site, last step), for 퍼레's job line (BuddyHands). */
+    long lease() { return lease; }
+    dev.jun.gyeot.core.BrowserJournal journal() { return journal; }
     void start() {
         if (finished || !engine.valid(lease)) return;
         if (request == null || request.isBlank() || request.length() > 8000) { complete(BrowserEngine.error("8000자 이내로 할 일을 입력해 주세요.")); return; }

@@ -20,7 +20,7 @@ final class BuddyMisses {
     private static final String PREFS = "buddyTalk", KEY = "misses";
     static final int MOST = 30;
     /**
-     * fix: "overlay", "writeSettings", "place:<words>", "store:<app>", "contacts", "accessibility", "memory", or "" for none.
+     * fix: "overlay", "writeSettings", "place:<words>", "store:<app>", "contacts", "accessibility", "memory", "settings:<page>", or "" for none.
      * kind: what went wrong (FAIL: it could not; NOT_SHOWN: the app it opened did not come up; NOT_PLAYING: the music app
      * it asked did not play; PROMISED: words said it would and no tool came; CORRECTED: the user said it was the wrong thing).
      */
@@ -59,6 +59,7 @@ final class BuddyMisses {
         if (fix.equals("contacts")) return "연락처 허용";
         if (fix.equals("accessibility")) return "폰 조작 켜기";
         if (fix.equals("memory")) return "퍼레의 기억 열기";
+        if (fix.startsWith("settings:")) return "설정 열기";
         return "";
     }
     /** That tap's screen, or null. */
@@ -72,6 +73,8 @@ final class BuddyMisses {
         if (fix.equals("accessibility")) return new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS);
         // 퍼레의 기억 (opened after the fingerprint): where memories are wiped all at once or picked one by one.
         if (fix.equals("memory")) return new Intent(c, DecorActivity.class).putExtra(DecorActivity.MEMORY, true);
+        // A page of the app's settings (폰 조작, AI 연결 …): what a job 퍼레 could not take needs (BuddyHands).
+        if (fix.startsWith("settings:")) return new Intent(c, MainActivity.class).putExtra("tab", 2).putExtra(MainActivity.SETTINGS_PAGE, fix.substring(9)).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
         return null;
     }
 }

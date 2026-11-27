@@ -17,7 +17,7 @@ final class BuddyPrompt {
     static final String NIM_MODEL = "nvidia/nemotron-3.5-bolt-e4b";
 
     /** What 퍼레 may do on the phone, as the model writes it: a second line "할일: {json}" after its words. */
-    static final String ACTS = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 찾기, 알람, 타이머, 음악 재생·멈춤·다음 곡, 유튜브·음악 앱에서 노래나 영상 찾아 틀기, 손전등, 화면 가로·세로 고정과 자동 회전, 소리 크기, 화면 밝기, 와이파이·블루투스·방해 금지 같은 설정 화면, 인터넷 검색, 스톱워치, 그날 일정 보기, 메모, 녹음, 계산, 메일 쓰기, 번역, 동전·주사위·골라 주기, 다른 나라 시각, 날짜 세기) 너가 직접 해. "
+    static final String ACTS = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 찾기, 앱 화면에서 여러 단계로 하는 일, 웹사이트 일, 작업창에 맡길 긴 일, 예약 작업, 연구, 알람, 타이머, 음악 재생·멈춤·다음 곡, 유튜브·음악 앱에서 노래나 영상 찾아 틀기, 손전등, 화면 가로·세로 고정과 자동 회전, 소리 크기, 화면 밝기, 와이파이·블루투스·방해 금지 같은 설정 화면, 인터넷 검색, 스톱워치, 그날 일정 보기, 메모, 녹음, 계산, 메일 쓰기, 번역, 동전·주사위·골라 주기, 다른 나라 시각, 날짜 세기) 너가 직접 해. "
         + "첫 줄에 짧은 대답(예: '네이버 지도 열게!'), 둘째 줄에 '할일: ' 다음에 JSON 하나만 써. 형식: {\"tool\":\"open_app\",\"app\":\"앱 이름\"} · {\"tool\":\"navigate\",\"destination\":\"장소\"}(걸어서·대중교통·자전거라고 하면 \"mode\":\"walk|public|bicycle\") · "
         + "{\"tool\":\"alarm\",\"hour\":7,\"minute\":30} · {\"tool\":\"timer\",\"seconds\":180} · {\"tool\":\"media\",\"command\":\"play\"}(play·pause·next·previous, 지금 나오는 것) · {\"tool\":\"play\",\"query\":\"노래·영상 검색어\",\"app\":\"YouTube\"}(유튜브·유튜브 뮤직·멜론·스포티파이에서 찾아 틀기, 앱을 말하지 않으면 app 빼기) · {\"tool\":\"torch\",\"on\":true} · "
         + "{\"tool\":\"rotation\",\"mode\":\"landscape\"}(landscape=가로 고정·portrait=세로 고정·auto=자동 회전·toggle=반대로) · {\"tool\":\"volume\",\"direction\":\"up\"}(up·down·mute·unmute, 또는 \"level\":0~100) · "
@@ -28,6 +28,9 @@ final class BuddyPrompt {
         + "{\"tool\":\"email\",\"who\":\"이름\",\"subject\":\"제목\",\"text\":\"내용\"}(말한 것만으로 채워 둬, 주소·제목을 묻지 마) ·{\"tool\":\"translate\",\"text\":\"번역할 글\",\"to\":\"en\"} · {\"tool\":\"coin\"} · {\"tool\":\"dice\",\"count\":1} · {\"tool\":\"pick\",\"options\":[\"짜장면\",\"짬뽕\"]} · "
         + "음악을 새로 만들어 달라고 하면(찾아 틀기 말고) {\"tool\":\"make_music\",\"mood\":\"calm piano, warm\"} · 앱을 꺼 달라고 하면(유튜브 꺼 줘) {\"tool\":\"close_app\",\"app\":\"유튜브\"}(앱 이름을 말하지 않았으면 app 없이: 지금 앞의 앱을 끔, 묻지 마) ·홈 화면 페이지를 넘겨 달라면 {\"tool\":\"home_page\",\"page\":\"LP\"}(홈·오늘·LP·오른쪽·왼쪽) · "
         + "{\"tool\":\"world_time\",\"place\":\"뉴욕\"} · {\"tool\":\"count_days\",\"date\":\"2026-12-25\",\"label\":\"크리스마스\"}(며칠 뒤가 언제냐면 \"add_days\":100). "
+        + "여러 단계가 필요한 일은 맡아서 해: {\"tool\":\"phone_job\",\"request\":\"배민에서 지난번 메뉴 다시 담기\",\"app\":\"배민\"}(앱 화면에서 여러 단계로) · {\"tool\":\"web_job\",\"request\":\"유튜브 스튜디오에 영상 올리기\",\"url\":\"studio.youtube.com\"}(웹사이트에서: 받기·올리기·양식·로그인한 페이지) · "
+        + "{\"tool\":\"work_job\",\"request\":\"이번 달 지출 분석 보고서 쓰기\"}(작업창에 길게: 글·조사·분석·코딩) · {\"tool\":\"schedule_job\",\"request\":\"새 채용 공고 찾아 정리\",\"repeat\":\"daily\",\"time\":\"07:00\"}(정한 때마다 저절로: once·daily·weekdays·weekly·monthly·interval, 한 번이면 \"date\", 몇 시간마다면 \"every\":3,\"unit\":\"hour\") · "
+        + "{\"tool\":\"research_job\",\"question\":\"연구할 질문\"}(연구실 자율 연구). " + BuddyTools.JOBS_RULE
         + "동전·주사위·골라 주기·계산·다른 나라 시각·날짜 세기는 답을 지어내지 말고 할일 줄을 써(답은 그 할일이 말해 주니 첫 줄은 '던져 볼게!'처럼 짧게). 알람·타이머의 첫 줄은 '알겠어!'만(시각·길이는 할일이 다시 말해 줘). "
         + "사용자가 기억해 달라, 잊어 달라, 호칭을 바꿔 달라, 조용히 있어 달라고 하면: {\"tool\":\"remember\",\"fact\":\"사용자는 차를 지하 2층에 세웠대\"}(털어놓은 고민 같은 건 \"private\":true) · {\"tool\":\"forget\",\"what\":\"고양이\"}('그건 틀렸어 지워'도, 방금 잊은 걸 되돌리면 \"undo\":true) · {\"tool\":\"call_me\",\"title\":\"주인공님\"} · {\"tool\":\"quiet\",\"hours\":2}(다시 말 걸어도 되면 0). "
         + "너(퍼레) 자신에게 하는 부탁도 직접 해: {\"tool\":\"buddy_toy\",\"toy\":\"주사위\"}(" + BuddyBoard.sample(BuddyBoard.TOYS, 14) + ") · "
@@ -135,7 +138,12 @@ final class BuddyPrompt {
         java.util.Map.entry("forgetmemory", "forget"), java.util.Map.entry("잊기", "forget"), java.util.Map.entry("잊어", "forget"), java.util.Map.entry("지워", "forget"), java.util.Map.entry("지우기", "forget"),
         java.util.Map.entry("buddyforget", "forget"), java.util.Map.entry("unremember", "forget"),
         java.util.Map.entry("callme", "call_me"), java.util.Map.entry("nickname", "call_me"), java.util.Map.entry("settitle", "call_me"), java.util.Map.entry("호칭", "call_me"),
-        java.util.Map.entry("hush", "quiet"), java.util.Map.entry("silence", "quiet"), java.util.Map.entry("quietmode", "quiet"), java.util.Map.entry("조용히", "quiet"));
+        java.util.Map.entry("hush", "quiet"), java.util.Map.entry("silence", "quiet"), java.util.Map.entry("quietmode", "quiet"), java.util.Map.entry("조용히", "quiet"),
+        java.util.Map.entry("phonejob", "phone_job"), java.util.Map.entry("phonetask", "phone_job"), java.util.Map.entry("screenjob", "phone_job"), java.util.Map.entry("apptask", "phone_job"), java.util.Map.entry("appjob", "phone_job"), java.util.Map.entry("phoneagent", "phone_job"),
+        java.util.Map.entry("webjob", "web_job"), java.util.Map.entry("webtask", "web_job"), java.util.Map.entry("browsertask", "web_job"), java.util.Map.entry("browserjob", "web_job"), java.util.Map.entry("browsing", "web_job"),
+        java.util.Map.entry("workjob", "work_job"), java.util.Map.entry("worktask", "work_job"), java.util.Map.entry("workstart", "work_job"), java.util.Map.entry("delegate", "work_job"), java.util.Map.entry("handoff", "work_job"), java.util.Map.entry("작업창", "work_job"),
+        java.util.Map.entry("schedulejob", "schedule_job"), java.util.Map.entry("scheduletask", "schedule_job"), java.util.Map.entry("recurring", "schedule_job"), java.util.Map.entry("예약작업", "schedule_job"),
+        java.util.Map.entry("researchjob", "research_job"), java.util.Map.entry("research", "research_job"), java.util.Map.entry("researchtask", "research_job"), java.util.Map.entry("labresearch", "research_job"), java.util.Map.entry("연구", "research_job"));
     /** The thing to do the answer names ("할일: {…}", or a bare {…} with a tool), its tool one of ACTS', or null. */
     static JSONObject act(String text) {
         if (text == null) return null;
@@ -151,6 +159,81 @@ final class BuddyPrompt {
         // A tool called as words do: "buddywish(thing=트램펄린)", "홈page(page=LP)".
         java.util.regex.Matcher call = CALLED.matcher(t);
         while (call.find()) if (tool(call.group(1))) { JSONObject a = loose("{tool:" + call.group(1) + (call.group(2).isBlank() ? "" : "," + call.group(2)) + "}"); if (a != null) return a; }
+        return written(t);
+    }
+    /**
+     * A tool written out as words with its arguments after it (퍼레 자동 점검, 2026-11-27: the quick model wrote "volume mute",
+     * "alarm 6 0", "settings panel=dnd" and called nothing; the retry with a tool required then chose another, quiet for
+     * 음소거): read as written, its arguments by name=value, by one of an argument's choices, numbers in the order its
+     * parameters come, and the words left for its text; null when one it needs is missing (then it is asked again).
+     */
+    static JSONObject written(String text) {
+        for (String line : text.split("\n")) {
+            int at = toolWritten(line); if (at < 0) continue;
+            String[] words = line.substring(at).strip().split("[\\s,()]+");
+            if (words.length == 0) continue;
+            JSONObject a = loose("{\"tool\":" + JSONObject.quote(words[0].replaceAll("[^A-Za-z_]", "")) + "}");
+            JSONObject f = a == null ? null : function(a.optString("tool"));
+            if (f == null) continue;
+            JSONObject params = f.optJSONObject("parameters"), props = params == null ? null : params.optJSONObject("properties");
+            if (props == null) props = new JSONObject();
+            List<String> numbers = new java.util.ArrayList<>(), strings = new java.util.ArrayList<>(), rest = new java.util.ArrayList<>();
+            for (java.util.Iterator<String> k = props.keys(); k.hasNext(); ) {
+                String key = k.next(); JSONObject p = props.optJSONObject(key); String type = p == null ? "" : p.optString("type");
+                if (type.equals("integer") || type.equals("number")) numbers.add(key); else if (type.equals("string") && !p.has("enum")) strings.add(key);
+            }
+            // Numbers in the order people say them (alarm 6 30: hour, then minute; dice 2 6: count, then sides); JSONObject keeps
+            // no order of its own on every platform. The words go to an argument the tool needs first.
+            numbers.sort(java.util.Comparator.comparingInt(key -> { int i = NUMBER_ORDER.indexOf(key); return i < 0 ? NUMBER_ORDER.size() : i; }));
+            org.json.JSONArray needs = params == null ? null : params.optJSONArray("required");
+            java.util.Set<String> needed = new java.util.HashSet<>(); for (int r = 0; needs != null && r < needs.length(); r++) needed.add(needs.optString(r));
+            strings.sort(java.util.Comparator.comparing((String key) -> !needed.contains(key)).thenComparing(java.util.Comparator.naturalOrder()));
+            int n = 0, read = 0;
+            try {
+                for (int i = 1; i < words.length; i++) {
+                    String w = words[i].replaceAll("^[\"'“”]+|[\"'“”.!?]+$", ""); if (w.isEmpty()) continue;
+                    // A list or an object written out ("options=['짜장면'"): not read as words, asked again.
+                    if (w.matches(".*[\\[\\]{}].*")) throw new IllegalArgumentException("a list");
+                    int eq = w.indexOf('='); if (eq < 0 && w.matches("[A-Za-z_]+:.+")) eq = w.indexOf(':');
+                    if (eq > 0 && props.has(w.substring(0, eq))) { String key = w.substring(0, eq), v = w.substring(eq + 1).replaceAll("^[\"']|[\"']$", ""); a.put(key, typed(props.optJSONObject(key), v)); read++; continue; }
+                    if (w.matches("-?\\d+(?:\\.\\d+)?") && n < numbers.size()) { String key = numbers.get(n++); a.put(key, typed(props.optJSONObject(key), w)); read++; continue; }
+                    boolean chosen = false;
+                    for (java.util.Iterator<String> k = props.keys(); k.hasNext() && !chosen; ) {
+                        String key = k.next(); org.json.JSONArray choices = props.optJSONObject(key) == null ? null : props.optJSONObject(key).optJSONArray("enum");
+                        for (int c = 0; choices != null && c < choices.length() && !a.has(key); c++) if (choices.optString(c).equalsIgnoreCase(w)) { a.put(key, choices.optString(c)); chosen = true; }
+                    }
+                    if (!chosen && (w.equals("true") || w.equals("false"))) for (java.util.Iterator<String> k = props.keys(); k.hasNext() && !chosen; ) {
+                        String key = k.next(); if ("boolean".equals(props.optJSONObject(key).optString("type")) && !a.has(key)) { a.put(key, Boolean.parseBoolean(w)); chosen = true; }
+                    }
+                    if (chosen) read++; else rest.add(words[i]);
+                }
+                // Words left are a tool's text only when it has just one text to fill ("open_app 카카오톡"); with more (message:
+                // who and text) they cannot be told apart, so it is asked again.
+                // A tool with no text at all ("quiet 2 조용히 있을게"): the words after are just what it says.
+                if (!rest.isEmpty() && !strings.isEmpty()) { if (strings.size() != 1 || !a.optString(strings.get(0)).isBlank()) continue; a.put(strings.get(0), String.join(" ", rest)); read++; }
+            } catch (Exception unreadable) { continue; }
+            // A name alone ("유튜브 끌게! close_app") is asked again: the retry fills in what it meant.
+            if (read == 0) continue;
+            org.json.JSONArray required = params == null ? null : params.optJSONArray("required");
+            boolean whole = true;
+            for (int r = 0; required != null && r < required.length(); r++) whole &= a.has(required.optString(r)) && !a.optString(required.optString(r)).isBlank();
+            if (whole) { JSONObject act = loose(a.toString()); if (act != null) return act; }
+        }
+        return null;
+    }
+    private static final List<String> NUMBER_ORDER = List.of("hour", "minute", "seconds", "hours", "count", "sides", "level", "minutes", "day", "every", "bpm", "add_days");
+    private static Object typed(JSONObject p, String v) {
+        String type = p == null ? "" : p.optString("type");
+        try {
+            if (type.equals("integer")) return Integer.parseInt(v.replaceAll("\\.\\d+$", ""));
+            if (type.equals("number")) return Double.parseDouble(v);
+        } catch (NumberFormatException notNumber) { return v; }
+        if (type.equals("boolean")) return Boolean.parseBoolean(v);
+        return v;
+    }
+    /** A tool's function (its name, description and parameters) as the brain gets it, or null. */
+    private static JSONObject function(String name) {
+        for (int i = 0; i < BuddyTools.TOOLS.length(); i++) { JSONObject f = BuddyTools.TOOLS.optJSONObject(i).optJSONObject("function"); if (f != null && f.optString("name").equals(name)) return f; }
         return null;
     }
     private static final java.util.regex.Pattern NAMED = java.util.regex.Pattern.compile("([A-Za-z][A-Za-z_]{2,})\\s*$"), CALLED = java.util.regex.Pattern.compile("([A-Za-z][A-Za-z_]{2,})\\s*\\(((?:[^()]*[=:][^()]*)?)\\)");
@@ -193,6 +276,12 @@ final class BuddyPrompt {
             if (known.equals("forget") && a.optString("what").isBlank()) a.put("what", a.optString("about", a.optString("text", a.optString("fact", a.optString("thing", a.optString("query", a.optString("subject")))))));
             if (known.equals("call_me") && a.optString("title").isBlank()) a.put("title", a.optString("name", a.optString("nickname", a.optString("call"))));
             if (known.equals("contacts") && a.optString("who").isBlank() && !a.optString("name").isBlank()) a.put("who", a.optString("name"));
+            // The jobs handed over: their request (research: its question), the app and the site as the brains name them.
+            if (java.util.Set.of("phone_job", "web_job", "work_job", "schedule_job").contains(known) && a.optString("request").isBlank())
+                a.put("request", a.optString("task", a.optString("goal", a.optString("text", a.optString("query", a.optString("instruction", a.optString("prompt")))))));
+            if (known.equals("phone_job") && a.optString("app").isBlank()) a.put("app", a.optString("app_name", a.optString("target", a.optString("name"))));
+            if (known.equals("web_job") && a.optString("url").isBlank()) a.put("url", a.optString("start_url", a.optString("site", a.optString("address", a.optString("link")))));
+            if (known.equals("research_job") && a.optString("question").isBlank()) a.put("question", a.optString("topic", a.optString("request", a.optString("text", a.optString("query", a.optString("subject"))))));
         } catch (Exception ignored) {}
         return a;
     }
