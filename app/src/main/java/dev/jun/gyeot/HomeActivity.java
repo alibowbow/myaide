@@ -244,6 +244,8 @@ public final class HomeActivity extends Activity {
     @Override protected void onStop() {
         // Left late in the evening: the night's digest now if it was not done today (BuddyTalk.dream), off the main thread.
         if (java.time.LocalTime.now().getHour() >= 22) try { io.execute(() -> BuddyTalk.dreamTonight(getApplicationContext())); } catch (RuntimeException stopped) {}
+        // The home screen is gone: the taskbar over other apps may show (Taskbar).
+        visible = false; PhoneService.taskbarChanged();
         super.onStop();
     }
     /**
@@ -264,7 +266,6 @@ public final class HomeActivity extends Activity {
         if (web != null) web.evaluateJavascript("launcher.pad&&launcher.pad(" + "search".equals(show) + ")", null);
     }
     @Override protected void onStart() { super.onStart(); shownAt = android.os.SystemClock.uptimeMillis(); visible = true; PhoneService.taskbarChanged(); }
-    @Override protected void onStop() { visible = false; PhoneService.taskbarChanged(); super.onStop(); }
     @Override public void onBackPressed() {
         // A home screen does not close: back only closes what is open on it.
         if (ready && web != null) web.evaluateJavascript("launcher.back()", null);
