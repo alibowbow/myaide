@@ -320,7 +320,8 @@ async function open(browser, at) {
     await p.clock.runFor(600);
     await p.evaluate(() => closePad());
     let danced = false;
-    for (let i = 0; i < 8 && !danced; i++) { await p.clock.runFor(500); danced = await p.evaluate(() => document.querySelector('.buddy').classList.contains('dance')); }
+    // (after the play going on, if any: b._ask waits up to eight seconds for it)
+    for (let i = 0; i < 22 && !danced; i++) { await p.clock.runFor(500); danced = await p.evaluate(() => document.querySelector('.buddy').classList.contains('dance')); }
     assert(danced, 'dancing once the talk closed');
     assert.deepStrictEqual(talk.errors, []);
   });
