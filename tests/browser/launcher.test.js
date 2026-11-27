@@ -509,6 +509,56 @@ async function open(browser, at, bridge, pages) {
     assert.deepStrictEqual(acts.errors, []);
     await acts.ctx.close();
   });
+  // 문 하나 (준): the jobs 퍼레 took on (BuddyJobs), whichever engine runs them, have one look on the home screen.
+  const jobs = await open(browser, '2026-11-27T15:00:00+09:00', true);
+  await check('퍼레\'s jobs: a small line under the search ("● 배민 담는 중 · 3단계" with 중지; a tap opens its result); when one ends, one word in passing that a tap opens, gone in a few seconds', async () => {
+    const p = jobs.page;
+    const line = () => p.evaluate(() => [...document.querySelectorAll('#jobs .job-line')].map(l => { const r = l.getBoundingClientRect(); return {text: l.textContent.replace(/\s+/g, ' ').trim(), cls: l.className, h: Math.round(r.height), w: Math.round(r.width), right: Math.round(r.right)}; }));
+    const bubble = () => p.evaluate(() => { const b = document.querySelector('.bubble'); return b.classList.contains('on') ? {text: b.textContent, go: b.dataset.go} : null; });
+    await p.clock.runFor(60000);                       // the opening greeting well past
+    assert.deepStrictEqual(await line(), [], 'no job, no line');
+    assert.strictEqual(await p.evaluate(() => getComputedStyle(document.getElementById('jobs')).display), 'none');
+    await p.evaluate(() => launcher.jobs([{ id: 'j1', kind: 'phone', line: '배민 담는 중 · 3단계', state: 'running', stop: true, open: true }]));
+    let now = await line();
+    assert.strictEqual(now.length, 1); assert.strictEqual(now[0].text, '배민 담는 중 · 3단계중지');
+    assert(now[0].cls.includes('running'), now[0].cls);
+    assert(now[0].h <= 34, 'as small as a mini pill: ' + now[0].h);
+    assert(now[0].right <= 412 - 16, 'inside the screen: ' + now[0].right);
+    await p.evaluate(() => { window._calls.length = 0; document.querySelector('#jobs .stop').click(); });
+    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'jobStop').map(c => JSON.parse(c[1])[0])), ['j1'], '중지: that job, at once');
+    assert.strictEqual(await p.evaluate(() => document.querySelector('#jobs .stop').textContent), '멈추는 중');
+    await p.evaluate(() => { window._calls.length = 0; document.querySelector('#jobs .job').click(); });
+    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open').map(c => JSON.parse(c[1])[0])), ['job:j1'], 'its result');
+    // Two at once: one line each, the newest last; a long one is cut, never wider than the screen.
+    await p.evaluate(() => launcher.jobs([{ id: 'j1', line: '배민 담는 중 · 5단계', state: 'running', stop: true, open: true },
+      { id: 'j2', line: '작업창 · 이번 달 카드 지출을 분석해서 보고서로 정리하는 중', state: 'running', stop: true, open: true }]));
+    now = await line();
+    assert.strictEqual(now.length, 2); assert(now.every(l => l.right <= 412 - 16), JSON.stringify(now));
+    // It ends: the line says how (no 중지), and 퍼레 says it once in passing; a tap on the words opens its result.
+    await p.evaluate(() => { launcher.jobs([{ id: 'j1', line: '배민 · 끝났어', state: 'done', stop: false, open: true }]); launcher.jobDone({ id: 'j1', text: '배민 일 끝났어! 눌러 봐', go: 'job:j1' }); });
+    now = await line();
+    assert.strictEqual(now[0].text, '배민 · 끝났어'); assert(now[0].cls.includes('done'));
+    await p.clock.runFor(300);
+    const said = await bubble();
+    assert(said && said.text.startsWith('배민 일 끝났어! 눌러 봐') && said.go === 'job:j1', 'said in passing: ' + JSON.stringify(said));
+    await p.evaluate(() => { window._calls.length = 0; document.querySelector('.bubble').click(); });
+    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open').map(c => JSON.parse(c[1])[0])), ['job:j1'], 'the words open its result');
+    await p.evaluate(() => launcher.jobDone({ id: 'j3', text: '연구실 연구 끝났어! 눌러 봐', go: 'job:j3' }));
+    await p.clock.runFor(4800);
+    assert.strictEqual(await bubble(), null, 'gone in a few seconds');
+    // Away when it ends: said when the screen is seen again, once.
+    await p.evaluate(() => { launcher.hidden(); launcher.jobDone({ id: 'j4', text: '작업창 일 끝났어! 눌러 봐', go: 'job:j4' }); });
+    await p.clock.runFor(1000);
+    assert.strictEqual(await bubble(), null, 'not while away');
+    await p.evaluate(() => launcher.shown()); await p.clock.runFor(1200);
+    assert(((await bubble()) || {}).text?.startsWith('작업창 일 끝났어'), 'said when seen again');
+    await p.clock.runFor(6000); await p.evaluate(() => { launcher.hidden(); launcher.shown(); }); await p.clock.runFor(1500);
+    assert(!(((await bubble()) || {}).text || '').startsWith('작업창 일 끝났어'), 'once');
+    await p.evaluate(() => launcher.jobs([]));
+    assert.deepStrictEqual(await line(), []);
+    assert.deepStrictEqual(jobs.errors, []);
+  });
+  await jobs.ctx.close();
   await check('an app that did not open: its words stay while 퍼레 listens, one tap opens the way through', async () => {
     const p = bridged.page, look = () => p.evaluate(() => { const b = document.querySelector('.bubble'); return { text: b.textContent, go: b.dataset.go, act: b.classList.contains('act'), on: b.classList.contains('on') }; });
     await p.evaluate(() => closePad()); await p.clock.runFor(400);

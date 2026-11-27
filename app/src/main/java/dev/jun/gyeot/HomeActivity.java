@@ -242,12 +242,32 @@ public final class HomeActivity extends Activity {
         main.removeCallbacks(refresh); if (ready) { refresh.run(); pushBadges(); if (web != null) web.evaluateJavascript("launcher.shown&&launcher.shown()", null); }
         BuddyVoice talk = BuddyVoice.current(); if (talk != null) talk.attach(talkShown, talkUnlock);
         if (ready) BuddyBoard.shown(selfCall);
+        dev.jun.gyeot.core.BuddyJobs.unlisten(jobsChanged); dev.jun.gyeot.core.BuddyJobs.listen(jobsChanged);
+        if (ready) pushJobs(true);
+    }
+    // ── 맡은 일 (BuddyJobs, 준 "문 하나"): a small line under the search with 중지, and one passing word when one ends ──
+    private final java.util.function.Consumer<dev.jun.gyeot.core.BuddyJobs.Job> jobsChanged = job -> main.post(() -> { if (shown && ready) pushJobs(!job.running()); });
+    /**
+     * The jobs' line to the page; told: also the passing word of each one that ended and was not said yet (준: "흘러가듯이 슬쩍",
+     * once: the voice talk says it when it is on), a tap on it opening its result.
+     */
+    private void pushJobs(boolean told) {
+        long now = System.currentTimeMillis();
+        js("launcher.jobs&&launcher.jobs(" + dev.jun.gyeot.core.BuddyJobs.json(now) + ")");
+        BuddyVoice talk = BuddyVoice.current();
+        if (!told || talk != null && talk.on()) return;
+        for (dev.jun.gyeot.core.BuddyJobs.Job j : dev.jun.gyeot.core.BuddyJobs.untold(now)) {
+            String line = dev.jun.gyeot.core.BuddyJobs.passing(j);
+            if (line.isEmpty() || !dev.jun.gyeot.core.BuddyJobs.claim(j)) continue;
+            js("launcher.jobDone&&launcher.jobDone(" + Jsons.obj("id", j.id, "text", line, "go", j.open().isEmpty() ? "" : "job:" + j.id) + ")");
+            break;
+        }
     }
     /** 퍼레 itself, asked by voice or in the talk (BuddyBoard): a launcher.self() call to the page. */
     private final java.util.function.Consumer<String> selfCall = call -> js(call);
     @Override protected void onPause() {
         resumed = false; PhoneService.taskbarChanged();
-        BuddyBoard.away();
+        BuddyBoard.away(); dev.jun.gyeot.core.BuddyJobs.unlisten(jobsChanged);
         shown = false; pausedAt = android.os.SystemClock.uptimeMillis(); NoticeListener.changed = null; NoticeListener.deliveryChanged = null; main.removeCallbacks(refresh); main.removeCallbacks(boardSoon);
         prefs.edit().putLong("awaySince", System.currentTimeMillis()).apply();
         // The voice talk goes on over the next app (준: "퍼레가 말할때 브라우저라도 켜면 바로 꺼져버려").
@@ -391,9 +411,18 @@ public final class HomeActivity extends Activity {
             js("launcher.reply(" + JSONObject.quote(shown) + ")"); BuddyTalk.learnChat(this, history, question, shown); return;
         }
         if (shown.isEmpty()) shown = BuddyTools.say(a);
-        BuddyVoice.Outcome o = BuddyActs.run(this, a, "네", false);
+        // A job handed over has the user's own words as its authority (BuddyHands); typed, an alarm needs no spoken yes.
+        BuddyVoice.Outcome o = BuddyActs.run(this, a, BuddyHands.TOOLS.contains(a.optString("tool")) ? question : "네", false);
         String more = o == null || o.say() == null ? "" : o.say().strip();
         js("launcher.reply(" + JSONObject.quote(more.isEmpty() ? shown : shown + "\n" + more) + ")");
+    }
+    /** The answer to words about the jobs 퍼레 took on (their status, or 중지 for the newest running one), or null for other words. */
+    static String jobWords(String said) {
+        long now = System.currentTimeMillis();
+        dev.jun.gyeot.core.BuddyJobs.Job running = dev.jun.gyeot.core.BuddyJobs.latestRunning();
+        if (running != null && dev.jun.gyeot.core.BuddyJobs.asksStop(said)) return dev.jun.gyeot.core.BuddyJobs.stop(running.id) ? "‘" + running.label + "’ 멈출게." : "그건 벌써 끝났어.";
+        if (dev.jun.gyeot.core.BuddyJobs.asksStatus(said) && dev.jun.gyeot.core.BuddyJobs.any(now)) return dev.jun.gyeot.core.BuddyJobs.answer(now);
+        return null;
     }
     // ── the page's own files ────────────────────────────────────
     private WebResourceResponse own(String path) {
@@ -513,6 +542,8 @@ public final class HomeActivity extends Activity {
                 case "info" -> b.info(a.optString(0, null));
                 case "uninstall" -> b.uninstall(a.optString(0, null));
                 case "open" -> b.open(a.optString(0, ""));
+                // 중지 on a job's line (BuddyJobs.stop: the engine's own stop, the same as the voice pill's).
+                case "jobStop" -> { String id = a.optString(0, ""); try { io.execute(() -> dev.jun.gyeot.core.BuddyJobs.stop(id)); } catch (RuntimeException ignored) {} }
                 case "ask" -> b.ask(a.optString(0, null));
                 case "web" -> b.web(a.optString(0, null));
                 case "settings" -> b.settings(a.optString(0, ""));
@@ -534,6 +565,7 @@ public final class HomeActivity extends Activity {
                 ready = true;
                 if (web != null) web.evaluateJavascript("launcher.insets(" + top + "," + bottom + "," + keyboard + ")", null);
                 pushApps(); main.removeCallbacks(refresh); if (shown) refresh.run(); else pushBoard();
+                if (shown) pushJobs(true);
                 if (pendingShow != null) { showPad(pendingShow); pendingShow = null; }
                 if (pendingPage != null) { goPage(pendingPage); pendingPage = null; }
                 // 퍼레 itself, asked by voice or in the talk (BuddyBoard): now that the page can hear it.
@@ -584,6 +616,9 @@ public final class HomeActivity extends Activity {
                 main.post(() -> { try { startActivity(new Intent(HomeActivity.this, DecorActivity.class).putExtra(DecorActivity.CHECK, true)); } catch (RuntimeException none) { /* the reply said it */ } });
                 return;
             }
+            // 맡은 일: how it goes ("어떻게 돼 가?") and 중지 ("하던 거 멈춰"), from the job's own record, with no brain.
+            String jobs = jobWords(question);
+            if (jobs != null) { js("launcher.reply(" + JSONObject.quote(jobs) + ")"); return; }
             AppStore store = ((GyeotApp) getApplication()).store();
             // 퍼레's brain (BuddyTalk.brain): Groq's Qwen unless the user chose NVIDIA; the other when the chosen one is not connected.
             boolean custom = BuddyTalk.CUSTOM.equals(BuddyTalk.brain(HomeActivity.this)) && !BuddyTalk.customLabel(store).isEmpty();
@@ -689,6 +724,12 @@ public final class HomeActivity extends Activity {
             if (what != null && what.startsWith("fix:")) {
                 Intent fix = BuddyMisses.fixIntent(HomeActivity.this, what.substring(4));
                 if (fix != null) main.post(() -> { try { startActivity(fix.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); } catch (RuntimeException none) { Toast.makeText(HomeActivity.this, "이 휴대폰에서는 열 수 없어요.", Toast.LENGTH_SHORT).show(); } });
+                return;
+            }
+            // A job 퍼레 took on (its line, its passing word): its result (BuddyHands.opening).
+            if (what != null && what.startsWith("job:")) {
+                Intent result = BuddyHands.opening(HomeActivity.this, dev.jun.gyeot.core.BuddyJobs.find(what.substring(4)));
+                if (result != null) main.post(() -> { try { startActivity(result); } catch (RuntimeException none) { Toast.makeText(HomeActivity.this, "열 수 있는 화면이 없어요.", Toast.LENGTH_SHORT).show(); } });
                 return;
             }
             Intent t = HtmlWallpaper.target(HomeActivity.this, what == null ? "" : what);

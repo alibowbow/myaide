@@ -507,6 +507,21 @@ body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18p
 .minis .mini-pill{border-radius:16px;padding:9px 13px}
 @media (min-width:600px){.search-row{margin:10px 28px 2px}}
 @media (max-width:420px){.search-row.has-minis .s-words{font-size:14px}.minis .mini-pill{padding:0 10px}}
+/* 퍼레's jobs (BuddyJobs): a small line each, as small as the mini pills, 중지 beside one that runs (준: 화면은 컴팩트하게) */
+.jobs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 18px 0}
+.jobs:empty{display:none}
+.job-line{display:inline-flex;align-items:center;max-width:100%;border-radius:999px;border:1px solid var(--glass-line);background:rgba(255,255,255,.07)}
+.launcher:not(.liquid) .job-line{background:var(--glass)}
+.job-line .job{border:0;background:none;color:var(--ink2);font:inherit;font-size:12.5px;font-weight:600;padding:6px 11px;display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:64vw}
+.job-line.running .job{padding-right:4px}
+.job-line .job span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.job-line .job i{width:7px;height:7px;border-radius:50%;background:#8b5cf6;flex:none}
+.job-line.running .job i{animation:jobPulse 1.4s ease-in-out infinite}
+.job-line.done .job i{background:#34c759}.job-line.failed .job i,.job-line.waiting .job i{background:#ff9f0a}.job-line.stopped .job i{background:var(--ink3)}
+.job-line .stop{border:0;background:none;color:#ff6b6b;font:inherit;font-size:12px;font-weight:750;padding:6px 11px 6px 6px}
+@keyframes jobPulse{50%{opacity:.35}}
+@media (min-width:600px){.jobs{margin:8px 28px 0}}
+@media (prefers-reduced-motion:reduce){.job-line.running .job i{animation:none}}
 /* 퍼레's suggestions, opened on the home screen */
 .ideas{position:fixed;z-index:21;left:50%;top:50%;width:min(92vw,520px);max-height:min(76vh,640px);overflow-y:auto;overscroll-behavior:none;transform:translate(-50%,-50%) scale(.97);opacity:0;transition:opacity .12s ease,transform .14s ease;display:none;scrollbar-width:none}
 .ideas.on{display:block}.ideas.shown{opacity:1;transform:translate(-50%,-50%)}
@@ -543,6 +558,7 @@ body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18p
 <main class="page" id="home"><div class="inner">
   <div id="boardHost"></div>
   <div class="search-row"><div class="minis" id="minis"></div></div>
+  <div class="jobs" id="jobs"></div>
   <div class="lib-head"><h2>App <em>Library</em></h2><span id="libCount"></span></div>
   <div class="stacks" id="stacks"></div>
   <div class="shorts" id="shorts"></div>
@@ -937,6 +953,22 @@ el("minis").addEventListener("click", e => {
   if (p.dataset.mini === "delivery") { if (B && p.dataset.app) B.open("delivery:" + p.dataset.app); return; }
   if (p.dataset.mini === "act") { if (B && p.dataset.go) B.open(p.dataset.go); return; }
   openIdeas();
+});
+/*
+  The jobs 퍼레 took on (BuddyJobs: 배민에서 담기, 브라우저에서 받기, 작업창, 연구실): a small line each under the search, "● 배민 담는 중
+  · 3단계" with 중지 while it runs (준: 화면은 컴팩트하게, the same 중지 as the voice pill's); a tap on it opens its result. One
+  that ended stays a little while with how it ended, then goes.
+*/
+let JOBS = [];
+function drawJobs(list) {
+  JOBS = Array.isArray(list) ? list : [];
+  el("jobs").innerHTML = JOBS.map(j => '<span class="job-line ' + esc(j.state || "") + '"><button class="job" data-open="' + esc(j.id) + '"' + (j.open ? "" : " disabled") + '><i></i><span>' + esc(j.line || "") + '</span></button>'
+    + (j.stop ? '<button class="stop" data-stop="' + esc(j.id) + '">중지</button>' : "") + '</span>').join("");
+}
+el("jobs").addEventListener("click", e => {
+  const s = e.target.closest("[data-stop]");
+  if (s) { if (B) B.jobStop(s.dataset.stop); s.disabled = true; s.textContent = "멈추는 중"; return; }
+  const o = e.target.closest("[data-open]"); if (o && B) B.open("job:" + o.dataset.open);
 });
 /* The background: the night aurora, or the user's own wallpaper under a dark veil (the home screen's menu switches). */
 function backdrop(kind) { document.body.classList.toggle("aurora", kind !== "photo"); document.body.classList.toggle("photo", kind === "photo"); }
@@ -1799,6 +1831,9 @@ window.launcher = {
   lp(cmd) { pagesBox.querySelectorAll(".page.custom iframe").forEach(f => { try { if (f.getAttribute("src") && new URL(f.src).origin === LP_ORIGIN) f.contentWindow.postMessage({gyeot: "lp", cmd: String(cmd)}, LP_ORIGIN); } catch (e) {} }); return true; },
   /** The pages to the right changed (화면 꾸미기). */
   pages(list) { drawPages(list); },
+  /** 퍼레's jobs now (BuddyJobs.json: [{id, line, state, stop, open}]), and one that ended: its passing word ({id, text, go}). */
+  jobs(list) { drawJobs(list); },
+  jobDone(line) { boardJobDone(line); },
   /** 퍼레's answer on the home screen: a piece as it streams, the whole when done, or why not. */
   stream(piece) {
     const last = thread[thread.length - 1]; if (!last || !last.pending) return;

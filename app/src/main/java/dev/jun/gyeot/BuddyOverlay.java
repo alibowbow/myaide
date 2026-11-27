@@ -22,12 +22,16 @@ import android.widget.TextView;
  * 퍼레 over other apps while it talks (준: "퍼레 대화모드일때는 다른 앱 위에 그려지게 해줘", "퍼레가 말할때 브라우저라도 켜면 바로
  * 꺼져버려"): a small card at the bottom corner, 퍼레's face (listening, talking, thinking) and its words in a bubble, ✕ to end.
  * Dragged by 퍼레, it stays where it was left. Shown only while the home screen is not in front and the talk is on; needs the
- * overlay permission (without it the talk still goes on, heard and said, with its notification). Main thread.
+ * overlay permission (without it the talk still goes on, heard and said, with its notification). Under the words, the job 퍼레
+ * took on (BuddyJobs: "● 배민 담는 중 · 3단계" and 중지, the same 중지 as the home screen's; a tap on the line opens its result).
+ * Main thread.
  */
 final class BuddyOverlay {
     private final Context context; private final WindowManager manager; private final SharedPreferences prefs; private final Runnable stop;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private LinearLayout card; private ImageView face; private TextView words; private WindowManager.LayoutParams params;
+    private LinearLayout card; private ImageView face; private TextView words, jobLine, jobStop; private LinearLayout job; private WindowManager.LayoutParams params;
+    /** The jobs as BuddyJobs.json gives them; the newest is shown. */
+    private org.json.JSONArray jobs = new org.json.JSONArray();
     private String state = ""; private boolean talkFrame;
     private final Runnable mouth = new Runnable() { @Override public void run() {
         if (face == null || !"speaking".equals(state)) return;
@@ -53,7 +57,17 @@ final class BuddyOverlay {
         card.addView(face, new LinearLayout.LayoutParams(px(d, 44), px(d, 44)));
         words = new TextView(context); words.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13); words.setTextColor(0xff22232f); words.setMaxLines(3);
         words.setEllipsize(TextUtils.TruncateAt.END); words.setMaxWidth(px(d, 220)); words.setPadding(px(d, 8), 0, px(d, 6), 0); words.setText("듣고 있어…");
-        card.addView(words, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        LinearLayout column = new LinearLayout(context); column.setOrientation(LinearLayout.VERTICAL);
+        column.addView(words, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        // The job's line: as small as a caption, its 중지 a word beside it (준: 화면은 컴팩트하게).
+        job = new LinearLayout(context); job.setOrientation(LinearLayout.HORIZONTAL); job.setGravity(Gravity.CENTER_VERTICAL); job.setPadding(px(d, 8), px(d, 2), 0, 0);
+        jobLine = new TextView(context); jobLine.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f); jobLine.setTextColor(0xff5b5bd6); jobLine.setSingleLine(true);
+        jobLine.setEllipsize(TextUtils.TruncateAt.END); jobLine.setMaxWidth(px(d, 170));
+        jobStop = new TextView(context); jobStop.setText("중지"); jobStop.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f); jobStop.setTextColor(0xffd14343);
+        jobStop.setTypeface(android.graphics.Typeface.DEFAULT_BOLD); jobStop.setPadding(px(d, 8), px(d, 2), px(d, 4), px(d, 2)); jobStop.setContentDescription("맡은 일 중지");
+        job.addView(jobLine); job.addView(jobStop);
+        column.addView(job, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        card.addView(column, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         TextView close = new TextView(context); close.setText("✕"); close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13); close.setTextColor(0xff6a6b7d);
         close.setGravity(Gravity.CENTER); close.setContentDescription("퍼레와 대화 끝내기");
         GradientDrawable cb = new GradientDrawable(); cb.setShape(GradientDrawable.OVAL); cb.setColor(0xfff1f2f6); close.setBackground(cb);
@@ -77,13 +91,29 @@ final class BuddyOverlay {
                 }
             }
         });
-        try { manager.addView(card, params); } catch (RuntimeException refused) { card = null; face = null; words = null; return; }
-        state(state, null);
+        try { manager.addView(card, params); } catch (RuntimeException refused) { card = null; face = null; words = null; job = null; jobLine = null; jobStop = null; return; }
+        state(state, null); drawJob();
     }
     void hide() {
         main.removeCallbacks(mouth);
         if (card != null) { try { manager.removeView(card); } catch (RuntimeException gone) {} }
-        card = null; face = null; words = null;
+        card = null; face = null; words = null; job = null; jobLine = null; jobStop = null;
+    }
+    /** The jobs now (BuddyJobs.json): the newest on the line under the words, with 중지 while it runs; none, no line. */
+    void jobs(org.json.JSONArray list) { jobs = list == null ? new org.json.JSONArray() : list; drawJob(); }
+    /** The line shown now ("" when there is none), for the screen tests. */
+    String jobShown() { return job == null || job.getVisibility() != View.VISIBLE ? "" : jobLine.getText().toString(); }
+    private void drawJob() {
+        if (job == null) return;
+        org.json.JSONObject newest = jobs.length() == 0 ? null : jobs.optJSONObject(jobs.length() - 1);
+        if (newest == null) { job.setVisibility(View.GONE); return; }
+        String id = newest.optString("id"); boolean running = "running".equals(newest.optString("state"));
+        job.setVisibility(View.VISIBLE);
+        jobLine.setText((running ? "● " : "") + newest.optString("line"));
+        jobLine.setOnClickListener(v -> BuddyHands.open(context, id, true));
+        jobStop.setVisibility(newest.optBoolean("stop") ? View.VISIBLE : View.GONE); jobStop.setText("중지"); jobStop.setEnabled(true);
+        // The engine's own stop may touch its files (연구실): never on the main thread.
+        jobStop.setOnClickListener(v -> { jobStop.setText("멈추는 중"); jobStop.setEnabled(false); Thread t = new Thread(() -> dev.jun.gyeot.core.BuddyJobs.stop(id), "gyeot-buddy-job-stop"); t.setDaemon(true); t.start(); });
     }
     /** 퍼레's state as the talk goes: what it hears, that it thinks, what it says (its mouth moving while it sounds). */
     void state(String state, String text) {

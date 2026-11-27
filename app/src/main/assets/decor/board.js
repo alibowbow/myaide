@@ -777,10 +777,26 @@ function talk(opened) {
     speak(b, line, line.ms || Math.min(4500, 2400 + line.text.length * 55));
   });
 }
+/*
+  A job 퍼레 took on ended (BuddyJobs.passing, 준: "흘러가듯이 슬쩍", "오랫동안 풍선띄우는건 자제"): one word in passing, as long as
+  it takes to read (4.5 s at most), a tap on it opening the job's result; said once, while the screen is seen (now, or when it
+  is seen again), never over the voice talk (it says it there).
+*/
+let jobWord = null;
+function boardJobDone(line) { if (!line || !line.text) return; jobWord = line; sayJobWord(); }
+function sayJobWord() {
+  if (!jobWord || !seenNow || voiceOn) return;
+  const line = jobWord; jobWord = null; lastSpoke = Date.now();
+  boards.forEach(b => {
+    if (b._feel) b._feel(/막혔|확인이 필요/.test(line.text) ? "surprised" : "happy", 1600);
+    speak(b, {text: line.text, go: line.go || ""}, Math.min(4500, 2400 + line.text.length * 55));
+  });
+}
 /** The host says when the screen is seen (the home screen app's resume, the wallpaper shown) and when it is not. */
 function boardSeen(on) {
   if (!on) { if (seenNow) hiddenAt = Date.now(); seenNow = false; return; }
   const away = hiddenAt ? Date.now() - hiddenAt : 0; seenNow = true;
+  if (jobWord) { setTimeout(sayJobWord, 900); return; }
   // At dawn: asleep when the screen comes on, awake a few seconds later (its sleepy word in place of a greeting).
   if (sleepHours()) { boards.forEach(b => { if (!awake(b)) { if (b._mood) b._mood("sleepy"); wake(b); } }); return; }
   if (away > 90000 && window.boardCare) window.boardCare("back");

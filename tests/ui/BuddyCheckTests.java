@@ -126,6 +126,21 @@ public class BuddyCheckTests {
         assertEquals("home_page", page.optString("tool")); assertEquals("LP", page.optString("page"));
         assertNull("a name in brackets is not a call", BuddyPrompt.act("YouTube(유튜브)에서 찾아볼게"));
         assertNull(BuddyPrompt.act("그냥 이야기야"));
+        // Written out with its arguments as words (the quick model's "volume mute": the retry then chose quiet for 음소거): read as written.
+        JSONObject mute = BuddyPrompt.act("volume mute");
+        assertEquals("volume", mute.optString("tool")); assertEquals("mute", mute.optString("direction"));
+        JSONObject six = BuddyPrompt.act("알겠어! ⏰ alarm 6 30");
+        assertEquals("alarm", six.optString("tool")); assertEquals(6, six.optInt("hour")); assertEquals(30, six.optInt("minute"));
+        assertEquals("dnd", BuddyPrompt.act("settings panel=dnd").optString("panel"));
+        assertEquals(2, BuddyPrompt.act("quiet 2 조용히 있을게").optInt("hours"));
+        assertEquals("카카오톡", BuddyPrompt.act("open_app 카카오톡").optString("app"));
+        assertNull("what it needs is missing: asked again", BuddyPrompt.act("네이버 지도 열게! open_app"));
+        assertNull("a name alone: asked again (it fills in which app)", BuddyPrompt.act("유튜브 끌게! close_app"));
+        assertNull("words for two texts (who, text) cannot be told apart", BuddyPrompt.act("message 엄마한테 곧 도착한다고"));
+        assertNull("nor can a request and its app", BuddyPrompt.act("phone_job 배민에서 지난번 메뉴 다시 담기"));
+        assertNull("a list written out", BuddyPrompt.act("pick options=['짜장면', '짬뽕']"));
+        assertNull(BuddyPrompt.act("mapsearch"));
+        assertNull("a name in passing", BuddyPrompt.act("play 버튼 눌러 봐"));
         assertEquals(0, BuddyPrompt.toolWritten("settings panel=dnd"));
         assertEquals(0, BuddyPrompt.toolWritten("mapsearch"));
         assertTrue(BuddyPrompt.toolWritten("알겠어! ⏰ alarm 6 0") > 0);

@@ -82,6 +82,20 @@ final class BuddyTools {
             props("app", "string", "끌 앱 이름, 말했으면 (예: 유튜브). 말하지 않았으면 묻지 말고 빼기(지금 앞의 앱을 끈다)")))
         .put(fn("home_page", "들퍼레 홈 화면의 페이지로 넘긴다: 홈, 오늘(왼쪽), 사용자가 넣은 페이지(LP 등)는 그 이름, 또는 오른쪽·왼쪽.",
             props("page", "string", "페이지 이름 (홈, 오늘, LP, 오른쪽, 왼쪽 …)"), "page"))
+        // 문 하나 (준): 무슨 일이든 퍼레가 직접 맡는다. 여러 단계·오래 걸리는 일은 앱의 엔진에 넘긴다 (BuddyHands).
+        // Short: they go with every turn (Groq's free tier counts tokens a minute); JOBS_RULE in the rule says when to use which.
+        .put(fn("phone_job", "앱 화면을 보며 여러 단계로 조작하는 일(배민에서 지난번 메뉴 다시 담기, 쿠팡 장바구니에 담기, 카톡 단톡방 공지 읽기). 한 번에 끝나는 일(앱 열기·알람·길 안내·노래)은 그 도구로. 결제·송금·은행 앱은 안 하고 결제 직전에 멈춤.",
+            props("request", "string", "할 일, 사용자의 말대로", "app", "string", "앱 이름, 말했으면"), "request"))
+        .put(fn("web_job", "AI 브라우저로 웹사이트에서 여러 단계로 하는 일(파일 받기·올리기, 신청서 채우기, 로그인한 페이지 읽기). 검색은 search, 주소 열기는 open_url.",
+            props("request", "string", "할 일, 사용자의 말대로", "url", "string", "시작 주소, 알면"), "request"))
+        .put(fn("work_job", "길게 할 일을 작업창에 맡긴다(보고서·글 쓰기, 조사·분석, 코딩). 짧은 질문은 도구 없이 답해.",
+            props("request", "string", "맡길 일, 사용자의 말대로"), "request"))
+        .put(fn("schedule_job", "정한 때마다 저절로 할 일을 예약한다(매일 아침 7시에 새 공고 찾기). 깨우는 알람은 alarm, 일정은 calendar_add.",
+            props("request", "string", "그때마다 할 일", "repeat", new String[]{"once", "daily", "weekdays", "weekly", "monthly", "interval"}, "한 번·매일·평일·매주·매월·몇 시간(며칠)마다",
+                "time", "string", "HH:MM, 24시간제", "date", "string", "once면 오늘·내일·YYYY-MM-DD", "day", "integer", "weekly면 요일 1=월~7=일",
+                "every", "integer", "interval이면 N", "unit", new String[]{"hour", "day"}, "every의 단위", "url", "string", "웹사이트 일이면 시작 주소"), "request", "time"))
+        .put(fn("research_job", "연구실에 새 연구를 맡긴다(연구원들이 스스로 조사·토론·실험해 결론까지): '…을 연구해 줘'.",
+            props("question", "string", "연구할 질문, 사용자의 말대로"), "question"))
         // 앱 없이 퍼레가 직접 (답은 도구가 정한다: 지어내지 않게)
         .put(fn("stopwatch", "너(퍼레)의 스톱워치: 시작, 지금 몇 초째인지, 멈추기.", props("command", new String[]{"start", "check", "stop"}, "시작·지금 몇 초째·멈추기"), "command"))
         .put(fn("coin", "동전을 던져 앞면·뒷면을 정한다(결과는 도구가 정한다).", null))
@@ -166,12 +180,21 @@ final class BuddyTools {
         return false;
     }
 
+    /**
+     * The jobs that take more than one step (준, "문 하나"): 퍼레 hands them to the app's engines itself, never sends the user to
+     * another screen ("작업으로 맡기기를 눌러 주세요"); the same words go with the text form (BuddyPrompt.ACTS).
+     */
+    static final String JOBS_RULE = "여러 단계가 필요한 일도 너가 직접 도구로 맡아: 앱 화면에서 여러 단계로 하는 일(배민에서 지난번 메뉴 다시 담기, 카톡 단톡방 공지 읽기)은 phone_job, "
+        + "웹사이트에서 하는 일(유튜브 스튜디오에 영상 올리기, 파일 받기, 신청서 채우기, 로그인한 페이지 읽기)은 web_job, 길게 쓰거나 조사·분석·코딩할 일(보고서 쓰기, 앱 코드 짜기)은 work_job, "
+        + "정한 때마다 저절로 할 일(매일 아침 7시에 …)은 schedule_job, 연구해 달라는 일은 research_job. 한 번에 끝나는 일(앱 열기, 알람, 길 안내, 노래 틀기, 검색)은 원래 도구로 해. "
+        + "이런 일도 못 한다고 하거나 사용자에게 직접 하라고 하지 말고 그 도구를 바로 불러. ";
     /** The rule for the brain with tools (in place of BuddyTalk.ACTS). */
     static final String RULE = rule(true);
     /** The rule for the brain with the tools sent: 퍼레's own named only when they are (else it might call one not there). */
     static String rule(boolean self) {
         return "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 안내, 지도에서 찾기, 노래·영상 찾아 틀기, 음악 멈춤·다음 곡, 알람, 타이머, 타이머 화면, 스톱워치, 손전등, 화면 방향, 소리 크기, 밝기, 방해 금지·절전 같은 설정 화면, 앱 정보 화면, 검색, 카톡으로 보내기, 문자 쓰기, 메일 쓰기, 전화 걸 준비, 카메라, 갤러리, 연락처, 녹음, 메모, 다운로드, 일정 넣기·보기, 웹 페이지 열기, 번역) 도구를 불러서 너가 직접 해. "
         + "동전 던지기, 주사위, 골라 주기, 계산, 다른 나라 시각, 며칠 남았는지 세기는 답을 지어내지 말고 꼭 coin·dice·pick·calculator·world_time·count_days 도구를 불러. 답은 도구가 말해 주니 너는 '던져 볼게!'처럼 짧게만 말해. "
+        + JOBS_RULE
         + (self ? "너(퍼레) 자신에게 하는 부탁(장난감 꺼내기, 옷 갈아입기·벗기, 춤·점프 같은 놀이)도 buddy_toy·buddy_outfit·buddy_move 도구로 직접 해. 사용자가 '기억해 둬', '잊어 줘', '그건 틀렸어 지워'라고 하면 remember·forget을 불러(방금 잊은 걸 되돌려 달라면 forget에 undo). 이렇게 불러 달라·조용히 있어 달라는 부탁은 call_me·quiet 도구로 해. 못 한다고 하지 마. " : "")
         + "도구를 부를 때도 무엇을 하는지 짧은 대답 한 문장을 같이 말해(예: 네이버 지도 열게!). 도구는 꼭 함수 호출(tool call)로 불러: 도구 이름이나 인자를 말로 쓰지 마(예: 'settings panel=dnd', 'alarm 7 30', 'mapsearch'라고 쓰지 마). 할 일을 글로 적거나 JSON을 말하지 마. "
         + "할 일이 분명하면 되묻지 말고 바로 불러: 말하지 않은 값은 빼고 부르면 도구가 정하거나 다시 물어(앱 이름 없는 close_app, 오전·오후 없는 alarm, 번호 없는 message). "
@@ -196,12 +219,15 @@ final class BuddyTools {
     private static final java.util.regex.Pattern ASKED = java.util.regex.Pattern.compile("꺼내|입어|입자|벗어|갈아입|옷|모자|장난감|주사위|공 ?놀|큐브|팽이|풍선|비눗방울|춤|점프|해 ?봐|보여 ?줘|열어|켜 ?줘|켜$|꺼 ?줘|꺼$|틀어|재생|알람|타이머|가자|안내|길 ?찾|찾아 ?줘|검색|소리|볼륨|밝기|화면|손전등|플래시|와이파이|블루투스|설정|멈춰|다음 ?곡|이전 ?곡|가로|세로|회전|일정|캘린더|넣어|셀카|카메라|사진 ?찍|동영상|문자|보내|전화|카톡|카카오톡|공유|사이트|홈페이지|근처|맛집"
             + "|스톱워치|초 ?재|시간 ?재|메모|적어|녹음|다운로드|받은 ?파일|갤러리|사진첩|앨범|연락처|계산|더하기|빼기|곱하기|나누기|퍼센트|메일|번역|동전|골라|정해 ?줘|며칠|디데이|D-?day|시차|몇 ?시야"
             + "|기억해 ?줘|기억해 ?둬|기억해$|잊어 ?줘|잊어버려|까먹어|지워 ?줘|틀렸어|되돌려|(이라고|라고) ?불러|부르지 ?마|호칭|조용히|말 ?걸지"
-            + "|음소거|깨워|닫아|종료|나가 ?줘|만들어|넘겨|넘어가|페이지|소원"),
+            + "|음소거|깨워|닫아|종료|나가 ?줘|만들어|넘겨|넘어가|페이지|소원"
+            // The jobs that take more than one step (phone_job, web_job, work_job, schedule_job, research_job).
+            + "|담아|담기|장바구니|공지|단톡|읽어 ?줘|양식|신청서|업로드|올려 ?줘|다운로드|내려 ?받|받아 ?(?:줘|와|놔)|작업창|맡겨|맡아 ?줘|분석해|보고서|코딩|코드|짜 ?줘|프로그램|예약해|매일|평일|마다|연구해|연구실|조사해|정리해 ?줘"),
         PROMISE = java.util.regex.Pattern.compile("꺼낼게|입을게|벗을게|쓸게|출게|뛸게|놀게|해 볼게|할게|줄게|열게|틀게|켤게|끌게|맞출게|찾아볼게|바꿀게|멈출게|둘게|보낼게|걸게|찍게|넣을게|시작"
             + "|잴게|적을게|던질게|던져 볼게|굴릴게|굴려 볼게|고를게|골라 볼게|세어 볼게|셀게|계산해 볼게|번역해 볼게|기억할게|잊을게|지울게|잊었어|지웠어|되돌릴게|라고 부를게|조용히 있을게"
             + "|놓을게|올릴게|줄일게|낮출게|높일게|해 둘게|맞춰 둘게|틀어 줄게|찾아 줄게|알겠어|알았어"
             // "네이버지도 닫을게 👋" was not heard as a promise, so nothing was done (2026-11-27)
-            + "|닫을게|닫아 ?줄게|나갈게|종료할게|끝낼게|꺼 ?줄게|넘길게|넘겨 ?줄게|넘어갈게|만들게|만들어 ?볼게|만들어 ?줄게|찾을게|갈게|깨울게|적어 둘게|남길게|남겨 둘게|볼게|끄게|열께|할께|줄께");
+            + "|닫을게|닫아 ?줄게|나갈게|종료할게|끝낼게|꺼 ?줄게|넘길게|넘겨 ?줄게|넘어갈게|만들게|만들어 ?볼게|만들어 ?줄게|찾을게|갈게|깨울게|적어 둘게|남길게|남겨 둘게|볼게|끄게|열께|할께|줄께"
+            + "|맡길게|맡겨 ?둘게|맡겼어|맡을게|담을게|읽을게|올릴게|받을게|예약할게|예약했어|연구할게|조사할게|분석할게|정리할게");
     /** Whether the brain's calls chose NOTHING (there was nothing to do after all). */
     static boolean nothing(JSONArray calls) {
         for (int i = 0; calls != null && i < calls.length(); i++) { JSONObject c = calls.optJSONObject(i); if (c != null && "nothing".equals(c.optString("name").strip())) return true; }
@@ -214,8 +240,13 @@ final class BuddyTools {
     static boolean promised(String said, String answer) {
         if (said == null || answer == null) return false;
         for (String line : answer.split("\n")) if (BuddyPrompt.toolWritten(line) >= 0) return true;
-        return ASKED.matcher(said).find() && PROMISE.matcher(answer).find();
+        return ASKED.matcher(said).find() && (PROMISE.matcher(answer).find() || ELSEWHERE.matcher(answer).find());
     }
+    /**
+     * An answer that sends the user elsewhere for what 퍼레 does itself (준: "퍼레대화에서 시킨 일은 퍼레대화가 직접 한다"; the quick
+     * model said "작업으로 맡기기를 눌러 줘", "영상 올리는 건 내가 직접 할 수 없어"): asked once more with a tool required.
+     */
+    private static final java.util.regex.Pattern ELSEWHERE = java.util.regex.Pattern.compile("맡기기를? ?눌러|작업으로 (?:맡기|보내)|작업창에서 (?:직접|해)|직접 (?:할 수(?:가)? 없|못 해|못해)|내가 (?:할 수(?:가)? 없|못 해|못해)|다른 화면에서");
     private static String outfitSay(JSONObject a) {
         JSONArray items = a.optJSONArray("items"); String first = items != null && items.length() > 0 ? items.optString(0).strip() : a.optString("item").strip();
         if (first.isEmpty() || first.equals("기본")) return "원래 모습으로 돌아갈게!";
@@ -264,6 +295,12 @@ final class BuddyTools {
             case "make_music" -> "음악 만들어 볼게!";
             case "close_app" -> a.optString("app").isBlank() ? "끌게!" : a.optString("app").strip() + " 끌게!";
             case "home_page" -> "넘길게!";
+            // The jobs handed over (BuddyHands): what it will try, where ("배민에서 담아 볼게!").
+            case "phone_job" -> (a.optString("app").isBlank() ? "" : a.optString("app").strip() + "에서 ") + dev.jun.gyeot.core.BuddyJobs.trying(a.optString("request"));
+            case "web_job" -> (a.optString("url").isBlank() ? "브라우저에서 " : dev.jun.gyeot.core.BuddyJobs.host(a.optString("url")) + "에서 ") + dev.jun.gyeot.core.BuddyJobs.trying(a.optString("request"));
+            case "work_job" -> "작업창에 맡길게!";
+            case "schedule_job" -> "예약해 둘게!";
+            case "research_job" -> "연구실에 맡길게!";
             // The answer itself is the act's own words, said after these (BuddyActs: coin, dice, pick, the time, the days).
             case "stopwatch" -> "start".equals(a.optString("command", "start")) ? "스톱워치 시작!" : "";
             case "coin" -> "동전 던진다!";

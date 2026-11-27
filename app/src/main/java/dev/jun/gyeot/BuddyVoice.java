@@ -134,7 +134,9 @@ final class BuddyVoice {
         music = false; overMusic = false; saidAt = 0; hintsFor("");
         store.buddyTalking = true; store.changed();
         BuddyVoiceService.start(context);
+        jobLine = ""; jobGo = ""; dev.jun.gyeot.core.BuddyJobs.unlisten(jobs); dev.jun.gyeot.core.BuddyJobs.listen(jobs);
         if (screen == null) overlay.show();
+        overlay.jobs(dev.jun.gyeot.core.BuddyJobs.json(System.currentTimeMillis()));
         // 퍼레's short words in its own voice, made once (VoicePresets; 준: "프리셋 보이스 100개", "타입캐스트로").
         VoicePresets.prepare(context, store);
         // The user's voice known and Whisper at hand: 퍼레 listens itself, to know whose voice it is (준: "내 목소리를 알아볼 수 있게해줘").
@@ -172,6 +174,8 @@ final class BuddyVoice {
 
     private void listen() {
         if (!on) return;
+        // A job ended while 퍼레 spoke or thought: its one passing word now, before listening again (jobChanged).
+        if (!jobLine.isEmpty() && cue == null && pipe == null && awaited == 0) { sayJob(); return; }
         // One microphone at a time: the one that listened over 퍼레 lets it go first (a frame, 300 ms at most).
         stopOver(); overGone();
         closeEar(); listenAt = android.os.SystemClock.uptimeMillis(); heardNow = false;
@@ -556,6 +560,18 @@ final class BuddyVoice {
             try { DeviceActionRunner.start(context, new android.content.Intent(context, DecorActivity.class).putExtra(DecorActivity.CHECK, true).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK), over); }
             catch (RuntimeException refused) { store.phoneLog("● 퍼레 음성: 자동 점검을 열지 못함 (" + refused.getClass().getSimpleName() + ")"); }
             return true;
+        }
+        // 맡은 일 (BuddyJobs, 준 "문 하나"): how it goes, from its own record ("어떻게 돼 가?": its steps, site and last step, never
+        // "모르겠어"), and 중지 by words ("하던 거 멈춰"), with no brain.
+        if (!guest) {
+            long now = System.currentTimeMillis();
+            dev.jun.gyeot.core.BuddyJobs.Job running = dev.jun.gyeot.core.BuddyJobs.latestRunning();
+            String line = running != null && dev.jun.gyeot.core.BuddyJobs.asksStop(said) ? (dev.jun.gyeot.core.BuddyJobs.stop(running.id) ? "‘" + running.label + "’ 멈출게." : "그건 벌써 끝났어.")
+                : dev.jun.gyeot.core.BuddyJobs.asksStatus(said) && dev.jun.gyeot.core.BuddyJobs.any(now) ? dev.jun.gyeot.core.BuddyJobs.answer(now) : null;
+            if (line != null) {
+                show("thinking", said); turns.add(talkTurn("user", said, false)); turns.add(talkTurn("assistant", line, false));
+                say(line); return true;
+            }
         }
         dev.jun.gyeot.core.VoiceTurns.Kind kind = turn(said, false);
         if (kind == dev.jun.gyeot.core.VoiceTurns.Kind.BYE) kind = turn(said, music);
@@ -1383,6 +1399,41 @@ final class BuddyVoice {
         turns.add(new String[]{"assistant", line});
         say(line);
     }
+    // ── 맡은 일 while the talk is on (BuddyJobs): its line in the voice pill, and one passing word when it ends ──
+    /** A job's passing word waiting for a quiet moment (BuddyJobs.passing), and what a tap on those words opens ("job:<id>"). */
+    private String jobLine = "", jobGo = "";
+    private final java.util.function.Consumer<dev.jun.gyeot.core.BuddyJobs.Job> jobs = job -> main.post(() -> jobChanged(job));
+    /**
+     * A job went on or ended: the voice pill's line follows it; one that ended says its passing word once (준: "흘러가듯이 슬쩍",
+     * the voice or the home screen, whichever claims it first), now when 퍼레 just listens and nothing is heard yet, else at the
+     * next quiet moment (listen()).
+     */
+    private void jobChanged(dev.jun.gyeot.core.BuddyJobs.Job job) {
+        overlay.jobs(dev.jun.gyeot.core.BuddyJobs.json(System.currentTimeMillis()));
+        if (!on || job.running()) return;
+        String line = dev.jun.gyeot.core.BuddyJobs.passing(job);
+        if (line.isEmpty() || !dev.jun.gyeot.core.BuddyJobs.claim(job)) return;
+        jobLine = line; jobGo = job.open().isEmpty() ? "" : "job:" + job.id; jobWaiting = job;
+        sayJobWhenQuiet();
+    }
+    /** The job whose passing word waits; given back when the talk ends first (the home screen says it then). */
+    private dev.jun.gyeot.core.BuddyJobs.Job jobWaiting;
+    /** The passing word as soon as 퍼레 just listens with nothing heard, looked at again every second while it waits. */
+    private void sayJobWhenQuiet() {
+        if (!on || jobLine.isEmpty()) return;
+        if (!saying && cue == null && awaited == 0 && !heardNow && pipe == null && "listening".equals(lastState)) { sayJob(); return; }
+        main.postDelayed(() -> { if (on && !jobLine.isEmpty()) sayJobWhenQuiet(); }, 1000);
+    }
+    /** The waiting passing word, said: it is in the talk, and a tap on it opens the job's result. */
+    private void sayJob() {
+        String line = jobLine; if (line.isEmpty()) return;
+        jobLine = ""; jobWaiting = null;
+        store.phoneLog("● 퍼레 음성: 맡은 일 끝 · " + line);
+        generation++; closeEar(); stopOver();
+        lateLine = line; lateGo = jobGo;
+        turns.add(new String[]{"assistant", line});
+        say(line);
+    }
     // ── what the talk taught (준: "퍼레의 학습기능 … 강화해줘"): learned once from the whole of it, not a request a turn ──
     /** A turn of the talk: {role, text}, with "g" when the voice was a guest's (never learned from). */
     static String[] talkTurn(String role, String text, boolean guest) { return guest ? new String[]{role, text, "g"} : new String[]{role, text}; }
@@ -1417,6 +1468,8 @@ final class BuddyVoice {
     static void flushLearning() { BuddyVoice t = current; if (t != null) t.learn(); }
     private void end(String state, String words) {
         learn();
+        dev.jun.gyeot.core.BuddyJobs.unlisten(jobs); jobLine = "";
+        if (jobWaiting != null) { dev.jun.gyeot.core.BuddyJobs.unclaim(jobWaiting); jobWaiting = null; }
         on = false; generation++; todo = null; confirming = null; confirmAsk = ""; held = null; meant = null; pendingAsk = null; endedAt = android.os.SystemClock.elapsedRealtime(); stopOver(); stopPipe(); saying = false; lastSound = null; lastLine = ""; toneSaid = "";
         for (Cue c : new ArrayList<>(cues.values())) c.let();
         if (store.buddyTalking) { store.buddyTalking = false; store.changed(); }
