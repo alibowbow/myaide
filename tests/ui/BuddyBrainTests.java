@@ -722,7 +722,7 @@ public class BuddyBrainTests {
         assertEquals("not again within three hours", "", dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 60_000, new java.util.Random(3)));
         assertEquals("not again within three hours", "", dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 2 * 3_600_000L, new java.util.Random(3)));
         for (int i = 0; i < 20; i++) assertNotEquals("not the same one within three days", q, dev.jun.gyeot.core.BuddyMind.curious(known, asked, now + 4 * 3_600_000L, new java.util.Random(i)));
-        assertFalse("no question topics", dev.jun.gyeot.core.BuddyMind.TOPICS.toString().matches(".*(질문|퀴즈|수수께끼).*"));
+        assertFalse("no question or fact topics", dev.jun.gyeot.core.BuddyMind.TOPICS.toString().matches(".*(질문|퀴즈|수수께끼|상식).*"));
     }
     /**
      * 퍼레's own world and heart (준: "최애 장난감은 변할 수 있어", "그건 퍼레의 감정에 의해 결정되는거라", "자유도가 무한인 상호작용"):

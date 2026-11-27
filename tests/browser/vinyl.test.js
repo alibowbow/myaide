@@ -455,6 +455,28 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       assert.deepStrictEqual(await frame.evaluate(() => [__gy.audio.playbackRate, __lp.speed]), [1, 1]);
       assert.strictEqual(await knobY(frame), 0);
     });
+    // 준, 2026-11-27: "볼륨 돌리는게 조작이 이상해": it went by how far the finger moved up and right, so going round it clockwise on
+    // its right half turned it down. Now it turns with the finger going round its middle: clockwise up, the pointer under the finger.
+    await check('the volume knob turns as the finger goes round it: clockwise up (the right half too), back the other way down; a wobble in the middle does nothing', async () => {
+      await frame.locator('#knob').scrollIntoViewIfNeeded();
+      await frame.focus('#knob'); await page.keyboard.press('Home');
+      const turn = async (from, to, r = 0.4) => {
+        const b = await frame.locator('#knob').boundingBox(), cx = b.x + b.width / 2, cy = b.y + b.height / 2, R = b.width * r;
+        const at = deg => [cx + R * Math.cos(deg * Math.PI / 180), cy + R * Math.sin(deg * Math.PI / 180)];
+        await page.mouse.move(...at(from)); await page.mouse.down();
+        for (let i = 1; i <= 18; i++) await page.mouse.move(...at(from + (to - from) * i / 18));
+        await page.mouse.up();
+        return frame.evaluate(() => +document.getElementById('knob').getAttribute('aria-valuenow'));
+      };
+      const up = await turn(-90, 90);                          // the top, round the right, to the bottom: clockwise half a turn
+      assert(up >= 64 && up <= 69, 'clockwise on the right half turns it up by 180/270: ' + up);
+      const ptr = await frame.evaluate(() => getComputedStyle(document.getElementById('pointer')).transform);
+      assert(ptr && ptr !== 'none', 'the pointer turned');
+      const back = await turn(270, 180);                       // the top, round the left, a quarter back: down by 90/270
+      assert(Math.abs(back - (up - 33)) <= 2, 'counterclockwise turns it down: ' + up + ' → ' + back);
+      const still = await turn(0, 180, 0.08);                  // round the very middle (where the angle jumps): nothing
+      assert.strictEqual(still, back, 'a wobble in the middle');
+    });
     await check('CUE: a tap lifts the arm off the playing record (the sound stops, the platter turns on, the lever up); a tap lowers it and it plays on from there; start · stop under it stops the motor', async () => {
       await until(frame, () => __lp.playing && !__lp.busy && !__gy.audio.paused, null, 8000, 'playing');
       await frame.locator('.gy-cue').tap();
