@@ -37,8 +37,16 @@ public final class NimProtocol {
     /** MODEL, or a newer Nemotron NVIDIA has listed since. */
     public static boolean listed(String model) { return MODEL.equals(model) || found(model) != null; }
     public static boolean supported(String model) { return listed(model) || RETIRED.contains(model); }
+    /**
+     * The quick model the app itself sends for 퍼레's short answers (BuddyPrompt.NIM_MODEL): sent as it is, never offered to
+     * choose. 퍼레 자동 점검 (2026-11-27) found every NimClient request with it refused here before it left ("NVIDIA NIM에서는
+     * Nemotron Ultra를 사용해요"): ModelWatch lists only the ultra and super lines, so 퍼레's lines and the voice talk's text form
+     * never reached NVIDIA when it was the brain.
+     */
+    public static final Set<String> QUICK = Set.of("nvidia/nemotron-3.5-bolt-e4b");
     /** The id a request sends: the model itself, or MODEL for a retired id saved earlier. */
     public static String model(String model) {
+        if (QUICK.contains(model)) return model;
         if (!supported(model)) throw new IllegalArgumentException("NVIDIA NIM에서는 " + LABEL + "를 사용해요.");
         return listed(model) ? model : MODEL;
     }
