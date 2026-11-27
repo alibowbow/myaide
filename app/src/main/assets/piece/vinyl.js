@@ -392,7 +392,7 @@
 
   /* ── for the three.js deck ── */
   const labelKey = () => { const i = L.albumIdx; if (i !== 3) return 'lab' + i; const T = current(); return 'lab3:' + (T ? T.id + ':' + (T.art ? 1 : 0) : ''); };
-  let reported = false;
+  const reported = {}, toReport = {};
   window.__gy = {
     version: 1, lp: L,
     onFrame(fn) { frameFns.add(fn); return () => frameFns.delete(fn); },
@@ -412,11 +412,14 @@
       return { album: L.albumIdx, rOut: L.R_OUT, rIn: L.R_IN, mine: A === MINE,
         tracks: A.tracks.map((T, k) => ({ r0: r(A.starts[k]), r1: r(A.starts[k] + L.trackDur(A, T)), title: T.title })) };
     },
-    /** The deck's frame times, sent once to the app's diagnostic report. */
+    /** The deck's frame times, and why the CSS deck took over if it did: each sent once to the app's diagnostic report (when the app is there). */
     report(s) {
-      if (reported || !host || !s) return; reported = true;
+      const kind = s && s.css ? 'css' : 'stats';
+      if (!s || reported[kind]) return;
+      if (!host) { toReport[kind] = toReport[kind] || s; return; }
+      reported[kind] = true;
       const p = new URLSearchParams();
-      for (const k of ['avg', 'p95', 'fps', 'pr', 'w', 'h']) if (s[k] != null && isFinite(s[k])) p.set(k, String(Math.round(s[k] * 100) / 100));
+      for (const k of ['avg', 'p95', 'fps', 'pr', 'w', 'h', 'dc', 'tri', 'gpu']) if (s[k] != null && isFinite(s[k])) p.set(k, String(Math.round(s[k] * 100) / 100));
       if (s.css) p.set('css', String(s.css).toLowerCase().replace(/[^a-z0-9 _-]/g, '').slice(0, 40));
       fetch(q('/__gyeot/deck/stats?' + p.toString()), { cache: 'no-store' }).catch(() => {});
     },
@@ -431,6 +434,7 @@
   if (KEY) {
     fetch(q('/__gyeot/music/list.json'), { cache: 'no-store' }).then(r => r.ok ? r.json() : Promise.reject(r.status)).then(j => {
       host = true; applyList(j); if (!ALBUMS.includes(MINE)) ALBUMS.push(MINE); sleeve(); label();
+      for (const k in toReport) window.__gy.report(toReport[k]);
     }, () => { /* opened outside the app: the three records only */ });
   }
   dispatchEvent(new Event('gy:ready'));

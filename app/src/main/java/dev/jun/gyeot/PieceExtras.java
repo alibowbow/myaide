@@ -31,7 +31,8 @@ import java.util.function.Consumer;
  * other request of a piece goes on to HtmlWallpaper.tuned (the fixed pieces).
  *
  *   /__gyeot/lib/three.module.js            three.js 0.170.0 (assets/piece, MIT)
- *   /__gyeot/addon/vinyl.css|vinyl.js|deck3d.js
+ *   /__gyeot/addon/vinyl.css|vinyl.js|deck3d.js   the add-on (assets/piece)
+ *   /__gyeot/addon/walnut-col|nor|rgh.jpg  the 3D deck's walnut (a Poly Haven scan, CC0, graded to walnut)
  *   /__gyeot/music/list.json?k=             the list: titles and lengths, never a file's address
  *   /__gyeot/music/pick?k=&kind=files|folder  Android's picker (MusicPickActivity), answered at once {pending, rev, via}
  *   /__gyeot/music/<id>?k=                  the file's bytes, with Range (seeking)
@@ -49,7 +50,7 @@ final class PieceExtras {
     private static final String KEY = newKey();
     /** The pages allowed to use 내 음악 (a Referer from anywhere else is refused). */
     private static final String LP = "/Claude-Opus-5.5-100-HTML-Files/057-vinyl-listening-room.html";
-    private static volatile boolean statsNoted;
+    private static volatile boolean statsNoted, cssNoted;
 
     private static String newKey() {
         byte[] b = new byte[16]; new SecureRandom().nextBytes(b);
@@ -76,6 +77,7 @@ final class PieceExtras {
             String name = path.substring(6);
             return asset(c, "piece/" + name, name.endsWith(".css") ? "text/css" : "text/javascript");
         }
+        if (path.matches("addon/walnut-(col|nor|rgh)\\.jpg")) return asset(c, "piece/" + path.substring(6), "image/jpeg");
         if (!path.startsWith("music/") && !path.startsWith("deck/")) return status(404, "Not Found");
         if (!allowed(r, u)) return status(403, "Forbidden");
         PieceMusicStore store = PieceMusicStore.of(c);
@@ -206,16 +208,23 @@ final class PieceExtras {
         @Override public void close() throws IOException { in.close(); }
     }
 
-    /** The deck's frame times from the phone, noted once a run ("LP 3D 평균 9.8ms p95 14ms 30fps ×2.0 768×600"). */
+    /** The deck's frame times from the phone, and why the CSS deck took over if it did: each noted once a run (statsLine). */
     private static WebResourceResponse stats(Context c, Uri u) {
-        if (!statsNoted) {
-            statsNoted = true;
-            String line = "LP 3D 평균 " + num(u, "avg") + "ms p95 " + num(u, "p95") + "ms " + num(u, "fps") + "fps ×" + num(u, "pr") + " " + num(u, "w") + "×" + num(u, "h");
-            String why = u.getQueryParameter("css");
-            if (why != null && why.matches("[a-z0-9 _-]{1,40}")) line += " · CSS 덱으로: " + why;
-            DiagnosticsExport.record(c, "other", line);
+        boolean css = u.getQueryParameter("css") != null;
+        if (css ? !cssNoted : !statsNoted) {
+            if (css) cssNoted = true; else statsNoted = true;
+            DiagnosticsExport.record(c, "other", statsLine(u));
         }
         return new WebResourceResponse("text/plain", "utf-8", 204, "No Content", Map.of(), new ByteArrayInputStream(new byte[0]));
+    }
+    /** "LP 3D 평균 9.8ms p95 14ms 30fps ×2 768×600 그리기 16번 삼각형 17880개", and why the CSS deck took over when it did. */
+    static String statsLine(Uri u) {
+        String line = "LP 3D 평균 " + num(u, "avg") + "ms p95 " + num(u, "p95") + "ms " + num(u, "fps") + "fps ×" + num(u, "pr") + " " + num(u, "w") + "×" + num(u, "h");
+        if (u.getQueryParameter("dc") != null) line += " 그리기 " + num(u, "dc") + "번 삼각형 " + num(u, "tri") + "개";
+        if (u.getQueryParameter("gpu") != null) line += " GPU " + num(u, "gpu") + "ms";
+        String why = u.getQueryParameter("css");
+        if (why != null && why.matches("[a-z0-9 _-]{1,40}")) line += " · CSS 덱으로: " + why;
+        return line;
     }
     private static String num(Uri u, String name) {
         String v = u.getQueryParameter(name);
@@ -223,7 +232,7 @@ final class PieceExtras {
     }
 
     private static WebResourceResponse asset(Context c, String name, String mime) {
-        try { return new WebResourceResponse(mime, "utf-8", 200, "OK", Map.of("Cache-Control", "no-cache"), c.getAssets().open(name)); }
+        try { return new WebResourceResponse(mime, mime.startsWith("text/") ? "utf-8" : null, 200, "OK", Map.of("Cache-Control", "no-cache"), c.getAssets().open(name)); }
         catch (IOException gone) { return status(404, "Not Found"); }
     }
     private static WebResourceResponse json(String body) {

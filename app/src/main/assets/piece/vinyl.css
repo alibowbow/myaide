@@ -84,3 +84,9 @@
 .art.a3.pic{background-size:cover;background-position:center}
 body.gy-mine .tracks li:nth-child(n+41){display:none}
 @media (prefers-reduced-motion:reduce){#gySheet{animation:none}}
+
+/* The three.js deck (deck3d.js): one canvas over the plinth, under the buttons; once it has drawn, the CSS deck's parts hide
+   (the slot's animation keeps running: the 3D record follows it). Without it, nothing here applies. */
+.deck>canvas.gy-deck{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;border-radius:2.8%/3.6%;visibility:hidden}
+.deck.gy3d>canvas.gy-deck{visibility:visible}
+.deck.gy3d>svg.plinth,.deck.gy3d>.platter,.deck.gy3d>.slot,.deck.gy3d>.specular,.deck.gy3d>.spindle,.deck.gy3d>svg.arm{visibility:hidden}

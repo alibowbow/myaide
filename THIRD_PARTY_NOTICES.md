@@ -13,6 +13,7 @@ The APK includes the following exact-version libraries. Full license notices are
 | Hermes Agent (xAI OAuth protocol adaptation) | db1fa153fe24a051af44ef8ee862b93e27998060 | MIT | https://github.com/NousResearch/hermes-agent |
 | ima2-gen (Codex OAuth protocol adaptation) | bc58b964cc7f40223d7ebda8e9f6446da688973b | MIT | https://github.com/lidge-ai/ima2-gen |
 | three.js (the LP page's 3D turntable, `assets/piece/three-0.170.0.module.min.js`, unmodified; license in `assets/legal/THREE-LICENSE.txt`) | 0.170.0 | MIT | https://github.com/mrdoob/three.js/tree/r170 |
+| Poly Haven "Dark Wood" scan (the LP page's walnut plinth, `assets/piece/walnut-col.jpg`, `walnut-nor.jpg`, `walnut-rgh.jpg`: the 1k colour graded to walnut and cropped, its normal and roughness cropped) | 1k | CC0 1.0 | https://polyhaven.com/a/dark_wood |
 
 JSON-java 20250107 is downloaded only for host-side verification. The APK uses Android's built-in `org.json` implementation; JSON-java is not packaged.
 

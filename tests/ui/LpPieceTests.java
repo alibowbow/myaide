@@ -212,6 +212,13 @@ public class LpPieceTests {
         WebResourceResponse three = serve(req("GET", "https://miaai-lab.github.io/__gyeot/lib/three.module.js", Map.of()));
         assertEquals(200, three.getStatusCode()); assertTrue(new String(read(three), 0, 120, StandardCharsets.UTF_8).contains("Three.js Authors"));
         assertEquals("only the add-on's own names", 404, serve(req("GET", "https://miaai-lab.github.io/__gyeot/addon/other.js", Map.of())).getStatusCode());
+        // The 3D deck's walnut: three pictures, JPEG
+        for (String w : new String[] { "col", "nor", "rgh" }) {
+            WebResourceResponse jpg = serve(req("GET", "https://miaai-lab.github.io/__gyeot/addon/walnut-" + w + ".jpg", Map.of()));
+            assertEquals(200, jpg.getStatusCode()); assertEquals("image/jpeg", jpg.getMimeType());
+            byte[] b = read(jpg); assertTrue("a JPEG", b.length > 1000 && (b[0] & 0xff) == 0xff && (b[1] & 0xff) == 0xd8);
+        }
+        assertEquals(404, serve(req("GET", "https://miaai-lab.github.io/__gyeot/addon/walnut-x.jpg", Map.of())).getStatusCode());
         assertNull("another piece goes on to the web as before", serve(req("GET", "https://miaai-lab.github.io/Other/piece.html", Map.of())));
         assertNull(serve(req("GET", "https://example.com/__gyeot/music/list.json", Map.of())));
 
@@ -224,6 +231,9 @@ public class LpPieceTests {
         serve(get(k("music/pick?kind=../../x")));
         assertEquals("files", opened.get(1).getStringExtra(MusicPickActivity.KIND));
         assertEquals(204, serve(get(k("deck/stats?avg=9.8&p95=14&fps=30&pr=2&w=768&h=600"))).getStatusCode());
+        assertEquals("LP 3D 평균 9.8ms p95 14ms 30fps ×2 768×600 그리기 16번 삼각형 17880개",
+            PieceExtras.statsLine(Uri.parse("https://miaai-lab.github.io/__gyeot/deck/stats?avg=9.8&p95=14&fps=30&pr=2&w=768&h=600&dc=16&tri=17880")));
+        assertEquals("LP 3D 평균 ?ms p95 ?ms ?fps ×? ?×? · CSS 덱으로: no webgl2", PieceExtras.statsLine(Uri.parse("https://miaai-lab.github.io/__gyeot/deck/stats?css=no%20webgl2")));
         // Locked: nothing of the user's music on the lock screen's wallpaper, and no picker.
         shadowOf(app.getSystemService(android.app.KeyguardManager.class)).setKeyguardLocked(true);
         assertEquals(403, serve(get(k("music/list.json"))).getStatusCode());

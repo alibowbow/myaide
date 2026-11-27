@@ -11,6 +11,10 @@
   The piece is read from its site once into tests/browser/.cache (outside git: a piece is never copied into the app or the
   repository). Without a connection the checks are SKIPPED, said so plainly, and the run does not count as passed.
   The web view asks a tap before sound (setMediaPlaybackRequiresUserGesture): Chromium runs with the same rule.
+  The three.js deck (deck3d.js; 준: "디테일한 three js로 해줘", "플스4느낌", and "Three js로 가면 휴대폰 성능저하심하려나"): it draws in
+  place of the CSS deck, the record turns while playing and stops when paused, the arm is where the piece's arm is, it draws
+  nothing while nothing moves and at most 30 frames a second, and with WebGL off the piece's own deck is there. Chromium draws
+  WebGL here in software (SwiftShader): the frame time printed is this computer's, the draw calls and triangles the phone's.
   Run: node vinyl.test.js   (VINYL_SHOTS=<dir> also saves preview_list_closed.png and preview_list_open.png;
   VINYL_PLAIN=1 serves the piece with the noise fixes only, to see the checks fail without the add-on)
 */
@@ -80,8 +84,9 @@ const FRAME = '<!doctype html><html><head><meta name="viewport" content="width=d
   + '<body><iframe sandbox="allow-scripts allow-same-origin allow-pointer-lock allow-forms" allow="autoplay" src="' + PIECE + '"></iframe><div class="edge l"></div><div class="edge r"></div>'
   + '<div class="pager"><i></i><i></i><i class="on"></i></div><script>const f=document.querySelector("iframe");f.addEventListener("load",()=>f.contentWindow.postMessage({gyeot:"insets",top:24,bottom:24},new URL(f.src).origin));</script></body></html>';
 
-async function open(browser, page_html, shelf, calls) {
+async function open(browser, page_html, shelf, calls, deck) {
   const ctx = await browser.newContext({ viewport: { width: 412, height: 900 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+  await ctx.addInitScript(o => { window.__GY_DECK = o; }, deck || {});
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -93,8 +98,8 @@ async function open(browser, page_html, shelf, calls) {
     if (u.pathname === FIXES.path) return route.fulfill({ body: page_html, contentType: 'text/html; charset=utf-8' });
     const p = u.pathname;
     if (p === '/__gyeot/lib/three.module.js') return route.fulfill({ body: fs.readFileSync(path.join(ASSETS, 'three-0.170.0.module.min.js')), contentType: 'text/javascript' });
-    let m = p.match(/^\/__gyeot\/addon\/(vinyl\.css|vinyl\.js|deck3d\.js)$/);
-    if (m) return route.fulfill({ body: fs.readFileSync(path.join(ASSETS, m[1])), contentType: m[1].endsWith('.css') ? 'text/css' : 'text/javascript' });
+    let m = p.match(/^\/__gyeot\/addon\/(vinyl\.css|vinyl\.js|deck3d\.js|walnut-(?:col|nor|rgh)\.jpg)$/);
+    if (m) return route.fulfill({ body: fs.readFileSync(path.join(ASSETS, m[1])), contentType: m[1].endsWith('.css') ? 'text/css' : m[1].endsWith('.jpg') ? 'image/jpeg' : 'text/javascript' });
     if (!p.startsWith('/__gyeot/')) return route.fulfill({ status: 404, body: '' });
     if (u.searchParams.get('k') !== KEY) return route.fulfill({ status: 403, body: '' });
     const json = o => route.fulfill({ body: JSON.stringify(o), contentType: 'application/json', headers: { 'Cache-Control': 'no-store' } });
@@ -106,7 +111,7 @@ async function open(browser, page_html, shelf, calls) {
       setTimeout(() => { shelf.items = ITEMS.slice(); shelf.rev++; shelf.pick = 'done'; }, 700);
       return json({ pending: true, rev: shelf.rev, via: 'app' });
     }
-    if (p === '/__gyeot/deck/stats') return route.fulfill({ status: 204, body: '' });
+    if (p === '/__gyeot/deck/stats') { (calls.stats = calls.stats || []).push(Object.fromEntries(u.searchParams)); return route.fulfill({ status: 204, body: '' }); }
     m = p.match(/^\/__gyeot\/music\/([0-9a-f]{12})(\/art|\/remove)?$/);
     if (!m) return route.fulfill({ status: 404, body: '' });
     if (r.method() === 'DELETE' || m[2] === '/remove') { calls.del.push(m[1]); shelf.items = shelf.items.filter(t => t.id !== m[1]); shelf.rev++; return json(list()); }
@@ -147,7 +152,9 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
 
   const browser = await chromium.launch({ args: ['--autoplay-policy=user-gesture-required'] });
   const shelf = { rev: 1, items: [], pick: '' }, calls = { list: 0, pick: [], media: [], del: [] };
-  const { page, ctx, frame, errors } = await open(browser, html, shelf, calls);
+  // The list and 내 음악 with the 3D deck off: software WebGL here is far slower than a phone's GPU, and its frames would slow
+  // the piece (whose clock takes at most 0.1 s a frame, and whose VU needles are stepped by the frame). The deck is checked after.
+  const { page, ctx, frame, errors } = await open(browser, html, shelf, calls, { off: true });
   try {
     await check('the add-on is on the page: its bar, and 내 음악\'s sleeve once the app has answered', async () => {
       await until(frame, () => !!document.getElementById('gyBar') && document.querySelector('.sleeve[data-album="3"]'), null, 10000, 'the add-on and 내 음악\'s sleeve');
@@ -228,9 +235,9 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       assert(Math.abs(mineDb - synthDb) <= 2.5, 'the file as loud as the records: ' + mineDb.toFixed(1) + ' vs ' + synthDb.toFixed(1) + ' dB');
       assert(mean > 8 && mean < 34, 'the VU needle near 0 VU (20.8°): ' + needles.map(x => x.toFixed(0)).join(' '));
       await frame.waitForTimeout(1500);
-      const a1 = await armAngle(frame), t1 = await frame.locator('#tEl').textContent();
+      const a1 = await armAngle(frame), t1 = await frame.locator('#tEl').textContent(), k1 = await frame.evaluate(() => __lp.trackIdx);
       assert(Math.abs(a1 - a0) > 0.05, 'the arm moves in with the music: ' + a0 + ' → ' + a1);
-      assert.notStrictEqual(t1, t0, 'the clock runs: ' + t0 + ' → ' + t1);
+      assert(t1 !== t0 || k1 !== 0, 'the clock runs (or the file has ended and the next one begun): ' + t0 + ' → ' + t1 + ', track ' + k1);
     });
     await check('at the end of a file the next one starts (from its beginning), and ⏮ goes back', async () => {
       await until(frame, () => __lp.trackIdx === 1 && __lp.playing && !__gy.audio.paused && __gy.audio.currentTime > 0.2, null, 12000, 'A2 after A1');
@@ -298,6 +305,110 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       assert.deepStrictEqual(errs, []);
     });
   } finally { await alone.close(); await browser.close(); }
+  // The three.js deck, on its own page: drawn at one device pixel per CSS pixel and never stepping down to the CSS deck
+  // here (software WebGL), as the phone draws it otherwise.
+  const b3 = await chromium.launch({ args: ['--autoplay-policy=user-gesture-required'] });
+  try {
+    const shelf3 = { rev: 1, items: [], pick: '' }, calls3 = { list: 0, pick: [], media: [], del: [] };
+    const { ctx, frame, errors } = await open(b3, html, shelf3, calls3, { adapt: false, pr: 1 });
+    await until(frame, () => !!document.getElementById('gyBar'), null, 20000, 'the add-on');
+    await check('the three.js deck draws in place of the CSS deck: walnut, the record, the arm; the CSS deck\'s parts hidden, its buttons still there', async () => {
+      await until(frame, () => window.__gyDeck && (__gyDeck.ready || __gyDeck.css), null, 60000, 'the 3D deck');
+      const d = await frame.evaluate(() => {
+        const deck = document.getElementById('deck'), cv = deck.querySelector('canvas.gy-deck'), r = cv && cv.getBoundingClientRect(), b = deck.getBoundingClientRect();
+        const vis = s => getComputedStyle(deck.querySelector(s)).visibility;
+        // the plinth's wood (left of the platter), the vinyl (between the label and the edge), the label, the arm rest's post
+        const k = b.width / 1000, at = (x, y) => [x * k, y * 780 / 780 * k];
+        return { ready: __gyDeck.ready, css: __gyDeck.css, cls: deck.classList.contains('gy3d'), canvas: r && [r.width, r.height], deck: [b.width, b.height],
+          plinth: vis('svg.plinth'), slot: vis('.slot'), arm: vis('svg.arm'), button: vis('.startstop'), hit: vis('.hit'),
+          px: __gyDeck.probe([at(30, 390), at(200, 390), at(400, 330), at(873, 561), at(940, 700)]), stats: __gyDeck.stats() };
+      });
+      assert(d.ready && !d.css, 'drawn: ' + d.css);
+      assert(d.cls, 'the deck shows the 3D one');
+      assert.deepStrictEqual(d.canvas, d.deck, 'one canvas, the deck\'s size');
+      assert.deepStrictEqual([d.plinth, d.slot, d.arm], ['hidden', 'hidden', 'hidden'], 'the CSS deck\'s parts hidden');
+      assert.deepStrictEqual([d.button, d.hit], ['visible', 'visible'], 'its buttons still there to press');
+      const [wood, vinyl, label, , wood2] = d.px, lum = p => 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+      for (const w of [wood, wood2]) assert(w[0] > w[2] + 12 && lum(w) > 25 && lum(w) < 200, 'walnut (warm, lit): ' + w);
+      assert(lum(vinyl) < 40, 'the vinyl black: ' + vinyl);
+      assert(label[1] > label[0] && label[1] > label[2], 'the green label: ' + label);
+      assert(d.px.every(p => p[3] === 255), 'opaque');
+      console.log('     ready in ' + d.stats.prep.first + ' ms (pictures ' + d.stats.prep.pictures + ', light ' + (d.stats.prep.pmrem - d.stats.prep.pictures) + ', shaders ' + (d.stats.prep.shaders - d.stats.prep.pmrem) + ', bake ' + d.stats.prep.lastBake + '); ' + d.stats.w + '×' + d.stats.h + ' ×' + d.stats.pr);
+    });
+    await check('a still deck is not drawn again (one frame stays on the canvas)', async () => {
+      const n0 = await frame.evaluate(() => __gyDeck.draws);
+      await frame.waitForTimeout(1500);
+      const n1 = await frame.evaluate(() => __gyDeck.draws);
+      assert.strictEqual(n1, n0, 'frames drawn while nothing moved: ' + (n1 - n0));
+    });
+    await check('3D, playing: the record turns, the arm is where the piece\'s arm is (within 2 px), at most 30 frames a second', async () => {
+      await frame.locator('#recHit').tap();                // the record pressed: it plays
+      await until(frame, () => __lp.playing && __lp.omega > 150, null, 20000, 'playing, the platter up to speed');
+      const k = await frame.evaluate(() => document.getElementById('deck').getBoundingClientRect().width / 1000);
+      // the label's lettering (its arcs at r 73 and 84): the same points on the canvas, a quarter of a turn or so apart
+      const ring = [...Array(48)].map((_, i) => { const r = i % 2 ? 73 : 84, a = i / 48 * 6.2832; return [(400 + r * Math.cos(a)) * k, (390 + r * Math.sin(a)) * k]; });
+      const p0 = await frame.evaluate(r => ({ px: __gyDeck.probe(r), spin: __lp.spin, n: __gyDeck.draws, t: performance.now() }), ring);
+      await until(frame, s0 => { const d = ((__lp.spin - s0) % 360 + 360) % 360; return d > 40 && d < 320; }, p0.spin, 4000, 'the record a little further round');
+      const q = await frame.evaluate(r => ({ px: __gyDeck.probe(r), spin: __lp.spin }), ring);
+      const moved = p0.px.reduce((s, a, i) => s + Math.abs(a[0] - q.px[i][0]) + Math.abs(a[1] - q.px[i][1]) + Math.abs(a[2] - q.px[i][2]), 0) / ring.length;
+      assert(moved > 6, 'the label turned on the canvas (mean change ' + moved.toFixed(1) + ' over ' + (q.spin - p0.spin).toFixed(0) + '°)');
+      await frame.waitForTimeout(2000);
+      const p1 = await frame.evaluate(() => ({ n: __gyDeck.draws, t: performance.now() }));
+      const n = p1.n - p0.n, s = (p1.t - p0.t) / 1000;
+      assert(n >= 2, 'drawn while turning: ' + n);
+      assert(n <= Math.ceil(s * 30) + 2, 'at most 30 a second: ' + n + ' in ' + s.toFixed(2) + ' s');
+      const st = await frame.evaluate(() => __gyDeck.stylus());
+      const off = Math.hypot(st.x - st.css.x, st.y - st.css.y);
+      assert(off <= 2, 'the stylus ' + off.toFixed(2) + ' px from the piece\'s: ' + JSON.stringify(st));
+      const b = await frame.evaluate(() => ({ ms: __gyDeck.bench(6), s: __gyDeck.stats() }));
+      console.log('     one frame here (software WebGL): ' + b.ms.toFixed(1) + ' ms, while playing ' + b.s.fps + ' fps; ' + b.s.calls + ' draw calls, ' + b.s.triangles + ' triangles, '
+        + b.s.programs + ' programs, ' + b.s.w + '×' + b.s.h + ' ×' + b.s.pr + '; drew ' + n + ' frames in ' + s.toFixed(1) + ' s');
+    });
+    await check('3D, paused: the platter runs down and the drawing stops', async () => {
+      await frame.locator('#gyBar .gy-play').tap();
+      await until(frame, () => !__lp.playing && !__lp.busy && __lp.omega === 0 && !__lp.tweening, null, 25000, 'the platter stopped');
+      await frame.waitForTimeout(300);
+      const a = await frame.evaluate(() => ({ n: __gyDeck.draws, spin: __lp.spin }));
+      await frame.waitForTimeout(1500);
+      const b = await frame.evaluate(() => ({ n: __gyDeck.draws, spin: __lp.spin }));
+      assert.strictEqual(b.spin, a.spin, 'the record stopped');
+      assert.strictEqual(b.n, a.n, 'no frames while it stands');
+      const st = await frame.evaluate(() => __gyDeck.stylus());
+      assert(Math.hypot(st.x - st.css.x, st.y - st.css.y) <= 2, 'the arm back on its rest with the piece\'s: ' + JSON.stringify(st));
+    });
+    await check('3D, another record: the record flies out and in with the piece\'s own animation, the new label and rings come home', async () => {
+      frame.evaluate(() => __lp.changeAlbum(2));               // (as its sleeve in the crate does; the crate is below the fold)
+      await until(frame, () => !__gyDeck.state().home, null, 15000, 'the record off the platter');
+      const away = await frame.evaluate(() => __gyDeck.state());
+      await until(frame, () => __lp.albumIdx === 2 && !__lp.busy && __gyDeck.state().home && __gyDeck.state().label === 'lab2' && !__gyDeck.state().needB, null, 30000, 'the new record home, its label and rings drawn');
+      const k = await frame.evaluate(() => document.getElementById('deck').getBoundingClientRect().width / 1000);
+      const px = await frame.evaluate(p => __gyDeck.probe(p), [...Array(16)].map((_, i) => [(400 + 30 * Math.cos(i / 16 * 6.2832)) * k, (390 + 30 * Math.sin(i / 16 * 6.2832)) * k]));
+      const blue = px.map(p => p[2] - p[0]).sort((a, b) => a - b)[8];
+      assert(blue > 6, 'the navy Brass Constellations label (blue over red, the median of 16 points: ' + blue + ')');
+      assert.strictEqual(away.home, false);
+    });
+    await check('3D: no script error', async () => assert.deepStrictEqual(errors, []));
+    await ctx.close();
+  } finally { await b3.close(); }
+  // WebGL off: the piece's own CSS deck, as before.
+  const plain = await chromium.launch({ args: ['--disable-webgl', '--disable-3d-apis'] });
+  try {
+    const shelf2 = { rev: 1, items: [], pick: '' }, calls2 = { list: 0, pick: [], media: [], del: [] };
+    const o = await open(plain, html, shelf2, calls2);
+    await check('without WebGL the piece\'s own deck shows (the 3D one says why, the app hears it once)', async () => {
+      await until(o.frame, () => window.__gyDeck && window.__gyDeck.css, null, 15000, 'the deck giving up');
+      const d = await o.frame.evaluate(() => { const deck = document.getElementById('deck');
+        return { css: __gyDeck.css, cls: deck.classList.contains('gy3d'), canvas: !!deck.querySelector('canvas.gy-deck'), plinth: getComputedStyle(deck.querySelector('svg.plinth')).visibility,
+          arm: getComputedStyle(deck.querySelector('svg.arm')).visibility }; });
+      assert.strictEqual(d.css, 'no webgl2'); assert.strictEqual(d.cls, false); assert.strictEqual(d.canvas, false);
+      assert.deepStrictEqual([d.plinth, d.arm], ['visible', 'visible']);
+      assert.deepStrictEqual(o.errors, []);
+      await until(o.frame, () => true, null, 1000);
+      await o.frame.waitForTimeout(800);
+      assert.deepStrictEqual((calls2.stats || []).map(q => q.css), ['no webgl2'], 'the app is told once why');
+    });
+    await o.ctx.close();
+  } finally { await plain.close(); }
   console.log(failed ? failed + ' failed, ' + passed + ' passed' : 'all ' + passed + ' passed');
   process.exit(failed ? 1 : 0);
 })();
