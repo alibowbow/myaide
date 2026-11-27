@@ -143,6 +143,26 @@ public class LabScreenTests {
         shadowOf(Looper.getMainLooper()).idle();
         shot(b, "wide-intro");
     }
+    /** 준: "접었을때 아이콘이 똑같아서 뭔지 알 수가 없어": folded, each research shows the first letters of its title, not one flask for all. */
+    @Test @Config(qualifiers="w900dp-h700dp-land-night-hdpi") public void foldedListTellsResearchApart() throws Exception {
+        Application app = RuntimeEnvironment.getApplication();
+        String id = seed(app);
+        LabBook book = new LabBook(new File(app.getFilesDir(), "lab"));
+        book.create("복시, 축농증", "10년 된 복시와 축농증", "bio");
+        ((GyeotApp) app).store().settings.edit().putBoolean("labListFolded", true).apply();
+        Activity a = Robolectric.buildActivity(LabActivity.class, new Intent(app, LabActivity.class).putExtra(LabActivity.OPEN, id)).setup().get();
+        shadowOf(Looper.getMainLooper()).idle();
+        java.util.List<String> marks = new java.util.ArrayList<>();
+        collect(a.getWindow().getDecorView(), v -> v instanceof TextView t && t.getWidth() > 0 && t.getWidth() <= Math.round(48 * a.getResources().getDisplayMetrics().density) && t.getText().length() <= 2 && t.getText().length() > 0, v -> marks.add(((TextView) v).getText().toString()));
+        assertTrue("each research by its letters: " + marks, marks.containsAll(java.util.List.of("리만", "CR", "복시")));
+        assertEquals("복시", LabActivity.initials("복시, 축농증")); assertEquals("Pr", LabActivity.initials("prime gaps")); assertEquals("연구", LabActivity.initials("  ·  "));
+        shot(a, "wide-folded");
+        ((GyeotApp) app).store().settings.edit().putBoolean("labListFolded", false).apply();
+    }
+    private static void collect(View v, java.util.function.Predicate<View> want, java.util.function.Consumer<View> got) {
+        if (want.test(v)) got.accept(v);
+        if (v instanceof android.view.ViewGroup g) for (int i = 0; i < g.getChildCount(); i++) collect(g.getChildAt(i), want, got);
+    }
     /** 준: "새로운 연구, 실험을 하고 새로운 논문도", "가설 제시 부터 결론도출까지": ideas, 사전 등록, 판정, 동료 심사 and the paper as a page with its figure. */
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void paperPipeline() throws Exception {
         Application app = RuntimeEnvironment.getApplication();

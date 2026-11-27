@@ -154,6 +154,25 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
         return tile;
     }
 
+    /**
+     * A research in the folded list (준: "접었을때 아이콘이 똑같아서 뭔지 알 수가 없어": two 생명·의학 ones were the same flask): the
+     * first two letters of its title on its field's color, as a chat app shows a group.
+     */
+    private View initialTile(LabBook.Project p, int size) {
+        TextView tile = ui.text(initials(p.title()), size >= 40 ? 14 : 12, 750, fieldHue(p.field()) | 0xff000000);
+        tile.setGravity(Gravity.CENTER); tile.setSingleLine(true); tile.setIncludeFontPadding(false);
+        tile.setBackground(ui.shape(ui.tone(fieldHue(p.field())), Math.max(10, size / 4))); tile.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        return tile;
+    }
+    /** The first two letters of a title (복시, 축농증 → 복시; Prime gaps → Pr), or "연구" when it has none. */
+    static String initials(String title) {
+        String letters = (title == null ? "" : title).replaceAll("[^\\p{L}\\p{N}]", "");
+        if (letters.isEmpty()) return "연구";
+        int end = letters.offsetByCodePoints(0, Math.min(2, letters.codePointCount(0, letters.length())));
+        String two = letters.substring(0, end);
+        return two.substring(0, 1).toUpperCase(java.util.Locale.ROOT) + two.substring(1);
+    }
+
     // ── the layout ───────────────────────────────────────────────────
 
     private void draw() {
@@ -208,7 +227,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
             for (LabBook.Project p : projects) {
                 FrameLayout cell = new FrameLayout(this); cell.setPadding(ui.dp(3), ui.dp(3), ui.dp(3), ui.dp(3));
                 if (p.id().equals(openId)) cell.setBackground(ui.shape(FILL, 14));
-                View tile = fieldTile(p, 40); cell.addView(tile, new FrameLayout.LayoutParams(ui.dp(40), ui.dp(40)));
+                View tile = initialTile(p, 40); cell.addView(tile, new FrameLayout.LayoutParams(ui.dp(40), ui.dp(40)));
                 if (runner.busy(p.id())) cell.addView(dot(ACCENT), corner());
                 cell.setOnClickListener(v -> open(p.id())); cell.setContentDescription(p.title()); cell.setTooltipText(p.title()); Ui.pressable(cell, true);
                 LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(ui.dp(46), ui.dp(46)); at.topMargin = ui.dp(4); at.bottomMargin = ui.dp(4);
