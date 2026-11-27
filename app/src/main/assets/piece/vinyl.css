@@ -113,6 +113,14 @@ html{font-synthesis:weight;font-synthesis-style:none}
 .deck>.gy-pitch{cursor:ns-resize}
 .deck>svg.gy-art{pointer-events:none}
 .deck.gy3d>svg.gy-art{visibility:hidden}
+/* The hand on the deck (vinyl.js): a strip along the tonearm to pick it up, the record itself to hold back or turn */
+.deck>.gy-armhit{z-index:3;transform-origin:0 50%;cursor:grab;border-radius:0}
+.deck>.gy-armhit:active{cursor:grabbing}
+.deck>.hit{touch-action:none}
+/* the gaps between the tracks as lighter, smoother lands (vinyl.js draws them where each track starts) in place of the piece's
+   own dark bands */
+#record{--g1:-9%!important;--g2:-9%!important}
+#record>.gy-lands{position:absolute;inset:0;border-radius:50%;pointer-events:none}
 
 /* 내 음악 in the crate: a fourth sleeve (a record peeking from a walnut sleeve), and its cover in the liner notes */
 .sleeves.gy-four{grid-template-columns:repeat(4,1fr);max-width:470px}
