@@ -62,7 +62,7 @@ final class WorkSchedulesUi {
     // ── List ────────────────────────────────────────────────────────────────
 
     void show() {
-        Ui.Sheet sheet = ui.selectionSheet("예약 작업", "정해진 시간에 작업창이 알아서 일을 시작해요");
+        Ui.Sheet sheet = ui.selectionSheet("예약 작업", "정해진 시간이나 정한 일이 생기면 알아서 해요");
         list = sheet; sheet.setOnDismissListener(d -> { if (list == sheet) list = null; });
         fill(sheet);
         sheet.primary.setText("새 예약 만들기");
@@ -98,6 +98,8 @@ final class WorkSchedulesUi {
         }
         sheet.body.addView(ui.footer("실행할 때마다 새 작업방이 열리고 끝나면 알림을 보내요. 지난번 결과를 AI에게 함께 알려줘서 ‘새로 올라온 것만’ 같은 요청도 돼요. "
             + "로그인·결제·전송·삭제처럼 내 확인이 필요한 일은 하지 않고 멈춰서 알려줘요. 휴대폰을 다시 켠 뒤에는 " + Brand.NAME + "을 한 번 열어야 예약이 다시 걸려요."));
+        // 조건 알림 (사건 트리거): made by speaking to 퍼레, kept here as one compact group (TriggersUi).
+        TriggersUi.fill(activity, ui, sheet.body, this::refresh);
     }
 
     // ── One schedule ────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@ final class BuddyPrompt {
     static final String NIM_MODEL = "nvidia/nemotron-3.5-bolt-e4b";
 
     /** What 퍼레 may do on the phone, as the model writes it: a second line "할일: {json}" after its words. */
-    static final String ACTS = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 찾기, 앱 화면에서 여러 단계로 하는 일, 웹사이트 일, 작업창에 맡길 긴 일, 예약 작업, 연구, 알람, 타이머, 음악 재생·멈춤·다음 곡, 유튜브·음악 앱에서 노래나 영상 찾아 틀기, 손전등, 화면 가로·세로 고정과 자동 회전, 소리 크기, 화면 밝기, 와이파이·블루투스·방해 금지 같은 설정 화면, 인터넷 검색, 스톱워치, 그날 일정 보기, 메모, 녹음, 계산, 메일 쓰기, 번역, 동전·주사위·골라 주기, 다른 나라 시각, 날짜 세기) 너가 직접 해. "
+    static final String ACTS = "- 사용자가 휴대폰에서 할 일을 부탁하면(앱 열기, 길 찾기, 앱 화면에서 여러 단계로 하는 일, 웹사이트 일, 작업창에 맡길 긴 일, 예약 작업, 연구, 어떤 일이 생기면 할 일, 알람, 타이머, 음악 재생·멈춤·다음 곡, 유튜브·음악 앱에서 노래나 영상 찾아 틀기, 손전등, 화면 가로·세로 고정과 자동 회전, 소리 크기, 화면 밝기, 와이파이·블루투스·방해 금지 같은 설정 화면, 인터넷 검색, 스톱워치, 그날 일정 보기, 메모, 녹음, 계산, 메일 쓰기, 번역, 동전·주사위·골라 주기, 다른 나라 시각, 날짜 세기) 너가 직접 해. "
         + "첫 줄에 짧은 대답(예: '네이버 지도 열게!'), 둘째 줄에 '할일: ' 다음에 JSON 하나만 써. 형식: {\"tool\":\"open_app\",\"app\":\"앱 이름\"} · {\"tool\":\"navigate\",\"destination\":\"장소\"}(걸어서·대중교통·자전거라고 하면 \"mode\":\"walk|public|bicycle\") · "
         + "{\"tool\":\"alarm\",\"hour\":7,\"minute\":30} · {\"tool\":\"timer\",\"seconds\":180} · {\"tool\":\"media\",\"command\":\"play\"}(play·pause·next·previous, 지금 나오는 것) · {\"tool\":\"play\",\"query\":\"노래·영상 검색어\",\"app\":\"YouTube\"}(유튜브·유튜브 뮤직·멜론·스포티파이에서 찾아 틀기, 앱을 말하지 않으면 app 빼기) · {\"tool\":\"torch\",\"on\":true} · "
         + "{\"tool\":\"rotation\",\"mode\":\"landscape\"}(landscape=가로 고정·portrait=세로 고정·auto=자동 회전·toggle=반대로) · {\"tool\":\"volume\",\"direction\":\"up\"}(up·down·mute·unmute, 또는 \"level\":0~100) · "
@@ -31,6 +31,8 @@ final class BuddyPrompt {
         + "여러 단계가 필요한 일은 맡아서 해: {\"tool\":\"phone_job\",\"request\":\"배민에서 지난번 메뉴 다시 담기\",\"app\":\"배민\"}(앱 화면에서 여러 단계로) · {\"tool\":\"web_job\",\"request\":\"유튜브 스튜디오에 영상 올리기\",\"url\":\"studio.youtube.com\"}(웹사이트에서: 받기·올리기·양식·로그인한 페이지) · "
         + "{\"tool\":\"work_job\",\"request\":\"이번 달 지출 분석 보고서 쓰기\"}(작업창에 길게: 글·조사·분석·코딩) · {\"tool\":\"schedule_job\",\"request\":\"새 채용 공고 찾아 정리\",\"repeat\":\"daily\",\"time\":\"07:00\"}(정한 때마다 저절로: once·daily·weekdays·weekly·monthly·interval, 한 번이면 \"date\", 몇 시간마다면 \"every\":3,\"unit\":\"hour\") · "
         + "{\"tool\":\"research_job\",\"question\":\"연구할 질문\"}(연구실 자율 연구). " + BuddyTools.JOBS_RULE
+        // 사건 트리거 (stage 2)
+        + "어떤 일이 생기면 할 일: {\"tool\":\"when_event\",\"when\":\"집에 도착하면\",\"then\":\"tell\"}(then: tell·open_app·navigate·play·message·phone_job, \"what\": 앱 이름·목적지·할 일, 매번이면 \"every\":true, 걸어 둔 것 묻기·끄기·지우기는 \"command\":\"list|off|delete\"). " + BuddyTools.EVENTS_RULE
         + "동전·주사위·골라 주기·계산·다른 나라 시각·날짜 세기는 답을 지어내지 말고 할일 줄을 써(답은 그 할일이 말해 주니 첫 줄은 '던져 볼게!'처럼 짧게). 알람·타이머의 첫 줄은 '알겠어!'만(시각·길이는 할일이 다시 말해 줘). "
         + "사용자가 기억해 달라, 잊어 달라, 호칭을 바꿔 달라, 조용히 있어 달라고 하면: {\"tool\":\"remember\",\"fact\":\"사용자는 차를 지하 2층에 세웠대\"}(털어놓은 고민 같은 건 \"private\":true) · {\"tool\":\"forget\",\"what\":\"고양이\"}('그건 틀렸어 지워'도, 방금 잊은 걸 되돌리면 \"undo\":true) · {\"tool\":\"call_me\",\"title\":\"주인공님\"} · {\"tool\":\"quiet\",\"hours\":2}(다시 말 걸어도 되면 0). "
         + "너(퍼레) 자신에게 하는 부탁도 직접 해: {\"tool\":\"buddy_toy\",\"toy\":\"주사위\"}(" + BuddyBoard.sample(BuddyBoard.TOYS, 14) + ") · "
@@ -143,7 +145,11 @@ final class BuddyPrompt {
         java.util.Map.entry("webjob", "web_job"), java.util.Map.entry("webtask", "web_job"), java.util.Map.entry("browsertask", "web_job"), java.util.Map.entry("browserjob", "web_job"), java.util.Map.entry("browsing", "web_job"),
         java.util.Map.entry("workjob", "work_job"), java.util.Map.entry("worktask", "work_job"), java.util.Map.entry("workstart", "work_job"), java.util.Map.entry("delegate", "work_job"), java.util.Map.entry("handoff", "work_job"), java.util.Map.entry("작업창", "work_job"),
         java.util.Map.entry("schedulejob", "schedule_job"), java.util.Map.entry("scheduletask", "schedule_job"), java.util.Map.entry("recurring", "schedule_job"), java.util.Map.entry("예약작업", "schedule_job"),
-        java.util.Map.entry("researchjob", "research_job"), java.util.Map.entry("research", "research_job"), java.util.Map.entry("researchtask", "research_job"), java.util.Map.entry("labresearch", "research_job"), java.util.Map.entry("연구", "research_job"));
+        java.util.Map.entry("researchjob", "research_job"), java.util.Map.entry("research", "research_job"), java.util.Map.entry("researchtask", "research_job"), java.util.Map.entry("labresearch", "research_job"), java.util.Map.entry("연구", "research_job"),
+        // 사건 트리거 (stage 2)
+        java.util.Map.entry("whenevent", "when_event"), java.util.Map.entry("trigger", "when_event"), java.util.Map.entry("triggers", "when_event"), java.util.Map.entry("eventtrigger", "when_event"),
+        java.util.Map.entry("addtrigger", "when_event"), java.util.Map.entry("ontrigger", "when_event"), java.util.Map.entry("whenthen", "when_event"), java.util.Map.entry("listtriggers", "when_event"),
+        java.util.Map.entry("automation", "when_event"), java.util.Map.entry("geofence", "when_event"), java.util.Map.entry("조건알림", "when_event"));
     /** The thing to do the answer names ("할일: {…}", or a bare {…} with a tool), its tool one of ACTS', or null. */
     static JSONObject act(String text) {
         if (text == null) return null;
@@ -282,6 +288,23 @@ final class BuddyPrompt {
             if (known.equals("phone_job") && a.optString("app").isBlank()) a.put("app", a.optString("app_name", a.optString("target", a.optString("name"))));
             if (known.equals("web_job") && a.optString("url").isBlank()) a.put("url", a.optString("start_url", a.optString("site", a.optString("address", a.optString("link")))));
             if (known.equals("research_job") && a.optString("question").isBlank()) a.put("question", a.optString("topic", a.optString("request", a.optString("text", a.optString("query", a.optString("subject"))))));
+            // 사건 트리거: the condition, what to do then and what it is about, as the brains name them.
+            if (known.equals("when_event")) {
+                if (a.optString("when").isBlank()) a.put("when", a.optString("condition", a.optString("event", a.optString("if", a.optString("trigger")))));
+                String then = a.optString("then", a.optString("do", a.optString("action"))).strip().toLowerCase(Locale.ROOT).replaceAll("[\\s-]", "_");
+                then = switch (then) {
+                    case "notify", "alert", "remind", "reminder", "say", "알려", "알림", "알려줘" -> "tell";
+                    case "open", "app", "openapp", "launch" -> "open_app";
+                    case "route", "navigation", "directions", "길안내" -> "navigate";
+                    case "music", "song", "playmusic" -> "play";
+                    case "sms", "text", "send", "문자", "카톡", "kakao", "send_message", "sendmessage" -> "message";
+                    case "phonejob" -> "phone_job"; case "webjob" -> "web_job"; case "workjob" -> "work_job";
+                    default -> then;
+                };
+                if (java.util.Set.of("tell", "open_app", "navigate", "play", "message", "phone_job", "web_job", "work_job").contains(then)) a.put("then", then); else a.remove("then");
+                if (a.optString("what").isBlank()) a.put("what", a.optString("target", a.optString("app", a.optString("destination", a.optString("query", a.optString("request", a.optString("task")))))));
+                if (!a.has("every") && java.util.Set.of("every", "always", "repeat", "매번").contains(a.optString("mode").strip().toLowerCase(Locale.ROOT))) a.put("every", true);
+            }
         } catch (Exception ignored) {}
         return a;
     }

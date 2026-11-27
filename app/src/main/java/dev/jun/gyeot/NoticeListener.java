@@ -277,6 +277,8 @@ public final class NoticeListener extends NotificationListenerService {
         try { readDelivery(posted); } catch (RuntimeException unreadable) { /* not an order after all */ }
         // Off the main thread: the words read, the acts kept (preferences) and the app's name looked up.
         try { ACT_IO.execute(() -> { try { readAct(posted); } catch (RuntimeException unreadable) { /* not an act after all */ } }); } catch (RuntimeException stopped) { /* none */ }
+        // 조건 알림 (사건 트리거): the same notice shown to the notice triggers (배달 출발, 택배, 엄마한테 카톡 …), also off the main thread.
+        try { ACT_IO.execute(() -> { try { TriggerWatch.notice(this, posted); } catch (RuntimeException unreadable) { /* no trigger heard it */ } }); } catch (RuntimeException stopped) { /* none */ }
         tell();
         try {
             if (posted == null || !on(this) || getPackageName().equals(posted.getPackageName())) return;

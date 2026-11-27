@@ -42,6 +42,10 @@
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <!-- 들퍼레 홈 화면's weather: roughly where the phone is (Weather), asked once on the home screen. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- 조건 알림 "집에 도착하면 …": Android's proximity alert per place needs the precise location and ‘항상 허용’; both are
+         asked only when the user makes a place trigger (TriggerActivity, Android's own screens), never at start. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
@@ -194,6 +198,27 @@
         <!-- 예약 작업: only this app's own alarm reaches it (no intent filter, not exported, no boot listener). -->
         <receiver android:name=".WorkScheduleAlarm" android:exported="false" />
         <service android:name=".BriefingJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <!-- 조건 알림 (사건 트리거): each door is switched on by TriggerWatch only while a trigger of its kind is on. Boot: the places
+             watched again after a restart or an update. Bluetooth: a paired device (the car) connecting or going, a protected
+             broadcast only Android sends. Place: Android's proximity alert, from this app's own PendingIntent only. -->
+        <receiver android:name=".TriggerReceiver$Boot" android:exported="true" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <receiver android:name=".TriggerReceiver$Bluetooth" android:exported="true" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+                <action android:name="android.bluetooth.device.action.ACL_DISCONNECTED" />
+            </intent-filter>
+        </receiver>
+        <receiver android:name=".TriggerReceiver$Place" android:exported="false" />
+        <!-- 조건 알림's price reads and battery checks while charging, set only while a trigger needs them. -->
+        <service android:name=".TriggerJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <!-- 조건 알림's one tap: a draft to send, an app to open, a permission, which device is the car; see-through. -->
+        <activity android:name=".TriggerActivity" android:exported="false" android:theme="@style/QuickTheme" android:taskAffinity=""
+            android:excludeFromRecents="true" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
         <!-- 차에서 호출어: started from the settings while the app is in front, so Android lets it use the microphone later. -->
         <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone" />
         <!-- The main chat's spoken conversation: started from the chat screen, so it keeps hearing with the screen off. -->

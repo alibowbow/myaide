@@ -303,7 +303,7 @@ public final class MainActivity extends Activity {
         if(state==null&&"chat".equals(getIntent().getStringExtra(MainNavigation.TARGET)))askFrom(getIntent());
         // Recreated, the saved page wins: a notification tap that once opened this window is not asked again.
         if (state == null || !AppNavigator.tapped(getIntent())) openRequestedScreen(getIntent());
-        if (state == null) { startFromShortcut(getIntent()); startOnOpen(getIntent()); talkFromNotification(getIntent()); }
+        if (state == null) { startFromShortcut(getIntent()); startOnOpen(getIntent()); talkFromNotification(getIntent()); schedulesFrom(getIntent()); }
         else pendingLaunchVoice=state.getBoolean("pendingLaunchVoice",false);
         if (!warmed) { warmed = true; main.postDelayed(() -> { if (isFinishing()) return; LabActivity.warmRecent(this); SchoolActivity.warmRecent(this); }, 2500); }
         if (state != null && state.getBundle("videoPlayer") != null && videoDialog == null) { Bundle saved = state.getBundle("videoPlayer"); JSONObject video = VideoJobs.find(store.videos(), saved.getString("id", "")); if (video != null) root.post(() -> playVideo(video, saved)); }
@@ -360,6 +360,7 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent); setIntent(intent);
+        if (intent.getBooleanExtra(SCHEDULES, false)) { schedulesFrom(intent); return; }
         if (AppNavigator.isRequest(intent)) { openRequestedScreen(intent); return; }
         if (talkFromNotification(intent)) return;
         String menuTarget=intent.getStringExtra(MainNavigation.TARGET);if(java.util.List.of("voice","chat","work","gallery","settings").contains(menuTarget==null?"":menuTarget)){navigateMenu(menuTarget);if("chat".equals(menuTarget))askFrom(intent);return;}
@@ -1784,6 +1785,13 @@ public final class MainActivity extends Activity {
     }
     /** Opens a settings page from outside (the floating bubble's 목소리 설정): its id in this extra. */
     static final String SETTINGS_PAGE = "gyeot.settings_page";
+    /** 예약 작업's sheet (with 조건 알림) over 작업창: a trigger's notification or 퍼레's fix opens it. */
+    static final String SCHEDULES = "gyeot.schedules";
+    private void schedulesFrom(Intent intent) {
+        if (intent == null || !intent.getBooleanExtra(SCHEDULES, false)) return;
+        intent.removeExtra(SCHEDULES); showTab(3);
+        root.post(() -> { if (!isFinishing() && !isDestroyed()) schedules().show(); });
+    }
     /**
      * The home screen's 업데이트 shortcut (준: "새로운 업데이트가 있으면 바로 다운 받기까지 되고 없으면 업데이트 페이지 열리기"): with
      * the update page, a check now; a newer build found is downloaded and handed to Android's installer at once (the page shows

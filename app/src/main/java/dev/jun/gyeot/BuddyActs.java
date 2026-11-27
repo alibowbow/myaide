@@ -115,7 +115,7 @@ final class BuddyActs {
             case "alarm" -> parts.add(String.format(Locale.ROOT, "%02d:%02d", a.optInt("hour"), a.optInt("minute")));
             case "timer" -> parts.add(a.optLong("seconds") + "초");
             default -> {
-                for (String key : new String[]{"query", "request", "question", "destination", "text", "who", "title", "toy", "play", "thing"}) {
+                for (String key : new String[]{"query", "request", "question", "when", "destination", "text", "who", "title", "toy", "play", "thing"}) {
                     String v = a.optString(key).strip(); if (v.isEmpty()) continue;
                     parts.add("‘" + (v.length() > 40 ? v.substring(0, 40) + "…" : v) + "’"); break;
                 }
@@ -187,6 +187,13 @@ final class BuddyActs {
                 case "phone_job", "web_job", "work_job", "schedule_job", "research_job" -> {
                     BuddyHands.Started s = BuddyHands.start(context, act, heard);
                     return s.ok() ? said(s.say()) : fail(s.say(), s.fix());
+                }
+                // 사건 트리거 (stage 2): "…하면 …" made, listed, turned off or deleted by words (BuddyTriggers, core/Triggers).
+                case "when_event" -> {
+                    BuddyTriggers.Said s = BuddyTriggers.run(context, act, heard);
+                    if (s.failed()) return fail(s.say(), s.fix());
+                    if (!s.fix().isEmpty()) note(s.why(), s.fix());
+                    return said(s.say());
                 }
                 // 퍼레's own, no app: the answer worked out here (BuddyTricks), never made up by the brain.
                 case "stopwatch" -> { return stopwatch(context, act); }
