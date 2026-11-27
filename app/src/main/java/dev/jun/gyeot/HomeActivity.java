@@ -66,6 +66,11 @@ import org.json.JSONObject;
  */
 public final class HomeActivity extends Activity {
     static final String PREFS = "launcher", DOCK = "dock", RECENT = "recent", MOVED = "moved", ORDER = "order";
+    /** Opened from the 작업 표시줄's all-apps button: "apps" (Launchpad) or "search" (Launchpad with its search). */
+    static final String SHOW = "show";
+    /** The home screen is on screen (between onStart and onStop): the 작업 표시줄 (Taskbar) hides then. */
+    static volatile boolean visible;
+    private String pendingShow;
     private static final String BASE = "https://gyeot.local/";
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-home"); t.setDaemon(true); return t; });
@@ -102,6 +107,7 @@ public final class HomeActivity extends Activity {
             return insets;
         });
         root.requestApplyInsets();
+        pendingShow = getIntent() == null ? null : getIntent().getStringExtra(SHOW);
         try { launcher.registerCallback(changed, main); } catch (RuntimeException ignored) {}
         prefs.registerOnSharedPreferenceChangeListener(pagesChanged);
         systemBars();
@@ -234,10 +240,18 @@ public final class HomeActivity extends Activity {
      */
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        String show = intent == null ? null : intent.getStringExtra(SHOW);
+        if (show != null) { if (ready && web != null) showPad(show); else pendingShow = show; return; }
         boolean front = shown || android.os.SystemClock.uptimeMillis() - pausedAt < 700;
         if (ready && web != null) web.evaluateJavascript(front ? "launcher.home()" : "launcher.closeAll&&launcher.closeAll()", null);
     }
     private long pausedAt;
+    /** The 작업 표시줄's all-apps button: Launchpad over whatever was open, with its search when the button was held. */
+    private void showPad(String show) {
+        if (web != null) web.evaluateJavascript("launcher.pad&&launcher.pad(" + "search".equals(show) + ")", null);
+    }
+    @Override protected void onStart() { super.onStart(); visible = true; PhoneService.taskbarChanged(); }
+    @Override protected void onStop() { visible = false; PhoneService.taskbarChanged(); super.onStop(); }
     @Override public void onBackPressed() {
         // A home screen does not close: back only closes what is open on it.
         if (ready && web != null) web.evaluateJavascript("launcher.back()", null);
@@ -516,6 +530,7 @@ public final class HomeActivity extends Activity {
                 ready = true;
                 if (web != null) web.evaluateJavascript("launcher.insets(" + top + "," + bottom + "," + keyboard + ")", null);
                 pushApps(); main.removeCallbacks(refresh); if (shown) refresh.run(); else pushBoard();
+                if (pendingShow != null) { showPad(pendingShow); pendingShow = null; }
                 // 퍼레 itself, asked by voice or in the talk (BuddyBoard): now that the page can hear it.
                 if (shown) BuddyBoard.shown(selfCall);
                 // The weather needs roughly where the phone is: asked once, here where the user sees why.

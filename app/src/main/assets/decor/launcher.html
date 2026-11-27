@@ -1647,6 +1647,8 @@ window.launcher = {
   home() { closeMenu(); closeFan(); closePad(); closeIdeas(); toPage(1, true); el("home").scrollTo({top: 0, behavior: "smooth"}); },
   /** Back from another app: what was left open closes; the page stays. */
   closeAll() { closeMenu(); closeFan(); closePad(); closeIdeas(); },
+  /** The 작업 표시줄's all-apps button (Taskbar.java): Launchpad, with its search when the button was held. */
+  pad(search) { closeMenu(); closeFan(); closeIdeas(); openPad(!!search); },
   /** Back: the open thing closes; true when something did. */
   back() {
     if (el("menu").classList.contains("on")) { closeMenu(); return true; }
