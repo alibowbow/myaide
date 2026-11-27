@@ -134,8 +134,10 @@ const BUDDY = '<svg class="bot" viewBox="0 0 100 100" aria-hidden="true"><defs><
   // The arm come round in front (준: "위아래뿐아니라 3차원적인 움직임도 2d지만 구현해줘", "모양의 적절한 변화로", "예를들면 권투같은
   // 경우"): an arm turned toward the one looking is its round end seen head on, a ball over the body's side that grows as it
   // comes closer; the arm behind narrows as it turns (board.css .b-armf). Hidden until a move brings it round.
-  +   '<g class="b-armf l"><ellipse class="b-fist" cx="11" cy="62" rx="8.6" ry="9.2" fill="url(#fist)"/></g>'
-  +   '<g class="b-armf r"><ellipse class="b-fist" cx="89" cy="62" rx="8.6" ry="9.2" fill="url(#fist)"/></g>'
+  // The reach (b-reach): the arm seen across the front, a round capsule from the joint toward the middle, its own length set by
+  // scaleX about the joint and its slope by rotate about it, so it always starts where the arm is joined.
+  +   '<g class="b-armf l"><rect class="b-reach" x="4.5" y="55.5" width="19" height="13" rx="6.5" fill="url(#fist)"/><ellipse class="b-fist" cx="11" cy="62" rx="8.6" ry="9.2" fill="url(#fist)"/></g>'
+  +   '<g class="b-armf r"><rect class="b-reach" x="76.5" y="55.5" width="19" height="13" rx="6.5" fill="url(#fist)"/><ellipse class="b-fist" cx="89" cy="62" rx="8.6" ry="9.2" fill="url(#fist)"/></g>'
   // on its head
   +   '<g class="acc cap"><path d="M20 30 C22 6 56 -6 84 2 C74 6 70 12 72 22 C58 16 36 18 20 30Z" fill="#8f7cf0"/><path d="M20 30 C36 20 58 18 76 24" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round"/><circle cx="86" cy="3" r="5.5" fill="#fff"/></g>'
   +   '<g class="acc santa"><path d="M20 30 C22 6 56 -6 84 2 C74 6 70 12 72 22 C58 16 36 18 20 30Z" fill="#e5383b"/><path d="M20 30 C36 20 58 18 76 24" fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round"/><circle cx="86" cy="3" r="5.5" fill="#fff"/></g>'

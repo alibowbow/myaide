@@ -865,7 +865,10 @@ body:not(.launcher) .locked .when .date,body:not(.launcher) .locked .when .clock
    grows as it comes closer and goes back behind as it returns; the arm behind narrows while it is round in front. */
 .bot .b-armf{opacity:0;transform-box:view-box;pointer-events:none}
 .bot .b-armf.l{transform-origin:11px 62px}.bot .b-armf.r{transform-origin:89px 62px}
-.bot.w-mittens .b-fist{fill:#6f9fe8}
+.bot .b-reach,.bot .b-fist{transform-box:view-box;opacity:0}.bot .b-fist{opacity:1}
+.bot .b-armf.l .b-reach{transform-origin:11px 62px}.bot .b-armf.r .b-reach{transform-origin:89px 62px}
+.bot .b-armf.l .b-fist{transform-origin:11px 62px}.bot .b-armf.r .b-fist{transform-origin:89px 62px}
+.bot.w-mittens .b-fist,.bot.w-mittens .b-reach{fill:#6f9fe8}
 /* a punch at the one looking: the fist comes out over the body's side, grows to half again, squashes as it lands, and goes back */
 @keyframes fistL{0%,30%{opacity:0;transform:scale(.7)}40%{opacity:1;transform:translate(2px,1px) scale(.95)}52%{opacity:1;transform:translate(7px,2px) scale(1.62,1.52)}60%{opacity:1;transform:translate(7px,2px) scale(1.5)}75%{opacity:1;transform:translate(2px,0) scale(.95)}84%,100%{opacity:0;transform:scale(.75)}}
 @keyframes fistR{0%,30%{opacity:0;transform:scale(.7)}40%{opacity:1;transform:translate(-2px,1px) scale(.95)}52%{opacity:1;transform:translate(-7px,2px) scale(1.62,1.52)}60%{opacity:1;transform:translate(-7px,2px) scale(1.5)}75%{opacity:1;transform:translate(-2px,0) scale(.95)}84%,100%{opacity:0;transform:scale(.75)}}
