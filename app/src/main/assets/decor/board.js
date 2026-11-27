@@ -744,6 +744,11 @@ function nextLine(k, prev, opened) {
   const said1 = d && {onway: "way", near: "way", done: "done", canceled: "done"}[d.stage];
   if (said1 && d.line) lines.unshift({key: "deliv:" + d.app + ":" + said1 + ":" + Math.floor((d.at || 0) / 10800000), text: d.line, go: "", ms: 3200,
     feel: d.stage === "canceled" ? "sad" : "excited"});
+  // 알림을 행동으로 (a parcel out today or come, a booking made, a plan set in a messenger): the same, said once each in passing
+  // and gone in a few seconds; the app only sends a line while it is fresh, never of money or work. A tap on it does its pill.
+  const acts = !k.locked && Array.isArray(k.acts) ? k.acts : [];
+  for (const a of acts.filter(a => a && a.line && a.lineKey).sort((x, y) => (+y.rank || 0) - (+x.rank || 0)))
+    lines.push({key: a.lineKey, text: a.line, go: a.go || "", ms: 3200, feel: "happy"});
   if (opened) {
     // The hour's greeting from the presets, at most once in three hours (준: "저녁이라고 물론 맥락에 맞는 말을 한다지만 반복적인
     // 패턴이 있어"), or one of the AI's everyday lines.

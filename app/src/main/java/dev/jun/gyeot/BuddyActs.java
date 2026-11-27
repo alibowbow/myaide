@@ -362,10 +362,7 @@ final class BuddyActs {
         java.time.ZonedDateTime begin = timed ? java.time.ZonedDateTime.of(day, java.time.LocalTime.of(Math.max(0, Math.min(23, act.optInt("hour"))), Math.max(0, Math.min(59, act.optInt("minute")))), zone) : day.atStartOfDay(zone);
         if (timed && d.isEmpty() && begin.isBefore(java.time.ZonedDateTime.now(zone))) begin = begin.plusDays(1);
         long start = begin.toInstant().toEpochMilli(), end = timed ? start + Math.max(10, act.optInt("minutes", 60)) * 60_000L : begin.plusDays(1).toInstant().toEpochMilli();
-        Intent add = task(new Intent(Intent.ACTION_INSERT).setDataAndType(android.provider.CalendarContract.Events.CONTENT_URI, "vnd.android.cursor.dir/event")
-            .putExtra(android.provider.CalendarContract.Events.TITLE, title).putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME, start)
-            .putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME, end).putExtra(android.provider.CalendarContract.EXTRA_EVENT_ALL_DAY, !timed));
-        if (!act.optString("place").isBlank()) add.putExtra(android.provider.CalendarContract.Events.EVENT_LOCATION, act.optString("place").strip());
+        Intent add = PhoneCalendar.insert(title, start, end, !timed, act.optString("place"), "");
         if (add.resolveActivity(context.getPackageManager()) == null) return fail("캘린더 앱을 못 찾았어.", "");
         BuddyVoice.Outcome o = started(context, DeviceActionRunner.start(context, add, overlay), "", true);
         return o.say().isEmpty() ? new BuddyVoice.Outcome("‘" + title + "’ 일정 채워 놨어, 저장만 눌러 줘!", o.leaves(), null) : o;

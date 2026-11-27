@@ -51,6 +51,8 @@ public final class NoticeActivity extends Activity {
         ui.addRow(use, ui.listRow(R.drawable.ic_lock, Ui.GREEN, "알림 접근 권한", allowed ? "허용됨" : "허용 안 됨 · 눌러서 허용하기", ui.chevron(), this::openAccess), false);
         body.addView(use);
         body.addView(ui.footer("알림은 이 폰에만 하루 동안 남아요. 인증번호·비밀번호가 담긴 알림은 모으지 않아요. 요약할 때만 Gemini(Gemma 4)로 보내요."));
+        // 알림을 행동으로: what the home screen does with them (core/NoticeActions).
+        body.addView(ui.footer("택배·예약·메신저 약속은 홈 화면에 작은 버튼으로 떠요(택배 오늘 도착 · 일정에 넣기 · 답장). 답장은 보내기를 눌러야만 보내져요. 카드·은행·증권 알림은 읽지 않아요."));
 
         List<Notices.Notice> list = NoticeListener.list(this);
         body.addView(ui.sectionHeader("오늘 온 알림 · " + list.size() + "개"));

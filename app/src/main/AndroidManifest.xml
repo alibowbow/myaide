@@ -99,6 +99,10 @@
         <activity android:name=".PhoneSecurityActivity" android:enableOnBackInvokedCallback="true" android:windowSoftInputMode="adjustResize" android:exported="false" />
         <activity android:name=".NavigationActivity" android:windowSoftInputMode="adjustResize" android:exported="false" />
         <activity android:name=".NoticeActivity" android:exported="false" />
+        <!-- 알림을 행동으로: one tap from a home screen pill or 퍼레's bubble (open the notice, fill the calendar, the reply sheet), over what shows. -->
+        <activity android:name=".NoticeActActivity" android:exported="false" android:theme="@style/QuickTheme" android:taskAffinity=""
+            android:excludeFromRecents="true" android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
         <!-- 내 휴대폰 → 화면 꾸미기: 움직이는 배경화면 (HtmlWallpaper) and what goes on the home screen. -->
         <activity android:name=".DecorActivity" android:exported="false" />
         <!-- 들퍼레 홈 화면: chosen as the home app only when the user picks it (화면 꾸미기 → 홈 화면 앱). Its own task, never in recents;

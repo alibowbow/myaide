@@ -56,6 +56,18 @@ final class PhoneCalendar {
     private static boolean granted(Context context, String permission) {
         try { return context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED; } catch (RuntimeException e) { return false; }
     }
+    /**
+     * The calendar app's own new-event screen, filled in (the user saves it; nothing is written here): the calendar_add tool
+     * (BuddyActs) and 알림을 행동으로's 일정에 넣기 (NoticeActActivity) both open it this way. place and note may be empty.
+     */
+    static Intent insert(String title, long begin, long end, boolean allDay, String place, String note) {
+        Intent add = new Intent(Intent.ACTION_INSERT).setDataAndType(CalendarContract.Events.CONTENT_URI, "vnd.android.cursor.dir/event")
+            .putExtra(CalendarContract.Events.TITLE, title).putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, begin)
+            .putExtra(CalendarContract.EXTRA_EVENT_END_TIME, end).putExtra(CalendarContract.EXTRA_EVENT_ALL_DAY, allDay);
+        if (place != null && !place.isBlank()) add.putExtra(CalendarContract.Events.EVENT_LOCATION, place.strip());
+        if (note != null && !note.isBlank()) add.putExtra(CalendarContract.Events.DESCRIPTION, note.strip());
+        return add.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    }
 
     /**
      * One visible calendar: its name as the calendar app shows it, its account, whether events can be added, whether the

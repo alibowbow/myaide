@@ -426,6 +426,26 @@ public final class HtmlWallpaper extends WallpaperService {
                 Jsons.put(out, "delivery", dj);
             }
         } catch (RuntimeException unreadable) { /* no delivery shown */ }
+        // 알림을 행동으로 (core/NoticeActions): parcels, bookings and messenger plans, each with its pills (택배 오늘 도착, 일정에
+        // 넣기 unless the calendar has it, 답장 where the notice can answer) and its passing line; never on the lock screen.
+        if (!locked && NoticeListener.on(c) && NoticeListener.allowed(c)) try {
+            List<dev.jun.gyeot.core.NoticeActions.Act> acts = NoticeListener.acts(c);
+            if (!acts.isEmpty()) {
+                java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+                java.util.Set<String> inCalendar = new java.util.HashSet<>(), canReply = new java.util.HashSet<>();
+                long first = Long.MAX_VALUE, last = 0;
+                for (dev.jun.gyeot.core.NoticeActions.Act a : acts) {
+                    if (!a.kind().equals(dev.jun.gyeot.core.NoticeActions.PARCEL) && a.begin() > now && a.begin() < now + 60 * 86_400_000L) { first = Math.min(first, a.begin()); last = Math.max(last, a.begin()); }
+                    if (a.kind().equals(dev.jun.gyeot.core.NoticeActions.PLAN) && NoticeListener.canReply(c, a)) canReply.add(a.key());
+                }
+                if (calendarOn && last > 0) try {
+                    List<CalendarQuery.Event> events = PhoneCalendar.events(c, new CalendarQuery.Range(java.time.Instant.ofEpochMilli(first - 3_600_000L).atZone(zone), java.time.Instant.ofEpochMilli(last + 3_600_000L).atZone(zone), ""), false);
+                    for (dev.jun.gyeot.core.NoticeActions.Act a : acts) if (dev.jun.gyeot.core.NoticeActions.inCalendar(a, events)) inCalendar.add(a.key());
+                } catch (RuntimeException unreadable) { /* the pills offer it */ }
+                JSONArray board = dev.jun.gyeot.core.NoticeActions.board(acts, now, zone, inCalendar, canReply);
+                if (board.length() > 0) Jsons.put(out, "acts", board);
+            }
+        } catch (RuntimeException unreadable) { /* no acts shown */ }
         // The apps just opened (퍼레 dances after music, and so on); never on the lock screen.
         if (!locked) try { Jsons.put(out, "recent", new JSONArray(c.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).getString("recentLabels", "[]"))); } catch (Exception ignored) {}
         // 퍼레's home and life (a Tamagotchi on the phone): the battery, music, the network; how close it feels, the days together.
@@ -481,6 +501,8 @@ public final class HtmlWallpaper extends WallpaperService {
     }
     static Intent target(Context c, String what) {
         Intent open;
+        // 알림을 행동으로's one tap: the notice's screen, the calendar filled in, or the reply sheet (NoticeActActivity).
+        if (what.startsWith("act:")) return NoticeActActivity.of(c, what);
         // The food's own app (퍼레's word about a delivery, the 배달 pill): only a delivery app's package (core/Deliveries).
         if (what.startsWith("delivery:")) {
             String pkg = what.substring("delivery:".length());

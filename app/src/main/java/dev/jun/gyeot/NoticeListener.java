@@ -7,6 +7,7 @@ import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import dev.jun.gyeot.core.Deliveries;
+import dev.jun.gyeot.core.NoticeActions;
 import dev.jun.gyeot.core.Notices;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -39,7 +40,11 @@ public final class NoticeListener extends NotificationListenerService {
         }
     }
     /** Forgets every kept notice (turned off, or 모두 지우기). */
-    static void clear(Context context) { synchronized (LOCK) { kept = new java.util.ArrayList<>(); file(context).delete(); } }
+    static void clear(Context context) {
+        synchronized (LOCK) { kept = new java.util.ArrayList<>(); file(context).delete(); }
+        // The parcels, bookings and plans read from them go too (알림을 행동으로).
+        forget(); context.getSharedPreferences(ACTS_PREFS, Context.MODE_PRIVATE).edit().clear().apply();
+    }
 
     // ── the home screen's badges (HomeActivity) ─────────────────────
     private static volatile NoticeListener live;
@@ -141,8 +146,137 @@ public final class NoticeListener extends NotificationListenerService {
         }
     }
 
+    // ── 알림을 행동으로 (core/NoticeActions): parcels, bookings, messenger plans, each one tap of action ──
+    // Read like the food above, ongoing trackers included; kept (a few of each kind) so 퍼레 still knows once the notice is
+    // gone, and what a tap needs from a notice still showing (its own open and reply actions) by the act's key.
+    private static final String ACTS_PREFS = "gyeot_notice_acts";
+    private static final Object ACTS_LOCK = new Object();
+    private static List<NoticeActions.Act> acts;
+    /** What a tap can use of a notice: its app, what it opens, its reply action (free-form RemoteInput), its key. */
+    record Live(String pkg, android.app.PendingIntent open, Notification.Action reply, String nkey) {}
+    private static final java.util.Map<String, Live> LIVE = new java.util.concurrent.ConcurrentHashMap<>();
+    /** Reads already made of the notices showing (by key and post time), so the board's refresh does not read them again. */
+    private static final java.util.Map<String, java.util.Optional<NoticeActions.Act>> READ = new java.util.concurrent.ConcurrentHashMap<>();
+    /** The notices told to 오류 진단 보고서 as not read, once each. */
+    private static final java.util.Set<String> TOLD = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final java.util.concurrent.ExecutorService ACT_IO = java.util.concurrent.Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-notice-acts"); t.setDaemon(true); return t; });
+    private static String labelOf(Context c, String pkg) {
+        try { PackageManager pm = c.getPackageManager(); return pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString(); } catch (Exception gone) { return pkg; }
+    }
+    /** {title, text} to read: a messenger's sender and its newest message; any other app's every short text (as for food). */
+    static String[] actWords(StatusBarNotification posted, boolean chat) {
+        Notification n = posted.getNotification(); if (n == null || n.extras == null) return null;
+        if (!chat) { String[] w = deliveryWords(posted); return w == null ? null : new String[]{"", w[0]}; }
+        Bundle x = n.extras;
+        CharSequence title = x.getCharSequence(Notification.EXTRA_TITLE), text = x.getCharSequence(Notification.EXTRA_BIG_TEXT);
+        if (text == null) text = x.getCharSequence(Notification.EXTRA_TEXT);
+        try {
+            android.os.Parcelable[] all = x.getParcelableArray(Notification.EXTRA_MESSAGES);
+            java.util.List<Notification.MessagingStyle.Message> messages = all == null ? java.util.List.of() : Notification.MessagingStyle.Message.getMessagesFromBundleArray(all);
+            if (!messages.isEmpty()) {
+                Notification.MessagingStyle.Message last = messages.get(messages.size() - 1);
+                if (last.getText() != null) text = last.getText();
+                if (last.getSenderPerson() != null && last.getSenderPerson().getName() != null) title = last.getSenderPerson().getName();
+            }
+        } catch (RuntimeException unreadable) { /* the plain title and text */ }
+        return new String[]{title == null ? "" : title.toString().strip(), text == null ? "" : text.toString().strip()};
+    }
+    /** A notice's act, or null (read once per key and post time). */
+    static NoticeActions.Act actOf(Context c, StatusBarNotification posted) {
+        if (posted == null || c.getPackageName().equals(posted.getPackageName())) return null;
+        Notification n = posted.getNotification(); if (n == null || (n.flags & Notification.FLAG_GROUP_SUMMARY) != 0) return null;
+        String id = posted.getKey() + "|" + posted.getPostTime();
+        java.util.Optional<NoticeActions.Act> was = READ.get(id); if (was != null) return was.orElse(null);
+        String pkg = posted.getPackageName(), label = labelOf(c, pkg);
+        String[] words = actWords(posted, NoticeActions.messenger(pkg, label));
+        NoticeActions.Act a = words == null ? null : NoticeActions.read(pkg, label, words[0], words[1], posted.getPostTime(), java.time.ZoneId.systemDefault());
+        if (a != null) a = a.withNotice(posted.getKey());
+        if (READ.size() > 300) READ.clear();
+        READ.put(id, java.util.Optional.ofNullable(a));
+        if (a != null) { if (LIVE.size() > 200) LIVE.clear(); LIVE.put(a.key(), new Live(pkg, n.contentIntent, NoticeReply.replyAction(n), posted.getKey())); }
+        return a;
+    }
+    private void readAct(StatusBarNotification posted) {
+        if (posted == null || getPackageName().equals(posted.getPackageName()) || !on(this)) return;
+        NoticeActions.Act a = actOf(this, posted);
+        AppStore store = ((GyeotApp) getApplicationContext()).store();
+        if (a == null) {
+            // What came that was not read (for 오류 진단 보고서, to teach the readers): a courier's or a booking's words with long
+            // numbers masked; of a messenger only that a plan was not read and how long it was, never its words.
+            String pkg = posted.getPackageName(), label = labelOf(this, pkg);
+            boolean chat = NoticeActions.messenger(pkg, label);
+            String[] words = actWords(posted, chat); if (words == null) return;
+            String kind = NoticeActions.unread(pkg, label, words[0], words[1]);
+            if (kind.isEmpty() || !TOLD.add(posted.getKey() + "|" + (words[0] + words[1]).hashCode())) return;
+            String w = dev.jun.gyeot.core.NoticeActions.masked(words[1]).replaceAll("\\s+", " ");
+            store.phoneLog(kind.equals("약속") ? "● 메신저 약속(시각 못 읽음): " + label + " · " + words[1].length() + "자"
+                : "● " + kind + " 알림(" + (kind.equals("택배") ? "단계" : "시각") + " 못 읽음): " + label + " · " + (w.length() > 80 ? w.substring(0, 80) + "…" : w));
+            return;
+        }
+        boolean news;
+        String json;
+        synchronized (ACTS_LOCK) {
+            List<NoticeActions.Act> before = keptActs(this);
+            news = before.stream().noneMatch(b -> b.key().equals(a.key()) && b.stage().equals(a.stage()));
+            acts = NoticeActions.merge(before, a, System.currentTimeMillis(), java.time.ZoneId.systemDefault());
+            json = NoticeActions.save(acts);
+        }
+        getSharedPreferences(ACTS_PREFS, MODE_PRIVATE).edit().putString("acts", json).apply();
+        if (news) {
+            store.phoneLog("● " + NoticeActions.logLine(a, System.currentTimeMillis(), java.time.ZoneId.systemDefault()));
+            Runnable r = deliveryChanged; if (r != null) try { r.run(); } catch (RuntimeException ignored) {}
+        }
+    }
+    /** The acts kept (read once from this app's own preferences). Call off the main thread. */
+    private static List<NoticeActions.Act> keptActs(Context c) {
+        synchronized (ACTS_LOCK) {
+            if (acts == null) acts = NoticeActions.load(c.getSharedPreferences(ACTS_PREFS, Context.MODE_PRIVATE).getString("acts", ""), System.currentTimeMillis(), java.time.ZoneId.systemDefault());
+            return new java.util.ArrayList<>(acts);
+        }
+    }
+    /** The acts worth showing now: those kept, with the notices showing now read too (ongoing trackers). Off the main thread. */
+    static List<NoticeActions.Act> acts(Context c) {
+        long now = System.currentTimeMillis(); java.time.ZoneId zone = java.time.ZoneId.systemDefault();
+        List<NoticeActions.Act> all = keptActs(c);
+        NoticeListener l = live;
+        if (l != null) try {
+            StatusBarNotification[] showing = l.getActiveNotifications();
+            for (StatusBarNotification n : showing == null ? new StatusBarNotification[0] : showing) { NoticeActions.Act a = actOf(c, n); if (a != null) all = NoticeActions.merge(all, a, now, zone); }
+        } catch (RuntimeException unavailable) { /* the kept ones */ }
+        List<NoticeActions.Act> out = new java.util.ArrayList<>();
+        for (NoticeActions.Act a : all) if (NoticeActions.current(a, now, zone) != null) out.add(a);
+        return out;
+    }
+    /** The act with this key, or null. Off the main thread. */
+    static NoticeActions.Act act(Context c, String key) {
+        for (NoticeActions.Act a : acts(c)) if (a.key().equals(key)) return a;
+        return null;
+    }
+    /** What a tap can use of the act's notice: kept since it came, else found among the notices showing now (after a restart); null when gone. */
+    static Live live(Context c, NoticeActions.Act a) {
+        if (a == null) return null;
+        Live kept = LIVE.get(a.key()); if (kept != null) return kept;
+        NoticeListener l = live;
+        if (l != null && !a.nkey().isEmpty()) try {
+            StatusBarNotification[] showing = l.getActiveNotifications(new String[]{a.nkey()});
+            for (StatusBarNotification n : showing == null ? new StatusBarNotification[0] : showing) {
+                Notification note = n == null ? null : n.getNotification(); if (note == null) continue;
+                Live found = new Live(n.getPackageName(), note.contentIntent, NoticeReply.replyAction(note), n.getKey()); LIVE.put(a.key(), found); return found;
+            }
+        } catch (RuntimeException unavailable) { /* gone */ }
+        return null;
+    }
+    /** For tests: what a tap would use for this act. */
+    static void remember(String key, Live l) { if (key != null && l != null) LIVE.put(key, l); }
+    /** For tests: nothing kept in memory (the preferences are read again). */
+    static void forget() { synchronized (ACTS_LOCK) { acts = null; } LIVE.clear(); READ.clear(); TOLD.clear(); }
+    /** Whether the act's notice can be answered right here (its own reply action). */
+    static boolean canReply(Context c, NoticeActions.Act a) { Live l = live(c, a); return l != null && l.reply() != null; }
+
     @Override public void onNotificationPosted(StatusBarNotification posted) {
         try { readDelivery(posted); } catch (RuntimeException unreadable) { /* not an order after all */ }
+        // Off the main thread: the words read, the acts kept (preferences) and the app's name looked up.
+        try { ACT_IO.execute(() -> { try { readAct(posted); } catch (RuntimeException unreadable) { /* not an act after all */ } }); } catch (RuntimeException stopped) { /* none */ }
         tell();
         try {
             if (posted == null || !on(this) || getPackageName().equals(posted.getPackageName())) return;
