@@ -1128,18 +1128,26 @@ function drawCare(b) {
 
 /*
   퍼레's voice talk (held 퍼레, the home screen app's BuddyVoice): what it shows while it listens (a soft ring, what it hears
-  so far in the bubble), thinks (the dots), speaks (the words as they are said, its mouth moving) and when it ends.
+  so far in the bubble), thinks (the dots), speaks (the words typed along with their sound, over ms when the app knows how
+  long they take, its mouth moving), rests between two sentences (gap: the words stay, the mouth still) and when it ends.
 */
 let voiceOn = false, voiceAt = 0;
 // A talk the page heard nothing of for two minutes (it ended while another app was in front): over, the mouth still.
 setInterval(() => { if (voiceOn && !document.hidden && Date.now() - voiceAt > 120000) boardVoiceState("idle", ""); }, 10000);
-function boardVoiceState(state, text) {
+function boardVoiceState(state, text, ms) {
   voiceAt = Date.now();
   boards.forEach(b => {
     const buddy = $(b, ".buddy"), bubble = $(b, ".bubble"), svg = $(b, ".bot");
+    if (state === "gap") {
+      // Nothing sounding between two sentences: the words said so far stay whole, the mouth rests.
+      voiceOn = true; clearInterval(b._typing); svg.classList.remove("talking");
+      const said = text || b._saying || "";
+      if (said) { bubble.textContent = said; bubble.classList.add("on"); fitBubble(bubble); }
+      return;
+    }
     clearTimeout(b._bubble); clearInterval(b._typing);
     buddy.classList.toggle("listening", state === "listening");
-    if (state !== "speaking") svg.classList.remove("talking");
+    if (state !== "speaking") { svg.classList.remove("talking"); b._saying = ""; }
     if (state === "listening") {
       voiceOn = true; if (b._mood) b._mood(""); if (b._feel) b._feel("", 1);
       bubble.classList.remove("act"); bubble.dataset.go = "";
@@ -1150,8 +1158,9 @@ function boardVoiceState(state, text) {
     } else if (state === "speaking") {
       voiceOn = true; if (b._mood) b._mood(""); if (b._feel) b._feel("happy", 1800);
       bubble.textContent = ""; bubble.classList.add("on"); svg.classList.add("talking");
-      const chars = Array.from(text || ""); let i = 0;
-      b._typing = setInterval(() => { i++; bubble.textContent = chars.slice(0, i).join(""); fitBubble(bubble); if (i >= chars.length) clearInterval(b._typing); }, 70);
+      const chars = Array.from(text || ""); let i = 0; b._saying = text || "";
+      const step = ms > 0 && chars.length ? Math.min(140, Math.max(40, ms / chars.length)) : 70;
+      b._typing = setInterval(() => { i++; bubble.textContent = chars.slice(0, i).join(""); fitBubble(bubble); if (i >= chars.length) clearInterval(b._typing); }, step);
     } else {
       voiceOn = false; if (b._mood) b._mood("");
       if (text) { speak(b, {text}, 3200); if (state === "done" && b._feel) b._feel("wink", 1400); }

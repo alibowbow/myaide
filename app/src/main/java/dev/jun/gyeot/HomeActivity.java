@@ -189,7 +189,11 @@ public final class HomeActivity extends Activity {
     }
     // ── 퍼레's voice talk (BuddyVoice): 퍼레 held on the home screen; apart from the edge handle's voice assistant ──
     /** The page shows the talk while the home screen is in front; the fingerprint is asked here. */
-    private final BuddyVoice.Show talkShown = (state, text) -> js("launcher.voice(" + JSONObject.quote(state) + "," + JSONObject.quote(text) + ")");
+    private final BuddyVoice.Show talkShown = new BuddyVoice.Show() {
+        @Override public void state(String state, String text) { state(state, text, 0); }
+        /** With ms, how long the words take to say: the bubble types them along with the sound. */
+        @Override public void state(String state, String text, int ms) { js("launcher.voice(" + JSONObject.quote(state) + "," + JSONObject.quote(text) + "," + Math.max(0, ms) + ")"); }
+    };
     private final BuddyVoice.Unlock talkUnlock = then -> main.post(() -> Fingerprint.ask(this, "퍼레의 비밀 기억", "지문으로 확인하면 말해 줄게", () -> { BuddyTalk.unlock(); then.run(); }, then));
     private void voice() {
         if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, MIC); return; }

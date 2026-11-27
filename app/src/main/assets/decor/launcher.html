@@ -1349,7 +1349,8 @@ el("padMic").addEventListener("click", e => {
   if (window.boardVoice) window.boardVoice();
 });
 function chatVoice(state, text) {
-  if (!voiceChat || !chatting) return;
+  // A pause between two of its sentences changes nothing in the talk.
+  if (!voiceChat || !chatting || state === "gap") return;
   const q = el("q"), t = String(text || "").trim();
   if (state === "listening") { q.value = t && t !== "…" ? t : ""; q.placeholder = "듣고 있어…"; return; }
   q.value = ""; q.placeholder = CHAT_HINT;
@@ -1587,7 +1588,8 @@ window.launcher = {
   thought(line) { thought(line); },
   thoughtFail() { thoughtFail(); },
   life(k) { boardLife(k); },
-  voice(state, text) { boardVoiceState(state, text); chatVoice(state, text); },
+  /** 퍼레's voice talk as it goes; ms: how long the words being said take (the bubble types them over it). */
+  voice(state, text, ms) { boardVoiceState(state, text, ms); chatVoice(state, text); },
   env(k) { boardEnv(k); },
   /** The pages to the right changed (화면 꾸미기). */
   pages(list) { drawPages(list); },

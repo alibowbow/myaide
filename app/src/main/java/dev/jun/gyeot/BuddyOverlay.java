@@ -85,7 +85,7 @@ final class BuddyOverlay {
         if (card != null) { try { manager.removeView(card); } catch (RuntimeException gone) {} }
         card = null; face = null; words = null;
     }
-    /** 퍼레's state as the talk goes: what it hears, that it thinks, what it says (its mouth moving). */
+    /** 퍼레's state as the talk goes: what it hears, that it thinks, what it says (its mouth moving while it sounds). */
     void state(String state, String text) {
         this.state = state == null ? "" : state;
         if (card == null) return;
@@ -94,6 +94,8 @@ final class BuddyOverlay {
             case "listening" -> { face.setImageResource(R.drawable.buddy_listen); if (text != null) words.setText(text.isBlank() || "…".equals(text) ? "듣고 있어…" : text); }
             case "thinking" -> { face.setImageResource(R.drawable.buddy_listen); words.setText(text == null || text.isBlank() ? "음…" : "“" + text + "”"); }
             case "speaking" -> { if (text != null) words.setText(text); talkFrame = false; main.post(mouth); }
+            // Between two sentences, nothing sounding: as it speaks, the words kept, the mouth still.
+            case "gap" -> { face.setImageResource(R.drawable.buddy_idle); if (text != null && !text.isBlank()) words.setText(text); }
             default -> { face.setImageResource(R.drawable.buddy_idle); if (text != null && !text.isBlank()) words.setText(text); }
         }
     }

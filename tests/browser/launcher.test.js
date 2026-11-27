@@ -172,6 +172,30 @@ async function open(browser, at) {
     for (let i = 0; i < 26; i++) await p.clock.runFor(5000);  // never told: over by itself after two minutes
     assert.strictEqual(await talking(), false, 'ended by itself');
   });
+  // 준: "음성대화 너무 느려" — the words typed along with their sound (BuddyVoice tells how long it lasts), the mouth resting
+  // between two sentences while nothing sounds.
+  await check('the mouth moves only while it sounds: words typed over the sound, still between two sentences', async () => {
+    const p = day.page, look = () => p.evaluate(() => ({ text: document.querySelector('.bubble').textContent, on: document.querySelector('.bubble').classList.contains('on'), talking: document.querySelector('.bot').classList.contains('talking') }));
+    const line = '안녕 반가워 오늘 뭐 했어';
+    await p.evaluate(l => launcher.voice('speaking', l, 1600), line);
+    await p.clock.runFor(1200);
+    let now = await look();
+    assert(now.text.length < line.length && now.talking, 'still saying it at 1.2 s of 1.6: ' + JSON.stringify(now));
+    await p.clock.runFor(500);
+    now = await look();
+    assert.strictEqual(now.text, line, 'all typed as its sound ends');
+    await p.evaluate(() => launcher.voice('gap', ''));
+    now = await look();
+    assert(!now.talking && now.on && now.text === line, 'the mouth rests, the words stay: ' + JSON.stringify(now));
+    // A sound that ended before the words were typed: they show whole at once.
+    await p.evaluate(() => launcher.voice('speaking', '산책하기 딱 좋은 날이야', 3000));
+    await p.clock.runFor(400);
+    await p.evaluate(() => launcher.voice('gap', ''));
+    now = await look();
+    assert(!now.talking && now.text === '산책하기 딱 좋은 날이야', 'whole at the gap: ' + JSON.stringify(now));
+    await p.evaluate(() => launcher.voice('listening', '')); await p.evaluate(() => launcher.voice('idle', ''));
+    assert.deepStrictEqual(day.errors, []);
+  });
   await check('퍼레 is plain by default and dresses up now and then, never one outfit for long', async () => {
     const p = day.page, looks = [];
     // A play's own outfit (a headband for karate) is that play's, not the day's: the one going on ends first.
@@ -228,7 +252,7 @@ async function open(browser, at) {
     assert(mic.w > 0 && mic.beside, 'the mic beside the send button');
     await p.evaluate(() => { el("padMic").click(); launcher.voice("listening", "오늘 날"); });
     assert.strictEqual(await p.evaluate(() => el("q").value), '오늘 날', 'what it hears so far shows in the box');
-    await p.evaluate(() => { launcher.voice("thinking", "오늘 날씨 어때"); launcher.voice("speaking", "맑고 따뜻해!"); launcher.voice("speaking", "산책하기 딱 좋아 ☀️"); launcher.voice("done", ""); });
+    await p.evaluate(() => { launcher.voice("thinking", "오늘 날씨 어때"); launcher.voice("speaking", "맑고 따뜻해!", 900); launcher.voice("gap", ""); launcher.voice("speaking", "산책하기 딱 좋아 ☀️", 1100); launcher.voice("done", ""); });
     const said = await p.evaluate(() => thread.slice(-2).map(t => t.who + ':' + t.text));
     assert.deepStrictEqual(said, ['me:오늘 날씨 어때', 'ai:맑고 따뜻해! 산책하기 딱 좋아 ☀️']);
     assert.strictEqual(await p.evaluate(() => el("padMic").classList.contains("on")), false, 'the mic is off when the talk ends');

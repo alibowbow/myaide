@@ -364,6 +364,65 @@ public class BuddyBrainTests {
         o.hide(); assertFalse(o.shown());
     }
 
+    /**
+     * 퍼레's answer said as one stream (준: "음성대화 너무 느려", core/SayQueue): the sentences play in the order they were written
+     * whichever sound came first, the next one is asked for as soon as one plays and never more than one ahead, a sentence
+     * with no sound keeps its place with its fallback, and a talk cut short asks for and plays nothing more.
+     */
+    @Test public void speaksSentencesInOrder() throws Exception {
+        dev.jun.gyeot.core.SayQueue q = new dev.jun.gyeot.core.SayQueue();
+        dev.jun.gyeot.core.SayQueue.Clip a = q.add("안녕!"), b = q.add("오늘 날씨 진짜 좋다."), c = q.add("산책 갈래?");
+        assertSame("the first is asked for at once", a, q.nextToFetch());
+        assertNull("nothing ahead before the first plays", q.nextToFetch());
+        assertNull("nothing to play before its first sound", q.take(10));
+        q.arrived(a, new byte[]{1, 0});
+        assertSame(a, q.take(10)); assertEquals(dev.jun.gyeot.core.SayQueue.State.PLAYING, a.state());
+        assertSame("the next is asked for as soon as one plays", b, q.nextToFetch());
+        assertNull("one ahead, never more", q.nextToFetch());
+        // The second's sound all comes while the first still streams: it still plays second.
+        q.arrived(b, new byte[]{2, 0, 3, 0}); q.fetched(b);
+        assertFalse(a.ended); assertEquals(dev.jun.gyeot.core.SayQueue.State.READY, b.state());
+        assertNull("not ahead of the one before it", q.nextToFetch());
+        q.arrived(a, new byte[]{4, 0}); q.fetched(a); q.played(a);
+        assertSame(b, q.take(10)); assertEquals(4, b.bytes);
+        assertSame(c, q.nextToFetch());
+        // No sound for the third: in its place, said from Typecast's whole file.
+        q.failed(c, dev.jun.gyeot.core.SayQueue.Fallback.WHOLE); q.close(); q.played(b);
+        assertSame("a failed one keeps its place", c, q.take(10));
+        assertEquals(dev.jun.gyeot.core.SayQueue.State.FAILED, c.state()); assertEquals(dev.jun.gyeot.core.SayQueue.Fallback.WHOLE, c.fallback());
+        q.played(c);
+        assertNull(q.take(10)); assertTrue("all said", q.over());
+        // A later one's sound reported first (out of its turn): it still waits for the one before it.
+        dev.jun.gyeot.core.SayQueue turn = new dev.jun.gyeot.core.SayQueue();
+        dev.jun.gyeot.core.SayQueue.Clip one = turn.add("첫 문장이야."), two = turn.add("둘째 문장이야.");
+        assertSame(one, turn.nextToFetch());
+        turn.arrived(two, new byte[]{5, 0}); turn.fetched(two);
+        assertNull("not before the first", turn.take(10));
+        turn.arrived(one, new byte[]{6, 0});
+        assertSame(one, turn.take(10)); turn.played(one); assertSame(two, turn.take(10));
+        // A fetch that broke after some sound: what came is said, no fallback.
+        dev.jun.gyeot.core.SayQueue some = new dev.jun.gyeot.core.SayQueue(); dev.jun.gyeot.core.SayQueue.Clip s = some.add("반가워.");
+        assertSame(s, some.nextToFetch()); some.arrived(s, new byte[]{1, 0}); some.failed(s, dev.jun.gyeot.core.SayQueue.Fallback.PHONE);
+        assertTrue(s.ended); assertEquals(dev.jun.gyeot.core.SayQueue.Fallback.NONE, s.fallback()); assertSame(s, some.take(10));
+        // Talked over: the fetch on its way stops (one not sent yet never goes), nothing more is asked for or played.
+        dev.jun.gyeot.core.SayQueue cut = new dev.jun.gyeot.core.SayQueue();
+        dev.jun.gyeot.core.SayQueue.Clip x = cut.add("하나 둘 셋."); cut.add("넷 다섯.");
+        java.util.concurrent.CountDownLatch stopped = new java.util.concurrent.CountDownLatch(1);
+        assertSame(x, cut.nextToFetch()); assertTrue(dev.jun.gyeot.core.RequestAbort.register(x.cancel, stopped::countDown));
+        cut.arrived(x, new byte[]{1, 0});
+        cut.cancelAll();
+        assertTrue("its fetch stopped", stopped.await(2, java.util.concurrent.TimeUnit.SECONDS));
+        assertTrue("nothing kept", x.chunks.isEmpty());
+        assertNull(cut.take(10)); assertNull(cut.nextToFetch()); assertTrue(cut.over());
+        dev.jun.gyeot.core.SayQueue.Clip late = cut.add("여섯.");
+        assertNull("nothing after it", cut.nextToFetch()); assertNull(cut.take(10));
+        assertFalse("a request of its own after it is never sent", dev.jun.gyeot.core.RequestAbort.register(x.cancel, () -> {}));
+        assertEquals(dev.jun.gyeot.core.SayQueue.State.DONE, late.state());
+        // How long words take before their sound tells it (the bubble types along), and the breath between two sentences.
+        assertEquals(6 * 95, BuddyVoice.sayMs("안녕 반가워"));
+        assertTrue(BuddyVoice.BETWEEN_MS < 200 && BuddyVoice.GAP_MS > BuddyVoice.BETWEEN_MS);
+    }
+
     /** 퍼레's short words in its own voice (준: "프리셋 보이스 100개", "타입캐스트로"): a hundred, kept by voice, no repeat of the last few. */
     @Test public void keepsItsShortWords() throws Exception {
         assertEquals(100, VoicePresets.LINES.length);
