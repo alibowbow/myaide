@@ -2,9 +2,13 @@ name: Android APK
 
 # Builds the signed personal-test APK with tools/build.py and publishes it as a
 # prerelease, so it can be downloaded straight to a phone from the repository's Releases page.
+# Only a release builds (준: "한 달 2000분에 맞춰야지", "8번 빌드 릴리즈 가능?"): a release is the commit that raises the
+# version in app/build.gradle, so other pushes use no GitHub minutes. About 4 minutes a release: the browser and screen suites
+# run in the session before every release, and here only when the workflow is started by hand.
 on:
   push:
     branches: [main, master, 'claude/**', 'dot/delta/**']
+    paths: ['app/build.gradle']
   workflow_dispatch:
 
 permissions:
@@ -30,10 +34,10 @@ jobs:
         with:
           node-version: '22'
       - name: Browser DOM contracts
-        if: hashFiles('tests/browser/package.json') != ''
+        if: github.event_name == 'workflow_dispatch' && hashFiles('tests/browser/package.json') != ''
         run: npm ci --prefix tests/browser --ignore-scripts --no-audit --no-fund && npm test --prefix tests/browser
       - name: Firefox native editor verification
-        if: hashFiles('tests/browser/package.json') != ''
+        if: github.event_name == 'workflow_dispatch' && hashFiles('tests/browser/package.json') != ''
         run: npm run install:firefox --prefix tests/browser && npm run test:native --prefix tests/browser
       - name: Prepare isolated signing workspace
         id: public-dependencies
@@ -85,7 +89,7 @@ jobs:
         if: hashFiles('tests/longtask/run.sh') != ''
         run: bash tests/longtask/run.sh
       - name: Native UI startup checks
-        if: hashFiles('tests/ui/*.java') != ''
+        if: github.event_name == 'workflow_dispatch' && hashFiles('tests/ui/*.java') != ''
         run: python3 tools/ui_verify.py
       - name: Trash JNI compile and ABI verification
         run: python3 tools/verify_trash_native.py
