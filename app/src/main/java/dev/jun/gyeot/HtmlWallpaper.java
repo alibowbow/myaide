@@ -517,13 +517,15 @@ public final class HtmlWallpaper extends WallpaperService {
             case "settings": open = new Intent(c, MainActivity.class).putExtra(MainNavigation.TARGET, "settings"); break;
             case "lab": open = new Intent(c, LabActivity.class); break;
             case "mytube": open = new Intent(c, MyTubeActivity.class); break;
+            // The home screen's 나의학교 shortcut (준: "나의 학교 바로가기 아이콘 만들어줘").
+            case "school": open = new Intent(c, SchoolActivity.class); break;
             // The home screen's 업데이트 shortcut: the update page, checking now, downloading a newer build at once.
             case "update": open = new Intent(c, MainActivity.class).putExtra(MainActivity.SETTINGS_PAGE, "update").putExtra(MainActivity.UPDATE_NOW, true); break;
             case "pages": open = new Intent(c, PagesActivity.class); break;
             case "notices": open = new Intent(c, NoticeActivity.class); break;
             case "calendarSettings": open = new Intent(c, MainActivity.class).putExtra(PhoneCalendar.PAGE_EXTRA, PhoneCalendar.PAGE); break;
             // The date at the top of the board where no widget can be hosted (the live wallpaper; the launcher shows Google Calendar's
-            // widget instead, CalendarWidget): the phone's calendar at today, light, as the 오늘 page's events open it.
+            // month card instead, MonthCard): the phone's calendar at today, light, as the 오늘 page's events open it.
             case "gcalendar":
             case "calendar":
                 return new Intent(Intent.ACTION_VIEW, CalendarContract.CONTENT_URI.buildUpon().appendPath("time").appendPath(String.valueOf(System.currentTimeMillis())).build())

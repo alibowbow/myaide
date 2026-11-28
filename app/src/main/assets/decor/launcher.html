@@ -124,6 +124,9 @@ body.launcher{position:fixed;inset:0}
    녹음 is on, the same small red dot as 업데이트's, breathing. */
 .own-ic.rec{background:linear-gradient(155deg,#ffb4a6 0%,#ff6f69 48%,#de3350 100%)}
 .own-ic.rec svg{width:62%;height:62%}
+/* 나의학교 (준: "나의 학교 바로가기 아이콘 만들어줘"): a graduation cap with its tassel on amber, beside the others' violet, blue, teal and coral. */
+.own-ic.school{background:linear-gradient(155deg,#ffe29a 0%,#f7b23b 50%,#d9820f 100%)}
+.own-ic.school svg{width:64%;height:64%}
 .shorts .app .dot.live{animation:recPulse 1.6s ease-in-out infinite}
 @keyframes recPulse{50%{box-shadow:0 0 0 2px rgba(20,16,40,.55),0 0 0 5px rgba(255,77,79,.28)}}
 .shorts .app.short.open .ic{transform:scale(.92)}
@@ -831,7 +834,18 @@ weather(null);
 /* ── the pages: 오늘 ← 홈 ── */
 const pagesBox = el("pages");
 let pageAt = 1;
-function toPage(i, smooth) { pageAt = i; pagesBox.scrollTo({left: i * pagesBox.clientWidth, behavior: smooth ? "smooth" : "instant"}); dotsAt(i); if (typeof frames === "function") frames(); if (!smooth) tellLeft(true); }
+/*
+  The pages rest on a page, never between two (준: "왼쪽으로 갔다 다시 홈으로 돌아오면 왼쪽에 줄이 생겨"): the swipe onto the left
+  page opens the AI 브라우저 while the pages are still moving, and the home screen stops drawing under it, so they could be left a
+  few pixels short of 홈 with the left page's edge as a line down the side. Put right when the home screen is in front again
+  (shown) and after toHome; a page's width is the box's real one (clientWidth is rounded).
+*/
+function settlePages() {
+  const w = pagesBox.getBoundingClientRect().width; if (!w) return;
+  const at = pagesBox.scrollLeft, i = Math.round(at / w), left = i * w;
+  if (Math.abs(at - left) > 0.5) { pagesBox.scrollTo({left, behavior: "instant"}); if (i !== pageAt) { pageAt = i; dotsAt(i); } }
+}
+function toPage(i, smooth) { pageAt = i; pagesBox.scrollTo({left: i * pagesBox.getBoundingClientRect().width, behavior: smooth ? "smooth" : "instant"}); dotsAt(i); if (typeof frames === "function") frames(); if (!smooth) tellLeft(true); }
 function dotsAt(i) { Array.from(el("dots").children).forEach((d, k) => d.classList.toggle("on", k === i)); document.body.classList.toggle("on-custom", i >= 2); document.body.classList.toggle("on-claude", CLAUDE && i === 0); }
 /*
   왼쪽 · Claude Code (준: "홈화면 왼쪽 페이지 자체를 내 ai브라우저로 https://claude.ai/code 이페이지를 띄울 수 있어?", "왼쪽 페이지는 하단
@@ -1025,7 +1039,12 @@ const SHORTS = [{id: "mytube", label: "마이튜브",
   // 녹화·녹음 (준: "홈에 바로가기를 만들자 그걸 누르면 위성처럼 여러가지 팝업아이콘이 뜨고", "화면캡쳐는 굳이 안 만들어도 되겠다"): a tap opens its satellite.
   {id: "rec", label: "녹화·녹음", sat: true,
   icon: '<svg viewBox="0 0 24 24"><rect x="2.6" y="6.4" width="13.6" height="11.2" rx="3" fill="#fff"/><path d="M17.2 10.6 21 8.3c.4-.24.9.05.9.5v6.4c0 .45-.5.74-.9.5l-3.8-2.3z" fill="#fff"/>'
-    + '<circle cx="9.4" cy="12" r="2.9" fill="#ef3a50"/></svg>'}];
+    + '<circle cx="9.4" cy="12" r="2.9" fill="#ef3a50"/></svg>'},
+  // 나의학교 (준: "나의 학교 바로가기 아이콘 만들어줘"): its teachers and lessons in one tap.
+  {id: "school", label: "나의학교",
+  icon: '<svg viewBox="0 0 24 24"><path d="M12 4.2 2.4 8.9 12 13.6l9.6-4.7z" fill="#fff"/>'
+    + '<path d="M6.3 11.6v3.9c0 .55.3 1.05.78 1.32 1.55.86 3.1 1.38 4.92 1.38s3.37-.52 4.92-1.38c.48-.27.78-.77.78-1.32v-3.9L12 14.4z" fill="#fff"/>'
+    + '<path d="M20.4 9.5v5.3" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/><circle cx="20.4" cy="15.6" r="1.15" fill="#fff"/></svg>'}];
 let newBuild = "";
 /** 화면 녹화 and 녹음 now, as the app says them (launcher.record): "" (none), "starting", "on", "paused", "saving". */
 let REC = {screen: "", audio: ""};
@@ -2053,7 +2072,7 @@ window.launcher = {
     img.src = "/left.jpg?t=" + at; return true;
   },
   /** The AI 브라우저 came over the left page: 홈 under it at once, so coming back lands there. */
-  toHome() { if (el("pad").classList.contains("on")) closePad(); toPage(1, false); return true; },
+  toHome() { if (el("pad").classList.contains("on")) closePad(); toPage(1, false); setTimeout(settlePages, 700); return true; },
   /** window.gyeot's answer for one of the user's own pages (its src): to that page's frame alone, at its own origin. */
   bridgeReply(src, message) {
     const i = PAGES.findIndex(p => p.src === src), f = i < 0 ? null : pagesBox.querySelectorAll(".page.custom iframe")[i];
@@ -2075,7 +2094,7 @@ window.launcher = {
   reply(text) { const last = thread[thread.length - 1]; if (!last || !last.pending) return; last.pending = false; if (text) last.text = text; if (!last.text) last.text = "(답이 비어 있어)"; last.at = talkedAt = Date.now(); saveChats(); pal.done(true, last.text); if (chatting && chatView === "talk") drawChat(); },
   replyError(why, go) { const last = thread[thread.length - 1]; if (!last || last.who !== "ai") return; last.pending = false; last.error = true; last.text = why; last.go = go || ""; last.at = Date.now(); saveChats(); pal.done(false); if (chatting && chatView === "talk") drawChat(); },
   /** The home screen in front again, or left: 퍼레 may speak first when it comes back after a while. */
-  shown() { boardSeen(true); },
+  shown() { boardSeen(true); requestAnimationFrame(() => requestAnimationFrame(settlePages)); setTimeout(settlePages, 400); },
   hidden() { boardSeen(false); }
 };
 addEventListener("resize", () => launcher.resized());

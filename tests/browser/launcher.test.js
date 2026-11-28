@@ -402,15 +402,15 @@ async function open(browser, at, bridge, pages, scale, config) {
       const ic = b.querySelector('.ic').getBoundingClientRect(), dots = el('dots').getBoundingClientRect(), lib = el('stacks').getBoundingClientRect();
       return { id: b.dataset.short, w: ic.width, h: ic.height, text: b.textContent.trim(), name: b.getAttribute('aria-label'), bottom: b.getBoundingClientRect().bottom, dots: dots.top, below: ic.top >= lib.bottom - 1 };
     }));
-    assert.deepStrictEqual(s.map(x => x.id), ['mytube', 'update', 'decor', 'rec']);
+    assert.deepStrictEqual(s.map(x => x.id), ['mytube', 'update', 'decor', 'rec', 'school']);
     for (const x of s) {
       assert(x.w <= 44 && x.h <= 44 && x.w >= 36, 'small, smaller than an app icon: ' + JSON.stringify(x));
       assert.strictEqual(x.text, '', 'no name under it');
-      assert(/마이튜브|화면 꾸미기|업데이트|녹화·녹음/.test(x.name), 'its name for the screen reader: ' + x.name);
+      assert(/마이튜브|화면 꾸미기|업데이트|녹화·녹음|나의학교/.test(x.name), 'its name for the screen reader: ' + x.name);
       assert(x.below && x.bottom <= x.dots, 'under App Library, above the dots: ' + JSON.stringify(x));
     }
-    await p.evaluate(() => { window._calls.length = 0; ['mytube', 'update', 'decor'].forEach(id => document.querySelector('#shorts [data-short="' + id + '"]').click()); });
-    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open' || c[0] === 'settings').map(c => c[0] + ':' + JSON.parse(c[1])[0])), ['open:mytube', 'open:update', 'settings:decor']);
+    await p.evaluate(() => { window._calls.length = 0; ['mytube', 'update', 'decor', 'school'].forEach(id => document.querySelector('#shorts [data-short="' + id + '"]').click()); });
+    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open' || c[0] === 'settings').map(c => c[0] + ':' + JSON.parse(c[1])[0])), ['open:mytube', 'open:update', 'settings:decor', 'open:school']);
     // 업데이트 (준: "업데이트 바로가기 버튼"): a red dot when the app found a newer build, gone when there is none.
     assert.strictEqual(await p.evaluate(() => document.querySelectorAll('#shorts .dot').length), 0, 'no dot when up to date');
     await p.evaluate(() => launcher.board({ weather: { code: 0, temp: 15, day: false }, env: { battery: 80 }, life: { heart: 60 }, update: '0.4.700' }));
@@ -921,6 +921,13 @@ async function open(browser, at, bridge, pages, scale, config) {
     await p.evaluate(() => toPage(0, false)); await settle();
     assert.strictEqual(await p.evaluate(() => launcher.toHome() && pageAt), 1, '홈 under the browser');
     await settle(); assert.deepStrictEqual(await last(), [1, true, false], 'told: 홈');
+    // Left a few pixels short of 홈 (the pages still moving when the browser came over and the home screen stopped drawing; 준:
+    // "왼쪽으로 갔다 다시 홈으로 돌아오면 왼쪽에 줄이 생겨"): put right when the home screen is in front again.
+    await p.evaluate(() => { pagesBox.style.scrollSnapType = 'none'; pagesBox.scrollLeft = pagesBox.getBoundingClientRect().width - 6; launcher.shown(); });
+    await settle();
+    const gap = await p.evaluate(() => [pagesBox.scrollLeft, pagesBox.getBoundingClientRect().width, pageAt]);
+    assert(Math.abs(gap[0] - gap[1]) <= 1 && gap[2] === 1, 'at 홈 exactly again: ' + JSON.stringify(gap));
+    await p.evaluate(() => { pagesBox.style.scrollSnapType = ''; });
     // 퍼레와 대화's model, chosen right in the talk (준: "대화모델 설정가능하게 해줘", "대화창에서", "모델선택을 왜 거기에둬? 안하던 행동을
     // 하네"): as 메인 대화 has it, a line under the box, the model in bold and its thinking level quiet beside it.
     await p.evaluate(() => openChat()); await settle();

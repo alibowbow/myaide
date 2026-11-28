@@ -91,8 +91,8 @@ public final class HomeActivity extends Activity {
     private WebView web; private LauncherApps launcher; private SharedPreferences prefs;
     /** The left page as Claude Code (ClaudePage): a swipe come to rest there opens the AI 브라우저. */
     private final ClaudePage.Swipe leftSwipe = new ClaudePage.Swipe();
-    /** The date's tap: Google Calendar's own widget in a small card (CalendarWidget). */
-    private CalendarWidget calendar;
+    /** The date's tap: the month in a card (MonthCard: 일요일·공휴일 red, the phone's calendar's events). */
+    private MonthCard month;
     private long leftOpened = Long.MIN_VALUE / 4;
     private boolean ready, shown; private int top, bottom, keyboard;
     private final Runnable refresh = new Runnable() { @Override public void run() { pushBoard(); main.postDelayed(this, 60_000); } };
@@ -261,6 +261,8 @@ public final class HomeActivity extends Activity {
     @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(request, permissions, results);
         if (request == LOCATION) pushBoard();
+        // The month card's 캘린더 허용: its events now.
+        if (request == MonthCard.PERMISSION && month != null) month.reload();
         if (request == MIC) {
             if (results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) voice();
             else js("launcher.voice('error'," + JSONObject.quote("마이크를 허용해야 퍼레와 말로 이야기할 수 있어요") + ")");
@@ -377,8 +379,8 @@ public final class HomeActivity extends Activity {
         if (java.time.LocalTime.now().getHour() >= 22) try { io.execute(() -> BuddyTalk.dreamTonight(getApplicationContext())); } catch (RuntimeException stopped) {}
         // The home screen is gone: the taskbar over other apps may show (Taskbar).
         visible = false; PhoneService.taskbarChanged();
-        // The calendar's card closes (a tap in it opened Google Calendar, or home was left); the widget stops drawing.
-        if (calendar != null) { calendar.close(); calendar.stop(); }
+        // The month card closes (a tap in it opened the calendar app, or home was left).
+        if (month != null) month.close();
         super.onStop();
     }
     /**
@@ -439,15 +441,17 @@ public final class HomeActivity extends Activity {
     private void showPad(String show) {
         if (web != null) web.evaluateJavascript("launcher.pad&&launcher.pad(" + "search".equals(show) + ")", null);
     }
-    @Override protected void onStart() { super.onStart(); shownAt = android.os.SystemClock.uptimeMillis(); visible = true; PhoneService.taskbarChanged(); if (calendar != null) calendar.start(); }
-    private CalendarWidget calendar() {
-        if (calendar == null) { if (bridgeUi == null) bridgeUi = new Ui(this); calendar = new CalendarWidget(this, prefs, bridgeUi); calendar.start(); }
-        return calendar;
-    }
-    /** Android's answer about the calendar widget (the right to show it, its own setup). */
-    @Override protected void onActivityResult(int request, int result, Intent data) {
-        super.onActivityResult(request, result, data);
-        if (calendar != null) calendar.result(request, result);
+    @Override protected void onStart() { super.onStart(); shownAt = android.os.SystemClock.uptimeMillis(); visible = true; PhoneService.taskbarChanged(); }
+    private MonthCard month() {
+        if (month == null) {
+            if (bridgeUi == null) bridgeUi = new Ui(this); month = new MonthCard(this, bridgeUi, io);
+            // Google Calendar's widget, hosted here before (0.4.666–0.4.676): given back once.
+            if (prefs.contains("calendarWidget")) {
+                try { new android.appwidget.AppWidgetHost(getApplicationContext(), 0x6779).deleteHost(); } catch (RuntimeException ignored) {}
+                prefs.edit().remove("calendarWidget").apply();
+            }
+        }
+        return month;
     }
     @Override public void onBackPressed() {
         // A home screen does not close: back only closes what is open on it.
@@ -912,7 +916,7 @@ public final class HomeActivity extends Activity {
             // The left page's card (when the browser did not come by itself): the AI 브라우저 at claude.ai/code.
             if ("claude".equals(what)) { main.post(() -> openLeft()); return; }
             // The date (준: "가벼운 구글캘린더", "갤럭시 폰에서 위젯으로 있는 구글캘린더 같이"): Google Calendar's widget over the home screen.
-            if ("gcalendar".equals(what)) { main.post(() -> { if (!isFinishing()) calendar().show(); }); return; }
+            if ("gcalendar".equals(what)) { main.post(() -> { if (!isFinishing()) month().show(); }); return; }
             // The way through for something 퍼레 could not do (its words in the voice talk's bubble): one tap (BuddyMisses).
             if (what != null && what.startsWith("fix:")) {
                 Intent fix = BuddyMisses.fixIntent(HomeActivity.this, what.substring(4));
