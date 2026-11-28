@@ -543,22 +543,36 @@ public final class HomeActivity extends Activity {
     /**
      * A written answer shown, and the thing it names done (BuddyTalk.ACTS; typed, so an alarm needs no spoken yes); without
      * the sentences 퍼레 does not say to the question (BuddyMind.unasked: cheering, rest, chores, coins), "응응!" when that was all.
-     * What the user told is learned with the six turns before it (history) as what came before.
+     * What the user told is learned with the six turns before it (history) as what came before. A thing that finds something
+     * to say (BuddyChat.informs) has its result said by the brain that chose it (BuddyTalk.toolAnswer, else the result's own
+     * words); a Google search chosen for a question the user did not ask to open one for is answered from the web instead
+     * (BuddyTalk.webAnswer, else the search opens as before). current: false once a newer question came (nothing is shown).
+     * Off the main thread (the thread that asked the brain: BuddyTalk.CHAT_BRAIN).
      */
-    private void chatAnswer(String question, String history, String text) {
+    private void chatAnswer(String question, String history, String text, java.util.function.BooleanSupplier current, AtomicReference<Runnable> cancel) {
         JSONObject a = BuddyTalk.act(text);
         String written = text.replaceAll("(?m)^\\s*할\\s*일\\s*[:：].*$", "").strip();
-        String shown = dev.jun.gyeot.core.BuddyMind.keepAsked(written, question);
+        // The web's answer was asked for as it is (a price, the news): none of it is "unasked".
+        String shown = BuddyTalk.WEB.equals(BuddyTalk.CHAT_BRAIN.get()) ? written : dev.jun.gyeot.core.BuddyMind.keepAsked(written, question);
         if (a == null) {
             if (shown.isEmpty() && !written.isEmpty()) shown = "응응!";
             js("launcher.reply(" + JSONObject.quote(shown) + ")"); BuddyTalk.learnChat(this, history, question, shown); return;
+        }
+        // 검색 chosen for "환율 얼마야"-like words: the answer itself, from the web (준: "where 퍼레 would otherwise open a Google search").
+        if ("search".equals(a.optString("tool")) && !dev.jun.gyeot.core.BuddyChat.opensSearch(question)) {
+            String web = BuddyTalk.webAnswer(this, question, history, a.optString("query"), cancel);
+            if (!current.getAsBoolean()) return;
+            if (web != null) { js("launcher.reply(" + JSONObject.quote(web) + ")"); return; }
         }
         if (shown.isEmpty()) shown = BuddyTools.say(a);
         // A job handed over has the user's own words as its authority (BuddyHands); typed, an alarm needs no spoken yes.
         // The past asked about (day_recall) and a trigger ("…하면 …") are found by the user's own words too ("지난주 그 집").
         BuddyVoice.Outcome o = BuddyActs.run(this, a, BuddyHands.TOOLS.contains(a.optString("tool")) || BuddyTriggers.TOOLS.contains(a.optString("tool")) || "day_recall".equals(a.optString("tool")) ? question : "네", false);
         String more = o == null || o.say() == null ? "" : o.say().strip();
-        js("launcher.reply(" + JSONObject.quote(more.isEmpty() ? shown : shown + "\n" + more) + ")");
+        // Its result in 퍼레's own words (once, within three seconds), when it went right and is something to tell.
+        String natural = o == null || o.missed() || o.leaves() || o.confirm() != null || more.isEmpty() ? null : BuddyTalk.toolAnswer(this, question, history, a, more);
+        if (!current.getAsBoolean()) return;
+        js("launcher.reply(" + JSONObject.quote(natural != null ? natural : more.isEmpty() ? shown : shown + "\n" + more) + ")");
     }
     /** The answer to words about the jobs 퍼레 took on (their status, or 중지 for the newest running one), or null for other words. */
     static String jobWords(String said) {
@@ -678,7 +692,9 @@ public final class HomeActivity extends Activity {
             switch (name == null ? "" : name) {
                 case "ready" -> b.ready();
                 case "launch" -> b.launch(a.optString(0, null), (float) a.optDouble(1), (float) a.optDouble(2), (float) a.optDouble(3), (float) a.optDouble(4));
-                case "chat" -> b.chat(a.optString(0, null), a.optString(1, "[]"));
+                case "chat" -> b.chat(a.optString(0, null), a.optString(1, "[]"), a.optString(2, ""));
+                // A talk deleted on the page ("*": all): its summary goes too (BuddyTalk.forgetSummary).
+                case "chatGone" -> { String id = a.optString(0, ""); try { io.execute(() -> BuddyTalk.forgetSummary(HomeActivity.this, id)); } catch (RuntimeException stopped) { /* closing */ } }
                 case "stopChat" -> b.stopChat();
                 // 퍼레와 대화's model chip (준: "대화모델 설정가능하게 해줘", "대화창에서"): the 퍼레 두뇌 picker over the talk.
                 case "brain" -> main.post(() -> { if (isFinishing()) return; if (bridgeUi == null) bridgeUi = new Ui(HomeActivity.this); BrainPicker.show(HomeActivity.this, bridgeUi, HomeActivity.this::pushBrain); });
@@ -774,7 +790,8 @@ public final class HomeActivity extends Activity {
          */
         /** Set while a question goes on after its fingerprint (asked once). */
         private boolean fingerprinted;
-        public void chat(String question, String history) {
+        /** conversation: the page's id for this talk (its summary is kept by it, BuddyTalk.talk). */
+        public void chat(String question, String history, String conversation) {
             if (question == null || question.isBlank() || question.length() > 4000) return;
             // "자가 점검해 줘" (퍼레 자동 점검): its sheet, with no brain asked.
             if (BuddyCheck.asked(question)) {
@@ -793,7 +810,7 @@ public final class HomeActivity extends Activity {
             if (!custom && !qwen && !store.nim.connected() && BuddyTalk.local(HomeActivity.this, question) == null) { js("launcher.replyError(" + JSONObject.quote("퍼레의 두뇌가 아직 연결되지 않았어요. 설정 → AI 연결에서 Groq나 NVIDIA 키를 넣으면 여기서 바로 답해요.") + ",\"settings\")"); return; }
             // Private memories asked for: the fingerprint first (준: "개인정보 중 중요한 내용은 지문인식을 요청해줘"); without it the answer leaves them out.
             if (!fingerprinted && BuddyTalk.needsUnlock(HomeActivity.this, question)) {
-                main.post(() -> Fingerprint.ask(HomeActivity.this, "퍼레의 비밀 기억", "지문으로 확인하면 말해 줄게", () -> { BuddyTalk.unlock(); fingerprinted = true; chat(question, history); fingerprinted = false; }, () -> { fingerprinted = true; chat(question, history); fingerprinted = false; }));
+                main.post(() -> Fingerprint.ask(HomeActivity.this, "퍼레의 비밀 기억", "지문으로 확인하면 말해 줄게", () -> { BuddyTalk.unlock(); fingerprinted = true; chat(question, history, conversation); fingerprinted = false; }, () -> { fingerprinted = true; chat(question, history, conversation); fingerprinted = false; }));
                 return;
             }
             Runnable old = chatCancel.getAndSet(null); if (old != null) try { old.run(); } catch (RuntimeException ignored) {}
@@ -802,9 +819,9 @@ public final class HomeActivity extends Activity {
                 AtomicReference<Runnable> cancel = new AtomicReference<>(); chatCancel.set(() -> { Runnable r = cancel.get(); if (r != null) r.run(); });
                 try {
                     // 퍼레와 대화's brain, as 퍼레 자동 점검 asks it too (BuddyTalk.chatText).
-                    String text = BuddyTalk.chatText(HomeActivity.this, question, history, cancel, () -> ticket == chatTicket,
+                    String text = BuddyTalk.chatText(HomeActivity.this, question, history, conversation == null ? "" : conversation, cancel, () -> ticket == chatTicket,
                         delta -> { if (ticket == chatTicket && !delta.isEmpty()) js("launcher.stream(" + JSONObject.quote(delta) + ")"); });
-                    if (ticket == chatTicket) chatAnswer(question, history, text);
+                    if (ticket == chatTicket) chatAnswer(question, history, text, () -> ticket == chatTicket, cancel);
                 } catch (java.util.concurrent.CancellationException stopped) { /* a newer question, or stopped */ }
                 catch (Exception e) {
                     String why = e instanceof java.io.IOException ? "인터넷이 끊겼거나 " + (qwen ? "Groq" : "NVIDIA") + "가 답하지 않았어요. 잠시 뒤 다시 물어봐 주세요." : e.getMessage() == null ? "답을 받지 못했어요." : e.getMessage();

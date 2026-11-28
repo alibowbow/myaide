@@ -94,9 +94,11 @@ final class GroqWork {
         return chat(CHORES, instructions, input, "low", 60_000, null);
     }
     /** A web search question to compound (Groq searches and answers); the answer's text. */
-    static String search(String instructions, String query) throws Exception {
+    static String search(String instructions, String query) throws Exception { return search(instructions, query, 45_000, null); }
+    /** As above, within timeoutMs and stopped by cancel (퍼레와 대화's web answer, BuddyTalk.webAnswer). */
+    static String search(String instructions, String query, int timeoutMs, AtomicReference<Runnable> cancel) throws Exception {
         if (!ready(SEARCH, 0)) throw new IllegalStateException("Groq 검색 한도를 기다리는 중이에요.");
-        return chat(SEARCH, instructions, query, null, 45_000, null);
+        return chat(SEARCH, instructions, query, null, timeoutMs, cancel);
     }
 
     /**

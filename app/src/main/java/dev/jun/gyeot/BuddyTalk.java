@@ -329,7 +329,7 @@ final class BuddyTalk {
         String about = "";
         try { String all = Briefing.profile(store); about = dev.jun.gyeot.core.BuddyMind.asksWork(question) ? all : dev.jun.gyeot.core.BuddyMind.everyday(all); } catch (RuntimeException ignored) {}
         String now = new SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date());
-        return BuddyPrompt.chatRules(persona(c), now) + corrected(c, question) + (full ? ACTS + places(store) : BuddyPrompt.ACTS_LITE)
+        return BuddyPrompt.chatRules(persona(c), now, dev.jun.gyeot.core.BuddyChat.wantsLong(question)) + corrected(c, question) + (full ? ACTS + places(store) : BuddyPrompt.ACTS_LITE)
             + BuddyPrompt.CHAT_PHONE
             + "휴대폰 상태: " + facts(c) + "\n" + todayWords(c) + deliveryWords(c) + noticeWords(c) + dev.jun.gyeot.core.BuddyJobs.report(System.currentTimeMillis()) + memoryWords(c, question, true)
             + worldWords(c)
@@ -344,7 +344,17 @@ final class BuddyTalk {
      * Off the main thread.
      */
     static String chatText(Context c, String question, String history, AtomicReference<Runnable> cancel, java.util.function.BooleanSupplier current, Consumer<String> onDelta) throws Exception {
+        return chatText(c, question, history, "", cancel, current, onDelta);
+    }
+    /**
+     * As above, for the talk conversation (the page's id for it, "" none): its older part goes as a summary kept for it (talk).
+     * A question about the world now (환율, 주가, 뉴스, 경기 결과, 영업시간, a 날씨 not kept here) is answered from the web first
+     * (webAnswer); an answer that only promises a thing ("찾아볼게!") with no "할일:" line is asked once more, to do it now.
+     */
+    static String chatText(Context c, String question, String history, String conversation, AtomicReference<Runnable> cancel,
+            java.util.function.BooleanSupplier current, Consumer<String> onDelta) throws Exception {
         AppStore store = ((GyeotApp) c.getApplicationContext()).store();
+        CHAT_BRAIN.set("");
         boolean custom = CUSTOM.equals(brain(c)) && !customLabel(store).isEmpty();
         boolean qwen = GroqWork.on() && !NIM.equals(brain(c));
         // 기기 안 first (두뇌 배분's DEVICE kind): the time, a sum, a timer … answered with no model; a thing to do goes as the
@@ -353,15 +363,23 @@ final class BuddyTalk {
         if (here != null) {
             JSONObject act = here.act() == null ? null : loose(here.act().toString());
             if (here.act() == null || act != null) {
-                chatBy = "기기 안 · " + here.rule(); localAsked = question.strip();
+                chatBy = "기기 안 · " + here.rule(); localAsked = question.strip(); CHAT_BRAIN.set(LOCAL);
                 store.usage.local(UsageLedger.BUDDY, here.rule());
                 return act == null ? here.say() : (here.say().isEmpty() ? "" : here.say() + "\n") + "할일: " + act;
             }
         }
+        // The world now, from the web (준's list): said with where it came from, not a Google page opened. "…검색해 줘" opens one.
+        if (dev.jun.gyeot.core.BuddyChat.asksNow(question)) {
+            String web = webAnswer(c, question, history, "", cancel);
+            if (web != null) return web;
+            if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException();
+        }
+        Talk talk = talk(c, history, conversation);
         // Chitchat goes with the one-line list of what 퍼레 can do (준: "퍼레 대화는 간단한 잡담인데 설정 인풋이 많나보네": 13 talks
         // filled Groq's 200,000 tokens a day); a thing to do with the whole list, and a talk taken for chitchat that asks for one
         // is asked again in full (BuddyPrompt.wantsMore).
         boolean full = dev.jun.gyeot.core.BuddyMind.mayAct(question) || dev.jun.gyeot.core.BuddyMind.mayAct(lastAsked(history));
+        String said = null;
         if (!full) {
             StringBuilder held = new StringBuilder(); boolean[] passing = {false}, decided = {false};
             // Streamed words: held until they are not the "할일: more" line, so the page never shows it.
@@ -372,12 +390,97 @@ final class BuddyTalk {
                 decided[0] = true; passing[0] = !t.startsWith("할일") && !t.startsWith("{");
                 if (passing[0]) onDelta.accept(held.toString());
             };
-            String said = chatBrain(c, store, question, history, cancel, current, guarded, custom, qwen, false);
-            if (!BuddyPrompt.wantsMore(said)) return said;
-            if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException();
+            said = chatBrain(c, store, question, talk, cancel, current, guarded, custom, qwen, false, "");
+            if (BuddyPrompt.wantsMore(said)) { said = null; if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException(); }
         }
-        return chatBrain(c, store, question, history, cancel, current, onDelta, custom, qwen, true);
+        if (said == null) said = chatBrain(c, store, question, talk, cancel, current, onDelta, custom, qwen, true, "");
+        // Said it would ("찾아볼게!", "알아볼게", "열어 줄게") and wrote no 할일 line: asked once more, the whole list and "now" (the
+        // voice talk's retry, BuddyTools.promised, for the written talk). Its answer stands only when it did a thing or stopped
+        // promising; otherwise the first one is shown.
+        if (act(said) == null && dev.jun.gyeot.core.BuddyChat.promised(said)) {
+            if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException();
+            String first = said, by = chatBy, who = CHAT_BRAIN.get();
+            try {
+                String again = chatBrain(c, store, question, talk, cancel, current, null, custom, qwen, true, BuddyPrompt.DO_IT_NOW);
+                if (act(again) != null || !again.isBlank() && !BuddyPrompt.wantsMore(again) && !dev.jun.gyeot.core.BuddyChat.promised(again)) said = again;
+                else { chatBy = by; CHAT_BRAIN.set(who); }
+            } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
+            catch (Exception keep) { said = first; chatBy = by; CHAT_BRAIN.set(who); }
+        }
+        return said;
     }
+    /** Who wrote this thread's last answer of 퍼레와 대화: CUSTOM, QWEN or NIM (a brain), LOCAL (기기 안), WEB (the search model), "" none. */
+    static final ThreadLocal<String> CHAT_BRAIN = ThreadLocal.withInitial(() -> "");
+    static final String LOCAL = "local", WEB = "web";
+
+    // ── 퍼레와 대화's working memory (core/ChatMemory): the last turns whole, the older part as a summary kept per conversation ──
+    /** The talk so far as one answer sends it. */
+    record Talk(java.util.List<dev.jun.gyeot.core.ChatMemory.Turn> turns, dev.jun.gyeot.core.ChatMemory.Plan plan) {
+        String input(String question, int room) { return dev.jun.gyeot.core.ChatMemory.input(turns, plan, question, room); }
+    }
+    /** Who writes a talk's summary: the chores brain on Groq alone (Chores.run with no Gemini); tests put their own. */
+    interface Summarizer { String summary(AppStore store, String rules, String input) throws Exception; }
+    static volatile Summarizer summarizer = (store, rules, input) -> Chores.run(store, rules, input, false, false);
+    private static final String SUMMARIES = "chatSummaries";
+    private static final java.util.Set<String> summarizing = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final java.util.Map<String, Long> summaryFailed = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final java.util.concurrent.ExecutorService SUMMARY = java.util.concurrent.Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-buddy-summary"); t.setDaemon(true); return t; });
+    /**
+     * The talk for this answer: its turns and plan (ChatMemory.plan) with the summary kept for conversation; when a new one is
+     * due it is made apart (summarize), and this answer goes without it. Reads only the app's own preferences.
+     */
+    static Talk talk(Context c, String history, String conversation) {
+        java.util.List<dev.jun.gyeot.core.ChatMemory.Turn> turns = dev.jun.gyeot.core.ChatMemory.parse(history);
+        String id = conversation == null ? "" : conversation.strip();
+        JSONObject kept = id.isEmpty() ? null : summaries(c).optJSONObject(id);
+        dev.jun.gyeot.core.ChatMemory.Plan plan = dev.jun.gyeot.core.ChatMemory.plan(turns, kept == null ? "" : kept.optString("mark"), kept == null ? "" : kept.optString("summary"));
+        if (plan.due() && !id.isEmpty()) summarize(c, id, turns, plan);
+        return new Talk(turns, plan);
+    }
+    /**
+     * A new summary of the talk's older part (the one kept and the turns after it), by the chores brain on Groq alone (Chores.run
+     * with no Gemini: the user's rule for its free tier), one at a time, off the main thread; a failure waits ten minutes.
+     */
+    private static void summarize(Context c, String id, java.util.List<dev.jun.gyeot.core.ChatMemory.Turn> turns, dev.jun.gyeot.core.ChatMemory.Plan plan) {
+        AppStore store = ((GyeotApp) c.getApplicationContext()).store();
+        if (!store.groq.connected()) return;
+        Long failed = summaryFailed.get(id); if (failed != null && System.currentTimeMillis() - failed < 10 * 60_000L) return;
+        if (!summarizing.add(id)) return;
+        java.util.List<dev.jun.gyeot.core.ChatMemory.Turn> copy = java.util.List.copyOf(turns);
+        Context app = c.getApplicationContext();
+        Summarizer by = summarizer;
+        SUMMARY.execute(() -> {
+            try {
+                String text = dev.jun.gyeot.core.ChatMemory.summary(by.summary(store, dev.jun.gyeot.core.ChatMemory.SUMMARY_RULES,
+                    dev.jun.gyeot.core.ChatMemory.summaryInput(plan.summary(), copy, plan.dueFrom(), plan.dueTo())));
+                if (!text.isEmpty()) keepSummary(app, id, plan.dueMark(), text);
+                summaryFailed.remove(id);
+            } catch (Exception notNow) { summaryFailed.put(id, System.currentTimeMillis()); }
+            finally { summarizing.remove(id); }
+        });
+    }
+    private static synchronized JSONObject summaries(Context c) {
+        try { return new JSONObject(c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(SUMMARIES, "{}")); } catch (Exception unreadable) { return new JSONObject(); }
+    }
+    /** A conversation's summary kept with its mark; the thirty used last kept, none older than thirty days. */
+    static synchronized void keepSummary(Context c, String id, String mark, String summary) {
+        JSONObject all = summaries(c); long now = System.currentTimeMillis();
+        try { all.put(id, new JSONObject().put("mark", mark).put("summary", summary).put("at", now)); } catch (Exception ignored) {}
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        for (java.util.Iterator<String> k = all.keys(); k.hasNext(); ) ids.add(k.next());
+        ids.sort(java.util.Comparator.comparingLong((String k) -> all.optJSONObject(k) == null ? 0 : all.optJSONObject(k).optLong("at")).reversed());
+        JSONObject kept = new JSONObject();
+        for (int i = 0; i < ids.size() && i < 30; i++) { JSONObject one = all.optJSONObject(ids.get(i)); if (one != null && now - one.optLong("at") < 30 * 86_400_000L) try { kept.put(ids.get(i), one); } catch (Exception ignored) {} }
+        c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(SUMMARIES, kept.toString()).apply();
+    }
+    /** A conversation deleted on the page ("*": all of them): its summary goes too. */
+    static synchronized void forgetSummary(Context c, String id) {
+        SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (id == null || id.isBlank() || "*".equals(id)) { p.edit().remove(SUMMARIES).apply(); return; }
+        JSONObject all = summaries(c); all.remove(id.strip()); p.edit().putString(SUMMARIES, all.toString()).apply();
+    }
+    /** The summary kept for a conversation, or "" (for the tests and 퍼레 자동 점검). */
+    static String summaryOf(Context c, String id) { JSONObject one = summaries(c).optJSONObject(id == null ? "" : id); return one == null ? "" : one.optString("summary"); }
     /** The asks before this one in the talk's history ([{who, text}], the page's): the last of the user's, or "". */
     private static String lastAsked(String history) {
         try {
@@ -386,38 +489,191 @@ final class BuddyTalk {
         } catch (Exception unreadable) { /* none */ }
         return "";
     }
-    /** One answer of 퍼레와 대화 from its brain (the chosen AI, Qwen, NVIDIA), with the whole list of what it can do or its line. */
-    private static String chatBrain(Context c, AppStore store, String question, String history, AtomicReference<Runnable> cancel,
-            java.util.function.BooleanSupplier current, Consumer<String> onDelta, boolean custom, boolean qwen, boolean full) throws Exception {
-        String in = BuddyPrompt.chatInput(history, question.strip());
+    /** The room the brains with a large window (the chosen AI, NVIDIA) are given for the talk so far, in tokens. */
+    static final int WIDE_ROOM = 32_000;
+    /**
+     * How 퍼레와 대화 reaches a brain: who (QWEN: Groq's chat model, NIM: NVIDIA's, CUSTOM: the AI chosen for 퍼레, WEB: Groq's search
+     * model), its model, the rules and the input; the text it answered, counted in the usage ledger as 퍼레's. reasoning: Qwen's
+     * thinking setting (null: none sent); onDelta: NVIDIA's pieces as they stream (null: none); guard: throws to stop NVIDIA
+     * (null: none). Tests put their own (no network).
+     */
+    interface Send {
+        String text(AppStore store, String who, String model, String rules, String input, String reasoning, int timeoutMs,
+                    AtomicReference<Runnable> cancel, Consumer<String> onDelta, Runnable guard) throws Exception;
+    }
+    static volatile Send send = BuddyTalk::reach;
+    private static String reach(AppStore store, String who, String model, String rules, String input, String reasoning, int timeoutMs,
+            AtomicReference<Runnable> cancel, Consumer<String> onDelta, Runnable guard) throws Exception {
+        switch (who) {
+            case QWEN -> {
+                String text = GroqWork.converse(model, rules, new JSONArray().put(new JSONObject().put("role", "user").put("content", input)), reasoning, 0.7, timeoutMs, cancel);
+                UsageLedger.count(store, UsageLedger.BUDDY, dev.jun.gyeot.core.WorkBook.GROQ, model, GroqWork.USED.get());
+                return text;
+            }
+            case WEB -> {
+                GroqWork.USED.remove();
+                String text = GroqWork.search(rules, input, timeoutMs, cancel);
+                UsageLedger.count(store, UsageLedger.BUDDY, dev.jun.gyeot.core.WorkBook.GROQ, GroqWork.SEARCH, GroqWork.USED.get());
+                return text;
+            }
+            case NIM -> {
+                WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), model, rules, input, guard == null ? () -> {} : guard, cancel, onDelta == null ? text -> {} : onDelta);
+                UsageLedger.count(store, UsageLedger.BUDDY, dev.jun.gyeot.core.WorkBook.NIM, model, answer.usage);
+                return answer.text == null ? "" : answer.text;
+            }
+            default -> { return askCustom(store, rules, input, cancel); }
+        }
+    }
+    /**
+     * One answer of 퍼레와 대화 from its brain (the chosen AI, Qwen, NVIDIA), with the whole list of what it can do or its line
+     * (nudge: a line more for the rules, "" none). Groq's Qwen gets the talk that fits its free tier's minute (ChatMemory.room:
+     * the oldest whole turns dropped first) and is asked only when its tier can take that now (GeminiQuotas.ready); when it
+     * cannot, or Groq fails with a limit or an outage, NVIDIA NIM answers when connected, else the AI chosen for 퍼레, instead
+     * of sending and failing. chatBy says who answered and why another did.
+     */
+    private static String chatBrain(Context c, AppStore store, String question, Talk talk, AtomicReference<Runnable> cancel,
+            java.util.function.BooleanSupplier current, Consumer<String> onDelta, boolean custom, boolean qwen, boolean full, String nudge) throws Exception {
+        String q = question.strip();
+        boolean longAnswer = dev.jun.gyeot.core.BuddyChat.wantsLong(q), nim = store.nim.connected();
+        String rules = chatInstructions(c, store, question, full) + (nudge == null ? "" : nudge);
         if (custom) {
             // The AI the user chose for 퍼레 (화면 꾸미기 → 퍼레 두뇌); when it cannot answer, Qwen or NVIDIA below.
-            try {
-                String text = askCustom(store, chatInstructions(c, store, question, full), in, cancel);
-                chatBy = "고른 AI · " + customLabel(store);
-                return text.replaceAll("(?s)<think>.*?</think>", "").strip();
-            } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
+            try { return custom(store, rules, talk.input(q, WIDE_ROOM), cancel, ""); }
+            catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
             catch (Exception unavailable) {
                 if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException();
                 // A content refusal is not asked of the quick brains instead (core/Fallback); anything else goes to them.
-                if (!qwen && !store.nim.connected() || dev.jun.gyeot.core.Fallback.refused(unavailable)) throw unavailable;
+                if (!qwen && !nim || dev.jun.gyeot.core.Fallback.refused(unavailable)) throw unavailable;
             }
         }
+        String why = "";
         if (qwen) {
-            String model = qwen(store), text;
-            JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", in));
-            String rules = chatInstructions(c, store, question, full);
-            try { text = GroqWork.converse(model, rules, messages, "none", 0.7, 30_000, cancel); }
-            catch (Exception first) { if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException(); text = GroqWork.converse(model, rules, messages, null, 0.7, 30_000, cancel); }
-            UsageLedger.count(store, UsageLedger.BUDDY, dev.jun.gyeot.core.WorkBook.GROQ, model, GroqWork.USED.get());
-            chatBy = "Groq · " + model;
-            return text.replaceAll("(?s)<think>.*?</think>", "").strip();
+            String model = qwen(store), in = talk.input(q, dev.jun.gyeot.core.ChatMemory.room(dev.jun.gyeot.core.ChatMemory.GROQ_MINUTE, rules, longAnswer));
+            int need = dev.jun.gyeot.core.ChatMemory.tokens(rules) + dev.jun.gyeot.core.ChatMemory.tokens(in) + (longAnswer ? dev.jun.gyeot.core.ChatMemory.LONG_ANSWER : dev.jun.gyeot.core.ChatMemory.ANSWER);
+            lastNeed = need;
+            if (GroqWork.ready(model, need)) {
+                try {
+                    String text;
+                    try { text = send.text(store, QWEN, model, rules, in, "none", 30_000, cancel, null, null); }
+                    catch (Exception first) {
+                        if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException();
+                        // Asked again without the thinking setting, unless Groq said it was a limit (that would only be refused again).
+                        if (dev.jun.gyeot.core.Fallback.why(first) == dev.jun.gyeot.core.Fallback.Why.LIMIT) throw first;
+                        text = send.text(store, QWEN, model, rules, in, null, 30_000, cancel, null, null);
+                    }
+                    chatBy = "Groq · " + model; CHAT_BRAIN.set(QWEN);
+                    return text.replaceAll("(?s)<think>.*?</think>", "").strip();
+                } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
+                catch (Exception failed) {
+                    if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException();
+                    // Another brain answers only what Groq could not take now (a limit, an outage, a timeout); a refusal or a bad request stands.
+                    boolean other = nim || !custom && costsNothing(store);
+                    if (!other || dev.jun.gyeot.core.Fallback.why(failed) == dev.jun.gyeot.core.Fallback.Why.NONE || dev.jun.gyeot.core.Fallback.refused(failed)) throw failed;
+                    why = dev.jun.gyeot.core.Fallback.why(failed) == dev.jun.gyeot.core.Fallback.Why.LIMIT ? "Groq 한도" : "Groq 오류";
+                }
+            } else why = "Groq 한도";
         }
-        WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), store.nim.model(), chatInstructions(c, store, question, full), in,
-            () -> { if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException(); }, cancel, onDelta == null ? text -> {} : onDelta);
-        UsageLedger.count(store, UsageLedger.BUDDY, dev.jun.gyeot.core.WorkBook.NIM, store.nim.model(), answer.usage);
-        chatBy = "NVIDIA · " + store.nim.model();
-        return answer.text == null ? "" : answer.text.strip();
+        if (nim || !qwen) {
+            String model = store.nim.model();
+            String text = send.text(store, NIM, model, rules, talk.input(q, WIDE_ROOM), null, 0, cancel, onDelta,
+                () -> { if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException(); });
+            chatBy = "NVIDIA · " + model + (why.isEmpty() ? "" : " (" + why + "라서)"); CHAT_BRAIN.set(NIM);
+            return text == null ? "" : text.strip();
+        }
+        // Groq could not take it and NVIDIA is not connected: the AI chosen for 퍼레 when asking it costs nothing (a subscription or a
+        // free tier, never Gemini's: costsNothing), and never asked twice in one answer.
+        if (!custom && costsNothing(store)) return custom(store, rules, talk.input(q, WIDE_ROOM), cancel, " (" + why + "라서)");
+        throw new IllegalStateException("Groq 무료 한도가 지금 차서 답하지 못했어요. 잠시 뒤 다시 물어보거나, 설정 → AI 연결에서 NVIDIA 키를 넣으면 그쪽이 대신 답해요.");
+    }
+    /** The tokens the last request to Qwen was estimated at (rules, the talk, the answer to come), for the tests and 퍼레 자동 점검. */
+    static volatile int lastNeed;
+    /**
+     * The AI chosen for 퍼레 (ScopedModels.buddy) is connected and asking it costs nothing per message (a subscription, or NVIDIA's
+     * or Groq's free tier: core/Prices), so it may stand in when Groq's tier is spent; a paid key or Gemini (its free tier may use
+     * what is sent) never does unless the user chose it as 퍼레's brain.
+     */
+    static boolean costsNothing(AppStore store) {
+        try {
+            ScopedModels m = ScopedModels.buddy(store); String engine = m.engine();
+            if (engine == null || engine.isBlank() || !store.ready(engine) || dev.jun.gyeot.core.WorkBook.GEMINI.equals(engine)) return false;
+            dev.jun.gyeot.core.Prices.Billing b = dev.jun.gyeot.core.Prices.billing(engine, store.usageRoute(engine), m.model(engine), false, false);
+            return b == dev.jun.gyeot.core.Prices.Billing.PLAN || b == dev.jun.gyeot.core.Prices.Billing.FREE;
+        } catch (Exception unavailable) { return false; }
+    }
+    /** One answer from the AI chosen for 퍼레 (CUSTOM), its thinking taken out; note goes after its name in chatBy. */
+    private static String custom(AppStore store, String rules, String in, AtomicReference<Runnable> cancel, String note) throws Exception {
+        String text = send.text(store, CUSTOM, "", rules, in, null, 0, cancel, null, null);
+        chatBy = "고른 AI · " + customLabel(store) + note; CHAT_BRAIN.set(CUSTOM);
+        return text == null ? "" : text.replaceAll("(?s)<think>.*?</think>", "").strip();
+    }
+
+    // ── a thing done, said back in 퍼레's own words (HomeActivity.chatAnswer: before, the tool's canned words) ──
+    /** How long the brain may take to say a result before the result's own words are shown. */
+    static final int TOOL_ANSWER_MS = 3_000;
+    private static final java.util.concurrent.ExecutorService TOOL_ANSWERS = java.util.concurrent.Executors.newCachedThreadPool(r -> { Thread t = new Thread(r, "gyeot-buddy-result"); t.setDaemon(true); return t; });
+    /**
+     * A result of a thing that finds or works out something to say (BuddyChat.informs: day_recall, a sum, the time elsewhere,
+     * days to a date, a coin, dice, a pick …) sent back once to the brain that chose it (CHAT_BRAIN, this thread's last answer),
+     * with the result as data and short rules (not the whole list of what 퍼레 can do), to be said naturally in 1–3 sentences:
+     * those words, or null to show the result's own (no brain chose it, its free tier cannot take it, it failed, took longer
+     * than TOOL_ANSWER_MS, wrote another thing to do, or changed the result's facts: BuddyChat.faithful). Blocking; off the
+     * main thread.
+     */
+    static String toolAnswer(Context c, String question, String history, JSONObject act, String result) {
+        String who = CHAT_BRAIN.get();
+        if (!dev.jun.gyeot.core.BuddyChat.informs(act) || result == null || result.isBlank() || !(CUSTOM.equals(who) || QWEN.equals(who) || NIM.equals(who))) return null;
+        AppStore store = ((GyeotApp) c.getApplicationContext()).store();
+        String now = new SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date());
+        String rules = BuddyPrompt.toolRules(persona(c), now), input = BuddyPrompt.toolInput(history, question, BuddyActs.about(act), result);
+        String model = QWEN.equals(who) ? qwen(store) : NIM.equals(who) ? store.nim.model() : "";
+        if (QWEN.equals(who) && !GroqWork.ready(model, dev.jun.gyeot.core.ChatMemory.tokens(rules) + dev.jun.gyeot.core.ChatMemory.tokens(input) + 200)) return null;
+        AtomicReference<Runnable> stop = new AtomicReference<>();
+        Send through = send;
+        java.util.concurrent.Future<String> asked = TOOL_ANSWERS.submit(() -> through.text(store, who, model, rules, input, QWEN.equals(who) ? "none" : null, TOOL_ANSWER_MS, stop, null, null));
+        try {
+            String said = toolWords(asked.get(TOOL_ANSWER_MS, java.util.concurrent.TimeUnit.MILLISECONDS), question, result);
+            if (said != null) chatBy += " · 결과도 말함";
+            return said;
+        } catch (java.util.concurrent.TimeoutException slow) {
+            Runnable r = stop.get(); if (r != null) try { r.run(); } catch (RuntimeException ignored) {}
+            asked.cancel(true);
+            return null;
+        } catch (InterruptedException stopped) { Thread.currentThread().interrupt(); asked.cancel(true); return null; }
+        catch (Exception failed) { return null; }
+    }
+    /** The brain's words for a result as shown, or null when they are not to be shown (another thing to do, a link, other facts). */
+    static String toolWords(String text, String question, String result) {
+        if (text == null) return null;
+        String t = text.replaceAll("(?s)<think>.*?</think>", "").replaceAll("^\\s*퍼레\\s*[:：]\\s*", "").strip();
+        if (t.isEmpty() || act(t) != null || t.contains("{") || t.matches("(?s).*(https?://|할\\s*일\\s*[:：]).*")) return null;
+        String said = dev.jun.gyeot.core.BuddyMind.keepAsked(t, question);
+        return said.isEmpty() || !dev.jun.gyeot.core.BuddyChat.faithful(result, question, said) ? null : said;
+    }
+
+    // ── the world now, from the web (Groq's search model, as the voice assistant's search_web) ──
+    /** How long the web may take before the brain answers as before (a search reads several pages). */
+    static final int WEB_MS = 20_000;
+    /**
+     * A question about the world now answered from the web (GroqWork.SEARCH: Groq's compound searches and answers on its own
+     * free tier), as 퍼레 says it in 1–3 sentences with where it came from (BuddyPrompt.webRules), or null when it cannot (not
+     * connected, its tier spent, it failed or said nothing): then 퍼레 goes on as before. query: the brain's search words when
+     * it chose 검색 ("" none). Only the question and its last two turns go, never 퍼레's memories or notes. Blocking.
+     */
+    static String webAnswer(Context c, String question, String history, String query, AtomicReference<Runnable> cancel) {
+        if (!GroqWork.ready(GroqWork.SEARCH, 0)) return null;
+        AppStore store = ((GyeotApp) c.getApplicationContext()).store();
+        String name = "퍼레"; try { name = AssistantProfile.readName(c); } catch (RuntimeException ignored) {}
+        String asked = question == null ? "" : question.strip();
+        if (query != null && !query.isBlank() && !asked.contains(query.strip())) asked += "\n(search for: " + query.strip() + ")";
+        try {
+            String text = send.text(store, WEB, GroqWork.SEARCH, BuddyPrompt.webRules(name, title(c), dev.jun.gyeot.core.GeminiProtocol.clock(java.time.ZonedDateTime.now())),
+                BuddyPrompt.webInput(history, asked), null, WEB_MS, cancel, null, null);
+            String said = BuddyPrompt.webAnswer(text);
+            if (said == null) return null;
+            chatBy = "Groq · " + GroqWork.SEARCH + " (웹 검색)"; CHAT_BRAIN.set(WEB);
+            return said;
+        } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
+        catch (Exception unavailable) { return null; }
     }
     /** The saved places (내비게이션 → 자주 가는 곳): their words go as the destination as said, "집으로 가자" → {"tool":"navigate","destination":"집"}. */
     static String places(AppStore store) {

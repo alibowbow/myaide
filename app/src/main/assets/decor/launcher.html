@@ -1537,9 +1537,11 @@ el("padBody").addEventListener("click", e => {
     if (e.target.closest("[data-older]")) { shownTurns += 30; const body = el("padBody"), h = body.scrollHeight; drawChat(); body.scrollTop = body.scrollHeight - h; return; }
     const del = e.target.closest("[data-del]");
     if (del) { if (!del.classList.contains("sure")) { del.classList.add("sure"); del.textContent = "정말 지울까?"; return; }
+      if (B) B.chatGone(del.dataset.del);
       chats.list = chats.list.filter(c => c.id !== del.dataset.del); if (chats.cur === del.dataset.del) useChat(curChat()); saveChats(); drawList(); return; }
     const all = e.target.closest("[data-delall]");
     if (all) { if (!all.classList.contains("sure")) { all.classList.add("sure"); all.textContent = "정말 모두 지울까?"; return; }
+      if (B) B.chatGone("*");
       chats = {list: [], cur: ""}; useChat(curChat()); saveChats(); drawList(); return; }
     const open = e.target.closest("[data-open]");
     if (open) { const c = chats.list.find(x => x.id === open.dataset.open); if (c) { useChat(c); drawChat(); } return; }
@@ -1658,11 +1660,12 @@ function drawList() {
 function ask() {
   const q = el("q").value.trim(); if (!q) return;
   if (!B || !B.chat) { if (B) { B.ask(q); closePad(); } return; }
-  const before = thread.filter(t => !t.pending && !t.error).slice(-12).map(t => ({who: t.who, text: t.text}));
+  // The talk so far (BuddyTalk.talk keeps its last 20 turns whole and a summary of the older part, kept by this talk's id).
+  const before = thread.filter(t => !t.pending && !t.error).slice(-160).map(t => ({who: t.who, text: String(t.text).slice(0, 2000)}));
   const now = Date.now();
   thread.push({who: "me", text: q, at: now}, {who: "ai", text: "", pending: true, at: now});
   chatting = true; talkedAt = now; el("q").value = ""; el("q").placeholder = CHAT_HINT; saveChats();
-  drawChat(); pal.thinking(); B.chat(q, JSON.stringify(before));
+  drawChat(); pal.thinking(); B.chat(q, JSON.stringify(before), chats.cur);
 }
 window.boardChat = openChat;
 window.boardThink = why => { if (B) B.think(why); };

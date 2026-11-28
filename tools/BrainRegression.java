@@ -34,7 +34,10 @@ final class BrainRegression {
         notes();
         chains();
         local();
-        scenarios(args.length > 0 ? Path.of(args[0]) : Path.of("app/src/main/assets/buddy/scenarios.json"));
+        Path file = args.length > 0 ? Path.of(args[0]) : Path.of("app/src/main/assets/buddy/scenarios.json");
+        scenarios(file);
+        memory();
+        chatWords(file);
         prices();
         foot();
         System.out.println("Brain routing regression checks passed: " + checked);
@@ -253,6 +256,113 @@ final class BrainRegression {
             plain++; check(!BuddyMind.mayAct(talk), "chitchat taken for a thing to do (the whole list would go): " + talk);
         }
         System.out.println("퍼레와 대화: " + acts + " things to do go with the whole list, " + plain + " chitchats with its one line");
+    }
+
+    // ── 퍼레와 대화's working memory (core/ChatMemory) ──
+    static List<ChatMemory.Turn> talk(int n, int longAt) {
+        List<ChatMemory.Turn> out = new ArrayList<>();
+        for (int i = 0; i < n; i++) out.add(new ChatMemory.Turn(i % 2 == 0, (i == longAt ? "긴 이야기 ".repeat(200) : "말 " + i + "번째, 오늘 있었던 일 이야기") ));
+        return out;
+    }
+    static void memory() {
+        same(10, ChatMemory.tokens("가나다라마바사아자차카타파"), "13 Hangul letters: about 10 tokens");
+        same(10, ChatMemory.tokens("abcdefghijklmnopqrstuvwxyz0123"), "30 ASCII characters: 10 tokens");
+        same(0, ChatMemory.tokens(""), "nothing");
+        // The last 20 turns go whole (before: six, each cut at 1,200): the 20th from the end is there, a 1,000-letter turn uncut.
+        List<ChatMemory.Turn> twenty = talk(20, 3);
+        ChatMemory.Plan all = ChatMemory.plan(twenty, "", "");
+        same(0, all.from(), "twenty turns: all whole"); check(!all.due(), "no summary for twenty");
+        String in = ChatMemory.input(twenty, all, "아까 뭐라고 했지?", Integer.MAX_VALUE);
+        check(in.contains("말 0번째"), "the oldest of twenty is kept: " + in.substring(0, 80));
+        check(in.contains("긴 이야기 ".repeat(200).strip()), "a 1,000-letter turn is not cut");
+        check(in.endsWith("사용자의 새 질문: 아까 뭐라고 했지?"), "the question last");
+        List<ChatMemory.Turn> huge = List.of(new ChatMemory.Turn(true, "가".repeat(2_000)));
+        String cut = ChatMemory.input(huge, ChatMemory.plan(huge, "", ""), "응?", Integer.MAX_VALUE);
+        check(cut.contains("가".repeat(1_500) + "…") && !cut.contains("가".repeat(1_501)), "only a turn over 1,500 letters is cut");
+        same("오늘 뭐해?", ChatMemory.input(List.of(), ChatMemory.plan(List.of(), "", ""), "오늘 뭐해?", 8_000), "no talk: the question alone");
+        // A longer talk: up to 29 whole while no summary is due; at 30 a summary of the first ten is due, the older part left out.
+        ChatMemory.Plan p29 = ChatMemory.plan(talk(29, -1), "", "");
+        same(0, p29.from(), "29 turns: all whole"); check(!p29.due(), "nine outside the last 20: not yet a block");
+        List<ChatMemory.Turn> thirty = talk(30, -1);
+        ChatMemory.Plan p30 = ChatMemory.plan(thirty, "", "");
+        check(p30.due(), "a block of ten outside the last 20: its summary is due"); same(0, p30.dueFrom(), "from the first"); same(9, p30.dueTo(), "to the tenth");
+        same(1, p30.from(), "until it exists, 29 whole and the older part left out"); same("", p30.summary(), "no summary yet");
+        check(!ChatMemory.input(thirty, p30, "?", Integer.MAX_VALUE).contains("말 0번째"), "the oldest is left out");
+        // Made: the summary first, the 20 after it whole; not due again until ten more turns.
+        String summary = "- 사용자는 오늘 발표를 잘 마쳤대.";
+        ChatMemory.Plan made = ChatMemory.plan(thirty, p30.dueMark(), summary);
+        same(summary, made.summary(), "the kept summary is used"); same(10, made.from(), "the turns after it whole"); check(!made.due(), "not made again every message");
+        String withSummary = ChatMemory.input(thirty, made, "그래서?", Integer.MAX_VALUE);
+        check(withSummary.startsWith("앞의 대화 요약:\n" + summary), "the summary first"); check(withSummary.contains("말 10번째") && !withSummary.contains("말 9번째"), "the summarized turns are not sent again");
+        for (int n = 31; n < 40; n++) check(!ChatMemory.plan(talk(n, -1), p30.dueMark(), summary).due(), "no new summary at " + n + " turns");
+        ChatMemory.Plan p40 = ChatMemory.plan(talk(40, -1), p30.dueMark(), summary);
+        check(p40.due(), "ten more: the next block"); same(10, p40.dueFrom(), "from where the summary ended"); same(19, p40.dueTo(), "to the next ten"); same(summary, p40.summary(), "built on the kept one");
+        check(ChatMemory.summaryInput(summary, talk(40, -1), 10, 19).startsWith("앞의 요약:\n" + summary), "the chores brain gets the summary so far");
+        // A kept summary that no longer fits (a turn deleted on the page, another talk): not used.
+        List<ChatMemory.Turn> edited = new ArrayList<>(thirty); edited.remove(9);
+        same("", ChatMemory.plan(edited, p30.dueMark(), summary).summary(), "a mark not found: no summary");
+        // Groq's minute: over the room, the oldest whole turns go first, then the summary; the question always stays.
+        String small = ChatMemory.input(thirty, made, "그래서?", 120);
+        check(small.contains("말 29번째") && !small.contains("말 10번째"), "the newest kept, the oldest dropped: " + small);
+        check(ChatMemory.tokens(small) <= 120, "within the room: " + ChatMemory.tokens(small));
+        same("그래서?", ChatMemory.input(thirty, made, "그래서?", 0), "no room: the question alone");
+        // The default brain's whole request fits Groq's 8,000 tokens a minute with the whole list of what 퍼레 can do.
+        String rules = "규칙 ".repeat(2_000) + "{\"tool\":\"open_app\",\"app\":\"앱 이름\"} ".repeat(60);
+        List<ChatMemory.Turn> chatty = new ArrayList<>();
+        for (int i = 0; i < 40; i++) chatty.add(new ChatMemory.Turn(i % 2 == 0, "오늘 있었던 일을 길게 이야기해 볼게. ".repeat(12)));
+        String fitted = ChatMemory.input(chatty, ChatMemory.plan(chatty, "", ""), "응", ChatMemory.room(ChatMemory.GROQ_MINUTE, rules, false));
+        check(ChatMemory.tokens(rules) + ChatMemory.tokens(fitted) + ChatMemory.ANSWER <= ChatMemory.GROQ_MINUTE - ChatMemory.MARGIN, "the request within Groq's minute: " + (ChatMemory.tokens(rules) + ChatMemory.tokens(fitted)));
+        check(fitted.contains(chatty.get(39).text()), "the last turn still goes");
+        check(ChatMemory.room(ChatMemory.GROQ_MINUTE, rules, true) < ChatMemory.room(ChatMemory.GROQ_MINUTE, rules, false), "a full answer leaves the talk less room");
+        same("", ChatMemory.summary("없음"), "nothing to keep"); same("- 발표 잘함", ChatMemory.summary("<think>음</think>요약: - **발표** 잘함"), "thinking and marks out");
+        System.out.println("퍼레와 대화: " + ChatMemory.KEEP + " turns whole, a summary every " + ChatMemory.BLOCK + " more; a request of " + (ChatMemory.tokens(rules) + ChatMemory.tokens(fitted) + ChatMemory.ANSWER) + " tokens with the whole list");
+    }
+
+    // ── how 퍼레와 대화 reads a question and an answer (core/BuddyChat), and its sentences in scenarios.json ──
+    static void chatWords(Path file) throws Exception {
+        for (String q : List.of("김치찌개 끓이는 법 알려 줘", "아이폰이랑 갤럭시 차이 비교해 줘", "엄마 생신 축하 편지 써 줘", "제주도 2박 3일 여행 계획 짜 줘", "광합성이 뭔지 자세히 설명해 줘", "집중 잘 되는 방법 5가지"))
+            check(BuddyChat.wantsLong(q), "a full answer may be needed: " + q);
+        for (String q : List.of("안녕", "뭐해?", "심심해", "고마워", "ㅋㅋㅋ 귀엽다", "오늘 너무 피곤하다", "왜?"))
+            check(!BuddyChat.wantsLong(q), "small talk stays short: " + q);
+        for (String q : List.of("오늘 환율 얼마야?", "삼성전자 주가 어때?", "오늘 뉴스 뭐 있어?", "어제 한국 축구 경기 결과 알려 줘", "스타벅스 강남점 몇 시까지 해?", "내일 부산 날씨 어때?", "비트코인 지금 얼마야"))
+            check(BuddyChat.asksNow(q), "the world now, from the web: " + q);
+        for (String q : List.of("오늘 환율 검색해 줘", "구글에서 비트코인 시세 찾아봐 줘", "뉴스 틀어 줘", "비트코인 1억 넘으면 알려 줘", "평일 저녁 6시마다 오늘 뉴스 정리해 줘", "비 와서 우울해",
+                "오늘 날씨 좋네", "어제 본 뉴스 뭐였지?", "안녕", "하늘은 왜 파래"))
+            check(!BuddyChat.asksNow(q), "not a web answer: " + q);
+        check(BuddyChat.opensSearch("오늘 환율 검색해 줘") && !BuddyChat.opensSearch("오늘 환율 얼마야?"), "a search opened only when asked");
+        for (String a : List.of("찾아볼게!", "응, 알아볼게 잠깐만", "확인해 볼게!", "유튜브 열어 줄게", "I'll check that for you.", "Let me look it up", "도착하면 알려 줄게"))
+            check(BuddyChat.promised(a), "a promise with no 할일 line: " + a);
+        for (String a : List.of("찾아볼까?", "오늘 기분 좋아 보여!", "알겠어!\n할일: {\"tool\":\"search\",\"query\":\"환율\"}", "내가 옆에 있어 줄게", "응응 ㅎㅎ"))
+            check(!BuddyChat.promised(a), "not a bare promise: " + a);
+        for (String t : List.of("day_recall", "calculator", "world_time", "count_days", "coin", "dice", "pick"))
+            check(BuddyChat.informs(new JSONObject().put("tool", t)), "its result is said: " + t);
+        check(BuddyChat.informs(new JSONObject().put("tool", "stopwatch").put("command", "check")) && !BuddyChat.informs(new JSONObject().put("tool", "stopwatch").put("command", "start")), "a stopwatch read, not started");
+        check(BuddyChat.informs(new JSONObject().put("tool", "when_event").put("command", "list")) && !BuddyChat.informs(new JSONObject().put("tool", "when_event").put("when", "집")), "the conditions listed, not one set");
+        for (String t : List.of("open_app", "alarm", "timer", "torch", "volume", "calendar_view", "memo", "search", "navigate", "play"))
+            check(!BuddyChat.informs(new JSONObject().put("tool", t)), "only a short confirmation: " + t);
+        check(BuddyChat.faithful("35000의 15%는 5250이야!", "35000원의 15퍼센트 계산해 줘", "5,250원이야! 쇼핑할 때 딱 좋겠다"), "the number kept (its comma read)");
+        check(!BuddyChat.faithful("35000의 15%는 5250이야!", "35000원의 15퍼센트 계산해 줘", "5300원쯤이야!"), "a number made up");
+        check(!BuddyChat.faithful("크리스마스까지 27일 남았어!", "크리스마스까지 며칠 남았어", "곧 크리스마스야, 두근두근!"), "the answer's number dropped");
+        check(BuddyChat.faithful("앞면 나왔어!", "동전 던져 줘", "짠, 앞면이야!") && !BuddyChat.faithful("앞면 나왔어!", "동전 던져 줘", "뒷면이네!"), "the side as it fell");
+        check(BuddyChat.faithful("‘짬뽕’으로 가자!", "짜장면이랑 짬뽕 중에 골라 줘", "오늘은 짬뽕 먹자!"), "no numbers: words kept");
+        // Every 퍼레 자동 점검 sentence with a thing to do still goes to the brain (the web answer never takes one), and its
+        // search sentence was asked to open one; the "chat" sentences say what 퍼레와 대화 makes of them.
+        JSONObject json = new JSONObject(new String(Files.readAllBytes(file), StandardCharsets.UTF_8));
+        JSONArray all = json.getJSONArray("scenarios"); int tools = 0;
+        for (int i = 0; i < all.length(); i++) {
+            JSONObject s = all.getJSONObject(i), expect = s.getJSONObject("expect"); String said = BuddyMind.nameHeard(s.getString("said"));
+            if (expect.has("tool")) { tools++; check(!BuddyChat.asksNow(said), "a thing to do taken for a web answer: " + said); if ("search".equals(expect.getString("tool"))) check(BuddyChat.opensSearch(said), "the search asked to be opened: " + said); }
+            if (expect.optBoolean("none")) check(!BuddyChat.asksNow(said), "talk taken for a web answer: " + said);
+        }
+        JSONArray chat = json.getJSONArray("chat"); int web = 0, longs = 0, promises = 0;
+        for (int i = 0; i < chat.length(); i++) {
+            JSONObject s = chat.getJSONObject(i);
+            if (s.has("web")) { web++; same(s.getBoolean("web"), BuddyChat.asksNow(s.getString("said")), "web for “" + s.getString("said") + "”"); }
+            if (s.has("long")) { longs++; same(s.getBoolean("long"), BuddyChat.wantsLong(s.getString("said")), "a full answer for “" + s.getString("said") + "”"); }
+            if (s.has("promise")) { promises++; same(s.getBoolean("promise"), BuddyChat.promised(s.getString("answer")), "a promise in “" + s.getString("answer") + "”"); }
+        }
+        check(web >= 8 && longs >= 6 && promises >= 6, "the chat sentences: " + web + " web, " + longs + " long, " + promises + " promises");
+        System.out.println("퍼레와 대화's words: " + tools + " things to do never taken for the web; chat sentences " + web + " web, " + longs + " long, " + promises + " promises");
     }
 
     // ── what it costs ──

@@ -18,10 +18,15 @@ import dev.jun.gyeot.core.WorkBook;
  */
 final class Chores {
     private Chores() {}
-    static String run(AppStore store, String instructions, String input, boolean waiting) throws Exception {
-        String gemini; try { gemini = store.secrets.workKey(); } catch (Exception e) { gemini = ""; }
+    static String run(AppStore store, String instructions, String input, boolean waiting) throws Exception { return run(store, instructions, input, waiting, true); }
+    /**
+     * As above; geminiOk false: Groq only, never Gemini's free tier (퍼레와 대화's summary of the talk: the user's own words, which
+     * that tier may use to improve Google's models). Throws when Groq is not connected or cannot take it now.
+     */
+    static String run(AppStore store, String instructions, String input, boolean waiting, boolean geminiOk) throws Exception {
+        String gemini = ""; if (geminiOk) try { gemini = store.secrets.workKey(); } catch (Exception e) { gemini = ""; }
         boolean groq = store.groq.connected();
-        if (gemini.isBlank() && !groq) throw new IllegalStateException("설정 → Gemini 또는 Groq API 키를 먼저 넣어 주세요.");
+        if (gemini.isBlank() && !groq) throw new IllegalStateException(geminiOk ? "설정 → Gemini 또는 Groq API 키를 먼저 넣어 주세요." : "설정 → Groq API 키를 먼저 넣어 주세요.");
         String[] listed = GeminiQuotas.gemma(), gemma = listed == null || listed.length == 0 ? GeminiLight.GEMMA : listed;
         Exception last = null;
         for (String step : BrainRoutes.LIGHT_ORDER) {
