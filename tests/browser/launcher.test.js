@@ -649,7 +649,8 @@ async function open(browser, at, bridge, pages, scale) {
     // Away when it ends: said when the screen is seen again, once.
     await p.evaluate(() => { launcher.hidden(); launcher.jobDone({ id: 'j4', text: '작업창 일 끝났어! 눌러 봐', go: 'job:j4' }); });
     await p.clock.runFor(1000);
-    assert.strictEqual(await bubble(), null, 'not while away');
+    // (퍼레's own little words may come and go meanwhile — CI once caught '부글부글~ 😤' — but not the job's word)
+    assert(!(((await bubble()) || {}).text || '').startsWith('작업창 일 끝났어'), 'not while away');
     await p.evaluate(() => launcher.shown()); await p.clock.runFor(1200);
     assert(((await bubble()) || {}).text?.startsWith('작업창 일 끝났어'), 'said when seen again');
     await p.clock.runFor(6000); await p.evaluate(() => { launcher.hidden(); launcher.shown(); }); await p.clock.runFor(1500);
