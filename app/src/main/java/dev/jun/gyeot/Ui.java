@@ -593,8 +593,7 @@ final class Ui {
     /** Image controls edit the next chat message's mode; the chat composer is the only prompt editor. */
     Sheet imageOptions(String aspect, boolean edit, java.util.function.BiConsumer<String, Boolean> apply) {
         Sheet sheet = selectionSheet("이미지 옵션", "그릴 내용은 대화 입력창에 적어 주세요");
-        TextView heading = text("화면 비율", 14, 650, TEXT); heading.setPadding(dp(2), dp(4), 0, dp(12)); sheet.body.addView(heading);
-        RatioPicker ratios = new RatioPicker(context, this, aspect); sheet.body.addView(ratios);
+        RatioPicker ratios = new RatioPicker(context, this, aspect, null); sheet.body.addView(ratios);
         boolean[] editing = {edit};
         View editingSwitch = toggle("기존 이미지로 편집하기", edit, value -> editing[0] = value); editingSwitch.setPadding(dp(2), dp(18), dp(2), dp(8)); sheet.body.addView(editingSwitch);
         TextView note = label("옵션을 적용한 뒤 대화창에서 내용을 적고 보내세요.", 12, MUTED); note.setPadding(dp(2), dp(8), dp(2), 0); sheet.body.addView(note);
@@ -797,14 +796,23 @@ final class Ui {
         android.util.DisplayMetrics screen = context.getResources().getDisplayMetrics();
         // As wide as its words (a small button's width at least); a wide anchor (a settings row) gets it at its right end.
         boolean wide = anchor.getWidth() > dp(240);
-        int width = Math.max(dp(120), wide ? card.getMeasuredWidth() : Math.max(anchor.getWidth(), card.getMeasuredWidth())), height = Math.min(card.getMeasuredHeight(), screen.heightPixels - dp(96));
+        int width = Math.max(dp(120), wide ? card.getMeasuredWidth() : Math.max(anchor.getWidth(), card.getMeasuredWidth()));
+        // Inside the part of the window that shows (not the screen's size: a window on a fold or beside another app is smaller,
+        // and the keyboard or the system bars take some), on the side of the button with more room, scrolling when the list is
+        // taller than that room (준: "좌하단 메뉴가 잘려서 안 보여").
+        int[] at = new int[2]; anchor.getLocationInWindow(at); int[] onScreen = new int[2]; anchor.getLocationOnScreen(onScreen);
+        android.graphics.Rect shown = new android.graphics.Rect(); anchor.getWindowVisibleDisplayFrame(shown);
+        int top = shown.top - (onScreen[1] - at[1]) + dp(12), bottom = shown.bottom - (onScreen[1] - at[1]) - dp(12);
+        int left = shown.left - (onScreen[0] - at[0]) + dp(8), right = shown.right - (onScreen[0] - at[0]) - dp(8);
+        if (bottom - top < dp(120)) { top = dp(12); bottom = screen.heightPixels - dp(12); left = dp(8); right = screen.widthPixels - dp(8); }
+        int roomBelow = bottom - (at[1] + anchor.getHeight() + dp(6)), roomAbove = at[1] - dp(6) - top;
+        boolean below = roomBelow >= card.getMeasuredHeight() || roomBelow >= roomAbove;
+        int height = Math.max(dp(48), Math.min(card.getMeasuredHeight(), below ? roomBelow : roomAbove));
         window[0] = new android.widget.PopupWindow(scroll, width, height, true);
         window[0].setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0)); window[0].setOutsideTouchable(true); window[0].setElevation(dp(12));
         window[0].setAnimationStyle(android.R.style.Animation_Dialog);
-        int[] at = new int[2]; anchor.getLocationInWindow(at);
-        boolean below = at[1] + anchor.getHeight() + dp(6) + height < screen.heightPixels - dp(24);
-        int x = Math.max(dp(8), Math.min(wide ? at[0] + anchor.getWidth() - width - dp(12) : at[0], screen.widthPixels - width - dp(8)));
-        int y = below ? at[1] + anchor.getHeight() + dp(6) : Math.max(dp(12), at[1] - height - dp(6));
+        int x = Math.max(left, Math.min(wide ? at[0] + anchor.getWidth() - width - dp(12) : at[0], right - width));
+        int y = below ? at[1] + anchor.getHeight() + dp(6) : Math.max(top, at[1] - height - dp(6));
         window[0].showAtLocation(anchor.getRootView(), Gravity.NO_GRAVITY, x, y);
         return window[0];
     }

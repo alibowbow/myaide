@@ -256,7 +256,15 @@ final class VideoAskPanel {
                 ui.miniMenu(plusButton, counts, n - 1, c -> { store.settings.edit().putInt("mytubePictures", c + 1).apply(); Toast.makeText(activity, "한 번에 " + (c + 1) + "장씩 그려요", Toast.LENGTH_SHORT).show(); });
             }
             // 준: "유튜브 이미지로 정리가 세로모드 밖에 안돼", "간단 노멀 상세를 설정 가능하게": the shape and how much a picture says, kept.
-            else if (i == 6) choose(VideoChat.ASPECTS, pictureAspect(), "mytubeAspect", "그림을 %s로 그려요");
+            else if (i == 6) {
+                // The shapes as a list with their outlines (RatioPicker), in a sheet that fits the screen (준: "좌하단 메뉴가 잘려서 안 보여").
+                Ui.Sheet sheet = ui.selectionSheet("그림 비율", "GPT 이미지가 그리는 비율이에요"); sheet.primary.setVisibility(android.view.View.GONE);
+                sheet.body.addView(new RatioPicker(activity, ui, pictureAspect(), chosen -> {
+                    store.settings.edit().putString("mytubeAspect", chosen).apply(); sheet.dismiss();
+                    Toast.makeText(activity, "그림을 " + dev.jun.gyeot.core.Drawing.label(chosen) + "로 그려요", Toast.LENGTH_SHORT).show();
+                }));
+                sheet.show();
+            }
             else choose(VideoChat.DETAILS, pictureDetail(), "mytubeDetail", "그림을 %s 분량으로 정리해요");
         });
     }
