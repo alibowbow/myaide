@@ -750,8 +750,10 @@ async function open(browser, at, bridge, pages, scale) {
     await p.evaluate(() => launcher.self({toy: 'dice'}));
     for (let i = 0; i < 16; i++) await p.clock.runFor(500);
     assert(await p.evaluate(() => !!document.querySelector('.toy.dice, .dice')), 'a die on the board');
-    await p.evaluate(() => launcher.self({toy: 'away'})); await p.clock.runFor(1500);
-    assert.strictEqual(await p.evaluate(() => boards[0]._toys.count()), 0, 'all put away');
+    await p.evaluate(() => launcher.self({toy: 'away'}));
+    // Put away within a few seconds (a die still rolling on a slow machine is let land first: CI once counted 1 at 1.5 s).
+    let left = 1; for (let i = 0; i < 12 && left; i++) { await p.clock.runFor(500); left = await p.evaluate(() => boards[0]._toys.count()); }
+    assert.strictEqual(left, 0, 'all put away');
     // and left away a while: 퍼레 does not take one out again on its own right after
     for (let i = 0; i < 40; i++) await p.clock.runFor(500);
     assert.strictEqual(await p.evaluate(() => boards[0]._toys.count()), 0, 'still put away 20 s later');
