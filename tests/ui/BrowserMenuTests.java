@@ -48,6 +48,35 @@ public class BrowserMenuTests {
         assertEquals("without the slide (the user's photo): the phone's own", 0, plain.getFlags() & Intent.FLAG_ACTIVITY_NO_ANIMATION);
     }
 
+    /**
+     * The phone plays its own going-home transition anyway (0.4.675's video: the wallpaper, then 홈 fading in): 홈's picture is
+     * laid over every window meanwhile and lifted once 홈 is in front and that has run; never left up; nothing without a window
+     * over other apps.
+     */
+    @Test public void homesPictureCoversThePhonesTransition() {
+        Activity a = Robolectric.buildActivity(Activity.class).setup().get();
+        Bitmap picture = Bitmap.createBitmap(60, 120, Bitmap.Config.ARGB_8888);
+        Rect at = new Rect(0, 0, 100, 200);
+        org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(false);
+        assertFalse("no window over other apps: nothing", HomeCurtain.cover(a, picture, at));
+        assertFalse(HomeCurtain.covering());
+        org.robolectric.shadows.ShadowSettings.setCanDrawOverlays(true);
+        assertTrue(HomeCurtain.cover(a, picture, at));
+        assertTrue(HomeCurtain.covering());
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(300));
+        assertTrue("still up while 홈 is not in front", HomeCurtain.covering());
+        HomeCurtain.homeShown();
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(HomeCurtain.AFTER_HOME_MS - 50));
+        assertTrue("up while the phone's transition runs", HomeCurtain.covering());
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(400));
+        assertFalse("lifted after it", HomeCurtain.covering());
+        // 홈 never says it is in front: lifted anyway.
+        assertTrue(HomeCurtain.cover(a, picture, at));
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(HomeCurtain.MOST_MS + 400));
+        assertFalse("never left over the screen", HomeCurtain.covering());
+        assertFalse("no picture: nothing", HomeCurtain.cover(a, null, at));
+    }
+
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void theMenuIsCompact() throws Exception {
         Activity a = Robolectric.buildActivity(Activity.class).setup().get();
         Ui ui = new Ui(a); float d = a.getResources().getDisplayMetrics().density;

@@ -717,8 +717,11 @@ public final class BrowserActivity extends Activity {
             page.animate().translationX(-width).setDuration(ms).setInterpolator(ease).start();
             cover.animate().translationX(0).setDuration(ms).setInterpolator(ease).withEndAction(() -> {
                 saveDraft(); if (dictation != null) dictation.cancel();
+                // The phone still plays its own going-home transition (its wallpaper, then 홈 fading in): 홈's picture is laid
+                // over every window meanwhile (HomeCurtain), so what is seen stays this picture until it is 홈 itself.
+                HomeCurtain.cover(this, HomeActivity.homeShot, HomeActivity.homeShotAt);
                 try { startActivity(homeIntent(this, true)); overridePendingTransition(0, 0); }
-                catch (RuntimeException none) { moveTaskToBack(true); }
+                catch (RuntimeException none) { HomeCurtain.remove(); moveTaskToBack(true); }
             }).start();
         } else {
             page.animate().translationX(0).setDuration(ms).setInterpolator(ease).start();

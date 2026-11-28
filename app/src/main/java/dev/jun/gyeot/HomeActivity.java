@@ -199,13 +199,16 @@ public final class HomeActivity extends Activity {
      * rests in front; none with the user's photo (the wallpaper is not in this window's picture).
      */
     static volatile android.graphics.Bitmap homeShot;
+    /** Where 홈's window was on the screen when homeShot was taken (screen pixels; HomeCurtain lays the picture there). */
+    static volatile android.graphics.Rect homeShotAt;
     private final Runnable takeHomeShot = () -> {
         if (!resumed || isFinishing() || "photo".equals(prefs.getString("bg", "aurora"))) { if ("photo".equals(prefs.getString("bg", "aurora"))) homeShot = null; return; }
         View decor = getWindow().getDecorView(); int w = decor.getWidth(), h = decor.getHeight(); if (w <= 0 || h <= 0) return;
         android.graphics.Bitmap shot;
         try { shot = android.graphics.Bitmap.createBitmap(Math.max(1, Math.round(w * .6f)), Math.max(1, Math.round(h * .6f)), android.graphics.Bitmap.Config.ARGB_8888); }
         catch (RuntimeException | OutOfMemoryError none) { return; }
-        try { android.view.PixelCopy.request(getWindow(), shot, r -> { if (r == android.view.PixelCopy.SUCCESS) homeShot = shot; }, main); } catch (RuntimeException ignored) { }
+        int[] on = new int[2]; decor.getLocationOnScreen(on); android.graphics.Rect at = new android.graphics.Rect(on[0], on[1], on[0] + w, on[1] + h);
+        try { android.view.PixelCopy.request(getWindow(), shot, r -> { if (r == android.view.PixelCopy.SUCCESS) { homeShot = shot; homeShotAt = at; } }, main); } catch (RuntimeException ignored) { }
     };
     /** 홈 at rest in front: its picture a moment later (once the page settled). */
     private void homeShotSoon() { main.removeCallbacks(takeHomeShot); main.postDelayed(takeHomeShot, 600); }
@@ -287,6 +290,8 @@ public final class HomeActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume(); shown = true; resumed = true; PhoneService.taskbarChanged();
+        // Back from the AI 브라우저's swipe: its picture of 홈 lifts once the phone's own transition has run under it.
+        HomeCurtain.homeShown();
         // The brain may have been changed in 화면 꾸미기 meanwhile: the talk's chip says the one in use.
         pushBrain();
         // Back from the AI 브라우저: the left page shows it as it was left (the picture is written a moment after).
