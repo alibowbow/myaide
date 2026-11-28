@@ -423,6 +423,12 @@ if __name__ == '__main__':
     bridge.mkdir(parents=True, exist_ok=True)
     javac(['-encoding', 'UTF-8', '-d', bridge, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/PageBridgeRegression.java'])
     run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (bridge, jars[-1]))), 'dev.jun.gyeot.core.PageBridgeRegression'])
+    # AI 브라우저 제한 풀기 (core/BrowserTaskTabs, BrowserSiteDialogs, BrowserDownloadPolicy, BrowserAppLinks, BrowserTools keys):
+    # several tabs per task, popups, an alert accepted while a confirm goes to the user, downloads kept, keys, app links on a tap.
+    limits = BUILD / 'browser-limits-checks'
+    limits.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', limits, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/BrowserLimitsRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (limits, jars[-1]))), 'dev.jun.gyeot.core.BrowserLimitsRegression'])
     check_composers()
     test_board(jars[-1])
     # The optional larger suites run when their tests folder is present.

@@ -175,11 +175,22 @@ final class BrowserAgent {
         credentialStamp = accountStamp();
         BrowserModels selection = new BrowserModels(store); model = selection.model(brain); effort = selection.effort(brain, model); speed = "gpt".equals(brain) ? selection.speed(model) : "standard";
         quick = store.browserDecisions() && !"none".equals(brain);
-        lease = engine.begin(() -> complete(obj("ok", false, "cancelled", true, "answer", "브라우저 작업을 중지했어요."), true));
+        lease = engine.begin(this::stoppedByEngine);
         journal = dev.jun.gyeot.core.BrowserJournal.open(System.identityHashCode(engine) + ":" + lease, brain + (model == null || model.isBlank() ? "" : " " + model),
             visibleRequest != null ? visibleRequest : AutomationGate.userWords(request), System.currentTimeMillis());
         liveness = new BrowserLongTaskPolicy("lane:" + lease, clock);
         preexistingMutationFence = engine.mutationUnresolved(lease);
+    }
+    /**
+     * The engine stopped this task: its answer says why (a site's question names the site and what it asked; requires_user
+     * when the user answers it), not only that it stopped.
+     */
+    private void stoppedByEngine() {
+        JSONObject why = engine.stopped(lease);
+        String said = why.optString("message");
+        JSONObject value = obj("ok", false, "cancelled", true, "answer", said.isBlank() ? "브라우저 작업을 중지했어요." : said);
+        if (why.optBoolean("requires_user")) { put(value, "requires_user", true); put(value, "error", said); }
+        complete(value, true);
     }
     /** Its tab's lease (what engine.stopTask stops) and its journal (steps, site, last step), for 퍼레's job line (BuddyHands). */
     long lease() { return lease; }
@@ -272,7 +283,7 @@ final class BrowserAgent {
             click -> BrowserDecisionEvidence.tier(click, quickPage, words) == AutomationGate.Tier.ROUTINE && !refusedProposals.containsKey(refusalKey(click)));
         final JSONObject quickRequest = quickPage == null ? null : DecisionBrowser.request(userWords(), quickHistory(), quickPage, quickOptions);
         final ModelAttempt attempt = new ModelAttempt(revision, ++operationSequence);
-        attempt.tab = engine.taskTab(lease);
+        attempt.tab = engine.workTab(lease);
         if (!liveness.beginModel(attempt.operationId)) { complete(BrowserEngine.error("이전 작업의 상태를 확인하지 못했어요.")); return; }
         activeModel = attempt; modelCalls++;
         // Routine steps are decided with a quick effort (much faster per step); the chosen one decides after trouble.
@@ -366,7 +377,14 @@ final class BrowserAgent {
     /** Runs a planned step on the main thread, once its attempt was taken: who planned it is the status's first word. */
     private void runPlanned(ModelAttempt attempt, JSONObject action, String who) {
         try { checkSpeedAccount(); } catch (CancellationException changed) { complete(BrowserEngine.error(changed.getMessage())); return; }
-        if (engine.taskTab(lease) != attempt.tab) { complete(BrowserEngine.error("브라우저 대상이 바뀌어 동작을 실행하지 않았어요.")); return; }
+        if (engine.workTab(lease) != attempt.tab) {
+            // The other tab this step was planned for closed meanwhile: the task is back on its own tab and plans again there.
+            if (attempt.tab != null && !engine.tabs.contains(attempt.tab) && engine.valid(lease)) {
+                history.put(obj("note", "The tab this step was planned for closed before it ran; nothing ran. Steps now go to this task's own tab: read it, or tabs to see the open tabs."));
+                step(); return;
+            }
+            complete(BrowserEngine.error("브라우저 대상이 바뀌어 동작을 실행하지 않았어요.")); return;
+        }
         if (brain.equals("nim")) {
             try { store.nim.check(nimGeneration); }
             catch (IllegalStateException e) { complete(BrowserEngine.error(e.getMessage())); return; }
@@ -529,12 +547,12 @@ final class BrowserAgent {
     }
     private void targetGuard(int expected, BrowserEngine.Tab tab, String document) {
         checkSpeedAccount();
-        if (revision != expected || engine.taskTab(lease) != tab || tab == null
+        if (revision != expected || engine.workTab(lease) != tab || tab == null
                 || (!document.isEmpty() && !document.equals(tab.document))) throw new CancellationException("브라우저 대상이 바뀌었어요.");
     }
     private JSONObject safeRecoveryNavigation(JSONObject requested) {
         if (!("click".equals(requested.optString("action")) || "press".equals(requested.optString("action")) && "Enter".equals(requested.optString("text"))) || latestObservation == null) return requested;
-        BrowserEngine.Tab target = engine.taskTab(lease);
+        BrowserEngine.Tab target = engine.workTab(lease);
         if (target == null || !target.document.equals(requested.optString("document"))) return requested;
         JSONArray elements = latestObservation.optJSONArray("elements");
         if (elements == null) return requested;
@@ -617,6 +635,7 @@ final class BrowserAgent {
             case "press" -> (target.isEmpty() ? "" : target + "에서 ") + action.optString("text") + " 키";
             case "scroll" -> target.isEmpty() ? ("up".equals(action.optString("direction")) ? "위로" : "아래로") + " 스크롤" : target + "까지 스크롤";
             case "open" -> { String host = dev.jun.gyeot.core.BrowserJournal.host(action.optString("url")); yield (host.isEmpty() ? "페이지" : host) + " 열기"; }
+            case "open_tab" -> { String host = dev.jun.gyeot.core.BrowserJournal.host(action.optString("url")); yield "새 탭에서 " + (host.isEmpty() ? "페이지" : host) + " 열기"; }
             case "back" -> "뒤로"; case "forward" -> "앞으로"; case "reload" -> "새로고침";
             case "set_mode" -> ("desktop".equals(action.optString("mode")) ? "데스크톱" : "모바일") + " 화면으로";
             case "attach" -> "올릴 파일 준비 · " + clip(action.optString("file").replaceAll(".*/", ""), 40);
@@ -638,6 +657,8 @@ final class BrowserAgent {
     /** How a step came out, in a few words; failed is set for a failure. */
     private static String outcome(JSONObject value, boolean[] failed) {
         if (value.optBoolean("automation_refused")) return "실행 안 함 · " + clip(value.optString("refusal", value.optString("error")), 60);
+        if (value.optBoolean("tab_refused")) { failed[0] = true; return "실행 안 함 · " + clip(value.optString("note"), 60); }
+        if (value.optBoolean("tab_closed")) return "탭이 닫힘 · 맡은 탭으로 돌아옴";
         String error = BrowserTools.observationError(value);
         if (value.optBoolean("app_action_failed") || !value.optBoolean("ok", true) || !error.isEmpty()) {
             failed[0] = true; return "실패 · " + clip(error.isEmpty() ? value.optString("error", "이유 미상") : error, 70);
@@ -672,6 +693,9 @@ final class BrowserAgent {
         String page = elements == null ? "" : Integer.toHexString(completionKey(observation).hashCode());
         boolean counts = MOVES.contains(name) && !observation.optBoolean("automation_refused");
         boolean observe = java.util.Set.of("read", "tabs").contains(name) || observation.optBoolean("previous_action_rejected");
+        // A task working in several tabs names the tab of each step that is not its own ("탭 3 · 「다음」 누름").
+        String where = engine.stepTab(lease, observation.optString("tab"));
+        if (!where.isEmpty()) what = where + " · " + what;
         dev.jun.gyeot.core.BrowserJournal.Verdict verdict = journal.step(what, result, failed[0], signature, page, counts, observe, now);
         engine.recordStep(lease, BrowserTools.actionLabel(name), journal.count() + " · " + what + " → " + result);
         JSONObject effect = observation.optJSONObject("action_effect");
@@ -721,7 +745,7 @@ final class BrowserAgent {
         while (materials.length() > 12) materials.remove(materials.keys().next());
     }
     private boolean safeReadNavigation(JSONObject action) {
-        BrowserEngine.Tab target=engine.taskTab(lease);
+        BrowserEngine.Tab target=engine.workTab(lease);
         return "open".equals(action.optString("action")) && target!=null
             && BrowserReadNavigation.allowed(latestObservation,target.document,action.optString("url"));
     }
@@ -729,7 +753,7 @@ final class BrowserAgent {
         if (BrowserTools.APP_ACTIONS.contains(requested.optString("action"))) { appAction(requested, reply); return; }
         final JSONObject proposed = safeRecoveryNavigation(requested);
         if (finished || !engine.valid(lease)) return;
-        if(completionReadOnly && !java.util.Set.of("read","tabs","scroll").contains(proposed.optString("action"))) {
+        if(completionReadOnly && !java.util.Set.of("read","tabs","scroll","switch").contains(proposed.optString("action"))) {
             if(++verificationProposals>2 && completionCandidateResult!=null) { awaitCompletion(completionCandidateResult); return; }
             execute(obj("action","read"), fresh -> {
                 put(fresh,"completion_verification_only",true);put(fresh,"original_action_executed",false);
@@ -802,7 +826,7 @@ final class BrowserAgent {
         if (finished || !engine.valid(lease)) return;
         clearCompletionWait();
         final int expected = revision;
-        final BrowserEngine.Tab tab = engine.taskTab(lease);
+        final BrowserEngine.Tab tab = engine.workTab(lease);
         final String document = tab == null ? "" : tab.document;
         completionCandidateResult=value;
         try { targetGuard(expected, tab, document); }
@@ -918,7 +942,8 @@ final class BrowserAgent {
         }
         activePage = operation;
         final JSONObject beforeAction = latestObservation;
-        final boolean possibleMutation = !java.util.Set.of("read", "scroll", "tabs").contains(action.optString("action")) && !safeReadNavigation(action);
+        // Moving between tabs and closing a tab this task opened change nothing on a site.
+        final boolean possibleMutation = !java.util.Set.of("read", "scroll", "tabs", "switch", "close").contains(action.optString("action")) && !safeReadNavigation(action);
         // The same trusted classification that made this click a tier 1 step.
         final boolean routineClick = "click".equals(action.optString("action")) && page != null
             && BrowserDecisionEvidence.routineAction(action, page, userWords());

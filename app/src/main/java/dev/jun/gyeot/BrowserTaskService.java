@@ -60,6 +60,24 @@ public final class BrowserTaskService extends Service {
                 .setContentText(text).setStyle(new Notification.BigTextStyle().bigText(text)).setVisibility(Notification.VISIBILITY_PRIVATE).setAutoCancel(true).setContentIntent(open).build());
         } catch (RuntimeException unavailable) { /* The answer in the chat still says where to look. */ }
     }
+    /** The browser opened from a site's question (siteQuestion): the tab that asks comes to the front and shows it. */
+    static final String QUESTION_TAB_EXTRA = "browser_question_tab";
+    /**
+     * A site asked something (a confirm, a leave-page question, a sign-in …) in a tab out of sight while the AI worked there:
+     * the AI stopped. One tap opens that tab, where the site's question waits to be answered. It replaces the task's result
+     * notification, which says the same less exactly.
+     */
+    static void siteQuestion(Context context, String tabId, String question) {
+        try {
+            NotificationManager manager = context.getSystemService(NotificationManager.class);
+            manager.createNotificationChannel(new NotificationChannel(RESULTS, "브라우저 작업 결과", NotificationManager.IMPORTANCE_DEFAULT));
+            Intent answer = new Intent(context, BrowserActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT).putExtra(QUESTION_TAB_EXTRA, tabId);
+            PendingIntent open = PendingIntent.getActivity(context, RESULT, answer, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            String text = question + " · AI는 답하지 않고 멈췄어요. 눌러서 직접 답해 주세요.";
+            manager.notify(RESULT, new Notification.Builder(context, RESULTS).setSmallIcon(R.drawable.ic_notification).setContentTitle("웹사이트가 확인을 물어요")
+                .setContentText(text).setStyle(new Notification.BigTextStyle().bigText(text)).setVisibility(Notification.VISIBILITY_PRIVATE).setAutoCancel(true).setContentIntent(open).build());
+        } catch (RuntimeException unavailable) { /* the browser's line and the task's answer still say it */ }
+    }
     @Override public IBinder onBind(Intent intent) { return null; }
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         BrowserEngine engine = BrowserEngine.get(this);

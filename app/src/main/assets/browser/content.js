@@ -355,8 +355,111 @@
     }
     throw Error('이 페이지에서 파일을 넣을 곳을 찾지 못했어요. 업로드 버튼이 보이는 화면에서 다시 해 주세요.');
   }
+  // Keys press takes (BrowserTools.key): KeyboardEvent key, code and keyCode. Control+ or Meta+ goes before a, c, v, x, z or Enter.
+  const KEYS={Enter:['Enter','Enter',13],Escape:['Escape','Escape',27],Tab:['Tab','Tab',9],ArrowUp:['ArrowUp','ArrowUp',38],ArrowDown:['ArrowDown','ArrowDown',40],
+    ArrowLeft:['ArrowLeft','ArrowLeft',37],ArrowRight:['ArrowRight','ArrowRight',39],Backspace:['Backspace','Backspace',8],Delete:['Delete','Delete',46],
+    Space:[' ','Space',32],Home:['Home','Home',36],End:['End','End',35],PageUp:['PageUp','PageUp',33],PageDown:['PageDown','PageDown',34]};
+  const COMBO={a:['a','KeyA',65],c:['c','KeyC',67],v:['v','KeyV',86],x:['x','KeyX',88],z:['z','KeyZ',90],Enter:['Enter','Enter',13]};
+  function keyOf(text) {
+    const m=/^(Control|Meta)\+(a|c|v|x|z|Enter)$/.exec(String(text||''));
+    const k=m ? COMBO[m[2]] : Object.hasOwn(KEYS,String(text)) ? KEYS[text] : null;
+    return k ? {key:k[0],code:k[1],keyCode:k[2],mod:m?m[1]:'',name:m?m[2]:String(text)} : null;
+  }
+  /** What has focus on the page (inside open shadow roots too), never a protected field: else the page itself. */
+  function focused() {
+    let e=document.activeElement;
+    while (e && e.shadowRoot && e.shadowRoot.activeElement) e=e.shadowRoot.activeElement;
+    return e && e!==document.body && e!==document.documentElement && !secret(e) && !protectedComment(e,commentRegions()) ? e : (document.body || document.documentElement);
+  }
+  const textField = e => !!e?.matches?.('textarea,input:not([type]),input[type="text"],input[type="search"],input[type="email"],input[type="url"],input[type="tel"],input[type="number"]');
+  const fieldOf = e => textField(e) || !!e && editable(e);
+  const activatable = e => !!e?.matches?.('button,summary,input[type="checkbox"],input[type="radio"],input[type="button"],input[type="submit"],input[type="reset"],[role="button"],[role="checkbox"],[role="switch"],[role="radio"],[role="option"],[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"],[role="tab"]');
+  /** A page key's scroll (PageDown, Space, an arrow, Home/End) on what scrolls (an open dialog's part first, scroller). */
+  function keyScroll(down, how) {
+    const box=scroller(down), page=document.scrollingElement || document.documentElement, was=box ? box.scrollTop : scrollY;
+    const step=(down?1:-1)*(how==='line' ? 40 : (box ? box.clientHeight : innerHeight)*.8);
+    if (how==='edge') { const to=down ? (box||page).scrollHeight : 0; if (box) box.scrollTop=to; else scrollTo({top:to,behavior:'instant'}); }
+    else if (box) box.scrollBy({top:step,behavior:'instant'}); else scrollBy({top:step,behavior:'instant'});
+    const now=box ? box.scrollTop : scrollY;
+    return {moved:now!==was, what:box ? (topDialog() && composedContains(topDialog(),box) ? 'dialog' : 'panel') : 'page'};
+  }
+  /** The caret in a field: by a letter (ArrowLeft/Right), to the line's start or end (Home/End), a line up or down in an editor. */
+  function caret(e, k) {
+    const back=['ArrowLeft','ArrowUp','Home'].includes(k.name);
+    if (editable(e)) {
+      const s=e.getRootNode().getSelection?.() || document.getSelection();
+      s?.modify?.('move', back?'backward':'forward', k.name.startsWith('Arrow') ? (['ArrowUp','ArrowDown'].includes(k.name)?'line':'character') : 'lineboundary');
+      return 'caret_moved';
+    }
+    if (e.tagName==='TEXTAREA' && ['ArrowUp','ArrowDown'].includes(k.name)) return '';
+    try {
+      const at=k.name==='Home' ? 0 : k.name==='End' ? e.value.length : Math.max(0, Math.min(e.value.length, (back ? e.selectionStart-1 : e.selectionEnd+1)));
+      e.setSelectionRange(at, at); return 'caret_moved';
+    } catch (_) { return ''; }
+  }
+  function selected(e) {
+    if (textField(e)) { try { return e.value.slice(e.selectionStart, e.selectionEnd); } catch (_) { return e.value; } }
+    return String((e.getRootNode?.().getSelection?.() || document.getSelection())?.toString() || '');
+  }
+  /**
+   * A key as the page's own key events (keydown, keyup; Control/Meta set for a combination), then what the browser would do
+   * that a script's key event does not do by itself: Enter submits or presses, Tab moves focus, Backspace/Delete delete,
+   * Space types a space or presses, an arrow moves the caret or the choice in a list or scrolls, Home/End/PageUp/PageDown
+   * move or scroll, Control+a selects all, Control+c/x copy (and cut) for this task, Control+v pastes what it copied (a.paste,
+   * the app's, never the phone's clipboard), Control+z undoes. A page that handles the key itself (preventDefault) keeps it.
+   */
+  function press(e, k, a) {
+    const ctrl=k.mod==='Control', meta=k.mod==='Meta', page=e===document.body || e===document.documentElement;
+    if (!page) e.focus();
+    const form=e.form; let submitted=false, effect='', copied, scroll;
+    const mark=()=>{submitted=true}; form?.addEventListener('submit',mark,true);
+    const init={key:k.key,code:k.code,keyCode:k.keyCode,which:k.keyCode,ctrlKey:ctrl,metaKey:meta,bubbles:true,composed:true};
+    let accepted;
+    try {
+      accepted=e.dispatchEvent(new KeyboardEvent('keydown',{...init,cancelable:true}));
+      if (accepted && !k.mod) {
+        if (k.name==='Enter' && !submitted && e.matches?.('input') && form) { form.requestSubmit(); effect='submitted'; }
+        else if (k.name==='Enter' && !submitted && e.matches?.('button,a[href]')) { e.click(); effect='clicked'; }
+        else if (['Backspace','Delete'].includes(k.name) && fieldOf(e)) effect=document.execCommand(k.name==='Backspace'?'delete':'forwardDelete') ? 'deleted' : '';
+        else if (k.name==='Space' && fieldOf(e)) effect=document.execCommand('insertText',false,' ') ? 'typed' : '';
+        else if (k.name==='Space' && activatable(e)) { e.click(); effect='clicked'; }
+        else if (k.name==='Space') { scroll=keyScroll(true,'page'); effect='scrolled'; }
+        else if (['ArrowUp','ArrowDown'].includes(k.name) && e.tagName==='SELECT' && !e.multiple) {
+          let i=e.selectedIndex; const step=k.name==='ArrowDown'?1:-1;
+          do i+=step; while (e.options[i] && e.options[i].disabled);
+          if (e.options[i]) { e.selectedIndex=i; e.dispatchEvent(new Event('input',{bubbles:true,composed:true})); e.dispatchEvent(new Event('change',{bubbles:true,composed:true})); effect='option_changed'; }
+        }
+        else if (k.name.startsWith('Arrow') || ['Home','End'].includes(k.name)) {
+          if (fieldOf(e)) effect=caret(e,k);
+          if (!effect && !fieldOf(e)) {
+            if (['ArrowLeft','ArrowRight'].includes(k.name)) { const was=scrollX; scrollBy({left:k.name==='ArrowRight'?40:-40,behavior:'instant'}); scroll={moved:scrollX!==was,what:'page'}; }
+            else scroll=keyScroll(['ArrowDown','End'].includes(k.name), ['Home','End'].includes(k.name) ? 'edge' : 'line');
+            effect='scrolled';
+          }
+        }
+        else if (['PageUp','PageDown'].includes(k.name) && !textField(e)) { scroll=keyScroll(k.name==='PageDown','page'); effect='scrolled'; }
+      } else if (accepted) {
+        if (k.name==='a') {
+          if (textField(e)) e.select();
+          else { const s=document.getSelection(), r=document.createRange(); r.selectNodeContents(editable(e) ? e : document.body || document.documentElement); s.removeAllRanges(); s.addRange(r); }
+          effect='selected_all';
+        } else if (k.name==='c' || k.name==='x') {
+          copied=selected(e).slice(0,8000);
+          try { document.execCommand('copy'); } catch (_) { }
+          if (k.name==='x' && copied && fieldOf(e)) document.execCommand('delete');
+          effect=copied ? (k.name==='x' ? 'cut' : 'copied') : 'nothing_selected';
+        } else if (k.name==='v') {
+          const words=String(a.paste||'');
+          effect=!words ? 'nothing_to_paste' : fieldOf(e) && document.execCommand('insertText',false,words) ? 'pasted' : 'no_field';
+        } else if (k.name==='z') effect=document.execCommand('undo') ? 'undone' : '';
+      }
+    } finally { form?.removeEventListener('submit',mark,true); }
+    if (accepted && !k.mod && k.name==='Tab') { const regions=commentRegions(); const fields=all('a[href],button,input,textarea,select,[tabindex]').filter(x=>inViewport(x)&&!secret(x)&&!protectedComment(x,regions)&&!x.disabled); const next=fields[fields.indexOf(e)+1]; if(next) { next.focus(); effect='focus_moved'; } }
+    e.dispatchEvent(new KeyboardEvent('keyup',init));
+    return {accepted, effect:accepted ? effect : 'page_handled', copied, scroll};
+  }
   async function perform(a, acknowledge=()=>{}) {
-    let input, target, scrolled=null;
+    let input, target, scrolled=null, pressed=null;
     if (a.action === 'vault_fill') {
       if (location.origin !== a.origin || !location.href.startsWith('https:')) throw Error('저장된 로그인 주소와 현재 사이트가 달라요.');
       const fields = [...document.querySelectorAll('input')].filter(visible), password = fields.find(e=>e.type==='password');
@@ -385,9 +488,11 @@
     }
     else {
       if (a.document !== documentId) throw stale('페이지가 바뀌었어요. 다시 읽어 주세요.');
-      const entry=refs.get(a.ref), e=entry?.element;
-      if (!e || !e.isConnected || !visible(e) || e.disabled || e.readOnly || secret(e) || protectedComment(e,commentRegions()) || fingerprint(e)!==entry.fingerprint) throw stale('요소가 바뀌었거나 입력할 수 없어요. 다시 읽어 주세요.');
-      const proposal=navigationProposal(a,e);
+      // A key with no ref goes to what has focus on the page (a page key: PageDown, Control+a), never a protected field.
+      const free=a.action==='press' && !a.ref;
+      const entry=free ? null : refs.get(a.ref), e=free ? focused() : entry?.element;
+      if (!free && (!e || !e.isConnected || !visible(e) || e.disabled || (e.readOnly && a.action!=='press') || secret(e) || protectedComment(e,commentRegions()) || fingerprint(e)!==entry.fingerprint)) throw stale('요소가 바뀌었거나 입력할 수 없어요. 다시 읽어 주세요.');
+      const proposal=free ? null : navigationProposal(a,e);
       if (proposal) return {ok:true,document:documentId,navigation_proposal:proposal,action_executed:false};
       // A file is ready for this page's chooser (attach): the app taps it for real, since a file chooser opens only for a real touch.
       if (a.action==='click' && a.native_tap) {
@@ -402,19 +507,9 @@
       }
       else if(a.action==='select') { if(e.tagName!=='SELECT' || ![...e.options].some(o=>o.value===a.text)) throw Error('목록에 없는 값이에요.');input={element:e,text:a.text};fill(e,a.text); }
       else if(a.action==='press') {
-        if(!['Enter','Escape','Tab'].includes(a.text)) throw Error('지원하지 않는 키예요.');
-        e.focus();
-        const form=e.form; let submitted=false;
-        const mark=()=>{submitted=true}; form?.addEventListener('submit',mark,true);
-        const keyCode={Enter:13,Escape:27,Tab:9}[a.text];
-        let accepted;
-        try {
-          accepted=e.dispatchEvent(new KeyboardEvent('keydown',{key:a.text,code:a.text,keyCode,which:keyCode,bubbles:true,cancelable:true,composed:true}));
-          if(accepted && !submitted && a.text==='Enter' && e.matches('input') && form) form.requestSubmit();
-          else if(accepted && !submitted && a.text==='Enter' && e.matches('button,a[href]')) e.click();
-        } finally { form?.removeEventListener('submit',mark,true); }
-        if(accepted && a.text==='Tab') { const regions=commentRegions(); const fields=all('a[href],button,input,textarea,select,[tabindex]').filter(x=>inViewport(x)&&!secret(x)&&!protectedComment(x,regions)&&!x.disabled); const next=fields[fields.indexOf(e)+1]; if(next) next.focus(); }
-        e.dispatchEvent(new KeyboardEvent('keyup',{key:a.text,code:a.text,bubbles:true,composed:true}));
+        const k=keyOf(a.text);
+        if(!k) throw Error('지원하지 않는 키예요.');
+        pressed=press(e,k,a);
       }
       else throw Error('지원하지 않는 페이지 동작이에요.');
     }
@@ -431,6 +526,8 @@
     }
     return {...snapshot(), action_accepted:true,settle:settled.info,
       action_effect:actionEffect(a.action,before,settled.state,settled.info,input),...(input?{input_verified:true,characters:input.text.length}:{}),
+      ...(pressed?{key:a.text,key_effect:pressed.effect,...(pressed.copied!==undefined?{copied:pressed.copied}:{})}:{}),
+      ...(pressed?.scroll && !scrolled?{scroll:pressed.scroll.moved?pressed.scroll:{...pressed.scroll,note:'Nothing moved: there is no more to scroll this way.'}}:{}),
       ...(scrolled?{scroll:scrolled.moved?scrolled:{...scrolled,note:'Nothing moved: there is no more to scroll this way. Controls off screen are already listed with offscreen:true; click or type them directly.'}}:{})};
   }
   function fingerprint(e) { return [e.tagName,e.type,e.getAttribute('href'),e.getAttribute('aria-label'),e.innerText,e.getAttribute('placeholder'),e.getAttribute('role'),e.getAttribute('aria-selected'),e.getAttribute('aria-current'),e.getAttribute('aria-checked'),e.checked,e.readOnly].join('\u001f'); }

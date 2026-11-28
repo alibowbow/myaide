@@ -483,6 +483,41 @@ public final class BrowserActivity extends Activity {
         dialog.show();
     }
     /**
+     * A link to another app the user tapped on the page (tel:, mailto:, sms:, market:, a KakaoTalk or Naver app sign-in's
+     * intent://): handed to Android as Chrome does (BrowserAppIntent). When no app takes it, an intent:// link's own web page
+     * (browser_fallback_url) opens in the same tab, else Play opens on the app it names.
+     */
+    private void openAppLink(BrowserEngine.Tab tab, String raw) {
+        if (isFinishing() || isDestroyed()) return;
+        android.content.Intent intent = BrowserAppIntent.of(raw, getPackageName());
+        String app = dev.jun.gyeot.core.BrowserAppLinks.label(raw);
+        if (intent == null) { toast(app + " 링크는 열 수 없어요. 웹페이지는 그대로 유지했어요."); return; }
+        try { startActivity(intent); return; }
+        catch (android.content.ActivityNotFoundException none) { /* below: its web page, or Play */ }
+        catch (SecurityException refused) { toast(app + "을(를) 열 수 없어요. 웹페이지는 그대로 유지했어요."); return; }
+        String fallback = dev.jun.gyeot.core.BrowserAppLinks.fallback(raw);
+        if (!fallback.isEmpty()) { web.post(() -> engine.openFallback(tab, fallback)); toast(app + "이(가) 없어서 웹페이지로 열었어요."); return; }
+        String pkg = BrowserAppIntent.packageOf(raw);
+        if (!pkg.isEmpty()) try {
+            startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=" + pkg))
+                .addCategory(android.content.Intent.CATEGORY_BROWSABLE).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+            toast(app + "이(가) 설치돼 있지 않아 Play 스토어를 열었어요."); return;
+        } catch (RuntimeException noStore) { /* below */ }
+        toast(app + " 링크를 열 앱이 없어요. 웹페이지는 그대로 유지했어요.");
+    }
+    /** Opened from a site's question (BrowserTaskService.siteQuestion): that tab comes up and its question with it. */
+    private void consumeQuestion() {
+        android.content.Intent intent = getIntent();
+        if (!navigationResumed || engine == null || engine.historyRestorePending() || intent == null || !intent.hasExtra(BrowserTaskService.QUESTION_TAB_EXTRA)) return;
+        String id = intent.getStringExtra(BrowserTaskService.QUESTION_TAB_EXTRA);
+        intent.removeExtra(BrowserTaskService.QUESTION_TAB_EXTRA);
+        BrowserEngine.Tab asking = id == null ? null : engine.tab(id);
+        if (asking == null) { toast("질문한 탭이 이미 닫혔어요."); return; }
+        saveDraft();
+        if (dictation != null) dictation.cancel();
+        engine.select(asking);
+    }
+    /**
      * The page as drawn now and where it sits in the window, for 화면 보기 (GeckoView draws on a surface of its own, which a
      * copy of the window leaves out); null when there is none. The answer comes on the main thread.
      */
@@ -493,7 +528,7 @@ public final class BrowserActivity extends Activity {
         try { view.capturePixels().accept(bitmap -> done.accept(bitmap, at), failure -> done.accept(null, null)); }
         catch (RuntimeException failed) { done.accept(null, null); }
     }
-    @Override protected void onResume() { super.onResume(); if (voice != null) voice.attach(); navigationResumed = true; AppNavigator.browserInFront(true); AppNavigator.inFront("browser"); updateAiToolbarState(); engine.attach(this::refresh, prompts); engine.externalAppLink = this::offerYouTube; engine.store.observe(storeObserver); consumeTaskNotification(); consumeOpen(); consumeReview(); acknowledgeNavigation(); }
+    @Override protected void onResume() { super.onResume(); if (voice != null) voice.attach(); navigationResumed = true; AppNavigator.browserInFront(true); AppNavigator.inFront("browser"); updateAiToolbarState(); engine.attach(this::refresh, prompts); engine.externalAppLink = this::offerYouTube; engine.appLink = this::openAppLink; engine.store.observe(storeObserver); consumeTaskNotification(); consumeOpen(); consumeReview(); consumeQuestion(); acknowledgeNavigation(); }
     @Override protected void onPause() {
         if (voice != null) voice.detach();
         recoveryViewSequence++;
@@ -559,7 +594,7 @@ public final class BrowserActivity extends Activity {
     }
     @Override protected void onNewIntent(android.content.Intent intent) {
         super.onNewIntent(intent); setIntent(intent); fromHome(intent);
-        web.post(() -> { consumeTaskNotification(); consumeOpen(); consumeReview(); acknowledgeNavigation(); });
+        web.post(() -> { consumeTaskNotification(); consumeOpen(); consumeReview(); consumeQuestion(); acknowledgeNavigation(); });
     }
     /**
      * Opens url in a new tab of the app's browser, the screen brought to the front: a source the main chat cited, or a
@@ -1870,6 +1905,14 @@ public final class BrowserActivity extends Activity {
             return prompt(session, p, (b, r) -> b.setMessage(BrowserEngine.safeUrl(p.authOptions.uri)).setView(box).setPositiveButton("로그인", (d, w) -> r.complete(p.confirm(user.getText().toString(), pass.getText().toString()))).setNegativeButton("취소", (d, w) -> r.complete(p.dismiss())));
         }
         @Override public GeckoResult<PromptResponse> onPopupPrompt(GeckoSession session, PopupPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss()); return prompt(session, p, (b, r) -> b.setMessage("새 탭을 열까요?\n" + BrowserEngine.safeUrl(p.targetUri)).setPositiveButton("열기", (d, w) -> r.complete(p.confirm(AllowOrDeny.ALLOW))).setNegativeButton("취소", (d, w) -> r.complete(p.confirm(AllowOrDeny.DENY)))); }
+        /** The page asks before it is left (a form not saved yet): the user decides, as in any browser. */
+        @Override public GeckoResult<PromptResponse> onBeforeUnloadPrompt(GeckoSession session, BeforeUnloadPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss());
+            return prompt(session, p, (b, r) -> b.setMessage("이 페이지를 떠날까요?\n입력한 내용이 저장되지 않았을 수 있어요.").setPositiveButton("떠나기", (d, w) -> r.complete(p.confirm(AllowOrDeny.ALLOW))).setNegativeButton("머무르기", (d, w) -> r.complete(p.confirm(AllowOrDeny.DENY))));
+        }
+        /** A page sent by a form is loaded again: sending it again could order or pay twice. */
+        @Override public GeckoResult<PromptResponse> onRepostConfirmPrompt(GeckoSession session, RepostConfirmPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss());
+            return prompt(session, p, (b, r) -> b.setMessage("양식을 다시 보낼까요?\n주문·결제·글 올리기가 한 번 더 될 수 있어요.").setPositiveButton("다시 보내기", (d, w) -> r.complete(p.confirm(AllowOrDeny.ALLOW))).setNegativeButton("취소", (d, w) -> r.complete(p.confirm(AllowOrDeny.DENY))));
+        }
         /** After a login with details not kept yet: keep them (encrypted on this device, never sent to an AI)? */
         @Override public GeckoResult<PromptResponse> onLoginSave(GeckoSession session, AutocompleteRequest<Autocomplete.LoginSaveOption> p) {
             if (!engine.liveSession(session) || p.options == null || p.options.length == 0) return GeckoResult.fromValue(p.dismiss());

@@ -25,7 +25,7 @@ final class BrowserDecisionEvidence {
     static boolean forbidden(JSONObject action, JSONObject page) {
         if (action == null) return false;
         String kind = action.optString("action");
-        if (kind.equals("open")) return AutomationGate.forbiddenUrl(action.optString("url")) || AutomationGate.bankingHost(action.optString("url"));
+        if (kind.equals("open") || kind.equals("open_tab")) return AutomationGate.forbiddenUrl(action.optString("url")) || AutomationGate.bankingHost(action.optString("url"));
         if (!java.util.Set.of("click", "type", "select", "press").contains(kind)) return false;
         if (page != null && AutomationGate.bankingHost(page.optString("url"))) return true;
         JSONObject target = target(action, page);
@@ -108,9 +108,12 @@ final class BrowserDecisionEvidence {
         if(action==null)return false;
         String kind=action.optString("action");
         if(observationAction(action))return true;
-        if(java.util.Set.of("scroll","back","switch","set_mode").contains(kind))return true;
-        if(kind.equals("open"))return (!dangerous(action.optString("url")) || readLink(action,page,action.optString("url"))) && dev.jun.gyeot.core.BrowserReadNavigation.safeHref(action.optString("url"));
+        // close: the engine closes only a tab this task opened (BrowserTaskTabs.closing), which changes nothing on any site.
+        if(java.util.Set.of("scroll","back","switch","set_mode","close").contains(kind))return true;
+        if(kind.equals("open") || kind.equals("open_tab"))return (!dangerous(action.optString("url")) || readLink(action,page,action.optString("url"))) && dev.jun.gyeot.core.BrowserReadNavigation.safeHref(action.optString("url"));
         if(page==null || page.optBoolean("requires_user") || !page.optString("document").equals(action.optString("document")))return false;
+        // A page key with no ref (PageDown, Control+a on what has focus) that only moves, selects or copies.
+        if(kind.equals("press") && action.optString("ref").isEmpty())return dev.jun.gyeot.core.BrowserTools.QUIET_KEYS.contains(action.optString("text"));
         JSONObject target=null;JSONArray elements=page.optJSONArray("elements");
         if(elements!=null)for(int n=0;n<elements.length();n++){JSONObject item=elements.optJSONObject(n);if(item!=null&&action.optString("ref").equals(item.optString("ref"))){target=item;break;}}
         if(target==null || target.optBoolean("disabled") || target.optBoolean("readonly"))return false;
@@ -125,7 +128,7 @@ final class BrowserDecisionEvidence {
             && !dev.jun.gyeot.core.DecisionSemanticText.sensitiveInput(label+" "+type+" "+target.optString("placeholder")+" "+target.optString("autocomplete"),text)
             && text.equals(dev.jun.gyeot.core.DecisionSemanticText.redact(text));
         if(kind.equals("press")) {
-            if(java.util.Set.of("Tab","Escape").contains(text))return true;
+            if(dev.jun.gyeot.core.BrowserTools.QUIET_KEYS.contains(text))return true;
             // Enter runs a search in a search box, or a generation site's prompt the user asked to generate from; in a chat,
             // comment or other field it may send, post or submit.
             return text.equals("Enter") && editable && ("search".equals(fieldKind(target)) || generationComposer(page,words,elements) || createPrompt(page,target,words,elements));
@@ -192,7 +195,7 @@ final class BrowserDecisionEvidence {
     static boolean unfenced(JSONObject action, JSONObject page, String words) {
         if (action == null || page == null || !routineAction(action, page, words)) return false;
         String kind = action.optString("action");
-        if (kind.equals("press")) return java.util.Set.of("Tab", "Escape").contains(action.optString("text"));
+        if (kind.equals("press")) return dev.jun.gyeot.core.BrowserTools.QUIET_KEYS.contains(action.optString("text"));
         if (!kind.equals("click")) return false;
         JSONArray elements = page.optJSONArray("elements"); JSONObject target = null;
         for (int i = 0; elements != null && i < elements.length() && target == null; i++) {
