@@ -806,7 +806,7 @@ public class BuddyBrainTests {
         for (String[] a : dev.jun.gyeot.core.VideoChat.ASPECTS)
             assertEquals(a[0], a[0], dev.jun.gyeot.core.Drawing.directArguments(new org.json.JSONObject(java.util.Map.of("prompt", "x", "aspect", a[0])).toString()).optString("aspect"));
         // The shapes GPT Image 2 draws (준: "gpt에서 제공하는 비율에 맞게"): every size within its limits, each ratio as named.
-        for (String[][] list : new String[][][]{dev.jun.gyeot.core.Drawing.WIDE, dev.jun.gyeot.core.Drawing.TALL}) for (String[] one : list) {
+        for (String[] one : dev.jun.gyeot.core.Drawing.SHAPES) {
             String size = dev.jun.gyeot.core.Drawing.openAiRequest(new org.json.JSONObject(java.util.Map.of("prompt", "x", "aspect", one[0]))).optString("size");
             assertEquals(one[3], size);
             int w = Integer.parseInt(size.split("x")[0]), h = Integer.parseInt(size.split("x")[1]); long px = (long) w * h;
@@ -815,10 +815,9 @@ public class BuddyBrainTests {
             assertEquals("the ratio named is the size's: " + one[1], Double.parseDouble(r[0]) / Double.parseDouble(r[1]), (double) w / h, 0.02);
             assertEquals("the words pick it: " + one[1], one[0], dev.jun.gyeot.core.Drawing.aspect(one[1] + " 비율로 그려 줘"));
         }
-        assertTrue(dev.jun.gyeot.core.Drawing.tool().toString().contains("21:9") && dev.jun.gyeot.core.Drawing.tool().toString().contains("1:3"));
-        assertEquals("not a shape it draws", "", dev.jun.gyeot.core.Drawing.aspect("8:1 비율로"));
-        assertEquals("와이드스크린 (16:9)", dev.jun.gyeot.core.Drawing.label("16:9"));
-        assertTrue(dev.jun.gyeot.core.VideoChat.pictures(1, "21:9", "normal").contains("use the width") && dev.jun.gyeot.core.VideoChat.pictures(1, "5:4", "normal").contains("a grid or a centered layout"));
+        assertEquals("GPT's own five only (준: \"그건 우리랑 전혀 상관없는 회사 서비스인데 그걸 왜따라해\")", java.util.List.of("square", "landscape", "portrait", "16:9", "9:16"), dev.jun.gyeot.core.Drawing.aspects());
+        assertEquals("not a shape it draws", "", dev.jun.gyeot.core.Drawing.aspect("21:9 비율로"));
+        assertEquals("가로 와이드 (16:9)", dev.jun.gyeot.core.Drawing.label("16:9"));
     }
     /** What it does not know about the user it asks (준: "아는것이 전투기 밖에 없어?", "모르면 질문을 하면 되자너"). */
     @Test public void asksWhatItDoesNotKnow() throws Exception {
@@ -1330,8 +1329,8 @@ public class BuddyBrainTests {
     }
 
     /**
-     * The picture's shape as a list (준: "이미지크기를 이런식으로 선택할 수 있게해줘", "gpt에서 제공하는 비율에 맞게"): 가로 · 세로 at the
-     * heading's end, a row per shape with its outline, name and ratio, compact (44dp rows, the switcher 34dp).
+     * The picture's shape as a list (준: "이미지크기를 이런식으로 선택할 수 있게해줘", "gpt에서 제공하는 비율에 맞게"): a row per shape
+     * GPT draws with its outline, name and ratio, compact (44dp rows).
      */
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void picturesShapesAsAList() throws Exception {
         Activity a = Robolectric.buildActivity(DecorActivity.class).setup().get(); shadowOf(Looper.getMainLooper()).idle();
@@ -1339,17 +1338,13 @@ public class BuddyBrainTests {
         new Ui(a).imageOptions("16:9", false, (chosen, editing) -> applied[0] = chosen).show(); shadowOf(Looper.getMainLooper()).idle();
         View d = ShadowDialog.getLatestDialog().getWindow().getDecorView(); settle(d);
         float density = a.getResources().getDisplayMetrics().density;
-        for (String row : new String[]{"파노라마 (3:1)", "울트라 와이드 (21:9)", "와이드스크린 (16:9)", "와이드 (3:2)", "가로 (4:3)", "클래식 (5:4)", "정사각형 (1:1)"}) {
+        for (String row : new String[]{"정사각형 (1:1)", "가로 (3:2)", "세로 (2:3)", "가로 와이드 (16:9)", "세로 와이드 (9:16)"}) {
             View t = text(d, row); assertNotNull(row, t);
             assertTrue("compact row: " + row, ((View) t.getParent()).getHeight() / density <= 45);
         }
-        assertNull("8:1 is no shape GPT draws", text(d, "시네마틱"));
-        shot(d, "picture_shapes_wide");
-        View tall = text(d, "세로"); while (!tall.isClickable() && tall.getParent() instanceof View p) tall = p;
-        assertTrue(tall.getHeight() / density <= 36); assertTrue(tall.performClick()); shadowOf(Looper.getMainLooper()).idle(); settle(d);
-        assertNotNull(text(d, "쇼츠·스토리 (9:16)")); assertNotNull(text(d, "세로 파노라마 (1:3)"));
-        View story = text(d, "쇼츠·스토리 (9:16)"); assertTrue(((View) story.getParent()).performClick()); shadowOf(Looper.getMainLooper()).idle(); settle(d);
-        shot(d, "picture_shapes_tall");
+        for (String other : new String[]{"파노라마", "울트라", "클래식", "시네마틱"}) assertNull("no other service's names: " + other, text(d, other));
+        View story = text(d, "세로 와이드 (9:16)"); assertTrue(((View) story.getParent()).performClick()); shadowOf(Looper.getMainLooper()).idle(); settle(d);
+        shot(d, "picture_shapes");
         View apply = text(d, "대화창에 적용"); while (!apply.isClickable() && apply.getParent() instanceof View p) apply = p;
         assertTrue(apply.performClick()); shadowOf(Looper.getMainLooper()).idle();
         assertEquals("9:16", applied[0]);

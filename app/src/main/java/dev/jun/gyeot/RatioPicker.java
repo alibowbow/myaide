@@ -13,27 +13,25 @@ import dev.jun.gyeot.core.Drawing;
 import static dev.jun.gyeot.Ui.*;
 
 /**
- * A picture's shape as a list (준: "이미지크기를 이런식으로 선택할 수 있게해줘", "gpt에서 제공하는 비율에 맞게"): 가로 · 세로 at the
- * end of the heading's line, then each shape GPT Image draws (core/Drawing.WIDE, TALL) as one row: its outline drawn to scale,
- * its name and ratio ("와이드스크린 (16:9)"), a check by the one chosen. A tap picks it; given picked, that is told at once.
+ * A picture's shape as a list (준: "이미지크기를 이런식으로 선택할 수 있게해줘", "gpt에서 제공하는 비율에 맞게"): each shape GPT
+ * Image draws (core/Drawing.SHAPES) as one row: its outline drawn to scale, its name and ratio ("가로 와이드 (16:9)"), a check by
+ * the one chosen. A tap picks it; given picked, that is told at once.
  */
 final class RatioPicker extends LinearLayout {
     private final Ui ui; private final LinearLayout rows; private final java.util.function.Consumer<String> picked;
-    private String chosen; private boolean tall;
+    private String chosen;
     RatioPicker(Context context, Ui ui, String aspect, java.util.function.Consumer<String> picked) {
         super(context); this.ui = ui; this.picked = picked; setOrientation(VERTICAL);
-        String[] now = Drawing.shape(aspect); chosen = now == null ? "square" : now[0]; tall = Drawing.ratio(chosen) < 1;
-        LinearLayout head = ui.row(); head.setGravity(Gravity.CENTER_VERTICAL); head.setPadding(ui.dp(2), 0, 0, ui.dp(6));
-        TextView title = ui.text("화면 비율", 14, 650, TEXT); head.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        head.addView(ui.switcher(new String[]{"가로", "세로"}, tall ? 1 : 0, i -> { tall = i == 1; fill(); }));
-        addView(head, new LinearLayout.LayoutParams(-1, -2));
+        String[] now = Drawing.shape(aspect); chosen = now == null ? "square" : now[0];
+        TextView title = ui.text("화면 비율", 14, 650, TEXT); title.setPadding(ui.dp(2), 0, 0, ui.dp(6));
+        addView(title, new LinearLayout.LayoutParams(-1, -2));
         rows = ui.column(); addView(rows, new LinearLayout.LayoutParams(-1, -2));
         fill();
     }
     String aspect() { return chosen; }
     private void fill() {
         rows.removeAllViews();
-        for (String[] one : tall ? Drawing.TALL : Drawing.WIDE) rows.addView(row(one), new LinearLayout.LayoutParams(-1, ui.dp(44)));
+        for (String[] one : Drawing.SHAPES) rows.addView(row(one), new LinearLayout.LayoutParams(-1, ui.dp(44)));
     }
     private View row(String[] one) {
         boolean on = one[0].equals(chosen); float ratio = (float) Drawing.ratio(one[0]);

@@ -19,23 +19,18 @@ public final class Drawing {
     public static final String OPENAI_IMAGES = "https://api.openai.com/v1/images/generations", OPENAI_EDITS = "https://api.openai.com/v1/images/edits",
         OPENAI_MODEL = "gpt-image-2", OPENAI_REFUSAL = "images_api";
     public static final int PROMPT_LIMIT = 4000;
-    private static final Pattern RATIO = Pattern.compile("(?<!\\d)(21\\s*[:：/대]\\s*9|9\\s*[:：/대]\\s*21|16\\s*[:：/대]\\s*9|9\\s*[:：/대]\\s*16|1\\s*[:：/대]\\s*1|2\\s*[:：/대]\\s*3|3\\s*[:：/대]\\s*2|4\\s*[:：/대]\\s*3|3\\s*[:：/대]\\s*4|5\\s*[:：/대]\\s*4|4\\s*[:：/대]\\s*5|3\\s*[:：/대]\\s*1|1\\s*[:：/대]\\s*3)(?!\\d)");
+    private static final Pattern RATIO = Pattern.compile("(?<!\\d)(16\\s*[:：/대]\\s*9|9\\s*[:：/대]\\s*16|1\\s*[:：/대]\\s*1|2\\s*[:：/대]\\s*3|3\\s*[:：/대]\\s*2)(?!\\d)");
     /**
-     * The shapes GPT Image 2 draws, as a list to pick from (준: "이미지크기를 이런식으로 선택할 수 있게해줘 … gpt에서 제공하는 비율에 맞게"):
-     * id (what is kept and sent), ratio, name, and the size asked for. Its sizes may be any within: both edges multiples of 16 and
-     * at most 3840, the long edge at most 3 times the short one, 655,360 to 8,294,400 pixels (OpenAI's image guide, read
-     * 2026-11-28), so 8:1 and 4:1 are out and 3:1 is the widest. The first three ids are the ones kept from before.
+     * The shapes GPT Image draws, as a list to pick from (준: "gpt에서 제공하는 비율에 맞게"): the ones OpenAI's image guide
+     * lists for gpt-image-2 (read 2026-11-28: 1024x1024 square, 1536x1024 landscape, 1024x1536 portrait, and 16:9 / 9:16 as its
+     * 2K/4K sizes), each asked at the size already used here. id (what is kept and sent), ratio, name, size.
      */
-    public static final String[][] WIDE = {{"3:1", "3:1", "파노라마", "3072x1024"}, {"21:9", "21:9", "울트라 와이드", "2016x864"},
-        {"16:9", "16:9", "와이드스크린", "1536x864"}, {"landscape", "3:2", "와이드", "1536x1024"}, {"4:3", "4:3", "가로", "1536x1152"},
-        {"5:4", "5:4", "클래식", "1280x1024"}, {"square", "1:1", "정사각형", "1024x1024"}};
-    public static final String[][] TALL = {{"1:3", "1:3", "세로 파노라마", "1024x3072"}, {"9:21", "9:21", "세로 울트라 와이드", "864x2016"},
-        {"9:16", "9:16", "쇼츠·스토리", "864x1536"}, {"portrait", "2:3", "세로 사진", "1024x1536"}, {"3:4", "3:4", "세로", "1152x1536"},
-        {"4:5", "4:5", "세로 클래식", "1024x1280"}, {"square", "1:1", "정사각형", "1024x1024"}};
+    public static final String[][] SHAPES = {{"square", "1:1", "정사각형", "1024x1024"}, {"landscape", "3:2", "가로", "1536x1024"},
+        {"portrait", "2:3", "세로", "1024x1536"}, {"16:9", "16:9", "가로 와이드", "1536x864"}, {"9:16", "9:16", "세로 와이드", "864x1536"}};
     /** The shape an aspect names ({id, ratio, name, size}), or null. */
     public static String[] shape(String aspect) {
         String id = normalizeAspect(aspect == null ? "" : aspect.strip());
-        for (String[][] list : new String[][][]{WIDE, TALL}) for (String[] one : list) if (one[0].equals(id)) return one;
+        for (String[] one : SHAPES) if (one[0].equals(id)) return one;
         return null;
     }
     /** Width over height of the shape (1 for one not known). */
@@ -45,12 +40,8 @@ public final class Drawing {
     }
     /** "와이드스크린 (16:9)": the shape as the list names it. */
     public static String label(String aspect) { String[] one = shape(aspect); return one == null ? "정사각형 (1:1)" : one[2] + " (" + one[1] + ")"; }
-    /** Every id, wide ones first, each once. */
-    public static java.util.List<String> aspects() {
-        java.util.LinkedHashSet<String> all = new java.util.LinkedHashSet<>();
-        for (String[] one : WIDE) all.add(one[0]); for (String[] one : TALL) all.add(one[0]);
-        return new java.util.ArrayList<>(all);
-    }
+    /** Every id, in the list's order. */
+    public static java.util.List<String> aspects() { java.util.List<String> all = new java.util.ArrayList<>(); for (String[] one : SHAPES) all.add(one[0]); return all; }
     private static final String ASK = "(?:줘(?:요)?|주세요|줄래(?:요)?|줄\\s*수\\s*있(?:어|나요)|주겠(?:어|니)|봐)(?![가-힣])";
     private static final Pattern DRAW_COMMAND = Pattern.compile("(?i)그려\\s*" + ASK + "|그려[.!?。]*$|\\b(draw|paint|illustrate|render)\\b"),
         IMAGE_NOUN = Pattern.compile("(?i)이미지|그림|사진|일러스트|포스터|로고|배경화면|썸네일|image|picture|photo|illustration|poster|logo|wallpaper|thumbnail"),
@@ -67,7 +58,7 @@ public final class Drawing {
                     "prompt", obj("type", "string", "description", "The full picture description in English: subject, setting, style, composition, lighting, colors, and any text to show, word for word."),
                     "edit", obj("type", "boolean", "description", "true to change the attached or just-drawn picture, false for a new picture."),
                     "aspect", obj("type", "string", "enum", new JSONArray(aspects()),
-                        "description", "Match the user's ratio exactly: square=1:1, portrait=2:3, landscape=3:2, or 16:9, 9:16, 4:3, 3:4, 5:4, 4:5, 21:9, 9:21, 3:1, 1:3."))));
+                        "description", "Match the user's ratio exactly: square=1:1, portrait=2:3, landscape=3:2, or 16:9, 9:16."))));
     }
     /** What ChatGPT is told when the function is there. */
     public static final String INSTRUCTIONS = "You can draw and edit pictures with the draw_picture function: call it when the user asks for a picture, illustration, logo, poster or a change "
@@ -75,7 +66,7 @@ public final class Drawing {
         + "This function is available in THIS request even if earlier assistant messages said drawing was unavailable. Those old capability claims are stale. "
         + "For a drawing request, call the function before claiming you cannot draw; report only the result it actually returns. "
         + "If the user says to try again after a failed drawing request, reuse the earlier user's full visual description as the drawing prompt. "
-        + "Honor the exact requested aspect ratio, including 9:16, 16:9, 4:3, 3:4, 5:4, 4:5, 21:9, 9:21, 3:1 and 1:3. "
+        + "Honor the exact requested aspect ratio, including 9:16 and 16:9. "
         + "The picture reaches the user's phone, so once it is made describe it in a sentence instead of linking it. If drawing fails, say why in one sentence and give the prompt. "
         + "Never draw text art in place of a picture. ";
 
@@ -95,7 +86,7 @@ public final class Drawing {
             case "square", "1:1" -> "square";
             case "portrait", "2:3" -> "portrait";
             case "landscape", "3:2" -> "landscape";
-            case "9:16", "16:9", "4:3", "3:4", "5:4", "4:5", "21:9", "9:21", "3:1", "1:3" -> value;
+            case "9:16", "16:9" -> value;
             default -> "";
         };
     }
