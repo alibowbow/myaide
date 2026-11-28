@@ -108,7 +108,7 @@ final class BuddyTools {
         // 하루 타임라인 (2단계): the past from the day's own lines (core/DayLog); the tool says the answer, so nothing is made up.
         // Light (it goes every turn): the days come from the user's own words (DayLog.period); "from"/"to" (YYYY-MM-DD) are read
         // when a brain adds them (BuddyPrompt.loose, the text form) but not asked for here.
-        .put(fn("day_recall", "지난 일을 하루 기록에서 찾아 답한다.",
+        .put(fn("day_recall", "지난 일과 지난 대화(내가 뭐라고 했는지)를 하루 기록·대화 기록에서 찾아 답한다.",
             props("query", "string", "말한 대로"), "query"))
         // ── 사건 트리거 (stage 2, BuddyTriggers · core/Triggers): "…하면 …" by what happens, not by the clock ──
         // Short (it goes with every turn): who and text of a message, the reminder, the device are read from the user's own words.
@@ -204,7 +204,9 @@ final class BuddyTools {
      * The past asked about (하루 타임라인): never answered from what the brain thinks it remembers; day_recall finds it in the
      * day's own lines and says it (the same words go with the text form, BuddyPrompt.ACTS).
      */
-    static final String RECALL_RULE = "사용자가 지난 일(지난주 그 집, 어제 한 일, 그저께 주문한 것, 저번에 간 곳)을 물으면 짐작해서 답하지 말고 꼭 day_recall을 불러: 하루 기록에서 찾아 시각·앱과 함께 말해 주니 너는 '찾아볼게!'처럼 짧게만 말해. ";
+    static final String RECALL_RULE = "사용자가 지난 일(지난주 그 집, 어제 한 일, 그저께 주문한 것, 저번에 간 곳, 지난번에 자기가 뭐라고 했는지)을 물으면 짐작해서 답하지 말고 꼭 day_recall을 불러: 하루 기록과 지난 대화에서 찾아 시각과 함께 말해 주니 너는 '찾아볼게!'처럼 짧게만 말해. "
+        // 기억 2.0: a promise bound to a time or an event is kept by a tool, or not made.
+        + "'내일 아침에 알려 줄게', '도착하면 말해 줄게' 같은 약속은 그걸 거는 도구(when_event·schedule_job·alarm)를 부를 때만 해. 날씨(비·눈 오면)처럼 걸 수 없는 건 약속하지 말고 못 한다고 말해. ";
     /** 사건 트리거 (stage 2): events, not times, go to when_event; the same words go with the text form (BuddyPrompt.ACTS). */
     static final String EVENTS_RULE = "어떤 일이 생기면 할 일(집에 도착하면 알려 줘, 차 타면 지도 켜 줘, 충전 다 되면, 배달 출발하면, 비트코인 1억 넘으면)은 when_event로 걸어 둬(매번이면 every). 걸어 둔 걸 묻거나 끄거나 지우는 것도 when_event. "
         + "그때 문자·카톡을 보내 달라면 then=message로 걸어(보내기는 사용자가 눌러). ";

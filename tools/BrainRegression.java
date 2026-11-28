@@ -37,6 +37,11 @@ final class BrainRegression {
         Path file = args.length > 0 ? Path.of(args[0]) : Path.of("app/src/main/assets/buddy/scenarios.json");
         scenarios(file);
         memory();
+        recall();
+        corrections();
+        promises();
+        talks();
+        checking();
         chatWords(file);
         prices();
         foot();
@@ -363,6 +368,201 @@ final class BrainRegression {
         }
         check(web >= 8 && longs >= 6 && promises >= 6, "the chat sentences: " + web + " web, " + longs + " long, " + promises + " promises");
         System.out.println("퍼레와 대화's words: " + tools + " things to do never taken for the web; chat sentences " + web + " web, " + longs + " long, " + promises + " promises");
+    }
+
+    // ── 기억 2.0: memory found by meaning and by what is asked (core/BuddyRecall) ──
+    static final long DAY = 86_400_000L, T = NOW.toInstant().toEpochMilli();
+    static float[] vec(double... v) { float[] f = new float[v.length]; double s = 0; for (int i = 0; i < v.length; i++) { f[i] = (float) v[i]; s += v[i] * v[i]; } for (int i = 0; i < f.length; i++) f[i] /= (float) Math.sqrt(s); return f; }
+    static void recall() throws Exception {
+        // The kinds, from the words: a plan has a time and an event (or is soon), a liking says so; a birthday's date is a fact.
+        same(BuddyRecall.PLAN, BuddyRecall.sort("사용자는 토요일 오후 2시에 친구 결혼식에 간대"), "a wedding on Saturday at two");
+        same(BuddyRecall.LIKE, BuddyRecall.sort("사용자는 커피를 좋아한대"), "a liking");
+        same(BuddyRecall.LIKE, BuddyRecall.sort("사용자는 새 운동화를 사고 싶대"), "a wish is a liking");
+        same(BuddyRecall.FACT, BuddyRecall.sort("사용자의 생일은 3월 5일이래"), "a birthday is a fact, not a plan");
+        same(BuddyRecall.FACT, BuddyRecall.sort("사용자는 차를 지하 2층에 세웠대"), "where the car is");
+        // 준's case: "몇 시에 출발할까" brought up the sneakers (newer, told twice) instead of the wedding.
+        BuddyMemory.Entry sneakers = new BuddyMemory.Entry(T - DAY, "fact", "사용자는 새 운동화를 사고 싶대", 2, false, 2, T - DAY);
+        BuddyMemory.Entry wedding = new BuddyMemory.Entry(T - 5 * DAY, "fact", "사용자는 토요일 오후 2시에 친구 결혼식에 간대", 2, false);
+        BuddyMemory.Entry cat = new BuddyMemory.Entry(T - 2 * DAY, "fact", "사용자는 고양이 두 마리를 키운대", 2, false);
+        List<BuddyMemory.Entry> mine = List.of(sneakers, wedding, cat);
+        same(wedding, BuddyMind.recall(mine, "몇 시에 출발할까", T, null, false, 1).get(0), "a question about when to leave asks for a plan");
+        same(sneakers, BuddyMind.recall(mine, "뭐 사고 싶다고 했지", T, null, false, 1).get(0), "a wish asked for");
+        same(BuddyRecall.wants("몇 시에 출발할까"), java.util.Set.of(BuddyRecall.PLAN), "what it asks for");
+        check(BuddyRecall.wants("심심해").isEmpty(), "small talk asks for no kind");
+        // By meaning: no word in common, the vectors decide; without them the words and the weights do.
+        BuddyMemory.Entry cold = new BuddyMemory.Entry(T - 9 * DAY, "fact", "사용자는 지난주에 감기에 걸렸대", 2, false);
+        BuddyMemory.Entry coffee = new BuddyMemory.Entry(T - DAY, "fact", "사용자는 커피를 좋아한대", 2, false, 3, T - DAY);
+        java.util.Map<String, float[]> vectors = new java.util.HashMap<>();
+        vectors.put(BuddyRecall.key(cold), vec(0.9, 0.1, 0.1)); vectors.put(BuddyRecall.key(coffee), vec(0.1, 0.9, 0.2)); vectors.put(BuddyRecall.key(cat), vec(0.1, 0.2, 0.9));
+        float[] unwell = vec(0.85, 0.15, 0.05);
+        same(coffee, BuddyMind.recall(List.of(cold, coffee, cat), "요즘 몸이 안 좋아", T, null, false, 1).get(0), "words alone: the one told most lately");
+        same(cold, BuddyMind.recall(List.of(cold, coffee, cat), "요즘 몸이 안 좋아", T, null, false, 1, vectors, unwell).get(0), "by meaning: the cold");
+        same(cold, BuddyMind.recall(List.of(cold, coffee, cat, wedding), "요즘 몸이 안 좋아", T, null, false, 1, vectors, unwell).get(0), "one with no vector yet does not get in the way");
+        // A memory said anew has a new key (its old vector no longer counts); private ones never leave the phone.
+        check(!BuddyRecall.key(cold).equals(BuddyRecall.key(BuddyMemory.replace(List.of(cold), cold.at(), "사용자는 감기가 다 나았대", T, false).get(0))), "said anew: a new key");
+        same("", BuddyRecall.outgoing("사용자의 현관 비밀번호는 1234래", false), "a password never goes");
+        same("", BuddyRecall.outgoing("사용자는 이직 고민이 많대", true), "a private memory never goes");
+        String out = BuddyRecall.outgoing("엄마 번호는 010-1234-5678이고 메일은 mom@example.com, 계좌 123-456-789012", false);
+        check(!out.matches(".*\\d{4}.*") && !out.contains("@"), "no phone, e-mail or account number: " + out);
+        // The request and the answer: vectors in the order asked, their first DIMS, unit length.
+        JSONObject req = BuddyRecall.request(List.of("가", "나"), true);
+        same("query", req.getString("input_type"), "a query"); same(BuddyRecall.EMBED_MODEL, req.getString("model"), "NVIDIA's model");
+        JSONArray big = new JSONArray(); for (int i = 0; i < 2048; i++) big.put(i == 0 ? 3.0 : i == 1 ? 4.0 : 0.0);
+        JSONArray other = new JSONArray(); for (int i = 0; i < 2048; i++) other.put(i == 2 ? 1.0 : 0.0);
+        JSONObject answer = new JSONObject().put("data", new JSONArray().put(new JSONObject().put("index", 1).put("embedding", other)).put(new JSONObject().put("index", 0).put("embedding", big)));
+        List<float[]> got = BuddyRecall.vectors(answer, 2);
+        same(BuddyRecall.DIMS, got.get(0).length, "cut to DIMS");
+        check(Math.abs(got.get(0)[0] - 0.6f) < 1e-6 && Math.abs(got.get(0)[1] - 0.8f) < 1e-6 && got.get(1)[2] == 1f, "by index, unit length");
+        check(BuddyRecall.vectors(new JSONObject().put("data", new JSONArray()), 2) == null, "one missing: none");
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+        BuddyRecall.write(new java.io.DataOutputStream(bytes), BuddyRecall.EMBED_MODEL, vectors);
+        java.util.Map<String, float[]> back = BuddyRecall.read(new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes.toByteArray())), BuddyRecall.EMBED_MODEL);
+        check(back.size() == 3 && java.util.Arrays.equals(back.get(BuddyRecall.key(cold)), vectors.get(BuddyRecall.key(cold))), "the vector file read back");
+        check(BuddyRecall.read(new java.io.DataInputStream(new java.io.ByteArrayInputStream(bytes.toByteArray())), "another/model").isEmpty(), "another model's file: made again");
+        // Three told in one millisecond are three (the third was dropped: its neighbour's time was a millisecond ahead).
+        List<BuddyMemory.Entry> quick = List.of();
+        for (int i = 0; i < 3; i++) quick = BuddyMemory.add(quick, T, "fact", "사용자는 기억 " + i + "번을 말했대", 0, 2, false);
+        same(3, quick.size(), "told in one millisecond, all kept");
+        // What a talk teaches is kept as its kind.
+        List<BuddyMemory.Entry> learned = BuddyMind.learned(List.of(), List.of(), BuddyMind.parseOps("새로: 사용자는 토요일 오후 2시에 결혼식에 간대\n새로: 사용자는 매운 떡볶이를 좋아한대\n약속: 퍼레가 내일 날씨를 알려 주기로 했어"), "결혼식 떡볶이", T, false);
+        same(List.of(BuddyRecall.PLAN, BuddyRecall.LIKE, BuddyRecall.PROMISE), learned.stream().map(BuddyMemory.Entry::kind).toList(), "a plan, a liking and a promise kept apart");
+        check(BuddyMemory.told(BuddyRecall.PLAN) && BuddyMemory.told(BuddyRecall.LIKE) && !BuddyMemory.told(BuddyRecall.LESSON), "plans and likings are told; a lesson is not");
+        System.out.println("기억 2.0 recall: kinds, the asked-for kind, meaning by vectors (" + BuddyRecall.EMBED_MODEL + ", " + BuddyRecall.DIMS + " dims)");
+    }
+
+    // ── 기억 2.0: a correction applied at once, and kept as a lesson (core/BuddyCorrect) ──
+    static void corrections() {
+        BuddyMemory.Entry birthday = new BuddyMemory.Entry(T - 20 * DAY, "fact", "사용자의 생일은 5월이래", 2, false);
+        BuddyCorrect.Fix f = BuddyCorrect.fix(List.of(birthday), "내 생일은 3월이야", "", false);
+        check(f != null && birthday.equals(f.target()), "the birthday is the one set right");
+        same("사용자의 생일은 3월이래", f.text(), "the month given anew, the rest kept");
+        check(f.lesson().contains("5월") && f.lesson().contains("3월"), "the lesson says what was wrong: " + f.lesson());
+        List<BuddyMemory.Entry> after = BuddyCorrect.apply(List.of(birthday), f, T);
+        same(2, after.size(), "the memory and its lesson");
+        same("사용자의 생일은 3월이래", after.get(0).text(), "changed at once"); same(birthday.at(), after.get(0).at(), "the same memory (its time kept)");
+        same(BuddyRecall.LESSON, after.get(1).kind(), "kept as a lesson");
+        same(after, BuddyCorrect.apply(after, BuddyCorrect.fix(after, "내 생일은 3월이야", "", false), T + 1), "said again: nothing changes");
+        same(after.get(1), BuddyRecall.lessons(after, "내 생일 언제였지?", null, null, false, 2).get(0), "the lesson comes back for the same subject");
+        check(BuddyRecall.lessons(after, "오늘 뭐 먹지", null, null, false, 2).isEmpty(), "and not for another");
+        check(BuddyCorrect.words(BuddyRecall.lessons(after, "생일", null, null, false, 2)).startsWith("전에 사용자가 고쳐 준 것(같은 실수 하지 마)"), "its words for the brain");
+        // "아니 일요일이야" after 퍼레 said the wedding was on Saturday: the day changed in the memory the last answer was about.
+        BuddyMemory.Entry wedding = new BuddyMemory.Entry(T - 5 * DAY, "plan", "사용자는 토요일 오후 2시에 친구 결혼식에 간대", 2, false);
+        BuddyMemory.Entry coffee = new BuddyMemory.Entry(T - 3 * DAY, "like", "사용자는 커피를 좋아한대", 2, false);
+        BuddyCorrect.Fix day = BuddyCorrect.fix(List.of(coffee, wedding), "아니 일요일이야", "결혼식은 토요일 오후 2시지? 잘 다녀와!", false);
+        check(day != null && wedding.equals(day.target()), "the wedding, by 퍼레's last answer");
+        same("사용자는 일요일 오후 2시에 친구 결혼식에 간대", day.text(), "only the day changed");
+        same("사용자는 일요일 오후 3시에 친구 결혼식에 간대", BuddyCorrect.fix(List.of(wedding), "아니 그거 아니고 일요일 3시야", "결혼식 토요일 2시였지?", false).text(), "the day and the hour");
+        // The opposite, said as a correction.
+        BuddyCorrect.Fix quit = BuddyCorrect.fix(List.of(coffee, wedding), "아니 나 커피 끊었어", "커피 한잔 어때?", false);
+        check(quit != null && coffee.equals(quit.target()), "the coffee");
+        same("사용자는 커피 끊었대", quit.text(), "said anew as a memory");
+        // Not corrections: a choice, a request, a question, a feeling, plain talk.
+        check(BuddyCorrect.fix(List.of(coffee), "아니 커피 말고 차 마실래", "커피 마실래?", false) == null, "a choice");
+        check(BuddyCorrect.fix(List.of(wedding), "아니 결혼식 몇 시였지?", "", false) == null, "a question");
+        check(BuddyCorrect.fix(List.of(coffee), "아니야 괜찮아", "괜찮아? 많이 힘들었지", false) == null, "a feeling");
+        check(BuddyCorrect.fix(List.of(coffee), "커피 마시고 싶다", "", false) == null, "plain talk");
+        check(BuddyCorrect.fix(List.of(coffee), "아니 오늘은 산책할래", "", false) == null, "what they will do now");
+        // Nothing known: 퍼레's last answer had it wrong; the fact kept at once and the lesson with it.
+        BuddyCorrect.Fix fresh = BuddyCorrect.fix(List.of(), "아니 그거 아니고 내 생일은 3월이야", "생일이 5월이었지? 곧이네!", false);
+        check(fresh != null && fresh.target() == null && fresh.added(), "a new memory and a lesson");
+        same("사용자의 생일은 3월이래", fresh.text(), "kept as told");
+        List<BuddyMemory.Entry> kept = BuddyCorrect.apply(List.of(), fresh, T);
+        same(List.of(BuddyRecall.FACT, BuddyRecall.LESSON), kept.stream().map(BuddyMemory.Entry::kind).toList(), "a fact and its lesson");
+        BuddyCorrect.Fix onlyLesson = BuddyCorrect.fix(List.of(), "아니 일요일이야", "결혼식은 토요일이지?", false);
+        check(onlyLesson != null && onlyLesson.text().isEmpty() && onlyLesson.lesson().contains("토요일"), "a day given anew with nothing known: the lesson alone");
+        // A private memory is set right only after the fingerprint.
+        BuddyMemory.Entry worry = new BuddyMemory.Entry(T, "fact", "사용자는 5월에 이직 고민이 많대", 2, true);
+        check(BuddyCorrect.fix(List.of(worry), "내 이직은 3월이야", "", false) == null && BuddyCorrect.fix(List.of(worry), "내 이직은 3월이야", "", true) != null, "private: unlocked only");
+        same("사용자는 커피를 좋아한대", BuddyCorrect.statement("나 커피를 좋아해"), "좋아해 → 좋아한대");
+        check(BuddyCorrect.statement("우리 집 비번은 482913이야") == null, "a code is never kept");
+        System.out.println("기억 2.0 corrections: a month, a day and an hour set right in place, the opposite, a lesson; choices and questions left alone");
+    }
+
+    // ── 기억 2.0: a promise is a 조건 알림 or a 예약, or it is not made (core/BuddyPromises) ──
+    static void promises() {
+        same(BuddyPromises.Kind.TIME, BuddyPromises.find("응! 내일 아침에 알려 줄게!").kind(), "a time");
+        same(BuddyPromises.Kind.EVENT, BuddyPromises.find("도착하면 알려 줄게").kind(), "an event");
+        same(BuddyPromises.Kind.WEATHER, BuddyPromises.find("오늘 흐리네. 비 오면 말해 줄게~").kind(), "the weather");
+        same(BuddyPromises.Kind.TIME, BuddyPromises.find("나중에 알려 줄게!").kind(), "a vague time is still a promise");
+        for (String a : List.of("알려 줄까?", "내가 알려 줄게: 김치찌개는 신 김치가 맛있어.", "오늘 기분 좋아 보여!", "알겠어!\n할일: {\"tool\":\"when_event\",\"when\":\"집에 도착하면\",\"then\":\"tell\"}"))
+            check(BuddyPromises.find(a) == null, "no time-bound promise: " + a);
+        check(BuddyPromises.backs(new JSONObject().put("tool", "when_event").put("when", "집에 도착하면")), "a 조건 알림 keeps it");
+        check(!BuddyPromises.backs(new JSONObject().put("tool", "when_event").put("command", "list")), "listing them keeps nothing");
+        check(BuddyPromises.backs(new JSONObject().put("tool", "schedule_job")) && BuddyPromises.backs(new JSONObject().put("tool", "alarm")), "a 예약, an alarm");
+        check(!BuddyPromises.backs(new JSONObject().put("tool", "open_app")), "opening an app keeps no promise");
+        check(BuddyPromises.asked("내일 아침 8시에 우산 챙기라고 알려 줘") && BuddyPromises.asked("집에 도착하면 빨래 걷으라고 말해 줘") && BuddyPromises.asked("비 오면 알려 줘"), "asked to be told later");
+        check(!BuddyPromises.asked("오늘 날씨 알려 줘") && !BuddyPromises.asked("김치찌개 끓이는 법 알려 줘"), "asked to be told now");
+        // Made from the user's words: a 예약 at the day and the hour (Friday 15:05 now), a 조건 알림, none for the weather.
+        JSONObject morning = BuddyPromises.backing("내일 아침 8시에 우산 챙기라고 알려 줘", BuddyPromises.find("내일 아침에 알려 줄게!"), NOW);
+        same("schedule_job", morning.getString("tool"), "a 예약"); same("2026-11-28", morning.getString("date"), "tomorrow"); same("08:00", morning.getString("time"), "at eight");
+        same("once", morning.getString("repeat"), "once"); check(morning.getString("request").contains("우산 챙기라고"), "the reminder in the user's words");
+        same("20:00", BuddyPromises.backing("8시에 알려 줘", BuddyPromises.find("8시에 알려 줄게"), NOW).getString("time"), "8시 said at three in the afternoon: eight tonight");
+        same("15:35", BuddyPromises.backing("30분 뒤에 알려 줘", BuddyPromises.find("30분 뒤에 알려 줄게"), NOW).getString("time"), "half an hour from now");
+        same("08:00", BuddyPromises.backing("내일 아침에 깨워 줘", BuddyPromises.find("내일 아침에 깨워 줄게"), NOW).getString("time"), "the morning: eight");
+        JSONObject home = BuddyPromises.backing("집에 도착하면 빨래 걷으라고 알려 줘", BuddyPromises.find("도착하면 알려 줄게"), NOW);
+        same("when_event", home.getString("tool"), "a 조건 알림"); same("집에 도착하면", home.getString("when"), "its condition"); same("tell", home.getString("then"), "told");
+        check(BuddyPromises.backing("비 오면 알려 줘", BuddyPromises.find("비 오면 말해 줄게"), NOW) == null, "no 조건 알림 watches the weather");
+        check(BuddyPromises.backing("나중에 알려 줘", BuddyPromises.find("나중에 알려 줄게"), NOW) == null, "too vague to set");
+        // Not kept: the promise taken out, the rest said; asked for, what can be done instead.
+        BuddyPromises.Promise rain = BuddyPromises.find("응응! 비 오면 말해 줄게~ 오늘은 따뜻하게 입어.");
+        String rest = BuddyPromises.without("응응! 비 오면 말해 줄게~ 오늘은 따뜻하게 입어.", rain);
+        check(!rest.contains("말해 줄게") && rest.contains("따뜻하게 입어"), "the promise out, the rest kept: " + rest);
+        check(BuddyPromises.honest(rain, true).contains("약속은 못 해") && BuddyPromises.honest(rain, false).isEmpty(), "honest when asked, quiet when not");
+        System.out.println("기억 2.0 promises: a time → 예약, an event → 조건 알림, the weather and vague times not promised");
+    }
+
+    // ── 기억 2.0: every talk kept, and searched (core/TalkLog) ──
+    static void talks() {
+        List<String[]> turns = List.of(new String[]{"user", "토요일 2시에 친구 결혼식 가"}, new String[]{"assistant", "우와 좋겠다!"}, new String[]{"user", "누구세요?", "g"}, new String[]{"user", "  "});
+        List<TalkLog.Turn> first = TalkLog.added(turns, 0, "c1", T - 3 * DAY);
+        same(2, first.size(), "a guest's turn and an empty one are not kept");
+        check(first.get(0).user() && !first.get(1).user() && first.get(1).at() > first.get(0).at(), "in order, each its own moment");
+        List<TalkLog.Turn> all = TalkLog.kept(List.of(), first, T);
+        all = TalkLog.kept(all, TalkLog.added(List.of(new String[]{"user", "새 운동화 사고 싶어"}, new String[]{"assistant", "어떤 거?"}), 0, "c2", T - DAY), T);
+        all = TalkLog.kept(all, TalkLog.added(List.<String[]>of(new String[]{"user", "오늘 점심은 김치찌개 먹었어"}), 0, TalkLog.VOICE, T - 60_000), T);
+        same(all, TalkLog.read(TalkLog.save(all)), "kept and read back");
+        check(TalkLog.asks("지난번에 내가 뭐라고 했지?") && TalkLog.asks("어제 결혼식 얘기했던 거 뭐였지") && TalkLog.asks("아까 말한 거 다시 알려 줘"), "asks what was said");
+        check(!TalkLog.asks("뭐 먹지") && !TalkLog.asks("결혼식 몇 시야?"), "not a question about the talks");
+        ZoneId zone = NOW.getZone();
+        List<TalkLog.Turn> wed = TalkLog.find(all, "지난번에 결혼식 얘기 내가 뭐라고 했지?", null, null, null, null, zone, T, 3);
+        same(1, wed.size(), "the wedding, by its word"); same("토요일 2시에 친구 결혼식 가", wed.get(0).text(), "the user's own words");
+        check(TalkLog.answer(wed, NOW).contains("‘토요일 2시에 친구 결혼식 가’라고 했어"), "said back with when: " + TalkLog.answer(wed, NOW));
+        // By meaning: no word in common.
+        java.util.Map<String, float[]> vectors = new java.util.HashMap<>();
+        for (TalkLog.Turn t : all) if (t.user()) vectors.put(t.key(), t.text().contains("운동화") ? vec(0.9, 0.1) : vec(0.1, 0.9));
+        List<TalkLog.Turn> shoes = TalkLog.find(all, "신발 얘기 내가 뭐라고 했지?", vectors, vec(0.95, 0.05), null, null, zone, T, 1);
+        same("새 운동화 사고 싶어", shoes.isEmpty() ? null : shoes.get(0).text(), "the sneakers by meaning");
+        check(TalkLog.find(all, "신발 얘기 내가 뭐라고 했지?", null, null, null, null, zone, T, 1).isEmpty(), "words alone: nothing, said as such");
+        // Nothing to look for: the talk before this one.
+        List<TalkLog.Turn> last = TalkLog.find(all, "지난번에 내가 뭐라고 했지?", null, null, null, null, zone, T, 3);
+        same(List.of("새 운동화 사고 싶어"), last.stream().map(TalkLog.Turn::text).toList(), "the talk before the voice talk now");
+        // On the days said.
+        check(TalkLog.find(all, "결혼식 얘기 뭐라고 했지", null, null, NOW.toLocalDate(), NOW.toLocalDate(), zone, T, 3).isEmpty(), "not today");
+        // A talk deleted on the page goes; "*" takes every typed one, the voice talk stays.
+        same(3, TalkLog.without(all, "c1").size(), "c1's two turns gone");
+        same(List.of(TalkLog.VOICE), TalkLog.without(all, "*").stream().map(TalkLog.Turn::conv).toList(), "the voice talk stays");
+        check(TalkLog.notFound(List.of("결혼식"), 12, "").contains("우리 대화 12개를 찾아봤는데 ‘결혼식’ 얘기는 없었어"), "what was looked through");
+        System.out.println("기억 2.0 talks: kept by talk, found by words, by meaning and as the talk before");
+    }
+
+    // ── 두뇌 2.0: an important answer checked once more (core/AnswerCheck) ──
+    static void checking() {
+        same(AnswerCheck.Kind.DATE, AnswerCheck.important("크리스마스까지 며칠 남았어?", "27일 남았어!"), "a date worked out");
+        same(AnswerCheck.Kind.HEALTH, AnswerCheck.important("타이레놀이랑 감기약 같이 먹어도 돼?", "응, 괜찮아!"), "health");
+        same(AnswerCheck.Kind.SCHEDULE, AnswerCheck.important("결혼식 가려면 몇 시에 출발해야 돼?", "1시에 출발하면 돼!"), "a schedule");
+        same(AnswerCheck.Kind.ACT, AnswerCheck.important("전자레인지에 알루미늄 호일 넣어도 돼?", "조금은 괜찮아, 짧게만 돌려!"), "a thing they will do");
+        for (String[] qa : new String[][]{{"안녕", "안녕! 반가워"}, {"오늘 기분 좋아", "나도 좋아!"}, {"비트코인 지금 얼마야?", "1억이야"}, {"크리스마스까지 며칠 남았어?", "곧이야!"}})
+            check(AnswerCheck.important(qa[0], qa[1]) == null, "not checked: " + qa[0] + " / " + qa[1]);
+        same(AnswerCheck.Verdict.OK, AnswerCheck.verdict("맞음"), "OK"); same(AnswerCheck.Verdict.OK, AnswerCheck.verdict("판정: 맞음 - 계산이 맞아"), "OK with words");
+        AnswerCheck.Verdict doubt = AnswerCheck.verdict("의심: 오늘이 11월 27일이면 크리스마스까지 28일 남았어\n더 쓸 말");
+        check(doubt.doubt() && doubt.why().equals("오늘이 11월 27일이면 크리스마스까지 28일 남았어"), "a doubt, one line: " + doubt);
+        check(!AnswerCheck.verdict("모름").doubt() && !AnswerCheck.verdict("의심: 비트코인 가격이 다를 수 있어").doubt() && !AnswerCheck.verdict("이 답은 좋아 보여요. 다만 …").doubt(), "nothing it could say, money, or not its form");
+        String shown = AnswerCheck.merged("27일 남았어!", doubt, AnswerCheck.Kind.DATE);
+        check(shown.startsWith("27일 남았어!") && shown.contains("확실하지 않은 데가 있어: 오늘이 11월 27일이면 크리스마스까지 28일 남았어"), "the answer with what is uncertain: " + shown);
+        check(AnswerCheck.merged("괜찮아", new AnswerCheck.Verdict(true, "함께 먹으면 성분이 겹칠 수 있어"), AnswerCheck.Kind.HEALTH).contains("약사나 의사"), "health: ask a pharmacist");
+        same("27일 남았어!", AnswerCheck.merged("27일 남았어!", AnswerCheck.Verdict.OK, AnswerCheck.Kind.DATE), "agreed: as it was");
+        check(AnswerCheck.input("2026년 11월 27일 금요일 오후 3:05", "크리스마스까지 며칠?", "27일", "").contains("지금: 2026년 11월 27일"), "the checker knows the time");
+        System.out.println("두뇌 2.0 check: dates, health, schedules and things to do checked by another model; small talk and money never");
     }
 
     // ── what it costs ──

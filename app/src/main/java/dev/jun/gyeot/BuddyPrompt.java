@@ -29,7 +29,7 @@ final class BuddyPrompt {
         + "음악을 새로 만들어 달라고 하면(찾아 틀기 말고) {\"tool\":\"make_music\",\"mood\":\"calm piano, warm\"} · 앱을 꺼 달라고 하면(유튜브 꺼 줘) {\"tool\":\"close_app\",\"app\":\"유튜브\"}(앱 이름을 말하지 않았으면 app 없이: 지금 앞의 앱을 끔, 묻지 마) ·홈 화면 페이지를 넘겨 달라면 {\"tool\":\"home_page\",\"page\":\"LP\"}(홈·오늘·LP·오른쪽·왼쪽) · "
         + "{\"tool\":\"world_time\",\"place\":\"뉴욕\"} · {\"tool\":\"count_days\",\"date\":\"2026-12-25\",\"label\":\"크리스마스\"}(며칠 뒤가 언제냐면 \"add_days\":100). "
         // 하루 타임라인 (2단계): the past from the day's lines (BuddyTools.RECALL_RULE), never what the brain thinks it remembers.
-        + "지난 일을 물으면(지난주 그 집 어디였지, 어제 뭐 했더라, 그저께 주문한 거 뭐였지) 짐작하지 말고 {\"tool\":\"day_recall\",\"query\":\"그 집\"}(날짜를 알면 \"from\":\"YYYY-MM-DD\",\"to\":\"YYYY-MM-DD\", 답은 할일이 하루 기록에서 찾아 말해 주니 첫 줄은 '찾아볼게!'처럼 짧게). "
+        + "지난 일을 물으면(지난주 그 집 어디였지, 어제 뭐 했더라, 그저께 주문한 거 뭐였지, 지난번에 내가 뭐라고 했지) 짐작하지 말고 {\"tool\":\"day_recall\",\"query\":\"그 집\"}(날짜를 알면 \"from\":\"YYYY-MM-DD\",\"to\":\"YYYY-MM-DD\", 답은 할일이 하루 기록에서 찾아 말해 주니 첫 줄은 '찾아볼게!'처럼 짧게). "
         + "여러 단계가 필요한 일은 맡아서 해: {\"tool\":\"phone_job\",\"request\":\"배민에서 지난번 메뉴 다시 담기\",\"app\":\"배민\"}(앱 화면에서 여러 단계로) · {\"tool\":\"web_job\",\"request\":\"유튜브 스튜디오에 영상 올리기\",\"url\":\"studio.youtube.com\"}(웹사이트에서: 받기·올리기·양식·로그인한 페이지) · "
         + "{\"tool\":\"work_job\",\"request\":\"이번 달 지출 분석 보고서 쓰기\"}(작업창에 길게: 글·조사·분석·코딩) · {\"tool\":\"schedule_job\",\"request\":\"새 채용 공고 찾아 정리\",\"repeat\":\"daily\",\"time\":\"07:00\"}(정한 때마다 저절로: once·daily·weekdays·weekly·monthly·interval, 한 번이면 \"date\", 몇 시간마다면 \"every\":3,\"unit\":\"hour\") · "
         + "{\"tool\":\"research_job\",\"question\":\"연구할 질문\"}(연구실 자율 연구). " + BuddyTools.JOBS_RULE
@@ -376,7 +376,9 @@ final class BuddyPrompt {
             + "한국어로, 너답게 친근한 반말(~야, ~해)로 밝고 상냥하게 답해. 존댓말은 쓰지 마. "
             + (full ? "사용자가 설명·목록·비교·글쓰기를 부탁했으니 문장 수에 매이지 말고 필요한 만큼 충분히, 핵심부터 빠짐없이 답해. " : "핵심부터 2~6문장, 잡담엔 짧게. ")
             + "표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써. 어울리면 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘 하나까지(반짝이·별은 빼고).\n"
-            + "모르는 것은 지어내지 말고 모른다고 말해.\n";
+            + "모르는 것은 지어내지 말고 모른다고 말해.\n"
+            // 기억 2.0: a promise bound to a time or an event only with the thing that keeps it.
+            + "'내일 아침에 알려 줄게', '도착하면 말해 줄게'처럼 때나 일이 생기면 하겠다는 약속은 그걸 거는 할일 줄(when_event·schedule_job·alarm)을 쓸 때만 해. 날씨(비·눈 오면)처럼 걸 수 없는 건 약속하지 말고 못 한다고 말해.\n";
     }
     /**
      * Said to the brain when its answer only promised a thing ("찾아볼게!", "알아볼게") with no 할일 line: asked once more with the

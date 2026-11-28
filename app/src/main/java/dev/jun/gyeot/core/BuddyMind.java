@@ -389,28 +389,22 @@ public final class BuddyMind {
      * The memories to bring to mind now, at most n: by how much they matter and how often the user told them (seen, up to
      * five times), how recently they were told (last; two weeks to fade by half), and how much they share with what is going
      * on (context: the hour, the weather, apps, what was said); a memory brought up in the last day waits (shown: memory time
-     * → when last brought up); private ones only when unlocked.
+     * → when last brought up); private ones only when unlocked. What the context asks for counts too ("몇 시에 출발할까" asks
+     * for a plan: before 기억 2.0 it brought up the newer sneakers instead of the wedding): BuddyRecall.find.
      */
     public static List<BuddyMemory.Entry> recall(List<BuddyMemory.Entry> all, String context, long now, Map<Long, Long> shown, boolean unlocked, int n) {
-        String ctx = context == null ? "" : context;
-        List<BuddyMemory.Entry> pool = new ArrayList<>();
-        Map<BuddyMemory.Entry, Double> score = new HashMap<>();
-        for (BuddyMemory.Entry e : all) {
-            if (e.secret() && !unlocked) continue;
-            if ("profile".equals(e.kind()) || "promise".equals(e.kind())) continue; // given apart
-            Long last = shown == null ? null : shown.get(e.at());
-            if (last != null && now - last < 24 * 3_600_000L) continue;
-            double age = Math.max(0, now - e.last()) / (14 * 86_400_000.0);
-            double s = e.weight() + 0.3 * Math.min(e.seen(), 5) + Math.pow(0.5, age) * 1.5 + similarity(e.text(), ctx) * 4;
-            score.put(e, s); pool.add(e);
-        }
-        pool.sort((a, b) -> Double.compare(score.get(b), score.get(a)));
-        return new ArrayList<>(pool.subList(0, Math.min(n, pool.size())));
+        return recall(all, context, now, shown, unlocked, n, null, null);
+    }
+    /** The same by meaning too (기억 2.0): vectors (BuddyRecall.key → unit vector) and the context's own of the same model; null for words alone. */
+    public static List<BuddyMemory.Entry> recall(List<BuddyMemory.Entry> all, String context, long now, Map<Long, Long> shown, boolean unlocked, int n, Map<String, float[]> vectors, float[] query) {
+        List<BuddyMemory.Entry> out = new ArrayList<>();
+        for (BuddyRecall.Hit h : BuddyRecall.find(all, context, vectors, query, now, shown, unlocked, n)) out.add(h.entry());
+        return out;
     }
 
     // ── learning from a whole talk (준: "퍼레의 학습기능 … 강화해줘"): what it knew told again, set right or let go, or new ──
     /** The kinds of memory a talk can teach or correct: what the user told, the night's notes about them, promises. */
-    private static final Set<String> KNOWN = Set.of("fact", "profile", "promise");
+    private static final Set<String> KNOWN = BuddyRecall.TOLD;
     /** Words that say nothing of what a memory is about: the user and 퍼레, when, how often, and the common "does" endings. */
     private static final Set<String> PLAIN = Set.of("사용자", "퍼레", "오늘", "내일", "어제", "요즘", "이번", "다음", "주말", "아침", "저녁", "자주", "가끔",
         "많이", "이제", "예전", "그냥", "처음", "항상", "아직", "사실", "완전", "제일", "가장", "간대", "한대", "했대", "갔대", "왔대", "온대", "산대", "된대",
@@ -533,7 +527,8 @@ public final class BuddyMind {
             }
             if (opposite != null) out = BuddyMemory.replace(out, opposite.at(), t, now, secret || opposite.secret());
             else if (same != null) out = BuddyMemory.confirm(out, same.at(), now);
-            else out = BuddyMemory.add(out, now + added++, op.kind(), t, 0, 2, secret);
+            // Kept as its kind (기억 2.0): a liking, a plan or a fact told apart by its words; a promise stays one.
+            else out = BuddyMemory.add(out, now + added++, "promise".equals(op.kind()) ? "promise" : BuddyRecall.sort(t), t, 0, 2, secret);
         }
         return out;
     }

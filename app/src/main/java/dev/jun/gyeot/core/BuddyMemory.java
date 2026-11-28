@@ -37,7 +37,7 @@ public final class BuddyMemory {
         public Entry finished() { return new Entry(at, kind, text, weight, secret, seen, last, true); }
     }
     /** The kinds the user tells (what they said, the night's notes about them, promises): their seen counts how often they told it. */
-    public static boolean told(String kind) { return "fact".equals(kind) || "profile".equals(kind) || "promise".equals(kind); }
+    public static boolean told(String kind) { return "fact".equals(kind) || "like".equals(kind) || "plan".equals(kind) || "profile".equals(kind) || "promise".equals(kind); }
 
     public static List<Entry> read(String saved) {
         List<Entry> out = new ArrayList<>();
@@ -63,7 +63,8 @@ public final class BuddyMemory {
         if (text == null || text.isBlank()) return list;
         for (int i = list.size() - 1; i >= 0; i--) {
             Entry e = list.get(i);
-            if (e.kind().equals(kind) && now - e.at() < quiet) return list;
+            // No quiet time (0): never held back (three told in one millisecond dropped the third: its neighbour's time was ahead).
+            if (quiet > 0 && e.kind().equals(kind) && now - e.at() < quiet) return list;
         }
         List<Entry> out = new ArrayList<>(list);
         out.add(new Entry(free(out, now), kind == null ? "" : kind, text.strip(), Math.max(1, Math.min(3, weight)), secret));

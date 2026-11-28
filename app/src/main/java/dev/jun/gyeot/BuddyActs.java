@@ -205,7 +205,12 @@ final class BuddyActs {
                 case "world_time" -> { return worldTime(act); }
                 case "count_days" -> { return countDays(act); }
                 // 하루 타임라인: the past from the day's own lines (DayLogs.recall), with their time and app; off: how to turn it on.
-                case "day_recall" -> { DayLogs.Recall r = DayLogs.recall(context, act, heard); return r.off() ? fail(r.say(), "daylog") : said(r.say()); }
+                case "day_recall" -> {
+                    // 기억 2.0: what was said in a talk ("지난번에 내가 뭐라고 했지?") from every talk kept, whatever 하루 기록 is set to.
+                    String talk = BuddyTalks.recall(context, act, heard);
+                    if (talk != null) return said(talk);
+                    DayLogs.Recall r = DayLogs.recall(context, act, heard); return r.off() ? fail(r.say(), "daylog") : said(r.say());
+                }
                 case "remember" -> { return remember(context, act); }
                 case "forget" -> { return forget(context, act); }
                 case "call_me" -> {
@@ -659,11 +664,12 @@ final class BuddyActs {
             BuddyTalk.confirm(context, e.at());
             return said("그건 벌써 기억하고 있어!");
         }
-        for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) if (!e.secret() || BuddyTalk.unlocked()) if (("fact".equals(e.kind()) || "profile".equals(e.kind())) && dev.jun.gyeot.core.BuddyMind.negates(e.text(), text)) {
+        for (dev.jun.gyeot.core.BuddyMemory.Entry e : all) if (!e.secret() || BuddyTalk.unlocked()) if (java.util.Set.of("fact", "like", "plan", "profile").contains(e.kind()) && dev.jun.gyeot.core.BuddyMind.negates(e.text(), text)) {
             BuddyTalk.replace(context, e.at(), text, secret || e.secret(), 3);
             return said("");
         }
-        BuddyTalk.rememberStrong(context, "fact", text, secret, 3);
+        // Kept as its kind (기억 2.0): a plan with its time, a liking, or a fact.
+        BuddyTalk.rememberStrong(context, dev.jun.gyeot.core.BuddyRecall.sort(text), text, secret, 3);
         return said("");
     }
     /** What the last "잊어 줘" let go, kept two minutes for "되돌려 줘" (in memory only, never on disk). */

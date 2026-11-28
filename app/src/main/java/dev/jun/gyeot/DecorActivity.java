@@ -420,10 +420,12 @@ public final class DecorActivity extends Activity {
         long now = System.currentTimeMillis(); java.time.ZoneId zone = java.time.ZoneId.systemDefault();
         String today = BuddyTalk.todayWords(this);
         if (!today.isEmpty()) { sheet.body.addView(ui.sectionHeader("오늘")); LinearLayout g = ui.group(); ui.addRow(g, ui.listRow(R.drawable.ic_history, Ui.TEAL, today.replaceFirst("^오늘 하루: ", "").strip(), "하루의 흐름 · 앱은 종류만 적어요", null, null), true); sheet.body.addView(g); }
-        String[][] parts = {{"발견 노트 · 나에 대해", "profile"}, {"우리 약속", "promise"}, {"추억", "*"}};
+        // 기억 2.0: what the user told kept apart as its kind (a fact told before kinds were read as its words say: BuddyRecall.kind).
+        String[][] parts = {{"발견 노트 · 나에 대해", "profile"}, {"일정", "plan"}, {"좋아하는 것", "like"}, {"우리 약속", "promise"}, {"고쳐 준 것", "lesson"}, {"추억", "*"}};
+        java.util.Set<String> apart = java.util.Set.of("profile", "plan", "like", "promise", "lesson");
         for (String[] part : parts) {
             List<dev.jun.gyeot.core.BuddyMemory.Entry> shown = new ArrayList<>();
-            for (int i = list.size() - 1; i >= 0 && shown.size() < 60; i--) { dev.jun.gyeot.core.BuddyMemory.Entry e = list.get(i); boolean mine = "*".equals(part[1]) ? !"profile".equals(e.kind()) && !"promise".equals(e.kind()) : part[1].equals(e.kind()); if (mine) shown.add(e); }
+            for (int i = list.size() - 1; i >= 0 && shown.size() < 60; i--) { dev.jun.gyeot.core.BuddyMemory.Entry e = list.get(i); String kind = dev.jun.gyeot.core.BuddyRecall.kind(e); boolean mine = "*".equals(part[1]) ? !apart.contains(kind) : part[1].equals(kind); if (mine) shown.add(e); }
             if (shown.isEmpty()) continue;
             sheet.body.addView(ui.sectionHeader(part[0]));
             LinearLayout group = ui.group();

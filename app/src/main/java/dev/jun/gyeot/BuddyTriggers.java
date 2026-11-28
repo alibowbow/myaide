@@ -27,7 +27,8 @@ final class BuddyTriggers {
     }
     private static final Pattern LIST = Pattern.compile("(?:조건\\s?알림|걸어\\s?둔|걸어둔|트리거|조건).*(?:뭐|무슨|몇|있어|있나|목록|알려|보여|말해)|(?:뭐|무슨)\\s*(?:조건\\s?알림|걸어\\s?둔)");
     /** "…거 꺼 줘", "…알림 지워 줘", "…거 다시 켜 줘": words about one already made (not a new "차 타면 블루투스 꺼 줘"). */
-    private static final Pattern TARGETED = Pattern.compile("(?:거|것|알림|조건|트리거)\\s*(?:좀\\s*|도\\s*)?(?:다시\\s*)?(꺼|끄|지워|지우|없애|삭제|취소|그만|멈춰|중지|켜|걸어)");
+    private static final Pattern WEATHER = Pattern.compile("(?:비|눈|소나기|미세\\s*먼지|황사|태풍|장마|날씨)\\s*(?:가|이)?\\s*(?:오면|오거든|내리면|나쁘면|좋으면|그치면|많으면|심하면)");
+    private static final Pattern TARGETED =Pattern.compile("(?:거|것|알림|조건|트리거)\\s*(?:좀\\s*|도\\s*)?(?:다시\\s*)?(꺼|끄|지워|지우|없애|삭제|취소|그만|멈춰|중지|켜|걸어)");
 
     static Said run(Context c, JSONObject act, String heard) {
         String said = heard == null ? "" : heard.strip(), command = act.optString("command").strip().toLowerCase(java.util.Locale.ROOT);
@@ -72,6 +73,9 @@ final class BuddyTriggers {
         Triggers.Draft d = Triggers.read(act.optString("when"), act.optString("then"), act.optString("what"), act.optString("who"), act.optString("text"),
             act.has("every") ? act.optBoolean("every") : null, heard);
         if (!d.why().isEmpty()) return Said.no(d.why(), "");
+        // The weather is no condition the phone hears (기억 2.0: never a promise kept by nothing): said plainly, with what can be done.
+        if (d.when() == null && WEATHER.matcher(heard + " " + act.optString("when")).find())
+            return Said.no("비·눈 같은 날씨는 아직 조건 알림으로 지켜볼 수 없어. 대신 ‘매일 아침 7시에 날씨 알려 줘’처럼 예약은 걸 수 있어.", "");
         if (d.when() == null) {
             // A time and no event (매일 아침 7시에 …): 예약 작업, the way schedule_job makes one.
             if (Triggers.timed(heard) || Triggers.timed(act.optString("when"))) {
