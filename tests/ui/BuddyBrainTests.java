@@ -123,6 +123,8 @@ public class BuddyBrainTests {
         assertEquals("work_job", BuddyTools.fromWords("할 일 관리 앱 코드 짜 줘").optString("tool"));
         assertEquals("web_job", BuddyTools.fromWords("학교 홈페이지에서 이번 주 가정통신문 PDF 받아 줘").optString("tool"));
         assertEquals("day_recall", BuddyTools.fromWords("어제 유튜브 얼마나 봤지").optString("tool"));
+        assertEquals("퇴근하면", BuddyTools.fromWords("퇴근하면 집까지 길 안내해 줘").optString("when"));
+        assertEquals("navigate", BuddyTools.fromWords("퇴근하면 집까지 길 안내해 줘").optString("then"));
         assertNull("nothing plain: nothing made up", BuddyTools.fromWords("심심해"));
         assertNull(BuddyTools.fromWords("어떻게 하면 잘 자?"));
         assertTrue(dev.jun.gyeot.core.BuddyChat.asksBack("집에 도착하면 엄마한테 문자 보내 줘", "알림을 걸어둘게! 무슨 내용으로 보낼까?"));

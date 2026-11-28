@@ -395,7 +395,7 @@ final class BuddyTools {
         if (!m.find()) return null;
         return words.substring(0, m.end()).strip();
     }
-    private static final java.util.regex.Pattern WHEN = java.util.regex.Pattern.compile("(나가|나오|도착하|타|내리|끝나|들어가|들어오|출발하|떠나|연결되|끊기|켜지|꺼지|울리|떨어지|넘으|오르|충전되|다 되|오)면(?=\\s|$)");
+    private static final java.util.regex.Pattern WHEN = java.util.regex.Pattern.compile("(나가|나오|도착하|타|내리|끝나|들어가|들어오|출발하|떠나|퇴근하|출근하|일어나|연결되|끊기|켜지|꺼지|울리|떨어지|넘으|오르|충전되|다 되|오)면(?=\\s|$)");
 
     private static String outfitSay(JSONObject a) {
         JSONArray items = a.optJSONArray("items"); String first = items != null && items.length() > 0 ? items.optString(0).strip() : a.optString("item").strip();

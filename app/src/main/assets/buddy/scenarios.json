@@ -124,7 +124,11 @@
     {"said": "심심해", "expect": {"none": true}},
     {"said": "하늘은 왜 파래", "expect": {"none": true}},
     {"said": "음악 소리 들려", "expect": {"none": true}, "why": "물음표가 빠진 질문"},
-    {"said": "그만 먹고 싶어", "expect": {"none": true}, "why": "그만이 들어 있어도 이야기"}
+    {"said": "그만 먹고 싶어", "expect": {"none": true}, "why": "그만이 들어 있어도 이야기"},
+    {"said": "퇴근하면 집까지 길 안내해 줘", "expect": {"tool": "when_event", "args": {"when": "퇴근"}}, "why": "새벽 점검 2026-11-29: 조건 말(…하면)을 바로 안내하던 실수, 퇴근·출근도 조건"},
+    {"said": "배민에서 지난번 시킨 거 다시 담아 줘", "expect": {"tool": "phone_job"}, "why": "새벽 점검 2026-11-29: 앱 안에서 할 일을 앱 열기로만 끝내던 실수"},
+    {"said": "버스로 서울역 가는 길 알려 줘", "expect": {"tool": "navigate", "args": {"mode": "public"}}, "why": "새벽 점검 2026-11-29: 말한 이동 수단이 빠지던 실수"},
+    {"said": "회의록 정리하는 문서 만들어 줘", "expect": {"tool": "work_job"}, "why": "새벽 점검 2026-11-29: 만들어 달라는 일에 되묻기만 하던 실수"}
   ],
   "chat_about": "퍼레와 대화가 질문과 대답을 읽는 법 (tools/BrainRegression만 씀, 앱의 자동 점검은 scenarios만): web(지금 세상 일은 웹 검색 모델이 1~3문장으로, 검색을 열어 달라는 말은 검색 도구) · long(설명·목록·비교·글쓰기는 문장 수 제한 없이) · promise(할일 줄 없이 '찾아볼게'만 한 대답은 한 번 더 물음).",
   "chat": [
