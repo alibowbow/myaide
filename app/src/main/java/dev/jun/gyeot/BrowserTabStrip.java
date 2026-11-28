@@ -75,7 +75,7 @@ final class BrowserTabStrip extends LinearLayout {
 
     void render(List<Item> items, boolean canAdd) {
         add.setEnabled(canAdd); add.setAlpha(canAdd ? 1f : .35f);
-        add.setContentDescription(canAdd ? "새 탭 열기" : "새 탭 열기 · 최대 6개");
+        add.setContentDescription("새 탭 열기");
         List<String> state = new ArrayList<>(), ids = new ArrayList<>();
         String nextSelected = "";
         for (Item item : items) {

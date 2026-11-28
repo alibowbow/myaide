@@ -545,8 +545,6 @@ final class BrowserEngine {
             tabs.clear();
             for (int i = 0; i < urls.size(); i++) {
                 if (i == savedSelected) continue;
-                // The tab cap is not permission to discard a saved task during a slow restore.
-                if (tabs.size() + liveTabs.size() >= 6) { tabsWritable = false; continue; }
                 Tab tab = addTab(urls.get(i), false); tab.zoomPercent = zooms.get(i); tab.desktop = desktops.get(i); restoreIdentity(tab, ids.get(i), conversations.get(i)); restoreTask(tab, tasks.get(i), urls.get(i)); tab.title = BrowserTools.origin(tab.url); tab.needsLoad = true;
             }
             tabs.addAll(liveTabs); current = selected;
@@ -855,7 +853,7 @@ final class BrowserEngine {
     private Tab addTab(String url, boolean open, boolean secret) {
         if (disposed) throw new IllegalStateException("작업 브라우저가 종료됐어요.");
         if (workEngine && tabs.size() >= 2) throw new IllegalStateException("작업별 탭은 2개까지 열 수 있어요. 별도 병렬 작업을 사용해 주세요.");
-        if (tabs.size() >= 6) throw new IllegalStateException("탭은 6개까지 열 수 있어요. 사용하지 않는 탭을 닫아 주세요.");
+        // No cap on tabs (준: "탭갯수 제한 없애", "쓸데 없는 제한이 너무 많아"): a tab out of sight is paused and lets its display go.
         Tab tab = new Tab(secret); tab.url = BrowserTools.url(url); tabs.add(tab); current = tab; viewEpoch++;
         tab.session.setPromptDelegate(gatedPrompts);
         tab.session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {

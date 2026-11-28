@@ -415,7 +415,7 @@ public final class BrowserActivity extends Activity {
                 () -> { if (engine.tabs.contains(tab)) { hideKeyboard(); engine.select(tab); } },
                 () -> { if (engine.tabs.contains(tab)) { hideKeyboard(); engine.close(tab); } }));
         }
-        tabStrip.render(items, engine.tabs.size() < 6);
+        tabStrip.render(items, true);
     }
     private LinearLayout.LayoutParams chipParams() { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, ui.dp(44)); p.rightMargin = ui.dp(8); return p; }
     /** The site shown at rest in the address capsule: the host without "www.", or the address itself when it has none. */
@@ -601,9 +601,8 @@ public final class BrowserActivity extends Activity {
         finish(); overridePendingTransition(R.anim.page_in_right, R.anim.page_out_left);
     }
     /**
-     * The page open() asked for, once its tabs have been restored: a new tab, once per request, checked again. With six tabs
-     * open (the browser pins none, and each may hold a page and a conversation the user is in) the page opens outside the
-     * app instead, so the tap still lands.
+     * The page open() asked for, once its tabs have been restored: a new tab, once per request, checked again; as many tabs as
+     * the user likes (no cap), so it stays in the AI 브라우저.
      */
     private void consumeOpen() {
         android.content.Intent intent = getIntent();
@@ -622,6 +621,8 @@ public final class BrowserActivity extends Activity {
         }
         try { saveDraft(); if (dictation != null) dictation.cancel(); engine.newTab(page, true); }
         catch (Exception refused) {
+            // Never another app from the home screen (준: "Ai브라우저의 한 탭으로 열려야지": claude.ai had opened in the Claude app).
+            if (homeSide) { toast(refused.getMessage()); return; }
             try { startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(page)).addCategory(android.content.Intent.CATEGORY_BROWSABLE)); }
             catch (Exception none) { toast(refused.getMessage()); }
         }
@@ -1166,7 +1167,7 @@ public final class BrowserActivity extends Activity {
         ui.addRow(moves, menuRow(R.drawable.ic_home, MUTED, "앱으로 돌아가기", true, this::leaveBrowser, sheet), true);
         ui.addRow(moves, menuRow(R.drawable.ic_layers, MUTED, "열린 탭 " + engine.tabs.size() + "개", true, this::tabs, sheet), true);
         // 시크릿 탭: its own cookies and logins, nothing kept once it closes (no restore, no 대화 기록).
-        ui.addRow(moves, menuRow(R.drawable.ic_lock, MUTED, "새 시크릿 탭", engine.tabs.size() < 6, this::newSecretTab, sheet), true);
+        ui.addRow(moves, menuRow(R.drawable.ic_lock, MUTED, "새 시크릿 탭", true, this::newSecretTab, sheet), true);
         boolean marked = dev.jun.gyeot.core.BrowserKit.bookmarked(engine.store.settings.getString(BOOKMARKS, ""), tab.url);
         ui.addRow(moves, menuRow(marked ? R.drawable.ic_heart_filled : R.drawable.ic_heart, Ui.PINK, marked ? "북마크에서 빼기" : "북마크에 추가", pageReady(tab), () -> toggleBookmark(tab), sheet), true);
         ui.addRow(moves, menuRow(R.drawable.ic_book, Ui.PINK, "북마크", true, this::bookmarks, sheet), true);
@@ -1389,20 +1390,19 @@ public final class BrowserActivity extends Activity {
         });
         show(sheet);
     }
-    /** Opens a project's pages as tabs: one already open is only selected, and no more than the browser's 6 tabs open. */
+    /** Opens a project's pages as tabs: one already open is only selected, the rest each in a new tab. */
     private void openProject(dev.jun.gyeot.core.BrowserKit.Project project) {
         int opened = 0, skipped = 0; BrowserEngine.Tab first = null;
         for (dev.jun.gyeot.core.BrowserKit.Bookmark page : project.pages()) {
             BrowserEngine.Tab open = null;
             for (BrowserEngine.Tab tab : engine.tabs) if (dev.jun.gyeot.core.BrowserKit.bookmarked(new org.json.JSONArray().put(page.json()).toString(), tab.url)) { open = tab; break; }
             if (open == null) {
-                if (engine.tabs.size() >= 6) { skipped++; continue; }
                 try { open = engine.newTab(page.url(), false); opened++; } catch (Exception e) { skipped++; continue; }
             }
             if (first == null) first = open;
         }
         if (first != null && engine.tabs.contains(first)) engine.select(first);
-        toast("‘" + project.name() + "’ · 새 탭 " + opened + "개" + (skipped > 0 ? " · 탭이 가득 차서 " + skipped + "개는 못 열었어요" : ""));
+        toast("‘" + project.name() + "’ · 새 탭 " + opened + "개" + (skipped > 0 ? " · " + skipped + "개는 못 열었어요" : ""));
     }
 
     // ── 북마크 ────────────────────────────────────────────────────────────
@@ -1517,7 +1517,7 @@ public final class BrowserActivity extends Activity {
             String title = t.title == null || t.title.isBlank() ? host(t.url) : t.title;
             ui.addRow(rows, menuRow(R.drawable.ic_layers, Ui.BLUE, title + (t == engine.split ? " · 지금 옆 화면" : ""), true, () -> engine.split(t), sheet), true);
         }
-        ui.addRow(rows, menuRow(R.drawable.ic_add, ACCENT, "새 탭을 옆에 열기", engine.tabs.size() < 6, () -> {
+        ui.addRow(rows, menuRow(R.drawable.ic_add, ACCENT, "새 탭을 옆에 열기", true, () -> {
             BrowserEngine.Tab main = engine.current;
             try { BrowserEngine.Tab fresh = engine.newTab("https://www.google.com/", true); engine.select(main); engine.split(fresh); }
             catch (RuntimeException e) { toast(e.getMessage()); }
@@ -1712,9 +1712,7 @@ public final class BrowserActivity extends Activity {
             if (rendered[0].equals(signature.toString())) return;
             rendered[0] = signature.toString(); cards.removeAllViews();
             int count = engine.tabs.size(); heading.setText("탭 " + count);
-            subtitle.setText(count >= 6 ? "탭은 최대 6개까지 열 수 있어요. 먼저 탭을 닫아 주세요." : "카드로 전환 · ×로 닫기");
-            add.setEnabled(count < 6); add.setAlpha(count < 6 ? 1f : .38f);
-            secret.setEnabled(count < 6); secret.setAlpha(count < 6 ? 1f : .38f);
+            subtitle.setText("카드로 전환 · ×로 닫기");
             android.content.res.Configuration config = getResources().getConfiguration();
             int cardWidth = Math.round(168 * Math.max(1f, config.fontScale));
             int columns = Math.max(1, Math.min(3, (config.screenWidthDp - 24) / cardWidth));

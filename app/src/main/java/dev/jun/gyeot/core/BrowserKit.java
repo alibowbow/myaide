@@ -25,7 +25,7 @@ public final class BrowserKit {
     /** The request 끝까지 조사 sends: the user's words, with how to research them to the end and report. */
     public static String deep(String request) {
         return "[끝까지 조사] 아래 요청을 끝까지 깊이 조사해 주세요.\n"
-            + "- 서로 다른 출처를 3곳 이상 새 탭에서 열어 읽고 비교해요 (탭은 6개까지, 다 읽은 탭은 닫아요).\n"
+            + "- 서로 다른 출처를 3곳 이상 새 탭에서 열어 읽고 비교해요 (다 읽은 탭은 닫아요).\n"
             + "- 빠진 부분이나 서로 다른 내용이 있으면 검색을 이어 가며 확인하고, 결론이 분명해질 때까지 멈추지 않아요.\n"
             + "- 로그인·결제·전송·삭제는 하지 않고, 읽기와 검색만 해요.\n"
             + "- 마지막 답은 보고서로: 핵심 결론, 근거, 서로 다른 점, 출처 링크 목록.\n\n"
