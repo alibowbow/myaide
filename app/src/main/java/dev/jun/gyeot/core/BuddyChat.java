@@ -90,7 +90,7 @@ public final class BuddyChat {
     private static final Pattern DOING = Pattern.compile("보내\\s*줘|받아\\s*줘|내려\\s*받|다운|짜\\s*줘|만들어\\s*줘|담아\\s*줘|읽어\\s*줘|신청해|채워\\s*줘|올려\\s*줘|정리해\\s*줘|"
         + "얼마나\\s*(봤|썼|했|들었)|몇\\s*(시간|분)\\s*(봤|썼|했)|뭐\\s*했");
     private static final Pattern BACK = Pattern.compile("누구(한테|에게)|어디(로|에)\\s*보낼|주소(를|만)?\\s*(알려|모르)|링크(를|만)?\\s*(알려|줘)|구체적으로|어떤\\s*(기능|걸|내용)|"
-        + "기능이\\s*없|확인할\\s*수\\s*(가\\s*)?없|알\\s*수\\s*(가\\s*)?없|할\\s*수\\s*(가\\s*)?없|못\\s*해|정보가\\s*없");
+        + "무슨\\s*(내용|말|글)|기능이\\s*없|확인할\\s*수\\s*(가\\s*)?없|알\\s*수\\s*(가\\s*)?없|할\\s*수\\s*(가\\s*)?없|못\\s*해|정보가\\s*없");
 
     // ── the things whose result 퍼레 says in its own words ──
     /** The tools that find or work out something to say (the rest only do something: open, set, play, turn on …). */

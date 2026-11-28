@@ -438,6 +438,12 @@ final class BuddyTalk {
             } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
             catch (Exception keep) { said = first; chatBy = by; CHAT_BRAIN.set(who); }
         }
+        // Asked twice and still only promised or asked back: the thing read from the words alone, when they are that plain
+        // (BuddyTools.fromWords: a condition, code or an app to make, a website job, the past).
+        if (act(said) == null && (dev.jun.gyeot.core.BuddyChat.promised(said) || dev.jun.gyeot.core.BuddyChat.asksBack(question, said))) {
+            JSONObject direct = BuddyTools.fromWords(question);
+            if (direct != null) said = BuddyTools.fromWordsSay(direct) + "\n할일: " + direct;
+        }
         // What the user's words settle (a condition said, the way of going, a thing to do in an app): BuddyTools.refine.
         { JSONObject chosen = act(said), refined = BuddyTools.refine(question, chosen); if (chosen != null && refined != chosen) said = BuddyPrompt.withAct(said, refined); }
         said = backed(question, said, java.time.ZonedDateTime.now());
@@ -953,6 +959,8 @@ final class BuddyTalk {
                         JSONArray calls = GroqWork.stream(used[0], used[1], used[2], instructions + BuddyTools.rule(true) + places(store), messages, used[3], 0.2, BuddyTools.orNothing(), "required", 6_000, null, null).calls();
                         none = BuddyTools.nothing(calls); a = BuddyTools.act(calls);
                     } catch (Exception refused) { /* the words alone */ }
+                    // Still nothing done: the thing read from the words alone, when they are that plain (BuddyTools.fromWords).
+                    if (a == null && !none) a = BuddyTools.fromWords(said);
                     if (a == null && !none && !ask.dry()) BuddyMisses.add(c, said, "할 일 도구", "말로만 하겠다고 하고 도구를 부르지 않았어요", "", BuddyMisses.PROMISED);
                 }
                 // What the user's words settle (a condition said, the way of going, a thing to do in an app): BuddyTools.refine.

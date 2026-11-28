@@ -111,6 +111,15 @@ public class BuddyBrainTests {
         assertTrue(dev.jun.gyeot.core.BuddyChat.asksBack("할 일 관리 앱 코드 짜 줘", "좋아! 어떤 기능이 필요할지 좀 더 구체적으로 말해 줄래?"));
         assertFalse(dev.jun.gyeot.core.BuddyChat.asksBack("심심해", "뭐 하고 놀까? 어떤 걸 좋아해?"));
         assertFalse(dev.jun.gyeot.core.BuddyChat.asksBack("카톡으로 보내 줘", "보낼게!\n할일: {\"tool\":\"share\",\"text\":\"늦어\"}"));
+        // Asked twice and still not done: the thing read from the words alone, when they are that plain.
+        JSONObject home = BuddyTools.fromWords("집에 도착하면 엄마한테 문자 보내 줘");
+        assertEquals("when_event", home.optString("tool")); assertEquals("집에 도착하면", home.optString("when")); assertEquals("message", home.optString("then"));
+        assertEquals("work_job", BuddyTools.fromWords("할 일 관리 앱 코드 짜 줘").optString("tool"));
+        assertEquals("web_job", BuddyTools.fromWords("학교 홈페이지에서 이번 주 가정통신문 PDF 받아 줘").optString("tool"));
+        assertEquals("day_recall", BuddyTools.fromWords("어제 유튜브 얼마나 봤지").optString("tool"));
+        assertNull("nothing plain: nothing made up", BuddyTools.fromWords("심심해"));
+        assertNull(BuddyTools.fromWords("어떻게 하면 잘 자?"));
+        assertTrue(dev.jun.gyeot.core.BuddyChat.asksBack("집에 도착하면 엄마한테 문자 보내 줘", "알림을 걸어둘게! 무슨 내용으로 보낼까?"));
         // The 할일 line said again with the refined act.
         String said = BuddyPrompt.withAct("안내할게!\n할일: {\"tool\":\"navigate\",\"destination\":\"강남역\"}", walk);
         assertEquals("walk", BuddyPrompt.act(said).optString("mode"));

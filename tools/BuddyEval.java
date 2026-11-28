@@ -148,6 +148,7 @@ public final class BuddyEval {
             ChatStream.Turn again = send(key, ChatStream.body(model, instructions + BuddyTools.rule(true), messages, null, 0.2, BuddyTools.orNothing(), "required"), null);
             if (raw) System.out.println("    ↳ 다시(도구 꼭): " + again.calls());
             act = BuddyTools.act(again.calls());
+            if (act == null && !BuddyTools.nothing(again.calls())) act = BuddyTools.fromWords(said);
         }
         act = BuddyTools.refine(said, act);
         long end = System.nanoTime();
@@ -171,6 +172,10 @@ public final class BuddyEval {
             String retry = send(key, again, null).text().replaceAll("(?s)<think>.*?</think>", "").strip();
             if (raw) System.out.println("    ↳ 다시(" + (back ? "되묻지 말기" : "지금 하기") + "): " + retry.replace("\n", " "));
             if (BuddyPrompt.act(retry) != null || !retry.isBlank() && !dev.jun.gyeot.core.BuddyChat.promised(retry) && !dev.jun.gyeot.core.BuddyChat.asksBack(s.said(), retry)) text = retry;
+        }
+        if (BuddyPrompt.act(text) == null && (dev.jun.gyeot.core.BuddyChat.promised(text) || dev.jun.gyeot.core.BuddyChat.asksBack(s.said(), text))) {
+            JSONObject direct = BuddyTools.fromWords(s.said());
+            if (direct != null) text = BuddyTools.fromWordsSay(direct) + "\n할일: " + direct;
         }
         JSONObject act = BuddyPrompt.act(text), refined = BuddyTools.refine(s.said(), act);
         // The app keeps a refined act only through its 할일 line (BuddyPrompt.withAct), so here too.

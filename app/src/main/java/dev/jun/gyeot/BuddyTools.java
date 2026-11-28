@@ -333,6 +333,39 @@ final class BuddyTools {
         } catch (org.json.JSONException broken) { return act; }
         return act;
     }
+    /**
+     * The thing to do read from the words alone, for when the brain asked twice still only promised or asked back (퍼레 자동 점검
+     * 2026-11-29: "집에 도착하면 엄마한테 문자 보내 줘" → "무슨 내용으로?", "할 일 관리 앱 코드 짜 줘" → "어떤 기능?"): a condition said
+     * becomes its 조건 알림 (what to do then from the rest of the words, read again by BuddyTriggers), making code, an app or a
+     * document goes to 작업창, getting a file or filling a form on a website to the browser, the past to the day's record.
+     * Null for anything less plain.
+     */
+    static JSONObject fromWords(String said) {
+        if (said == null || said.isBlank()) return null;
+        String words = said.strip();
+        try {
+            String when = condition(words);
+            if (when != null) {
+                String rest = words.substring(Math.min(words.length(), words.indexOf(when) + when.length())).strip();
+                String then = MESSAGE.matcher(rest).find() ? "message" : NAVIGATE.matcher(rest).find() ? "navigate" : PLAYS.matcher(rest).find() ? "play" : OPENS.matcher(rest).find() ? "open_app" : "tell";
+                return new JSONObject().put("tool", "when_event").put("command", "make").put("when", when).put("then", then).put("what", rest);
+            }
+            if (WORK.matcher(words).find()) return new JSONObject().put("tool", "work_job").put("request", words);
+            if (WEB.matcher(words).find()) return new JSONObject().put("tool", "web_job").put("request", words);
+            if (dev.jun.gyeot.core.DayLog.asksPast(words)) return new JSONObject().put("tool", "day_recall").put("query", words);
+        } catch (org.json.JSONException broken) { return null; }
+        return null;
+    }
+    /** The short words with a thing read from the words (fromWords): what say() has, else a plain one for the kind. */
+    static String fromWordsSay(JSONObject act) {
+        String said = say(act);
+        if (!said.isBlank()) return said;
+        return switch (act.optString("tool")) { case "when_event" -> "그때 하도록 걸어 둘게!"; case "day_recall" -> "기록에서 찾아볼게!"; default -> "바로 할게!"; };
+    }
+    private static final java.util.regex.Pattern MESSAGE = java.util.regex.Pattern.compile("(문자|카톡|메시지|메세지|톡)\\S*\\s*.*(보내|전해)|보내\\s*줘"),
+        NAVIGATE = java.util.regex.Pattern.compile("길\\s*안내|안내해|데려다|가는\\s*길"), PLAYS = java.util.regex.Pattern.compile("틀어|재생"), OPENS = java.util.regex.Pattern.compile("열어|켜\\s*줘"),
+        WORK = java.util.regex.Pattern.compile("(코드|앱|어플|프로그램|웹\\s*사이트|홈페이지|스크립트|문서|보고서|발표\\s*자료|PPT|엑셀)\\S*\\s*(을|를)?\\s*(짜|만들어|작성해|써)\\s*줘", java.util.regex.Pattern.CASE_INSENSITIVE),
+        WEB = java.util.regex.Pattern.compile("(홈페이지|사이트|웹)\\S*에서.*(받아|다운|내려\\s*받|올려|신청|채워|예약)");
     private static final java.util.regex.Pattern WALK = java.util.regex.Pattern.compile("걸어서|걸어가|도보|걷는"), BIKE = java.util.regex.Pattern.compile("자전거"),
         TRANSIT = java.util.regex.Pattern.compile("대중교통|지하철|버스\\s*(로|타고)|전철"), CAR = java.util.regex.Pattern.compile("차로|차 타고|운전해|자동차로");
     /** A thing done inside an app beyond opening it (put in the cart, read, search, press, order, write …). */
