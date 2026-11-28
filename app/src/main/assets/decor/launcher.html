@@ -418,12 +418,13 @@ body.liquid .pad-top.voicing .field,.pad-top.voicing .field{border-color:#ff6f91
 .chat-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:40px}
 .chat-bar b{font-size:16px;font-weight:800;letter-spacing:-.3px;color:var(--ink)}
 /* The talk's model, chosen right here (준: "대화모델 설정가능하게 해줘", "대화창에서", "모델선택을 왜 거기에둬? 안하던 행동을 하네"):
-   as 메인 대화 has it, a line under the box: the model in bold, its thinking level quiet beside it; a tap opens 퍼레 두뇌. */
+   as every chat has it (ModelLine), a line under the box at its end: the model in bold, its thinking level quiet beside it, ⌄;
+   a tap opens 퍼레 두뇌. */
 .pad-top .chat-model{display:none}
 .pad.chat-mode .pad-top{flex-wrap:wrap;row-gap:2px}
 .pad.chat-mode .pad-top .brk{display:block;order:8;flex-basis:100%;height:0}
 .pad-top .brk{display:none}
-.pad.chat-mode .pad-top .chat-model{display:flex;align-items:center;gap:6px;order:9;flex:0 1 auto;max-width:100%;height:24px;margin-left:6px;padding:0 4px;border:0;background:none;color:var(--ink);font:inherit;font-size:12.5px;white-space:nowrap;overflow:hidden}
+.pad.chat-mode .pad-top .chat-model{display:flex;align-items:center;gap:6px;order:9;flex:0 1 auto;max-width:100%;height:24px;margin-left:auto;margin-right:4px;padding:0 4px;border:0;background:none;color:var(--ink);font:inherit;font-size:12.5px;white-space:nowrap;overflow:hidden}
 .chat-model b{font-weight:700;overflow:hidden;text-overflow:ellipsis}
 .chat-model i{font-style:normal;color:var(--muted,rgba(60,60,67,.6))}
 .chat-model svg{flex:none;width:12px;height:12px;opacity:.55}

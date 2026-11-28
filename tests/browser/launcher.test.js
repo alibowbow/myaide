@@ -926,10 +926,10 @@ async function open(browser, at, bridge, pages, scale, config) {
     await p.evaluate(() => openChat()); await settle();
     const line = await p.evaluate(() => { const b = el('chatModel'), r = b.getBoundingClientRect(), box = document.querySelector('.pad-top .field').getBoundingClientRect();
       return { shown: !b.hidden && r.height > 0, model: b.querySelector('b').textContent, level: (b.querySelector('i') || {}).textContent, bold: getComputedStyle(b.querySelector('b')).fontWeight,
-        label: b.getAttribute('aria-label'), h: r.height, under: r.top >= box.bottom - 1, left: Math.abs(r.left - box.left) < 16, w: r.width, whole: b.scrollWidth <= b.clientWidth + 1,
+        label: b.getAttribute('aria-label'), h: r.height, under: r.top >= box.bottom - 1, left: r.right >= document.querySelector('.pad-top').getBoundingClientRect().right - 24, w: r.width, whole: b.scrollWidth <= b.clientWidth + 1,
         inBar: !!document.querySelector('#chatBar .brain'), x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
     assert(line.shown && line.model === 'GPT-6 Luna' && line.level === 'Light' && +line.bold >= 600, 'the model in bold, its level beside: ' + JSON.stringify(line));
-    assert(line.under && line.left && line.h <= 26 && line.w < 300 && line.whole && !line.inBar, 'a small line under the box, not by the title: ' + JSON.stringify(line));
+    assert(line.under && line.left && line.h <= 26 && line.w < 300 && line.whole && !line.inBar, 'a small line under the box at its end (as every chat), not by the title: ' + JSON.stringify(line));
     assert(line.label.includes('대화 모델'), line.label);
     await p.screenshot({ path: path.join(SHOTS, 'chat-model-line.png'), clip: { x: 0, y: 900 - 160, width: 412, height: 160 } });
     await p.evaluate(() => { window._calls.length = 0; }); await p.touchscreen.tap(line.x, line.y); await settle();
