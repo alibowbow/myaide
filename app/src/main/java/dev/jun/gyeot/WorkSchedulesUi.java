@@ -61,16 +61,30 @@ final class WorkSchedulesUi {
 
     // ── List ────────────────────────────────────────────────────────────────
 
-    void show() {
+    /**
+     * How a sheet of this list is shown: across the bottom (작업창), or as the AI 브라우저's small card at its menu button
+     * (BrowserActivity.popup, 준: "거기서 뜨는 팝업메뉴는 쓸데없이 큼직하고 컴팩트하지도 않아").
+     */
+    java.util.function.Consumer<Ui.Sheet> presenter = Ui.Sheet::show;
+
+    void show() { show(null, ""); }
+    /**
+     * The list; from the AI 브라우저 (startPage, the page open there) its "new" is a browser task from that page, goal the words
+     * to repeat (one row in the browser's menu, not a second one for "이 페이지에서 할 일 예약").
+     */
+    void show(String startPage, String goal) {
         Ui.Sheet sheet = ui.selectionSheet("예약 작업", "정해진 시간이나 정한 일이 생기면 알아서 해요");
         list = sheet; sheet.setOnDismissListener(d -> { if (list == sheet) list = null; });
         fill(sheet);
-        sheet.primary.setText("새 예약 만들기");
-        sheet.primary.setOnClickListener(v -> edit(null, "", null, null));
+        sheet.primary.setText(startPage == null ? "새 예약 만들기" : "이 페이지에서 새 예약");
+        sheet.primary.setOnClickListener(v -> { if (startPage != null) sheet.dismiss(); edit(null, goal == null ? "" : goal, null, startPage); });
         // 아침 브리핑: a new schedule already filled in (every day at BRIEFING_TIME), for the user to adjust and save.
-        LinearLayout.LayoutParams above = new LinearLayout.LayoutParams(-1, -2); above.bottomMargin = ui.dp(8);
-        sheet.footer.addView(ui.button("아침 브리핑 만들기", false, () -> { presetTime = BRIEFING_TIME; edit(null, BRIEFING, null, null); }), 0, above);
-        sheet.show();
+        // Not in the browser's: a page's task is what it starts from there.
+        if (startPage == null) {
+            LinearLayout.LayoutParams above = new LinearLayout.LayoutParams(-1, -2); above.bottomMargin = ui.dp(8);
+            sheet.footer.addView(ui.button("아침 브리핑 만들기", false, () -> { presetTime = BRIEFING_TIME; edit(null, BRIEFING, null, null); }), 0, above);
+        }
+        presenter.accept(sheet);
     }
     private void refresh() { if (list != null && list.isShowing()) fill(list); }
     private void fill(Ui.Sheet sheet) {
@@ -132,7 +146,7 @@ final class WorkSchedulesUi {
         ui.add(sheet.body, change, 8);
         sheet.primary.setText("지우기"); sheet.primary.setBackground(ui.shape(ERROR, 14));
         sheet.primary.setOnClickListener(v -> { sheet.dismiss(); ui.confirm("이 예약을 지울까요? 이미 만들어진 작업방과 결과는 그대로 남아요.", "예약 지우기", () -> change(list -> WorkSchedules.remove(list, id), "예약을 지웠어요")).show(); });
-        sheet.show();
+        presenter.accept(sheet);
     }
     private void runNow(String id) {
         try { activity.startForegroundService(new Intent(activity, AssistantService.class).setAction(AssistantService.WORK_SCHEDULE).putExtra("schedule", id)); store.status("예약 작업을 지금 실행해요"); }
@@ -238,7 +252,7 @@ final class WorkSchedulesUi {
                 if (list != null && list.isShowing()) refresh(); else show();
             } catch (Exception e) { store.error(e.getMessage() == null ? "예약을 저장하지 못했어요." : e.getMessage()); }
         });
-        sheet.show();
+        presenter.accept(sheet);
         if (sheet.getWindow() != null) sheet.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE | android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
         if (goal.length() == 0) goal.requestFocus();
     }

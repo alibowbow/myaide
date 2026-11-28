@@ -675,9 +675,34 @@
     });
     zoomWatch.observe(document.head || document.documentElement, {subtree: true, childList: true, attributes: true, attributeFilter: ['content', 'name']});
   }
+  // 데스크톱 보기: a page at its top stays at its top when the page area changes size (준: "데스크탑모드에서 위가 잘려"). The
+  // page is drawn shrunk to fit its 980px width; when the area changes (the keyboard closed after typing the address, the AI
+  // panel opened or folded beside it, the split), the phone kept the middle of what was seen in place, so the page's top went
+  // under the toolbar, out of reach on a page that does not scroll (google.com). Only a page that was at its top and that the
+  // user has not moved since; a keyboard opening (the area only shorter) is left to the page and its field.
+  let desktopView = false, viewTop = 0, viewW = 0, viewH = 0;
+  const viewport = window.visualViewport;
+  function viewSize() { return viewport ? [viewport.width * viewport.scale, viewport.height * viewport.scale] : [innerWidth, innerHeight]; }
+  function viewNote() { const [w, h] = viewSize(); viewW = w; viewH = h; viewTop = viewport ? viewport.pageTop : scrollY; }
+  function viewChanged() {
+    const [w, h] = viewSize(), was = viewTop, top = viewport ? viewport.pageTop : scrollY;
+    if (desktopView && was <= 1 && (Math.abs(w - viewW) > 1 || h > viewH + 1) && top > 1 && top < 400) {
+      try { document.documentElement.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' }); } catch (e) {}
+      if (scrollY) scrollTo(scrollX, 0);
+    }
+    viewNote();
+  }
+  if (viewport) {
+    viewNote();
+    viewport.addEventListener('resize', viewChanged);
+    // A scroll that comes with a new size is the size change's (it may come first); any other is the user's or the page's.
+    const moved = () => { const [w, h] = viewSize(); if (Math.abs(w - viewW) > 1 || Math.abs(h - viewH) > 1) viewChanged(); else viewNote(); };
+    viewport.addEventListener('scroll', moved); addEventListener('scroll', moved, { passive: true });
+  }
   function pageZoom(percent, desktop) {
     if (!Number.isInteger(percent) || percent < 25 || percent > 300) throw Error('확대 비율은 25~300%예요.');
     if (!document.documentElement) throw Error('이 페이지는 확대·축소를 지원하지 않아요.');
+    desktopView = !!desktop;
     if (desktop) { if (zoomContent) viewportZoom(100); cssZoom(percent); }
     else { if (originalZoom !== undefined) cssZoom(100); viewportZoom(percent); }
     refs = new Map(); revision++;

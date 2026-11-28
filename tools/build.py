@@ -333,6 +333,34 @@ def check_composers():
     print('Model line under every chat input: ok')
 
 
+EXTENSION = ROOT / 'app/src/main/assets/browser'
+EXTENSION_LOCK = ROOT / 'tools/browser_extension.lock'
+
+
+def extension_state():
+    """The AI 브라우저's page bridge (assets/browser): its manifest version and a hash of everything else in it."""
+    digest = hashlib.sha256()
+    for f in sorted(p for p in EXTENSION.rglob('*') if p.is_file() and p.name != 'manifest.json'):
+        digest.update(f.relative_to(EXTENSION).as_posix().encode() + b'\0' + f.read_bytes() + b'\0')
+    version = json.loads((EXTENSION / 'manifest.json').read_text(encoding='utf-8'))['version']
+    return version, digest.hexdigest()
+
+
+def check_extension_version():
+    """GeckoView keeps an installed built-in extension while its version is the same (ensureBuiltIn), so a change to
+    content.js with no new manifest version never reaches the phone: the page zoom, the safety fixes and the lifted limits
+    of 2026-11-28 (0.4.659 to 0.4.674) all stayed on 1.535 and the phones went on running the old bridge. The lock holds the
+    version and the hash it was made for: changed files with the same version fail here."""
+    version, digest = extension_state()
+    lock = json.loads(EXTENSION_LOCK.read_text(encoding='utf-8')) if EXTENSION_LOCK.exists() else {}
+    if digest != lock.get('sha256'):
+        if version == lock.get('version'):
+            raise SystemExit(f'assets/browser changed but its manifest version is still {version}: phones keep the old bridge. '
+                             'Raise "version" in app/src/main/assets/browser/manifest.json, then run python3 tools/build.py --lock-extension.')
+        raise SystemExit(f'assets/browser is at version {version}: run python3 tools/build.py --lock-extension to record it.')
+    print(f'Browser bridge version {version} matches its files: ok')
+
+
 def compile_app():
     """test() covers core classes only. This compiles MainActivity, Ui, BrowserActivity and every other Android source
     against the real SDK and GeckoView, so a screen code error fails the pull request check before merging instead of
@@ -381,7 +409,17 @@ if __name__ == '__main__':
     parser.add_argument('--test-only', action='store_true')
     # With --test-only, also compile the Android screens. Pull request checks turn this on by themselves.
     parser.add_argument('--compile-app', action='store_true')
+    # After raising assets/browser/manifest.json's version: records it with the files' hash (check_extension_version).
+    parser.add_argument('--lock-extension', action='store_true')
     args = parser.parse_args()
+    if args.lock_extension:
+        version, digest = extension_state()
+        lock = json.loads(EXTENSION_LOCK.read_text(encoding='utf-8')) if EXTENSION_LOCK.exists() else {}
+        if lock.get('version') == version and lock.get('sha256') != digest:
+            raise SystemExit(f'Raise the version in assets/browser/manifest.json first (it is still {version}).')
+        EXTENSION_LOCK.write_text(json.dumps({'version': version, 'sha256': digest}, indent=1) + '\n', encoding='utf-8')
+        print(f'Browser bridge {version} locked'); sys.exit(0)
+    check_extension_version()
     CACHE.mkdir(parents=True, exist_ok=True); BUILD.mkdir(parents=True, exist_ok=True)
     jars = dependencies()
     core = ROOT / 'app/src/main/java/dev/jun/gyeot/core'

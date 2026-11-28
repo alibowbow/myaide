@@ -62,6 +62,9 @@ const SITES = {
   'https://accounts.google.com/accountchooser': CHOOSER,
   'https://app.example.com/callback?code=abc123&state=xyz': page('Signing in', '<main><p>' + LONG + '</p><a href="https://app.example.com/">홈</a></main>'),
   'https://keys.example.com/': KEYS,
+  // 데스크톱 보기 at its top: the phone moving it a little down when the page area changes size (window.shift plays that).
+  'https://desk.example.com/': '<!doctype html><html><head><title>desk</title><script>visualViewport.addEventListener("resize", () => { if (window.shift) scrollTo(0, 30); });</script></head>'
+    + '<body style="height:3000px;margin:0"><header id="top" style="height:60px">Google 정보</header></body></html>',
 };
 
 /** The page with the bridge put in as the extension puts it, its native port kept in the page (window.__port). */
@@ -305,6 +308,26 @@ const find = (read, label) => (read.elements || []).find(e => e.label === label)
     const read = await ask(p, { action: 'read' });
     const r = await ask(p, { action: 'press', document: read.document, text: 'Backspace' });
     check(r.ok !== false && await p.evaluate(() => document.getElementById('uid').value) === 'me', 'keys: Backspace with no ref leaves a focused login field alone ' + JSON.stringify([r.error, r.key_effect]));
+    await p.close();
+  }
+
+  // 데스크톱 보기 (준: "데스크탑모드에서 위가 잘려"): a page at its top stays at its top when the page area changes size; a page
+  // the user scrolled, and the phone's own view (not desktop), are left where they are.
+  {
+    const p = await open(browser, 'https://desk.example.com/');
+    const zoom = desktop => p.evaluate(d => { for (const f of window.__listeners) f({ page_zoom: 100, desktop: d }); }, desktop);
+    const settle = () => p.waitForTimeout(250);
+    await zoom(true); await p.evaluate(() => { window.shift = true; }); await settle();
+    await p.setViewportSize({ width: 600, height: 1400 }); await settle();
+    check(await p.evaluate(() => scrollY) === 0, 'desktop view: wider, the page stays at its top ' + await p.evaluate(() => scrollY));
+    await p.setViewportSize({ width: 600, height: 1500 }); await settle();
+    check(await p.evaluate(() => scrollY) === 0, 'desktop view: taller (the keyboard closed), still at its top');
+    await p.evaluate(() => { window.shift = false; scrollTo(0, 200); }); await settle();
+    await p.evaluate(() => { window.shift = true; }); await p.setViewportSize({ width: 411, height: 1400 }); await settle();
+    check(await p.evaluate(() => scrollY) === 30, 'desktop view: a page the user scrolled is left where the change put it ' + await p.evaluate(() => scrollY));
+    await zoom(false); await p.evaluate(() => { window.shift = false; scrollTo(0, 0); }); await settle();
+    await p.evaluate(() => { window.shift = true; }); await p.setViewportSize({ width: 600, height: 1400 }); await settle();
+    check(await p.evaluate(() => scrollY) === 30, 'phone view: left to the page');
     await p.close();
   }
 
