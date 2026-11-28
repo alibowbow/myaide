@@ -439,6 +439,15 @@ final class BrowserEngine {
         if (!visible || current == null || current.session != session || !liveSession(session)) return null;
         return new PromptToken(current, lease(), viewEpoch);
     }
+    /**
+     * A page's file chooser answered from the phone's picker (준: "Ai 브라우저에서 클로드 쓸때 파일 첨부가 안돼"): the picker is an
+     * activity of its own, so the browser stops and starts again while it is open (visible and viewEpoch change) and validPrompt
+     * dropped every file picked. The file still goes to the same tab's same page: its session open, not navigated away.
+     */
+    boolean validFilePrompt(PromptToken token) {
+        return token != null && liveSession(token.session) && tabs.contains(token.tab) && token.tab.session == token.session
+            && token.navigationEpoch == token.tab.navigationEpoch && token.url.equals(token.tab.url);
+    }
     boolean validPrompt(PromptToken token) {
         return token != null && visible && current == token.tab && current.session == token.session
             && token.viewEpoch == viewEpoch && token.navigationEpoch == current.navigationEpoch
@@ -2197,8 +2206,9 @@ final class BrowserEngine {
         // automation lease). Bind the resulting manual session after that handoff.
         PromptToken token = promptToken(session);
         GeckoResult<GeckoSession.PromptDelegate.PromptResponse> guarded = new GeckoResult<>();
+        boolean file = prompt instanceof GeckoSession.PromptDelegate.FilePrompt;
         source.accept(response -> {
-            if (validPrompt(token)) guarded.complete(response);
+            if (file ? validFilePrompt(token) : validPrompt(token)) guarded.complete(response);
             else guarded.completeExceptionally(new IllegalStateException("Stale browser prompt target"));
         }, guarded::completeExceptionally);
         return guarded;
