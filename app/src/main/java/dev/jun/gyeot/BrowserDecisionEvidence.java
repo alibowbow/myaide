@@ -121,7 +121,7 @@ final class BrowserDecisionEvidence {
         if(dangerous(label+" "+type+" "+target.optString("autocomplete")))return false;
         boolean editable=target.optBoolean("editable") || java.util.Set.of("textbox","searchbox","combobox").contains(role)
             || java.util.Set.of("input","textarea","select").contains(target.optString("tag"));
-        if(kind.equals("type")||kind.equals("select"))return editable && text.length()<=8000
+        if(kind.equals("type")||kind.equals("select"))return editable && text.length()<=dev.jun.gyeot.core.BrowserTools.TYPE_LIMIT
             && !dev.jun.gyeot.core.DecisionSemanticText.sensitiveInput(label+" "+type+" "+target.optString("placeholder")+" "+target.optString("autocomplete"),text)
             && text.equals(dev.jun.gyeot.core.DecisionSemanticText.redact(text));
         if(kind.equals("press")) {

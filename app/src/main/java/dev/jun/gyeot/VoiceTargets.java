@@ -21,6 +21,8 @@ final class VoiceTargets {
     static final long WAIT_MS = 4 * 60_000L;
     /** At most this much of a result goes back to the voice model. */
     static final int RESULT = 6000;
+    /** The AI browser's conversation the voice sees: this many newest rows, each up to this many characters. */
+    static final int VOICE_ROWS = 40, VOICE_ROW_TEXT = 2000;
 
     /** Words for the voice model about handing work to the screen's own AI. */
     static String handOffWords(String function, String what) {
@@ -205,10 +207,10 @@ final class VoiceTargets {
                 BrowserEngine engine = onMain(() -> BrowserEngine.get(app));
                 String[] page = onMain(() -> {
                     BrowserEngine.Tab tab = engine.current;
-                    JSONArray rows = engine.conversationWindow(16); StringBuilder recent = new StringBuilder();
+                    JSONArray rows = engine.conversationWindow(VOICE_ROWS); StringBuilder recent = new StringBuilder();
                     for (int i = 0; rows != null && i < rows.length(); i++) {
                         JSONObject r = rows.optJSONObject(i); if (r == null || "boundary".equals(r.optString("role"))) continue;
-                        recent.append("user".equals(r.optString("role")) ? "user: " : "browser agent: ").append(clip(r.optString("text"), 500)).append('\n');
+                        recent.append("user".equals(r.optString("role")) ? "user: " : "browser agent: ").append(clip(r.optString("text"), VOICE_ROW_TEXT)).append('\n');
                     }
                     return new String[]{tab == null ? "" : tab.title, tab == null ? "" : BrowserEngine.safeUrl(tab.url), recent.toString()};
                 });

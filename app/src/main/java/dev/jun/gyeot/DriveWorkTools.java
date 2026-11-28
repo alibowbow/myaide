@@ -31,7 +31,12 @@ final class DriveWorkTools extends WorkTools {
     }
     private final GoogleDriveAccount drive; private final boolean changes; private final Phone phone; private final BooleanSupplier stopped;
     private final AtomicInteger changed = new AtomicInteger();
-    DriveWorkTools(GoogleDriveAccount drive, boolean changes, Phone phone, BooleanSupplier stopped) { this.drive = drive; this.changes = changes; this.phone = phone; this.stopped = stopped; }
+    /** Characters of a document drive_read gives back: GoogleDrive.READ_LIMIT for Work models, more for the AI browser. */
+    private final int readLimit;
+    DriveWorkTools(GoogleDriveAccount drive, boolean changes, Phone phone, BooleanSupplier stopped) { this(drive, changes, phone, stopped, GoogleDrive.READ_LIMIT); }
+    DriveWorkTools(GoogleDriveAccount drive, boolean changes, Phone phone, BooleanSupplier stopped, int readLimit) {
+        this.drive = drive; this.changes = changes; this.phone = phone; this.stopped = stopped; this.readLimit = Math.max(1, readLimit);
+    }
 
     @Override JSONArray declarations() { return GoogleDrive.declarations(changes); }
     @Override String instructions() { return GoogleDrive.instructions(changes); }
@@ -89,8 +94,9 @@ final class DriveWorkTools extends WorkTools {
         String url = GoogleDrive.readUrl(id, file.optString("type"));
         if (url.isEmpty()) return obj("ok", true, "file", file, "text", "", "note", "이 형식은 글로 읽을 수 없어요. 필요하면 drive_download로 휴대폰에 내려받아요.");
         stop();
-        String text = drive.get(url, GoogleDrive.READ_BYTES), clipped = GoogleDrive.clip(text);
-        return obj("ok", true, "file", file, "text", clipped, "truncated", clipped.length() < text.length() || text.getBytes(StandardCharsets.UTF_8).length >= GoogleDrive.READ_BYTES);
+        int bytes = GoogleDrive.readBytes(readLimit);
+        String text = drive.get(url, bytes), clipped = GoogleDrive.clip(text, readLimit);
+        return obj("ok", true, "file", file, "text", clipped, "truncated", clipped.length() < text.length() || text.getBytes(StandardCharsets.UTF_8).length >= bytes);
     }
     private JSONObject save(JSONObject args) throws Exception {
         JSONObject checked = GoogleDrive.save(args);
@@ -119,7 +125,7 @@ final class DriveWorkTools extends WorkTools {
         String id = id(args, "file_id", "Drive 파일");
         JSONObject file = GoogleDrive.file(meta(id)), plan = GoogleDrive.download(file, args.optString("format"));
         long limit = plan.optLong("limit");
-        if (file.optLong("size") > limit) return GitHubFunctions.failure("파일이 너무 커서 내려받지 않았어요 (" + (limit >> 20) + "MB까지). 링크로 열어 주세요: " + file.optString("link"));
+        if (file.optLong("size") > limit) return GitHubFunctions.failure("파일이 너무 커서 내려받지 않았어요 (" + size(limit) + "까지). 링크로 열어 주세요: " + file.optString("link"));
         // The same file at the same version, received before and still in 들퍼레: handed back as it is. Downloading it again
         // only made another copy (x (1).mp4, x (2).mp4 …) and took a minute for a large video.
         String version = String.join("|", file.optString("sha256"), file.optString("modified"), Long.toString(file.optLong("size")), args.optString("format"));
@@ -148,6 +154,8 @@ final class DriveWorkTools extends WorkTools {
             return out;
         } finally { if (target.exists() && !target.delete()) target.deleteOnExit(); }
     }
+    /** A byte limit in words: "4GB", "64MB". */
+    static String size(long bytes) { return bytes >= 1L << 30 ? (bytes >> 30) + "GB" : (bytes >> 20) + "MB"; }
     /** SHA-256 of a file, lowercase hex (read in 1 MB pieces; a 120 MB video takes about a second). */
     private String sha256(File f) throws Exception {
         java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");

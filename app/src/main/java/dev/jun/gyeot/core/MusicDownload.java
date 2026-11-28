@@ -65,6 +65,8 @@ public final class MusicDownload {
         void commit() throws Exception;
         void rollback() throws Exception;
     }
+    /** The largest audio file kept. */
+    public static final long LIMIT = 4L * 1024 * 1024 * 1024;
     public static long save(InputStream input, FileInfo info, long expectedBytes, Destination destination) throws Exception {
         if (input == null || info == null) throw new IOException("음악 파일 본문이 없어요.");
         long count = 0;
@@ -79,7 +81,7 @@ public final class MusicDownload {
                 byte[] buffer = new byte[32 * 1024]; int size;
                 while ((size = source.read(buffer)) != -1) {
                     count += size;
-                    if (count > 512L * 1024 * 1024) throw new IOException("음악 파일이 512MB를 넘어요.");
+                    if (count > LIMIT) throw new IOException("음악 파일이 " + (LIMIT >> 30) + "GB를 넘어요.");
                     output.write(buffer, 0, size);
                 }
                 if (count == 0 || (expectedBytes >= 0 && count != expectedBytes)) throw new IOException("음악 다운로드가 완성되지 않았어요.");

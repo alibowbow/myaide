@@ -16,8 +16,10 @@ import static dev.jun.gyeot.core.Jsons.*;
 
 /** Captures only Gecko's original response stream. No URL fetch, cookie export or file execution. */
 final class BrowserWorkArtifacts {
-    private static final ThreadPoolExecutor IO = new ThreadPoolExecutor(2, 2, 30, TimeUnit.SECONDS,
-        new ArrayBlockingQueue<>(4), r -> { Thread t = new Thread(r, "work-browser-file"); t.setDaemon(true); return t; });
+    /** Files saved at once, and waiting behind them; how long one file may take to save. */
+    private static final int SAVING = 4, WAITING = 50, SAVE_MINUTES = 30;
+    private static final ThreadPoolExecutor IO = new ThreadPoolExecutor(SAVING, SAVING, 30, TimeUnit.SECONDS,
+        new ArrayBlockingQueue<>(WAITING), r -> { Thread t = new Thread(r, "work-browser-file"); t.setDaemon(true); return t; });
     private static final ScheduledExecutorService WATCH = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "work-browser-file-cancel"); t.setDaemon(true); return t;
     });
@@ -35,7 +37,7 @@ final class BrowserWorkArtifacts {
         long requestedAt = System.nanoTime();
         java.util.concurrent.atomic.AtomicBoolean timedOut = new java.util.concurrent.atomic.AtomicBoolean();
         ScheduledFuture<?> watch = WATCH.scheduleWithFixedDelay(() -> {
-            if (System.nanoTime() - requestedAt > TimeUnit.MINUTES.toNanos(5)) timedOut.set(true);
+            if (System.nanoTime() - requestedAt > TimeUnit.MINUTES.toNanos(SAVE_MINUTES)) timedOut.set(true);
             if (cancelled.getAsBoolean() || timedOut.get()) close(response.body);
         }, 0, 100, TimeUnit.MILLISECONDS);
         try {
@@ -69,7 +71,7 @@ final class BrowserWorkArtifacts {
                 } catch (Exception e) {
                     original.delete();
                     if (attachment != null && !id.equals(attachment.optString("id"))) store.attachmentFile(attachment.optString("id")).delete();
-                    result = obj("ok", false, "cancelled", cancelled.getAsBoolean(), "error", timedOut.get() ? "파일 저장 시간이 5분을 넘어 중단했어요." : message(e, "파일을 저장하지 못했어요."), "provenance", origin);
+                    result = obj("ok", false, "cancelled", cancelled.getAsBoolean(), "error", timedOut.get() ? "파일 저장 시간이 " + SAVE_MINUTES + "분을 넘어 중단했어요." : message(e, "파일을 저장하지 못했어요."), "provenance", origin);
                 } finally { watch.cancel(false); }
                 JSONObject completed = result;
                 main.post(() -> {

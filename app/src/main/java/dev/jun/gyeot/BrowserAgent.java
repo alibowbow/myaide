@@ -1,6 +1,7 @@
 package dev.jun.gyeot;
 
 import dev.jun.gyeot.core.BrowserTools;
+import dev.jun.gyeot.core.BrowserPrompts;
 import dev.jun.gyeot.core.BrowserCompletionEvidence;
 import dev.jun.gyeot.core.BrowserNavigationCompletion;
 import dev.jun.gyeot.core.BrowserReadNavigation;
@@ -84,7 +85,7 @@ final class BrowserAgent {
         PageAttempt(int revision, long operationId, JSONObject action) { this.revision = revision; this.operationId = operationId; this.action = action; }
     }
     private boolean steer(String visible, String actual) {
-        if (finished || !engine.valid(lease) || actual == null || actual.isBlank() || actual.length() > 8000) return false;
+        if (finished || !engine.valid(lease) || actual == null || actual.isBlank() || actual.length() > BrowserPrompts.REQUEST_LIMIT) return false;
         try { checkSpeedAccount(); } catch (CancellationException changed) { return false; }
         if (!engine.acceptSteering(lease, visible, actual)) return false;
         latestRequest = actual; latestVisibleRequest = visible; revision++;
@@ -186,7 +187,8 @@ final class BrowserAgent {
     dev.jun.gyeot.core.BrowserJournal journal() { return journal; }
     void start() {
         if (finished || !engine.valid(lease)) return;
-        if (request == null || request.isBlank() || request.length() > 8000) { complete(BrowserEngine.error("8000자 이내로 할 일을 입력해 주세요.")); return; }
+        if (request == null || request.isBlank()) { complete(BrowserEngine.error("할 일을 입력해 주세요.")); return; }
+        if (request.length() > BrowserPrompts.REQUEST_LIMIT) { complete(BrowserEngine.error(String.format(java.util.Locale.ROOT, "%,d자 이내로 할 일을 입력해 주세요.", BrowserPrompts.REQUEST_LIMIT))); return; }
         if (!engine.connected()) { complete(BrowserEngine.error("선택한 " + engine.brainName() + " 모델을 설정에서 연결해 주세요.")); return; }
         // Only panel-originated user sends join its transcript/context; service-generated tool instructions do not.
         if (visibleRequest != null) engine.acceptRequest(lease, visibleRequest, request);
@@ -252,6 +254,8 @@ final class BrowserAgent {
             complete(BrowserEngine.error("이동한 페이지의 내용을 확인하지 못했어요. 화면을 확인해 주세요.")); return;
         }
         if (firstObservation == null) firstObservation = observation; history.put(obj("observation", observation));
+        // The page the job starts on: the checkpoint counts only pages reached after it as new.
+        journal.page(observation.optString("url"), observation.optString("title"));
         if (brain.equals("none")) startLive(); else step();
     }
 
@@ -570,7 +574,8 @@ final class BrowserAgent {
             try {
                 if (name.startsWith("drive_")) {
                     if (!store.drive.forWork()) out = obj("ok", false, "error", "Google Drive가 연결돼 있지 않아요. 설정 → 커넥터에서 연결해 주세요.");
-                    else out = new DriveWorkTools(store.drive, false, DriveFiles.main(context, store, () -> { if (finished) throw new CancellationException("작업을 멈췄어요."); }), () -> finished).run(name, args);
+                    else out = new DriveWorkTools(store.drive, false, DriveFiles.main(context, store, () -> { if (finished) throw new CancellationException("작업을 멈췄어요."); }), () -> finished,
+                        dev.jun.gyeot.core.GoogleDrive.BROWSER_READ_LIMIT).run(name, args);
                 } else {
                     FolderWorkTools.Downloads none = new FolderWorkTools.Downloads() { @Override public JSONObject find(String id) { return null; } @Override public java.io.File bytes(String id) { return null; } };
                     out = new FolderWorkTools(context, () -> latestRequest, none, () -> finished).run(dev.jun.gyeot.core.FolderTools.LIST, args);
@@ -663,8 +668,9 @@ final class BrowserAgent {
      */
     private boolean noteStep(JSONObject action, JSONObject observation, String what, String signature) {
         String name = action.optString("action");
-        if (BrowserTools.APP_ACTIONS.contains(name)) keepMaterial(name, action, observation);
+        boolean kept = BrowserTools.APP_ACTIONS.contains(name) && keepMaterial(name, action, observation);
         long now = System.currentTimeMillis();
+        if (kept || gathered(name, action, observation)) journal.gathered();
         journal.page(observation.optString("url"), observation.optString("title"));
         boolean[] failed = {false};
         String result = outcome(observation, failed);
@@ -674,6 +680,8 @@ final class BrowserAgent {
         boolean observe = java.util.Set.of("read", "tabs").contains(name) || observation.optBoolean("previous_action_rejected");
         dev.jun.gyeot.core.BrowserJournal.Verdict verdict = journal.step(what, result, failed[0], signature, page, counts, observe, now);
         engine.recordStep(lease, BrowserTools.actionLabel(name), journal.count() + " · " + what + " → " + result);
+        String checkpoint = journal.takeNote();
+        if (!checkpoint.isEmpty()) engine.record(lease, checkpoint);
         JSONObject effect = observation.optJSONObject("action_effect");
         if (failed[0] || effect != null && "no_observable_change".equals(effect.optString("kind"))) hardNext = true;
         if (verdict == dev.jun.gyeot.core.BrowserJournal.Verdict.WARN) {
@@ -693,7 +701,7 @@ final class BrowserAgent {
         dev.jun.gyeot.core.BrowserJournal.Step last = journal.last();
         String where = journal.site().isEmpty() ? "페이지" : journal.site();
         String message = where + "에서 멈췄어요. " + journal.why() + (last == null ? "" : " (" + last.number() + "단계: " + last.what() + " → " + last.result() + ")")
-            + ". 지금까지 한 일은 작업 상세에서 볼 수 있어요. '이어서 해'라고 보내면 된 데부터 이어 가요.";
+            + ". 지금까지 한 일은 작업 상세에서 볼 수 있어요. '이어서 해'라고 보내면 된 데부터 이어서 해요.";
         return obj("ok", false, "outcome", "blocked", "error_code", "no_progress", "retryable", false, "action_executed", dispatchedSteps > 0,
             "site", where, "error", message, "answer", message, "steps_done", new JSONArray(journal.lines(14)),
             "next", "다시 맡기면 steps_done 다음부터 이어서 해요. 이미 올린 영상은 스튜디오 콘텐츠 목록의 초안에서 이어서 고치고, 다시 올리지 않아요.");
@@ -708,10 +716,22 @@ final class BrowserAgent {
             default -> null;
         };
     }
-    private void keepMaterial(String name, JSONObject action, JSONObject value) {
-        if (value.optBoolean("app_action_failed") || value.optBoolean("already_have")) return;
+    /**
+     * What a step that ran gathered besides kept materials, for the journal's checkpoint: text typed, a file attached, a file
+     * received (a download the page or a file link started), a new tab opened. A refused or failed step gathered nothing.
+     */
+    private static boolean gathered(String name, JSONObject action, JSONObject observation) {
+        if (!observation.optBoolean("ok", true) || observation.optBoolean("automation_refused") || observation.optBoolean("previous_action_rejected")) return false;
+        if (java.util.Set.of("type", "attach").contains(name)) return true;
+        if (observation.optBoolean("file_download") || observation.optBoolean("download_started") || observation.optBoolean("downloaded")) return true;
+        return java.util.Set.of("new_tab", "open_tab").contains(name) || action.optBoolean("new_tab") || observation.optBoolean("tab_opened") || observation.optBoolean("new_tab");
+    }
+    /** Keeps what an app action brought; true when it is new to this job (a document, file or search not kept before). */
+    private boolean keepMaterial(String name, JSONObject action, JSONObject value) {
+        if (value.optBoolean("app_action_failed") || value.optBoolean("already_have")) return false;
         String key = "drive_search".equals(name) ? "search:" + action.optString("query") : materialKey(name, action);
-        if (key == null) return;
+        if (key == null) return false;
+        boolean fresh = !materials.has(key);
         JSONObject kept = copy(value);
         kept.remove("ok"); kept.remove("app_action");
         if (kept.has("text")) put(kept, "text", kept.optString("text").length() > 16000 ? kept.optString("text").substring(0, 16000) + "…" : kept.optString("text"));
@@ -719,6 +739,7 @@ final class BrowserAgent {
         put(materials, key, compact.length() > 20000 ? obj("note", "too long to keep whole", "start", compact.substring(0, 3000)) : kept);
         // A long job reads few documents; keep the newest when there are many.
         while (materials.length() > 12) materials.remove(materials.keys().next());
+        return fresh;
     }
     private boolean safeReadNavigation(JSONObject action) {
         BrowserEngine.Tab target=engine.taskTab(lease);
