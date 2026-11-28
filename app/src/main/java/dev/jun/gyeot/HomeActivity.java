@@ -193,6 +193,22 @@ public final class HomeActivity extends Activity {
         boolean photo = "photo".equals(prefs.getString("bg", "aurora"));
         getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(photo ? 0 : 0xff05060b));
     }
+    /**
+     * The home screen (홈) as it looks, for the AI 브라우저's swipe back (준: "Ai브라우저에서 우측 홈으로 돌아갈때 슬라이드 방식으로
+     * 전환되게해줘": it slides in from the right under the finger, then this screen takes its place, the same). Taken when 홈
+     * rests in front; none with the user's photo (the wallpaper is not in this window's picture).
+     */
+    static volatile android.graphics.Bitmap homeShot;
+    private final Runnable takeHomeShot = () -> {
+        if (!resumed || isFinishing() || "photo".equals(prefs.getString("bg", "aurora"))) { if ("photo".equals(prefs.getString("bg", "aurora"))) homeShot = null; return; }
+        View decor = getWindow().getDecorView(); int w = decor.getWidth(), h = decor.getHeight(); if (w <= 0 || h <= 0) return;
+        android.graphics.Bitmap shot;
+        try { shot = android.graphics.Bitmap.createBitmap(Math.max(1, Math.round(w * .6f)), Math.max(1, Math.round(h * .6f)), android.graphics.Bitmap.Config.ARGB_8888); }
+        catch (RuntimeException | OutOfMemoryError none) { return; }
+        try { android.view.PixelCopy.request(getWindow(), shot, r -> { if (r == android.view.PixelCopy.SUCCESS) homeShot = shot; }, main); } catch (RuntimeException ignored) { }
+    };
+    /** 홈 at rest in front: its picture a moment later (once the page settled). */
+    private void homeShotSoon() { main.removeCallbacks(takeHomeShot); main.postDelayed(takeHomeShot, 600); }
     /** The left page's picture of the AI 브라우저: its time, read off the main thread, told to the page (launcher.leftShot). */
     private void pushLeftShot() {
         if (!ClaudePage.on(prefs)) return;
@@ -275,6 +291,7 @@ public final class HomeActivity extends Activity {
         pushBrain();
         // Back from the AI 브라우저: the left page shows it as it was left (the picture is written a moment after).
         main.postDelayed(this::pushLeftShot, 500);
+        homeShotSoon();
         NoticeListener.changed = badgesChanged; NoticeListener.deliveryChanged = deliveryChanged;
         main.removeCallbacks(refresh); if (ready) { refresh.run(); pushBadges(); if (web != null) web.evaluateJavascript("launcher.shown&&launcher.shown()", null); }
         BuddyVoice talk = BuddyVoice.current(); if (talk != null) talk.attach(talkShown, talkUnlock);
@@ -401,6 +418,7 @@ public final class HomeActivity extends Activity {
      * there, the home screen in front; once in a while at most, so a bounce does not open it twice.
      */
     private void leftMoved(float pages, boolean settled, boolean covered) {
+        if (settled && !covered && Math.abs(pages - 1) < .02f) homeShotSoon(); else main.removeCallbacks(takeHomeShot);
         if (!leftSwipe.opens(pages, settled, covered) || !resumed || !ClaudePage.on(prefs)) return;
         long now = android.os.SystemClock.uptimeMillis(); if (now - leftOpened < 1500) return;
         openLeft();

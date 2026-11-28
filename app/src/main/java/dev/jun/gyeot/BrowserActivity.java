@@ -188,6 +188,11 @@ public final class BrowserActivity extends Activity {
         updatePaneVisibility();
         installBrowserContent(root);
         homeEdge = new HomeEdge(this, ui, this::toHome); homeEdge.attach(findViewById(android.R.id.content)); fromHome(getIntent());
+        homeEdge.follow(new HomeEdge.Drag() {
+            @Override public boolean begin() { return slideBegin(); }
+            @Override public void move(float dx) { slideMove(dx); }
+            @Override public void end(boolean home) { slideEnd(home); }
+        });
         bindDraftScope();
     }
     /** Browser owns the full safe viewport; app navigation remains available through Home. */
@@ -534,7 +539,7 @@ public final class BrowserActivity extends Activity {
         try { view.capturePixels().accept(bitmap -> done.accept(bitmap, at), failure -> done.accept(null, null)); }
         catch (RuntimeException failed) { done.accept(null, null); }
     }
-    @Override protected void onStart() { super.onStart(); coverWithShot(); }
+    @Override protected void onStart() { super.onStart(); slideReset(); coverWithShot(); }
     @Override protected void onResume() { super.onResume(); if (voice != null) voice.attach(); navigationResumed = true; AppNavigator.browserInFront(true); AppNavigator.inFront("browser"); updateAiToolbarState(); engine.attach(this::refresh, prompts); engine.externalAppLink = this::offerYouTube; engine.appLink = this::openAppLink; engine.store.observe(storeObserver); consumeTaskNotification(); consumeOpen(); consumeReview(); consumeQuestion(); acknowledgeNavigation(); }
     @Override protected void onPause() {
         // Left by the phone's home button or a swipe home: the left page shows this screen as it was (keepShot).
@@ -681,6 +686,52 @@ public final class BrowserActivity extends Activity {
         if (shotCover.getParent() == null) content.addView(shotCover, new FrameLayout.LayoutParams(-1, -1));
         android.widget.ImageView cover = shotCover;
         cover.postDelayed(() -> cover.animate().alpha(0f).setDuration(160).withEndAction(() -> { android.view.ViewParent parent = cover.getParent(); if (parent instanceof android.view.ViewGroup g) g.removeView(cover); }).start(), 380);
+    }
+    // ── the swipe back to 홈, under the finger (준: "Ai브라우저에서 우측 홈으로 돌아갈때 슬라이드 방식으로 전환되게해줘") ──
+    private android.widget.ImageView homeCover; private View slid;
+    /** This screen will move with the finger and 홈's picture comes in at its right; false without a picture of 홈. */
+    private boolean slideBegin() {
+        android.graphics.Bitmap home = HomeActivity.homeShot;
+        android.view.ViewGroup content = findViewById(android.R.id.content);
+        if (home == null || content == null || content.getChildCount() == 0) return false;
+        keepShot(null); // the left page shows this screen as it is now, before it moves
+        slid = content.getChildAt(0);
+        if (homeCover == null) { homeCover = new android.widget.ImageView(this); homeCover.setScaleType(android.widget.ImageView.ScaleType.FIT_XY); homeCover.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); homeCover.setElevation(ui.dp(2)); }
+        homeCover.animate().cancel(); homeCover.setImageBitmap(home);
+        if (homeCover.getParent() == null) content.addView(homeCover, new FrameLayout.LayoutParams(-1, -1));
+        homeCover.setTranslationX(content.getWidth()); homeEdge.handle.setVisibility(View.INVISIBLE);
+        return true;
+    }
+    private void slideMove(float dx) {
+        if (slid == null || homeCover == null) return;
+        int width = slid.getWidth();
+        slid.setTranslationX(dx); homeCover.setTranslationX(width + dx);
+    }
+    /** Let go: on to 홈 (the rest of the way, then 홈 itself, the same picture, with no animation of its own), or back. */
+    private void slideEnd(boolean home) {
+        if (slid == null || homeCover == null) return;
+        View page = slid; android.widget.ImageView cover = homeCover; int width = page.getWidth();
+        float left = width + page.getTranslationX(); long ms = Math.max(90, Math.min(240, Math.round(240 * (home ? left : width - left) / Math.max(1f, width))));
+        android.view.animation.Interpolator ease = new android.view.animation.DecelerateInterpolator(1.6f);
+        if (home) {
+            page.animate().translationX(-width).setDuration(ms).setInterpolator(ease).start();
+            cover.animate().translationX(0).setDuration(ms).setInterpolator(ease).withEndAction(() -> {
+                saveDraft(); if (dictation != null) dictation.cancel();
+                android.content.Intent go = new android.content.Intent(this, HomeActivity.class).putExtra(HomeActivity.PAGE, "홈").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                try { startActivity(go, android.app.ActivityOptions.makeCustomAnimation(this, 0, 0).toBundle()); overridePendingTransition(0, 0); }
+                catch (RuntimeException none) { moveTaskToBack(true); }
+            }).start();
+        } else {
+            page.animate().translationX(0).setDuration(ms).setInterpolator(ease).start();
+            cover.animate().translationX(width).setDuration(ms).setInterpolator(ease).withEndAction(this::slideReset).start();
+        }
+    }
+    /** Everything back in its place (after 홈 covered this screen, or after springing back). */
+    private void slideReset() {
+        if (slid != null) { slid.animate().cancel(); slid.setTranslationX(0); }
+        if (homeCover != null) { homeCover.animate().cancel(); android.view.ViewParent p = homeCover.getParent(); if (p instanceof android.view.ViewGroup g) g.removeView(homeCover); }
+        if (homeEdge != null && homeEdge.on()) homeEdge.handle.setVisibility(View.VISIBLE);
+        slid = null;
     }
     /** Touches go to the right edge's swipe first, when this screen came from the home screen (HomeEdge). */
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
@@ -1405,9 +1456,44 @@ public final class BrowserActivity extends Activity {
                 if (data.getClipData() != null) for (int i = 0; i < data.getClipData().getItemCount(); i++) { android.net.Uri u = data.getClipData().getItemAt(i).getUri(); if (u != null) picked.add(u); }
                 else if (data.getData() != null) picked.add(data.getData());
             }
-            try { answer.complete(picked.isEmpty() ? p.dismiss() : picked.size() == 1 ? p.confirm(this, picked.get(0)) : p.confirm(this, picked.toArray(new android.net.Uri[0]))); }
-            catch (RuntimeException unreadable) { answer.complete(p.dismiss()); toast("고른 파일을 페이지에 넣지 못했어요."); }
+            if (picked.isEmpty()) { answer.complete(p.dismiss()); return; }
+            // Gecko reads a file the page is given from a path of its own, not through Android's content links (준: "파일 첨부는
+            // 여전히 안돼": the picker opened, the file never reached the page): each picked file is copied into this app's cache,
+            // under its own name, off the main thread, and the page gets those files (as Firefox does).
+            android.content.Context app = getApplicationContext();
+            if (picked.size() > 0) toast(picked.size() == 1 ? "파일을 준비하고 있어요…" : "파일 " + picked.size() + "개를 준비하고 있어요…");
+            new Thread(() -> {
+                java.util.List<android.net.Uri> files = new java.util.ArrayList<>();
+                for (android.net.Uri u : picked) { android.net.Uri f = uploadCopy(app, u); if (f != null) files.add(f); }
+                runOnUiThread(() -> {
+                    try { answer.complete(files.isEmpty() ? p.dismiss() : files.size() == 1 ? p.confirm(app, files.get(0)) : p.confirm(app, files.toArray(new android.net.Uri[0]))); }
+                    catch (RuntimeException unreadable) { answer.complete(p.dismiss()); toast("고른 파일을 페이지에 넣지 못했어요."); return; }
+                    if (files.size() < picked.size()) toast("파일 " + (picked.size() - files.size()) + "개는 읽지 못했어요.");
+                });
+            }, "gyeot-browser-upload").start();
         }
+    }
+    /**
+     * A picked file (content://) as a file of this app's own, under its own name, for a page's upload: cache/uploads/<id>/<name>.
+     * Uploads older than a day are cleared first. null when it cannot be read.
+     */
+    static android.net.Uri uploadCopy(android.content.Context c, android.net.Uri picked) {
+        if ("file".equals(picked.getScheme())) return picked;
+        java.io.File base = new java.io.File(c.getCacheDir(), "uploads");
+        java.io.File[] old = base.listFiles(); long day = System.currentTimeMillis() - 86_400_000L;
+        if (old != null) for (java.io.File d : old) if (d.lastModified() < day) { java.io.File[] inside = d.listFiles(); if (inside != null) for (java.io.File f : inside) f.delete(); d.delete(); }
+        String name = "file";
+        try (android.database.Cursor q = c.getContentResolver().query(picked, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (q != null && q.moveToFirst() && !q.isNull(0)) name = q.getString(0);
+        } catch (RuntimeException unnamed) { /* "file" */ }
+        name = name.replaceAll("[\\\\/:*?\"<>|\\u0000-\\u001f]", "_").strip(); if (name.isEmpty() || name.equals(".") || name.equals("..")) name = "file";
+        java.io.File dir = new java.io.File(base, java.util.UUID.randomUUID().toString()); if (!dir.mkdirs()) return null;
+        java.io.File out = new java.io.File(dir, name);
+        try (java.io.InputStream in = c.getContentResolver().openInputStream(picked); java.io.OutputStream o = new java.io.FileOutputStream(out)) {
+            if (in == null) return null;
+            byte[] buf = new byte[256 * 1024]; for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
+        } catch (Exception unreadable) { out.delete(); dir.delete(); return null; }
+        return android.net.Uri.fromFile(out);
     }
     /** The line under the composer: the browser AI's model in bold, its thinking level beside it (ModelLine). */
     private void showModel() {

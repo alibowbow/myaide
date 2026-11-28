@@ -26,8 +26,16 @@ final class HomeEdge {
     private final Activity activity; private final Ui ui; private final Runnable home;
     /** The kept stretch of the edge with its handle (drawn in the middle), over the browser's content; touches pass through it. */
     final View handle;
-    private boolean on, tracking, taken;
-    private float x0, y0;
+    private boolean on, tracking, taken, following;
+    private float x0, y0, lastDx; private long lastAt; private float speed;
+    /**
+     * The swipe followed under the finger (준: "Ai브라우저에서 우측 홈으로 돌아갈때 슬라이드 방식으로 전환되게해줘"): begin when it is
+     * clearly a swipe (false: no picture of the home screen to slide in, the swipe then goes 홈 at FAR as before), move with
+     * how far left it is, end with whether it goes 홈 (a third of the screen, or a quick fling) or springs back.
+     */
+    interface Drag { boolean begin(); void move(float dx); void end(boolean home); }
+    private Drag drag;
+    void follow(Drag drag) { this.drag = drag; }
     /** For the screen tests: how often the swipe went 홈. */
     int homes;
 
@@ -71,10 +79,24 @@ final class HomeEdge {
                 return false;
             }
             case MotionEvent.ACTION_MOVE -> {
-                if (taken) return true;
-                if (!tracking) return false;
                 float dx = e.getRawX() - x0, dy = Math.abs(e.getRawY() - y0);
+                if (taken) {
+                    if (following) {
+                        long now = e.getEventTime(); if (now > lastAt) { speed = (dx - lastDx) / (now - lastAt); lastAt = now; lastDx = dx; }
+                        drag.move(Math.min(0, dx));
+                    }
+                    return true;
+                }
+                if (!tracking) return false;
                 if (dy > ui.dp(24) && dy > -dx) { tracking = false; return false; }
+                // Clearly sideways and leftward: from here the screen follows the finger (when it can).
+                if (drag != null && -dx >= ui.dp(14) && -dx > dy * 1.5f && drag.begin()) {
+                    tracking = false; taken = true; following = true; lastDx = dx; lastAt = e.getEventTime(); speed = 0;
+                    MotionEvent cancel = MotionEvent.obtain(e); cancel.setAction(MotionEvent.ACTION_CANCEL);
+                    try { pass.accept(cancel); } finally { cancel.recycle(); }
+                    drag.move(dx);
+                    return true;
+                }
                 if (-dx >= ui.dp(FAR) && -dx > dy * 2) {
                     tracking = false; taken = true;
                     MotionEvent cancel = MotionEvent.obtain(e); cancel.setAction(MotionEvent.ACTION_CANCEL);
@@ -85,7 +107,15 @@ final class HomeEdge {
                 return false;
             }
             case MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                boolean was = taken; tracking = taken = false; return was;
+                boolean was = taken;
+                if (following) {
+                    float dx = e.getRawX() - x0;
+                    // 홈 when a third of the way, or flung left quickly (over half a screen a second) past a small start.
+                    boolean go = e.getActionMasked() == MotionEvent.ACTION_UP && (-dx >= width / 3f || speed < -0.5f * ui.dp(1) && -dx >= ui.dp(40));
+                    if (go) homes++;
+                    drag.end(go);
+                }
+                tracking = taken = following = false; return was;
             }
             default -> { return taken; }
         }

@@ -188,6 +188,45 @@ public class ClaudePageTests {
         assertFalse("the next touch is the page's again", edge.touch(touch(MotionEvent.ACTION_DOWN, w / 2f, y, 400), pass));
     }
 
+    /** 준: "Ai브라우저에서 우측 홈으로 돌아갈때 슬라이드 방식으로 전환되게해줘": the screen follows the finger; a third goes 홈, less springs back. */
+    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void theSwipeBackFollowsTheFinger() throws Exception {
+        Activity a = Robolectric.buildActivity(Activity.class).setup().get();
+        FrameLayout page = new FrameLayout(a); a.setContentView(page);
+        Ui ui = new Ui(a); int[] homes = {0};
+        HomeEdge edge = new HomeEdge(a, ui, () -> homes[0]++); edge.attach(a.findViewById(android.R.id.content)); edge.on(true);
+        List<Float> moves = new ArrayList<>(); List<Boolean> ends = new ArrayList<>();
+        edge.follow(new HomeEdge.Drag() {
+            @Override public boolean begin() { return true; }
+            @Override public void move(float dx) { moves.add(dx); }
+            @Override public void end(boolean home) { ends.add(home); }
+        });
+        layout(a);
+        int w = a.getWindow().getDecorView().getWidth(), h = a.getWindow().getDecorView().getHeight(); float d = a.getResources().getDisplayMetrics().density, x = w - 6 * d, y = h / 2f;
+        java.util.function.Consumer<MotionEvent> pass = e -> {};
+        // A short drag: it follows from the first clear sideways move, then springs back.
+        assertFalse(edge.touch(touch(MotionEvent.ACTION_DOWN, x, y, 0), pass));
+        assertTrue("followed at once (not only past FAR)", edge.touch(touch(MotionEvent.ACTION_MOVE, x - 20 * d, y, 300), pass));
+        assertTrue(edge.touch(touch(MotionEvent.ACTION_MOVE, x - 60 * d, y, 600), pass));
+        assertTrue(edge.touch(touch(MotionEvent.ACTION_UP, x - 60 * d, y, 900), pass));
+        assertEquals("with the finger", -60 * d, moves.get(moves.size() - 1), 1);
+        assertEquals("less than a third, slowly: back", List.of(false), ends);
+        // Past a third: 홈.
+        moves.clear(); ends.clear();
+        edge.touch(touch(MotionEvent.ACTION_DOWN, x, y, 2000), pass);
+        edge.touch(touch(MotionEvent.ACTION_MOVE, x - 30 * d, y, 2100), pass);
+        edge.touch(touch(MotionEvent.ACTION_MOVE, x - w * 0.45f, y, 2400), pass);
+        edge.touch(touch(MotionEvent.ACTION_UP, x - w * 0.45f, y, 2500), pass);
+        assertEquals(List.of(true), ends);
+        // A quick fling, short: 홈 too.
+        ends.clear();
+        edge.touch(touch(MotionEvent.ACTION_DOWN, x, y, 4000), pass);
+        edge.touch(touch(MotionEvent.ACTION_MOVE, x - 20 * d, y, 4010), pass);
+        edge.touch(touch(MotionEvent.ACTION_MOVE, x - 70 * d, y, 4030), pass);
+        edge.touch(touch(MotionEvent.ACTION_UP, x - 70 * d, y, 4040), pass);
+        assertEquals("flung", List.of(true), ends);
+        assertEquals("the old jump never ran while following", 0, homes[0]);
+    }
+
     /** 화면 꾸미기: one row for the left page, its switch at the end, as small as the other rows. */
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void decorSwitchIsCompact() throws Exception {
         Application app = RuntimeEnvironment.getApplication();
