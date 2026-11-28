@@ -455,8 +455,14 @@
     }
   }
   let originalZoom, originalZoomPriority, baseZoom = 1;
-  function pageZoom(percent) {
-    if (!Number.isInteger(percent) || percent < 50 || percent > 200) throw Error('확대 비율은 50~200%예요.');
+  // Page zoom as Chrome does it (준: "같은 페이지배율 80퍼 보기인데 크롬에 비해 우리껀 너무 엉성해"): a mobile page is laid out
+  // for a screen wider (or narrower) by the zoom and drawn to fit, through the page's own viewport line, so 100vh still fills
+  // the screen and nothing is cut at the side; CSS zoom (the page shrunk as drawn, its full-height parts short and its side
+  // panels cut) is kept only for 데스크톱 보기, where the viewport line is not read. The site's own line comes back at 100%
+  // and is put back to ours when the page rewrites it.
+  let zoomOriginalMeta, zoomContent = '', zoomWatch = null;
+  function viewportMeta() { return document.querySelector('meta[name="viewport"]'); }
+  function cssZoom(percent) {
     const root = document.documentElement;
     if (!root || !CSS.supports('zoom', '1')) throw Error('이 페이지는 확대·축소를 지원하지 않아요.');
     if (originalZoom === undefined) {
@@ -470,6 +476,37 @@
       if (originalZoom) root.style.setProperty('zoom', originalZoom, originalZoomPriority);
       else root.style.removeProperty('zoom');
     } else root.style.setProperty('zoom', String(baseZoom * percent / 100), 'important');
+  }
+  function viewportZoom(percent) {
+    let meta = viewportMeta();
+    if (zoomOriginalMeta === undefined) zoomOriginalMeta = meta ? meta.getAttribute('content') || '' : null;
+    if (zoomWatch) { zoomWatch.disconnect(); zoomWatch = null; }
+    if (percent === 100) {
+      zoomContent = '';
+      if (zoomOriginalMeta === null) { if (meta && meta.dataset.gyeotZoom) meta.remove(); }
+      else if (meta) meta.setAttribute('content', zoomOriginalMeta);
+      return;
+    }
+    if (!meta) { meta = document.createElement('meta'); meta.name = 'viewport'; meta.dataset.gyeotZoom = '1'; (document.head || document.documentElement).appendChild(meta); }
+    const scale = percent / 100, wide = Math.round((screen.width || innerWidth) / scale);
+    // The site's own parts that are not about size stay (viewport-fit, interactive-widget …).
+    const keep = String(zoomOriginalMeta || '').split(',').map(x => x.trim()).filter(x => x && !/^(width|height|initial-scale|minimum-scale|maximum-scale|user-scalable)\s*=/i.test(x));
+    zoomContent = ['width=' + wide, 'initial-scale=' + scale, 'minimum-scale=' + Math.min(scale, 0.25), 'user-scalable=yes'].concat(keep).join(', ');
+    meta.setAttribute('content', zoomContent);
+    // A page that writes its own viewport line again (a single-page app moving on) gets ours back.
+    zoomWatch = new MutationObserver(() => {
+      if (!zoomContent) return;
+      let m = viewportMeta();
+      if (!m) { m = document.createElement('meta'); m.name = 'viewport'; m.dataset.gyeotZoom = '1'; (document.head || document.documentElement).appendChild(m); }
+      if (m.getAttribute('content') !== zoomContent) m.setAttribute('content', zoomContent);
+    });
+    zoomWatch.observe(document.head || document.documentElement, {subtree: true, childList: true, attributes: true, attributeFilter: ['content', 'name']});
+  }
+  function pageZoom(percent, desktop) {
+    if (!Number.isInteger(percent) || percent < 25 || percent > 300) throw Error('확대 비율은 25~300%예요.');
+    if (!document.documentElement) throw Error('이 페이지는 확대·축소를 지원하지 않아요.');
+    if (desktop) { if (zoomContent) viewportZoom(100); cssZoom(percent); }
+    else { if (originalZoom !== undefined) cssZoom(100); viewportZoom(percent); }
     refs = new Map(); revision++;
   }
   // 마이튜브's player (only when the app asks, in its own player session): the page shows only the video (mytube.css under
@@ -629,7 +666,7 @@
   connection.onMessage.addListener(async message => {
     if (Object.hasOwn(message, 'mytube')) { mytube(message.mytube, connection); return; }
     if (Object.hasOwn(message, 'page_zoom')) {
-      try { pageZoom(message.page_zoom); connection.postMessage({page_zoom:true,ok:true,percent:message.page_zoom}); }
+      try { pageZoom(message.page_zoom, !!message.desktop); connection.postMessage({page_zoom:true,ok:true,percent:message.page_zoom}); }
       catch(e) { connection.postMessage({page_zoom:true,ok:false,error:tidy(e.message,250)}); }
       return;
     }

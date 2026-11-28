@@ -1009,7 +1009,9 @@ final class BrowserEngine {
         changed();
         return true;
     }
-    static int clampZoom(int percent) { return Math.max(50, Math.min(200, percent)); }
+    static int clampZoom(int percent) { return Math.max(ZOOM_LEAST, Math.min(ZOOM_MOST, percent)); }
+    /** Page zoom from a quarter to three times (as wide as Chrome's, a little wider at the small end). */
+    static final int ZOOM_LEAST = 25, ZOOM_MOST = 300;
     /** Page layout zoom, separate from system font scale and pinch zoom. Never reloads forms. */
     void setZoom(Tab tab, int percent) {
         if (tab == null || !tabs.contains(tab)) return;
@@ -1017,7 +1019,7 @@ final class BrowserEngine {
     }
     private void applyZoom(Tab tab) {
         if (tab.port == null) return;
-        try { tab.port.postMessage(obj("page_zoom", tab.zoomPercent)); }
+        try { tab.port.postMessage(obj("page_zoom", tab.zoomPercent, "desktop", tab.desktop)); }
         catch (Exception e) { if (tab == current) status = "페이지 연결 뒤 확대·축소를 다시 적용할게요."; }
     }
 

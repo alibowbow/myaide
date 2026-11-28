@@ -1187,12 +1187,12 @@ public final class BrowserActivity extends Activity {
         Runnable updateZoom = () -> {
             zoomNotice.setText(tab.zoomFailed ? "이 페이지에서는 배율을 적용하지 못했어요." : tab.appliedZoom != tab.zoomPercent ? tab.zoomPercent + "% 적용 대기 · 페이지 연결 후 적용돼요." : "적용됨 · 배율을 누르면 100%로 돌아가요.");
             reset.setText(tab.zoomPercent + "%"); reset.setContentDescription("페이지 배율 " + tab.zoomPercent + "퍼센트, 눌러서 100퍼센트로 초기화");
-            smaller.setEnabled(tab.zoomPercent > 50); larger.setEnabled(tab.zoomPercent < 200);
+            smaller.setEnabled(tab.zoomPercent > BrowserEngine.ZOOM_LEAST); larger.setEnabled(tab.zoomPercent < BrowserEngine.ZOOM_MOST);
             smaller.setAlpha(smaller.isEnabled() ? 1f : .38f); larger.setAlpha(larger.isEnabled() ? 1f : .38f);
         };
-        smaller.setOnClickListener(v -> { engine.setZoom(tab, Math.max(50, tab.zoomPercent - 10)); updateZoom.run(); });
+        smaller.setOnClickListener(v -> { engine.setZoom(tab, Math.max(BrowserEngine.ZOOM_LEAST, tab.zoomPercent - 10)); updateZoom.run(); });
         reset.setOnClickListener(v -> { engine.setZoom(tab, 100); updateZoom.run(); });
-        larger.setOnClickListener(v -> { engine.setZoom(tab, Math.min(200, tab.zoomPercent + 10)); updateZoom.run(); });
+        larger.setOnClickListener(v -> { engine.setZoom(tab, Math.min(BrowserEngine.ZOOM_MOST, tab.zoomPercent + 10)); updateZoom.run(); });
         for (Button button : new Button[]{smaller, reset, larger}) { button.setTextSize(14); button.setBackground(ui.shape(FILL, 10)); zoomButtons.addView(button, new LinearLayout.LayoutParams(0, ui.dp(48), 1)); }
         zoomMenuRefresh = updateZoom;
         sheet.setOnDismissListener(d -> { if (zoomMenuRefresh == updateZoom) zoomMenuRefresh = null; dialogs.remove(sheet); });
