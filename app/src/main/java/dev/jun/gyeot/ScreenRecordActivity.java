@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.app.NotificationManager;
 import android.content.ActivityNotFoundException;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -23,6 +24,7 @@ import android.view.Window;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 import dev.jun.gyeot.core.ScreenRecordPlan;
@@ -38,8 +40,9 @@ import java.util.List;
  * closes. When a recording is already on, it stops it instead. Only one asks at a time: a second tap while the first one's
  * sheet or prompt shows closes at once, so the user never gets two consent prompts.
  *
- * Samsung's 부분 화면 and 누른 위치 표시 are left out: a part of the screen would need a crop on the way into the encoder, and
- * showing touches is a system setting an app cannot switch.
+ * Samsung's 부분 화면 is left out (a part of the screen would need a crop on the way into the encoder). Its 누른 위치 표시 is
+ * a switch under the sound: Android's own is a setting an app cannot switch, so 들퍼레 draws its own circles (TouchMarks),
+ * where 폰 조작 says a view was pressed; without 폰 조작 the line says so and opens it in one tap.
  *
  * The home screen's 녹음하기 opens it as AUDIO: the microphone asked as the app's 녹음 asks it, then 녹음 starts.
  */
@@ -53,6 +56,8 @@ public final class ScreenRecordActivity extends Activity {
     /** The start sheet while it shows (tests). */
     Dialog sheet;
     private ScreenRecordPlan.Sound chosen;
+    /** 누른 위치 표시 as chosen on the sheet. */
+    private boolean touches;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -77,9 +82,11 @@ public final class ScreenRecordActivity extends Activity {
 
     private void startSheet() {
         SharedPreferences settings = ((GyeotApp) getApplication()).store().settings;
-        Ui ui = new Ui(this);
+        // The see-through window's theme is a bare one: the sheet is built in the phone's own (its switch as everywhere else).
+        android.content.Context themed = new android.view.ContextThemeWrapper(this, android.R.style.Theme_DeviceDefault_DayNight);
+        Ui ui = new Ui(themed);
         chosen = ScreenRecordService.sound(settings);
-        Dialog d = new Dialog(this);
+        Dialog d = new Dialog(themed);
         d.requestWindowFeature(Window.FEATURE_NO_TITLE);
         LinearLayout body = ui.column();
         body.setPadding(ui.dp(22), ui.dp(20), ui.dp(22), ui.dp(6));
@@ -95,12 +102,12 @@ public final class ScreenRecordActivity extends Activity {
         for (int i = 0; i < SOUNDS.length; i++) {
             ScreenRecordPlan.Sound sound = SOUNDS[i];
             LinearLayout option = ui.column(); option.setGravity(Gravity.CENTER_HORIZONTAL); option.setPadding(0, ui.dp(4), 0, ui.dp(4));
-            ImageView icon = new ImageView(this); icon.setImageResource(ICONS[i]);
+            ImageView icon = new ImageView(themed); icon.setImageResource(ICONS[i]);
             option.addView(icon, new LinearLayout.LayoutParams(ui.dp(28), ui.dp(28)));
             TextView name = ui.text(sound.label, 13, 600, Ui.TEXT); name.setPadding(0, ui.dp(6), 0, ui.dp(8)); name.setSingleLine(true);
             name.setGravity(Gravity.CENTER_HORIZONTAL);
             option.addView(name, new LinearLayout.LayoutParams(-1, -2));
-            FrameLayout radio = new FrameLayout(this);
+            FrameLayout radio = new FrameLayout(themed);
             option.addView(radio, new LinearLayout.LayoutParams(ui.dp(20), ui.dp(20)));
             option.setContentDescription("녹음할 오디오 " + sound.label);
             option.setTag(sound);
@@ -111,11 +118,25 @@ public final class ScreenRecordActivity extends Activity {
         }
         for (LinearLayout o : options) mark(ui, o);
         body.addView(row);
+        // 누른 위치 표시 (준: "녹화하기에 누른곳 표시하기 기능이 없어"): one line with a switch, as Samsung's. 폰 조작 tells where a view
+        // was pressed (Android's own show_touches cannot be switched by an app), so it needs 폰 조작, and the circle is roughly there.
+        boolean phone = PhoneService.connected();
+        touches = phone && TouchMarks.wanted(settings);
+        TextView touchNote = ui.text(phone ? "누른 곳은 대략적으로 보여요" : "폰 조작이 필요해요 · 켜기 ›", 12, phone ? 450 : 600, phone ? Ui.MUTED : Ui.ACCENT);
+        Switch touch = ui.toggle("누른 위치 표시", touches, on -> { touches = on; touchNote.setVisibility(on ? View.VISIBLE : View.GONE); });
+        touch.setShowText(false); touch.setTextSize(14); touch.setTypeface(Ui.weight(650)); touch.setPadding(0, ui.dp(10), 0, ui.dp(2)); touch.setEnabled(phone);
+        body.addView(touch, new LinearLayout.LayoutParams(-1, -2));
+        touchNote.setVisibility(!phone || touches ? View.VISIBLE : View.GONE);
+        if (!phone) {
+            touchNote.setPadding(0, ui.dp(2), 0, ui.dp(6)); Ui.pressable(touchNote, true);
+            touchNote.setOnClickListener(v -> { d.cancel(); phoneControl(); });
+        }
+        body.addView(touchNote);
         LinearLayout buttons = ui.row(); buttons.setPadding(0, ui.dp(12), 0, 0);
         TextView cancel = ui.text("취소", 15, 650, Ui.ACCENT), go = ui.text("녹화 시작", 15, 700, Ui.ACCENT);
         for (TextView b : new TextView[]{cancel, go}) { b.setGravity(Gravity.CENTER); b.setMinHeight(ui.dp(44)); Ui.pressable(b, true); }
         buttons.addView(cancel, new LinearLayout.LayoutParams(0, -2, 1));
-        View divider = new View(this); divider.setBackgroundColor(Ui.SEPARATOR);
+        View divider = new View(themed); divider.setBackgroundColor(Ui.SEPARATOR);
         buttons.addView(divider, new LinearLayout.LayoutParams(ui.dp(1), ui.dp(18)));
         buttons.addView(go, new LinearLayout.LayoutParams(0, -2, 1));
         body.addView(buttons);
@@ -143,7 +164,7 @@ public final class ScreenRecordActivity extends Activity {
         radio.setBackground(ring);
         radio.removeAllViews();
         if (on) {
-            View dot = new View(this); GradientDrawable fill = new GradientDrawable(); fill.setShape(GradientDrawable.OVAL); fill.setColor(Ui.ACCENT); dot.setBackground(fill);
+            View dot = new View(option.getContext()); GradientDrawable fill = new GradientDrawable(); fill.setShape(GradientDrawable.OVAL); fill.setColor(Ui.ACCENT); dot.setBackground(fill);
             radio.addView(dot, new FrameLayout.LayoutParams(ui.dp(10), ui.dp(10), Gravity.CENTER));
         }
         option.setSelected(on);
@@ -155,7 +176,14 @@ public final class ScreenRecordActivity extends Activity {
     private void begin(ScreenRecordPlan.Sound sound) {
         sheet = null;
         SharedPreferences settings = ((GyeotApp) getApplication()).store().settings;
-        settings.edit().putString(ScreenRecordService.SOUND, sound.name()).apply();
+        settings.edit().putString(ScreenRecordService.SOUND, sound.name()).putBoolean(TouchMarks.SETTING, touches).apply();
+        // Once: what Android says to an app writing its own 누른 위치 표시 (show_touches), noted for the phone's log.
+        if (touches && !settings.getBoolean("showTouchesTried", false)) {
+            settings.edit().putBoolean("showTouchesTried", true).apply();
+            android.content.Context app = getApplicationContext();
+            Thread t = new Thread(() -> DiagnosticsExport.record(app, "video", "누른 위치 표시 · Android의 show_touches 쓰기: " + TouchMarks.systemShowTouches(app)), "show-touches");
+            t.setDaemon(true); t.start();
+        }
         RecordControl.endVoice(this);
         List<String> missing = new ArrayList<>();
         if (sound.needsRecordPermission() && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
@@ -168,6 +196,18 @@ public final class ScreenRecordActivity extends Activity {
         ask();
     }
 
+    /**
+     * 폰 조작 off: Android's accessibility settings in one tap, with 들퍼레 폰 조작 pointed out in the list (its own page is a
+     * system-only screen).
+     */
+    private void phoneControl() {
+        String entry = new ComponentName(this, PhoneService.class).flattenToString();
+        Bundle args = new Bundle(); args.putString(":settings:fragment_args_key", entry);
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS).putExtra(":settings:fragment_args_key", entry)
+                .putExtra(":settings:show_fragment_args", args).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (RuntimeException none) { Toast.makeText(this, "휴대폰 설정 → 접근성에서 ‘들퍼레 폰 조작’을 켜 주세요", Toast.LENGTH_LONG).show(); }
+    }
     /** 녹음하기 from the home screen: the microphone first when it is not allowed yet, then 녹음 starts (in AssistantService). */
     private void audio() {
         if (((GyeotApp) getApplication()).store().recording) { RecordControl.act(this, RecordControl.AUDIO_STOP); close(); return; }

@@ -537,6 +537,13 @@ public final class PhoneService extends AccessibilityService {
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
         // Window changes only invalidate references; event contents are neither kept nor sent.
         int type = event.getEventType();
+        // 누른 위치 표시 while a screen recording asks for it: where a view was pressed or scrolled (its bounds), nothing else.
+        if (touchWatch && (type == AccessibilityEvent.TYPE_VIEW_CLICKED || type == AccessibilityEvent.TYPE_VIEW_LONG_CLICKED || type == AccessibilityEvent.TYPE_VIEW_SCROLLED)) {
+            try {
+                AccessibilityNodeInfo node = event.getSource();
+                if (node != null) { Rect bounds = new Rect(); node.getBoundsInScreen(bounds); touched(type, event.getPackageName(), getPackageName(), bounds, event.getScrollDeltaX(), event.getScrollDeltaY()); }
+            } catch (RuntimeException ignored) { /* no circle for this one */ }
+        }
         if (gate.armed() && (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED)) {
             lastWindowChange = SystemClock.uptimeMillis(); invalidate();
         }
@@ -618,6 +625,35 @@ public final class PhoneService extends AccessibilityService {
                 @Override public void onFailure(int code) { main.post(() -> done.accept(null, ScreenView.failure(code))); }
             });
         } catch (RuntimeException refused) { main.post(() -> done.accept(null, "화면을 캡처하지 못했어요")); }
+    }
+
+    // ── 누른 위치 표시 (TouchMarks) ───────────────────────────────────────
+    /** Whether a screen recording with 누른 위치 표시 asks where views are pressed and scrolled (main thread). */
+    private boolean touchWatch;
+    /** On while such a recording is on, off after: the press and scroll events are asked for only meanwhile. */
+    static void watchTouches(boolean on) {
+        PhoneService service = instance;
+        if (service != null) service.main.post(() -> service.watchTouchesNow(on));
+    }
+    private void watchTouchesNow(boolean on) {
+        if (touchWatch == on) return;
+        touchWatch = on;
+        try {
+            android.accessibilityservice.AccessibilityServiceInfo info = getServiceInfo();
+            if (info == null) return;
+            int extra = AccessibilityEvent.TYPE_VIEW_CLICKED | AccessibilityEvent.TYPE_VIEW_LONG_CLICKED | AccessibilityEvent.TYPE_VIEW_SCROLLED;
+            // The service's own types are window ones (phone_service.xml), so taking these off again leaves them as they were.
+            info.eventTypes = on ? info.eventTypes | extra : info.eventTypes & ~extra;
+            setServiceInfo(info);
+        } catch (RuntimeException refused) { touchWatch = false; }
+    }
+    /**
+     * A view pressed, long-pressed or scrolled (its bounds on the screen) while 누른 위치 표시 records: a circle at its middle,
+     * a short trail for a scroll (TouchMarks). Never for 들퍼레's own windows (the recording's controls).
+     */
+    static void touched(int type, CharSequence pkg, String own, Rect bounds, int dx, int dy) {
+        if (pkg != null && own != null && own.contentEquals(pkg)) return;
+        if (type == AccessibilityEvent.TYPE_VIEW_SCROLLED) TouchMarks.scrolled(bounds, dx, dy); else TouchMarks.pressed(bounds);
     }
 
     // ── 녹화 (RecordBubble) ─────────────────────────────────────────────
