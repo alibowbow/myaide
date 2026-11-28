@@ -151,7 +151,12 @@
         <activity android:name=".ProjectActivity" android:exported="false" android:windowSoftInputMode="adjustResize" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
         <activity android:name=".BoardActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <!-- finishOnTaskLaunch: kept behind the home screen for the left page's quick return, closed when the app is opened from its icon. -->
-        <activity android:name=".BrowserActivity" android:exported="false" android:launchMode="singleTop" android:finishOnTaskLaunch="true" android:windowSoftInputMode="adjustResize" />
+        <!-- Opened as a new task (from the home screen's left page, its notifications, 퍼레), the AI 브라우저 is a task of its own
+             (dev.jun.gyeot.browser), not on top of the app's main screen: what is behind it is the home screen, so the swipe back
+             can make it see-through and leave with 홈 already there (BrowserActivity.seeThrough), and the 들퍼레 icon still opens
+             the main screen. Opened from inside the app (no new task) it sits in the app's task as before. -->
+        <activity android:name=".BrowserActivity" android:exported="false" android:launchMode="singleTop" android:finishOnTaskLaunch="true" android:windowSoftInputMode="adjustResize"
+            android:taskAffinity="dev.jun.gyeot.browser" />
         <!-- Explicit navigation, shortcut and sign-in intents keep a single main window. -->
         <activity android:name=".MainChatActivity" android:exported="true" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask"

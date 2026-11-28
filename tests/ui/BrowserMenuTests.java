@@ -38,6 +38,17 @@ public class BrowserMenuTests {
         try (FileOutputStream out = new FileOutputStream(new File(dir, name + ".png"))) { b.compress(Bitmap.CompressFormat.PNG, 100, out); }
     }
 
+    /**
+     * Opened as a new task (the home screen's left page, notifications, 퍼레), the browser is a task of its own, so what is
+     * behind it is the home screen and the swipe back can make it see-through over 홈 (not over the app's main screen).
+     */
+    @Test public void theBrowserIsATaskOfItsOwn() throws Exception {
+        Activity a = Robolectric.buildActivity(Activity.class).setup().get();
+        android.content.pm.ActivityInfo info = a.getPackageManager().getActivityInfo(new android.content.ComponentName(a, BrowserActivity.class), 0);
+        assertEquals("dev.jun.gyeot.browser", info.taskAffinity);
+        assertNotEquals("not the main screen's task", a.getPackageManager().getActivityInfo(new android.content.ComponentName(a, MainActivity.class), 0).taskAffinity, info.taskAffinity);
+    }
+
     @Test public void theSlideHandsOverWithoutThePhonesOwnTransition() {
         Activity a = Robolectric.buildActivity(Activity.class).setup().get();
         Intent seamless = BrowserActivity.homeIntent(a, true), plain = BrowserActivity.homeIntent(a, false);
