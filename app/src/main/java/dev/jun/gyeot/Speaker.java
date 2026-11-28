@@ -65,32 +65,28 @@ final class Speaker implements AutoCloseable {
      * How loud each recent write plays, and when (uptime ms): the microphone's echo is measured against it (core/BargeIn).
      * Written by the writer thread, read by the microphone's.
      */
-    private final long[] levelFrom = new long[64], levelTo = new long[64];
-    private final double[] levels = new double[64];
-    private int levelNext;
-    private synchronized void playsAt(long from, long to, double level) {
-        int i = levelNext; levelNext = (levelNext + 1) % levels.length;
-        levelFrom[i] = from; levelTo[i] = to; levels[i] = level;
-    }
+    private final dev.jun.gyeot.core.PlayLevel levels = new dev.jun.gyeot.core.PlayLevel();
     /**
      * The loudest speech playing around now (the last 700 ms to the next 100 ms), as 16-bit RMS; 0 when nothing plays. The
      * window spans the pause between two words or sentences of one answer, so its room echo is never taken for the user.
      */
-    synchronized double level() {
-        long now = SystemClock.uptimeMillis(); double loudest = 0;
-        for (int i = 0; i < levels.length; i++) if (levelTo[i] >= now - 700 && levelFrom[i] <= now + 100) loudest = Math.max(loudest, levels[i]);
-        return loudest;
-    }
-    private synchronized void forgetLevels() { java.util.Arrays.fill(levelTo, 0); java.util.Arrays.fill(levelFrom, 0); java.util.Arrays.fill(levels, 0); }
-    Speaker(Context context) { this(context, false); }
+    double level() { return levels.level(SystemClock.uptimeMillis()); }
+    Speaker(Context context) { this(context, false, false); }
+    Speaker(Context context, boolean call) { this(context, call, false); }
+    /**
+     * A lesson read aloud (판서), played as media: Android lets a screen recording take in only media, game and unknown
+     * sound, never an assistant's or a call's (준: "판서강의는 왜 녹화할 때 미디어 소리가 녹음이 안되지?"), so 판서's voice is media
+     * like a video's, and follows the media volume.
+     */
+    static Speaker media(Context context) { return new Speaker(context, false, true); }
     /**
      * call: played as a call's voice (with CallRoute), so the phone's echo cancelling hears it and takes it out of the
      * microphone, and a user speaking over it is heard at an ordinary voice; otherwise as an assistant's speech.
      */
-    Speaker(Context context, boolean call) {
+    private Speaker(Context context, boolean call, boolean media) {
         app = context.getApplicationContext();
         manager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-        AudioAttributes attributes = new AudioAttributes.Builder().setUsage(call ? AudioAttributes.USAGE_VOICE_COMMUNICATION : AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
+        AudioAttributes attributes = new AudioAttributes.Builder().setUsage(call ? AudioAttributes.USAGE_VOICE_COMMUNICATION : media ? AudioAttributes.USAGE_MEDIA : AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
         focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).setAudioAttributes(attributes)
             .setOnAudioFocusChangeListener(change -> { if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) flush(); }, main).build();
         track = new AudioTrack.Builder().setAudioAttributes(attributes)
@@ -165,7 +161,7 @@ final class Speaker implements AutoCloseable {
                     if (packet.epoch != epoch.get()) { discardStale(); playing = false; break; }
                     long now = SystemClock.uptimeMillis(), from = Math.max(now, audibleUntil);
                     audibleUntil = from + written * 1000L / BYTES_PER_SECOND;
-                    playsAt(from, audibleUntil, dev.jun.gyeot.core.BargeIn.rms(java.util.Arrays.copyOfRange(bytes, offset - written, offset)));
+                    levels.add(from, audibleUntil, dev.jun.gyeot.core.BargeIn.rms(java.util.Arrays.copyOfRange(bytes, offset - written, offset)));
                 }
             }
         } catch (Exception ignored) {
@@ -234,7 +230,7 @@ final class Speaker implements AutoCloseable {
         epoch.incrementAndGet();
         Packet pending;
         while ((pending = queue.poll()) != null) { queuedBytes.addAndGet(-pending.bytes.length); if (pending.done != null) main.post(pending.done); }
-        audibleUntil = 0; forgetLevels();
+        audibleUntil = 0; levels.clear();
         // Silences now and unblocks a pending write; the writer thread restarts playback for the next epoch itself.
         try { track.pause(); track.flush(); } catch (Exception ignored) {}
         manager.abandonAudioFocusRequest(focus);

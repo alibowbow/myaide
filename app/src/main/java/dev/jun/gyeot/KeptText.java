@@ -24,6 +24,8 @@ final class KeptText {
         File file = file(context, kind, key);
         try { return file.isFile() ? new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8) : ""; } catch (IOException | RuntimeException unreadable) { return ""; }
     }
+    /** Removes the kept text (to read it again another way). */
+    static void remove(Context context, String kind, String key) { if (named(key)) file(context, kind, key).delete(); }
     static void save(Context context, String kind, String key, String text) {
         if (!named(key)) return;
         try {

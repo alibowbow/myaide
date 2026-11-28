@@ -33,12 +33,16 @@ def platform_metadata(target, package=None):
     ET.ElementTree(root).write(target / 'package.xml', encoding='utf-8', xml_declaration=True)
 
 def phone_apk(source, destination):
-    """ARM64 phone package for the legacy 100MiB updater; retain a universal APK separately."""
+    """ARM64 phone package; retain a universal APK separately. The app's updater takes up to 512MiB (UpdateCheck.MAX_APK_BYTES)."""
     with zipfile.ZipFile(source) as original, zipfile.ZipFile(destination, 'w') as target:
         for entry in original.infolist():
             name = entry.filename
             if name.startswith('lib/') and not name.startswith('lib/arm64-v8a/'): continue
             if name.startswith('META-INF/') and (name.endswith(('.RSA', '.DSA', '.EC', '.SF')) or name == 'META-INF/MANIFEST.MF'): continue
+            # Build-tool files nothing reads on a phone: Kotlin's reflection tables (no kotlin-reflect here), the coroutines
+            # debug agent's probes, and AndroidX's version stamps for Android Studio. About 13 KB.
+            if name == 'DebugProbesKt.bin' or name.startswith('kotlin/') and name.endswith('.kotlin_builtins') \
+                    or name.startswith('META-INF/') and name.count('/') == 1 and name.endswith('.version'): continue
             # ART extracts ordinary DEX files during installation; compress them on the wire too.
             # resources.arsc remains stored so Android can memory-map it after zipalign.
             dex = '/' not in name and name.startswith('classes') and name.endswith('.dex')
@@ -48,8 +52,10 @@ def phone_apk(source, destination):
         names = set(apk.namelist())
         for required in ('AndroidManifest.xml', 'assets/browser/manifest.json', 'assets/browser/content.js', 'lib/arm64-v8a/libxul.so', 'lib/arm64-v8a/libmozglue.so'):
             if required not in names: raise RuntimeError('Phone APK is missing ' + required)
-    if destination.stat().st_size > 100 * 1024 * 1024 - 1024 * 1024:
-        raise RuntimeError('Phone APK cannot fit the legacy 100MiB updater with signing overhead')
+    # The old 100MiB cap for the first updater is gone (준, 2026-11-24: "한도 없애줘"): the app's updater takes 512MiB and
+    # usually downloads only a delta. A very old install that still has the 100MiB updater is updated by hand.
+    if destination.stat().st_size > 512 * 1024 * 1024 - 1024 * 1024:
+        raise RuntimeError('Phone APK exceeds the updater limit (512MiB)')
     return destination
 
 def platform(cache):

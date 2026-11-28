@@ -30,7 +30,9 @@ final class MainChatPage implements AutoCloseable {
     private ImageView toNewest; static final int AWAY = 240;
     private EditText input;
     private ImageView avatar;
-    private TextView name, subtitle;
+    private TextView name, modelLine;
+    /** The composer and, under it, the model line: hidden together while 음성 대화 is on. */
+    private LinearLayout dock;
     private long before;
     private String query = "", rendered = "";
     private boolean stopped = true;
@@ -81,22 +83,14 @@ final class MainChatPage implements AutoCloseable {
             @Override protected void onMeasure(int width, int height) { fit(View.MeasureSpec.getSize(width) - getPaddingLeft() - getPaddingRight()); super.onMeasure(width, height); }
         };
         root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundColor(BG); root.setPadding(ui.dp(12), 0, ui.dp(12), 0);
-        // A compact header like the Claude and ChatGPT apps: avatar, name, and the model as a tappable line with a chevron.
+        // A compact header like the Claude and ChatGPT apps: avatar and name. The model is chosen on the line under the composer.
         LinearLayout header = ui.row(); header.setMinimumHeight(ui.dp(56)); header.setPadding(ui.dp(2), ui.dp(4), 0, ui.dp(4));
         avatar = new ImageView(activity); avatar.setContentDescription("비서 프로필 설정"); avatar.setOnClickListener(v -> editProfile());
         // 48dp, so the avatar's nine expressions read in the header.
         header.addView(avatar, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48))); profile.bind(avatar);
         LinearLayout title = ui.column(); title.setPadding(ui.dp(10), ui.dp(2), ui.dp(4), ui.dp(2)); title.setMinimumHeight(ui.dp(48)); title.setGravity(Gravity.CENTER_VERTICAL);
         name = ui.text(profile.name(), HEADLINE, 700, TEXT); name.setSingleLine(true); name.setEllipsize(TextUtils.TruncateAt.END);
-        subtitle = ui.text("메인 대화", FOOTNOTE, 560, MUTED); subtitle.setSingleLine(true); subtitle.setEllipsize(TextUtils.TruncateAt.END);
-        // The chevron rides on the model line itself, so a long model name ellipsizes without pushing it away.
-        android.graphics.drawable.Drawable arrow = activity.getDrawable(R.drawable.ic_chevron);
-        if (arrow != null) {
-            android.graphics.drawable.RotateDrawable down = new android.graphics.drawable.RotateDrawable(); down.setDrawable(arrow.mutate()); down.setFromDegrees(90); down.setToDegrees(90); down.setLevel(1);
-            down.setTint(MUTED); down.setBounds(0, 0, ui.dp(14), ui.dp(14)); subtitle.setCompoundDrawablesRelative(null, null, down, null); subtitle.setCompoundDrawablePadding(ui.dp(3));
-        }
-        subtitle.setPadding(0, ui.dp(2), 0, 0);
-        title.addView(name); title.addView(subtitle, new LinearLayout.LayoutParams(-2, -2)); title.setContentDescription("메인 대화 모델 선택"); title.setOnClickListener(this::modelMenu); Ui.pressable(title, true);
+        title.addView(name);
         header.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
         header.addView(ui.iconButton(R.drawable.ic_more, BG, MUTED, "대화 메뉴", this::menu), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
         root.addView(header);
@@ -150,12 +144,17 @@ final class MainChatPage implements AutoCloseable {
         sendButton = ui.sendButton("메시지 보내기", () -> { if (offersVoice()) voice.start(); else send(); });
         sendButton.setOnLongClickListener(v -> { if (!offersVoice()) return false; voice.settings(""); return true; });
         composer.addView(sendButton, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
-        LinearLayout.LayoutParams composerParams = new LinearLayout.LayoutParams(-1, -2); composerParams.topMargin = ui.dp(4); composerParams.bottomMargin = ui.dp(8);
+        // Under the field, small and quiet as in 작업창 and the other chats: the model that answers the next message (its name
+        // in bold, its thinking level beside it); a tap opens the model menu (ModelPopover).
+        dock = ui.column(); dock.addView(composer, new LinearLayout.LayoutParams(-1, -2));
+        modelLine = ModelLine.make(activity, ui, this::modelMenu);
+        dock.addView(ModelLine.row(ui, modelLine), new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout.LayoutParams composerParams = new LinearLayout.LayoutParams(-1, -2); composerParams.topMargin = ui.dp(4); composerParams.bottomMargin = ui.dp(4);
         // 음성 대화's bar takes the composer's place while a conversation is on.
-        voice = new VoiceBar(activity, store, ui, "chat", () -> VoiceTargets.chat(store)); voice.aside(composer, chipRow); voice.track(this::track);
+        voice = new VoiceBar(activity, store, ui, "chat", () -> VoiceTargets.chat(store)); voice.aside(dock, chipRow); voice.track(this::track);
         LinearLayout.LayoutParams barParams = new LinearLayout.LayoutParams(-1, -2); barParams.topMargin = ui.dp(4); barParams.bottomMargin = ui.dp(8);
         root.addView(voice.bar(), barParams);
-        root.addView(composer, composerParams);
+        root.addView(dock, composerParams);
         input.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
@@ -182,7 +181,7 @@ final class MainChatPage implements AutoCloseable {
         if (inner <= 0 || inner == fitted || composer == null) return; fitted = inner;
         int side = Math.max(0, (inner - ui.dp(READING_WIDTH)) / 2), text = Math.max(ui.dp(4), side);
         messages.setPadding(text, 0, text, 0);
-        for (View view : new View[]{talkStatus, chipRow, filesScroll, composer, voice.bar()}) {
+        for (View view : new View[]{talkStatus, chipRow, filesScroll, dock, voice.bar()}) {
             LinearLayout.LayoutParams p = (LinearLayout.LayoutParams) view.getLayoutParams();
             if (p == null || p.leftMargin == side && p.rightMargin == side) continue;
             p.leftMargin = side; p.rightMargin = side; view.setLayoutParams(p);
@@ -521,8 +520,7 @@ final class MainChatPage implements AutoCloseable {
             // The living avatar thinks while replies are being prepared, is briefly happy when they have arrived (sad when the last one failed), dozes when quiet.
             try { profile.working(store.mainChat.available() ? store.mainChat.pendingCount() : 0, this::lastReplyFailed); } catch (Exception ignored) {}
             name.setText(profile.name()); ScopedModels models = ScopedModels.main(store); String engine = models.engine(), model = models.model(engine);
-            String level = model.isBlank() ? "" : models.effort(engine, model);
-            subtitle.setText(models.readyEngine().isBlank() ? "모델 연결·선택하기" : WorkBook.author(engine) + " · " + new TeamRoster(store, models).label(engine, model) + (level.isEmpty() ? "" : " · " + level(engine, level)));
+            modelLine(models, engine, model);
             if (!store.mainChat.available()) {
                 if (!rendered.equals("unavailable")) { rendered = "unavailable"; messages.removeAllViews(); forget(answers); answers = new HashMap<>(); drop(streaming); streaming = new HashMap<>(); add(ui.text(store.mainChat.failure(), 16, 400, ERROR)); add(ui.ghost("기존 도구·설정 열기", this::tools)); }
                 return;
@@ -613,6 +611,8 @@ final class MainChatPage implements AutoCloseable {
     }
     private long offering = -1;
     /** A suggested request the user tapped: into the message box with the keyboard up, for the user to read, change and send. */
+    /** The voice screen's suggestion on the voice screen, put in this message box. */
+    void suggest(String ask) { suggested(ask); }
     private void suggested(String ask) {
         if (stopped) return;
         input.setText(RichBlocks.drafted(input.getText().toString(), ask)); input.setSelection(input.length()); input.requestFocus();
@@ -736,7 +736,9 @@ final class MainChatPage implements AutoCloseable {
         }
         if (!cut && List.of("error", "interrupted", "cancelled").contains(state) && m.optLong("reply_to") > 0)
             foot.addView(ui.ghost("다시 보내기", () -> resend(m.optLong("reply_to"))));
-        String caption = stamp(m); String model = modelLabel(m); if (!model.isBlank()) caption += " · " + model;
+        // Another model answered because the chosen one could not (막히면 다음 모델로): its note says who, instead of the chosen model's name.
+        String caption = stamp(m), via = done ? Usage.via(m.optString("usage")) : ""; String model = modelLabel(m);
+        if (!via.isEmpty()) caption += " · " + via; else if (!model.isBlank()) caption += " · " + model;
         if (web.unsearched()) caption += " · " + MainSearch.UNSEARCHED;
         TextView meta = ui.text(caption, 11.5f, 450, MUTED); meta.setSingleLine(true); meta.setEllipsize(TextUtils.TruncateAt.END); meta.setPadding(ui.dp(done ? 6 : 2), 0, 0, 0);
         foot.addView(meta, new LinearLayout.LayoutParams(0, -2, 1));
@@ -886,7 +888,7 @@ final class MainChatPage implements AutoCloseable {
             });
         } catch (java.util.concurrent.RejectedExecutionException closed) {}
     }
-    private void copy(String text) { ((android.content.ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("메시지", text)); Ui.done(activity.getWindow().getDecorView()); }
+    private void copy(String text) { ((android.content.ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("메시지", dev.jun.gyeot.core.Markdown.plain(text))); Ui.done(activity.getWindow().getDecorView()); }
     /** Shares as plain text: Markdown's marks go, words and line breaks stay. */
     private void share(String text) {
         try { activity.startActivity(Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, Markdown.plain(text)), "답변 공유")); } catch (Exception e) { error(e); }
@@ -1306,6 +1308,21 @@ final class MainChatPage implements AutoCloseable {
     }
     private TextView action(String label, Runnable run) { TextView view = ui.ghost(label, run); view.setMinHeight(ui.dp(44)); return view; }
     /** A reasoning level as the Work picker names it: GPT's Light/Medium/…, the others' Korean depth names. */
+    /** The line under the composer: the model in bold and its thinking level quiet beside it; "AI 연결·선택" while none is connected. */
+    private void modelLine(ScopedModels models, String engine, String model) {
+        String shown = "AI 연결·선택", level = "";
+        try {
+            if (!models.readyEngine().isBlank() && !engine.isBlank()) {
+                if (model.isBlank()) shown = WorkBook.author(engine) + " · 모델 고르기";
+                else {
+                    TeamRoster roster = new TeamRoster(store, models); shown = roster.label(engine, model);
+                    Reasoning.Profile profile = roster.profile(engine, model); String effort = models.effort(engine, model);
+                    if (!profile.efforts.isEmpty()) level = level(engine, effort.isEmpty() ? profile.defaultEffort : effort);
+                }
+            }
+        } catch (Exception ignored) {}
+        ModelLine.show(modelLine, shown, level, "메인 대화");
+    }
     static String level(String engine, String value) { return WorkBook.CHATGPT.equals(engine) ? Reasoning.gptShortLabel(value) : WorkBook.CLAUDE.equals(engine) ? Reasoning.claudeLabel(value) : MainActivity.effortName(value); }
     /**
      * The reasoning level of the model in use, as capsules under the providers; each model keeps its own level (the same

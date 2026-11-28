@@ -15,11 +15,18 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Blocking media analysis. Cancellable Work overloads bind every active HTTP phase to its run control. */
 final class GeminiAudioClient {
     private GeminiAudioClient() {}
+    /** The model that answered this thread's last request and what it used ({model, core/Usage}), for 잡일's usage row (Chores). */
+    static final ThreadLocal<Object[]> SERVED = new ThreadLocal<>();
     static String transcribe(String key, File audio) throws Exception { return transcribe(key, audio, GeminiAudio.MIME); }
     static String transcribe(String key, File audio, String mime) throws Exception { return transcribe(key, audio, mime, () -> {}, null); }
     static String transcribe(String key, File audio, String mime, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
         guard.run();
         if (!audio.isFile() || audio.length() == 0) throw new IllegalStateException("녹음 파일을 찾지 못했어요.");
+        // Groq's Whisper first when its key is saved (2,000 a day, against Gemini's 25 for transcription); Gemini when it cannot.
+        try { String heard = GroqWork.transcribe(audio, mime, cancel); if (heard != null && !heard.isBlank()) { guard.run(); return heard; } }
+        catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
+        catch (Exception groq) { /* Gemini below */ }
+        guard.run();
         AtomicReference<String> fileName = new AtomicReference<>();
         try {
             JSONObject request;
@@ -82,6 +89,10 @@ final class GeminiAudioClient {
      * Light work (대화 제목, 기억 추출): Gemma 4 first, for its 14,400 free requests a day, and Gemini Flash-Lite when Gemma
      * cannot take it now (GeminiLight). The instructions go in the one user turn.
      */
+    /** As light, on these models only (Gemma 4 alone, or Flash-Lite alone, for Chores' order). */
+    static String light(String key, String instructions, String input, String[] models) throws Exception {
+        return generate(key, models, dev.jun.gyeot.core.GeminiLight.request(instructions, input), GeminiAudio::answer, () -> {}, null, dev.jun.gyeot.core.GeminiLight.tokens(instructions, input));
+    }
     static String light(String key, String instructions, String input) throws Exception {
         return generate(key, dev.jun.gyeot.core.GeminiLight.models(GeminiQuotas.gemma()), dev.jun.gyeot.core.GeminiLight.request(instructions, input),
             GeminiAudio::answer, () -> {}, null, dev.jun.gyeot.core.GeminiLight.tokens(instructions, input));
@@ -115,7 +126,9 @@ final class GeminiAudioClient {
                 guard.run(); int status = connection.getResponseCode(); guard.run(); JSONObject json = json(connection, status, guard);
                 if (status == 200) {
                     JSONObject usage = json.optJSONObject("usageMetadata");
-                    GeminiQuotas.used(model, usage == null ? 0 : usage.optInt("totalTokenCount")); guard.run(); return answer.apply(json);
+                    GeminiQuotas.used(model, usage == null ? 0 : usage.optInt("totalTokenCount"));
+                    SERVED.set(new Object[]{model, dev.jun.gyeot.core.Usage.gemini(usage)});
+                    guard.run(); return answer.apply(json);
                 }
                 JSONObject error = json.optJSONObject("error"); String message = error == null ? "" : error.optString("message");
                 IllegalStateException failure = new IllegalStateException(GeminiProtocol.explain(status + " " + message));

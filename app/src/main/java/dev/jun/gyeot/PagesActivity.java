@@ -41,7 +41,9 @@ import java.util.concurrent.Executors;
 import static dev.jun.gyeot.Ui.*;
 
 /**
- * 페이지: the user's documents by category, made in the 작업창 and the main chat. The list groups them by
+ * 페이지: two tabs at the top. 문서: the user's documents by category, made in the 작업창 and the main chat. 프로젝트: the user's
+ * own small web apps (ProjectBook, opened full screen by ProjectActivity), made and changed by the AI from what the user asks.
+ * In 문서 the list groups them by
  * category, with search (titles, categories and words, then the text itself) and category chips (a long press renames or
  * removes one). A page opens as answers are drawn: Markdown natively, HTML in the answers' sandbox (its own scripts, no app
  * bridge, nothing loaded beyond RichBlocks' allowlist) with its source a tab away. Rename, move, pin, share, copy and delete
@@ -66,6 +68,9 @@ public final class PagesActivity extends Activity {
     /** The open page as it was drawn: a change to another page leaves it (and where the user scrolled) alone. */
     private PageBook.Page drawn;
     private long shown = -1, searches, opened; private boolean destroyed, resumed;
+    /** The top tabs: 0 문서 (the pages), 1 프로젝트 (the user's own web apps, ProjectActivity). */
+    private int section; private ProjectMaker maker; private AppStore store;
+    private final ProjectMaker.Listener projectsChanged = project -> { if (!destroyed && section == 1 && openId == null) showList(); };
     /** This screen's own changes on their way (main thread): the book's listener waits for them, so each is drawn once, by its own result. */
     private int changing;
     /** A line longer than this is not given to the Markdown patterns (some go slow on one very long line): the page is shown plain. */
@@ -77,7 +82,8 @@ public final class PagesActivity extends Activity {
     @Override public void finish() { super.finish(); noTransition(); }
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); noTransition();
-        ui = new Ui(this); book = PageStore.book(this);
+        ui = new Ui(this); book = PageStore.book(this); store = ((GyeotApp) getApplication()).store(); maker = ProjectMaker.get(this);
+        section = state != null ? state.getInt("section") : getIntent().hasExtra(OPEN) ? 0 : store.settings.getInt("pagesSection", 0);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         if (state != null) { category = state.getString("category"); query = state.getString("query", ""); openId = state.getString("open"); }
         else openId = getIntent().getStringExtra(OPEN);
@@ -103,13 +109,14 @@ public final class PagesActivity extends Activity {
     private void confirmShown() { root.post(() -> { if (!destroyed && hasWindowFocus()) AppNavigator.shown(getIntent(), dev.jun.gyeot.core.AppNavigation.PAGES); }); }
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
-        state.putString("category", category); state.putString("query", query); state.putString("open", openId);
+        state.putString("category", category); state.putString("query", query); state.putString("open", openId); state.putInt("section", section);
     }
     @Override protected void onResume() {
-        super.onResume(); resumed = true; AppNavigator.inFront("pages"); RichAnswer.active(root, true);
-        if (shown != book.version()) changedElsewhere();
+        super.onResume(); resumed = true; AppNavigator.inFront("pages"); RichAnswer.active(root, true); maker.watch(projectsChanged);
+        if (section == 1 && openId == null) showList();
+        else if (shown != book.version()) changedElsewhere();
     }
-    @Override protected void onPause() { resumed = false; RichAnswer.active(root, false); if (!isFinishing()) AppNavigator.inFront("pages"); super.onPause(); }
+    @Override protected void onPause() { resumed = false; maker.unwatch(projectsChanged); RichAnswer.active(root, false); if (!isFinishing()) AppNavigator.inFront("pages"); super.onPause(); }
     @Override public void onWindowFocusChanged(boolean focus) { super.onWindowFocusChanged(focus); if (focus) AppNavigator.shown(getIntent(), dev.jun.gyeot.core.AppNavigation.PAGES); }
     @Override protected void onDestroy() {
         // shutdown, not shutdownNow: a change the user already confirmed (a delete, a move) still runs; nothing is drawn after this.
@@ -118,8 +125,8 @@ public final class PagesActivity extends Activity {
     @Override public void onBackPressed() {
         if (navigation != null && navigation.close()) return;
         if (openId != null) { showList(); return; }
-        if (!query.isEmpty()) { query = ""; showList(); return; }
-        super.onBackPressed();
+        if (section == 0 && !query.isEmpty()) { query = ""; showList(); return; }
+        if (!HtmlWallpaper.backHome(this)) super.onBackPressed();
     }
 
     /** A change saved somewhere else (the main chat, the 작업창, another sheet): the list is drawn again, an open page too. */
@@ -137,12 +144,14 @@ public final class PagesActivity extends Activity {
 
     private void showList() {
         openId = null; drawn = null; AppNavigator.pageLeft = null; RichAnswer.destroy(root); root.removeAllViews();
-        LinearLayout heading = ui.row();
-        heading.addView(back("돌아가기", this::finish), new LinearLayout.LayoutParams(-2, ui.dp(48)));
-        heading.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
-        heading.addView(ui.quietIcon(R.drawable.ic_add, "새 카테고리 만들기", this::addCategory), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
-        root.addView(heading);
-        TextView title = ui.title("페이지", 26); title.setAccessibilityHeading(true); ui.add(root, title, 4);
+        // No 돌아가기 row: the app menu (☰ on a phone, the rail on a wide screen) leads away, and Android's back still does.
+        // The title with the small 문서 · 프로젝트 switch at the end of its line: compact, not a full-width bar of its own.
+        LinearLayout titleRow = ui.row(); titleRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        TextView title = ui.title("페이지", 26); title.setAccessibilityHeading(true); titleRow.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        if (section == 0) titleRow.addView(ui.quietIcon(R.drawable.ic_add, "새 카테고리 만들기", this::addCategory), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
+        titleRow.addView(ui.switcher(new String[]{"문서", "프로젝트"}, section, i -> { section = i; store.settings.edit().putInt("pagesSection", i).apply(); showList(); }), new LinearLayout.LayoutParams(-2, -2));
+        ui.add(root, titleRow, 8);
+        if (section == 1) { projectsList(); return; }
         ui.add(root, ui.label("작업창과 메인 대화에서 만든 문서를 카테고리별로 모아요.", 13, MUTED), 12);
         EditText search = ui.searchField(ui.input("제목·카테고리·내용 검색", 1, 100)); search.setText(query); search.setContentDescription("페이지 검색");
         search.addTextChangedListener(new TextWatcher() {
@@ -158,6 +167,131 @@ public final class PagesActivity extends Activity {
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         listPages();
     }
+    // ── 프로젝트 ────────────────────────────────────────────────────────────────────────────────────
+
+    private static int projectHue(int index) { int[] hues = {INDIGO, TEAL, ORANGE, GREEN, BLUE, PURPLE, PINK, RED}; return hues[Math.floorMod(index, hues.length)]; }
+    /** The user's projects as cards (two to a row on a wide screen), the newest first; 새 프로젝트 at the top. */
+    private void projectsList() {
+        maker.seed(store);
+        List<dev.jun.gyeot.core.ProjectBook.Project> all = maker.book().projects();
+        ScrollView scroll = new ScrollView(this); LinearLayout column = ui.column(); column.setPadding(0, 0, 0, ui.dp(24)); scroll.addView(column);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        LinearLayout top = ui.row();
+        // Where they are: 들퍼레/프로젝트 (a file manager opens and changes them too), or the app alone until it is connected.
+        String where = maker.book().where();
+        TextView about = ui.label(where.isEmpty() ? "들퍼레 폴더를 연결하면 거기에 저장해요 · 연결하기" : "프로젝트 " + all.size() + "개 · " + where + " 폴더에 저장돼요", 13, where.isEmpty() ? ACCENT : MUTED);
+        about.setMaxLines(2);
+        if (where.isEmpty()) { about.setOnClickListener(v -> StorageSetupActivity.open(this)); Ui.pressable(about, true); }
+        top.addView(about, new LinearLayout.LayoutParams(0, -2, 1));
+        top.addView(ui.pill("새 프로젝트", R.drawable.ic_add, true, this::newProject), new LinearLayout.LayoutParams(-2, -2));
+        ui.add(column, top, 12);
+        syncProjects();
+        if (all.isEmpty()) {
+            LinearLayout card = ui.card();
+            card.addView(ui.text("아직 프로젝트가 없어요", HEADLINE, 700, TEXT));
+            TextView how = ui.text("‘새 프로젝트’를 눌러 만들고 싶은 것을 적으면 AI가 HTML 앱 하나로 만들어요. 열어서 ‘AI로 고치기’로 계속 다듬을 수 있어요.", SUBHEAD, 450, MUTED);
+            how.setLineSpacing(ui.dp(3), 1); card.addView(how);
+            column.addView(card, new LinearLayout.LayoutParams(-1, -2));
+            return;
+        }
+        boolean wide = getResources().getConfiguration().screenWidthDp >= 600;
+        LinearLayout row = null;
+        for (int i = 0; i < all.size(); i++) {
+            View card = projectCard(all.get(i), wide);
+            if (!wide) { ui.add(column, card, 12); continue; }
+            if (i % 2 == 0) { row = ui.row(); row.setGravity(android.view.Gravity.TOP); ui.add(column, row, 12); }
+            LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(0, -2, 1); if (i % 2 == 1) at.leftMargin = ui.dp(12);
+            row.addView(card, at);
+            if (i == all.size() - 1 && i % 2 == 0) row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1));
+        }
+    }
+    private long syncedAt;
+    /** The list and 들퍼레/프로젝트 together, off the main thread (at most every few seconds): a change there redraws the list. */
+    private void syncProjects() {
+        long now = android.os.SystemClock.elapsedRealtime(); if (now - syncedAt < 4000) return; syncedAt = now;
+        background(() -> { boolean changed = maker.book().sync(); if (changed) main.post(() -> { if (!destroyed && section == 1 && openId == null) showList(); }); });
+    }
+    private View projectCard(dev.jun.gyeot.core.ProjectBook.Project p, boolean wide) {
+        LinearLayout card = ui.column(); card.setBackground(ui.glass(R_CARD, false)); card.setClipToOutline(true);
+        FrameLayout preview = new FrameLayout(this);
+        int hue = projectHue(p.hue());
+        java.io.File thumb = maker.book().thumb(p.id());
+        android.graphics.Bitmap picture = thumb.isFile() ? android.graphics.BitmapFactory.decodeFile(thumb.getPath()) : null;
+        if (picture != null) {
+            android.widget.ImageView image = new android.widget.ImageView(this); image.setImageBitmap(picture); image.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);
+            preview.addView(image, new FrameLayout.LayoutParams(-1, -1));
+        } else {
+            android.graphics.drawable.GradientDrawable wash = new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                new int[]{Ui.over(ui.tone(hue), DARK ? RAISED : CARD), Ui.over((hue & 0x00ffffff) | 0x40000000, DARK ? RAISED : CARD)});
+            preview.setBackground(wash);
+            android.widget.ImageView glyph = new android.widget.ImageView(this); glyph.setImageResource("trading".equals(p.kind()) ? R.drawable.ic_bolt : R.drawable.ic_globe);
+            glyph.setImageTintList(android.content.res.ColorStateList.valueOf(hue | 0xff000000));
+            preview.addView(glyph, new FrameLayout.LayoutParams(ui.dp(44), ui.dp(44), android.view.Gravity.CENTER));
+        }
+        if (maker.busy(p.id()) || p.pinned()) {
+            TextView badge = ui.badge(maker.busy(p.id()) ? "만드는 중" : "고정", maker.busy(p.id()) ? ACCENT : GRAY);
+            FrameLayout.LayoutParams ba = new FrameLayout.LayoutParams(-2, -2, android.view.Gravity.START | android.view.Gravity.TOP); ba.leftMargin = ui.dp(12); ba.topMargin = ui.dp(12);
+            preview.addView(badge, ba);
+        }
+        card.addView(preview, new LinearLayout.LayoutParams(-1, ui.dp(wide ? 120 : 128)));
+        LinearLayout words = ui.column(); words.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(14));
+        TextView name = ui.text(p.title(), 16.5f, 700, TEXT); name.setSingleLine(true); name.setEllipsize(TextUtils.TruncateAt.END); words.addView(name);
+        if (!p.about().isBlank()) { TextView a = ui.text(p.about(), 13.5f, 450, MUTED); a.setMaxLines(2); a.setEllipsize(TextUtils.TruncateAt.END); a.setPadding(0, ui.dp(3), 0, 0); words.addView(a); }
+        int versions = maker.book().versions(p.id()).length;
+        TextView meta = ui.text(when(p.updated(), ZonedDateTime.now()) + (versions > 0 ? " · 고친 기록 " + versions : ""), 12, 500, MUTED); meta.setPadding(0, ui.dp(8), 0, 0); words.addView(meta);
+        card.addView(words);
+        card.setOnClickListener(v -> openProject(p.id()));
+        card.setOnLongClickListener(v -> { projectMenu(v, p); return true; });
+        card.setContentDescription(p.title() + ", " + p.about() + ", 열기"); Ui.pressable(card, true);
+        return card;
+    }
+    private void openProject(String id) { startActivity(new Intent(this, ProjectActivity.class).putExtra(ProjectActivity.ID, id)); }
+    private void projectMenu(View anchor, dev.jun.gyeot.core.ProjectBook.Project p) {
+        ui.miniMenu(anchor, new String[]{"열기", p.pinned() ? "고정 해제" : "맨 위에 고정", "프로젝트 지우기"}, -1, i -> {
+            if (i == 0) openProject(p.id());
+            else if (i == 1) { try { maker.book().save(p.pin(!p.pinned())); } catch (IOException e) { toast(e.getMessage()); } showList(); }
+            else confirm("‘" + p.title() + "’ 프로젝트를 지울까요? 들퍼레/프로젝트의 폴더와 이전 버전도 함께 지워져요.", "지우기", () -> {
+                maker.stop(p.id()); try { maker.book().remove(p.id()); } catch (IOException e) { toast(e.getMessage()); } showList();
+                // Its grants (window.gyeot) and the notifications it set for later go with it.
+                android.content.Context app = getApplicationContext(); String key = "project:" + p.id();
+                new Thread(() -> PageBridgeHost.forget(app, key), "project-forget").start(); });
+        });
+    }
+    /** 새 프로젝트: what to make (the AI writes it), or a ready one to start from; the AI that makes it under the field. */
+    private void newProject() {
+        Ui.Sheet sheet = ui.selectionSheet("새 프로젝트", "AI가 HTML 웹 앱 하나로 만들어요");
+        EditText what = ui.input("무엇을 만들까요? · 예: 달러·엔 환율 계산기, 운동 기록장, 코인 김치 프리미엄 표", 4, 2000);
+        sheet.body.addView(what);
+        EditText name = ui.input("이름 · 비우면 AI가 정해요", 1, 60);
+        LinearLayout.LayoutParams na = new LinearLayout.LayoutParams(-1, -2); na.topMargin = ui.dp(10); sheet.body.addView(name, na);
+        LinearLayout line = ui.row(); line.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END);
+        TextView label = ui.text("만드는 AI", 13, 500, MUTED); line.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView modelLine = ModelLine.make(this, ui, null); modelLine.setMinHeight(ui.dp(44));
+        Runnable paint = () -> ModelLine.show(modelLine, ProjectActivity.modelParts(store), "만드는 AI"); paint.run();
+        modelLine.setOnClickListener(v -> ProjectActivity.chooseModel(this, ui, store, v, paint)); Ui.pressable(modelLine, true);
+        line.addView(modelLine, new LinearLayout.LayoutParams(-2, -2));
+        sheet.body.addView(line);
+        sheet.body.addView(ui.sectionHeader("바로 시작하기"));
+        LinearLayout group = ui.group();
+        for (ProjectMaker.Template t : ProjectMaker.TEMPLATES)
+            ui.addRow(group, ui.listRow(R.drawable.ic_bolt, projectHue(t.hue()), t.title(), t.about(), ui.chevron(), () -> {
+                try { dev.jun.gyeot.core.ProjectBook.Project made = maker.fromTemplate(t); sheet.dismiss(); openProject(made.id()); }
+                catch (Exception e) { toast(e.getMessage()); }
+            }), true);
+        sheet.body.addView(group);
+        sheet.primary.setText("AI로 만들기");
+        sheet.primary.setOnClickListener(v -> {
+            String request = what.getText().toString().strip(), title = name.getText().toString().strip();
+            if (request.isEmpty()) { toast("무엇을 만들지 적어 주세요."); what.requestFocus(); return; }
+            try {
+                dev.jun.gyeot.core.ProjectBook.Project made = maker.book().create(title, request, "app", "", (int) (System.currentTimeMillis() / 1000 % 8));
+                if (!maker.make(made.id(), request, title.isEmpty())) { toast("만들기를 시작하지 못했어요."); return; }
+                sheet.dismiss(); openProject(made.id());
+            } catch (Exception e) { toast(e.getMessage()); }
+        });
+        dialogs.add(sheet); sheet.show();
+    }
+
     private void listPages() {
         if (list == null || destroyed) return;
         shown = book.version();
@@ -232,7 +366,7 @@ public final class PagesActivity extends Activity {
     private TextView chip(String label, boolean on, Runnable tap, Runnable hold) {
         TextView chip = ui.text(label, SUBHEAD, on ? 680 : 560, on ? BG : TEXT); chip.setGravity(android.view.Gravity.CENTER);
         // The capsule first: a background with insets replaces the padding set before it.
-        chip.setBackground(ui.capsule(on ? TEXT : FILL)); chip.setPadding(ui.dp(17), ui.dp(10), ui.dp(17), ui.dp(10)); chip.setMinimumHeight(ui.dp(48));
+        chip.setBackground(ui.capsule(on ? TEXT : FILL)); chip.setPadding(ui.dp(14), ui.dp(7), ui.dp(14), ui.dp(7)); chip.setMinimumHeight(ui.dp(42));
         chip.setSelected(on); chip.setFocusable(true);
         chip.setContentDescription(label + (on ? ", 선택됨" : "") + (hold == null ? "" : ", 길게 누르면 이름 바꾸기와 삭제"));
         chip.setAccessibilityDelegate(new View.AccessibilityDelegate() {

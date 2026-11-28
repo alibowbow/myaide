@@ -36,6 +36,8 @@ final class LyriaPlayer {
     private static LyriaPlayer instance;
     static synchronized LyriaPlayer get(Context context) { if (instance == null) instance = new LyriaPlayer(context.getApplicationContext()); return instance; }
     /** Stops it when it plays (마이튜브 started); nothing when it was never made. */
+    /** Whether its music is playing now (for "음악 꺼" said to 퍼레). */
+    static boolean on() { LyriaPlayer one = instance; return one != null && one.active(); }
     static void stopIfPlaying() { LyriaPlayer one = instance; if (one != null && one.active()) one.main.post(one::stop); }
 
     private final Context context;

@@ -90,9 +90,14 @@ final class ClaudeClient {
      */
     static OpenAiClient.Result completeStrict(ClaudeAccount account, String model, String instructions, String input, boolean search, boolean fetch, Consumer<String> onThinking, boolean cacheSystem, String effort,
             WorkTools tools, Runnable onActivity, AtomicReference<Runnable> cancel, Consumer<String> onText, JSONArray files) throws Exception {
+        return completeStrict(account, model, instructions, input, search, fetch, false, onThinking, cacheSystem, effort, tools, onActivity, cancel, onText, files);
+    }
+    /** The same with Claude's code execution when code is asked (its files stay with Claude: the answer is its text). */
+    static OpenAiClient.Result completeStrict(ClaudeAccount account, String model, String instructions, String input, boolean search, boolean fetch, boolean code, Consumer<String> onThinking, boolean cacheSystem, String effort,
+            WorkTools tools, Runnable onActivity, AtomicReference<Runnable> cancel, Consumer<String> onText, JSONArray files) throws Exception {
         JSONArray asked = files != null && files.length() > 0 ? ClaudeProtocol.conversation(dev.jun.gyeot.core.MainAttachments.turn(input, files)) : ClaudeProtocol.ask(input);
         // With the connected services an answer may carry a long function argument (a file, a piece's new text): more room.
-        Turn turn = run(account, model, (web, code) -> instructions, asked, null, search, fetch, false, "", tools, effort, tools == null ? MAIN_TOKENS : ANSWER_TOKENS, false,
+        Turn turn = run(account, model, (web, coding) -> instructions, asked, null, search, fetch, code, "", tools, effort, tools == null && !code ? MAIN_TOKENS : ANSWER_TOKENS, false,
             onText, stage -> {}, onActivity, cancel, false, new JSONArray(), WorkSteering.NONE, false, onThinking, cacheSystem, true);
         String text = tools == null ? turn.text : WorkBook.split(turn.text, turn.cuts)[0];
         return new OpenAiClient.Result(text, turn.sources, turn.searchDropped ? turn.note : null, "", turn.fetchDropped, turn.usage(), turn.limits);
@@ -225,7 +230,7 @@ final class ClaudeClient {
                             // server tools takes, then the refusal stands. Refused before any work, so nothing paid repeats.
                             // Page reading named alone goes and search stays; search named takes page reading with it; a
                             // refusal that names neither, or both, takes both. Each one named or taken this way is reported.
-                            if (narrowed) throw new IllegalStateException(ClaudeProtocol.explain(response.status, ClaudeProtocol.errorType(json), message));
+                            if (narrowed) throw new dev.jun.gyeot.core.ProviderError(response.status, ClaudeProtocol.explain(response.status, ClaudeProtocol.errorType(json), message));
                             narrowed = true;
                             String lower = message.toLowerCase(java.util.Locale.ROOT);
                             boolean namesSearch = useSearch && lower.matches("(?s).*web[_ ]search.*"), namesFetch = useFetch && lower.matches("(?s).*web[_ ]fetch.*");
@@ -238,7 +243,7 @@ final class ClaudeClient {
                         if (useFetch && !message.toLowerCase(java.util.Locale.ROOT).contains("web_search")) { useFetch = false; level = 0; continue; }
                         if (useSearch) { useSearch = false; useFetch = false; level = 0; turn.searchDropped = true; notes.add("이 모델에서는 웹 검색이 거부돼 검색 없이 답했어요" + reason); continue; }
                     }
-                    throw new IllegalStateException(ClaudeProtocol.explain(response.status, ClaudeProtocol.errorType(json), message));
+                    throw new dev.jun.gyeot.core.ProviderError(response.status, ClaudeProtocol.explain(response.status, ClaudeProtocol.errorType(json), message));
                 }
                 onActivity.run();
                 if (interrupt != null) ticket = interrupt.open(cancel == null ? null : cancel.get());

@@ -56,7 +56,7 @@ final class GoogleDriveAccount {
     static volatile Authorizer authorizer = new PlayServices();
 
     /** Seam for tests: every HTTP exchange with Google. */
-    interface Http { Response exchange(String method, String url, String token, String type, byte[] body, File upload, int limit, File save) throws Exception; }
+    interface Http { Response exchange(String method, String url, String token, String type, byte[] body, File upload, long limit, File save) throws Exception; }
     record Response(int status, String body, String location) {}
     static volatile Http http = GoogleDriveAccount::send;
 
@@ -103,7 +103,7 @@ final class GoogleDriveAccount {
         return new JSONObject(call(method, url, "application/json; charset=UTF-8", body.toString().getBytes(StandardCharsets.UTF_8), null, 64 * 1024, null).body());
     }
     /** A file's bytes into {@code target}, refused beyond {@code limit} bytes. */
-    void download(String url, File target, long limit) throws Exception { call("GET", url, null, null, null, (int) Math.min(Integer.MAX_VALUE, limit), target); }
+    void download(String url, File target, long limit) throws Exception { call("GET", url, null, null, null, limit, target); }
     /**
      * A new Drive file: a resumable session, then the bytes (text) or the file (media). The session address must be Google's
      * own upload endpoint, so the token never goes anywhere else. Returns Drive's {id, name, mimeType, size, webViewLink}.
@@ -118,7 +118,7 @@ final class GoogleDriveAccount {
         return new JSONObject(call("PUT", location, type, bytes, file, 64 * 1024, null).body());
     }
     /** One request with a fresh token; a refused (401) token is dropped and the request tried once more. */
-    private Response call(String method, String url, String type, byte[] body, File file, int limit, File save) throws Exception {
+    private Response call(String method, String url, String type, byte[] body, File file, long limit, File save) throws Exception {
         if (!connected()) throw new IllegalStateException("Google Drive가 연결되지 않았어요. 설정 → 커넥터 → Google Drive에서 연결해 주세요.");
         boolean full = writable();
         String token = authorizer.token(context, full);
@@ -127,7 +127,7 @@ final class GoogleDriveAccount {
         if (r.status() >= 300) throw new IllegalStateException(GoogleDrive.explain(r.status(), r.body()));
         return r;
     }
-    private static Response send(String method, String address, String token, String type, byte[] body, File upload, int limit, File save) throws Exception {
+    private static Response send(String method, String address, String token, String type, byte[] body, File upload, long limit, File save) throws Exception {
         if (!address.startsWith("https://www.googleapis.com/") && !address.equals(REVOKE)) throw new IllegalArgumentException("Google 주소가 아니에요.");
         HttpURLConnection c = (HttpURLConnection) new URL(address).openConnection();
         try {
@@ -145,7 +145,7 @@ final class GoogleDriveAccount {
             if (save != null && status < 300) {
                 try (InputStream in = c.getInputStream(); OutputStream out = new java.io.FileOutputStream(save)) {
                     byte[] buffer = new byte[64 * 1024]; long total = 0; int n;
-                    while ((n = in.read(buffer)) > 0) { total += n; if (total > limit) throw new IllegalStateException("파일이 너무 커요 (" + (limit >> 20) + "MB까지)."); out.write(buffer, 0, n); }
+                    while ((n = in.read(buffer)) > 0) { total += n; if (total > limit) throw new IllegalStateException("파일이 너무 커요 (" + DriveWorkTools.size(limit) + "까지)."); out.write(buffer, 0, n); }
                 }
                 return new Response(status, "", c.getHeaderField("Location"));
             }
@@ -153,7 +153,7 @@ final class GoogleDriveAccount {
             ByteArrayOutputStream read = new ByteArrayOutputStream();
             if (stream != null) try (InputStream in = stream) {
                 byte[] buffer = new byte[16384]; int n;
-                while ((n = in.read(buffer)) > 0) { int room = limit - read.size(); if (n >= room) { read.write(buffer, 0, Math.max(0, room)); break; } read.write(buffer, 0, n); }
+                while ((n = in.read(buffer)) > 0) { long room = limit - read.size(); if (n >= room) { read.write(buffer, 0, (int) Math.max(0, room)); break; } read.write(buffer, 0, n); }
             }
             return new Response(status, read.toString(StandardCharsets.UTF_8), c.getHeaderField("Location"));
         } finally { c.disconnect(); }

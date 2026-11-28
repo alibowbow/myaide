@@ -139,6 +139,8 @@ final class FileAiOperationsUi {
                 case WorkBook.CHATGPT -> Long.toString(store.openai.workFormatGeneration());
                 case WorkBook.GROK -> store.grok.connectionEpoch();
                 case WorkBook.NIM -> Long.toString(store.nim.generation());
+                case WorkBook.ANTIGRAVITY -> "agy";
+                case WorkBook.GROQ -> "groq";
                 case WorkBook.CLAUDE, WorkBook.GEMINI -> FileAiOperations.hash(key.getBytes(StandardCharsets.UTF_8));
                 default -> throw new IOException("지원하지 않는 AI예요.");
             };
@@ -153,6 +155,8 @@ final class FileAiOperationsUi {
             case WorkBook.CLAUDE -> claude(connection.key, model, store.claude.info(model), instructions, input, effort, guard, cancel);
             case WorkBook.GROK -> GrokWorkClient.complete(store.grok, model, web -> instructions, input, false, effort, guard, cancel).text;
             case WorkBook.NIM -> NimClient.complete(store.nim, Long.parseLong(connection.identity), model, instructions, input, guard, cancel).text;
+            case WorkBook.ANTIGRAVITY -> store.antigravity.ask(model, instructions, input, cancel);
+            case WorkBook.GROQ -> store.groqModels.ask(model, effort, instructions, input, cancel);
             case WorkBook.GEMINI -> gemini(connection.key, model, instructions, input, effort, guard, cancel);
             default -> throw new IOException("선택한 AI를 지원하지 않아요. 다른 AI로 자동 전송하지 않아요.");
         };

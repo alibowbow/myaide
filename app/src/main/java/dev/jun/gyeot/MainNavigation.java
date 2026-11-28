@@ -12,16 +12,20 @@ import static dev.jun.gyeot.Ui.*;
 final class MainNavigation extends LinearLayout {
     static final int RAIL_WIDTH_DP=50;
     static final String TARGET="app_menu_destination";
-    static final String[] IDS={"voice","chat","work","board","pages","browser","mytube","phone","gallery","settings"};
-    static final String[] LABELS={"음성 비서","메인 대화","작업창","판서","페이지","브라우저","마이튜브","내 휴대폰","갤러리","설정"};
-    static final int[] ICONS={R.drawable.ic_wave,R.drawable.ic_chat,R.drawable.ic_work,R.drawable.ic_board,R.drawable.ic_pages,R.drawable.ic_browser,R.drawable.ic_mytube,R.drawable.ic_phone,R.drawable.ic_gallery,R.drawable.ic_settings};
+    static final String[] IDS={"voice","chat","work","board","lab","pages","browser","mytube","phone","gallery","settings"};
+    static final String[] LABELS={"음성 비서","메인 대화","작업창","나의학교","연구실","페이지","브라우저","마이튜브","내 휴대폰","갤러리","설정"};
+    static final int[] ICONS={R.drawable.ic_wave,R.drawable.ic_chat,R.drawable.ic_work,R.drawable.ic_book,R.drawable.ic_lab,R.drawable.ic_pages,R.drawable.ic_browser,R.drawable.ic_mytube,R.drawable.ic_phone,R.drawable.ic_gallery,R.drawable.ic_settings};
     private final Activity activity;private final Ui ui;private final Consumer<String> route;private final boolean primaryScreen;
     final Button menu;final TextView current;final ScrollView rail;final LinearLayout railItems;
     private final LinearLayout top;private String selected;private boolean wide;private Dialog drawer;private Runnable resize=()->{};
     /** The compact title and hairline appear only once a screen's own large title has scrolled away, as in iOS. */
     private final android.graphics.drawable.GradientDrawable topRule=new android.graphics.drawable.GradientDrawable();private boolean titleShown=true;
     MainNavigation(Activity activity,View content,String selected,Consumer<String> route){this(activity,content,selected,route,true);}
-    /** Secondary screens keep their existing toolbar/insets; only tablet navigation is added. */
+    /**
+     * Secondary screens (마이튜브, 페이지, 검색, 파일) keep their own toolbar. On a wide screen the rail is their menu; on a
+     * phone-wide one the same ☰ bar as the primary screens sits on top (준: "페이지에 햄버거 버튼이 없어"), else nothing led
+     * to another menu from there.
+     */
     MainNavigation(Activity activity,View content,String selected,Consumer<String> route,boolean primaryScreen){
         super(activity);this.activity=activity;this.route=route;this.selected=selected;this.primaryScreen=primaryScreen;ui=new Ui(activity);setOrientation(HORIZONTAL);setBackgroundColor(BG);
         top=ui.row();top.setGravity(Gravity.CENTER_VERTICAL);top.setPadding(ui.dp(8),ui.dp(4),ui.dp(12),ui.dp(4));
@@ -35,7 +39,7 @@ final class MainNavigation extends LinearLayout {
         menu.setMinHeight(ui.dp(48));
         LayoutParams menuSize=new LayoutParams(ui.dp(48),ui.dp(48));
         menuSize.gravity=Gravity.TOP;top.addView(menu,menuSize);
-        current=ui.text(label(selected),HEADLINE,700,TEXT);current.setLetterSpacing(-0.015f);current.setSingleLine(true);current.setEllipsize(android.text.TextUtils.TruncateAt.END);current.setPadding(ui.dp(6),0,0,0);top.addView(current,new LayoutParams(0,-2,1));top.setVisibility(primaryScreen?VISIBLE:GONE);
+        current=ui.text(label(selected),HEADLINE,700,TEXT);current.setLetterSpacing(-0.015f);current.setSingleLine(true);current.setEllipsize(android.text.TextUtils.TruncateAt.END);current.setPadding(ui.dp(6),0,0,0);top.addView(current,new LayoutParams(0,-2,1));top.setVisibility(barShown()?VISIBLE:GONE);
         LinearLayout column=ui.column();
         rail=new ScrollView(activity);rail.setFillViewport(false);rail.setVerticalScrollBarEnabled(false);
         // Same canvas as the content, divided by a hairline; the open destination is a tonal capsule, not a different panel.
@@ -48,14 +52,17 @@ final class MainNavigation extends LinearLayout {
         setOnApplyWindowInsetsListener((v,insets)->{Insets bars=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
             // Own horizontal safe areas once, outside the 50dp rail and content; keep full touch targets clear of cutouts.
             setPadding(bars.left,0,bars.right,0);rail.setPadding(0,bars.top,0,Math.max(bars.bottom,insets.getInsets(WindowInsets.Type.ime()).bottom));
-            top.setPadding(ui.dp(12),ui.dp(4)+(primaryScreen?bars.top:0),ui.dp(12),ui.dp(4));
+            boolean bar=barShown();
+            top.setPadding(ui.dp(12),ui.dp(4)+(bar?bars.top:0),ui.dp(12),ui.dp(4));
             Insets system=insets.getInsets(WindowInsets.Type.systemBars()),cutout=insets.getInsets(WindowInsets.Type.displayCutout());
-            // Secondary chrome still receives its original vertical insets; only a primary header consumes the top.
-            return new WindowInsets.Builder(insets).setInsets(WindowInsets.Type.systemBars(),Insets.of(0,primaryScreen?0:system.top,0,system.bottom)).setInsets(WindowInsets.Type.displayCutout(),Insets.of(0,primaryScreen?0:cutout.top,0,cutout.bottom)).build();});
+            // The ☰ bar, when shown, takes the top inset; a screen without it (a secondary one on a wide screen) gets it as before.
+            return new WindowInsets.Builder(insets).setInsets(WindowInsets.Type.systemBars(),Insets.of(0,bar?0:system.top,0,system.bottom)).setInsets(WindowInsets.Type.displayCutout(),Insets.of(0,bar?0:cutout.top,0,cutout.bottom)).build();});
     }
     /** Android window configuration, not a permanent physical-device identity or a new user setting. */
     static boolean tablet(Context context){return context.getResources().getConfiguration().smallestScreenWidthDp>=600;}
-    static String label(String id){for(int i=0;i<IDS.length;i++)if(IDS[i].equals(id))return LABELS[i];return "들퍼레";}
+    static String label(String id){for(int i=0;i<IDS.length;i++)if(IDS[i].equals(id))return LABELS[i];return "search".equals(id)?"전체 검색":"들퍼레";}
+    /** The ☰ bar on top: always on a primary screen, on a secondary one while the screen is phone-wide; never in full screen. */
+    private boolean barShown(){return !immersive&&(primaryScreen||!wide);}
     void selected(String value){if(selected.equals(value))return;selected=value;current.setText(label(value));updateRailSelection();}
     /** Shows the compact bar title (and the hairline) when the screen's large title is out of view; hides it otherwise. */
     void collapsedTitle(boolean shown){
@@ -80,7 +87,7 @@ final class MainNavigation extends LinearLayout {
     }
     String selected(){return selected;}boolean wide(){return wide;}void onResize(Runnable callback){resize=callback;}
     // Beside the rail, the ≡ menu would only repeat it: it shows where the rail does not (a phone's width).
-    @Override protected void onMeasure(int widthSpec,int heightSpec){boolean next=tablet(activity)||MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight()>=ui.dp(680);if(next!=wide){wide=next;rail.setVisibility(wide&&!immersive?VISIBLE:GONE);menu.setVisibility(wide?GONE:VISIBLE);resize.run();}super.onMeasure(widthSpec,heightSpec);}
+    @Override protected void onMeasure(int widthSpec,int heightSpec){boolean next=tablet(activity)||MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight()>=ui.dp(680);if(next!=wide){wide=next;rail.setVisibility(wide&&!immersive?VISIBLE:GONE);menu.setVisibility(wide?GONE:VISIBLE);top.setVisibility(barShown()?VISIBLE:GONE);post(this::requestApplyInsets);resize.run();}super.onMeasure(widthSpec,heightSpec);}
     private void renderRail(){
         railItems.removeAllViews();
         for(int i=0;i<IDS.length;i++){
@@ -128,13 +135,13 @@ final class MainNavigation extends LinearLayout {
     private void choose(String id){if (wide) railScrollDp=Math.round(rail.getScrollY()/getResources().getDisplayMetrics().density);close();if(!selected.equals(id)||id.equals("voice"))route.accept(id);}
     private boolean immersive;
     /** 전체화면 (마이튜브's video alone): no rail and no top bar while on; off brings them back as the width has them. */
-    void immersive(boolean on){if(immersive==on)return;immersive=on;rail.setVisibility(wide&&!on?VISIBLE:GONE);top.setVisibility(!on&&primaryScreen?VISIBLE:GONE);requestLayout();}
+    void immersive(boolean on){if(immersive==on)return;immersive=on;rail.setVisibility(wide&&!on?VISIBLE:GONE);top.setVisibility(barShown()?VISIBLE:GONE);requestApplyInsets();requestLayout();}
     boolean close(){if(drawer==null)return false;Dialog old=drawer;drawer=null;old.dismiss();return true;}
     @Override protected void onDetachedFromWindow(){close();super.onDetachedFromWindow();}
     static void open(Activity activity,String target){
         boolean primary=java.util.List.of("voice","chat","work","gallery","settings").contains(target);
         if(primary&&activity instanceof MainActivity host){host.navigateMenu(target);return;}
-        Class<?> screen=target.equals("browser")?BrowserActivity.class:target.equals("phone")?FileExplorerActivity.class:target.equals("pages")?PagesActivity.class:target.equals("board")?BoardActivity.class:target.equals("mytube")?MyTubeActivity.class:MainActivity.class;
+        Class<?> screen=target.equals("browser")?BrowserActivity.class:target.equals("phone")?FileExplorerActivity.class:target.equals("pages")?PagesActivity.class:target.equals("board")?SchoolActivity.class:target.equals("lab")?LabActivity.class:target.equals("mytube")?MyTubeActivity.class:MainActivity.class;
         Intent intent=new Intent(activity,screen).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);
         // The menu and rail are drawn in the same place on every screen: switching between them must not slide the whole
         // window, so only the content appears to change. The browser is full screen without the rail and keeps its transition.

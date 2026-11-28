@@ -23,12 +23,14 @@ import android.widget.TextView;
 import dev.jun.gyeot.core.Brand;
 
 /**
- * Optional small control, not a second app screen; it never captures keyboard focus. A tap opens a short menu (mute, 화면 보기
- * when allowed, phone control back on after a stop, end, open 들퍼레), a long press ends the voice session at once, and a drag
- * moves it. It is drawn by BubbleView: a warm dark glass orb with a dusk rim that moves with the call (listening, speaking,
- * connecting, thinking). While phone control is on, a small dark moon
- * with a white stop mark floats clear of the orb above it, toward the middle of the screen: part of the same button, moving
- * with it. Tapping the moon stops phone control at once.
+ * Optional small control, not a second app screen; it never captures keyboard focus. A tap opens a short menu (폰 조작 멈추기
+ * first while phone control is on, or 폰 조작 다시 켜기 after a stop; mute, 화면 보기 when allowed, end, open 들퍼레), a long press
+ * ends the voice session at once, and a drag moves it. It is drawn by BubbleView: a warm dark glass orb with a dusk rim that
+ * moves with the call (listening, speaking, connecting, thinking), and a small dark moon with a red dot floating clear of it
+ * above, toward the middle of the screen: 녹화 (준: "위성 버튼들은 … 녹화. 나머지 원래있던 폰조작 멈추기 버튼은 녹화로 대체").
+ * Tapping the moon opens the 화면 녹화 시작 sheet; its 녹화 시작 ends this voice session and the recording gets a bubble of its
+ * own at this spot (RecordBubble). While a recording writes frames this bubble is see-through (RecordControl's veil), and a
+ * touch on it pauses the recording first.
  */
 final class FloatingButton implements AutoCloseable, PhoneService.Anchor {
     /** Warm Glass: coral choices (6:1 or more) and the dark-mode error red for 음성 종료, on a warm dark menu. */
@@ -56,8 +58,6 @@ final class FloatingButton implements AutoCloseable, PhoneService.Anchor {
     };
     private boolean screenWatched;
     private String thinkingBy = "";
-    /** The moon shows while phone control is on, and stays (as ▶) while it can be turned back on in this call. */
-    private boolean satelliteShown;
     private float startX, startY;
     /** The orb's offset from the screen's top-right corner (what is saved); the window grows from it toward the satellite. */
     private int orbX, orbY, originalX, originalY;
@@ -75,20 +75,15 @@ final class FloatingButton implements AutoCloseable, PhoneService.Anchor {
         params.gravity = Gravity.TOP | Gravity.END; orbX = settings.getInt("bubbleX", 16); orbY = settings.getInt("bubbleY", 220);
         view = new FrameLayout(context);
         orb = new BubbleView.Orb(context); satellite = new BubbleView.Moon(context);
-        satellite.setContentDescription(Brand.NAME + "의 폰 조작 즉시 멈추기");
-        if (rearm != null && PhoneService.connected()) satelliteShown = true;
-        view.addView(orb); view.addView(satellite); BubbleView.place(orb, satellite, true, false);
+        satellite.record(true); satellite.setContentDescription("화면 녹화");
+        view.addView(orb); view.addView(satellite); BubbleView.place(orb, satellite, true, true);
         orb.setOnClickListener(v -> { if (menu == null) showMenu(); else hideMenu(); });
         orb.setOnLongClickListener(v -> { hideMenu(); stop.run(); return true; });
-        // The moon is phone control's switch: ■ stops at once; after a stop it stays as ▶ and one tap turns control back on.
-        satellite.setOnClickListener(v -> {
-            hideMenu();
-            if (phoneOn) {
-                PhoneService.stopByUser();
-                if (rearm != null) android.widget.Toast.makeText(context, "폰 조작을 멈췄어요 · 위성을 다시 누르면 켜져요", android.widget.Toast.LENGTH_SHORT).show();
-            } else if (rearm != null) rearm.run();
-        });
+        // The moon is 녹화: the 화면 녹화 시작 sheet over whatever is open (its 녹화 시작 ends this voice session).
+        satellite.setOnClickListener(v -> { hideMenu(); RecordControl.act(context, RecordControl.SCREEN); });
         View.OnTouchListener drag = (v, event) -> {
+            // See-through while a recording writes frames: a touch pauses it first (then everything of ours shows again).
+            if (RecordControl.veiledTouch(v, event)) return true;
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> { startX = event.getRawX(); startY = event.getRawY(); originalX = orbX; originalY = orbY; moved = false; dragging = true; }
                 case MotionEvent.ACTION_MOVE -> {
@@ -119,6 +114,7 @@ final class FloatingButton implements AutoCloseable, PhoneService.Anchor {
     void show() {
         layoutWindow();
         try { manager.addView(view, params); attached = true; } catch (Exception ignored) { return; }
+        RecordControl.onVeil(veil); veil.run();
         try {
             IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_OFF); filter.addAction(Intent.ACTION_SCREEN_ON); filter.addAction(Intent.ACTION_USER_PRESENT);
             context.registerReceiver(screenState, filter, Context.RECEIVER_NOT_EXPORTED); screenWatched = true;
@@ -133,21 +129,25 @@ final class FloatingButton implements AutoCloseable, PhoneService.Anchor {
     }
     /** On screen now. From Android 15 the overlay permission lets an app start activities from the background only while one is. */
     boolean visible() { return attached && view.isShown(); }
+    /** See-through while a recording writes frames (still touchable: a touch pauses it), its menu closed. */
+    private final Runnable veil = this::veil;
+    private void veil() { boolean on = RecordControl.veiled(); view.setAlpha(on ? 0f : 1f); if (on) hideMenu(); }
+    /** The satellite (녹화) shown now, for the tests. */
+    BubbleView.Moon satellite() { return satellite; }
+    BubbleView.Orb orb() { return orb; }
+    View view() { return view; }
     /**
-     * Sizes and places the window for the orb's position: just the orb, or the orb with room for the satellite on the side
-     * facing the middle of the screen. The orb itself never moves when the satellite comes or goes.
+     * Sizes and places the window for the orb's position: the orb with room for its satellite on the side facing the middle
+     * of the screen. The orb itself stays where the user put it.
      */
     private void layoutWindow() {
         Rect screen = manager.getCurrentWindowMetrics().getBounds();
         satelliteLeft = orbX + size / 2 < screen.width() / 2;
-        boolean moon = phoneOn || satelliteShown;
-        int[] window = BubbleView.window(context, moon);
+        int[] window = BubbleView.window(context, true);
         params.width = window[0]; params.height = window[1];
         params.y = Math.max(0, orbY - (window[1] - size));
         params.x = satelliteLeft ? orbX : Math.max(0, orbX - (window[0] - size));
-        BubbleView.place(orb, satellite, satelliteLeft, moon);
-        satellite.paused(!phoneOn);
-        satellite.setContentDescription(phoneOn ? Brand.NAME + "의 폰 조작 즉시 멈추기" : Brand.NAME + "의 폰 조작 다시 켜기");
+        BubbleView.place(orb, satellite, satelliteLeft, true);
         if (attached) { try { manager.updateViewLayout(view, params); } catch (Exception ignored) {} dock(); }
     }
     private void measured() {
@@ -162,9 +162,10 @@ final class FloatingButton implements AutoCloseable, PhoneService.Anchor {
         int left = screen.width() - params.x - params.width + shiftX, top = params.y + shiftY;
         PhoneService.dock(this, new Rect(left, top, left + params.width, top + params.height));
     }
+    /** Phone control went on or off: only the menu changes (its first line is 폰 조작 멈추기 while it is on). */
     @Override public void armed(boolean on) {
         if (phoneOn == on) return;
-        phoneOn = on; if (on && rearm != null) satelliteShown = true; layoutWindow(); update(muted);
+        phoneOn = on; update(muted);
     }
     /** The call's state (VoiceOrb.of): the orb shows it, so the user can see the call listening or speaking. */
     void voice(VoiceOrb.State state) { orb.voice(state); }
@@ -180,8 +181,8 @@ final class FloatingButton implements AutoCloseable, PhoneService.Anchor {
     void update(boolean muted) {
         this.muted = muted;
         orb.muted(muted);
-        orb.setContentDescription((muted ? Brand.NAME + " 마이크 음소거됨" : Brand.NAME + " 음성") + (thinkingBy.isEmpty() ? "" : ", " + thinkingBy + "가 생각하는 중") + (phoneOn ? ", 폰 조작 중. 위에 떠 있는 작은 멈춤 버튼으로 바로 멈출 수 있어요" : satelliteShown ? ", 폰 조작 멈춤. 위의 작은 버튼을 누르면 다시 켜져요" : "")
-            + ". 누르면 메뉴(음소거·" + (look != null ? "화면 보기·" : "") + (rearm != null && !phoneOn ? "폰 조작 다시 켜기·" : "") + "음성 종료·" + Brand.NAME + " 열기), 길게 누르면 음성 종료");
+        orb.setContentDescription((muted ? Brand.NAME + " 마이크 음소거됨" : Brand.NAME + " 음성") + (thinkingBy.isEmpty() ? "" : ", " + thinkingBy + " 생각하는 중") + (phoneOn ? ", 폰 조작 중. 누르면 메뉴 맨 위에서 바로 멈출 수 있어요" : "")
+            + ". 누르면 메뉴(" + (phoneOn ? "폰 조작 멈추기·" : rearm != null ? "폰 조작 다시 켜기·" : "") + "음소거·" + (look != null ? "화면 보기·" : "") + "목소리 설정·음성 종료·" + Brand.NAME + " 열기), 길게 누르면 음성 종료. 위의 작은 버튼은 화면 녹화");
         if (menu != null) { hideMenu(); showMenu(); }
     }
     /** A short column of pills beside the bubble; it closes on a choice, an outside touch, or after a few seconds. */
@@ -190,9 +191,19 @@ final class FloatingButton implements AutoCloseable, PhoneService.Anchor {
         LinearLayout row = new LinearLayout(context); row.setOrientation(LinearLayout.VERTICAL);
         int pad = Math.round(6 * density); row.setPadding(pad, pad, pad, pad);
         GradientDrawable panel = new GradientDrawable(); panel.setColor(MENU); panel.setCornerRadius(24 * density); row.setBackground(panel); row.setElevation(12 * density);
+        // Phone control's switch, first (it was the satellite's): 멈추기 at once while it is on, 다시 켜기 after a stop.
+        if (phoneOn) row.addView(pill("폰 조작 멈추기", END, () -> {
+            hideMenu(); PhoneService.stopByUser();
+            android.widget.Toast.makeText(context, "폰 조작을 멈췄어요" + (rearm != null ? " · 버블 메뉴에서 다시 켤 수 있어요" : ""), android.widget.Toast.LENGTH_SHORT).show();
+        }));
+        else if (rearm != null) row.addView(pill("폰 조작 다시 켜기", LIVE, () -> { hideMenu(); rearm.run(); }));
         row.addView(pill(muted ? "다시 듣기" : "음소거", MENU_TEXT, () -> { hideMenu(); mute.run(); }));
         if (look != null) row.addView(pill("화면 보기", LIVE, () -> { hideMenu(); look.run(); }));
-        if (rearm != null && !phoneOn) row.addView(pill("폰 조작 다시 켜기", LIVE, () -> { hideMenu(); rearm.run(); }));
+        // 목소리 설정: the voice, its speaking style, loudness and speed (설정 → 목소리와 대화), over whatever is open.
+        row.addView(pill("목소리 설정", LIVE, () -> {
+            hideMenu();
+            try { context.startActivity(new Intent(context, MainActivity.class).putExtra(MainActivity.SETTINGS_PAGE, "voice").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)); } catch (Exception ignored) {}
+        }));
         row.addView(pill("음성 종료", END, () -> { hideMenu(); stop.run(); }));
         row.addView(pill(Brand.NAME + " 열기", LIVE, () -> {
             hideMenu();
@@ -216,7 +227,10 @@ final class FloatingButton implements AutoCloseable, PhoneService.Anchor {
         View current = menu; menu = null;
         if (current != null) try { manager.removeView(current); } catch (Exception ignored) {}
     }
+    /** The menu while it is open (tests). */
+    LinearLayout menu() { return menu; }
     @Override public void close() {
+        RecordControl.offVeil(veil);
         hideMenu(); PhoneService.undock(this);
         if (screenWatched) { screenWatched = false; try { context.unregisterReceiver(screenState); } catch (IllegalArgumentException ignored) {} }
         if (attached) try { manager.removeView(view); } catch (Exception ignored) {}

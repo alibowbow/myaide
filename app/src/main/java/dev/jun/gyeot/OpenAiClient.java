@@ -89,7 +89,7 @@ final class OpenAiClient {
                 if (refused.status == 401 && !refreshed && account.usesPlan()) { refreshed = true; session.resetSocket(); account.expire(); continue; }
                 if (GptSpeed.rejected(refused.status, refused.body)) throw new IllegalStateException("선택한 GPT 속도가 이 연결에서 거부됐어요. Standard로 바꾼 뒤 다시 시도해 주세요.");
                 if (!level.isEmpty() && Reasoning.rejected(refused.status, refused.body)) throw new IllegalStateException(Reasoning.rejection(model, level));
-                throw new IllegalStateException(OpenAiProtocol.explain(refused.status, OpenAiProtocol.message(refused.body, "")));
+                throw new dev.jun.gyeot.core.ProviderError(refused.status, OpenAiProtocol.explain(refused.status, OpenAiProtocol.message(refused.body, "")));
             }
             if (stream == null) {
                 byte[] body = payloadFor.apply(input).toString().getBytes(StandardCharsets.UTF_8);
@@ -104,7 +104,7 @@ final class OpenAiClient {
                         JSONObject error; try { error = new JSONObject(raw); } catch (Exception e) { error = new JSONObject(); }
                         if (GptSpeed.rejected(response.status, error)) throw new IllegalStateException("선택한 GPT 속도가 이 연결에서 거부됐어요. Standard로 바꾼 뒤 다시 시도해 주세요.");
                         if (!level.isEmpty() && Reasoning.rejected(response.status, error)) throw new IllegalStateException(Reasoning.rejection(model, level));
-                        throw new IllegalStateException(OpenAiProtocol.explain(response.status, OpenAiProtocol.message(error, "")));
+                        throw new dev.jun.gyeot.core.ProviderError(response.status, OpenAiProtocol.explain(response.status, OpenAiProtocol.message(error, "")));
                     }
                     stream = read(response, onActivity, guard);
                 } finally { cancel.set(null); }
@@ -222,7 +222,7 @@ final class OpenAiClient {
                     String detail = OpenAiAccount.Http.read(response.body, 64 * 1024);
                     JSONObject json; try { json = new JSONObject(detail); } catch (Exception e) { json = new JSONObject(); }
                     if (!level.isEmpty() && Reasoning.rejected(response.status, json)) { level = ""; continue; }
-                    throw new IllegalStateException(OpenAiProtocol.explain(response.status, OpenAiProtocol.message(json, "")));
+                    throw new dev.jun.gyeot.core.ProviderError(response.status, OpenAiProtocol.explain(response.status, OpenAiProtocol.message(json, "")));
                 }
                 OpenAiProtocol.Stream stream = read(response, guard, guard);
                 guard.run();
@@ -348,7 +348,7 @@ final class OpenAiClient {
                     if (!level.isEmpty() && Reasoning.rejected(response.status, json)) throw new IllegalStateException(Reasoning.rejection(model, level));
                     // A used-up limit says so in its headers too; it travels with the same message for 설정 → 사용량 (MainAdapters.send).
                     if (response.status == 429 || response.status == 402) throw new dev.jun.gyeot.core.ModelLimit(response.status, OpenAiProtocol.explain(response.status, message), limits);
-                    throw new IllegalStateException(OpenAiProtocol.explain(response.status, message));
+                    throw new dev.jun.gyeot.core.ProviderError(response.status, OpenAiProtocol.explain(response.status, message));
                 }
                 // A command is not prose: it never reaches the screen.
                 OpenAiProtocol.Stream stream = read(response, guard, guard, plans ? text -> {} : onText, plans ? null : onThinking);

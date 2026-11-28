@@ -46,6 +46,8 @@ final class Speech {
     static final String BLOCKED = "음성 대화·녹음·음성 입력 중에는 읽어 주지 않아요.", NOTHING = "읽을 글이 없어요.", NO_FOCUS = "지금은 소리를 낼 수 없어 읽지 않았어요.",
         FALLBACK = "Gemini 음성이 끊겨 남은 글은 기기 음성으로 읽어요.";
     static final AudioAttributes ATTRIBUTES = new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
+    /** A lesson read aloud (판서): media, so a screen recording takes it in (Android records media, never an assistant's voice). */
+    static final AudioAttributes LESSON = new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
 
     /** One way to say text. done runs on the main thread with null once it was heard, or the reason it could not be said. */
     interface Voice {
@@ -228,9 +230,10 @@ final class Speech {
         private final TextToSpeech tts;
         /** 0 while binding, 1 ready, -1 unusable (problem says why). */
         private int state; private String problem = ""; private int next;
-        DeviceVoice(Context context) {
+        DeviceVoice(Context context) { this(context, ATTRIBUTES); }
+        DeviceVoice(Context context, AudioAttributes attributes) {
             tts = new TextToSpeech(context, this::ready);
-            tts.setAudioAttributes(ATTRIBUTES);
+            tts.setAudioAttributes(attributes);
             tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                 // Called just before the engine plays the utterance: the closest the device voice tells to its first sound.
                 @Override public void onStart(String id) { long at = System.nanoTime() / 1_000_000; main.post(() -> { LongConsumer started = starting.remove(id); if (started != null) started.accept(at); }); }

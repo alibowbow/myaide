@@ -1,0 +1,197 @@
+{
+ "piece": "Opus 5.5 · 057 Hi-Fi Walnut — Vinyl Listening Room",
+ "path": "/Claude-Opus-5.5-100-HTML-Files/057-vinyl-listening-room.html",
+ "note": "Each find is exact text that must occur once in the page as the fixes before it left it; when one does not, the piece is shown as it is (core/PieceTune). tests/browser/vinyl.test.js checks them against the live piece.",
+ "fixes": [
+  {
+   "why": "noise: the loop four times longer, so the ear does not hear it go round",
+   "find": "const cLen = Math.floor(sr * 3.6), cb",
+   "put": "const cLen = Math.floor(sr * 14.4), cb"
+  },
+  {
+   "why": "noise: the hiss a third as loud",
+   "find": "d[i] = (w - lp) * 0.0065;",
+   "put": "d[i] = (w - lp) * 0.0022;"
+  },
+  {
+   "why": "noise: five pops a second instead of twenty",
+   "find": "const pops = Math.floor(3.6 * 20);",
+   "put": "const pops = Math.floor(14.4 * 5);"
+  },
+  {
+   "why": "noise: softer pops",
+   "find": "amp = 0.015 + Math.pow(Math.random(), 3) * 0.3,",
+   "put": "amp = 0.008 + Math.pow(Math.random(), 4) * 0.09,"
+  },
+  {
+   "why": "noise: the scratch still ticks once a turn over the longer loop",
+   "find": "for (const t0 of [0.42, 2.22])",
+   "put": "for (const t0 of [0.42, 2.22, 4.02, 5.82, 7.62, 9.42, 11.22, 13.02])"
+  },
+  {
+   "why": "noise: a softer scratch",
+   "find": "d[pos + j] += 0.2 * Math.exp(-j / 26)",
+   "put": "d[pos + j] += 0.05 * Math.exp(-j / 30)"
+  },
+  {
+   "why": "noise: a softer scratch thump",
+   "find": "+ 0.05 * Math.sin(j / sr * 2 * Math.PI * 85)",
+   "put": "+ 0.02 * Math.sin(j / sr * 2 * Math.PI * 85)"
+  },
+  {
+   "why": "noise: through a warm lowpass",
+   "find": "cs.connect(chp); chp.connect(crackleGain);",
+   "put": "const clp = actx.createBiquadFilter(); clp.type = 'lowpass'; clp.frequency.value = 4600; clp.Q.value = 0.5; cs.connect(chp); chp.connect(clp); clp.connect(crackleGain);"
+  },
+  {
+   "why": "noise: the surface quieter under the music",
+   "find": "on ? 0.55 * A.crackle : 0",
+   "put": "on ? 0.36 * A.crackle : 0"
+  },
+  {
+   "why": "H16 pitch: the pitch fader's speed (1 is 33⅓ as cut; the add-on's fader sets it, ±8 %) and the one detune that bends every voice with it; speed is what the record turns at now (a hand can take it), fader what the motor brings it back to (H22)",
+   "find": "const GAP = 2.4, TAIL = 3.2;",
+   "put": "const GAP = 2.4, TAIL = 3.2;\n  let speed = 1, pitchC = null, fader = 1, hand = 0;"
+  },
+  {
+   "why": "H17 pitch: the detune (cents), made with the sound",
+   "find": "wowOsc.connect(wowDepth); wowOsc.start();",
+   "put": "wowOsc.connect(wowDepth); wowOsc.start();\n      if (actx.createConstantSource) { pitchC = actx.createConstantSource(); pitchC.offset.value = 1200 * Math.log2(speed); pitchC.start(); }"
+  },
+  {
+   "why": "H18 pitch: every voice the wow bends the fader bends too, at once (a held chord as well)",
+   "find": "function wobble(o) { wowDepth.connect(o.detune); o.onended = () => { try { wowDepth.disconnect(o.detune); } catch (e) {} }; }",
+   "put": "function wobble(o) { wowDepth.connect(o.detune); if (pitchC) pitchC.connect(o.detune); o.onended = () => { try { wowDepth.disconnect(o.detune); } catch (e) {} try { if (pitchC) pitchC.disconnect(o.detune); } catch (e) {} }; }"
+  },
+  {
+   "why": "H19 pitch: the bars come at the fader's speed (the song's clock runs speed times the sound's)",
+   "find": "scheduleBar(nextBar, startAudio + (nextBar * BL - startSong));",
+   "put": "scheduleBar(nextBar, startAudio + (nextBar * BL - startSong) / speed);"
+  },
+  {
+   "why": "H20 pitch: a bar's beats at the fader's speed too",
+   "find": "const beats = T.beats || A.beats, beat = 60 / A.bpm, BL = beats * beat;",
+   "put": "const beats = T.beats || A.beats, beat = 60 / A.bpm / speed, BL = beats * beat;"
+  },
+  {
+   "why": "H21 pitch: the platter turns at the fader's speed (the 3D deck's strobe dots drift off 33⅓, as on a real deck)",
+   "find": "const target = motorOn ? 200 : 0;",
+   "put": "const target = motorOn ? 200 * fader : 0;"
+  },
+  {
+   "why": "H22 a hand on the platter: its speed from the hand (vinyl.js), after the motor's own pull and before it turns the record",
+   "find": "if (!motorOn && omega < 0.4) omega = 0;",
+   "put": "if (!motorOn && omega < 0.4) omega = 0;\n    if (window.__gyHand) try { const h = window.__gyHand(omega, dt); if (h != null && isFinite(h)) omega = h; } catch (e) {}"
+  },
+  {
+   "why": "H23 no new bars while a hand holds the record nearly still (setRate starts them again from where it is)",
+   "find": "function scheduler() {",
+   "put": "function scheduler() {\n    if (hand && speed < 0.7) return;"
+  },
+  {
+   "why": "H24 the arm lifts and lowers in about half a second, eased (a swing keeps its own time)",
+   "find": "function tweenArm(to, dur) {\n    return new Promise(res => {\n      if (reduce) dur = Math.min(dur, 0.12);",
+   "put": "function tweenArm(to, dur) {\n    return new Promise(res => {\n      if (to.angle == null && to.lift != null) dur = Math.max(0.45, Math.min(0.6, dur));\n      if (reduce) dur = Math.min(dur, 0.12);"
+  },
+  {
+   "why": "H25 out of sight the bars are set further ahead (a hidden page's timers may come once a second)",
+   "find": "const horizon = songNow() + 0.4;",
+   "put": "const horizon = songNow() + (document.hidden ? 4 : 0.4);"
+  },
+  {
+   "why": "H26 the end of 내 음악's side goes on to its next side (the add-on turns the record over)",
+   "find": "async function endOfSide() {",
+   "put": "async function endOfSide() {\n    if (window.__gySideEnd) try { if (window.__gySideEnd()) return; } catch (e) {}"
+  },
+  {
+   "why": "H27 ⏮ ⏭ past a side's first or last track go to 내 음악's side before or after",
+   "find": "async function gotoTrack(i) {\n    const A = ALBUMS[albumIdx];\n    i = (i + A.tracks.length) % A.tracks.length;",
+   "put": "async function gotoTrack(i) {\n    const A = ALBUMS[albumIdx];\n    if (A.mine && (i < 0 || i >= A.tracks.length) && window.__gyCross) try { if (window.__gyCross(i)) return; } catch (e) {}\n    i = (i + A.tracks.length) % A.tracks.length;"
+  },
+  {
+   "why": "H12 track numbers past iv., and A1, A2 … B1 … for 내 음악 by its side (a Proxy: the piece reads NUM[k] as before)",
+   "find": "const NUM = ['i.', 'ii.', 'iii.', 'iv.'];",
+   "put": "const NUM = new Proxy(['i.', 'ii.', 'iii.', 'iv.'], { get(a, k) { if (typeof k === 'string' && /^\\d+$/.test(k)) { const A = ALBUMS[albumIdx]; if (A && A.mine) return (A.sideName || 'A') + (+k + 1); if (a[k] === undefined) return (+k + 1) + '.'; } return a[k]; } });"
+  },
+  {
+   "why": "H2 a file's track lasts as long as the file",
+   "find": "function trackDur(A, T) { return T.bars * barLen(A, T) + TAIL; }",
+   "put": "function trackDur(A, T) { return T.dur != null ? T.dur : T.bars * barLen(A, T) + TAIL; }"
+  },
+  {
+   "why": "H3 a file's clock is its audio element (a record's runs at the pitch fader's speed, H16)",
+   "find": "function songNow() { return startSong + (actx.currentTime - startAudio); }",
+   "put": "function songNow() { const M = ALBUMS[albumIdx].mine; if (M) { try { return M.pos(); } catch (e) { return songPos; } } return startSong + (actx.currentTime - startAudio) * speed; }"
+  },
+  {
+   "why": "H4 a file plays from its audio element: no synthesizer session, no bar scheduler",
+   "find": "function startAt(s) {",
+   "put": "function startAt(s) {\n    const M = ALBUMS[albumIdx].mine;\n    if (M) { clearInterval(schedTimer); schedTimer = 0; endSession(); try { M.start(trackIdx, s); } catch (e) {} return; }"
+  },
+  {
+   "why": "H5 stopping stops a file too (pause, another track, another record)",
+   "find": "function stopAudio() {",
+   "put": "function stopAudio() {\n    for (const A of ALBUMS) if (A.mine) try { A.mine.stop(); } catch (e) {}"
+  },
+  {
+   "why": "H6 at a file's end the next file starts from its beginning",
+   "find": "startSong -= trackDur(A, T) + GAP; trackIdx++; nextBar = 0; songPos = songNow();",
+   "put": "if (A.mine) { trackIdx++; songPos = 0; startAt(0); } else { startSong -= trackDur(A, T) + GAP; trackIdx++; nextBar = 0; songPos = songNow(); }"
+  },
+  {
+   "why": "H7 a label for every record there is (lab3: 내 음악)",
+   "find": "for (let k = 0; k < 3; k++) $('lab' + k).style.display = k === albumIdx ? '' : 'none';",
+   "put": "for (let k = 0; k < ALBUMS.length; k++) { const lab = $('lab' + k); if (lab) lab.style.display = k === albumIdx ? '' : 'none'; }"
+  },
+  {
+   "why": "H8 a record with fewer than three tracks: no band (NaN% would drop the whole record background)",
+   "find": "const band = k => { const t = A.starts[k] - GAP / 2;",
+   "put": "const band = k => { if (A.starts[k] == null) return '-9%'; const t = A.starts[k] - GAP / 2;"
+  },
+  {
+   "why": "H11 the add-on hears when the track or the record changes (refreshTrackUI's end)",
+   "find": "updateProgress(true);\n  }\n  let lastSec = -1;",
+   "put": "updateProgress(true);\n    if (window.__gyTrack) try { window.__gyTrack(); } catch (e) {}\n  }\n  let lastSec = -1;"
+  },
+  {
+   "why": "H9 the VU meters read a real recording (far louder than the synthesizer) at its own calibration",
+   "find": "20 * Math.log10(rms) + 17;",
+   "put": "20 * Math.log10(rms) + (ALBUMS[albumIdx].vu != null ? ALBUMS[albumIdx].vu : 17);"
+  },
+  {
+   "why": "H13 key 4 is 내 음악 (an empty one opens the list to add files)",
+   "find": "case '1': case '2': case '3': changeAlbum(+e.key - 1); break;",
+   "put": "case '1': case '2': case '3': case '4': { const i = +e.key - 1; if (ALBUMS[i] && ALBUMS[i].tracks.length) changeAlbum(i); else if (window.__gyEmpty) try { window.__gyEmpty(i); } catch (_) {} break; }"
+  },
+  {
+   "why": "H15 the piece's own list of 내 음악 holds its first 40 files (the add-on's sheet shows them all, 40 at a time)",
+   "find": "A.tracks.forEach((T, k) => {",
+   "put": "A.tracks.forEach((T, k) => {\n      if (A.mine && k >= 40) return;"
+  },
+  {
+   "why": "H14 the VU needles stepped in pieces of at most 16 ms: one step a frame diverges once frames come more than about 68 ms apart (a busy phone, the 3D deck baking)",
+   "find": "stepNeedle(VU.l, tl, dt); stepNeedle(VU.r, tr, dt);",
+   "put": "for (let s = dt; s > 1e-4; s -= 0.016) { const h = Math.min(0.016, s); stepNeedle(VU.l, tl, h); stepNeedle(VU.r, tr, h); }"
+  },
+  {
+   "why": "H10 the add-on draws in the piece's own frame (one loop; it stops when the piece is hidden)",
+   "find": "if (!pd) updateProgress(false);",
+   "put": "if (!pd) updateProgress(false);\n    if (window.__gyFrame) try { window.__gyFrame(dt); } catch (e) {}"
+  },
+  {
+   "why": "H1 the piece's state and steps, for the add-on (getters: the piece's own variables, live); the pitch fader's speed, the cue lever's lift (the motor still turning), the motor stopped under a lifted arm; the hand on the platter (setRate) and on the arm (hold, drop); the frame's sound work from a timer out of sight (tick), 내 음악's sides (turnOver)",
+   "find": "setPlayUI(false);\n  drawArm();\n  raf = requestAnimationFrame(frame);",
+   "put": "setPlayUI(false);\n  drawArm();\n  window.__lp = {\n    ALBUMS, NUM, arm, GAP, TAIL, REST, R_OUT, R_IN, PX, PY, CX, CY, AL,\n    get albumIdx() { return albumIdx; }, get trackIdx() { return trackIdx; }, get songPos() { return songPos; },\n    get playing() { return playing; }, get busy() { return busy; }, get runout() { return runout; },\n    get motorOn() { return motorOn; }, get omega() { return omega; }, get spin() { return spin; },\n    get tweening() { return !!tween; }, get actx() { return actx; }, get master() { return master; },\n    get session() { return session; }, get vol() { return vol; }, get muted() { return muted; },\n    play, pause, toggle, gotoTrack, changeAlbum, seekTo, applyAlbum, refreshTrackUI, updateProgress, ensureAudio, setSurface, endOfSide,\n    thump(t, big) { if (actx) thump(t, big); },\n    angleForRadius, radiusAt, albumPos, trackDur, fmt,\n    setTrack(i, keep) { trackIdx = i; if (!keep) { songPos = 0; runout = false; } },\n    setPos(s) { songPos = s; },\n    get speed() { return speed; },\n    setSpeed(r) { r = Math.max(0.9, Math.min(1.1, +r || 1)); fader = r; if (hand) return; if (playing && actx && session) { const s = songNow(); startAudio = actx.currentTime; startSong = s; } speed = r;\n      if (pitchC) { const t = actx.currentTime; pitchC.offset.cancelScheduledValues(t); pitchC.offset.setTargetAtTime(1200 * Math.log2(r), t, 0.04); } },\n    get fader() { return fader; }, get hand() { return !!hand; }, get musicBus() { return musicBus; }, get crackleGain() { return crackleGain; },\n    // the platter turned by a hand (and spinning back up after): the song's clock and every voice at r times as cut; below 0.7\n    // no new bars (the ones sounding bend down with it), past it again the bars from where it is; null: the fader's speed again\n    setRate(r) {\n      const was = hand ? speed : fader;\n      if (r == null) { if (!hand) return; hand = 0; r = fader; } else { hand = 1; r = Math.max(0.02, Math.min(4, +r || 0)); }\n      if (playing && actx && session) { const s = songNow(); startAudio = actx.currentTime; startSong = s; }\n      speed = r;\n      if (playing && actx && session && was < 0.7 && r >= 0.7) { songPos = songNow(); startAt(songPos); }\n      if (pitchC) { const t = actx.currentTime; pitchC.offset.cancelScheduledValues(t); pitchC.offset.setTargetAtTime(1200 * Math.log2(Math.max(1 / 16, r)), t, 0.02); } },\n    // the hand takes the arm: the sound stops (the platter turns on), nothing else moves the arm until drop()\n    hold() { if (busy || tween) return false; busy = true; arm.follow = false; runout = false;\n      if (playing) { playing = false; stopAudio(); if (actx) thump(actx.currentTime + 0.01, false); setPlayUI(false); } return true; },\n    // the hand lets the arm go with its stylus at radius r (deck units): over the grooves it comes down there and plays from\n    // that point of the side (the track whose band it is in, that far into it; in a gap, the next track's start); off the\n    // record (r null or past its edge) it goes to its rest and the motor stops\n    async drop(r) {\n      const A = ALBUMS[albumIdx];\n      if (r == null || !(r <= 300) || !A.tracks.length) { await toRest(); motorOn = false; setPlayUI(false); busy = false; return 'rest'; }\n      const pos = Math.max(0, Math.min(A.total - 0.5, (R_OUT - Math.min(R_OUT, r)) / (R_OUT - R_IN) * A.total));\n      let k = A.tracks.length - 1; while (k > 0 && A.starts[k] > pos + GAP) k--;\n      trackIdx = k; songPos = Math.max(0, Math.min(trackDur(A, A.tracks[k]) - 0.5, pos - A.starts[k])); runout = false; refreshTrackUI();\n      busy = false; await play(); return 'play';\n    },\n    async cueUp() { if (busy || !playing) return false; busy = true; playing = false; arm.follow = false; stopAudio(); if (actx) thump(actx.currentTime + 0.01, false); setPlayUI(false);\n      await tweenArm({ lift: 1 }, 0.5); busy = false; return true; },\n    stopMotor() { if (playing || busy || runout || !motorOn) return false; motorOn = false; setPlayUI(false); return true; },\n    // what frame() does for the sound and the arm, from the add-on's timer while no frames come (the page hidden or out of\n    // sight: the browser draws nothing there): the side's clock and its next track, the arm's moves, the run-out's return\n    tick(dt) {\n      dt = Math.max(0, Math.min(1, +dt || 0));\n      omega += ((motorOn ? 200 * fader : 0) - omega) * Math.min(1, dt * (motorOn ? 1.9 : 0.9)); if (!motorOn && omega < 0.4) omega = 0;\n      spin = (spin + omega * dt) % 360;\n      if (playing && actx) {\n        songPos = songNow();\n        const A = ALBUMS[albumIdx], T = A.tracks[trackIdx];\n        // (a file's end starts the next one from its own element: the add-on's ended)\n        if (!A.mine && songPos >= trackDur(A, T)) {\n          if (trackIdx < A.tracks.length - 1) { startSong -= trackDur(A, T) + GAP; trackIdx++; nextBar = 0; songPos = songNow(); refreshTrackUI(); }\n          else endOfSide();\n        }\n      }\n      if (runout && actx) { runoutT += dt; if (runoutT > 7.6 && !busy) autoReturn(); }\n      stepTween(dt);\n      if (!tween && arm.follow && playing) { const ta = angleForRadius(radiusAt(albumPos())); arm.angle += (ta - arm.angle) * Math.min(1, dt * 5); }\n    },\n    // 내 음악's other side on the platter (swap() puts it in ALBUMS[3]): the record off and on again in the piece's own\n    // flight, then from its track k, playing if it was; quick (the page out of sight, where nothing animates): at once\n    async turnOver(swap, k, quick) {\n      if (busy) return false;\n      const was = playing || runout; busy = true; playing = false; stopAudio(); runout = false; arm.follow = false;\n      if (quick || reduce) {\n        try { swap(); } catch (e) {} trackIdx = k || 0; songPos = 0; applyAlbum();\n        if (was && actx) { arm.angle = angleForRadius(radiusAt(albumPos())); arm.lift = 0; motorOn = true; setSurface(true); arm.follow = true; playing = true; busy = false; setPlayUI(true); startAt(0); }\n        else busy = false;\n        return true;\n      }\n      if (actx && was) thump(actx.currentTime + 0.01, false);\n      await toRest(); motorOn = false; setPlayUI(false); specular.classList.add('off');\n      await animate(slot, [{ transform: 'translate(0,0) scale(1) rotate(0deg)', opacity: 1 }, { transform: 'translate(0,-2%) scale(1.05) rotate(0deg)', opacity: 1, offset: 0.3 }, { transform: 'translate(118%,-8%) scale(1.06) rotate(35deg)', opacity: 0 }], 850, 'cubic-bezier(.5,0,.8,.45)');\n      slot.style.opacity = '0';\n      try { swap(); } catch (e) {} trackIdx = k || 0; songPos = 0; applyAlbum();\n      const p = animate(slot, [{ transform: 'translate(118%,-8%) scale(1.06) rotate(-35deg)', opacity: 0 }, { transform: 'translate(0,-2%) scale(1.05) rotate(0deg)', opacity: 1, offset: 0.72 }, { transform: 'translate(0,0) scale(1) rotate(0deg)', opacity: 1 }], 1000, 'cubic-bezier(.2,.65,.3,1)');\n      slot.style.opacity = ''; await p; specular.classList.remove('off');\n      busy = false; if (was) play(); return true;\n    }\n  };\n  raf = requestAnimationFrame(frame);"
+  },
+  {
+   "why": "the volume knob turns with the finger going round it (clockwise up, 270° the whole range), not by how far it moved up and right: going round it clockwise turned it down on the right half",
+   "find": "  knob.addEventListener('pointerdown', e => { kd = { y: e.clientY, x: e.clientX, v: vol }; try { knob.setPointerCapture(e.pointerId); } catch (_) {} knob.style.cursor = 'grabbing'; e.preventDefault(); });\n  knob.addEventListener('pointermove', e => { if (!kd) return; setVol(kd.v + ((kd.y - e.clientY) + (e.clientX - kd.x)) / 220); });",
+   "put": "  // Turned like a real knob (준, 2026-11-27: \"볼륨 돌리는게 조작이 이상해\"): the angle the finger goes round the middle, clockwise up,\n  // the pointer staying under the finger (its 270° is the whole range); near the middle, where the angle jumps, nothing moves.\n  const kAt = e => { const r = knob.getBoundingClientRect(); const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2); return { a: Math.atan2(dy, dx) * 180 / Math.PI, far: Math.hypot(dx, dy) >= r.width * 0.16 }; };\n  knob.addEventListener('pointerdown', e => { const at = kAt(e); kd = { a: at.a, v: vol }; try { knob.setPointerCapture(e.pointerId); } catch (_) {} knob.style.cursor = 'grabbing'; e.preventDefault(); e.stopPropagation(); });\n  knob.addEventListener('pointermove', e => { if (!kd) return; const at = kAt(e); if (!at.far) return; let d = at.a - kd.a; if (d > 180) d -= 360; if (d < -180) d += 360; kd.a = at.a; kd.v = Math.max(0, Math.min(1, kd.v + d / 270)); setVol(kd.v); });"
+  },
+  {
+   "why": "the add-on itself: the list bar and sheet, 내 음악 (vinyl.js) and the three.js deck (deck3d.js), from the app",
+   "find": "</body>",
+   "put": "<link rel=\"stylesheet\" href=\"/__gyeot/addon/vinyl.css\">\n<script type=\"importmap\">{\"imports\":{\"three\":\"/__gyeot/lib/three.module.js\"}}</script>\n<script>window.__GY = { key: \"__GY_KEY__\" };</script>\n<script src=\"/__gyeot/addon/vinyl.js\"></script>\n<script type=\"module\" src=\"/__gyeot/addon/deck3d.js\"></script>\n</body>"
+  }
+ ]
+}

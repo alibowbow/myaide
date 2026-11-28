@@ -18,7 +18,7 @@ import static dev.jun.gyeot.core.Jsons.*;
 
 /**
  * The usage ledger: a row for every text request that answered, and what each account's provider last
- * said is left of its limits. Metadata only, never a question, an answer, a key or a token: the time, the surface (메인 대화,
+ * said is left of its limits. Metadata only, never a question, an answer, a key or a token: the time, the surface (메인 대화, 퍼레, 잡일,
  * 작업창, 예약, 브라우저, 음성), the company, the model, the route (API key or subscription), a short one-way hash that tells
  * connections apart (AppStore.usageIdentity), and the token counts, an unknown one left empty. Its own database (usage.db),
  * kept to 90 days and 20,000 rows. Every write runs on the ledger's own thread, never the caller's; a write that fails
@@ -26,6 +26,10 @@ import static dev.jun.gyeot.core.Jsons.*;
  */
 final class UsageLedger implements AutoCloseable {
     static final String MAIN = "main", WORK = "work", SCHEDULE = "schedule", BROWSER = "browser", VOICE = "voice";
+    /** 퍼레's own brain (말·글, core/BrainRoutes TALK) and 잡일 (Chores: titles, summaries, cards, notification gists). */
+    static final String BUDDY = dev.jun.gyeot.core.BrainRoutes.BUDDY, CHORES = dev.jun.gyeot.core.BrainRoutes.CHORES;
+    /** An answer made on the phone with no model (core/LocalAnswers): its company and route; its model is the rule that answered. */
+    static final String DEVICE = dev.jun.gyeot.core.BrainRoutes.DEVICE, LOCAL = dev.jun.gyeot.core.BrainRoutes.LOCAL;
     static final String KEY = "key", PLAN = "plan";
     static final long KEEP_MS = 90L * 24 * 60 * 60 * 1000;
     static final int KEEP_ROWS = 20_000;
@@ -150,6 +154,37 @@ final class UsageLedger implements AutoCloseable {
             while (c.moveToNext()) totals.put(obj("company", c.getString(0), "requests", c.getLong(1), "tokens", c.getLong(2), "unknown", c.getLong(3), "read", c.getLong(4), "prompt", c.getLong(5)));
         } catch (Exception unreadable) { return arr(); }
         return totals;
+    }
+    /**
+     * What the requests since a time used, grouped by surface, company, model and route (core/Prices.Tokens), for 예상 비용: a
+     * request counts as priced when it told its output and its prompt (its uncached input, or a total the output can be taken
+     * from); a prompt told without its cache split is counted as uncached input. Off the main thread.
+     */
+    synchronized java.util.List<dev.jun.gyeot.core.Prices.Tokens> tokens(long since) {
+        java.util.List<dev.jun.gyeot.core.Prices.Tokens> out = new java.util.ArrayList<>();
+        if (!available()) return out;
+        String told = "output IS NOT NULL AND (input IS NOT NULL OR total IS NOT NULL)";
+        try (Cursor c = db.rawQuery("SELECT surface, company, model, route, COUNT(*), SUM(CASE WHEN " + told + " THEN 1 ELSE 0 END),"
+                + " COALESCE(SUM(CASE WHEN output IS NOT NULL AND input IS NOT NULL THEN input WHEN " + told + " THEN MAX(0, total - output - COALESCE(cache_read, 0) - COALESCE(cache_write, 0)) END), 0),"
+                + " COALESCE(SUM(CASE WHEN " + told + " THEN COALESCE(cache_read, 0) END), 0), COALESCE(SUM(CASE WHEN " + told + " THEN COALESCE(cache_write, 0) END), 0),"
+                + " COALESCE(SUM(CASE WHEN " + told + " THEN output END), 0) FROM usage WHERE at >= ? GROUP BY surface, company, model, route", new String[]{"" + since})) {
+            while (c.moveToNext()) out.add(new dev.jun.gyeot.core.Prices.Tokens(c.getString(0), c.getString(1), c.getString(2), c.getString(3), c.getLong(4), c.getLong(5), c.getLong(6), c.getLong(7), c.getLong(8), c.getLong(9)));
+        } catch (Exception unreadable) { return new java.util.ArrayList<>(); }
+        return out;
+    }
+    /**
+     * One answer of 퍼레, 잡일 or the browser counted: the engine that really answered and its model, on the route and
+     * connection it went out on (AppStore.usageRoute, usageIdentity), what it used (unknown when the client told nothing).
+     * Off the main thread (the connection's identity may be worked out from its stored credential); a failure only undercounts.
+     */
+    static void count(AppStore store, String surface, String engine, String model, Usage used) {
+        if (store == null || store.usage == null || engine == null || engine.isBlank()) return;
+        try { store.usage.record(new Row(System.currentTimeMillis(), surface, engine, model == null ? "" : model, store.usageRoute(engine), store.usageIdentity(engine), used == null ? Usage.UNKNOWN : used)); }
+        catch (RuntimeException uncounted) { /* only undercounts */ }
+    }
+    /** One answer made on the phone with no model (기기 안): counted under the rule that answered, with no tokens. */
+    void local(String surface, String rule) {
+        record(new Row(System.currentTimeMillis(), surface, DEVICE, rule == null || rule.isBlank() ? "local" : rule, LOCAL, "", new Usage(0L, 0L, null, 0L, null, 0L)));
     }
     /** Waits for the writes asked for so far; never from the main thread (tests). */
     void flush() { try { writes.submit(() -> {}).get(5, TimeUnit.SECONDS); } catch (Exception ignored) {} }

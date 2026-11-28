@@ -21,12 +21,18 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 import dev.jun.gyeot.core.Brand;
+import dev.jun.gyeot.core.EdgeSpot;
 import java.util.List;
 
 /**
  * Optional "들퍼레" handle on the screen edge, drawn by the accessibility service so nothing has to keep running or listening.
- * Swiping it into the screen (or a tap) starts voice through QuickVoiceActivity at once; a drag along the edge moves it; a
+ * Pulling it PULL dp into the screen starts voice through QuickVoiceActivity at once (a tap only nudges it); a drag along the edge moves it; a
  * long press offers 열기 · 반대쪽으로 · 잠깐 숨기기 · 버튼 끄기. It hides during voice, phone control and on the lock screen. It never reads the screen.
+ *
+ * It sits just below Samsung's own Edge panel handle, on its side (준: "손잡이 위치를 기존 삼성엣지 아래로 해줘"), and follows it
+ * when it moves, until the user drags this one (EdgeSpot); Samsung's is looked for among the windows the service already
+ * lists, at most every few seconds. While a screen recording writes frames it is see-through, still where it was (RecordControl's
+ * veil), and a touch on it pauses the recording first.
  */
 final class EdgeButton implements AutoCloseable {
     /**
@@ -38,13 +44,22 @@ final class EdgeButton implements AutoCloseable {
     private final AppStore store;
     private final WindowManager manager;
     private final WindowManager.LayoutParams params;
-    private final View view;
+    private final EdgeHandleView view;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final float density;
     private final int width, height, slop, swipe;
     private final Runnable longPress = this::longPress, closeMenu = this::hideMenu;
+    /** How far it is pulled into the screen before it calls (dp): twice what it was, so a brush against the edge does nothing. */
+    static final int PULL = 72;
     private LinearLayout menu;
     private boolean attached, moved, pressed, hidden, swiped;
+    /** Samsung's Edge handle as last seen (null: none), and when the windows were last looked at. */
+    private EdgeSpot.Handle samsung;
+    private long lookedAt;
+    private final Runnable lookForSamsung = this::lookForSamsung;
+    /** See-through while a screen recording writes frames (still touchable: a touch pauses it first). */
+    private final Runnable veil = this::veil;
+    private void veil() { boolean on = RecordControl.veiled(); view.setAlpha(on ? 0f : 1f); if (on) { hideMenu(); main.removeCallbacks(longPress); } }
     private float startX, startY;
     private int originalY;
 
@@ -53,10 +68,11 @@ final class EdgeButton implements AutoCloseable {
         manager = context.getSystemService(WindowManager.class);
         density = context.getResources().getDisplayMetrics().density;
         // A generous touch strip around a slim pill; a short swipe inward is enough to call.
-        width = dp(28); height = dp(96); slop = ViewConfiguration.get(context).getScaledTouchSlop(); swipe = dp(16);
+        // A short handle (60dp drawn in a 76dp strip); a pull of 36dp calls, and the strip widens while it is pulled.
+        width = dp(28); height = dp(76); slop = ViewConfiguration.get(context).getScaledTouchSlop(); swipe = dp(PULL);
         params = new WindowManager.LayoutParams(width, height, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT);
-        view = new View(context);
+        view = new EdgeHandleView(context, HANDLE);
         view.setContentDescription(Brand.NAME + " 부르기. 화면 쪽으로 밀거나 누르면 음성 대화, 길게 누르면 메뉴");
         view.setOnTouchListener((v, event) -> touch(event));
         // Touches are handled above; these serve TalkBack's double tap and double-tap-and-hold.
@@ -64,16 +80,66 @@ final class EdgeButton implements AutoCloseable {
         view.setOnLongClickListener(v -> { if (menu == null) showMenu(); else hideMenu(); return true; });
         // Gesture navigation would otherwise turn a drag on the handle into "back".
         view.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> v.setSystemGestureExclusionRects(List.of(new Rect(0, 0, r - l, b - t))));
-        place(right(), store.settings.getInt("edgeY", -1));
+        // Once (준 asked for it): below Samsung's handle, even if this one was dragged before; a drag after this is kept.
+        if (!store.settings.getBoolean("edgeBelowSamsung", false))
+            store.settings.edit().putBoolean("edgeBelowSamsung", true).putBoolean(BY_USER, false).apply();
+        placeNow();
+        RecordControl.onVeil(veil); veil.run();
+        main.post(lookForSamsung);
     }
+    /** Set once the user dragged the handle or chose its side: from then on it stays where they put it. */
+    static final String BY_USER = "edgeYByUser";
+    private boolean byUser() { return store.settings.getBoolean(BY_USER, false); }
+    /** Where it goes now: where the user put it, else below Samsung's Edge handle (or its default place). */
+    private void placeNow() {
+        if (byUser()) { place(right(), store.settings.getInt("edgeY", -1)); return; }
+        Rect screen = screen(); android.graphics.Insets bars = bars();
+        place(samsung != null ? samsung.right() : right(), EdgeSpot.top(samsung, screen.height(), bars.top, bars.bottom, height, dp(12)));
+    }
+    private android.graphics.Insets bars() {
+        try { return manager.getCurrentWindowMetrics().getWindowInsets().getInsetsIgnoringVisibility(android.view.WindowInsets.Type.systemBars()); }
+        catch (RuntimeException unknown) { return android.graphics.Insets.NONE; }
+    }
+    /** Windows came or went: Samsung's handle is looked for again, at most every 3 seconds. */
+    void windowsChanged() {
+        if (byUser() || main.hasCallbacks(lookForSamsung)) return;
+        main.postDelayed(lookForSamsung, Math.max(300, 3000 - (android.os.SystemClock.uptimeMillis() - lookedAt)));
+    }
+    /** Samsung's Edge handle among the service's windows (only narrow ones against a side edge are opened to read their app). */
+    private void lookForSamsung() {
+        lookedAt = android.os.SystemClock.uptimeMillis();
+        if (!(context instanceof android.accessibilityservice.AccessibilityService service)) return;
+        Rect screen = screen(); java.util.List<EdgeSpot.Win> wins = new java.util.ArrayList<>();
+        try {
+            for (android.view.accessibility.AccessibilityWindowInfo w : service.getWindows()) {
+                Rect b = new Rect(); w.getBoundsInScreen(b);
+                if (b.width() <= 0 || b.width() > screen.width() / 5 || (b.left > 2 && b.right < screen.width() - 2)) continue;
+                CharSequence title = w.getTitle(); String pkg = null;
+                android.view.accessibility.AccessibilityNodeInfo root = w.getRoot();
+                if (root != null && root.getPackageName() != null) pkg = root.getPackageName().toString();
+                wins.add(new EdgeSpot.Win(pkg, title == null ? null : title.toString(), b.left, b.top, b.right, b.bottom));
+            }
+        } catch (RuntimeException unreadable) { return; }
+        EdgeSpot.Handle found = EdgeSpot.find(wins, screen.width());
+        if (java.util.Objects.equals(found, samsung)) return;
+        samsung = found;
+        if (byUser()) return;
+        placeNow();
+        if (attached) try { manager.updateViewLayout(view, params); } catch (RuntimeException ignored) {}
+    }
+    /** Samsung's handle as last seen, for the tests. */
+    void samsung(EdgeSpot.Handle handle) { samsung = handle; placeNow(); }
+    WindowManager.LayoutParams params() { return params; }
+    View handle() { return view; }
     private int dp(int value) { return Math.round(value * density); }
     private boolean right() { return store.settings.getBoolean("edgeRight", true); }
 
     /** Shows or hides the handle for the current state; called on every app state change and screen on/off. */
     void refresh() {
-        boolean show = store.edgeButton() && !hidden && !store.voiceActive && !PhoneService.gate.armed() && unlocked();
+        // Hidden while 퍼레 talks on the home screen too (준: "퍼레랑 음성대화에서는 우측바 버블 띄우지 말기").
+        boolean show = store.edgeButton() && !hidden && !store.voiceActive && !store.buddyTalking && !PhoneService.gate.armed() && unlocked();
         if (show && !attached) {
-            place(right(), params.y);
+            if (byUser()) place(right(), params.y); else placeNow();
             try { manager.addView(view, params); attached = true; } catch (RuntimeException ignored) {}
         } else if (!show && attached) detach();
     }
@@ -87,16 +153,25 @@ final class EdgeButton implements AutoCloseable {
         Rect screen = screen();
         params.gravity = Gravity.TOP | (right ? Gravity.END : Gravity.START); params.x = 0;
         params.y = Math.max(0, Math.min(y < 0 ? screen.height() / 3 : y, screen.height() - height));
-        // A slim pill against the edge; the rest of the window is a transparent touch margin.
-        GradientDrawable pill = new GradientDrawable(); pill.setColor(HANDLE); pill.setCornerRadius(dp(4));
-        int inner = width - dp(6) - dp(3);
-        view.setBackground(new InsetDrawable(pill, right ? inner : dp(3), dp(8), right ? dp(3) : inner, dp(8)));
+        // A flat rounded trapezoid against the edge (EdgeHandleView); the rest of the window is a transparent touch margin.
+        view.side(right);
     }
+    /** While pulled the strip widens inward so the stretched handle has room; at rest it is the slim touch strip again. */
+    private void widen(boolean wide) {
+        int want = wide ? width + dp(96) : width;
+        if (params.width == want || !attached) return;
+        params.width = want;
+        try { manager.updateViewLayout(view, params); } catch (RuntimeException ignored) {}
+    }
+    /** The window's top on the screen, so a raw touch height becomes one inside the handle. */
+    private float screenY() { int[] at = new int[2]; view.getLocationOnScreen(at); return at[1]; }
     private Rect screen() {
         try { return manager.getCurrentWindowMetrics().getBounds(); }
         catch (RuntimeException e) { android.util.DisplayMetrics m = context.getResources().getDisplayMetrics(); return new Rect(0, 0, m.widthPixels, m.heightPixels); }
     }
     private boolean touch(MotionEvent event) {
+        // See-through while a screen recording writes frames: a touch pauses it first (then it shows again).
+        if (RecordControl.veiledTouch(view, event)) return true;
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN -> {
                 startX = event.getRawX(); startY = event.getRawY(); originalY = params.y; moved = false; pressed = false; swiped = false;
@@ -106,11 +181,17 @@ final class EdgeButton implements AutoCloseable {
                 if (swiped) return true;
                 float dx = event.getRawX() - startX, dy = event.getRawY() - startY, inward = right() ? -dx : dx;
                 if (!moved && !pressed) {
-                    // Pulled into the screen: call right away, without waiting for the finger to lift.
-                    if (inward > swipe && inward > Math.abs(dy)) {
-                        swiped = true; main.removeCallbacks(longPress); view.performHapticFeedback(HapticFeedbackConstants.CONFIRM); talk(); return true;
+                    // Pulled inward, it stretches after the finger (a little resistance); far enough, it calls at once and snaps back.
+                    if (inward > slop && inward > Math.abs(dy) * 0.8f) {
+                        main.removeCallbacks(longPress); widen(true);
+                        view.pull(Math.min(dp(84), inward * 0.85f), event.getRawY() - screenY());
+                        if (inward > swipe) {
+                            swiped = true; view.performHapticFeedback(HapticFeedbackConstants.CONFIRM);
+                            view.release(() -> widen(false)); talk(); return true;
+                        }
+                        return true;
                     }
-                    if (Math.abs(dy) > slop && Math.abs(dy) > Math.abs(dx)) { moved = true; main.removeCallbacks(longPress); hideMenu(); }
+                    if (Math.abs(dy) > slop && Math.abs(dy) > Math.abs(dx)) { moved = true; main.removeCallbacks(longPress); hideMenu(); view.release(() -> widen(false)); }
                 }
                 if (moved && attached) {
                     Rect screen = screen();
@@ -120,10 +201,13 @@ final class EdgeButton implements AutoCloseable {
             }
             case MotionEvent.ACTION_UP -> {
                 main.removeCallbacks(longPress);
-                if (moved) store.settings.edit().putInt("edgeY", params.y).apply();
-                else if (!pressed && !swiped) talk();
+                // Let go before it called: the strand springs back.
+                if (!swiped && view.pull() > 0) { view.release(() -> widen(false)); return true; }
+                if (moved) store.settings.edit().putInt("edgeY", params.y).putBoolean(BY_USER, true).apply();
+                // A tap only nudges it (준: "살짝 건드려도 실행이 되어버려 좀 더 많이 당겨야 실행되게 해줘"): it calls when pulled PULL dp in.
+                else if (!pressed && !swiped) { view.pull(dp(10), event.getRawY() - screenY()); view.release(() -> widen(false)); }
             }
-            case MotionEvent.ACTION_CANCEL -> main.removeCallbacks(longPress);
+            case MotionEvent.ACTION_CANCEL -> { main.removeCallbacks(longPress); view.release(() -> widen(false)); }
             default -> {}
         }
         return true;
@@ -151,7 +235,7 @@ final class EdgeButton implements AutoCloseable {
         }));
         row.addView(pill(right() ? "왼쪽으로" : "오른쪽으로", MENU_TEXT, () -> {
             hideMenu(); boolean side = !right();
-            store.settings.edit().putBoolean("edgeRight", side).apply(); place(side, params.y);
+            store.settings.edit().putBoolean("edgeRight", side).putInt("edgeY", params.y).putBoolean(BY_USER, true).apply(); place(side, params.y);
             try { manager.updateViewLayout(view, params); } catch (RuntimeException ignored) {}
         }));
         row.addView(pill("잠깐 숨기기", MENU_TEXT, () -> {
@@ -181,9 +265,9 @@ final class EdgeButton implements AutoCloseable {
         if (current != null) try { manager.removeView(current); } catch (RuntimeException ignored) {}
     }
     private void detach() {
-        hideMenu(); main.removeCallbacks(longPress);
+        hideMenu(); main.removeCallbacks(longPress); params.width = width;
         if (attached) try { manager.removeView(view); } catch (RuntimeException ignored) {}
         attached = false;
     }
-    @Override public void close() { detach(); main.removeCallbacksAndMessages(null); }
+    @Override public void close() { RecordControl.offVeil(veil); detach(); main.removeCallbacksAndMessages(null); }
 }

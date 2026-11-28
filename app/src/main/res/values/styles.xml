@@ -15,6 +15,15 @@
         <item name="android:textColorHighlight">@color/accent_soft</item>
         <item name="android:alertDialogTheme">@style/SoftDialog</item>
     </style>
+    <!-- HomeActivity (들퍼레 홈 화면): the user's own wallpaper behind it, the bars see-through over it. -->
+    <style name="HomeTheme" parent="android:style/Theme.DeviceDefault.Wallpaper.NoTitleBar">
+        <item name="android:windowShowWallpaper">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+    </style>
     <!-- QuickVoiceActivity: nothing to see, no animation; it closes once voice has the microphone. -->
     <style name="QuickTheme" parent="android:style/Theme.Translucent.NoTitleBar">
         <item name="android:windowAnimationStyle">@null</item>

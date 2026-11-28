@@ -2,9 +2,14 @@ name: Android APK
 
 # Builds the signed personal-test APK with tools/build.py and publishes it as a
 # prerelease, so it can be downloaded straight to a phone from the repository's Releases page.
+# Only a release builds (준: "한 달 2000분에 맞춰야지", "8번 빌드 릴리즈 가능?", "960분이 아니라 2000분에 맞춰줘"): a release is
+# the commit that raises the version in app/build.gradle, so other pushes use no GitHub minutes. A release with the browser and
+# screen suites is about 8 minutes: 8 a day for 30 days is about 1,970 of the month's 2,000. The Firefox editor check (it
+# installs Firefox) runs only when the workflow is started by hand.
 on:
   push:
     branches: [main, master, 'claude/**', 'dot/delta/**']
+    paths: ['app/build.gradle']
   workflow_dispatch:
 
 permissions:
@@ -33,7 +38,7 @@ jobs:
         if: hashFiles('tests/browser/package.json') != ''
         run: npm ci --prefix tests/browser --ignore-scripts --no-audit --no-fund && npm test --prefix tests/browser
       - name: Firefox native editor verification
-        if: hashFiles('tests/browser/package.json') != ''
+        if: github.event_name == 'workflow_dispatch' && hashFiles('tests/browser/package.json') != ''
         run: npm run install:firefox --prefix tests/browser && npm run test:native --prefix tests/browser
       - name: Prepare isolated signing workspace
         id: public-dependencies
@@ -132,6 +137,28 @@ jobs:
           apk="build/gyeot-${VERSION}-debug.apk"
           universal="build/gyeot-${VERSION}-universal-debug.apk"
           sha=$(sha256sum "$apk" | cut -d' ' -f1)
-          notes="개인 테스트용 APK입니다. ARM64 휴대폰은 gyeot-${VERSION}-debug.apk를 설치하세요. 기본 APK는 100MiB 미만으로 이전 앱에서도 업데이트를 찾을 수 있습니다. ARM32·x86_64 기기는 universal-debug.apk를 사용하세요. 커밋 ${GITHUB_SHA::7}, SHA-256 ${sha}"
+          notes="개인 테스트용 APK입니다. ARM64 휴대폰은 gyeot-${VERSION}-debug.apk를 설치하세요. ARM32·x86_64 기기는 universal-debug.apk를 사용하세요. 커밋 ${GITHUB_SHA::7}, SHA-256 ${sha}"
           # A competing release creation fails rather than overwriting any assets.
           gh release create "$tag" "$apk" "$universal" "${deltas[@]}" build/release-candidate.json --prerelease --target "$GITHUB_SHA" --title "들퍼레 ${VERSION} (테스트용)" --notes "$notes"
+      - name: Keep only the newest 10 test releases
+        # 준: "최근 10개 제외하고 다 삭제", "빌드 작업에 자동 정리 넣어도 돼". Only published test prereleases (v…-test) go, with
+        # their tags; the signing-key draft (gyeot-signing-key) and anything else stay. A delete that fails is a warning only.
+        if: success() && steps.release-gate.outputs.publish == 'true' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/heads/claude/'))
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.prerelease and (.draft | not) and (.tag_name | test("^v[0-9]+(\\.[0-9]+)*-test$"))) | [.created_at, .tag_name] | @tsv' \
+            | sort -r | tail -n +11 | cut -f2 | while read -r old; do
+              [ -n "$old" ] || continue
+              gh release delete "$old" --yes --cleanup-tag || echo "::warning::Could not delete $old"
+            done
+          # A test release whose upload failed half-way stays a draft (GitHub's own error, not the build): it goes by its id.
+          # Only drafts named v…-test; the signing-key draft never matches.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | select(.draft and (.tag_name | test("^v[0-9]+(\\.[0-9]+)*-test$"))) | .id' \
+            | while read -r draft; do
+              [ -n "$draft" ] || continue
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$draft" || echo "::warning::Could not delete draft $draft"
+            done

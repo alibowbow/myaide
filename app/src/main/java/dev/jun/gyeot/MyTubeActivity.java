@@ -77,7 +77,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private boolean keyboardUp; private int keyboardHeight; private boolean typing;
     /** Under the video, one capsule: 이전 · 10초 뒤로 · 5초 뒤로 · 재생 · 5초 앞으로 · 10초 앞으로 · 다음; 끝내기 beside it (on a YouTube page, ← 목록으로). */
     private ImageView previous, toggle, next; private View transport, backChip; private Ui.Dial endDial;
-    private Button heart, skipChip, speedChip, qualityChip, captureChip, summaryChip, saveChip; private int videoHeight;
+    private Button heart, skipChip, speedChip, qualityChip, captureChip, mp3Chip, summaryChip, saveChip; private int videoHeight;
     /** What a search or a channel lists (videos · shorts · live), and whether by views; the channel shown, when one is. */
     private String listKind = "videos"; private boolean byViews; private MyTube.Channel shownChannel; private LinearLayout listTools;
     /** 크기 조절: the video's height as a share of the screen's, chosen by dragging the bar under the controls (0: fitted). */
@@ -97,7 +97,15 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     /** 내용 정리 made in this run, by video. */
     /** 이 영상에 대해 물어보세요: the panel that takes the list's place while it is open. */
     private VideoAskPanel askPanel;
-    private String feedId; private boolean refreshing, destroyed;
+    private String feedId; private boolean destroyed;
+    /**
+     * Feeds being chosen or checked now, each with its own stop and its own status line: one feed's AI choosing no longer blocks
+     * another's 라이브 확인, and a 저장 목록 no longer shows another feed's "AI가 검색어를 고르는 중" (준: "이건 저장리스트인데 ai검색이 돌아가",
+     * "오션의 증시 라이브가 목록에 안 떠": its check never ran while 최신 AI 뉴스 was being chosen). Main thread.
+     */
+    private final java.util.Map<String, AtomicReference<Runnable>> feedJobs = new java.util.HashMap<>();
+    private final java.util.Map<String, String> feedStatus = new java.util.HashMap<>();
+    private boolean refreshing(MyTube.Feed f) { return f != null && feedJobs.containsKey(f.id()); }
     private final AtomicReference<Runnable> cancel = new AtomicReference<>();
     private final Runnable playerChanged = () -> main.post(this::showPlayer);
 
@@ -121,6 +129,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             @Override public MyTubePlayer player() { return player; }
             @Override public void closed() { arranged = ""; showPlayer(); }
             @Override public boolean gone() { return destroyed; }
+            @Override public void prepareAudio(Runnable then) { MyTubeActivity.this.prepareAudio("Groq Whisper로 받아 적기", then); }
         });
         body.addView(askPanel.view, new LinearLayout.LayoutParams(-1, 0, 1));
         // The room changed (the composer, the keyboard, turning the phone): a dragged size is kept within it again.
@@ -129,6 +138,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         root.post(() -> {
             // Under the page: 음성 대화's bar while it talks, else the composer.
             LinearLayout.LayoutParams barAt = new LinearLayout.LayoutParams(-1, -2); barAt.setMargins(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(6));
+            // The conversation sits right over the composer it belongs to (never up among the feeds).
+            LinearLayout.LayoutParams talkAt = new LinearLayout.LayoutParams(-1, -2); talkAt.setMargins(ui.dp(12), ui.dp(4), ui.dp(12), 0);
+            root.addView(chat.panel, talkAt);
             root.addView(chat.voice.bar(), barAt);
             chat.composer.setBackgroundColor(BG); root.addView(chat.composer, new LinearLayout.LayoutParams(-1, -2));
         });
@@ -170,7 +182,6 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         LinearLayout.LayoutParams liveGap = new LinearLayout.LayoutParams(-1, -2); liveGap.bottomMargin = ui.dp(8); content.addView(liveRow, liveGap);
         // 마이튜브 AI: say what to watch or do (typed below, or spoken with 음성 대화).
         chat = new MyTubeChat(this, ui, store, book, work, main, this);
-        LinearLayout.LayoutParams chatGap = new LinearLayout.LayoutParams(-1, -2); chatGap.bottomMargin = ui.dp(8); content.addView(chat.card, chatGap);
         buildPlayer(content);
         // Two rows: 추천, the feeds the AI fills; 저장, the lists of what the user saved (never replaced). One block, which
         // 나란히 보기 sets under the video (arrange).
@@ -209,6 +220,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         render();
         takeRequest();
         confirmShown();
+        // Made again (the phone took the screen back while the user was away): the summary panel opens where it was.
+        String[] asked = state == null ? null : state.getStringArray("askVideo");
+        if (asked != null && asked.length == 3 && askPanel != null) summarize(new MyTube.Video(asked[0], asked[1], asked[2], "", "", "", ""));
     }
     @Override protected void onNewIntent(Intent intent) { super.onNewIntent(intent); setIntent(intent); takeRequest(); confirmShown(); }
     /** A voice request to open 마이튜브 (app_open_screen mytube) is answered once this screen is really in front. */
@@ -216,7 +230,11 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     @Override public void onWindowFocusChanged(boolean focus) { super.onWindowFocusChanged(focus); if (focus) AppNavigator.shown(getIntent(), dev.jun.gyeot.core.AppNavigation.MYTUBE); }
     /** Folding or unfolding keeps this screen (and the video playing); the video's box follows the new width. */
     @Override public void onConfigurationChanged(android.content.res.Configuration config) { super.onConfigurationChanged(config); videoPane.requestLayout(); showPlayer(); }
-    @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putString("feed", feedId); }
+    @Override protected void onSaveInstanceState(Bundle state) {
+        super.onSaveInstanceState(state); state.putString("feed", feedId);
+        MyTube.Video asking = askPanel == null ? null : askPanel.shown();
+        if (asking != null) state.putStringArray("askVideo", new String[]{asking.id(), asking.title(), asking.channel()});
+    }
     @Override protected void onResume() {
         super.onResume(); AppNavigator.inFront("mytube"); front = new java.lang.ref.WeakReference<>(this); if (chat != null) chat.attach();
         player.listen(playerChanged); if (player.active()) player.attach(screen); player.checkAccount(); showPlayer();
@@ -229,9 +247,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     }
     @Override protected void onDestroy() {
         destroyed = true; Runnable abort = cancel.getAndSet(null); if (abort != null) abort.run();
+        for (AtomicReference<Runnable> job : feedJobs.values()) { Runnable stop = job.getAndSet(null); if (stop != null) stop.run(); }
         for (Dialog d : new ArrayList<>(dialogs)) d.dismiss(); work.shutdownNow(); super.onDestroy();
     }
-    @Override public void onBackPressed() { if (navigation != null && navigation.close()) return; if (askPanel != null && askPanel.isOpen()) { askPanel.close(); return; } if ("full".equals(viewMode)) { setView(lastView); return; } super.onBackPressed(); }
+    @Override public void onBackPressed() { if (navigation != null && navigation.close()) return; if (askPanel != null && askPanel.isOpen()) { askPanel.close(); return; } if ("full".equals(viewMode)) { setView(lastView); return; } if (!HtmlWallpaper.backHome(this)) super.onBackPressed(); }
     /** 보기 바꾸기: 가로 꽉 · 나란히 are remembered; 전체화면 lasts until it is left (✕ on the video, or back). */
     private void setView(String mode) {
         viewMode = mode; if (!"full".equals(mode)) { lastView = mode; store.settings.edit().putString(VIEW, mode).apply(); }
@@ -287,7 +306,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             panelAt.setMargins(ui.dp(8), ui.dp(4), ui.dp(8), ui.dp(8)); askPanel.view.setLayoutParams(panelAt); askPanel.view.setVisibility(asking ? View.VISIBLE : View.GONE); }
         controlsRow.setVisibility(full || typing ? View.GONE : View.VISIBLE); gripView.setVisibility(fill || typing || shorts ? View.GONE : View.VISIBLE); exitFull.setVisibility(full ? View.VISIBLE : View.GONE);
         // The search box in use: 마이튜브에게 말하기 steps aside, so it never covers the box; it comes back when the search ends.
-        if (chat != null) chat.composer.setVisibility(full || searching || asking ? View.GONE : View.VISIBLE);
+        if (chat != null) { chat.composer.setVisibility(full || searching || asking ? View.GONE : View.VISIBLE); chat.away(full || searching || asking); }
         if (navigation != null) navigation.immersive(full);
         android.view.WindowInsetsController bars = getWindow().getInsetsController();
         if (bars != null) {
@@ -408,6 +427,9 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         summaryChip = withAiMark(ui.smallChip("요약", () -> { MyTube.Video v = player.current(); if (v != null) summarize(v); }));
         LinearLayout.LayoutParams chipGapLeft = new LinearLayout.LayoutParams(-2, -2); chipGapLeft.leftMargin = ui.dp(6);
         qualityRow.addView(captureChip, chipGapLeft);
+        // MP3: the video's sound, made in the app's Linux, into 들퍼레/마이튜브 오디오 (YouTubeAudio).
+        mp3Chip = withIcon(ui.smallChip("MP3", this::saveMp3), R.drawable.ic_download); mp3Chip.setContentDescription("MP3로 받기 · 들퍼레/" + SharedMediaOutput.AUDIO);
+        LinearLayout.LayoutParams mp3At = new LinearLayout.LayoutParams(-2, -2); mp3At.leftMargin = ui.dp(6); qualityRow.addView(mp3Chip, mp3At);
         LinearLayout.LayoutParams chipGapLeft2 = new LinearLayout.LayoutParams(-2, -2); chipGapLeft2.leftMargin = ui.dp(6);
         qualityRow.addView(summaryChip, chipGapLeft2);
         // 저장: into the 저장 feed, the first feed chip, to watch again whenever (the AI never replaces what is there).
@@ -557,6 +579,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         rowLabel(savedChips, "저장");
         for (MyTube.Feed f : lists) savedChips.addView(feedChip(f), chipAfter());
         if (lists.isEmpty()) savedChips.addView(ui.label("영상에서 ‘저장’을 누르면 주제별 목록이 생겨요", 12, MUTED));
+        savedChips.addView(summarizedChip(), chipAfter());
         list.removeAllViews();
         searchActions.setVisibility(searched != null && !searching ? View.VISIBLE : View.GONE);
         searchPlayAll.setVisibility(found.isEmpty() ? View.GONE : View.VISIBLE);
@@ -589,7 +612,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             long checked = book.refreshedAt(shown.id());
             when.setText(liveList && checked > 0 ? "확인한 때 · " + ago(checked) : "");
             List<MyTube.Video> saved = book.videos(shown.id());
-            if (saved.isEmpty() && !refreshing) { TextView empty = ui.label(liveList ? "지금 방송 중인 라이브가 없어요" : "영상을 보다가 ‘저장’을 누르면 여기에 모여요", 14, MUTED); empty.setPadding(0, ui.dp(12), 0, 0); list.addView(empty); }
+            if (saved.isEmpty() && !refreshing(shown)) { TextView empty = ui.label(liveList ? "지금 방송 중인 라이브가 없어요" : "영상을 보다가 ‘저장’을 누르면 여기에 모여요", 14, MUTED); empty.setPadding(0, ui.dp(12), 0, 0); list.addView(empty); }
             for (int i = 0; i < saved.size(); i++) { int index = i; list.addView(videoRow(saved.get(i), () -> playFrom(index))); }
             markPlaying(); tidyHeadings();
             return;
@@ -601,17 +624,128 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         long at = book.refreshedAt(shown.id());
         when.setText(at == 0 ? "아직 고르지 않았어요" : "고른 때 · " + ago(at));
         List<MyTube.Video> videos = book.videos(shown.id());
-        if (videos.isEmpty() && !refreshing) { TextView empty = ui.label("‘새로 고르기’를 누르면 AI가 유튜브에서 골라 와요.", 14, MUTED); empty.setPadding(0, ui.dp(12), 0, 0); list.addView(empty); }
+        if (videos.isEmpty() && !refreshing(shown)) { TextView empty = ui.label("‘새로 고르기’를 누르면 AI가 유튜브에서 골라 와요.", 14, MUTED); empty.setPadding(0, ui.dp(12), 0, 0); list.addView(empty); }
         for (int i = 0; i < videos.size(); i++) { int index = i; list.addView(videoRow(videos.get(i), () -> playFrom(index))); }
         markPlaying(); tidyHeadings();
     }
     /** A feed's or a list's chip: the slim capsule of ＋ 피드 beside it, the accent when shown; ● before a list that shows live broadcasts. */
     private Button feedChip(MyTube.Feed f) {
-        Button chip = ui.smallChip((f.saved() && book.liveWatch(f.id()) ? "● " : "") + f.name(), () -> { searched = null; feedId = f.id(); render(); refreshIfStale(); });
+        Button chip = ui.smallChip((f.saved() && book.liveWatch(f.id()) ? "● " : "") + f.name(), () -> { searched = null; feedId = f.id(); render(); status(feedStatus.getOrDefault(f.id(), "")); refreshIfStale(); });
         boolean on = searched == null && f.id().equals(feedId);
         chip.setBackground(ui.centeredCapsule(on ? ACCENT : FILL, ui.dp(28))); chip.setPadding(ui.dp(12), 0, ui.dp(12), 0);
         chip.setTextColor(on ? ON_ACCENT : TEXT); chip.setSelected(on);
         return chip;
+    }
+    // ── MP3 ────────────────────────────────────────────────────────────
+
+    private boolean mp3Busy;
+    /** An MP3 is being made now (RunningWork: an update would stop it). */
+    static volatile boolean mp3Running;
+    /**
+     * The playing video's sound as an MP3 in 들퍼레/마이튜브 오디오. The first time, the app's Linux and its tools (Python,
+     * ffmpeg, yt-dlp) are put in, each after the user says so; then the MP3 is made off the main thread.
+     */
+    private void saveMp3() {
+        MyTube.Video v = player.current();
+        if (v == null) { toast("재생 중인 영상이 없어요"); return; }
+        if (v.live()) { toast("실시간 방송은 MP3로 받을 수 없어요"); return; }
+        if (mp3Busy) { toast("MP3를 만드는 중이에요"); return; }
+        if (!YouTubeAudio.mp3Ready(this)) { prepareAudio("MP3", this::saveMp3); return; }
+        mp3Busy = true; mp3Running = true; mp3Chip.setEnabled(false); mp3Chip.setText("MP3 만드는 중…");
+        android.content.Context app = getApplicationContext();
+        work.execute(() -> {
+            String said; java.io.File file = null;
+            try {
+                file = YouTubeAudio.mp3(app, v.id(), null);
+                String name = mp3Name(v);
+                try (java.io.InputStream in = new java.io.FileInputStream(file)) {
+                    SharedMediaOutput.save(app, "mytube-mp3-" + v.id() + "-" + file.length(), SharedMediaOutput.AUDIO, name, "audio/mpeg", in, () -> {});
+                }
+                said = "들퍼레/" + SharedMediaOutput.AUDIO + "에 저장했어요 · " + name;
+            } catch (Exception e) { said = "MP3를 만들지 못했어요" + (e.getMessage() == null || e.getMessage().isBlank() ? "" : ": " + e.getMessage()); }
+            finally { YouTubeAudio.forget(file); }
+            String done = said; mp3Running = false;
+            main.post(() -> { mp3Busy = false; if (isDestroyed()) return; mp3Chip.setEnabled(true); mp3Chip.setText("MP3"); toast(done); });
+        });
+    }
+    /**
+     * The audio tools (Python, ffmpeg, yt-dlp) in the app's Linux, each step after the user says so, then then (for the MP3,
+     * or 대본 보기 with Groq Whisper). why: what they are for, in the question.
+     */
+    void prepareAudio(String why, Runnable then) {
+        if (!LinuxRuntime.supported(this)) { toast("이 휴대폰에서는 앱 안 리눅스를 쓸 수 없어서 오디오 도구를 쓸 수 없어요"); return; }
+        if (!LinuxRuntime.installed(this)) { installLinuxThen(why, () -> prepareAudio(why, then)); return; }
+        if (YouTubeAudio.mp3Ready(this)) { then.run(); return; }
+        ui.confirm(why + "에는 앱 안 리눅스의 오디오 도구가 필요해요. 처음 한 번 Python·ffmpeg·yt-dlp를 받아요(몇십 MB, 몇 분). MP3 받기와, 자막 없는 영상을 Groq Whisper가 받아 적을 때 같이 써요.", "도구 받기", () -> {
+            LabPython.prepare(this);
+            LinuxTerminal.show(this, ui, "유튜브 오디오 도구 준비", "pacman으로 Python과 ffmpeg를, GitHub에서 yt-dlp를 받아요. 끝나면 닫아 주세요.", YouTubeAudio.installCommand(), null,
+                () -> { if (!isDestroyed() && YouTubeAudio.mp3Ready(this)) then.run(); });
+        }).show();
+    }
+    private void installLinuxForMp3() { installLinuxThen("MP3", this::saveMp3); }
+    /** The app's Linux, put in after the user says so (as 연구실's 진행판 does), then then. */
+    private void installLinuxThen(String why, Runnable then) {
+        if (LinuxRuntime.busy) { toast("앱 안 리눅스를 설치하는 중이에요"); return; }
+        if (LinuxRuntime.free(this) < LinuxRuntime.needed()) { toast("저장 공간이 부족해요. " + LinuxRuntime.mb(LinuxRuntime.needed()) + "가 필요해요."); return; }
+        ui.confirm(why + "는 앱 안 리눅스(" + LinuxRuntime.DISTRIBUTION + ")에서 해요. 리눅스를 먼저 설치할까요? 다운로드 " + LinuxRuntime.mb(LinuxRuntime.ARCHIVE_BYTES) + ".", "리눅스 설치", () -> {
+            mp3Busy = true; mp3Chip.setEnabled(false); mp3Chip.setText("리눅스 설치 중…");
+            android.content.Context app = getApplicationContext();
+            new Thread(() -> {
+                String failed = null;
+                try { LinuxRuntime.install(app, () -> {}); } catch (Exception e) { failed = e.getMessage() == null ? "설치하지 못했어요." : e.getMessage(); }
+                String trouble = failed;
+                main.post(() -> { mp3Busy = false; if (isDestroyed()) return; mp3Chip.setEnabled(true); mp3Chip.setText("MP3"); if (trouble != null) toast(trouble); else then.run(); });
+            }, "gyeot-linux-install").start();
+        }).show();
+    }
+    /** The video's title as a file name (no slashes, quotes or control characters), at most 80 characters. */
+    private static String mp3Name(MyTube.Video v) {
+        String base = v.title() == null ? "" : v.title().replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]+", " ").replaceAll("\\s+", " ").strip();
+        if (base.length() > 80) base = base.substring(0, 80).strip();
+        if (base.isEmpty() || base.equals(".") || base.equals("..")) base = v.id();
+        return base + ".mp3";
+    }
+
+    // ── 요약한 영상 ────────────────────────────────────────────────────
+
+    /** 요약한 영상: at the end of the 저장 row, the videos summed up or asked about here (VideoAskPanel keeps the last VideoChat.KEPT). */
+    private Button summarizedChip() {
+        Button chip = withAiMark(ui.smallChip("요약한 영상", this::showSummarized));
+        chip.setBackground(ui.centeredCapsule(FILL, ui.dp(28))); chip.setPadding(ui.dp(12), 0, ui.dp(12), 0); chip.setTextColor(TEXT);
+        chip.setContentDescription("요약한 영상 목록 보기");
+        return chip;
+    }
+    /** The kept conversations are read off the main thread (the file once), then listed. */
+    private void showSummarized() {
+        android.content.Context app = getApplicationContext();
+        work.execute(() -> { List<VideoChat.Kept> kept = VideoAskPanel.saved(app); main.post(() -> { if (!isFinishing() && !isDestroyed()) summarizedSheet(kept); }); });
+    }
+    /** All of them, newest first, one slim row each (a small frame, the title, channel · when); a tap plays it with its summary open. */
+    private void summarizedSheet(List<VideoChat.Kept> kept) {
+        List<VideoChat.Kept> newest = new ArrayList<>(kept); newest.sort((a, b) -> Long.compare(b.at(), a.at()));
+        Ui.Sheet sheet = ui.selectionSheet("요약한 영상", newest.isEmpty() ? "영상에서 ‘요약’을 누르면 여기에 모여요" : "최근 " + newest.size() + "개 · 누르면 영상과 요약이 함께 열려요");
+        sheet.primary.setVisibility(View.GONE);
+        dialogs.add(sheet); sheet.setOnDismissListener(d -> dialogs.remove(sheet));
+        List<MyTube.Video> videos = new ArrayList<>();
+        for (VideoChat.Kept k : newest) videos.add(new MyTube.Video(k.id(), k.title(), k.channel(), "", "", "", ""));
+        MyTube.Feed from = new MyTube.Feed("summarized", "요약한 영상", MyTube.Kind.VIDEOS, "", "", 0);
+        for (int i = 0; i < newest.size(); i++) {
+            VideoChat.Kept k = newest.get(i); int index = i;
+            LinearLayout row = ui.row(); row.setPadding(ui.dp(4), ui.dp(5), ui.dp(4), ui.dp(5));
+            ImageView frame = new ImageView(this); frame.setScaleType(ImageView.ScaleType.CENTER_CROP); frame.setBackground(ui.shape(FILL, 8)); frame.setClipToOutline(true);
+            frame.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            row.addView(frame, new LinearLayout.LayoutParams(ui.dp(64), ui.dp(36))); loadFrame(frame, k.id(), false);
+            LinearLayout words = ui.column(); words.setPadding(ui.dp(10), 0, 0, 0);
+            TextView title = ui.text(k.title().isBlank() ? "제목 없는 영상" : k.title(), 14, 560, TEXT); title.setSingleLine(true); title.setEllipsize(TextUtils.TruncateAt.END);
+            TextView meta = ui.label(join(k.channel(), ago(k.at())), 12, MUTED); meta.setSingleLine(true); meta.setEllipsize(TextUtils.TruncateAt.END);
+            words.addView(title); words.addView(meta);
+            row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+            row.setContentDescription(title.getText() + ", " + meta.getText() + ". 누르면 영상과 요약이 함께 열려요");
+            row.setOnClickListener(v -> { sheet.dismiss(); player.play(from, videos, index); player.attach(screen); summarize(videos.get(index)); });
+            Ui.pressable(row, true);
+            sheet.body.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
+        sheet.show();
     }
     private LinearLayout.LayoutParams chipAfter() { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(8); return p; }
     /** 추천 · 저장 at the start of their rows, the same width so both rows' chips line up. */
@@ -662,7 +796,7 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         ImageView frame = new ImageView(this); frame.setScaleType(ImageView.ScaleType.CENTER_CROP); frame.setBackground(ui.shape(FILL, 12)); frame.setClipToOutline(true);
         frame.setContentDescription("영상 중간 장면");
         row.addView(frame, new LinearLayout.LayoutParams(ui.dp(132), ui.dp(74)));
-        loadFrame(frame, v.id());
+        loadFrame(frame, v.id(), v.live());
         LinearLayout text = ui.column(); text.setPadding(ui.dp(12), 0, 0, 0);
         TextView title = ui.text(v.title(), 14, 600, TEXT); title.setMaxLines(2); title.setEllipsize(TextUtils.TruncateAt.END);
         // A broadcast on air: 실시간 in the accent where its length would be, with how many watch.
@@ -925,6 +1059,37 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
                     done.accept("새 피드 ‘" + saved.name() + "’를 만들고 고르는 중이에요");
                 } catch (Exception e) { done.accept("피드를 만들지 못했어요 · " + e.getMessage()); }
             }
+            case "feed_edit" -> {
+                MyTube.Feed f = MyTube.feedNamed(book.feeds(), a.optString("feed")); if (f == null) { done.accept("‘" + a.optString("feed") + "’ 피드를 찾지 못했어요"); return; }
+                MyTube.Feed changed = MyTube.feedEdited(f, a);
+                if (changed.equals(f)) { done.accept("‘" + f.name() + "’에서 바꿀 내용이 없었어요"); return; }
+                try {
+                    MyTube.Feed saved = book.save(changed); searched = null; feedId = saved.id();
+                    boolean gathers = !changed.about().equals(f.about()) || !changed.channel().equals(f.channel()) || changed.days() != f.days();
+                    if (gathers) book.stale(saved.id());
+                    render(); if (gathers && !saved.saved()) refresh();
+                    StringBuilder note = new StringBuilder("‘" + saved.name() + "’ 피드를 고쳤어요");
+                    if (!changed.name().equals(f.name())) note.append(" · 이름 ‘").append(f.name()).append("’ → ‘").append(changed.name()).append("’");
+                    if (!changed.about().equals(f.about())) note.append(" · 수집: ").append(changed.about());
+                    if (changed.days() != f.days()) note.append(" · 최근 ").append(changed.days()).append("일");
+                    if (!changed.channel().equals(f.channel())) note.append(" · 기준 채널 ").append(changed.channel().isEmpty() ? "없음" : changed.channel());
+                    if (gathers && !saved.saved()) note.append(" · 새로 고르는 중");
+                    done.accept(note.toString());
+                } catch (Exception e) { done.accept("피드를 고치지 못했어요 · " + e.getMessage()); }
+            }
+            case "feed_delete" -> {
+                MyTube.Feed f = MyTube.feedNamed(book.feeds(), a.optString("feed")); if (f == null) { done.accept("‘" + a.optString("feed") + "’ 피드를 찾지 못했어요"); return; }
+                Ui.Sheet ask = ui.confirm("‘" + f.name() + "’ 피드를 지울까요? 모아 둔 영상 목록도 함께 지워져요.", "피드 지우기", () -> {
+                    try { book.remove(f.id()); if (f.id().equals(feedId)) feedId = null; render(); done.accept("‘" + f.name() + "’ 피드를 지웠어요"); }
+                    catch (Exception e) { done.accept("피드를 지우지 못했어요 · " + e.getMessage()); }
+                });
+                boolean[] answered = {false};
+                ask.primary.setOnClickListener(v -> { answered[0] = true; ask.dismiss();
+                    try { book.remove(f.id()); if (f.id().equals(feedId)) feedId = null; render(); done.accept("‘" + f.name() + "’ 피드를 지웠어요"); }
+                    catch (Exception e) { done.accept("피드를 지우지 못했어요 · " + e.getMessage()); } });
+                ask.setOnDismissListener(d -> { dialogs.remove(ask); if (!answered[0]) done.accept("‘" + f.name() + "’ 피드는 그대로 뒀어요"); });
+                dialogs.add(ask); ask.show();
+            }
             case "organize_feeds" -> organize(done);
             case "control" -> {
                 if (!player.active()) { done.accept("재생 중인 영상이 없어요"); return; }
@@ -1052,17 +1217,19 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
     private void refresh() { refreshFeed(feed()); }
     /** Chooses this feed afresh in the background (a 라이브만 보기 list: checks its channels); the screen shows it when done. */
     private void refreshFeed(MyTube.Feed f) {
-        if (f == null || refreshing || destroyed) return;
-        refreshing = true; status("고르기 시작");
+        if (f == null || refreshing(f) || destroyed) return;
+        AtomicReference<Runnable> stop = new AtomicReference<>(); feedJobs.put(f.id(), stop);
+        feedStatus(f, f.saved() ? "라이브 확인 시작" : "고르기 시작");
+        String[] note = {""};
         work.execute(() -> {
             String failure = null;
-            try { MyTubeClient.refresh(this, store, f, step -> main.post(() -> status(step)), cancel); }
+            try { MyTubeClient.refresh(this, store, f, step -> main.post(() -> { if (step.startsWith(MyTubeClient.NOTE)) note[0] = step.substring(MyTubeClient.NOTE.length()); else feedStatus(f, step); }), stop); }
             catch (java.util.concurrent.CancellationException stopped) { failure = ""; }
             catch (Exception e) { failure = friendly(e, "고르지 못했어요."); }
             String why = failure;
             main.post(() -> {
                 if (destroyed) return;
-                refreshing = false; status(why == null ? "" : why);
+                feedJobs.remove(f.id()); feedStatus(f, why != null ? why : note[0]);
                 render();
                 // Asked by voice to play this feed: it plays once its choice is ready.
                 MyTube.Feed shownNow = feed();
@@ -1071,9 +1238,15 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         });
     }
     private boolean playWhenReady;
+    /** A feed's own status: kept for it, and shown when it is the feed on screen. */
+    private void feedStatus(MyTube.Feed f, String text) {
+        if (text == null || text.isEmpty()) feedStatus.remove(f.id()); else feedStatus.put(f.id(), text);
+        MyTube.Feed shown = feed();
+        if (searched == null && shown != null && shown.id().equals(f.id())) status(text == null ? "" : text);
+    }
     private void status(String text) {
         statusLine.setText(text == null ? "" : text); statusLine.setVisibility(text == null || text.isEmpty() ? View.GONE : View.VISIBLE);
-        statusLine.shimmer(text != null && !text.isEmpty() && (text.endsWith("중") || refreshing)); // still working: the line's light sweeps
+        statusLine.shimmer(text != null && !text.isEmpty() && (text.endsWith("중") || refreshing(feed()))); // still working: the line's light sweeps
     }
 
     /** A voice request named a feed (or news / music): it shows, and plays (choosing first when it has nothing yet). */
@@ -1123,6 +1296,13 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, -2); gap.topMargin = ui.dp(10);
         sheet.body.addView(name, gap);
         LinearLayout.LayoutParams gap2 = new LinearLayout.LayoutParams(-1, -2); gap2.topMargin = ui.dp(8); sheet.body.addView(what, gap2);
+        // 원하는 것, written by the AI from the name (준: "Ai로 자동으로 채워넣을 수 있게 해줘"): a small chip under the field; an
+        // empty one is filled the same way when 저장 is pressed.
+        Button fill = ui.smallChip("✨ AI로 채우기", () -> {});
+        fill.setContentDescription("원하는 것을 이름에 맞춰 AI로 채우기");
+        LinearLayout fillRow = ui.row(); fillRow.setGravity(Gravity.END); fillRow.setPadding(0, ui.dp(4), 0, 0); fillRow.addView(fill);
+        sheet.body.addView(fillRow);
+        fill.setOnClickListener(v -> fillWant(name, what, channel, kinds[kind[0]], days[0], fill, null));
         LinearLayout.LayoutParams gap3 = new LinearLayout.LayoutParams(-1, -2); gap3.topMargin = ui.dp(8); sheet.body.addView(channel, gap3);
         sheet.body.addView(channelNote);
         // 저장한 채널: the channels kept in this feed (a live feed shows their broadcasts first); ✕ takes one off.
@@ -1145,7 +1325,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             String title = name.getText().toString().strip(), want = what.getText().toString().strip(), from = channel.getText().toString().strip();
             MyTube.Kind chosen = kinds[kind[0]];
             if (title.isEmpty()) { name.setError("이름을 적어 주세요."); return; }
-            if (want.isEmpty() && !(chosen == MyTube.Kind.VIDEOS && !from.isEmpty())) { what.setError("무엇을 보고 싶은지 적어 주세요."); return; }
+            // Left empty: the AI writes it from the name, then 저장 goes on (no "적어 주세요").
+            if (want.isEmpty() && !(chosen == MyTube.Kind.VIDEOS && !from.isEmpty())) { fillWant(name, what, channel, chosen, days[0], fill, () -> sheet.primary.performClick()); return; }
             if (chosen == MyTube.Kind.VIDEOS && !from.isEmpty() && MyTube.channelPath(from).isEmpty()) { channel.setError("@채널이름이나 youtube.com/@채널이름 형식으로 적어 주세요."); return; }
             try {
                 MyTube.Feed saved = book.save(new MyTube.Feed(fresh ? "" : editing.id(), title, chosen, want, chosen == MyTube.Kind.VIDEOS ? from : "", chosen == MyTube.Kind.NEWS ? days[0] : 0));
@@ -1154,6 +1335,39 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             } catch (Exception e) { toast(e.getMessage()); }
         });
         sheet.show();
+    }
+
+    /**
+     * 원하는 것 from the feed's name (and its kind, days, reference channel), in the user's words' style: one short sentence of the
+     * subject, the kind of videos wanted and what to leave out. 잡일 (Chores: Groq first). then: what to do once it is filled.
+     */
+    private void fillWant(EditText name, EditText what, EditText channel, MyTube.Kind kind, int days, Button chip, Runnable then) {
+        String title = name.getText().toString().strip();
+        if (title.isEmpty()) { name.setError("이름을 먼저 적어 주세요. 그 이름에 맞춰 채워요."); return; }
+        if (!chip.isEnabled()) return;
+        chip.setEnabled(false); CharSequence was = chip.getText(); chip.setText("AI가 쓰는 중…"); what.setError(null);
+        String input = "피드 이름: " + title + "\n종류: " + kind.label + " · " + kind.about + (kind == MyTube.Kind.NEWS ? "\n기간: " + days + "일" : "")
+            + (channel.getVisibility() == View.VISIBLE && !channel.getText().toString().isBlank() ? "\n기준 채널: " + channel.getText().toString().strip() : "")
+            + (what.getText().toString().isBlank() ? "" : "\n지금 적힌 것: " + what.getText().toString().strip());
+        String rules = "유튜브에서 영상을 골라 오는 피드의 '원하는 것' 칸을 채워. 피드 이름과 종류를 보고, 이 피드에서 보고 싶어 할 것을 한국어 한두 문장(80자 안쪽)으로 써: "
+            + "다룰 주제와 그 범위, 원하는 영상 성격(원래 발표·실제 시연·해설·리뷰 …), 빼고 싶은 것(낚시성 요약, 재업로드 …). 지금 적힌 것이 있으면 그 뜻을 살려 다듬어. "
+            + "따옴표·머리말·설명 없이 그 문장만.";
+        try {
+            work.execute(() -> {
+                String said; try { said = Chores.run(store, rules, input, true); } catch (Exception e) { said = null; String why = e.getMessage();
+                    main.post(() -> { chip.setEnabled(true); chip.setText(was); toast(why == null ? "AI가 채우지 못했어요." : why); }); return; }
+                String text = said == null ? "" : said.replaceAll("(?s)<think>.*?</think>", "").replaceAll("^[\"'“”‘’\\s]+|[\"'“”‘’\\s]+$", "").strip();
+                if (text.length() > 400) text = text.substring(0, 400);
+                String done = text;
+                main.post(() -> {
+                    chip.setEnabled(true); chip.setText(was);
+                    if (isFinishing() || isDestroyed()) return;
+                    if (done.isEmpty()) { toast("AI가 빈 답을 보냈어요. 직접 적어 주세요."); return; }
+                    what.setText(done); what.setSelection(done.length());
+                    if (then != null) then.run();
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException closed) { chip.setEnabled(true); chip.setText(was); }
     }
 
     /**
@@ -1293,6 +1507,10 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         LinearLayout login = ui.listRow(R.drawable.ic_person, ACCENT, "유튜브 로그인", state, ui.chevron(), () -> { player.signIn(); player.attach(screen); showPlayer(); });
         accountLine = findText(login, state);
         ui.addRow(group, login, true);
+        // 오디오 도구: yt-dlp (and Python, ffmpeg) in the app's Linux, for MP3 and for Groq Whisper's transcripts of songs.
+        boolean tools = YouTubeAudio.mp3Ready(this);
+        ui.addRow(group, ui.listRow(R.drawable.ic_download, ACCENT, "오디오 도구 (yt-dlp)", tools ? "준비됨 · MP3 받기와 자막 없는 영상의 Whisper 대본에 써요" : "없음 · 누르면 받아요 (MP3, 노래 대본에 필요)",
+            ui.chevron(), () -> { if (YouTubeAudio.mp3Ready(this)) toast("이미 준비돼 있어요"); else prepareAudio("MP3·노래 대본 받기", () -> toast("오디오 도구가 준비됐어요")); }), true);
         // 화질 is chosen only on the video's own button row (the small menu there); not repeated here.
         ui.addRow(group, ui.switchRow("화면 꺼져도 계속 재생", "유튜브 프리미엄 회원용 · 음악 앱처럼 화면을 끄거나 다른 앱으로 가도 이어서 나와요", player.background(),
             value -> { store.settings.edit().putBoolean(MyTubePlayer.BACKGROUND, value).apply(); if (value && player.playing()) MyTubeService.start(this); if (!value) MyTubeService.stop(this); }), false);
@@ -1328,19 +1546,25 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         d = d.mutate(); d.setTint(TEXT); d.setBounds(0, 0, ui.dp(16), ui.dp(16)); chip.setCompoundDrawablesRelative(d, null, null, null); chip.setCompoundDrawablePadding(ui.dp(6));
         return chip;
     }
-    private void loadFrame(ImageView view, String id) {
-        Bitmap kept = FRAMES.get(id); view.setTag(id);
+    private void loadFrame(ImageView view, String id, boolean live) {
+        // A broadcast's picture changes as it goes on: kept only for a few minutes (its own key), others for the session.
+        String key = live ? id + "@live" + (System.currentTimeMillis() / (5 * 60_000)) : id;
+        Bitmap kept = FRAMES.get(key); view.setTag(id);
         if (kept != null) { view.setImageBitmap(kept); return; }
         work.execute(() -> {
-            try {
-                java.net.HttpURLConnection http = (java.net.HttpURLConnection) new java.net.URL(MyTube.frame(id)).openConnection();
-                http.setConnectTimeout(10_000); http.setReadTimeout(15_000);
-                Bitmap bitmap;
-                try (java.io.InputStream in = http.getInputStream()) { bitmap = BitmapFactory.decodeStream(in); } finally { http.disconnect(); }
-                if (bitmap == null) return;
-                FRAMES.put(id, bitmap);
-                main.post(() -> { if (!destroyed && id.equals(view.getTag())) view.setImageBitmap(bitmap); });
-            } catch (Exception unavailable) { /* the gray box stays */ }
+            for (String url : MyTube.frames(id, live)) {
+                try {
+                    java.net.HttpURLConnection http = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                    http.setConnectTimeout(10_000); http.setReadTimeout(15_000);
+                    Bitmap bitmap;
+                    try (java.io.InputStream in = http.getInputStream()) { bitmap = BitmapFactory.decodeStream(in); } finally { http.disconnect(); }
+                    // YouTube answers a missing picture with a tiny gray placeholder: try the next one.
+                    if (bitmap == null || bitmap.getWidth() <= 120) continue;
+                    FRAMES.put(key, bitmap);
+                    main.post(() -> { if (!destroyed && id.equals(view.getTag())) view.setImageBitmap(bitmap); });
+                    return;
+                } catch (Exception unavailable) { /* the next picture */ }
+            }
         });
     }
     private static String join(String... parts) { StringBuilder out = new StringBuilder(); for (String p : parts) if (p != null && !p.isBlank()) out.append(out.length() == 0 ? "" : " · ").append(p); return out.toString(); }

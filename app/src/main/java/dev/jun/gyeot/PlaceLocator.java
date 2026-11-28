@@ -27,6 +27,8 @@ final class PlaceLocator {
             catch (Exception ignored) { /* The geocoder below. */ }
         }
         if (out.isEmpty()) out.addAll(geocode(context, text));
+        // 하루 기록: what was looked up and the first found ("‘강남역 맛집’ 찾아봄").
+        DayLogs.looked(text, out);
         return out.size() <= NaverPlaces.RESULTS ? out : new ArrayList<>(out.subList(0, NaverPlaces.RESULTS));
     }
     /** An address (or a well-known place) by the phone's geocoder: its coordinates, the address as given back. */

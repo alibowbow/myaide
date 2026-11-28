@@ -24,6 +24,7 @@ public final class BargeIn {
     private final double[] ratios = new double[WINDOW];
     private int count, next;
     private double score;
+    private boolean voice;
 
     /** The RMS of 16-bit little-endian PCM. */
     public static double rms(byte[] pcm) {
@@ -31,6 +32,12 @@ public final class BargeIn {
         long sum = 0; int samples = pcm.length / 2;
         for (int i = 0; i + 1 < pcm.length; i += 2) { int s = (short) ((pcm[i] & 255) | (pcm[i + 1] << 8)); sum += (long) s * s; }
         return Math.sqrt(sum / (double) samples);
+    }
+    /** The RMS of n samples of 16-bit PCM. */
+    public static double rms(short[] pcm, int n) {
+        if (pcm == null || n <= 0) return 0;
+        long sum = 0; for (int i = 0; i < n; i++) sum += (long) pcm[i] * pcm[i];
+        return Math.sqrt(sum / (double) n);
     }
 
     /**
@@ -40,7 +47,7 @@ public final class BargeIn {
     public synchronized boolean hear(double mic, double playing, int ms) {
         boolean measurable = playing >= QUIET_PLAYBACK;
         double echo = measurable ? ratio() * playing : 0;
-        boolean voice = mic > Math.max(FLOOR, MARGIN * echo);
+        boolean voice = mic > Math.max(FLOOR, MARGIN * echo); this.voice = voice;
         // Only the echo teaches what the echo sounds like: a frame taken for the user's voice is never learned.
         if (!voice && measurable) { ratios[next] = mic / playing; next = (next + 1) % WINDOW; count++; }
         score = voice ? score + ms : Math.max(0, score - ms / 2.0);
@@ -52,6 +59,8 @@ public final class BargeIn {
         double max = 0; for (int i = 0; i < Math.min(count, WINDOW); i++) max = Math.max(max, ratios[i]);
         return max;
     }
+    /** Whether the last frame heard was taken for the user's voice. */
+    public synchronized boolean voice() { return voice; }
     /** Starts listening afresh for the next time (what the echo sounds like is kept). */
     public synchronized void reset() { score = 0; }
 }

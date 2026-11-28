@@ -22,6 +22,19 @@ public final class Brand {
         return clean.equals(NAME) ? NAME + " (call yourself only by this name)"
             : clean + " (the name the user gave you; the app is " + NAME + "; call yourself only by " + clean + ")";
     }
+    /**
+     * How the user calls the assistant, for its instructions: a short name is often misheard (퍼레야 heard as 거래야, put, 팔에),
+     * and a misheard call must not become a topic or turn the answer into another language. who: the name, or called()'s text.
+     */
+    public static String hearing(String who) {
+        String clean = assistant(who == null ? "" : who.split(" \\(")[0]);
+        boolean ours = clean.equals(NAME) || clean.contains("퍼레");
+        return " The user speaks Korean and calls you by name (" + (ours ? "퍼레, 퍼레야, 들퍼레" : clean + ", " + josa(clean, "아", "야")) + ")."
+            + " Speech recognition often mishears a short name: a word or two said on its own that sounds like your name"
+            + (ours ? " (such as 거래야, 거래, 버레, 페레, 펄레, 파레, 팔에, put, put it up, pere)" : "")
+            + " is the user calling you, so answer as called (네, 말씀하세요) and never take it as a topic or answer in another language because of it."
+            + " Answer in Korean unless the user clearly speaks whole sentences in another language.";
+    }
     /** The word with the particle form that follows a final consonant, or the one that follows a vowel. */
     public static String josa(String word, String afterConsonant, String afterVowel) {
         return word + (finalConsonant(word) > 0 ? afterConsonant : afterVowel);

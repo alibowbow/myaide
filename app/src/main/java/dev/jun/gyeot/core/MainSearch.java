@@ -98,6 +98,8 @@ public final class MainSearch {
     public static String help(String engine, Mode mode) {
         String chosen = WorkBook.engine(engine), name = WorkBook.author(chosen);
         if (WorkBook.NIM.equals(chosen)) return "NVIDIA NIM에는 웹 검색 도구가 없어서 검색 없이 답해요.";
+        if (WorkBook.ANTIGRAVITY.equals(chosen)) return "Antigravity는 앱의 웹 검색 없이 답해요.";
+        if (WorkBook.GROQ.equals(chosen)) return "Groq는 앱의 웹 검색 없이 답해요.";
         return switch (mode) {
             case OFF -> reads(chosen) ? "검색하지 않아요. 질문에 링크가 있으면 " + name + "에서 그 페이지만 읽어요." : "검색하지 않아요. " + name + "에서는 링크도 열어 보지 않아요.";
             case ALWAYS -> forces(chosen) ? name + "에서 질문마다 먼저 검색해요." : name + "에서는 검색을 강제할 수 없어서 자동처럼 필요할 때 검색해요.";

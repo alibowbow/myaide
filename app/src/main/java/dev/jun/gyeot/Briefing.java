@@ -21,7 +21,7 @@ import org.json.JSONObject;
  * 먼저 챙기기 on the phone (core/Proactive): 나에 대한 이해 and 오늘의 제안, while the switch is on. The note is made again about
  * once a day when the app comes to the front; the morning cards are made by a job at the chosen time (BriefingJob, network
  * needed) with a notification, or when the app is opened after that time if the job has not run. Both are light work, Gemma
- * 4 first (GeminiAudioClient.light), on the Gemini key. Turning it off stops the job and the note no longer goes anywhere.
+ * 4 or Groq first (Chores), on the Gemini or Groq key. Turning it off stops the job and the note no longer goes anywhere.
  */
 final class Briefing {
     private Briefing() {}
@@ -64,13 +64,11 @@ final class Briefing {
      * Blocking; throws why it could not. Returns the page's id.
      */
     static String evening(Context context, AppStore store, boolean tell) throws Exception {
-        String key = store.secrets.workKey();
-        if (key.isBlank()) throw new IllegalStateException("설정 → Gemini API 키를 먼저 넣어 주세요.");
         long now = System.currentTimeMillis(); ZoneId zone = ZoneId.systemDefault(); long since = Proactive.startOfDay(now, zone);
         String schedule = "";
         try { schedule = MainChatCalendar.context(context, store, "오늘 일정 알려줘", now); } catch (RuntimeException unreadable) { /* No calendar. */ }
         String input = Proactive.reviewInput(now, zone, schedule, chatSince(store, since), worksSince(store, since), recordsSince(store, since));
-        String text = Proactive.profile(GeminiAudioClient.light(key, Proactive.REVIEW, input));
+        String text = Proactive.profile(Chores.run(store, Proactive.REVIEW, input, !tell));
         if (text.isBlank()) throw new IllegalStateException("돌아보기를 만들지 못했어요.");
         String day = Proactive.day(now, zone);
         dev.jun.gyeot.core.PageBook.Page page = PageStore.book(context).save(day + " 하루 돌아보기", "하루 돌아보기", dev.jun.gyeot.core.PageBook.MARKDOWN, text, "", "");
@@ -143,32 +141,45 @@ final class Briefing {
     }
 
     /** Makes 나에 대한 이해 again now. Blocking; throws why it could not. */
-    static String remake(Context context, AppStore store) throws Exception {
-        String key = store.secrets.workKey();
-        if (key.isBlank()) throw new IllegalStateException("설정 → Gemini API 키를 먼저 넣어 주세요.");
-        String input = Proactive.profileInput(note(store), store.settings.getBoolean("aboutAiEdited", false), store.persona(), memories(store), chat(store, 80), works(store, 12, false), records(store));
-        String made = Proactive.profile(GeminiAudioClient.light(key, Proactive.PROFILE, input));
+    static String remake(Context context, AppStore store) throws Exception { return remake(context, store, false); }
+    /** waiting: the user pressed 지금 다시 정리 (Groq first, Chores). */
+    static String remake(Context context, AppStore store, boolean waiting) throws Exception {
+        String input = Proactive.profileInput(System.currentTimeMillis(), ZoneId.systemDefault(), note(store), store.settings.getBoolean("aboutAiEdited", false), store.persona(), memories(store), chat(store, 80), works(store, 12, false), records(store));
+        String made = Proactive.profile(Chores.run(store, Proactive.PROFILE, input, waiting));
         if (made.isEmpty()) throw new IllegalStateException("노트를 만들지 못했어요.");
         store.settings.edit().putString("aboutAi", made).putLong("aboutAiAt", System.currentTimeMillis()).apply(); store.changed();
         return made;
     }
     /** Makes today's cards now (tell: with a notification). Blocking; throws why it could not. */
     static List<Card> morning(Context context, AppStore store, boolean tell) throws Exception {
-        String key = store.secrets.workKey();
-        if (key.isBlank()) throw new IllegalStateException("설정 → Gemini API 키를 먼저 넣어 주세요.");
         long now = System.currentTimeMillis(); ZoneId zone = ZoneId.systemDefault();
         String schedule = "";
         try { schedule = MainChatCalendar.context(context, store, "오늘 일정 알려줘", now); } catch (RuntimeException unreadable) { /* No calendar. */ }
         List<String> records = records(store);
         // 알림 비서, when on: what came in overnight (the last 12 hours), so a card can say what needs an answer.
         if (NoticeListener.on(context)) for (String line : dev.jun.gyeot.core.Notices.lines(dev.jun.gyeot.core.Notices.recent(NoticeListener.list(context), now, 12, 15), now)) records.add("알림: " + line);
-        String input = Proactive.briefInput(now, zone, note(store), schedule, chat(store, 60), works(store, 10, true), records, feedback(store));
-        List<Card> cards = Proactive.cards(GeminiAudioClient.light(key, Proactive.BRIEF, input));
-        if (cards.isEmpty()) throw new IllegalStateException("오늘은 드릴 제안을 만들지 못했어요.");
+        String chat = chat(store, 60);
+        // 하루 기록: yesterday in short lines (places, orders, plans, apps), so a card can follow up on it.
+        String yesterday = DayLogs.digest(context, java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate().minusDays(1), Proactive.DAY_LIMIT);
+        String input = Proactive.briefInput(now, zone, note(store), schedule, chat, works(store, 10, true), records, feedback(store), yesterday);
+        // Made by the job (tell) nobody waits; from 지금 제안 받아 보기 the user does (Chores' order).
+        List<Card> made = Proactive.cards(Chores.run(store, Proactive.BRIEF, input, !tell));
+        if (made.isEmpty()) throw new IllegalStateException("오늘은 드릴 제안을 만들지 못했어요.");
+        // What the user put away in the last 30 days, or like it, never comes back however the model words it.
+        // Nothing about a day already over, however the model got there (the note can still hold a past trip).
+        // Nothing already done in the app (a finished work room, an answered request), however the model got there.
+        JSONArray works = store.works(); List<String> done = finished(works, chat);
+        List<Card> cards = new ArrayList<>(); JSONArray reacted = feedback(store); for (Card card : made) if (!Proactive.putAway(reacted, card, now) && !Proactive.stale(card, now, zone) && !finishedWork(works, card) && !Proactive.done(card, done)) cards.add(card);
         JSONArray saved = new JSONArray(); for (Card card : cards) saved.put(card.json());
         store.settings.edit().putString("briefCards", saved.toString()).putString("briefDay", Proactive.day(now, zone)).apply(); store.changed();
         if (tell) tell(context, cards);
         return cards;
+    }
+    /** A card that continues a work room which has already finished. */
+    private static boolean finishedWork(JSONArray all, Card card) {
+        if (card.work().isEmpty()) return false;
+        for (int i = 0; i < all.length(); i++) { JSONObject t = all.optJSONObject(i); if (t != null && card.work().equals(t.optString("id"))) return "[끝남]".equals(status(t)); }
+        return false;
     }
     /** Today's cards still open (none from another day). */
     static List<Card> cards(AppStore store) {
@@ -176,7 +187,10 @@ final class Briefing {
         if (!on(store) || !Proactive.day(System.currentTimeMillis(), ZoneId.systemDefault()).equals(store.settings.getString("briefDay", ""))) return out;
         try {
             JSONArray saved = new JSONArray(store.settings.getString("briefCards", "[]"));
-            for (int i = 0; i < saved.length(); i++) { Card card = Card.of(saved.optJSONObject(i)); if (card != null && !card.title().isEmpty()) out.add(card); }
+            JSONArray reacted = feedback(store); long now = System.currentTimeMillis();
+            // A card put away (✕) stays away, also when a later list (or one being made while it was put away) brings it back.
+            JSONArray works = store.works(); List<String> done = finished(works, null);
+            for (int i = 0; i < saved.length(); i++) { Card card = Card.of(saved.optJSONObject(i)); if (card != null && !card.title().isEmpty() && !Proactive.putAway(reacted, card, now) && !Proactive.stale(card, now, ZoneId.systemDefault()) && !finishedWork(works, card) && !Proactive.done(card, done)) out.add(card); }
         } catch (Exception broken) { /* None. */ }
         return out;
     }
@@ -186,6 +200,51 @@ final class Briefing {
         for (Card each : cards(store)) if (!each.title().equals(card.title())) left.put(each.json());
         store.settings.edit().putString("briefCards", left.toString()).putString("briefFeedback", Proactive.react(feedback(store), card, used, System.currentTimeMillis()).toString()).apply();
         store.changed();
+    }
+
+    // ── 나에 대한 질문 (음성 비서 화면 아래) ──────────────────────────
+    private static volatile boolean asking;
+    /** Today's questions still open (none from another day, none while 먼저 챙기기 is off). */
+    static List<String> questions(AppStore store) {
+        List<String> out = new ArrayList<>();
+        if (!on(store) || !Proactive.day(System.currentTimeMillis(), ZoneId.systemDefault()).equals(store.settings.getString("aboutQuestionsDay", ""))) return out;
+        try { JSONArray saved = new JSONArray(store.settings.getString("aboutQuestions", "[]")); for (int i = 0; i < saved.length(); i++) if (!saved.optString(i).isBlank()) out.add(saved.optString(i)); }
+        catch (Exception broken) { /* None. */ }
+        return out;
+    }
+    /** Whether today's questions are still to be made (once a day, while 먼저 챙기기 is on). */
+    static boolean questionsDue(AppStore store) {
+        return on(store) && !asking && !Proactive.day(System.currentTimeMillis(), ZoneId.systemDefault()).equals(store.settings.getString("aboutQuestionsDay", ""));
+    }
+    /** Makes today's questions (잡일: Groq first). Blocking; off the main thread. */
+    static List<String> makeQuestions(AppStore store) throws Exception {
+        if (asking) return questions(store);
+        asking = true;
+        try {
+            List<String> asked = asked(store);
+            String answer = Chores.run(store, Proactive.QUESTIONS, Proactive.questionsInput(note(store), memories(store), asked), false);
+            List<String> made = Proactive.questions(answer, asked);
+            JSONArray kept = new JSONArray(); for (String q : made) kept.put(q);
+            JSONArray history = new JSONArray(); List<String> all = new ArrayList<>(asked); all.addAll(made);
+            for (String q : all.subList(Math.max(0, all.size() - Proactive.ASKED_KEPT), all.size())) history.put(q);
+            store.settings.edit().putString("aboutQuestions", kept.toString()).putString("aboutQuestionsDay", Proactive.day(System.currentTimeMillis(), ZoneId.systemDefault()))
+                .putString("aboutAsked", history.toString()).apply();
+            return made;
+        } finally { asking = false; }
+    }
+    private static List<String> asked(AppStore store) {
+        List<String> out = new ArrayList<>();
+        try { JSONArray list = new JSONArray(store.settings.getString("aboutAsked", "[]")); for (int i = 0; i < list.length(); i++) out.add(list.optString(i)); } catch (Exception broken) { /* None. */ }
+        return out;
+    }
+    /** The user answered (kept in memory, so every AI knows it) or put the question away: it leaves today's list. */
+    static void answerQuestion(AppStore store, String question, String answer) throws Exception {
+        if (answer != null && !answer.isBlank()) {
+            long now = System.currentTimeMillis(); String note = Proactive.answered(question, answer);
+            store.changeMemory(list -> dev.jun.gyeot.core.Memory.add(list, dev.jun.gyeot.core.Memory.ABOUT, note, null, now));
+        }
+        JSONArray left = new JSONArray(); for (String q : questions(store)) if (!q.equals(question)) left.put(q);
+        store.settings.edit().putString("aboutQuestions", left.toString()).apply(); store.changed();
     }
 
     /** The job, at the chosen time next (today when still ahead and not made, else tomorrow); it waits for a network. */
@@ -308,8 +367,39 @@ final class Briefing {
                 if (message != null && "user".equals(message.optString("role")) && !message.optString("text").isBlank()) { last = message.optString("text").strip(); break; }
             }
             if (last.length() > 160) last = last.substring(0, 160) + "…";
-            out.add((withId ? thread.optString("id") + " · " : "") + thread.optString("title") + (last.isEmpty() ? "" : " · " + last));
+            out.add(status(thread) + " " + (withId ? thread.optString("id") + " · " : "") + thread.optString("title") + (last.isEmpty() ? "" : " · " + last));
         }
+        return out;
+    }
+    /**
+     * Where a work room stands, for the note and the cards (준: "이미 다 완료한 작업들을 자꾸 제안해"): [진행 중], [멈춤] (waiting to
+     * be resumed), [실패] (its last word an error), [끝남] (its last word an answer), [대기] (nothing answered yet).
+     */
+    static String status(JSONObject thread) {
+        String state = thread.optString("state");
+        if (dev.jun.gyeot.core.WorkBook.RUNNING.equals(state)) return "[진행 중]";
+        if (dev.jun.gyeot.core.WorkCheckpoint.PAUSED.equals(state)) return "[멈춤]";
+        JSONArray messages = thread.optJSONArray("messages");
+        for (int k = messages == null ? -1 : messages.length() - 1; k >= 0; k--) {
+            JSONObject m = messages.optJSONObject(k); if (m == null) continue;
+            String role = m.optString("role");
+            if (dev.jun.gyeot.core.WorkBook.ERROR.equals(role)) return "[실패]";
+            if (dev.jun.gyeot.core.WorkBook.ASSISTANT.equals(role)) return "[끝남]";
+            if (dev.jun.gyeot.core.WorkBook.USER.equals(role)) return "[대기]";
+        }
+        return "[대기]";
+    }
+    /** What is done in the app: finished work rooms (title and what was asked) and main-chat requests that were answered. */
+    static List<String> finished(JSONArray all, String chat) {
+        List<String> out = new ArrayList<>();
+        for (int i = 0; i < all.length(); i++) {
+            JSONObject thread = all.optJSONObject(i); if (thread == null || !"[끝남]".equals(status(thread))) continue;
+            StringBuilder asked = new StringBuilder(thread.optString("title"));
+            JSONArray messages = thread.optJSONArray("messages");
+            for (int k = 0; messages != null && k < messages.length(); k++) { JSONObject m = messages.optJSONObject(k); if (m != null && dev.jun.gyeot.core.WorkBook.USER.equals(m.optString("role"))) asked.append(" · ").append(m.optString("text").strip()); }
+            out.add(asked.length() > 600 ? asked.substring(0, 600) : asked.toString());
+        }
+        if (chat != null) { String[] lines = chat.split("\n"); for (int i = 0; i + 1 < lines.length; i++) if (lines[i].startsWith("나: ") && lines[i + 1].startsWith("답: ")) out.add(lines[i].substring(3)); }
         return out;
     }
     /** The newest voice records (their titles and summaries) and recordings. */

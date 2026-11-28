@@ -17,10 +17,12 @@ import org.json.JSONObject;
 /** Streamed, private-first generated media export (and memory backups in 백업). No MediaStore fallback or user-file deletion. */
 final class SharedMediaOutput {
     static final String DIRECTORY = "pending-media-exports-v1";
-    /** Up to 2GB: a video to upload (YouTube) can be long. */
-    static final long MAX_BYTES = 2048L * 1024 * 1024;
+    /** Up to 4GB: a video to upload (YouTube) can be long. */
+    static final long MAX_BYTES = 4L * 1024 * 1024 * 1024;
     /** 마이튜브's captures while a video plays: their own folder in the 들퍼레 folder. */
     static final String CAPTURES = "마이튜브 캡처";
+    /** 마이튜브's MP3s (YouTubeAudio): their own folder in the 들퍼레 folder too. */
+    static final String AUDIO = "마이튜브 오디오";
     private SharedMediaOutput() {}
 
     static synchronized Uri save(Context context, String key, String category, String name, String mime, byte[] bytes, Runnable guard) throws Exception {
@@ -41,7 +43,7 @@ final class SharedMediaOutput {
         MessageDigest digest=MessageDigest.getInstance("SHA-256");long count=0;
         try(OutputStream raw=Files.newOutputStream(body.toPath(),java.nio.file.StandardOpenOption.CREATE_NEW,java.nio.file.StandardOpenOption.WRITE);FileOutputStream sync=new FileOutputStream(body,true)) {
             byte[] buffer=new byte[65536];int n;
-            while(true){guard.run();n=source.read(buffer);guard.run();if(n<0)break;if(n==0)continue;count+=n;if(count>MAX_BYTES)throw new IOException("미디어가 2GB를 넘어 저장을 중단했어요.");raw.write(buffer,0,n);digest.update(buffer,0,n);}
+            while(true){guard.run();n=source.read(buffer);guard.run();if(n<0)break;if(n==0)continue;count+=n;if(count>MAX_BYTES)throw new IOException("미디어가 "+(MAX_BYTES>>30)+"GB를 넘어 저장을 중단했어요.");raw.write(buffer,0,n);digest.update(buffer,0,n);}
             raw.flush();sync.getFD().sync();
         }
         MigrationLedger.syncDirectory(dir);guard.run();
@@ -135,7 +137,7 @@ final class SharedMediaOutput {
         if(!state.getString("sha256").equals(hash))throw new IOException("미디어 내용 검증에 실패했어요. 보관본과 미완성 파일을 유지했어요.");check(context,tree,output,guard);
     }
     private static void check(Context context,Uri tree,Uri output,Runnable guard)throws Exception{guard.run();if(!tree.equals(SharedOutputFolder.selectedTree(context)))throw new IOException("저장 위치가 바뀌어 미디어 저장을 중단했어요.");SharedOutputFolder.requireContentAccess(context,output);guard.run();}
-    private static void validate(String category,String name,String mime)throws IOException{FileOrganizationPlan.safeName(name);if(!Set.of("이미지","영상","오디오","백업",CAPTURES).contains(category)||mime==null||!((category.equals("이미지")||category.equals(CAPTURES))&&Set.of("image/png","image/jpeg","image/webp").contains(mime)||category.equals("영상")&&Set.of("video/mp4","video/quicktime","video/webm","video/x-matroska","video/3gpp").contains(mime)||category.equals("오디오")&&Set.of("audio/wav","audio/mpeg","audio/mp4").contains(mime)||category.equals("백업")&&Set.of("application/json","text/markdown").contains(mime)))throw new IOException("지원하지 않는 미디어 저장 종류예요.");}
+    private static void validate(String category,String name,String mime)throws IOException{FileOrganizationPlan.safeName(name);if(!Set.of("이미지","영상","오디오","백업",CAPTURES,AUDIO).contains(category)||mime==null||!((category.equals("이미지")||category.equals(CAPTURES))&&Set.of("image/png","image/jpeg","image/webp").contains(mime)||category.equals("영상")&&Set.of("video/mp4","video/quicktime","video/webm","video/x-matroska","video/3gpp").contains(mime)||(category.equals("오디오")||category.equals(AUDIO))&&Set.of("audio/wav","audio/mpeg","audio/mp4").contains(mime)||category.equals("백업")&&Set.of("application/json","text/markdown").contains(mime)))throw new IOException("지원하지 않는 미디어 저장 종류예요.");}
     private static void validateState(JSONObject state,String id)throws Exception{if(state.getInt("version")!=1||!id.equals(state.getString("id"))||!state.getString("sha256").matches("[a-f0-9]{64}")||state.getLong("bytes")<0||state.getLong("bytes")>MAX_BYTES||!Set.of("prepared","creating","created","copying","verified").contains(state.getString("state")))throw new IOException("미디어 저장 기록을 확인하지 못했어요.");validate(state.getString("category"),state.getString("name"),state.getString("mime"));}
     private static String id(String key)throws Exception{if(key==null||key.isBlank()||key.length()>1024)throw new IOException("미디어 작업 식별자가 없어요.");return FileExplorerRepository.hex(MessageDigest.getInstance("SHA-256").digest(key.getBytes(StandardCharsets.UTF_8)));}
     private static String digest(InputStream in,Runnable guard)throws Exception{MessageDigest digest=MessageDigest.getInstance("SHA-256");long count=0;byte[] buffer=new byte[65536];int n;while(true){guard.run();n=in.read(buffer);guard.run();if(n<0)break;if(n==0)continue;count+=n;if(count>MAX_BYTES)throw new IOException("미디어가 2GB를 넘어요.");digest.update(buffer,0,n);}return FileExplorerRepository.hex(digest.digest());}

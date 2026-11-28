@@ -24,7 +24,44 @@ final class DriveFiles {
         return new DriveWorkTools.Phone() {
             @Override public DriveWorkTools.Payload open(String reference) throws Exception { return DriveFiles.open(context, store, reference, null); }
             @Override public JSONObject keep(String name, String mime, File file) throws Exception { return DriveFiles.keep(context, "drive-download-main", name, mime, file, check); }
+            @Override public JSONObject already(String fileId, String version) { return DriveFiles.already(context, fileId, version); }
+            @Override public void remember(String fileId, String version, JSONObject kept) { DriveFiles.remember(context, fileId, version, kept); }
         };
+    }
+
+    /** Drive files received to this phone: Drive id → {version, name, uri, size, sha256 …}, the newest 40. */
+    private static final String KEPT = "drive-kept";
+    static JSONObject already(Context context, String fileId, String version) {
+        try {
+            String saved = context.getSharedPreferences(KEPT, Context.MODE_PRIVATE).getString(fileId, "");
+            if (saved.isEmpty()) return null;
+            JSONObject kept = new JSONObject(saved);
+            if (!version.equals(kept.optString("version"))) return null;
+            // Still there, whole: the copy the user may have moved or deleted is not handed back.
+            Uri uri = Uri.parse(kept.optString("uri"));
+            try (android.os.ParcelFileDescriptor fd = context.getContentResolver().openFileDescriptor(uri, "r")) {
+                if (fd == null || fd.getStatSize() != kept.optLong("size", -1)) return null;
+            }
+            kept.remove("version"); kept.remove("at");
+            return kept;
+        } catch (Exception gone) { return null; }
+    }
+    static void remember(Context context, String fileId, String version, JSONObject kept) {
+        try {
+            android.content.SharedPreferences prefs = context.getSharedPreferences(KEPT, Context.MODE_PRIVATE);
+            JSONObject entry = new JSONObject(kept.toString()); entry.put("version", version); entry.put("at", System.currentTimeMillis());
+            entry.remove("ok"); entry.remove("already_on_phone"); entry.remove("note");
+            android.content.SharedPreferences.Editor edit = prefs.edit().putString(fileId, entry.toString());
+            java.util.Map<String, ?> all = prefs.getAll();
+            if (all.size() > 40) {
+                String oldest = null; long at = Long.MAX_VALUE;
+                for (java.util.Map.Entry<String, ?> e : all.entrySet()) {
+                    try { long t = new JSONObject(String.valueOf(e.getValue())).optLong("at"); if (t < at && !e.getKey().equals(fileId)) { at = t; oldest = e.getKey(); } } catch (Exception ignored) { oldest = e.getKey(); }
+                }
+                if (oldest != null) edit.remove(oldest);
+            }
+            edit.apply();
+        } catch (Exception ignored) { }
     }
 
     /**
@@ -87,8 +124,9 @@ final class DriveFiles {
         if (!category.isEmpty()) {
             try (InputStream in = new java.io.FileInputStream(file)) { uri = SharedMediaOutput.save(context, key + "-" + java.util.UUID.randomUUID(), category, name, mime, in, check); }
         } else {
-            if (file.length() > GoogleDrive.FILE_DOWNLOAD) throw new IllegalStateException("파일이 너무 커요 (" + (GoogleDrive.FILE_DOWNLOAD >> 20) + "MB까지).");
-            uri = SharedWorkFiles.save(context, name, mime, java.nio.file.Files.readAllBytes(file.toPath()));
+            // Streamed from the file, never whole in memory: any kind of file up to GoogleDrive.DOWNLOAD_LIMIT.
+            if (file.length() > GoogleDrive.DOWNLOAD_LIMIT) throw new IllegalStateException("파일이 너무 커요 (" + DriveWorkTools.size(GoogleDrive.DOWNLOAD_LIMIT) + "까지).");
+            uri = SharedWorkFiles.save(context, name, mime, file, check);
         }
         return obj("name", name, "uri", uri.toString(), "size", file.length());
     }

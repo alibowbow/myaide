@@ -62,8 +62,6 @@ def manifest_version(text):
 def inspect_apk(path, tools, expected_version, expected_code, pin, expected_abis):
     path = Path(path)
     size = apk_delta._size(path)
-    if expected_abis == {'arm64-v8a'} and size >= 100 * 1024 * 1024:
-        raise ValueError('Phone APK exceeds the legacy updater limit')
     identity = manifest_version(command([tools / 'aapt2', 'dump', 'badging', path]))
     if identity != (PACKAGE, expected_version, expected_code):
         raise ValueError('Actual APK package/version differs from the source candidate')

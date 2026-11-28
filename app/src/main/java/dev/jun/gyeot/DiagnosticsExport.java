@@ -206,6 +206,35 @@ final class DiagnosticsExport {
     static ExitReasons.State processState() { return ExitReasons.state(stateSummary.get()); }
     /** The latest 미디어 연결 점검 lines (model id, result, ms), shown in the next report. */
     static void mediaChecked(List<DiagnosticReport.Check> lines) { mediaChecks = lines == null ? List.of() : List.copyOf(lines); }
+    /** The latest 퍼레 자동 점검 (BuddyCheckUi): its counts, brain, speed and failures; kept in a file, so a later report has it too. */
+    private static volatile List<DiagnosticReport.Check> buddyChecks;
+    private static final String BUDDY_FILE = "buddy-check.json";
+    static void buddyChecked(Context context, List<DiagnosticReport.Check> lines) {
+        if (context == null) return;
+        List<DiagnosticReport.Check> kept = lines == null ? List.of() : List.copyOf(lines); buddyChecks = kept;
+        Context app = context.getApplicationContext();
+        try { disk.execute(() -> {
+            try {
+                org.json.JSONArray all = new org.json.JSONArray();
+                for (DiagnosticReport.Check line : kept) all.put(new org.json.JSONArray().put(line.name()).put(line.value()));
+                File target = new File(new File(app.getFilesDir(), DIRECTORY), BUDDY_FILE), part = new File(target.getPath() + ".tmp");
+                target.getParentFile().mkdirs(); Files.write(part.toPath(), all.toString().getBytes(StandardCharsets.UTF_8));
+                if (!part.renameTo(target)) Files.write(target.toPath(), all.toString().getBytes(StandardCharsets.UTF_8));
+            } catch (Throwable ignored) {}
+        }); } catch (Throwable ignored) {}
+    }
+    /** The latest 퍼레 자동 점검's lines, read from its file the first time (on the diagnostics thread). */
+    static List<DiagnosticReport.Check> buddyChecks(Context app) {
+        List<DiagnosticReport.Check> now = buddyChecks;
+        if (now != null) return now;
+        List<DiagnosticReport.Check> read = new ArrayList<>();
+        try {
+            File f = new File(new File(app.getFilesDir(), DIRECTORY), BUDDY_FILE);
+            if (f.isFile()) { org.json.JSONArray all = new org.json.JSONArray(new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8)); for (int i = 0; i < all.length(); i++) { org.json.JSONArray l = all.optJSONArray(i); if (l != null) read.add(new DiagnosticReport.Check(l.optString(0), l.optString(1))); } }
+        } catch (Throwable unreadable) { read.clear(); }
+        buddyChecks = List.copyOf(read);
+        return buddyChecks;
+    }
 
     /** The report text: standard checks first, then `extra` from the calling screen (may be null). */
     static String report(Context context, List<DiagnosticReport.Check> extra) {
@@ -216,6 +245,8 @@ final class DiagnosticsExport {
         sections.add(new DiagnosticReport.Section("음성 지연·토큰", voiceLatency(app).lines()));
         sections.add(new DiagnosticReport.Section("직전 종료 원인", ExitReasons.lines(exits(app, false), ZoneId.systemDefault())));
         if (!mediaChecks.isEmpty()) sections.add(new DiagnosticReport.Section("미디어 연결 점검", mediaChecks));
+        List<DiagnosticReport.Check> buddy = buddyChecks(app);
+        if (!buddy.isEmpty()) sections.add(new DiagnosticReport.Section("퍼레 자동 점검", buddy));
         return DiagnosticReport.text(appInfo(app), device(app), memory(app), checks, sections, load(app), System.currentTimeMillis(), ZoneId.systemDefault());
     }
     /** Shows the report for review with 공유 · 복사 · 닫기. Nothing leaves the phone unless the user chooses to share or copy. */

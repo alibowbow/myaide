@@ -130,7 +130,7 @@ public final class AppBackup {
 
     /** "기억 12개 · 메모 3개 · …" from counts (memories, notes, sessions, works, schedules, pages, messages); only what is above zero. */
     public static String summary(JSONObject counts) {
-        String[][] names = {{"memories", "기억"}, {"pinned", "고정 기억"}, {"notes", "메모"}, {"sessions", "대화 기록"}, {"works", "작업창"}, {"schedules", "예약"}, {"routines", "한마디 루틴"}, {"pages", "페이지"}, {"messages", "메인 대화 메시지"}};
+        String[][] names = {{"memories", "기억"}, {"pinned", "고정 기억"}, {"notes", "메모"}, {"sessions", "대화 기록"}, {"works", "작업창"}, {"schedules", "예약"}, {"routines", "한마디 루틴"}, {"pages", "페이지"}, {"projects", "프로젝트"}, {"lab", "연구"}, {"messages", "메인 대화 메시지"}};
         List<String> parts = new ArrayList<>();
         for (String[] name : names) if (counts != null && counts.optInt(name[0]) > 0) parts.add(name[1] + " " + counts.optInt(name[0]) + "개");
         if (counts != null && counts.optBoolean("persona")) parts.add("‘나에 대해’");

@@ -73,6 +73,8 @@ import static dev.jun.gyeot.core.Jsons.obj;
 public final class MainActivity extends Activity {
     /** Set by QuickVoiceActivity when it could not start voice by itself (no key or microphone permission yet). */
     static final String START_VOICE = "startVoice";
+    /** Words for 퍼레 from the home screen's search (HomeActivity's "퍼레에게 묻기"): put in 메인 대화's message box, never sent. */
+    static final String ASK = "gyeot.ask";
     private static final String[] HOME_MODE_NAMES = {"음성 비서 ▾", "통역", "받아쓰기", "녹음"}, MODE_IDS = {ASSISTANT, INTERPRETER, DICTATION};
     /** GeminiProtocol.VOICES as the picker shows them: Google's one-word characteristic of each, in Korean. */
     private static final String[] VOICE_LABELS = {"기본 (모델 선택)", "Aoede · 산뜻한 여성", "Leda · 젊고 밝은 여성", "Zephyr · 밝은 여성", "Kore · 단단한 여성", "Sulafat · 따뜻한 여성", "Achernar · 부드러운 여성", "Vindemiatrix · 다정한 여성", "Despina · 매끄러운 여성", "Callirrhoe · 느긋한 여성", "Autonoe · 밝은 여성", "Erinome · 맑은 여성", "Laomedeia · 경쾌한 여성", "Gacrux · 성숙한 여성", "Pulcherrima · 당찬 여성", "Puck · 경쾌한 남성", "Charon · 또렷한 남성", "Fenrir · 들뜬 남성", "Orus · 단단한 남성", "Enceladus · 숨결 섞인 남성", "Iapetus · 맑은 남성", "Umbriel · 느긋한 남성", "Algieba · 매끄러운 남성", "Algenib · 걸걸한 남성", "Rasalgethi · 또렷한 남성", "Alnilam · 단단한 남성", "Schedar · 차분한 남성", "Achird · 친근한 남성", "Zubenelgenubi · 편한 남성", "Sadachbia · 활기찬 남성", "Sadaltager · 박식한 남성"};
@@ -97,7 +99,7 @@ public final class MainActivity extends Activity {
     private LinearLayout body, header, statusRow, tabBar, workLog, sayRow, recordsList, openAiBox, claudeBox, geminiWorkBox, updateBox;
     /** Settings → Gemini: the Google subscription card while that page is open. */
     private ScrollView scroll;
-    private TextView titleView, status, error, applyBanner, exitBanner, taskSummary, updateBanner, edgeState, assistState, archiveState;
+    private TextView titleView, status, error, applyBanner, exitBanner, taskSummary, updateBanner, edgeState, taskbarState, assistState, archiveState;
     private View statusDot;
     /** The home screen's voice orb and its two lines of text; the recorder tile's state line. */
     private VoiceOrb orb;
@@ -110,7 +112,7 @@ public final class MainActivity extends Activity {
     /** Set when the app is left (onStop); onStart then draws settings again, so a grant made in Android's settings shows at once. */
     private boolean settingsLeft;
     /** The edge button setting as 바로 부르기 last drew its switch; the menu on the button itself can turn it off. */
-    private boolean edgeDrawn;
+    private boolean edgeDrawn, taskbarDrawn;
     /** Stable ids; gallery has its own tab without changing notification and shortcut targets. */
     private static final int[] TAB_ORDER = {0, 3, 5, 4, 2};
     private final java.util.Map<String, Integer> pageScroll = new java.util.HashMap<>();
@@ -168,7 +170,7 @@ public final class MainActivity extends Activity {
     private String playingId = "";
     /** Updates the recording timer once a second while the screen is visible. */
     private final Handler ticker = new Handler(Looper.getMainLooper());
-    private final Runnable tick = () -> { if (store.recording || store.thinking() || workRunning()) refresh(); }; // refresh() schedules the next tick
+    private final Runnable tick = () -> { if (store.recording || ScreenRecordService.running() || store.thinking() || workRunning()) refresh(); }; // refresh() schedules the next tick
     private LinearLayout phoneRow;
     private Ui.Dial muteButton, stopButton, endButton;
     /** The home's greeting (hidden during a call) and its conversation card (shown during a call or once something was said). */
@@ -176,7 +178,7 @@ public final class MainActivity extends Activity {
     private int orbIdleSize;
     /** The call's compact hero: the orb's size beside its words, and how many turns of the conversation show under it. */
     private static final int CALL_ORB = 52, CALL_TURNS = 12, SAID_HEIGHT = 220;
-    private LinearLayout heroStage, heroHead, heroWords; private boolean heroCall;
+    private LinearLayout heroStage, heroHead, heroWords; private boolean heroCall, heroStale; private String shownWords = "";
     /** What is on the home beside the call (the mode pills, the doors, recent work): out of the way while a call is on. */
     private final List<View> callAside = new ArrayList<>();
     private View liveActions; private String shownSaid = "";
@@ -223,6 +225,8 @@ public final class MainActivity extends Activity {
     private int probeRun, mediaRun;
     private final Runnable observer = this::refresh;
 
+    /** 연구실 and 나의학교's newest words are got ready once, a little after the app starts (LabActivity.warm). */
+    private static boolean warmed;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); store = ((GyeotApp) getApplication()).store(); ui = new Ui(this);
         sessionMode = Math.max(0, Math.min(Sessions.MODES.length - 1, store.settings.getInt("sessionMode", 0)));
@@ -230,6 +234,7 @@ public final class MainActivity extends Activity {
         if (state != null) { recordingPage = state.getBoolean("recordingPage", false); mode = state.getString("mode", mode); query = state.getString("query", ""); tab = state.getInt("tab"); recordsView = state.getInt("records"); settingsPage = state.getString("page", ""); workId = state.getString("work", ""); composerImageAspect = state.getString("imageAspect", ""); composerImageEdit = state.getBoolean("imageEdit", false); }
         else if (fromSignIn(getIntent())) { tab = 2; settingsPage = signInPage(getIntent()); }
         else if (PhoneCalendar.PAGE.equals(getIntent().getStringExtra(PhoneCalendar.PAGE_EXTRA))) { tab = 2; settingsPage = PhoneCalendar.PAGE; }
+        else if (settingsPageAsked(getIntent()) != null) { tab = 2; settingsPage = settingsPageAsked(getIntent()); updateNowAsked(getIntent()); }
         else { tab = getIntent().getIntExtra("tab", 0); workId = getIntent().hasExtra("work") ? getIntent().getStringExtra("work") : ""; }
         if (state != null && state.getInt("workView", 0) == 1 && tab == 3 && workId.isEmpty()) tab = 4;
         if (store.voiceActive) mode = store.voiceMode;
@@ -295,22 +300,27 @@ public final class MainActivity extends Activity {
         showTab(tab);
         if(state!=null){mainChatSaved=state.getBundle("mainChatPage");chatReturnTab=state.getInt("chatReturnTab",tab);}
         if((state!=null&&state.getBoolean("mainChatShown"))||(state==null&&"chat".equals(getIntent().getStringExtra(MainNavigation.TARGET))))showMainChat();
+        if(state==null&&"chat".equals(getIntent().getStringExtra(MainNavigation.TARGET)))askFrom(getIntent());
         // Recreated, the saved page wins: a notification tap that once opened this window is not asked again.
         if (state == null || !AppNavigator.tapped(getIntent())) openRequestedScreen(getIntent());
-        if (state == null) { startFromShortcut(getIntent()); startOnOpen(getIntent()); talkFromNotification(getIntent()); }
+        if (state == null) { startFromShortcut(getIntent()); startOnOpen(getIntent()); talkFromNotification(getIntent()); schedulesFrom(getIntent()); }
         else pendingLaunchVoice=state.getBoolean("pendingLaunchVoice",false);
+        if (!warmed) { warmed = true; main.postDelayed(() -> { if (isFinishing()) return; LabActivity.warmRecent(this); SchoolActivity.warmRecent(this); }, 2500); }
         if (state != null && state.getBundle("videoPlayer") != null && videoDialog == null) { Bundle saved = state.getBundle("videoPlayer"); JSONObject video = VideoJobs.find(store.videos(), saved.getString("id", "")); if (video != null) root.post(() -> playVideo(video, saved)); }
     }
     /** Android 15 is always edge to edge; match it on 13–14 so system bar and keyboard insets are handled in one place. */
     @SuppressWarnings("deprecation")
     private void edgeToEdge() { if (Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM) getWindow().setDecorFitsSystemWindows(false); }
     /** A clip began or ended: the call's bubbles show which one plays. */
-    private final Runnable clipsChanged = () -> { if (!isDestroyed()) { shownSaid = ""; refresh(); } };
+    // A redraw of the words that keeps the user's place (an empty shownSaid would also scroll back to the newest).
+    private static final String REDRAW = "\u0000";
+    private final Runnable clipsChanged = () -> { if (!isDestroyed()) { shownSaid = REDRAW; refresh(); } };
     @Override protected void onStart() { super.onStart(); hostStarted=true; store.appVisible = true; VoiceClips.listen(clipsChanged); if (workVoice != null) workVoice.attach(); if(showingMainChat&&mainChat!=null)mainChat.show(); store.observe(observer); refresh(); store.updater.checkIfDue();
         // A call may start from here: the greeting is read into memory and the path to the Live host warmed (Greeter).
         store.greeter().warm();
         // Back from another app (Android's settings): settings is drawn again on its page and scroll, so a grant shows at once.
-        boolean back = settingsLeft; settingsLeft = false; if (back && tab == 2 && !showingMainChat && !"key".equals(settingsPage)) showTab(2);
+        // The home app may have just been changed there: the 작업 표시줄 row asks again (Taskbar.homeHeld caches it).
+        boolean back = settingsLeft; settingsLeft = false; if (back) Taskbar.forgetRole(); if (back && tab == 2 && !showingMainChat && !"key".equals(settingsPage)) showTab(2);
         // 차에서 호출어: the standby can only start while the app is in front (after a reboot it starts here).
         if (store.settings.getBoolean(WakeWordFiles.ENABLED, false) && WakeWordService.current == dev.jun.gyeot.core.WakeStandby.State.OFF) {
             try { WakeWordService.start(this); } catch (RuntimeException refused) { /* the settings page says how to turn it on */ }
@@ -326,7 +336,7 @@ public final class MainActivity extends Activity {
         }
     }
     @Override protected void onPause() { hostResumed=false;if(mainChat!=null)mainChat.pause(); if (composerDictation != null) composerDictation.pause(); if (videoDialog != null) videoDialog.background(); super.onPause(); }
-    @Override protected void onResume() { super.onResume();hostResumed=true;AppNavigator.inFront("main");store.refreshModelListsIfDue();SemanticIndex.catchUpIfDue(this, store);Briefing.catchUp(this, store);WorkScheduleAlarm.refresh(this, store);if(showingMainChat&&mainChat!=null)mainChat.resume(); if (videoDialog != null) videoDialog.foreground(); BrowserRuntime.prepareWhenIdle(this);
+    @Override protected void onResume() { super.onResume();hostResumed=true;if(installWhenBack!=null&&RunningWork.names(store).isEmpty()){java.io.File apk=installWhenBack;installWhenBack=null;main.post(()->openInstaller(apk));}AppNavigator.inFront("main");store.refreshModelListsIfDue();SemanticIndex.catchUpIfDue(this, store);Briefing.catchUp(this, store);WorkScheduleAlarm.refresh(this, store);if(showingMainChat&&mainChat!=null)mainChat.resume(); if (videoDialog != null) videoDialog.foreground(); BrowserRuntime.prepareWhenIdle(this);
         if(isLauncher(getIntent())&&StorageSetupActivity.maybeOffer(this))return;
         if(pendingLaunchVoice){pendingLaunchVoice=false;if(store.voiceOnOpen()&&!store.voiceActive){mode=ASSISTANT;recordingPage=false;showTab(0);startVoice();}}
     }
@@ -350,11 +360,13 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent); setIntent(intent);
+        if (intent.getBooleanExtra(SCHEDULES, false)) { schedulesFrom(intent); return; }
         if (AppNavigator.isRequest(intent)) { openRequestedScreen(intent); return; }
         if (talkFromNotification(intent)) return;
-        String menuTarget=intent.getStringExtra(MainNavigation.TARGET);if(java.util.List.of("voice","chat","work","gallery","settings").contains(menuTarget==null?"":menuTarget)){navigateMenu(menuTarget);return;}
+        String menuTarget=intent.getStringExtra(MainNavigation.TARGET);if(java.util.List.of("voice","chat","work","gallery","settings").contains(menuTarget==null?"":menuTarget)){navigateMenu(menuTarget);if("chat".equals(menuTarget))askFrom(intent);return;}
         // The calendar's tap-to-open notification (a call without the permission): 설정 → 캘린더, where it is allowed.
         if (PhoneCalendar.PAGE.equals(intent.getStringExtra(PhoneCalendar.PAGE_EXTRA))) { openSettings(PhoneCalendar.PAGE); return; }
+        if (settingsPageAsked(intent) != null) { openSettings(settingsPageAsked(intent)); updateNowAsked(intent); return; }
         if (intent.hasExtra("work")) { workId = intent.getStringExtra("work"); if (galleryDialog != null) galleryDialog.dismiss(); if (videoDialog != null) videoDialog.dismiss(); }
         // Asked for the settings tab (the browser's 모델 연결 설정): its home with the AI 연결 group, not a page left open earlier.
         if (fromSignIn(intent)) openSettings(signInPage(intent)); else if (intent.hasExtra("tab")) { int asked = intent.getIntExtra("tab", 0); if (asked == 2) { settingsPage = ""; settingsQuery = ""; } showTab(asked); }
@@ -373,8 +385,14 @@ public final class MainActivity extends Activity {
         if(left.equals("browser"))openBrowser();
         else if(left.equals("pages")){Intent pages=new Intent(this,PagesActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_NO_ANIMATION);
             // The page that was open comes back too (the search text and the category filter do not).
-            if(AppNavigator.pageLeft!=null)pages.putExtra(PagesActivity.OPEN,AppNavigator.pageLeft);startActivity(pages);}
+            if(AppNavigator.pageLeft!=null)pages.putExtra(PagesActivity.OPEN,AppNavigator.pageLeft);
+            // A project left open over the list (트레이딩 …) comes back on top of it.
+            String project=AppNavigator.projectLeft;
+            if(project!=null&&!project.isEmpty())startActivities(new Intent[]{pages,new Intent(this,ProjectActivity.class).putExtra(ProjectActivity.ID,project).addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION)});
+            else startActivity(pages);}
         else if(left.equals("board"))startActivity(new Intent(this,BoardActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_NO_ANIMATION));
+        else if(left.equals("school"))startActivity(new Intent(this,SchoolActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_NO_ANIMATION));
+        else if(left.equals("lab"))startActivity(new Intent(this,LabActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_NO_ANIMATION));
         else if(left.equals("mytube"))startActivity(new Intent(this,MyTubeActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_NO_ANIMATION));
         else if(!left.isEmpty())startActivity(new Intent(this,FileExplorerActivity.class).putExtra(FileExplorerActivity.EXPLORER,left.equals("files"))
             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP|Intent.FLAG_ACTIVITY_NO_ANIMATION));
@@ -433,6 +451,11 @@ public final class MainActivity extends Activity {
     private void startOnOpen(Intent intent) {
         pendingLaunchVoice=store.voiceOnOpen()&&!store.voiceActive&&isLauncher(intent)&&(intent.getFlags()&Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY)==0;
     }
+    /** The home screen's question, once: into the message box for the user to send (it is only suggested). */
+    private void askFrom(Intent intent){
+        String ask=intent==null?null:intent.getStringExtra(ASK);if(ask==null||ask.isBlank()||ask.length()>2000)return;intent.removeExtra(ASK);
+        String words=ask.strip();main.post(()->{if(mainChat!=null)mainChat.suggest(words);});
+    }
     void navigateMenu(String target){
         switch(target){case "chat" -> showMainChat();case "voice" -> {recordingPage=false;mode=store.voiceActive?store.voiceMode:ASSISTANT;showTab(0);}case "work" -> showTab(3);case "gallery" -> showTab(4);case "settings" -> {settingsPage="";settingsQuery="";showTab(2);}default -> MainNavigation.open(this,target);}
     }
@@ -444,6 +467,7 @@ public final class MainActivity extends Activity {
         navigation.bar(null);
         stopCamera();stopPlayback();if(composerDictation!=null)composerDictation.cancel();
         View focused=root.findFocus();if(focused!=null){android.view.inputmethod.InputMethodManager keyboard=getSystemService(android.view.inputmethod.InputMethodManager.class);if(keyboard!=null)keyboard.hideSoftInputFromWindow(focused.getWindowToken(),0);focused.clearFocus();}
+        if(voiceFull)voiceFull(false);
         showingMainChat=true;ticker.removeCallbacksAndMessages(null);
         if(mainChat==null){mainChat=new MainChatPage(this,mainChatSaved);mainChatSaved=null;contentSlot.addView(mainChat.view(),new FrameLayout.LayoutParams(-1,-1));}
         root.setVisibility(View.GONE);mainChat.view().setVisibility(View.VISIBLE);navigation.selected("chat");navigation.collapsedTitle(true);
@@ -516,7 +540,9 @@ public final class MainActivity extends Activity {
         // The camera stays on only on the 비서 screen; redrawn, its preview moves to the new screen.
         if (cameraFeed != null) { if (selected != 0) stopCamera(); else cameraFeed.detach(); }
         phoneGptCheckState = null;
-        orb = null; orbTitle = null; orbSub = null; claudeBox = null; geminiWorkBox = null; muteButton = null; stopButton = null; endButton = null; homeIntro = null; liveCard = null; heroStage = null; heroHead = null; heroWords = null; heroCall = false; callAside.clear(); liveActions = null; shownSaid = ""; said = null; saidList = null; sayInput = null; typeButton = null; typing = false; sayRow = null; taskSummary = null; edgeState = null; assistState = null; archiveState = null; phoneRow = null; recordButton = null; recordsList = null; openAiBox = null; updateBox = null; sessionsBox = null; galleryBox = null; cameraBox = null; cameraButton = null; tab = selected; clearBody();
+        // Full screen belongs to the 비서 page: leaving it ends full screen; drawn again there, home() puts the new card back.
+        closeFullHost(); if (selected != 0) voiceFull = false;
+        orb = null; orbTitle = null; orbSub = null; claudeBox = null; geminiWorkBox = null; muteButton = null; stopButton = null; endButton = null; homeIntro = null; liveCard = null; heroStage = null; heroHead = null; heroWords = null; heroCall = false; callAside.clear(); liveActions = null; shownSaid = ""; said = null; saidList = null; sayInput = null; typeButton = null; typing = false; sayRow = null; taskSummary = null; edgeState = null; taskbarState = null; assistState = null; archiveState = null; phoneRow = null; recordButton = null; if (screenRecordUi != null) screenRecordUi.forget(); recordsList = null; openAiBox = null; updateBox = null; sessionsBox = null; galleryBox = null; cameraBox = null; cameraButton = null; tab = selected; clearBody();
         if (header.getParent() instanceof ViewGroup parent) parent.removeView(header);
         navRow.removeAllViews(); navRow.setVisibility(View.GONE);
         LinearLayout.LayoutParams headerParams = new LinearLayout.LayoutParams(-1, -2); headerParams.bottomMargin = ui.dp(20); body.addView(header, headerParams);
@@ -525,7 +551,8 @@ public final class MainActivity extends Activity {
         workStageView = null; workTimelineView = null; workLog = null; workTeamView = null; workLeadView = null; teamDrawn = ""; leadDrawn = "";
         if (tab != 3 && composerInput != null && composerInput.hasFocus()) composerInput.clearFocus();
         boolean inThread = tab == 3 && !workId.isEmpty() && WorkBook.find(store.works(), workId) != null;
-        titleView.setVisibility(inThread ? View.GONE : View.VISIBLE);
+        // 갤러리: its name sits beside ☰ in the bar, not as a large title (준: "갤러리에는 햄버거 옆에 갤러리라고 적어줘").
+        titleView.setVisibility(inThread || tab == 4 ? View.GONE : View.VISIBLE);
         // A conversation's bar sits in the navigation bar, in the screen name's place; every other screen gets the name back.
         if (navigation != null) navigation.bar(null);
         if (tab == 0) home(); else if (tab == 1) records(); else if (tab == 3) works(); else if (tab == 4) gallery(); else settings();
@@ -583,10 +610,11 @@ public final class MainActivity extends Activity {
     @SuppressWarnings("deprecation")
     @Override public void onBackPressed() {
         if(navigation!=null&&navigation.close())return;
+        if(voiceFull){voiceFull(false);return;}
         if(showingMainChat){if(mainChat!=null&&mainChat.back())return;showTab(chatReturnTab);return;}
         if (tab == 2 && !settingsPage.isEmpty()) { settingsPage = settingsParent(settingsPage); showTab(2); return; }
         if (tab == 3 && !workId.isEmpty()) { showWorkList(); return; }
-        super.onBackPressed();
+        if (!HtmlWallpaper.backHome(this)) super.onBackPressed();
     }
     private void add(View view, int bottom) { ui.add(body, view, bottom); }
     /** Opens or closes the line for typing in a call; opened, the keyboard comes with it. */
@@ -596,7 +624,14 @@ public final class MainActivity extends Activity {
         if (typing) { sayInput.requestFocus(); keyboard.showSoftInput(sayInput, 0); } else { keyboard.hideSoftInputFromWindow(sayInput.getWindowToken(), 0); sayInput.clearFocus(); }
     }
     /** Keeps the newest words in view: the conversation scrolled to its foot. */
-    private void pinSaid() { if (said != null && saidList != null) said.scrollTo(0, Math.max(0, saidList.getHeight() + said.getPaddingTop() + said.getPaddingBottom() - said.getHeight())); }
+    private void pinSaid() {
+        if (said == null || saidList == null) return;
+        int foot = Math.max(0, saidList.getHeight() + said.getPaddingTop() + said.getPaddingBottom() - said.getHeight()), y = foot;
+        // Out of a call, a newest answer taller than the box opens at its first line, to be read from the top, not at its end.
+        View last = saidList.getChildCount() == 0 ? null : saidList.getChildAt(saidList.getChildCount() - 1);
+        if (!store.voiceActive && last != null && last.getHeight() > said.getHeight()) y = Math.min(foot, Math.max(0, last.getTop() - ui.dp(4)));
+        said.scrollTo(0, y);
+    }
     /**
      * One turn of the call's conversation as a chat bubble: the user's (나…, and 들린 말, the user's spoken words) on the
      * right, filled with the accent under white words, everyone else's on the left on the card color, with the speaker's
@@ -652,11 +687,11 @@ public final class MainActivity extends Activity {
     }
     /** A foreign caption's translation: shown (translated once, then kept) or hidden again. */
     private void toggleTranslation(String plain) {
-        if (translatedTurns.remove(plain)) { shownSaid = ""; refresh(); return; }
-        translatedTurns.add(plain); untranslated.remove(plain); shownSaid = ""; refresh();
+        if (translatedTurns.remove(plain)) { shownSaid = REDRAW; refresh(); return; }
+        translatedTurns.add(plain); untranslated.remove(plain); shownSaid = REDRAW; refresh();
         if (CaptionTranslator.known(plain) != null) return;
-        CaptionTranslator.translate(store, plain, korean -> { if (!isDestroyed()) { shownSaid = ""; refresh(); } },
-            why -> { untranslated.put(plain, why); if (!isDestroyed()) { shownSaid = ""; refresh(); } });
+        CaptionTranslator.translate(store, plain, korean -> { if (!isDestroyed()) { shownSaid = REDRAW; refresh(); } },
+            why -> { untranslated.put(plain, why); if (!isDestroyed()) { shownSaid = REDRAW; refresh(); } });
     }
 
     // ── 비서 ─────────────────────────────────────────────────────────────────
@@ -694,7 +729,11 @@ public final class MainActivity extends Activity {
         orbIdleSize = largeType ? 148 : 192;
         // The orb and its words: stacked and centered while idle, one slim row during a call (refresh), so the words said get the card.
         heroStage = stage; heroCall = false; heroHead = ui.column(); heroHead.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
-        orb = new VoiceOrb(this); orb.setOnClickListener(v -> { v.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM); toggleVoice(); }); heroHead.addView(orb, new LinearLayout.LayoutParams(ui.dp(orbIdleSize), ui.dp(orbIdleSize)));
+        orb = new VoiceOrb(this);
+        // The orb: full screen and the conversation at once (a second tap there ends it, as it always did); the card's empty
+        // space around it opens full screen alone. Never a popup.
+        orb.setOnClickListener(v -> { v.performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM); if (!voiceFull) { voiceFull(true); if (!store.voiceActive) startVoice(); } else toggleVoice(); });
+        stage.setOnClickListener(v -> voiceFull(true)); heroHead.addView(orb, new LinearLayout.LayoutParams(ui.dp(orbIdleSize), ui.dp(orbIdleSize)));
         LinearLayout words = ui.column(); heroWords = words; words.setGravity(android.view.Gravity.CENTER_HORIZONTAL); words.setPadding(ui.dp(8), ui.dp(4), ui.dp(8), ui.dp(4));
         orbTitle = ui.text("", Ui.TITLE1, 760, TEXT); orbTitle.setLetterSpacing(-0.03f); orbTitle.setGravity(android.view.Gravity.CENTER); words.addView(orbTitle);
         orbSub = ui.text("", Ui.FOOTNOTE, 450, MUTED); orbSub.setGravity(android.view.Gravity.CENTER); orbSub.setPadding(0, ui.dp(6), 0, 0); words.addView(orbSub);
@@ -723,7 +762,7 @@ public final class MainActivity extends Activity {
         sayRow.addView(say, new LinearLayout.LayoutParams(0, -2, 1));
         LinearLayout.LayoutParams sendParams = new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)); sendParams.leftMargin = ui.dp(8);
         sayRow.addView(ui.iconButton(R.drawable.ic_send, ACCENT, ON_ACCENT, "보내기", sendSay), sendParams); stage.addView(sayRow, new LinearLayout.LayoutParams(-1, -2));
-        words.setOnClickListener(v -> toggleVoice()); words.setFocusable(true); words.setContentDescription("음성 대화 시작 또는 끝내기"); Ui.pressable(words, true);
+        words.setOnClickListener(v -> voiceFull(true)); words.setFocusable(true); words.setContentDescription("전체 화면으로 보기");
         // The call's controls: one slim row of round icons with no captions (each says its name to a screen reader), the
         // call's own on the left and ending it alone on the right. They are the foot of the card, not a second card.
         LinearLayout controls = ui.row(); controls.setGravity(android.view.Gravity.CENTER_VERTICAL); controls.setPadding(0, ui.dp(8), 0, 0);
@@ -736,6 +775,8 @@ public final class MainActivity extends Activity {
         controls.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1)); controls.addView(endButton, new LinearLayout.LayoutParams(-2, -2));
         stage.addView(controls, new LinearLayout.LayoutParams(-1, -2));
         add(stage, 14);
+        // Drawn again while full screen (another redraw of the page): the new card goes back there at once.
+        if (voiceFull) { voiceFull = false; voiceFull(true, false); }
         // Under the hero: the search sources an answer used (Google asks for them to be shown), and, once the call is over,
         // keeping what was said. Neither is there while nothing calls for it.
         LinearLayout live = ui.card(); liveCard = live;
@@ -759,20 +800,116 @@ public final class MainActivity extends Activity {
         homeRecentWork();
         attachCamera();
         phoneRow = ui.column(); add(phoneRow, 8);
+        homeFeed();
         for (int i = asideFrom; i < body.getChildCount(); i++) callAside.add(body.getChildAt(i));
         // Background work still going: one line, only while there is some.
         taskSummary = ui.banner("", ACCENT); taskSummary.setOnClickListener(v -> showTab(1)); taskSummary.setVisibility(View.GONE); add(taskSummary, 12);
     }
+    private LinearLayout homeFeedBox;
+    /**
+     * 퍼레가 챙겨 왔어요 (the assistant's own corner), at the foot of the voice screen: today's suggestions (Briefing's cards), what the notifications said, and the
+     * assistant's questions about the user (answered here, kept in memory). With 먼저 챙기기 off, one card to turn it on.
+     */
+    private void homeFeed() {
+        TextView label = ui.text(Brand.I + " 챙겨 왔어요", Ui.FOOTNOTE, 650, MUTED); label.setPadding(ui.dp(4), ui.dp(10), 0, ui.dp(8)); label.setAccessibilityHeading(true); add(label, 0);
+        homeFeedBox = ui.column(); add(homeFeedBox, 14);
+        fillHomeFeed();
+    }
+    private void fillHomeFeed() {
+        LinearLayout box = homeFeedBox; if (box == null || tab != 0) return;
+        box.removeAllViews();
+        if (!Briefing.on(store)) {
+            LinearLayout card = feedCard();
+            card.addView(ui.text("제가 먼저 챙겨 드려도 될까요?", 14.5f, 650, TEXT));
+            TextView about = ui.text("아침마다 오늘 할 만한 일을 골라 오고, 더 잘 도와 드리려고 가끔 궁금한 걸 여쭤볼게요. 여기서 편하게 보시면 돼요.", 12.5f, 450, MUTED); about.setPadding(0, ui.dp(2), 0, ui.dp(4)); card.addView(about);
+            card.addView(ui.pills(ui.pill("좋아요", 0, true, () -> { Briefing.turn(this, store, true); fillHomeFeed(); })));
+            box.addView(card, feedAt());
+        }
+        // 오늘의 제안: a tap hands it to 음성 비서 while it talks, else to 메인 대화's message box (or its 작업창).
+        for (dev.jun.gyeot.core.Proactive.Card c : Briefing.cards(store)) {
+            LinearLayout card = feedCard(); LinearLayout top = ui.row(); top.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            TextView kind = ui.text("이건 어때요?", 11.5f, 650, ACCENT); top.addView(kind, new LinearLayout.LayoutParams(0, -2, 1));
+            android.widget.ImageView close = ui.bareIcon(R.drawable.ic_close, MUTED, "이 제안 넘기기", () -> { Briefing.react(store, c, false); fillHomeFeed(); });
+            close.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9)); top.addView(close, new LinearLayout.LayoutParams(ui.dp(30), ui.dp(30)));
+            card.addView(top);
+            TextView title = ui.text(c.title(), 14.5f, 650, TEXT); card.addView(title);
+            if (!c.body().isEmpty()) { TextView body = ui.text(c.body(), 12.5f, 450, MUTED); body.setMaxLines(3); body.setEllipsize(TextUtils.TruncateAt.END); body.setPadding(0, ui.dp(2), 0, 0); card.addView(body); }
+            card.setContentDescription("오늘의 제안: " + c.title() + ". " + c.body());
+            card.setOnClickListener(v -> {
+                Briefing.react(store, c, true); fillHomeFeed();
+                if (!c.work().isEmpty() && WorkBook.find(store.works(), c.work()) != null) { workId = c.work(); showTab(3); return; }
+                if (store.voiceActive) { send(AssistantService.SAY, "text", c.ask()); return; }
+                showMainChat(); if (mainChat != null) { String ask = c.ask(); main.post(() -> mainChat.suggest(ask)); }
+            });
+            Ui.pressable(card, true); box.addView(card, feedAt());
+        }
+        // 알림 비서: how many came today and the newest two; a tap opens 알림 비서.
+        if (NoticeListener.on(this)) {
+            long now = System.currentTimeMillis();
+            java.util.List<dev.jun.gyeot.core.Notices.Notice> today = dev.jun.gyeot.core.Notices.recent(NoticeListener.list(this), now, 24, 100);
+            if (!today.isEmpty()) {
+                LinearLayout card = feedCard();
+                // Ads and the phone's own news (a screenshot saved) are counted, never brought first.
+                java.util.List<dev.jun.gyeot.core.Notices.Notice> worth = dev.jun.gyeot.core.Notices.worth(today);
+                int skipped = today.size() - worth.size();
+                card.addView(ui.text("오늘 알림이 " + today.size() + "개 왔어요" + (skipped > 0 ? " · 광고 등 " + skipped + "개는 뺐어요" : ""), 11.5f, 650, Ui.GREEN));
+                java.util.List<String> lines = dev.jun.gyeot.core.Notices.lines(worth, now);
+                if (lines.isEmpty()) { TextView none = ui.text("볼 만한 알림은 없었어요", 13, 450, MUTED); none.setPadding(0, ui.dp(3), 0, 0); card.addView(none); }
+                for (String line : lines.subList(0, Math.min(2, lines.size()))) { TextView one = ui.text(line, 13, 450, TEXT); one.setMaxLines(1); one.setEllipsize(TextUtils.TruncateAt.END); one.setPadding(0, ui.dp(3), 0, 0); card.addView(one); }
+                TextView more = ui.text("눌러서 모아 보기 · 요약도 해 드려요", 12, 500, MUTED); more.setPadding(0, ui.dp(4), 0, 0); card.addView(more);
+                card.setOnClickListener(v -> startActivity(new android.content.Intent(this, NoticeActivity.class))); Ui.pressable(card, true);
+                box.addView(card, feedAt());
+            }
+        }
+        // 나에 대한 질문: answered here in a few words, kept in memory so every AI knows it; ✕ puts it away.
+        for (String q : Briefing.questions(store)) {
+            LinearLayout card = feedCard(); LinearLayout top = ui.row(); top.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            top.addView(ui.text("궁금한 게 있어요", 11.5f, 650, Ui.PURPLE), new LinearLayout.LayoutParams(0, -2, 1));
+            android.widget.ImageView close = ui.bareIcon(R.drawable.ic_close, MUTED, "이 질문 넘기기", () -> answerAbout(q, ""));
+            close.setPadding(ui.dp(9), ui.dp(9), ui.dp(9), ui.dp(9)); top.addView(close, new LinearLayout.LayoutParams(ui.dp(30), ui.dp(30)));
+            card.addView(top);
+            card.addView(ui.text(q, 14.5f, 600, TEXT));
+            LinearLayout reply = ui.row(); reply.setPadding(0, ui.dp(8), 0, 0);
+            EditText answer = ui.input("편하게 한마디", 1, dev.jun.gyeot.core.Proactive.ANSWER_LIMIT); answer.setBackground(ui.shape(FILL, 99)); answer.setTextSize(Ui.SUBHEAD);
+            answer.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(8)); answer.setImeOptions(EditorInfo.IME_ACTION_SEND); answer.setContentDescription(q + " 답하기");
+            Runnable sendAnswer = () -> { String a = answer.getText().toString().strip(); if (!a.isEmpty()) answerAbout(q, a); };
+            answer.setOnEditorActionListener((v, id, e) -> { if (id == EditorInfo.IME_ACTION_SEND) { sendAnswer.run(); return true; } return false; });
+            reply.addView(answer, new LinearLayout.LayoutParams(0, -2, 1));
+            LinearLayout.LayoutParams sendAt = new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)); sendAt.leftMargin = ui.dp(6);
+            reply.addView(ui.iconButton(R.drawable.ic_send, ACCENT, ON_ACCENT, "답 보내기", sendAnswer), sendAt);
+            card.addView(reply);
+            box.addView(card, feedAt());
+        }
+        if (Briefing.questionsDue(store)) new Thread(() -> {
+            try { Briefing.makeQuestions(store); } catch (Exception notNow) { return; }
+            main.post(this::fillHomeFeed);
+        }, "about-questions").start();
+        if (box.getChildCount() == 0) {
+            TextView quiet = ui.text("지금은 조용하네요. 아침 " + dev.jun.gyeot.core.Proactive.clock(Briefing.minutes(store)) + "에 오늘 챙길 것들을 가져올게요.", 12.5f, 450, MUTED);
+            quiet.setPadding(ui.dp(4), 0, 0, 0); box.addView(quiet);
+        }
+    }
+    private LinearLayout feedCard() { LinearLayout card = ui.column(); card.setBackground(ui.shape(CARD, 16)); card.setPadding(ui.dp(14), ui.dp(8), ui.dp(6), ui.dp(12)); return card; }
+    private LinearLayout.LayoutParams feedAt() { LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-1, -2); at.bottomMargin = ui.dp(8); return at; }
+    private void answerAbout(String question, String answer) {
+        new Thread(() -> {
+            try { Briefing.answerQuestion(store, question, answer); }
+            catch (Exception e) { main.post(() -> store.error(e.getMessage() == null ? "기억하지 못했어요." : e.getMessage())); return; }
+            main.post(() -> { if (!answer.isEmpty()) android.widget.Toast.makeText(this, "알려 주셔서 고마워요. 기억해 둘게요!", android.widget.Toast.LENGTH_SHORT).show(); fillHomeFeed(); });
+        }, "about-answer").start();
+    }
     /** Recording is its own home tab, not a Live API mode. Opening it never starts a microphone. */
     private void homeRecorder() {
         add(ui.sectionHeader("녹음"), 0);
-        add(ui.footer("녹음 시작을 누르면 소리를 저장해요. 저장한 녹음과 녹취는 목록에서 다시 볼 수 있어요."), 8);
+        add(ui.footer("녹음은 소리를, 화면 녹화는 화면을 영상으로 저장해요. 저장한 녹음과 녹취는 목록에서 다시 볼 수 있어요."), 8);
         LinearLayout recorderGroup = ui.group();
         TextView recordings = ui.text("목록 ›", 14, 600, ACCENT); recordings.setPadding(ui.dp(10), ui.dp(6), 0, ui.dp(6)); recordings.setContentDescription("녹음 목록 보기");
         recordings.setOnClickListener(v -> showRecords(0)); Ui.pressable(recordings, true);
         LinearLayout recorder = ui.listRow(R.drawable.ic_record, Ui.RED, "녹음", "눌러서 녹음 시작", recordings, this::toggleRecording);
         recordButton = (TextView) ((LinearLayout) recorder.getChildAt(1)).getChildAt(1);
         ui.addRow(recorderGroup, recorder, true);
+        // 화면 녹화: the whole screen at its own size (the phone's own recorder saves it scaled down).
+        ui.addRow(recorderGroup, screenRecord().row(), true);
         add(recorderGroup, 8);
         ScopedModels models = ScopedModels.recording(store);
         add(ui.listRow(R.drawable.ic_sparkle, ACCENT, "녹음 요약 모델 · 생각 깊이",
@@ -957,6 +1094,46 @@ public final class MainActivity extends Activity {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 21); return; }
         send(AssistantService.RECORD_START, null, null);
     }
+    // ── 음성 전체 화면 ─────────────────────────────────────────────────────
+
+    /** The voice card full screen: over the whole window (not a dialog), the rail and the page's other parts out of view. */
+    private boolean voiceFull; private LinearLayout fullHost; private ViewGroup heroHome; private ViewGroup.LayoutParams heroHomeAt; private int heroIndex;
+    private void voiceFull(boolean on) { voiceFull(on, true); }
+    /** redraw: false while the page is being drawn (its own refresh follows and sizes the card). */
+    private void voiceFull(boolean on, boolean redraw) {
+        if (on == voiceFull && (!on || fullHost != null)) return;
+        if (on && (heroStage == null || tab != 0)) return;
+        voiceFull = on;
+        if (on) {
+            ViewGroup content = findViewById(android.R.id.content);
+            heroHome = (ViewGroup) heroStage.getParent(); heroHomeAt = heroStage.getLayoutParams(); heroIndex = heroHome == null ? -1 : heroHome.indexOfChild(heroStage);
+            if (heroHome != null) heroHome.removeView(heroStage);
+            LinearLayout host = ui.column(); fullHost = host; host.setBackgroundColor(BG); host.setClickable(true);
+            host.setOnApplyWindowInsetsListener((v, insets) -> {
+                android.graphics.Insets bars = insets.getInsets(android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.displayCutout());
+                v.setPadding(bars.left + ui.dp(10), bars.top + ui.dp(4), bars.right + ui.dp(10), Math.max(bars.bottom, insets.getInsets(android.view.WindowInsets.Type.ime()).bottom) + ui.dp(10));
+                return insets;
+            });
+            LinearLayout top = ui.row();
+            top.addView(ui.bareIcon(R.drawable.ic_chevron_down, TEXT, "전체 화면 닫기", () -> voiceFull(false)), new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+            host.addView(top, new LinearLayout.LayoutParams(-1, -2));
+            host.addView(heroStage, new LinearLayout.LayoutParams(-1, 0, 1));
+            content.addView(host, new FrameLayout.LayoutParams(-1, -1));
+            host.requestApplyInsets();
+        } else {
+            closeFullHost();
+            if (heroStage != null && heroHome != null && heroStage.getParent() == null) heroHome.addView(heroStage, Math.min(Math.max(0, heroIndex), heroHome.getChildCount()), heroHomeAt);
+            heroHome = null;
+        }
+        // The card's layout again for where it is now (refresh sizes it by the call and by full screen).
+        heroStale = true; if (redraw) refresh();
+    }
+    /** Takes the full-screen host off the window (the card stays with it until put back). */
+    private void closeFullHost() {
+        if (fullHost == null) return;
+        if (heroStage != null && heroStage.getParent() == fullHost) fullHost.removeView(heroStage);
+        ViewGroup content = findViewById(android.R.id.content); content.removeView(fullHost); fullHost = null;
+    }
     private void toggleVoice() { if (store.voiceActive) send(AssistantService.END_LIVE, null, null); else startVoice(); }
     private void startVoice() {
         if (!voiceUsable()) return;
@@ -1080,7 +1257,7 @@ public final class MainActivity extends Activity {
             boolean connecting = store.voiceActive && !offline && store.voiceLink.connecting();
             boolean thinking = store.voiceActive && store.thinking() && !connecting && !offline && store.outputDraft.isBlank();
             orb.state(VoiceOrb.of(store));
-            orbTitle.setText(!store.voiceActive ? "눌러서 말하기" : offline ? "오프라인" : store.muted ? "음소거됨" : connecting ? "연결하는 중…" : !store.outputDraft.isBlank() ? "말하는 중" : thinking ? store.thinkingName() + "가 생각하는 중…" : "듣고 있어요");
+            orbTitle.setText(!store.voiceActive ? "눌러서 말하기" : offline ? "오프라인" : store.muted ? "음소거됨" : connecting ? "연결하는 중…" : !store.outputDraft.isBlank() ? "말하는 중" : thinking ? store.thinkingName() + " · 생각하는 중…" : "듣고 있어요");
             RealtimeVoice.Kind realtime = store.assistantRealtime();
             String model = AppStore.modelLabel(INTERPRETER.equals(mode) ? GeminiProtocol.TRANSLATE : DICTATION.equals(mode) ? GeminiProtocol.TRANSCRIBE
                 : store.voiceActive && !store.connectedVoiceModel.isEmpty() ? store.connectedVoiceModel : realtime != null ? realtime.model : store.activeModel() == null ? store.liveModel() : store.activeModel());
@@ -1097,9 +1274,14 @@ public final class MainActivity extends Activity {
         // And the orb gives room to what is being said.
         // The page's big title steps aside too (the bar above keeps the screen's name), so the call fits one screen.
         if (orb != null && tab == 0) titleView.setVisibility(store.voiceActive ? View.GONE : View.VISIBLE);
-        if (orb != null && heroHead != null && heroCall != store.voiceActive) {
+        // Full screen after a call (or with an answer that came in later): the words are what the user opened it for, so the
+        // head is the call's slim row and the conversation takes the rest of the screen, not a 220dp box under a big orb (준:
+        // "전체보기 했는데 메세지가 전체보기가 안돼").
+        boolean compact = store.voiceActive || voiceFull && (!store.conversationEmpty() || !store.interim.isBlank() || !store.outputDraft.isBlank());
+        if (orb != null && heroHead != null && (heroStale || heroCall != compact)) {
             // A call's head is one slim row (a small orb, its state and one quiet line beside it); idle it is the big centered orb.
-            boolean call = heroCall = store.voiceActive; int size = ui.dp(call ? CALL_ORB : orbIdleSize);
+            heroStale = false;
+            boolean call = heroCall = compact; int size = ui.dp(call ? CALL_ORB : orbIdleSize);
             heroHead.setOrientation(call ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL); heroHead.setGravity(call ? android.view.Gravity.CENTER_VERTICAL : android.view.Gravity.CENTER_HORIZONTAL);
             LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) orb.getLayoutParams(); lp.width = size; lp.height = size; orb.setLayoutParams(lp);
             heroWords.setGravity(call ? android.view.Gravity.START : android.view.Gravity.CENTER_HORIZONTAL); heroWords.setPadding(ui.dp(call ? 12 : 8), ui.dp(call ? 0 : 4), ui.dp(8), ui.dp(call ? 0 : 4));
@@ -1109,9 +1291,12 @@ public final class MainActivity extends Activity {
             heroStage.setPadding(ui.dp(call ? 14 : 20), ui.dp(call ? 14 : 26), ui.dp(call ? 14 : 20), ui.dp(call ? 14 : 24));
             // The call is the page: the card takes the height the screen has left and gives it to the conversation, and what
             // is beside the call (the mode pills, the doors, recent work, the phone row) waits until it ends.
-            LinearLayout.LayoutParams stageAt = (LinearLayout.LayoutParams) heroStage.getLayoutParams(); stageAt.height = call ? 0 : -2; stageAt.weight = call ? 1 : 0; heroStage.setLayoutParams(stageAt);
+            boolean fill = call || voiceFull;
+            LinearLayout.LayoutParams stageAt = (LinearLayout.LayoutParams) heroStage.getLayoutParams(); stageAt.height = fill ? 0 : -2; stageAt.weight = fill ? 1 : 0; heroStage.setLayoutParams(stageAt);
+            // Full screen and idle: the big orb in the middle of it; in a call the head stays at the top over the words.
+            heroStage.setGravity(voiceFull && !call ? android.view.Gravity.CENTER : android.view.Gravity.CENTER_HORIZONTAL);
             if (said != null) { LinearLayout.LayoutParams saidAt = (LinearLayout.LayoutParams) said.getLayoutParams(); saidAt.height = call ? 0 : -2; saidAt.weight = call ? 1 : 0; said.setLayoutParams(saidAt); }
-            for (View aside : callAside) aside.setVisibility(call ? View.GONE : View.VISIBLE);
+            for (View aside : callAside) aside.setVisibility(store.voiceActive ? View.GONE : View.VISIBLE);
         }
         boolean seeing = store.voiceActive && ASSISTANT.equals(store.voiceMode);
         if (cameraFeed != null && !seeing) stopCamera();
@@ -1132,13 +1317,14 @@ public final class MainActivity extends Activity {
             // Rebuilt only when the words changed: a redraw for something else leaves the list where the user scrolled it.
             StringBuilder key = new StringBuilder();
             for (int i = first; i < lines.length(); i++) { JSONObject line = lines.optJSONObject(i); key.append(line.optString("who")).append('\u0001').append(line.optString("text")).append('\u0002'); }
-            key.append(VoiceClips.playingKey()).append('\u0004');
             key.append(store.interim).append('\u0003').append(store.outputDraft).append('\u0003').append(thinkingNow ? store.thinkingText() : "");
+            String words = key.toString(); key.append('\u0004').append(VoiceClips.playingKey());
             boolean spoken = lines.length() > first || !store.interim.isBlank() || !store.outputDraft.isBlank() || thinkingNow;
             if (!key.toString().equals(shownSaid)) {
                 // Follows the newest words unless the user scrolled up to read.
-                boolean atFoot = shownSaid.isEmpty() || saidList.getHeight() - said.getScrollY() - said.getHeight() < ui.dp(48);
-                shownSaid = key.toString(); saidList.removeAllViews();
+                // Out of a call new words (an answer that came in later) are shown too; a ▶ tapped higher up keeps the place.
+                boolean atFoot = shownSaid.isEmpty() || saidList.getHeight() - said.getScrollY() - said.getHeight() < ui.dp(48) || !store.voiceActive && !words.equals(shownWords);
+                shownSaid = key.toString(); shownWords = words; saidList.removeAllViews();
                 if (!spoken) {
                     TextView waiting = ui.text("말씀하시면 여기에 보여요.\n다른 앱으로 이동해도 연결은 유지돼요.", Ui.SUBHEAD, 400, MUTED); waiting.setGravity(android.view.Gravity.CENTER); waiting.setPadding(ui.dp(12), ui.dp(18), ui.dp(12), ui.dp(18)); saidList.addView(waiting);
                 }
@@ -1177,10 +1363,12 @@ public final class MainActivity extends Activity {
         }
         refreshWorkProgress(); refreshTeamProgress();
         if (tab == 4 && store.galleryVersion != galleryDrawn) { int y = scroll.getScrollY(); showTab(4); scroll.post(() -> scroll.scrollTo(0, y)); return; }
-        if (recordButton != null) { recordButton.setText(store.recording ? "녹음 중 · " + AssistantService.durationText(System.currentTimeMillis() - store.recordingStartedAt) + " · 눌러서 멈추기" : "눌러서 녹음 시작"); recordButton.setTextColor(store.recording ? Ui.RED : MUTED); }
-        if ((store.recording || store.thinking() || workRunning()) && !ticker.hasCallbacks(tick)) ticker.postDelayed(tick, 1000);
+        if (recordButton != null) { recordButton.setText(store.recording ? (store.recordingPaused ? "일시정지 · " : "녹음 중 · ") + AssistantService.durationText(RecordControl.audioElapsedMs(store)) + " · 눌러서 멈추기" : "눌러서 녹음 시작"); recordButton.setTextColor(store.recording ? store.recordingPaused ? Ui.ORANGE : Ui.RED : MUTED); }
+        if (screenRecordUi != null) screenRecordUi.refresh();
+        if ((store.recording || ScreenRecordService.running() || store.thinking() || workRunning()) && !ticker.hasCallbacks(tick)) ticker.postDelayed(tick, 1000);
         if (phoneGptCheckState != null) phoneGptCheckState.setText(phoneGptCheckResult);
-        if (edgeState != null) { if (tab == 2 && edgeDrawn != store.edgeButton()) { showTab(2); return; } edgeState.setText(edgeStatus()); }
+        if (edgeState != null) { if (tab == 2 && (edgeDrawn != store.edgeButton() || taskbarDrawn != store.taskbar())) { showTab(2); return; } edgeState.setText(edgeStatus()); }
+        if (taskbarState != null) taskbarState.setText(Taskbar.status(this, store));
         if (assistState != null) assistState.setText(assistStatus());
         if (archiveState != null) archiveState.setText(archiveStatus());
         if (phoneRow != null) {
@@ -1569,6 +1757,9 @@ public final class MainActivity extends Activity {
             case "chatgpt" -> pageChatgpt();
             case "grok" -> pageGrok();
             case "nim" -> pageNim();
+            case "groq" -> pageGroq();
+            case "typecast" -> pageTypecast();
+            case "antigravity" -> pageAntigravity();
             case "claude" -> pageClaude();
             case "ai" -> pageAi();
             case "connectors" -> pageConnectors();
@@ -1587,18 +1778,57 @@ public final class MainActivity extends Activity {
             case "wake" -> add(wakeWord().page(), 16);
             case "github" -> pageGithub();
             case "drive" -> add(drive().page(), 16);
+            case "gmail" -> add(gmail().page(), 16);
             case "memories" -> pageMemories();
             default -> pageAbout();
         }
     }
+    /** Opens a settings page from outside (the floating bubble's 목소리 설정): its id in this extra. */
+    static final String SETTINGS_PAGE = "gyeot.settings_page";
+    /** 예약 작업's sheet (with 조건 알림) over 작업창: a trigger's notification or 퍼레's fix opens it. */
+    static final String SCHEDULES = "gyeot.schedules";
+    private void schedulesFrom(Intent intent) {
+        if (intent == null || !intent.getBooleanExtra(SCHEDULES, false)) return;
+        intent.removeExtra(SCHEDULES); showTab(3);
+        root.post(() -> { if (!isFinishing() && !isDestroyed()) schedules().show(); });
+    }
+    /**
+     * The home screen's 업데이트 shortcut (준: "새로운 업데이트가 있으면 바로 다운 받기까지 되고 없으면 업데이트 페이지 열리기"): with
+     * the update page, a check now; a newer build found is downloaded and handed to Android's installer at once (the page shows
+     * how it goes), none found leaves the page saying it is the newest.
+     */
+    static final String UPDATE_NOW = "gyeot.update_now";
+    private long updateAskedAt;
+    private void updateNowAsked(Intent intent) {
+        if (intent == null || !intent.getBooleanExtra(UPDATE_NOW, false)) return;
+        intent.removeExtra(UPDATE_NOW);
+        updateAskedAt = System.currentTimeMillis();
+        java.io.File ready = store.updater.ready;
+        if (ready != null && store.updater.available != null) { main.post(() -> openInstaller(ready)); updateAskedAt = 0; return; }
+        if (store.updater.available != null && !store.updater.busy) { main.post(this::installUpdate); updateAskedAt = 0; return; }
+        store.updater.check(false);
+        main.removeCallbacks(updateNowTick); main.postDelayed(updateNowTick, 400);
+    }
+    /** Until the check answered (or 30 seconds): then the download when there is a newer build. */
+    private final Runnable updateNowTick = new Runnable() { @Override public void run() {
+        if (updateAskedAt == 0 || isDestroyed()) return;
+        boolean answered = !store.updater.busy && store.settings.getLong("updateCheckedAt", 0) >= updateAskedAt - 1000;
+        if (!answered && System.currentTimeMillis() - updateAskedAt < 30_000) { main.postDelayed(this, 400); return; }
+        updateAskedAt = 0;
+        if (answered && store.updater.available != null) installUpdate();
+    } };
+    private static String settingsPageAsked(Intent intent) {
+        String page = intent == null ? null : intent.getStringExtra(SETTINGS_PAGE);
+        return page != null && !page.isEmpty() && SETTINGS_PAGES.contains(page) ? page : null;
+    }
     /** Every settings page id; anything else opens the list. */
-    private static final java.util.Set<String> SETTINGS_PAGES = java.util.Set.of("", "key", "chatgpt", "grok", "nim", "claude", "ai", "connectors", "voice",
-        "quick", "phone", "look", "persona", "routines", "memory", "background", "update", "usage", "calendar", "wake", "about", "github", "drive", "memories", "backup");
+    private static final java.util.Set<String> SETTINGS_PAGES = java.util.Set.of("", "key", "chatgpt", "grok", "nim", "groq", "typecast", "antigravity", "claude", "ai", "connectors", "voice",
+        "quick", "phone", "look", "persona", "routines", "memory", "background", "update", "usage", "calendar", "wake", "about", "github", "drive", "gmail", "memories", "backup");
     /** The page a sub-page belongs to, "" for the pages listed on the settings home. */
     static String settingsParent(String page) {
         return switch (page) {
             case "wake" -> "quick";
-            case "github", "drive" -> "connectors";
+            case "github", "drive", "gmail" -> "connectors";
             case "memories" -> "memory";
             default -> "";
         };
@@ -1606,8 +1836,8 @@ public final class MainActivity extends Activity {
     private static String pageTitle(String page) {
         return switch (page) {
             case "grok" -> "Grok";
-            case "github" -> "GitHub"; case "drive" -> "Google Drive"; case "memories" -> "기억한 것";
-            case "nim" -> "NVIDIA NIM";
+            case "github" -> "GitHub"; case "drive" -> "Google Drive"; case "gmail" -> "Gmail"; case "memories" -> "기억한 것";
+            case "nim" -> "NVIDIA NIM"; case "groq" -> "Groq"; case "typecast" -> "타입캐스트"; case "antigravity" -> "Antigravity (Gemini)";
             case "key" -> "Gemini"; case "chatgpt" -> "ChatGPT"; case "claude" -> "Claude"; case "ai" -> "AI 역할"; case "connectors" -> "커넥터"; case "voice" -> "목소리와 대화";
             case "quick" -> "바로 부르기"; case "phone" -> "폰 조작"; case "look" -> "화면 보기"; case "persona" -> "나에 대해"; case "routines" -> "한마디 루틴"; case "memory" -> "기억";
             case "background" -> "다른 앱 쓰는 동안"; case "backup" -> "백업 · 복원"; case "update" -> "업데이트"; case "usage" -> "사용량 · 남은 한도"; case "calendar" -> "캘린더"; case "wake" -> "차에서 호출어"; default -> "정보";
@@ -2611,7 +2841,7 @@ public final class MainActivity extends Activity {
         return WorkBook.author(WorkBook.engine(message.optString("by", thread.optString("engine", WorkBook.CHATGPT))));
     }
     /** The engine behind a name WorkBook.author gave. */
-    private static String engineNamed(String name) { return "Claude".equals(name) ? WorkBook.CLAUDE : "Gemini".equals(name) ? WorkBook.GEMINI : "Grok".equals(name) ? WorkBook.GROK : "NVIDIA NIM".equals(name) ? WorkBook.NIM : WorkBook.CHATGPT; }
+    private static String engineNamed(String name) { return "Claude".equals(name) ? WorkBook.CLAUDE : "Gemini".equals(name) ? WorkBook.GEMINI : "Grok".equals(name) ? WorkBook.GROK : "NVIDIA NIM".equals(name) ? WorkBook.NIM : "Antigravity".equals(name) ? WorkBook.ANTIGRAVITY : "Groq".equals(name) ? WorkBook.GROQ : WorkBook.CHATGPT; }
     /** One answer in the chat: who wrote it, the formatted text, notes, the files it made, cited pages, and a few actions. */
     private LinearLayout workAnswer(JSONObject thread, JSONObject message) {
         // A spoken conversation's answer (VoiceTargets.work): what the voice said, under its name; nothing to act on.
@@ -2879,16 +3109,10 @@ public final class MainActivity extends Activity {
     }
     /** "Sonnet 5.5  보통 ⌄": the model in the text color, the depth quieter, a small chevron; no icon, no box (as in Claude's and ChatGPT's apps). */
     private TextView modelText(String[] parts, String description, Runnable action) {
-        android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(parts[0]);
-        label.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, label.length(), 0);
-        if (!parts[1].isEmpty()) { int at = label.length(); label.append("  ").append(parts[1]); label.setSpan(new android.text.style.ForegroundColorSpan(MUTED), at, label.length(), 0); }
-        TextView chip = ui.text("", 13, 500, TEXT); chip.setText(label); chip.setSingleLine(true); chip.setEllipsize(TextUtils.TruncateAt.END);
-        chip.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END); chip.setPadding(ui.dp(8), 0, ui.dp(4), 0); chip.setMinHeight(ui.dp(36));
+        TextView chip = ModelLine.make(this, ui, v -> action.run()); ModelLine.show(chip, parts, "작업창");
         // On the slim line under the field, beside the repository: a long model name is cut short rather than crowding it.
         chip.setMaxWidth(ui.dp(composerOneRow ? 280 : 210));
-        android.graphics.drawable.Drawable chevron = getDrawable(R.drawable.ic_chevron_down).mutate(); chevron.setTint(MUTED); chevron.setBounds(0, 0, ui.dp(15), ui.dp(15));
-        chip.setCompoundDrawablesRelative(null, null, chevron, null); chip.setCompoundDrawablePadding(ui.dp(4));
-        chip.setContentDescription(description); chip.setOnClickListener(v -> action.run()); Ui.pressable(chip, true);
+        chip.setContentDescription(description);
         return chip;
     }
     /** The chip's two parts: the model (with "Fast" when GPT's fast processing is on) and its thinking level. */
@@ -2918,7 +3142,7 @@ public final class MainActivity extends Activity {
     private void pickWorkProvider() {
         ScopedModels selection = workModels();
         Ui.Sheet sheet = ui.selectionSheet("이 작업창의 AI", "다른 작업창과 음성·녹음 설정은 바뀌지 않아요");
-        for (String engine : new String[]{WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM})
+        for (String engine : new String[]{WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY, WorkBook.GROQ})
             sheet.body.addView(ui.listRow(0, ACCENT, WorkBook.author(engine), store.ready(engine) ? modelChip(engine) : "연결 필요", ui.chevron(), () -> { sheet.dismiss(); chooseEngine(selection, engine); }));
         sheet.show();
     }
@@ -2931,18 +3155,18 @@ public final class MainActivity extends Activity {
         if (!store.ready(engine)) {
             boolean gemini = WorkBook.GEMINI.equals(engine);
             store.error(gemini ? "Gemini API 키를 먼저 넣어 주세요." : name + "를 먼저 연결해 주세요.");
-            openSettings(WorkBook.CLAUDE.equals(engine) ? "claude" : gemini ? "key" : WorkBook.GROK.equals(engine) ? "grok" : WorkBook.NIM.equals(engine) ? "nim" : "chatgpt"); return;
+            openSettings(WorkBook.CLAUDE.equals(engine) ? "claude" : gemini ? "key" : WorkBook.GROK.equals(engine) ? "grok" : WorkBook.GROQ.equals(engine) ? "groq" : WorkBook.ANTIGRAVITY.equals(engine) ? "antigravity" : WorkBook.NIM.equals(engine) ? "nim" : "chatgpt"); return;
         }
-        store.status("다음 메시지부터 " + name + "가 답해요 · 앞의 대화도 이어서 봐요"); store.changed(); updateComposer();
+        store.status("다음 메시지부터 답하는 모델: " + name + " · 앞의 대화도 이어서 봐요"); store.changed(); updateComposer();
     }
     // Catalogs are account-wide; selections belong only to this room or recording.
     private JSONArray engineModels(String engine) {
-        return WorkBook.CLAUDE.equals(engine) ? store.claude.models() : WorkBook.GEMINI.equals(engine) ? store.gemini.models() : WorkBook.GROK.equals(engine) ? store.grok.models() : WorkBook.NIM.equals(engine) ? store.nim.models() : store.openai.models();
+        return WorkBook.CLAUDE.equals(engine) ? store.claude.models() : WorkBook.GEMINI.equals(engine) ? store.gemini.models() : WorkBook.GROK.equals(engine) ? store.grok.models() : WorkBook.GROQ.equals(engine) ? store.groqModels.models() : WorkBook.ANTIGRAVITY.equals(engine) ? store.antigravity.models() : WorkBook.NIM.equals(engine) ? store.nim.models() : store.openai.models();
     }
     private ScopedModels workModels() { return new ScopedModels(store, workId); }
     private String workEngineName() { return WorkBook.author(workModels().engine()); }
     private Reasoning.Profile engineProfile(String engine, String model) {
-        return WorkBook.CLAUDE.equals(engine) ? store.claude.profile(model) : WorkBook.GEMINI.equals(engine) ? store.gemini.profile(model) : WorkBook.GROK.equals(engine) ? store.grok.profile(model) : WorkBook.NIM.equals(engine) ? store.nim.profile(model) : store.openai.reasoningProfile(model);
+        return WorkBook.CLAUDE.equals(engine) ? store.claude.profile(model) : WorkBook.GEMINI.equals(engine) ? store.gemini.profile(model) : WorkBook.GROK.equals(engine) ? store.grok.profile(model) : WorkBook.GROQ.equals(engine) ? store.groqModels.profile(model) : WorkBook.ANTIGRAVITY.equals(engine) ? store.antigravity.profile(model) : WorkBook.NIM.equals(engine) ? store.nim.profile(model) : store.openai.reasoningProfile(model);
     }
     /** "Opus 5.5 · 중간": the engine's model and its reasoning level as saved for that model. */
     private String modelChip(String engine) { return modelChip(workModels(), engine); }
@@ -3022,8 +3246,8 @@ public final class MainActivity extends Activity {
             if (WorkBook.GEMINI.equals(engine) && !asked[0] && !store.gemini.listed()) { asked[0] = true; store.gemini.refreshModelsAsync(); }
             String current = selection.model(engine); JSONArray models = engineModels(engine);
             shown[0] = engine + "\u0000" + models + "\u0000" + current + "\u0000" + selection.effort(engine, current) + "\u0000" + store.openai.modelsStatus();
-            providers.removeAllViews(); String[] ids = {WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM};
-            providers.addView(ui.pills(new String[]{"ChatGPT", "Claude", "Gemini", "Grok", "NIM"}, java.util.Arrays.asList(ids).indexOf(engine), index -> {
+            providers.removeAllViews(); String[] ids = {WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY, WorkBook.GROQ};
+            providers.addView(ui.pills(new String[]{"ChatGPT", "Claude", "Gemini", "Grok", "NIM", "Antigravity", "Groq"}, java.util.Arrays.asList(ids).indexOf(engine), index -> {
                 if (ids[index].equals(selection.engine())) return;
                 try { selection.chooseEngine(ids[index]); } catch (Exception e) { store.error(e.getMessage()); return; }
                 search.setText(""); fill[0].run();
@@ -3037,7 +3261,7 @@ public final class MainActivity extends Activity {
             sheet.body.removeAllViews();
             if (engine.isEmpty()) { sheet.body.addView(ui.label("위에서 녹음이나 작업을 맡길 AI를 선택해 주세요.", 14, MUTED)); return; }
             if (!store.ready(engine)) sheet.body.addView(ui.button("선택한 AI 연결하기", false, () -> {
-                sheet.dismiss(); openSettings(WorkBook.CLAUDE.equals(engine) ? "claude" : WorkBook.GEMINI.equals(engine) ? "key" : WorkBook.GROK.equals(engine) ? "grok" : WorkBook.NIM.equals(engine) ? "nim" : "chatgpt");
+                sheet.dismiss(); openSettings(WorkBook.CLAUDE.equals(engine) ? "claude" : WorkBook.GEMINI.equals(engine) ? "key" : WorkBook.GROK.equals(engine) ? "grok" : WorkBook.GROQ.equals(engine) ? "groq" : WorkBook.ANTIGRAVITY.equals(engine) ? "antigravity" : WorkBook.NIM.equals(engine) ? "nim" : "chatgpt");
             }));
             LinearLayout selected = ui.row(); selected.setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(12));
             android.graphics.drawable.GradientDrawable selectedBg = ui.shape(ACCENT_SOFT, 16); selectedBg.setStroke(Math.max(1, ui.dp(0.5f)), ACCENT); selected.setBackground(selectedBg);
@@ -3590,6 +3814,220 @@ public final class MainActivity extends Activity {
         sheet.body.addView(ui.actions(ui.chip("NVIDIA에서 키 받기", () -> open("https://build.nvidia.com/settings/api-keys"))));
         sheet.show();
     }
+    /**
+     * 설정 → Groq: the API key (checked with Groq's model list before it is kept), the models the key can use, 연결 확인 and
+     * 연결 해제. What the app does with Groq comes next; for now the key and its models are ready.
+     */
+    private TextView linuxState; private final Runnable linuxTick = new Runnable() { @Override public void run() { if (linuxState == null || !"antigravity".equals(settingsPage) || tab != 2) return; paintLinuxState(); if (LinuxRuntime.busy) main.postDelayed(this, 500); } };
+    /**
+     * Antigravity (Gemini): Google's official Antigravity CLI run in the app's own Linux environment, signed in by the CLI
+     * itself, so the subscription's own limits answer. Step one here: the Linux environment (설치 · 실행 확인 · 삭제).
+     */
+    private void pageAntigravity() {
+        boolean supported = LinuxRuntime.supported(this), installed = LinuxRuntime.installed(this);
+        add(ui.statusCard(R.drawable.ic_sparkle, Ui.PURPLE, !supported ? "쓸 수 없어요" : installed ? "Linux 환경 준비됨" : "Linux 환경 필요",
+            !supported ? "ARM64 휴대폰에서만 쓸 수 있어요" : "Google 공식 Antigravity CLI를 앱 안의 Linux에서 실행해 구독 한도로 답해요", null), 0);
+        add(ui.sectionHeader("Linux 환경"), 0);
+        LinearLayout box = ui.group(); box.setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(14));
+        box.addView(ui.text(LinuxRuntime.DISTRIBUTION + " · 다운로드 " + LinuxRuntime.mb(LinuxRuntime.ARCHIVE_BYTES) + " · 필요 공간 " + LinuxRuntime.mb(LinuxRuntime.needed()) + " · 사용 가능 " + LinuxRuntime.mb(LinuxRuntime.free(this)), 13, 450, MUTED));
+        linuxState = ui.text("", 15, 600, TEXT); linuxState.setPadding(0, ui.dp(10), 0, ui.dp(10)); box.addView(linuxState);
+        TextView output = ui.text("", 12.5f, 450, TEXT); output.setTypeface(android.graphics.Typeface.MONOSPACE); output.setTextIsSelectable(true); output.setVisibility(View.GONE);
+        LinearLayout buttons = ui.row();
+        if (supported) {
+            if (LinuxRuntime.busy) buttons.addView(ui.pill("취소", 0, false, () -> { LinuxRuntime.cancel(); }));
+            else if (!installed) buttons.addView(ui.pill("설치", 0, true, () -> {
+                new Thread(() -> {
+                    try { LinuxRuntime.install(this, () -> main.post(this::paintLinuxState)); main.post(() -> { store.status("Linux 환경을 설치했어요"); if ("antigravity".equals(settingsPage)) showTab(2); }); }
+                    catch (Exception e) { main.post(() -> { store.error(e.getMessage() == null ? "설치하지 못했어요." : e.getMessage()); if ("antigravity".equals(settingsPage)) showTab(2); }); }
+                }, "linux-install").start();
+                main.postDelayed(() -> { if ("antigravity".equals(settingsPage)) showTab(2); }, 300);
+            }));
+            else {
+                buttons.addView(ui.pill("실행 확인", 0, true, () -> {
+                    output.setVisibility(View.VISIBLE); output.setText("실행하는 중…");
+                    new Thread(() -> {
+                        String text;
+                        try { LinuxRuntime.Result r = LinuxRuntime.run(this, "uname -m; head -n 1 /etc/os-release; echo; df -h / | tail -n 1", 60_000); text = (r.code() == 0 ? "정상 · " : "종료 코드 " + r.code() + " · ") + "\n" + r.output(); }
+                        catch (Exception e) { text = e.getMessage() == null ? "실행하지 못했어요." : e.getMessage(); }
+                        String shown = text; main.post(() -> output.setText(shown));
+                    }, "linux-check").start();
+                }));
+                LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, -2); gap.leftMargin = ui.dp(8);
+                buttons.addView(ui.pill("삭제", 0, false, () -> confirm("Linux 환경을 지울까요? 안에 설치한 CLI와 로그인도 함께 지워져요. 다시 쓰려면 새로 설치해야 해요.", "지우기", () -> {
+                    new Thread(() -> { LinuxRuntime.remove(this); main.post(() -> { store.status("Linux 환경을 지웠어요"); showTab(2); }); }, "linux-remove").start();
+                })), gap);
+            }
+        }
+        box.addView(buttons); box.addView(output);
+        add(box, 0);
+        add(ui.footer("필요할 때만 내려받아요. 앱 업데이트로는 내려받거나 켜지 않아요. 앱 안 저장소에만 설치되고, 삭제하면 모두 지워져요. 루트 권한은 필요 없어요."), 0);
+        add(ui.sectionHeader("Antigravity CLI"), 0);
+        if (!installed) add(ui.footer("Linux 환경을 설치하면 여기서 Google 공식 Antigravity CLI를 설치하고 로그인해요."), 16);
+        else antigravitySection();
+        paintLinuxState(); if (LinuxRuntime.busy) main.postDelayed(linuxTick, 500);
+    }
+    /** The last Antigravity check (version, sign-in, limits), kept so a redraw does not run agy again; null: check again. */
+    private static volatile AntigravityCli.Status agyStatus; private static volatile boolean agyChecking;
+    private void antigravitySection() {
+        AntigravityCli.Status st = agyStatus;
+        LinearLayout cli = ui.group(); cli.setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(14));
+        String state = st == null ? "확인하는 중…" : !st.installed() ? "설치되지 않음" : st.signedIn() == null ? "확인하지 못했어요" : st.signedIn() ? "로그인됨 · 구독 한도로 답해요" : "로그인 필요";
+        cli.addView(ui.text(state, 15, 600, TEXT));
+        if (st != null && !st.version().isEmpty()) cli.addView(ui.text(st.version(), 12.5f, 450, MUTED));
+        // The limits as the usage page draws them: a bar per family and window, "4시간 29분 후 초기화됩니다" across from "100% 남음".
+        if (st != null) { long now = System.currentTimeMillis(); for (dev.jun.gyeot.core.Limits.Window w : st.limits().current(now)) cli.addView(UsageUi.window(ui, w, now)); }
+        if (st != null) for (String row : st.usage()) { TextView u = ui.text(row, 13, 450, TEXT); u.setPadding(0, ui.dp(3), 0, 0); cli.addView(u); }
+        if (st != null && !st.detail().isEmpty()) { TextView d = ui.text(st.detail(), 12, 450, MUTED); d.setPadding(0, ui.dp(4), 0, 0); d.setTextIsSelectable(true); cli.addView(d); }
+        // The model list agy gave (the pickers' list), or why it could not be read: an old list is never kept without a word.
+        java.util.List<AntigravityAccount.Group> groups = store.antigravity.groups();
+        if (!groups.isEmpty()) { java.util.List<String> names = new java.util.ArrayList<>(); for (AntigravityAccount.Group g : groups) names.add(g.name());
+            TextView m = ui.text("모델 " + groups.size() + "개 · " + String.join(", ", names), 12.5f, 450, MUTED); m.setPadding(0, ui.dp(6), 0, 0); cli.addView(m); }
+        if (!store.antigravity.modelsProblem().isEmpty()) { TextView p = ui.text("모델 목록을 새로 읽지 못했어요 · agy가 보여 준 것: " + store.antigravity.modelsProblem(), 12, 450, ERROR); p.setPadding(0, ui.dp(4), 0, 0); p.setTextIsSelectable(true); cli.addView(p); }
+        boolean has = st != null && st.installed(), in = has && Boolean.TRUE.equals(st.signedIn());
+        Runnable refresh = () -> { agyStatus = null; if ("antigravity".equals(settingsPage) && tab == 2) showTab(2); };
+        java.util.List<View> actions = new java.util.ArrayList<>();
+        // Until the check answers, no button: 설치 would be offered for a CLI that is already there.
+        if (st != null) actions.add(ui.pill(has ? "CLI 업데이트" : "CLI 설치", 0, !has, () -> {
+            try { AntigravityCli.prepare(this); } catch (Exception e) { store.error(e.getMessage()); return; }
+            LinuxTerminal.show(this, ui, has ? "Antigravity CLI 업데이트" : "Antigravity CLI 설치", "Google 공식 설치 스크립트 · 받은 파일을 SHA-512로 확인해요 · 질문이 나오면 아래 버튼으로 답해요",
+                AntigravityCli.installCommand(has), AntigravityCli.env(), refresh);
+        }));
+        if (has) actions.add(ui.pill("로그인", 0, !in, () -> {
+            try { AntigravityCli.prepare(this); } catch (Exception e) { store.error(e.getMessage()); return; }
+            LinuxTerminal.show(this, ui, "Antigravity 로그인", "로그인 링크를 열어 Google 계정으로 로그인하고, 받은 코드를 붙여 넣어요. 로그인되면 ‘끝내기’를 눌러요.",
+                AntigravityCli.loginCommand(), AntigravityCli.env(), refresh);
+        }));
+        if (has) actions.add(ui.pill("상태 확인", 0, false, refresh));
+        if (in) actions.add(ui.pill("질문해 보기", 0, false, this::askAntigravity));
+        cli.addView(ui.pills(actions.toArray(new View[0])));
+        add(cli, 0);
+        add(ui.footer("Google 공식 Antigravity CLI(agy)를 앱 안의 Linux에서 실행해요. 로그인은 CLI가 직접 하고, 로그인 정보는 Linux 안에만 있어요. 메인 대화·작업창·나의학교의 모델 메뉴에서 ‘Antigravity’를 고르면 agy의 Gemini·Claude·GPT 모델로 답해요(앱의 도구·검색·첨부 없이 글로만)."), 16);
+        if (st == null && !agyChecking) {
+            agyChecking = true;
+            new Thread(() -> { AntigravityCli.Status found = store.antigravity.refresh(); agyStatus = found; agyChecking = false;
+                main.post(() -> { if ("antigravity".equals(settingsPage) && tab == 2) showTab(2); }); }, "agy-status").start();
+        }
+    }
+    /** 질문해 보기: one question to Antigravity, its answer under it. */
+    private void askAntigravity() {
+        Ui.Sheet sheet = ui.selectionSheet("Antigravity에게 물어보기", "구독 한도로 답해요");
+        EditText q = ui.input("물어볼 것", 2, 2000); sheet.body.addView(q);
+        TextView answer = ui.text("", 14, 420, TEXT); answer.setTextIsSelectable(true); answer.setPadding(ui.dp(4), ui.dp(12), ui.dp(4), 0); sheet.body.addView(answer);
+        sheet.primary.setText("묻기");
+        sheet.primary.setOnClickListener(v -> {
+            String text = q.getText().toString().strip(); if (text.isEmpty()) return;
+            sheet.primary.setEnabled(false); answer.setText("답을 기다리는 중…");
+            new Thread(() -> {
+                String said; try { said = store.antigravity.ask(store.antigravity.model(), "", text, null); } catch (Exception e) { said = e.getMessage() == null ? "답하지 못했어요." : e.getMessage(); }
+                String shown = said; main.post(() -> { if (!sheet.isShowing()) return; sheet.primary.setEnabled(true); answer.setText(RichText.render(shown)); });
+            }, "agy-ask").start();
+        });
+        sheet.show();
+    }
+    private void paintLinuxState() {
+        if (linuxState == null) return;
+        String s;
+        if (!LinuxRuntime.supported(this)) s = "이 휴대폰에서는 쓸 수 없어요";
+        else if (LinuxRuntime.busy) {
+            String step = LinuxRuntime.state.isEmpty() ? "준비하는 중" : LinuxRuntime.state;
+            s = step + (LinuxRuntime.total > 0 && LinuxRuntime.done > 0 ? " · " + LinuxRuntime.mb(LinuxRuntime.done) + (step.startsWith("내려받") ? " / " + LinuxRuntime.mb(LinuxRuntime.total) + " (" + (LinuxRuntime.done * 100 / LinuxRuntime.total) + "%)" : "") : "");
+        } else s = LinuxRuntime.installed(this) ? "설치됨" : "설치되지 않음";
+        linuxState.setText(s);
+    }
+    private void pageGroq() {
+        boolean on = store.groq.connected();
+        JSONArray models = store.groq.models();
+        add(ui.statusCard(R.drawable.ic_bolt, Ui.ORANGE, on ? "연결됨" : "연결 안 됨", on ? "모델 " + models.length() + "개 · 매일 무료 한도" : "Groq API 키로 빠른 모델을 써요 · 매일 무료 한도", null), 0);
+        if (!store.groq.notice.isBlank()) { TextView notice = ui.label(store.groq.notice, 13, TEXT); notice.setPadding(ui.dp(16), ui.dp(10), ui.dp(16), 0); add(notice, 0); }
+        add(ui.sectionHeader("API 키"), 0);
+        if (!on) {
+            add(ui.button("API 키 넣기", true, this::groqKeySheet), 0);
+            TextView get = ui.quietRow("키가 없나요? Groq에서 무료로 받아요 ›", () -> open("https://console.groq.com/keys")); get.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), 0); add(get, 0);
+        } else {
+            LinearLayout key = ui.group();
+            ui.addRow(key, ui.listRow(0, 0, "연결 확인", "키로 모델 목록을 다시 읽어요", ui.chevron(), () -> { if (!store.groq.busy) store.groq.check(); }), false);
+            ui.addRow(key, ui.listRow(0, 0, "키 바꾸기", "확인되면 새 키로 바꿔요", ui.chevron(), this::groqKeySheet), false);
+            add(key, 0);
+            add(ui.sectionHeader("이 키로 쓸 수 있는 모델"), 0);
+            StringBuilder list = new StringBuilder();
+            for (int i = 0; i < models.length(); i++) list.append(i == 0 ? "" : "\n").append("· ").append(models.optString(i));
+            TextView names = ui.text(list.length() == 0 ? "연결 확인을 누르면 목록을 읽어요." : list.toString(), 13, 450, TEXT); names.setLineSpacing(ui.dp(2), 1);
+            LinearLayout card = ui.card(); card.addView(names); add(card, 0);
+            LinearLayout off = ui.group();
+            ui.addRow(off, ui.dangerRow("연결 해제", "이 기기의 Groq 키를 지워요", () -> confirm("이 기기의 Groq API 키를 지울까요?", "해제", () -> { store.groq.remove(); showTab(2); })), false);
+            add(off, 12);
+        }
+        if (on) {
+            add(ui.sectionHeader("앱이 Groq에 맡기는 일 · 오늘"), 0);
+            String[] work = {GroqWork.CHORES, BuddyTalk.qwen(store), GroqWork.SEARCH, GroqWork.WHISPER}, what = {"잡일 · 요약·정리·제안·돌아보기 (항상 먼저)", "퍼레 두뇌 · 홈 화면 대화", "웹 검색 · 음성 비서의 검색", "받아쓰기 · 녹음·첨부 음성"};
+            LinearLayout uses = ui.group(); long now = System.currentTimeMillis();
+            java.util.List<dev.jun.gyeot.core.GeminiQuota.Row> rows = dev.jun.gyeot.core.GeminiQuota.rows(store.geminiQuota(), work, now);
+            for (int i = 0; i < work.length; i++) {
+                dev.jun.gyeot.core.GeminiQuota.Row row = rows.get(i);
+                ui.addRow(uses, ui.listRow(0, 0, what[i], row.label() + " · 오늘 " + row.uses() + (row.perDay() > 0 ? " / " + row.perDay() : "") + "회" + (row.tokensPerDay() > 0 ? " · 토큰 " + dev.jun.gyeot.core.Usage.tokens(row.tokens()) + " / " + dev.jun.gyeot.core.Usage.tokens(row.tokensPerDay()) : "") + (row.status().isEmpty() ? "" : " · " + row.status()), null, null), i < work.length - 1);
+            }
+            add(uses, 0);
+        }
+        add(ui.footer("Groq는 모델마다 하루 요청 횟수와 하루 토큰을 따로 세요(console.groq.com → Limits). 퍼레 대화는 한 번에 긴 글을 보내서 토큰이 먼저 찰 수 있어요. 키는 이 기기에만 암호화해 두고 Groq에만 보내요."), 16);
+    }
+    /**
+     * 타입캐스트: the voice of 퍼레 on the home screen (held 퍼레 talks with it, BuddyVoice). The key, 퍼레's voice chosen from the
+     * cute ones Typecast recommends (each can be heard first, free), and the month's characters against the free 15,000.
+     */
+    private void pageTypecast() {
+        TypecastAccount t = store.typecast; boolean on = t.connected(); JSONObject voice = t.voice();
+        add(ui.statusCard(R.drawable.ic_wave, Ui.PURPLE, on ? "연결됨" : "연결 안 됨", on ? "퍼레 목소리 · " + voice.optString("name", "고르는 중") : "홈 화면 퍼레를 꾹 누르면 이 목소리로 대화해요 · 한 달 15,000자 무료", null), 0);
+        if (!t.notice.isBlank()) { TextView notice = ui.label(t.notice, 13, TEXT); notice.setPadding(ui.dp(16), ui.dp(10), ui.dp(16), 0); add(notice, 0); }
+        add(ui.sectionHeader("API 키"), 0);
+        if (!on) {
+            add(ui.button("API 키 넣기", true, this::typecastKeySheet), 0);
+            TextView get = ui.quietRow("키가 없나요? 타입캐스트 API 콘솔에서 받아요 ›", () -> open(TypecastAccount.KEYS)); get.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), 0); add(get, 0);
+        } else {
+            LinearLayout key = ui.group();
+            ui.addRow(key, ui.listRow(0, 0, "목소리 후보 다시 받기", "귀여운 목소리를 타입캐스트에서 다시 골라 와요", ui.chevron(), () -> { if (!t.busy) t.check(); }), false);
+            ui.addRow(key, ui.listRow(0, 0, "키 바꾸기", "확인되면 새 키로 바꿔요", ui.chevron(), this::typecastKeySheet), false);
+            add(key, 0);
+            JSONArray voices = t.candidates();
+            if (voices.length() > 0) {
+                add(ui.sectionHeader("퍼레 목소리"), 0);
+                LinearLayout list = ui.group();
+                for (int i = 0; i < voices.length(); i++) {
+                    JSONObject v = voices.optJSONObject(i); if (v == null) continue;
+                    boolean mine = v.optString("id").equals(voice.optString("id"));
+                    String age = switch (v.optString("age")) { case "child" -> "어린이"; case "teenager" -> "10대"; case "young_adult" -> "청년"; case "middle_age" -> "중년"; case "elder" -> "어르신"; default -> ""; };
+                    String sub = (age.isEmpty() ? "" : age + " · ") + ("female".equals(v.optString("gender")) ? "여성" : "male".equals(v.optString("gender")) ? "남성" : "") + (mine ? " · 지금 퍼레 목소리" : "");
+                    ui.addRow(list, ui.listRow(0, 0, (mine ? "✓ " : "") + v.optString("name"), sub.replaceAll("^ · ", ""), v.optString("preview").startsWith("https://") ? ui.smallChip("듣기", () -> BuddyVoice.preview(v.optString("preview"))) : null,
+                        () -> { t.choose(v); android.widget.Toast.makeText(this, "퍼레 목소리를 ‘" + v.optString("name") + "’(으)로 바꿨어요", android.widget.Toast.LENGTH_SHORT).show(); }), i < voices.length() - 1);
+                }
+                add(list, 0);
+            }
+            add(ui.sectionHeader("이번 달 사용"), 0);
+            int used = t.used();
+            LinearLayout usage = ui.group();
+            ui.addRow(usage, ui.listRow(0, 0, used + " / " + TypecastAccount.FREE + "자", used >= TypecastAccount.FREE ? "무료 글자를 다 썼어요 · 다음 달까지 휴대폰 기본 목소리로 말해요" : "남은 글자 " + (TypecastAccount.FREE - used) + "자 · 이 기기에서 센 값이에요", null, null), false);
+            add(usage, 0);
+            LinearLayout off = ui.group();
+            ui.addRow(off, ui.dangerRow("연결 해제", "이 기기의 타입캐스트 키를 지워요", () -> confirm("이 기기의 타입캐스트 API 키를 지울까요?", "해제", () -> { t.remove(); showTab(2); })), false);
+            add(off, 12);
+        }
+        add(ui.footer("홈 화면 퍼레를 꾹 누르면 퍼레와 목소리로 이야기해요(우측 바의 음성 비서와는 따로예요). 키는 이 기기에만 암호화해 두고 타입캐스트에만 보내요."), 16);
+    }
+    private void typecastKeySheet() {
+        Ui.Sheet sheet = ui.secretSheet(store.typecast.connected() ? "타입캐스트 API 키 바꾸기" : "타입캐스트 API 키", "타입캐스트 API 콘솔에서 받을 수 있어요 · 한 달 15,000자 무료", "타입캐스트 API 키", 400, "저장", (s, field) -> {
+            if (store.typecast.busy) return;
+            store.typecast.save(field.getText().toString()); s.dismiss();
+        });
+        sheet.body.addView(ui.actions(ui.chip("타입캐스트에서 키 받기", () -> open(TypecastAccount.KEYS))));
+        sheet.show();
+    }
+    private void groqKeySheet() {
+        Ui.Sheet sheet = ui.secretSheet(store.groq.connected() ? "Groq API 키 바꾸기" : "Groq API 키", "console.groq.com에서 무료로 받을 수 있어요", "Groq API 키 (gsk_…)", 400, "저장", (s, field) -> {
+            if (store.groq.busy) return;
+            store.groq.save(field.getText().toString()); s.dismiss();
+        });
+        sheet.body.addView(ui.actions(ui.chip("Groq에서 키 받기", () -> open("https://console.groq.com/keys"))));
+        sheet.show();
+    }
     /** Grok: a subscription sign-in by device code, shortcuts to what it does and its management. */
     private void pageGrok() {
         grokBox = ui.column(); add(grokBox, 0); lastGrok = ""; refreshGrok();
@@ -3659,6 +4097,9 @@ public final class MainActivity extends Activity {
         settingsRow(connect, "claude", "Claude", store.claude.connected() ? "연결됨 · " + modelName(store.claude.models(), store.claude.model()) : "연결 안 됨", null);
         settingsRow(connect, "grok", "Grok", store.grok.connected() ? "연결됨 · 구독 로그인" : "연결 안 됨", null);
         settingsRow(connect, "nim", "NVIDIA NIM", store.nim.connected() ? "연결됨 · " + NimProtocol.label(store.nim.model()) : "연결 안 됨", null);
+        settingsRow(connect, "groq", "Groq", store.groq.connected() ? "연결됨 · 모델 " + store.groq.models().length() + "개 · 무료 한도" : "연결 안 됨", null);
+        settingsRow(connect, "typecast", "타입캐스트", store.typecast.connected() ? "연결됨 · 퍼레 목소리 " + store.typecast.voice().optString("name", "고르는 중") + " · 이번 달 " + store.typecast.used() + "/" + TypecastAccount.FREE + "자" : "연결 안 됨 · 홈 화면 퍼레의 목소리", null);
+        settingsRow(connect, "antigravity", "Antigravity (Gemini)", !LinuxRuntime.supported(this) ? "이 휴대폰에서는 쓸 수 없어요" : LinuxRuntime.installed(this) ? (store.antigravity.connected() ? "로그인됨 · " + store.antigravity.label(store.antigravity.model()) : AntigravityCli.installed(this) ? "CLI 설치됨 · 로그인 필요" : "Linux 환경 설치됨 · CLI 설치 필요") : "Linux 환경 설치 필요 · 구독 한도 쓰기", null);
         ui.add(sections, connect, 0);
         ui.add(sections, ui.sectionHeader("AI 활용"), 0);
         LinearLayout use = ui.group();
@@ -3704,7 +4145,10 @@ public final class MainActivity extends Activity {
         String persona = store.persona().strip().replaceAll("\\s+", " ");
         settingsRow(personal, "persona", "나에 대해", persona.isEmpty() ? "비어 있어요 · 호칭과 답변 스타일" : persona, null);
         String routines = dev.jun.gyeot.core.Routines.summary(store.routines());
-        settingsRow(personal, "routines", "한마디 루틴", routines.isEmpty() ? "아직 없어요 · 한마디로 여러 일을 맡겨요" : routines, null);
+        // 매크로 live on the same page (MacrosUi).
+        int macros = MacroBook.list(this).size();
+        settingsRow(personal, "routines", "한마디 루틴", (routines.isEmpty() ? (macros == 0 ? "아직 없어요 · 한마디로 여러 일을 맡겨요 · 매크로 녹화" : "") : routines)
+            + (macros == 0 ? "" : (routines.isEmpty() ? "" : " · ") + "매크로 " + macros + "개"), null);
         int remembered = store.memories().length();
         settingsRow(personal, "memory", "기억", !store.memoryOn() ? "꺼짐" : remembered == 0 ? "켜짐 · 아직 기억한 게 없어요" : remembered + "개 기억 중" + (store.autoMemory() ? " · 자동으로 배우는 중" : ""), null);
         ui.add(sections, personal, 0);
@@ -3732,10 +4176,14 @@ public final class MainActivity extends Activity {
             case "claude" -> new int[]{R.drawable.ic_sparkle, Ui.ORANGE};
             case "grok" -> new int[]{R.drawable.ic_sparkle, Ui.GRAY};
             case "nim" -> new int[]{R.drawable.ic_sparkle, Ui.GREEN};
+            case "groq" -> new int[]{R.drawable.ic_bolt, Ui.ORANGE};
+            case "typecast" -> new int[]{R.drawable.ic_wave, Ui.PURPLE};
+            case "antigravity" -> new int[]{R.drawable.ic_sparkle, Ui.PURPLE};
             case "ai" -> new int[]{R.drawable.ic_tune, Ui.INDIGO};
             case "connectors" -> new int[]{R.drawable.ic_plug, Ui.TEAL};
             case "github" -> new int[]{R.drawable.ic_repo, Ui.INDIGO};
             case "drive" -> new int[]{R.drawable.ic_folder, Ui.BLUE};
+            case "gmail" -> new int[]{R.drawable.ic_send, Ui.RED};
             case "calendar" -> new int[]{R.drawable.ic_calendar, Ui.BLUE};
             case "usage" -> new int[]{R.drawable.ic_history, Ui.TEAL};
             case "voice" -> new int[]{R.drawable.ic_wave, Ui.PURPLE};
@@ -3781,52 +4229,135 @@ public final class MainActivity extends Activity {
         requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, SETTINGS_MIC);
     }
     /** Gemini: the voice assistant's API key, typed only in a sheet, its checks, and an optional second key below. */
+    /**
+     * 설정 → Gemini, in four parts: API 키 (the voice assistant's key and the optional 작업창·메인 대화 key, and where each
+     * is used), 모델, 한도·점검 (연결 확인, today's free quota, the per-model limits), and 연결 해제 last.
+     */
     private void pageKey() {
         boolean saved = store.secrets.hasKey();
+        java.util.List<GeminiKeyRing.Key> ring; try { ring = store.geminiKeys.keys(); } catch (Exception e) { ring = new java.util.ArrayList<>(); }
+        int free = 0, paid = 0; for (GeminiKeyRing.Key k : ring) { if (GeminiKeyRing.FREE.equals(k.tier())) free++; else if (GeminiKeyRing.PAID.equals(k.tier())) paid++; }
         add(ui.statusCard(R.drawable.ic_sparkle, Ui.BLUE, saved ? "연결됨" : "연결 안 됨", !saved ? "음성 비서를 쓰려면 API 키가 필요해요"
-            : store.gemini.ownKey() ? "API 키 2개 · 음성 비서용과 다른 기능용" : "API 키 · 음성 비서·메인 대화·작업창에서 써요", null), 0);
-        add(ui.sectionHeader("Gemini API 키"), 0);
-        if (!saved) {
-            add(ui.button("API 키 넣기", true, () -> geminiKeySheet(false)), 0);
-            TextView studio = ui.quietRow("키가 없나요? AI Studio에서 무료로 받아요 ›", () -> open("https://aistudio.google.com/api-keys")); studio.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), 0);
-            add(studio, 0);
-        } else {
-            // A check's lines and its fix sit right under the group; the probe stays hidden until a check runs.
-            TextView probe = ui.label("", 13, TEXT); probe.setPadding(ui.dp(16), ui.dp(10), ui.dp(16), 0); probe.setVisibility(View.GONE);
-            LinearLayout probeFix = ui.column(); probeFix.setPadding(ui.dp(16), 0, ui.dp(16), 0);
-            LinearLayout key = ui.group();
-            LinearLayout check = ui.listRow(0, 0, "연결 확인", "음성·통역·받아쓰기 모델과 검색을 차례로 확인해요", ui.chevron(), () -> geminiCheck(probe, probeFix));
-            LinearLayout voice = ui.listRow(0, 0, "음성 모델", AppStore.modelLabel(store.liveModel()) + " · 목소리와 대화에서 바꿔요", ui.chevron(), () -> openSettings("voice"));
-            // Two lines, so the list of checks and a long model name stay whole at 360dp.
-            for (LinearLayout row : List.of(check, voice)) { TextView sub = ((Ui.ListRow) row).parts.subtitle(); sub.setSingleLine(false); sub.setMaxLines(2); }
-            ui.addRow(key, check, false); ui.addRow(key, voice, false);
-            ui.addRow(key, ui.listRow(0, 0, "모델별 한도 보기", "aistudio.google.com", ui.chevron(), () -> open("https://aistudio.google.com/rate-limit")), false);
-            ui.addRow(key, ui.listRow(0, 0, "키 바꾸기", "저장하면 다음 음성 대화부터 새 키를 써요", ui.chevron(), () -> geminiKeySheet(true)), false);
-            add(key, 0); add(probe, 0); add(probeFix, 16);
-            LinearLayout off = ui.group();
-            ui.addRow(off, ui.dangerRow("연결 해제", "음성 대화를 끝내고 이 기기의 키를 지워요", () -> confirm("진행 중인 음성 대화를 끝내고 이 기기의 Gemini API 키를 지울까요?", "해제", () -> {
-                send(AssistantService.STOP, null, null);
-                try { store.secrets.put(""); store.status("Gemini 연결을 해제했어요"); showTab(2); } catch (Exception e) { store.error("키를 지우지 못했어요."); }
-            })), false);
-            add(off, 0);
+            : "API 키 " + ring.size() + "개" + (free + paid == 0 ? "" : " · " + (free > 0 ? "무료 " + free : "") + (free > 0 && paid > 0 ? " · " : "") + (paid > 0 ? "유료 " + paid : "")), null), 0);
+
+        add(ui.sectionHeader("API 키"), 0);
+        // Every key kept: its name and tier, its start and end, and what it does now; a tap manages it, 키 추가 adds one.
+        LinearLayout keys = ui.group();
+        for (GeminiKeyRing.Key k : ring) {
+            String roles = store.geminiKeys.roles(k);
+            LinearLayout row = ui.listRow(0, 0, k.name() + " · " + GeminiKeyRing.tierLabel(k.tier()), GeminiKeyRing.masked(k.value()) + " · " + (roles.isEmpty() ? "보관만 해 둠" : roles), ui.chevron(), () -> geminiKeyManage(k));
+            ((Ui.ListRow) row).parts.subtitle().setSingleLine(false); ((Ui.ListRow) row).parts.subtitle().setMaxLines(2);
+            ui.addRow(keys, row, false);
         }
-        add(ui.footer("음성과 요청은 Google API로 보내요. 키는 이 기기에만 암호화해 두고 앱 백업에서 빼요."), 0);
-        add(ui.sectionHeader("작업창·메인 대화용 키 (선택)"), 0);
+        ui.addRow(keys, ui.listRow(R.drawable.ic_add, ACCENT, ring.isEmpty() ? "API 키 넣기" : "키 추가", "여러 개 넣어 두고 음성 비서·작업창에 나눠 써요", ui.chevron(), this::geminiKeyAdd), false);
+        add(keys, 0);
+        if (ring.isEmpty()) { TextView studio = ui.quietRow("키가 없나요? AI Studio에서 무료로 받아요 ›", () -> open("https://aistudio.google.com/api-keys")); studio.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), 0); add(studio, 0); }
+        // The 작업창 key's check (its model list) says how it went here.
         geminiWorkBox = ui.column(); add(geminiWorkBox, 0); lastGeminiWork = ""; refreshGeminiWork();
-        add(ui.footer("무료 한도는 Google Cloud 프로젝트마다 따로예요. 다른 프로젝트의 키를 넣으면 음성 대화와 한도를 나눠 쓰지 않고, 같은 프로젝트의 키는 한도를 함께 써요."), 0);
-        add(ui.details("이 키를 쓰는 곳", "메인 대화·작업창·입력칸 받아쓰기·파일 AI·에이전트 팀·Gemini 분석·브라우저의 Gemini가 이 키를 먼저 써요. 음성 대화·Gemini Flash 두뇌·Gemini 디시전은 위의 키를 써요."), 16);
+        add(ui.footer("무료 한도는 Google Cloud 프로젝트마다 따로예요. 다른 프로젝트의 키를 넣으면 음성 대화와 한도를 나눠 쓰지 않아요."), 0);
+        add(ui.details("어느 키를 어디에 쓰나요", "작업창·메인 대화 키: 메인 대화·작업창·입력칸 받아쓰기·파일 AI·에이전트 팀·Gemini 분석·브라우저의 Gemini, 요약·검색·임베딩 같은 앱의 가벼운 일. 비워 두면 음성 비서 키를 같이 써요.\n음성 비서 키: 음성 대화·Gemini Flash 두뇌·Gemini 디시전."), 12);
+        if (!saved) return;
+
+        add(ui.sectionHeader("모델"), 0);
+        LinearLayout models = ui.group();
+        LinearLayout voice = ui.listRow(0, 0, "음성 모델", AppStore.modelLabel(store.liveModel()) + " · 목소리와 대화에서 바꿔요", ui.chevron(), () -> openSettings("voice"));
+        ((Ui.ListRow) voice).parts.subtitle().setSingleLine(false); ((Ui.ListRow) voice).parts.subtitle().setMaxLines(2);
+        ui.addRow(models, voice, false);
+        add(models, 0);
+
+        add(ui.sectionHeader("한도 · 점검"), 0);
+        // A check's lines and its fix sit right under the group; the probe stays hidden until a check runs.
+        TextView probe = ui.label("", 13, TEXT); probe.setPadding(ui.dp(16), ui.dp(10), ui.dp(16), 0); probe.setVisibility(View.GONE);
+        LinearLayout probeFix = ui.column(); probeFix.setPadding(ui.dp(16), 0, ui.dp(16), 0);
+        LinearLayout checks = ui.group();
+        LinearLayout check = ui.listRow(0, 0, "연결 확인", "음성·통역·받아쓰기 모델과 검색을 차례로 확인해요", ui.chevron(), () -> geminiCheck(probe, probeFix));
+        ((Ui.ListRow) check).parts.subtitle().setSingleLine(false); ((Ui.ListRow) check).parts.subtitle().setMaxLines(2);
+        ui.addRow(checks, check, false);
+        ui.addRow(checks, ui.listRow(0, 0, "오늘 무료 한도", "앱이 쓴 Gemini 무료 요청 · 모델별로", ui.chevron(), () -> openSettings("usage")), false);
+        ui.addRow(checks, ui.listRow(0, 0, "모델별 한도 보기", "aistudio.google.com", ui.chevron(), () -> open("https://aistudio.google.com/rate-limit")), false);
+        add(checks, 0); add(probe, 0); add(probeFix, 12);
+
+        LinearLayout off = ui.group();
+        ui.addRow(off, ui.dangerRow("연결 해제", "음성 대화를 끝내고 이 기기의 키를 지워요", () -> confirm("진행 중인 음성 대화를 끝내고 이 기기의 Gemini API 키를 지울까요?", "해제", () -> {
+            send(AssistantService.STOP, null, null);
+            try { store.secrets.put(""); store.status("Gemini 연결을 해제했어요"); showTab(2); } catch (Exception e) { store.error("키를 지우지 못했어요."); }
+        })), false);
+        add(off, 0);
+        add(ui.footer("음성과 요청은 Google API로 보내요. 키는 이 기기에만 암호화해 두고 앱 백업에서 빼요."), 16);
     }
-    /** The voice assistant's key, typed only in this sheet: 넣기 or 바꾸기. Closing it saves nothing. */
-    private void geminiKeySheet(boolean change) {
-        Ui.Sheet sheet = ui.secretSheet(change ? "Gemini API 키 바꾸기" : "Gemini API 키", change ? "저장하면 다음 음성 대화부터 새 키를 써요" : "Google AI Studio에서 무료로 받을 수 있어요",
-            "Gemini API 키 붙여 넣기", 200, change ? "바꾸기" : "저장", (s, field) -> {
-                String value = field.getText().toString();
-                if (value.isBlank()) { field.setError("새 키를 입력해 주세요"); return; }
-                try { store.secrets.put(value.trim()); } catch (Exception e) { field.setError(e.getMessage() == null ? "키 형식을 확인해 주세요." : e.getMessage()); return; }
-                s.dismiss(); store.error = ""; store.status("API 키를 저장했어요 · 연결 확인을 눌러 점검해 보세요"); showTab(2);
-            });
-        sheet.body.addView(ui.label("키는 이 기기에만 암호화해 둬요.", 12, MUTED));
+    /** 키 추가: the key typed only here, its name and tier; the first key becomes 음성 비서's. Closing it saves nothing. */
+    private void geminiKeyAdd() {
+        String[] tier = {GeminiKeyRing.FREE};
+        // 어디에 쓸까요: the first key does everything; a later one is kept until chosen for something.
+        boolean first = !store.secrets.hasKey();
+        int[] use = {first ? 3 : 0};
+        EditText name = ui.input("이름 (예: 개인 무료, 회사 유료)", 1, 30);
+        Ui.Sheet sheet = ui.secretSheet("Gemini API 키 추가", "Google AI Studio에서 받은 키 · 이 기기에만 암호화해 둬요", "Gemini API 키 붙여 넣기", 200, "추가", (s, field) -> {
+            String value = field.getText().toString().strip();
+            if (value.isEmpty()) { field.setError("키를 입력해 주세요"); return; }
+            try {
+                store.geminiKeys.add(value, name.getText().toString(), tier[0]);
+                if (use[0] == 1 || use[0] == 3) store.secrets.put(value);
+            } catch (Exception e) { field.setError(e.getMessage() == null ? "키를 저장하지 못했어요." : e.getMessage()); return; }
+            // 작업창·메인 대화: the key is checked (its model list) before it is used; 둘 다: they follow the voice key.
+            if (use[0] == 2) store.gemini.saveKey(value); else if (use[0] == 3 && store.gemini.ownKey()) store.gemini.saveKey("");
+            s.dismiss(); store.error = "";
+            store.status(use[0] == 0 ? "키를 보관했어요 · 눌러서 쓸 곳을 고를 수 있어요" : use[0] == 1 ? "이 키로 음성 비서를 써요" : use[0] == 2 ? "키를 확인한 뒤 작업창·메인 대화에 써요" : "이 키를 음성 비서와 작업창·메인 대화에 함께 써요");
+            showTab(2);
+        });
+        TextView nameTitle = ui.text("이름", FOOTNOTE, 620, MUTED); nameTitle.setPadding(ui.dp(4), ui.dp(12), 0, ui.dp(6)); sheet.body.addView(nameTitle); sheet.body.addView(name);
+        TextView tierTitle = ui.text("등급", FOOTNOTE, 620, MUTED); tierTitle.setPadding(ui.dp(4), ui.dp(12), 0, ui.dp(6)); sheet.body.addView(tierTitle);
+        sheet.body.addView(ui.pills(new String[]{"무료", "유료 (결제 연결)"}, 0, i -> tier[0] = i == 0 ? GeminiKeyRing.FREE : GeminiKeyRing.PAID));
+        sheet.body.addView(ui.footer("무료로 고른 키가 아니어도, Google이 무료 한도로 답하면 저절로 ‘무료’로 바꿔 표시해요."));
+        TextView useTitle = ui.text("어디에 쓸까요", FOOTNOTE, 620, MUTED); useTitle.setPadding(ui.dp(4), ui.dp(12), 0, ui.dp(6)); sheet.body.addView(useTitle);
+        String[] uses = {"보관만", "음성 비서", "작업창·메인 대화", "둘 다"};
+        String[] about = {"지금 쓰는 키는 그대로 두고 목록에만 넣어요. 나중에 눌러서 쓸 곳을 골라요.", "음성 대화·Gemini 두뇌·디시전에 이 키를 써요. 다음 음성 대화부터예요.",
+            "작업창·메인 대화·받아쓰기·요약·검색 같은 앱의 일에 써요. 키를 확인한 뒤 바꿔요.", "음성 비서와 작업창·메인 대화 모두 이 키 하나로 써요."};
+        TextView useAbout = ui.footer(about[use[0]]);
+        sheet.body.addView(ui.pills(uses, use[0], i -> { use[0] = i; useAbout.setText(about[i]); }));
+        sheet.body.addView(useAbout);
         sheet.body.addView(ui.actions(ui.chip("AI Studio에서 키 받기", () -> open("https://aistudio.google.com/api-keys"))));
+        sheet.show();
+    }
+    /** One key: its name and tier, where it is used (음성 비서 · 작업창·메인 대화), and 지우기. */
+    private void geminiKeyManage(GeminiKeyRing.Key key) {
+        Ui.Sheet sheet = ui.selectionSheet(key.name(), GeminiKeyRing.masked(key.value()) + " · " + GeminiKeyRing.tierLabel(key.tier()));
+        EditText name = ui.input("이름", 1, 30); name.setText(key.name());
+        TextView nameTitle = ui.text("이름", FOOTNOTE, 620, MUTED); nameTitle.setPadding(ui.dp(4), ui.dp(4), 0, ui.dp(6)); sheet.body.addView(nameTitle); sheet.body.addView(name);
+        String[] tier = {key.tier()};
+        TextView tierTitle = ui.text("등급", FOOTNOTE, 620, MUTED); tierTitle.setPadding(ui.dp(4), ui.dp(12), 0, ui.dp(6)); sheet.body.addView(tierTitle);
+        sheet.body.addView(ui.pills(new String[]{"무료", "유료 (결제 연결)"}, GeminiKeyRing.PAID.equals(key.tier()) ? 1 : GeminiKeyRing.FREE.equals(key.tier()) ? 0 : -1, i -> tier[0] = i == 0 ? GeminiKeyRing.FREE : GeminiKeyRing.PAID));
+        if (!key.note().isBlank()) sheet.body.addView(ui.footer(key.note()));
+        String roles = store.geminiKeys.roles(key);
+        boolean voice = roles.contains("음성 비서"), work = roles.contains("작업창");
+        TextView useTitle = ui.text("어디에 쓸까요 · 지금 " + (roles.isEmpty() ? "쓰지 않아요" : roles), FOOTNOTE, 620, MUTED); useTitle.setPadding(ui.dp(4), ui.dp(16), 0, ui.dp(6)); sheet.body.addView(useTitle);
+        LinearLayout uses = ui.group();
+        if (!voice) ui.addRow(uses, ui.listRow(0, 0, "음성 비서에 쓰기", "음성 대화·Gemini 두뇌·디시전 · 다음 음성 대화부터", ui.chevron(), () -> {
+            try { store.secrets.put(key.value()); } catch (Exception e) { store.error(e.getMessage()); return; }
+            sheet.dismiss(); store.status("‘" + key.name() + "’ 키로 음성 비서를 써요"); showTab(2);
+        }), false);
+        if (!work) ui.addRow(uses, ui.listRow(0, 0, "작업창·메인 대화에 쓰기", "작업창·메인 대화·받아쓰기·요약·검색 같은 앱의 일 · 키를 확인한 뒤 바꿔요", ui.chevron(), () -> {
+            store.gemini.saveKey(voice ? "" : key.value()); sheet.dismiss(); showTab(2);
+        }), false);
+        if (voice && work) uses.addView(ui.footer("음성 비서와 작업창·메인 대화에 모두 쓰고 있어요. 다른 키를 골라 나눠 쓸 수 있어요."));
+        else if (work && !store.gemini.ownKey()) uses.addView(ui.footer("작업창·메인 대화가 음성 비서 키를 같이 쓰는 중이에요."));
+        sheet.body.addView(uses);
+        LinearLayout danger = ui.group();
+        ui.addRow(danger, ui.dangerRow("이 키 지우기", voice ? "음성 비서에 쓰는 키예요 · 지우면 다른 키를 골라야 해요" : work ? "지우면 작업창은 음성 비서 키를 같이 써요" : "보관만 해 둔 키예요", () -> {
+            sheet.dismiss();
+            confirm("‘" + key.name() + "’ 키를 지울까요?" + (voice ? " 음성 비서는 다른 키를 고를 때까지 쓸 수 없어요." : ""), "지우기", () -> {
+                if (voice) send(AssistantService.STOP, null, null);
+                try { store.geminiKeys.remove(key); store.status("키를 지웠어요"); } catch (Exception e) { store.error(e.getMessage()); }
+                showTab(2);
+            });
+        }), false);
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, -2); gap.topMargin = ui.dp(12); sheet.body.addView(danger, gap);
+        sheet.primary.setText("저장");
+        sheet.primary.setOnClickListener(v -> {
+            String n = name.getText().toString().strip();
+            try { store.geminiKeys.change(key.named(n.isEmpty() ? key.name() : n).tiered(tier[0], tier[0].equals(key.tier()) ? key.note() : "")); } catch (Exception e) { store.error(e.getMessage()); return; }
+            sheet.dismiss(); showTab(2);
+        });
         sheet.show();
     }
     /** Rebuilds only the 작업창·메인 대화 key row and its notice when their state changes. */
@@ -3838,32 +4369,10 @@ public final class MainActivity extends Activity {
         // The status card above says how many keys there are: a saved or removed second key redraws the page.
         if (!lastGeminiWork.isEmpty() && !lastGeminiWork.startsWith(own + "\u0000") && tab == 2 && "key".equals(settingsPage)) { showTab(2); return; }
         lastGeminiWork = fingerprint; geminiWorkBox.removeAllViews();
-        LinearLayout group = ui.group();
-        ui.addRow(group, ui.listRow(0, 0, "따로 쓰는 키", own ? "저장됨 · " + store.gemini.label() : store.secrets.hasKey() ? "비워 둠 · 위의 키를 같이 써요" : "비워 둠 · 키가 없어요",
-            ui.chevron(), this::geminiWorkKeySheet), false);
-        geminiWorkBox.addView(group);
         if (!store.gemini.notice.isBlank()) {
             TextView notice = ui.label(store.gemini.notice, 13, store.gemini.notice.endsWith("…") ? TEXT : ERROR); notice.setPadding(ui.dp(16), ui.dp(10), ui.dp(16), 0);
             geminiWorkBox.addView(notice);
         }
-    }
-    /** The second key, for 작업창 and 메인 대화: checked by reading its model list, then kept; without it they use the key above. */
-    private void geminiWorkKeySheet() {
-        boolean own = store.gemini.ownKey();
-        Ui.Sheet sheet = ui.secretSheet("작업창·메인 대화용 Gemini 키", "비워 두면 위의 키를 같이 써요", own ? "다른 키로 바꾸기" : "Gemini API 키 붙여 넣기", 200, "저장", (s, field) -> {
-            String value = field.getText().toString().strip();
-            if (value.isEmpty()) { field.setError("키를 입력해 주세요"); return; }
-            try { store.gemini.saveKey(value); } catch (Exception e) { field.setError(e.getMessage() == null ? "키를 저장하지 못했어요." : e.getMessage()); return; }
-            s.dismiss();
-        });
-        if (own) {
-            LinearLayout remove = ui.group();
-            ui.addRow(remove, ui.dangerRow("따로 쓰는 키 지우기", "지우면 위의 키를 같이 써요", () -> {
-                sheet.dismiss(); confirm("따로 쓰는 키를 지울까요? 지우면 위의 키를 같이 써요.", "지우기", () -> store.gemini.saveKey(""));
-            }), false);
-            LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, -2); gap.topMargin = ui.dp(6); sheet.body.addView(remove, gap);
-        }
-        sheet.show();
     }
     /** ChatGPT: a subscription sign-in or an OpenAI API key, the voice assistant's model, and 이미지용 Codex. */
     private void pageChatgpt() {
@@ -3961,7 +4470,7 @@ public final class MainActivity extends Activity {
      * Gemini Live stays its voice and hands, then the 작업창's switches. Models and thinking depth live in each 작업창.
      */
     private void pageAi() {
-        boolean any = false; for (String engine : new String[]{WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM}) any |= store.ready(engine);
+        boolean any = false; for (String engine : new String[]{WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY, WorkBook.GROQ}) any |= store.ready(engine);
         if (!any) { TextView need = ui.banner("작업창과 두뇌에 쓸 AI가 아직 없어요 · 눌러서 연결 ›", WARNING); need.setOnClickListener(v -> openSettings("")); add(need, 12); }
         add(ui.text("목소리와 폰 조작(손)은 항상 Gemini Live가 해요. 어려운 생각만 두뇌에게 맡겨요.", 15, 400, MUTED), 4);
         add(ui.sectionHeader("음성 비서의 두뇌"), 0);
@@ -4040,7 +4549,8 @@ public final class MainActivity extends Activity {
         }
         boolean coding = store.settings.getBoolean("githubCoding", true), write = store.githubWrite();
         String user = store.settings.getString("githubUser", ""), who = user.isBlank() ? "GitHub" : user;
-        add(coding ? ui.statusCard(R.drawable.ic_repo, Ui.INDIGO, "연결됨", who + " · " + (write ? "고치기 허용" : "읽기 전용"), null)
+        String saved = githubTokenShown();
+        add(coding ? ui.statusCard(R.drawable.ic_repo, Ui.INDIGO, "연결됨", who + " · " + (write ? "고치기 허용" : "읽기 전용") + (saved.isEmpty() ? "" : " · 토큰 …" + saved.substring(Math.max(0, saved.length() - 4))), null)
             : ui.statusCard(R.drawable.ic_repo, Ui.INDIGO, "꺼 둠", who + " · 작업창·메인 대화에서 쓰지 않아요", null), 0);
         add(ui.sectionHeader("사용"), 0);
         LinearLayout use = ui.group();
@@ -4059,12 +4569,17 @@ public final class MainActivity extends Activity {
         add(ui.footer("바꾸면 이미 저장한 예약 작업은 한 번 다시 저장해야 실행돼요."), 0);
         add(ui.sectionHeader("연결 관리"), 0);
         LinearLayout manage = ui.group();
+        // 준: "깃헙 토큰이 저장된건지 알 수가 없어", "어떤 토큰이 저장됐는지도 알 수가": the token kept here (its start and end only),
+        // its kind, whose, when GitHub last said yes and until when; 확인 asks GitHub again now.
+        LinearLayout kept = ui.listRow(0, 0, "저장된 토큰", githubTokenDetails(), ui.smallChip("확인", this::recheckGithub), this::recheckGithub);
+        TextView keptSub = ((Ui.ListRow) kept).parts.subtitle(); if (keptSub != null) { keptSub.setSingleLine(false); keptSub.setMaxLines(3); }
+        ui.addRow(manage, kept, false);
         ui.addRow(manage, ui.listRow(0, 0, "토큰 바꾸기", "새 토큰을 GitHub에 확인한 뒤 바꿔요", ui.chevron(), this::githubTokenSheet), false);
         ui.addRow(manage, ui.listRow(0, 0, "GitHub에서 토큰 만들기", "github.com", ui.chevron(), () -> open(GITHUB_TOKENS)), false);
         add(manage, 16);
         LinearLayout leave = ui.group();
         ui.addRow(leave, ui.dangerRow("연결 해제", "이 기기의 토큰을 지워요", () -> confirm("이 기기의 GitHub 토큰을 지울까요? 토큰 자체를 막으려면 GitHub 설정에서 토큰을 삭제해 주세요.", "해제", () -> {
-            try { store.secrets.put(SecretStore.GITHUB_CODE, ""); store.settings.edit().remove("githubUser").apply(); GitHubRepoList.forget(store); store.status("GitHub 연결을 해제했어요"); showTab(2); }
+            try { store.secrets.put(SecretStore.GITHUB_CODE, ""); store.settings.edit().remove("githubUser").remove("githubTokenAt").remove("githubTokenExpires").remove("githubTokenScopes").apply(); GitHubRepoList.forget(store); store.status("GitHub 연결을 해제했어요"); showTab(2); }
             catch (Exception e) { store.error("토큰을 지우지 못했어요."); }
         })), false);
         add(leave, 0);
@@ -4093,6 +4608,61 @@ public final class MainActivity extends Activity {
             store.changed(); if (tab == 2) showTab(2);
         }).show();
     }
+    /**
+     * Asks GitHub who the token belongs to (api.github.com only, no redirects) and keeps what it says about the token: when it
+     * was checked, until when it lasts (GitHub's expiration header) and a classic token's scopes. The login, or why not.
+     */
+    private String checkGithubToken(String token) throws Exception {
+        java.net.HttpURLConnection connection = (java.net.HttpURLConnection) java.net.URI.create(dev.jun.gyeot.core.GitHubTools.USER).toURL().openConnection();
+        String body, expires, scopes; int status;
+        try {
+            connection.setInstanceFollowRedirects(false); connection.setConnectTimeout(15_000); connection.setReadTimeout(20_000);
+            connection.setRequestProperty("Authorization", "Bearer " + token); connection.setRequestProperty("Accept", "application/vnd.github+json"); connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
+            status = connection.getResponseCode();
+            expires = connection.getHeaderField("github-authentication-token-expiration"); scopes = connection.getHeaderField("x-oauth-scopes");
+            java.io.InputStream input = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
+            body = input == null ? "" : OpenAiAccount.Http.read(input, 256 * 1024);
+        } finally { connection.disconnect(); }
+        if (status != 200) throw new IllegalStateException(status == 401 ? "GitHub가 이 토큰을 받지 않았어요. 만료되거나 잘못 복사됐는지 확인해 주세요." : "GitHub 토큰을 확인하지 못했어요 (" + status + ").");
+        store.settings.edit().putLong("githubTokenAt", System.currentTimeMillis()).putString("githubTokenExpires", expires == null ? "" : expires.strip())
+            .putString("githubTokenScopes", scopes == null ? "" : scopes.strip()).apply();
+        return new JSONObject(body).optString("login");
+    }
+    /** The saved token as it may be shown: its start and its last four (github_pat_11AB…9xZq), never the whole; "" when none. */
+    private String githubTokenShown() {
+        String t; try { t = store.secrets.get(SecretStore.GITHUB_CODE); } catch (Exception e) { return ""; }
+        if (t == null || t.length() < 12) return "";
+        String head = t.startsWith("github_pat_") ? "github_pat_" : t.startsWith("ghp_") ? "ghp_" : "";
+        return head + t.substring(head.length(), head.length() + 4) + "…" + t.substring(t.length() - 4);
+    }
+    private String githubTokenDetails() {
+        String shown = githubTokenShown();
+        if (shown.isEmpty()) return "이 기기에 저장된 토큰이 없어요";
+        String kind = shown.startsWith("github_pat_") ? "세분화 토큰" : shown.startsWith("ghp_") ? "클래식 토큰" : "토큰";
+        String user = store.settings.getString("githubUser", ""), expires = store.settings.getString("githubTokenExpires", ""), scopes = store.settings.getString("githubTokenScopes", "");
+        long at = store.settings.getLong("githubTokenAt", 0);
+        String checked = at == 0 ? "확인 기록 없음" : new java.text.SimpleDateFormat("M월 d일 a h:mm", java.util.Locale.KOREA).format(new java.util.Date(at)) + " 확인";
+        String until = expires.isEmpty() ? (at == 0 ? "" : "만료일 없음") : expires.replaceAll("\\s.*", "") + "까지";
+        return shown + "\n" + kind + (user.isBlank() ? "" : " · @" + user) + " · 이 기기에 암호화해 둠\n" + checked + (until.isEmpty() ? "" : " · " + until) + (scopes.isEmpty() ? "" : " · 권한 " + scopes);
+    }
+    /** 확인: the saved token asked to GitHub now; the page says what GitHub said. */
+    private void recheckGithub() {
+        if (githubChecking) return;
+        String token; try { token = store.secrets.get(SecretStore.GITHUB_CODE); } catch (Exception e) { token = ""; }
+        if (token == null || token.isBlank()) { store.error("이 기기에 저장된 GitHub 토큰이 없어요."); return; }
+        githubChecking = true; store.status("저장된 GitHub 토큰을 확인하는 중…");
+        String saved = token;
+        new Thread(() -> {
+            try {
+                String login = checkGithubToken(saved);
+                store.settings.edit().putString("githubUser", login).apply();
+                runOnUiThread(() -> { githubChecking = false; store.status("GitHub가 이 토큰을 받았어요 · @" + login); if (tab == 2) showTab(2); });
+            } catch (Exception e) {
+                String reason = e instanceof java.io.IOException ? Net.explain(e) : e.getMessage() == null ? "GitHub 토큰을 확인하지 못했어요." : e.getMessage();
+                runOnUiThread(() -> { githubChecking = false; store.error(reason); if (tab == 2) showTab(2); });
+            }
+        }, "gyeot-github-recheck").start();
+    }
     /** Checks the token with GitHub (who it belongs to) and keeps it only when that works; then done runs. A refusal is the field's error. */
     /** One check of a typed GitHub token at a time; more taps on the sheet button while it runs do nothing. */
     private boolean githubChecking;
@@ -4103,18 +4673,7 @@ public final class MainActivity extends Activity {
         store.status("GitHub 토큰을 확인하는 중…");
         new Thread(() -> {
             try {
-                java.net.HttpURLConnection connection = (java.net.HttpURLConnection) java.net.URI.create(dev.jun.gyeot.core.GitHubTools.USER).toURL().openConnection();
-                String body; int status;
-                try {
-                    // No redirects: the token goes to api.github.com and nowhere else.
-                    connection.setInstanceFollowRedirects(false); connection.setConnectTimeout(15_000); connection.setReadTimeout(20_000);
-                    connection.setRequestProperty("Authorization", "Bearer " + token); connection.setRequestProperty("Accept", "application/vnd.github+json"); connection.setRequestProperty("X-GitHub-Api-Version", "2022-11-28");
-                    status = connection.getResponseCode();
-                    java.io.InputStream input = status >= 400 ? connection.getErrorStream() : connection.getInputStream();
-                    body = input == null ? "" : OpenAiAccount.Http.read(input, 256 * 1024);
-                } finally { connection.disconnect(); }
-                if (status != 200) throw new IllegalStateException(status == 401 ? "GitHub가 이 토큰을 받지 않았어요. 만료되거나 잘못 복사됐는지 확인해 주세요." : "GitHub 토큰을 확인하지 못했어요 (" + status + ").");
-                String login = new JSONObject(body).optString("login");
+                String login = checkGithubToken(token);
                 store.secrets.put(SecretStore.GITHUB_CODE, token);
                 store.settings.edit().putString("githubUser", login).apply(); GitHubRepoList.forget(store);
                 runOnUiThread(() -> { githubChecking = false; field.setText(""); done.run(); store.status("GitHub에 " + login + "(으)로 연결했어요 · 메인 대화와 작업창에서 저장소 일을 맡겨 보세요"); if (tab == 2) showTab(2); });
@@ -4143,6 +4702,8 @@ public final class MainActivity extends Activity {
         String driveState = !store.drive.connected() ? "연결 안 됨" : !store.settings.getBoolean(GoogleDriveAccount.WORK, true) ? "꺼 둠" + (email.isBlank() ? "" : " · " + email)
             : (email.isBlank() ? "" : email + " · ") + (store.drive.writable() ? "수정·정리 허용" : "읽기·올리기");
         ui.addRow(work, twoLines.apply(ui.listRow(R.drawable.ic_folder, Ui.BLUE, "Google Drive", driveState, ui.chevron(), () -> openSettings("drive"))), true);
+        String gmailState = !store.gmail.connected() ? "연결 안 됨" : !store.settings.getBoolean(GmailAccount.WORK, true) ? "꺼 둠 · " + store.gmail.email() : store.gmail.email() + (store.gmail.sends() ? " · 읽기·초안·보내기" : " · 읽기·초안");
+        ui.addRow(work, twoLines.apply(ui.listRow(R.drawable.ic_send, Ui.RED, "Gmail", gmailState, ui.chevron(), () -> openSettings("gmail"))), true);
         add(work, 0);
         add(ui.footer("음성 비서는 저장소와 Drive를 쓰지 않아요."), 0);
         add(ui.sectionHeader("음성 비서·메인 대화에서 써요"), 0);
@@ -4168,8 +4729,12 @@ public final class MainActivity extends Activity {
     private NaverNavigationUi naverUi;
     private NaverNavigationUi naverNavigation() { if (naverUi == null) naverUi = new NaverNavigationUi(this, ui, store, () -> { if (!isDestroyed() && tab == 2) showTab(2); }); return naverUi; }
     private GoogleDriveUi driveUi;
+    private GmailUi gmailUi;
+    private GmailUi gmail() { if (gmailUi == null) gmailUi = new GmailUi(this, ui, store, () -> { if (!isDestroyed() && tab == 2) showTab(2); }); return gmailUi; }
     private GoogleDriveUi drive() { if (driveUi == null) driveUi = new GoogleDriveUi(this, ui, store, () -> { if (!isDestroyed() && tab == 2) showTab(2); }); return driveUi; }
     private WakeWordUi wakeUi;
+    private ScreenRecordUi screenRecordUi;
+    private ScreenRecordUi screenRecord() { if (screenRecordUi == null) screenRecordUi = new ScreenRecordUi(this, ui, store); return screenRecordUi; }
     private WakeWordUi wakeWord() { if (wakeUi == null) wakeUi = new WakeWordUi(this, ui, store, () -> { if (!isDestroyed() && tab == 2) showTab(2); }); return wakeUi; }
     private CalendarSettingsUi calendarUi;
     private CalendarSettingsUi calendar() { if (calendarUi == null) calendarUi = new CalendarSettingsUi(this, ui, store, () -> { if (!isDestroyed() && tab == 2) showTab(2); }); return calendarUi; }
@@ -4393,8 +4958,12 @@ public final class MainActivity extends Activity {
         LinearLayout press = ui.group();
         LinearLayout edge = ui.switchRow("화면 가장자리 버튼", edgeStatus(), store.edgeButton(), value -> { store.settings.edit().putBoolean("edgeButton", value).apply(); store.changed(); showTab(2); });
         edgeState = (TextView) edge.getChildAt(1); edgeDrawn = store.edgeButton(); ui.addRow(press, edge, false);
-        // The button shows only with 폰 조작's first step on; while it is off, the way there sits right under the switch.
-        if (store.edgeButton() && !PhoneService.connected())
+        // 작업 표시줄 (Taskbar): 들퍼레's own bar over the system bar while another app is in front, with split screen.
+        LinearLayout bar = ui.switchRow("작업 표시줄", Taskbar.status(this, store), store.taskbar(), value -> { store.settings.edit().putBoolean("taskbar", value).apply(); store.changed(); showTab(2); });
+        taskbarState = (TextView) bar.getChildAt(1); taskbarDrawn = store.taskbar(); ui.addRow(press, bar, false);
+        // Both show only with 폰 조작's first step on; while it is off, the way there sits right under the switches. The bar
+        // asks for it only where it can appear at all (들퍼레 the home app, a large screen): not everyone, since it is on by default.
+        if ((store.edgeButton() || (store.taskbar() && Taskbar.applies(this))) && !PhoneService.connected())
             ui.addRow(press, ui.listRow(0, 0, "폰 조작 1단계 켜러 가기", "접근성에서 ‘" + Brand.NAME + " 폰 조작’을 켜요", ui.chevron(), () -> openSettings("phone")), false);
         // The two live states below take up to two lines, so 「눌러서 바꾸기」 and the car's name are not cut at 360dp.
         LinearLayout home = ui.listRow(R.drawable.ic_home, Ui.BLUE, "홈 버튼 길게 누르기", assistStatus(), ui.chevron(), this::openAssistantSettings);
@@ -4403,6 +4972,7 @@ public final class MainActivity extends Activity {
         ui.addRow(press, ui.listRow(R.drawable.ic_bolt, Ui.ORANGE, "아이콘 길게 누르기 → ‘바로 대화’", "홈 화면에 따로 끌어 둘 수도 있어요", null, null), true);
         add(press, 0);
         add(ui.details("자세히", "가장자리 버튼 · 화면 쪽으로 살짝 밀거나 누르면 대화가 시작돼요. 위아래로 끌어 옮기고, 길게 누르면 메뉴(" + Brand.NAME + " 열기·반대쪽으로·잠깐 숨기기·버튼 끄기)가 열려요. 잠깐 숨기면 화면을 껐다 켤 때 다시 나타나요. 대화 중·폰 조작 중·잠금 화면에서는 숨어요. 폰 조작 1단계(접근성 ‘" + Brand.NAME + " 폰 조작’)가 필요하고, 접근성을 끄면 버튼도 바로 사라져요. 버튼은 화면 내용을 읽지 않아요.\n"
+            + "작업 표시줄 · " + Brand.I + " 홈 화면 앱이고 화면이 클 때, 다른 앱을 쓰는 동안 맨 아래 바에 모든 앱·독의 앱·최근 앱과 최근 앱·홈·뒤로 버튼을 원래 자리에 띄워요. 앱 아이콘을 화면 위로 끌어 놓거나 길게 눌러 ‘화면 나누기로 열기’를 고르면 지금 앱 옆에 열려요(어느 쪽에 열릴지는 Android가 정해요). 안 나뉘면 바 위에 뜨는 ‘최근 앱에서 나누기’를 눌러 최근 앱 화면에서 나눌 수 있어요. 홈 화면·최근 앱 화면·잠금 화면·키보드가 떠 있을 때·전체 화면에서는 숨고, 맨 오른쪽 접근성 버튼은 가리지 않아요. 숨은 까닭은 이 줄에 나와요.\n"
             + "홈 버튼 · Android 설정 → 기본 앱 → 디지털 어시스턴트 앱에서 " + Brand.EUL + " 골라요. 제스처를 쓰면 화면 아래 모서리에서 대각선으로 쓸어 올려요. 대신 Google(Gemini) 호출은 이 동작에서 빠지고, 같은 곳에서 Google을 고르면 되돌아가요."), 0);
 
         add(ui.sectionHeader("차에서"), 0);
@@ -4468,8 +5038,9 @@ public final class MainActivity extends Activity {
             if (value && !store.secrets.has(SecretStore.GEMINI)) { store.error("Gemini 디시전은 Gemini API 키로 써요. 설정 → Gemini에서 키를 먼저 넣어 주세요."); store.changed(); showTab(2); return; }
             store.settings.edit().putBoolean("phoneDecisions", value).apply(); store.changed();
         }), false);
+        ui.addRow(better, ui.listRow(R.drawable.ic_bolt, Ui.ORANGE, "디시전 테스트 (속도·정확도)", "폰 조작 화면 10개로 디시전과 Flash-Lite를 비교해요", ui.chevron(), this::decisionBench), false);
         add(better, 0);
-        add(ui.footer("디시전 요금은 Gemini API 키의 프로젝트에 나가요(입력 100만 토큰당 약 0.1달러). 다음 음성 대화부터 적용돼요."), 0);
+        add(ui.footer("무료 키는 디시전을 하루 10,000번(분당 200번)까지 쓸 수 있어요. 유료 프로젝트면 입력 100만 토큰당 약 0.1달러가 나가요. 다음 음성 대화부터 적용돼요."), 0);
         add(ui.details("자세히", "여러 단계 일도 끝까지 이어서 하고, 로딩·생성은 기다렸다가 다시 확인해요. 폰 조작은 Gemini가 해요. 두뇌를 따로 두면 두뇌가 작업 순서와 입력할 글을 쓰고, Gemini가 그대로 화면을 읽고 조작해요.\n"
             + "디시전 · 켜면 여러 단계 폰 일을 Gemini 디시전에 넘겨 단계마다 생각하는 시간을 줄여요. 확신이 낮거나 맞는 동작이 없으면 음성 비서가 이어받고, 보내기·결제·삭제·전화 같은 규칙은 그대로예요."), 0);
 
@@ -4599,6 +5170,54 @@ public final class MainActivity extends Activity {
         }), false);
         add(review, 0);
     }
+    /**
+     * 디시전 테스트: the ten made-up phone screens (core/DecisionBench) asked of Gemini 디시전 and of Flash-Lite with the user's
+     * Gemini key, one after the other; how many each got right and how fast, then each screen's answers.
+     */
+    private void decisionBench() {
+        String key;
+        try { key = store.secrets.get(); } catch (Exception e) { key = ""; }
+        if (key.isBlank()) { android.widget.Toast.makeText(this, "설정 → Gemini에서 API 키를 먼저 넣어 주세요.", android.widget.Toast.LENGTH_LONG).show(); return; }
+        Ui.Sheet sheet = ui.selectionSheet("디시전 테스트", "같은 화면 10개 · 디시전과 Flash-Lite 비교");
+        TextView out = ui.text("시작하는 중…", 14, 400, TEXT); out.setLineSpacing(ui.dp(3), 1); out.setTextIsSelectable(true); ui.add(sheet.body, out, 8);
+        sheet.primary.setText("닫기");
+        boolean[] closed = {false}; sheet.setOnDismissListener(d -> closed[0] = true);
+        sheet.show();
+        String gemini = key;
+        new Thread(() -> {
+            java.util.List<dev.jun.gyeot.core.DecisionBench.Scenario> all = dev.jun.gyeot.core.DecisionBench.scenarios();
+            java.util.List<dev.jun.gyeot.core.DecisionBench.Result> decision = new java.util.ArrayList<>(), lite = new java.util.ArrayList<>();
+            StringBuilder lines = new StringBuilder();
+            for (int i = 0; i < all.size() && !closed[0]; i++) {
+                dev.jun.gyeot.core.DecisionBench.Scenario one = all.get(i);
+                int at = i + 1; runOnUiThread(() -> { if (!closed[0]) out.setText("테스트 중 " + at + "/" + all.size() + " · " + one.name() + "\n\n" + lines); });
+                long started = System.nanoTime(); dev.jun.gyeot.core.DecisionBench.Result d;
+                try {
+                    JSONObject answer = GeminiDecisions.decide(gemini, one.request(), null);
+                    JSONObject next = answer.optJSONObject("answers") == null ? null : answer.optJSONObject("answers").optJSONObject("next");
+                    d = dev.jun.gyeot.core.DecisionBench.score(one, next == null ? "" : next.optString("choice"), next == null ? 0 : next.optDouble("confidence", 0), (System.nanoTime() - started) / 1_000_000, null);
+                } catch (Exception e) { d = dev.jun.gyeot.core.DecisionBench.score(one, "", 0, (System.nanoTime() - started) / 1_000_000, e.getMessage() == null ? "오류" : e.getMessage()); }
+                decision.add(d);
+                started = System.nanoTime(); dev.jun.gyeot.core.DecisionBench.Result f;
+                try {
+                    JSONObject answer = dev.jun.gyeot.core.DecisionBench.plainAnswer(GeminiAudioClient.summarize(gemini, dev.jun.gyeot.core.DecisionBench.plainInstructions(), dev.jun.gyeot.core.DecisionBench.plainInput(one)));
+                    f = dev.jun.gyeot.core.DecisionBench.score(one, answer.optString("choice"), answer.optDouble("confidence", Double.NaN), (System.nanoTime() - started) / 1_000_000, null);
+                } catch (Exception e) { f = dev.jun.gyeot.core.DecisionBench.score(one, "", Double.NaN, (System.nanoTime() - started) / 1_000_000, e.getMessage() == null ? "오류" : e.getMessage()); }
+                lite.add(f);
+                lines.append(at).append(". ").append(one.name()).append("\n   디시전 ").append(mark(d)).append("\n   Flash-Lite ").append(mark(f)).append("\n");
+            }
+            String d = dev.jun.gyeot.core.DecisionBench.summary(decision), f = dev.jun.gyeot.core.DecisionBench.summary(lite);
+            long dRight = decision.stream().filter(dev.jun.gyeot.core.DecisionBench.Result::right).count(), fRight = lite.stream().filter(dev.jun.gyeot.core.DecisionBench.Result::right).count();
+            String verdict = decision.stream().allMatch(r -> !r.error().isEmpty()) ? "디시전을 쓸 수 없었어요. 오류를 확인해 주세요."
+                : dRight >= fRight ? "디시전이 정확도는 같거나 더 좋고 더 빠르면 켜는 걸 추천해요." : "이번엔 Flash-Lite가 더 정확했어요. 디시전은 끄고 쓰는 걸 추천해요.";
+            store.phoneLog("● 디시전 테스트 · 디시전 " + d + " · Flash-Lite " + f);
+            runOnUiThread(() -> { if (!closed[0]) out.setText("디시전: " + d + "\nFlash-Lite: " + f + "\n\n" + verdict + "\n\n" + lines); });
+        }, "decision-bench").start();
+    }
+    private static String mark(dev.jun.gyeot.core.DecisionBench.Result r) {
+        if (!r.error().isEmpty()) return "✕ 오류 · " + (r.error().length() > 80 ? r.error().substring(0, 80) + "…" : r.error());
+        return (r.right() ? "✓ " : "✕ ") + (r.option().isEmpty() ? "?" : r.option()) + (Double.isNaN(r.confidence()) ? "" : " · " + Math.round(r.confidence() * 100) + "%") + " · " + r.ms() + "ms";
+    }
     /** 기억 정리: the plan made first, shown line by line, applied only on 적용 (the notes before kept for 되돌리기). */
     private void tidyMemory() {
         JSONArray notes = store.memories();
@@ -4608,7 +5227,8 @@ public final class MainActivity extends Activity {
         android.content.Context app = getApplicationContext();
         new Thread(() -> {
             String answer = null, why = "";
-            try { String key = store.secrets.workKey(); if (key.isBlank()) throw new IllegalStateException("설정 → Gemini API 키를 먼저 넣어 주세요."); answer = GeminiAudioClient.light(key, dev.jun.gyeot.core.Memory.cleanup(listed), "기억을 정리해 주세요."); }
+            // The plan 남는 한도 made ahead for these same notes (SpareWork) is shown at once; otherwise it is made now.
+            try { answer = SpareWork.tidy(store, listed); if (answer == null) answer = Chores.run(store, dev.jun.gyeot.core.Memory.cleanup(listed), "기억을 정리해 주세요.", true); }
             catch (Exception e) { why = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
             String plan = answer == null ? null : dev.jun.gyeot.core.Memory.withoutAdd(answer), reason = why;
             runOnUiThread(() -> {
@@ -4655,7 +5275,7 @@ public final class MainActivity extends Activity {
             android.content.Context app = getApplicationContext();
             new Thread(() -> {
                 String made = null, why = "";
-                try { made = Briefing.remake(app, store); } catch (Exception e) { why = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
+                try { made = Briefing.remake(app, store, true); } catch (Exception e) { why = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
                 String text = made, reason = why;
                 runOnUiThread(() -> { if (isDestroyed()) return; if (text != null) { field.setText(text); android.widget.Toast.makeText(this, "새로 정리했어요", android.widget.Toast.LENGTH_SHORT).show(); } else android.widget.Toast.makeText(this, reason, android.widget.Toast.LENGTH_LONG).show(); });
             }, "about-me").start();
@@ -4867,6 +5487,9 @@ public final class MainActivity extends Activity {
         // Two lines, so the cost note is not cut at 360dp.
         LinearLayout check = ui.listRow(R.drawable.ic_wave, Ui.PURPLE, "미디어 연결 점검", "음성·전사 모델 연결 시간 · 요금이 들 수 있어요", ui.chevron(), this::confirmMediaCheck);
         TextView cost = ((Ui.ListRow) check).parts.subtitle(); cost.setSingleLine(false); cost.setMaxLines(2); ui.addRow(fix, check, true);
+        // 퍼레 자동 점검: its words, its brain (a dry run, nothing done) and the phone's readiness, the failures with their fix.
+        String buddyChecked = BuddyCheckUi.last(this);
+        ui.addRow(fix, ui.listRow(R.drawable.ic_check, Ui.GREEN, "퍼레 자동 점검", buddyChecked.isEmpty() ? "말 · 두뇌 · 준비 상태 · 실제로 하지는 않아요" : "마지막 " + buddyChecked, ui.chevron(), () -> BuddyCheckUi.show(this)), true);
         ui.addRow(fix, ui.listRow(R.drawable.ic_history, Ui.TEAL, "최근 폰 조작 기록", "단계별 기록 · 복사해서 보내기", ui.chevron(), this::phoneLogSheet), true);
         add(fix, 16);
         LinearLayout clear = ui.group();
@@ -4897,7 +5520,7 @@ public final class MainActivity extends Activity {
         java.io.File ready = store.updater.ready;
         Button action = store.updater.busy ? null : ready != null && ready.isFile() ? ui.button("설치 화면 열기", true, () -> {
             if (!getPackageManager().canRequestPackageInstalls()) { installUpdate(); return; }
-            openInstaller(ready);
+            if (RunningWork.names(store).isEmpty()) openInstaller(ready); else askAboutWork(() -> installAfterWork(ready), () -> openInstaller(ready));
         }) : update != null ? ui.button("내려받고 설치하기", true, this::installUpdate) : ui.button("업데이트 확인", false, () -> store.updater.check(false));
         if (action != null) { LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, -2); gap.topMargin = ui.dp(14); updateBox.addView(action, gap); }
         // The token is saved and cleared on the updater's thread: the 고급 rows follow once it has landed.
@@ -4933,12 +5556,33 @@ public final class MainActivity extends Activity {
                 () -> startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))));
             return;
         }
-        // Installing replaces the app: a running call, phone job or work stops with it.
-        boolean busy = store.voiceActive || store.recording || !store.workLive.isEmpty() || store.tasks.pendingCount() > 0;
+        // Installing replaces the app: whatever runs stops with it, so the user chooses: after it ends, now, or not.
+        java.util.List<String> running = RunningWork.names(store);
         Runnable go = () -> store.updater.install(apk -> runOnUiThread(() -> openInstaller(apk)));
-        if (!busy) { go.run(); return; }
-        confirm("업데이트 설치 중에는 대화·녹음·작업이 멈춰요. 복구 기록이 있는 작업은 앱을 다시 열면 읽기 전용으로 이어서 확인해요. 변경·코드·이미지 작업은 자동 반복하지 않아요. 지금 설치할까요?", "설치", go);
+        if (running.isEmpty()) { go.run(); return; }
+        askAboutWork(() -> store.updater.install(apk -> runOnUiThread(() -> installAfterWork(apk))), go);
     }
+    /** What runs now and that an update stops it: 끝나면 설치 (later) or 지금 설치 (now). */
+    private void askAboutWork(Runnable later, Runnable now) {
+        java.util.List<String> running = RunningWork.names(store);
+        Ui.Sheet sheet = ui.new Sheet("작업이 돌고 있어요", "지금 " + dev.jun.gyeot.core.LabBook.ida(String.join(", ", running)) + " 하고 있어요. 업데이트를 설치하면 앱이 다시 시작돼서 멈춰요.");
+        sheet.primary.setText("끝나면 설치");
+        sheet.primary.setOnClickListener(v -> { sheet.dismiss(); later.run(); });
+        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-1, -2); at.topMargin = ui.dp(8);
+        sheet.footer.addView(ui.button("지금 설치", false, () -> { sheet.dismiss(); now.run(); }), at);
+        sheet.show();
+    }
+    /** 끝나면 설치: the verified file waits here while work runs (looked at every few seconds), then Android's installer opens. */
+    private java.io.File installAfter, installWhenBack;
+    private final Runnable installTick = new Runnable() { @Override public void run() {
+        java.io.File apk = installAfter; if (apk == null || isDestroyed()) return;
+        java.util.List<String> running = RunningWork.names(store);
+        if (!running.isEmpty()) { store.updater.notice("내려받았어요 · " + dev.jun.gyeot.core.LabBook.ida(String.join(", ", running)) + " 끝나면 설치 화면을 열어요."); main.postDelayed(this, 5000); return; }
+        installAfter = null;
+        if (store.appVisible) openInstaller(apk);
+        else { installWhenBack = apk; store.updater.notice("작업이 끝났어요 · 돌아오면 설치 화면을 열어요."); }
+    } };
+    private void installAfterWork(java.io.File apk) { installAfter = apk; main.removeCallbacks(installTick); installTick.run(); }
     /**
      * Android's own package installer takes the verified file, the way browsers and file managers hand APKs over (as Mobile
      * Codex does). Samsung's 보안 위험 자동 차단 refused the app's own installer session; this path is the one it lets through.
@@ -4956,6 +5600,7 @@ public final class MainActivity extends Activity {
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (drive().onResult(request, result, data)) return;
+        if (gmail().onResult(request, result, data)) return;
         if (request == PICK_FILES) { if (result == RESULT_OK && data != null) addPicked(data); return; }
         if (request == PICK_MAIN_FILES) { if (result == RESULT_OK && data != null) addMainPicked(data); return; }
         if (request == PICK_VIDEO_SOURCE) {
@@ -5382,7 +6027,7 @@ public final class MainActivity extends Activity {
         else if (view instanceof ViewGroup group) for (int i = 0; i < group.getChildCount(); i++) destroyWebViews(group.getChildAt(i));
     }
     private void copy(String text) {
-        getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText(Brand.NAME, text));
+        getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText(Brand.NAME, dev.jun.gyeot.core.Markdown.plain(text)));
         Ui.done(body);
         store.status("복사했어요");
     }

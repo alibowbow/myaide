@@ -17,7 +17,7 @@ import java.util.*;
 /** Real OS-authorized primary storage. Never a fabricated external-storage SAF permission. */
 final class ManagedSharedStorage {
     static final String AUTHORITY="dev.jun.gyeot.shared-documents", ROOT_ID="primary:들퍼레";
-    static final String ROOT_NAME="들퍼레", LEGACY="Download/들퍼레";
+    static final String ROOT_NAME="들퍼레", LEGACY="Download/들퍼레", PROJECTS=ROOT_NAME+"/프로젝트";
     /** Folders whose files the app made itself (pictures, videos, speech); only these files may ever be removed. */
     static final Set<String> MEDIA_FOLDERS=Set.of(ROOT_NAME+"/이미지",ROOT_NAME+"/영상",ROOT_NAME+"/오디오");
     private ManagedSharedStorage() {}
@@ -125,6 +125,67 @@ final class ManagedSharedStorage {
                 StructStat st=stat(fd);if(!OsConstants.S_ISREG(st.st_mode)||st.st_size!=0)throw new IOException("새 빈 파일이 아니에요.");
                 parent.check();sameIdentity(st,lstat(volume.getPath()+"/"+path));try{Os.fsync(fd.getFileDescriptor());}catch(ErrnoException error){throw io(error);}parent.sync();return new Created(parent,path,fd,st);
             }catch(IOException|RuntimeException error){quietClose(fd);parent.close();throw error;}
+        }
+        // ── 들퍼레/프로젝트: the one place the user's own projects may be replaced, renamed and removed (ProjectStores) ──
+        private String project(String folder)throws IOException {single(folder);if(folder.startsWith("."))throw new IOException("숨김 폴더는 프로젝트로 쓰지 않아요.");return PROJECTS+"/"+folder;}
+        /** The project folders holding an index.html, with that page's time (ms). */
+        List<String[]> projects()throws IOException {
+            List<String[]> out=new ArrayList<>();
+            try(Node dir=directory(PROJECTS,true);java.nio.file.DirectoryStream<java.nio.file.Path> items=dir.children()){
+                String base=anchor(dir.last());
+                for(java.nio.file.Path item:items){
+                    String name=item.getFileName().toString();if(name.startsWith("."))continue;
+                    try{StructStat st=lstat(base+"/"+name);if(!OsConstants.S_ISDIR(st.st_mode))continue;StructStat page=lstat(base+"/"+name+"/index.html");
+                        if(OsConstants.S_ISREG(page.st_mode))out.add(new String[]{name,String.valueOf(page.st_mtime*1000L)});}catch(IOException missing){/* not a project */}
+                }
+            }
+            return out;
+        }
+        byte[] readProject(String folder,int limit)throws IOException {
+            try(Node page=node(project(folder)+"/index.html",false)){
+                page.requireFile();if(page.stat().st_size>limit)throw new IOException("HTML이 너무 커요.");
+                try(FileInputStream in=new FileInputStream(page.last().getFileDescriptor())){byte[] bytes=in.readAllBytes();page.check();return bytes;}
+            }
+        }
+        /** Writes the page beside it first and moves it over index.html in one step: a reader never sees half of it. */
+        long writeProject(String folder,byte[] bytes)throws IOException {
+            String dirPath=project(folder);
+            try(Node dir=directory(dirPath,true)){
+                String temp=".index-"+System.nanoTime()+".tmp";
+                try(Created made=create(dirPath+"/"+temp)){
+                    try(FileOutputStream out=new FileOutputStream(made.fd.getFileDescriptor())){out.write(bytes);out.flush();}
+                    made.sync();
+                    dir.check();
+                    try{Os.rename(anchor(dir.last())+"/"+temp,anchor(dir.last())+"/index.html");}catch(ErrnoException e){try{Os.remove(anchor(dir.last())+"/"+temp);}catch(ErrnoException ignored){}throw io(e);}
+                    dir.sync();
+                }
+                return lstat(volume.getPath()+"/"+dirPath+"/index.html").st_mtime*1000L;
+            }
+        }
+        void renameProject(String from,String to)throws IOException {
+            project(from);project(to);
+            try(Node dir=directory(PROJECTS,false)){
+                String base=anchor(dir.last());
+                try{Os.lstat(base+"/"+to);throw new IOException("같은 이름의 프로젝트 폴더가 있어요.");}catch(ErrnoException absent){if(absent.errno!=OsConstants.ENOENT)throw io(absent);}
+                if(!OsConstants.S_ISDIR(lstat(base+"/"+from).st_mode))throw new IOException("프로젝트 폴더가 아니에요.");
+                try{Os.rename(base+"/"+from,base+"/"+to);}catch(ErrnoException e){throw io(e);}
+                dir.sync();
+            }
+        }
+        /** Removes one project folder and what is in it; a link inside is removed as a link, never followed. */
+        void removeProject(String folder)throws IOException {
+            project(folder);
+            try(Node dir=directory(PROJECTS,false)){String base=anchor(dir.last());if(!OsConstants.S_ISDIR(lstat(base+"/"+folder).st_mode))throw new IOException("프로젝트 폴더가 아니에요.");removeTree(base+"/"+folder,0);dir.sync();}
+            catch(IOException e){if(missing(e))return;throw e;}
+        }
+        private void removeTree(String path,int depth)throws IOException {
+            if(depth>12)throw new IOException("폴더가 너무 깊어요.");
+            StructStat st=lstat(path);
+            if(OsConstants.S_ISDIR(st.st_mode)){
+                String[] names=new File(path).list();
+                if(names!=null)for(String name:names)removeTree(path+"/"+name,depth+1);
+                try{Os.remove(path);}catch(ErrnoException e){throw io(e);}
+            }else try{Os.remove(path);}catch(ErrnoException e){throw io(e);}
         }
         void checkChain(List<ParcelFileDescriptor> fds,List<StructStat> states,List<String> paths)throws IOException {check();for(int i=0;i<fds.size();i++){sameIdentity(states.get(i),stat(fds.get(i)));sameIdentity(states.get(i),lstat(paths.get(i)));}}
         @Override public void close()throws IOException {pinned.close();}

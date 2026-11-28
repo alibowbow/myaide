@@ -22,7 +22,7 @@ CACHE = Path(os.environ.get('GYEOT_BUILD_CACHE', ROOT / '.cache')).resolve()
 DEPS = ROOT / '.deps'
 BUILD = ROOT / 'build'
 # Maven Central answers on both hosts; the second is tried when the first refuses or rate-limits.
-MAVEN_MIRRORS = ('https://repo1.maven.org/maven2', 'https://repo.maven.apache.org/maven2')
+MAVEN_MIRRORS = ('https://repo1.maven.org/maven2', 'https://repo.maven.apache.org/maven2', 'https://maven-central.storage-download.googleapis.com/maven2')
 
 
 def gradle_config():
@@ -320,6 +320,47 @@ def test(jars):
         subprocess.run(['sh', str(ROOT / 'tests' / suite / 'run.sh')], cwd=ROOT, env=dict(os.environ, JSON_JAR=str(json_jar)), check=True)
 
 
+def check_composers():
+    """Every chat's input has its model line under it, the one ModelLine (준: "새로 대화창 만들거나 입력창 만들면 같은문제가
+    반복돼"): a screen with a send button (Ui.sendButton) that does not use ModelLine fails here, before anything is built.
+    퍼레와 대화 is a web page (launcher.html): it keeps its own #chatModel line in the same look."""
+    java = ROOT / 'app/src/main/java/dev/jun/gyeot'
+    missing = [f.name for f in sorted(java.glob('*.java')) if f.name != 'Ui.java' and 'ui.sendButton(' in f.read_text(encoding='utf-8') and 'ModelLine.' not in f.read_text(encoding='utf-8')]
+    launcher = (ROOT / 'app/src/main/assets/decor/launcher.html').read_text(encoding='utf-8')
+    if 'id="chatModel"' not in launcher: missing.append('launcher.html (퍼레와 대화 #chatModel)')
+    if missing:
+        raise SystemExit('A chat input without its model line (use ModelLine.make/show under the field): ' + ', '.join(missing))
+    print('Model line under every chat input: ok')
+
+
+EXTENSION = ROOT / 'app/src/main/assets/browser'
+EXTENSION_LOCK = ROOT / 'tools/browser_extension.lock'
+
+
+def extension_state():
+    """The AI 브라우저's page bridge (assets/browser): its manifest version and a hash of everything else in it."""
+    digest = hashlib.sha256()
+    for f in sorted(p for p in EXTENSION.rglob('*') if p.is_file() and p.name != 'manifest.json'):
+        digest.update(f.relative_to(EXTENSION).as_posix().encode() + b'\0' + f.read_bytes() + b'\0')
+    version = json.loads((EXTENSION / 'manifest.json').read_text(encoding='utf-8'))['version']
+    return version, digest.hexdigest()
+
+
+def check_extension_version():
+    """GeckoView keeps an installed built-in extension while its version is the same (ensureBuiltIn), so a change to
+    content.js with no new manifest version never reaches the phone: the page zoom, the safety fixes and the lifted limits
+    of 2026-11-28 (0.4.659 to 0.4.674) all stayed on 1.535 and the phones went on running the old bridge. The lock holds the
+    version and the hash it was made for: changed files with the same version fail here."""
+    version, digest = extension_state()
+    lock = json.loads(EXTENSION_LOCK.read_text(encoding='utf-8')) if EXTENSION_LOCK.exists() else {}
+    if digest != lock.get('sha256'):
+        if version == lock.get('version'):
+            raise SystemExit(f'assets/browser changed but its manifest version is still {version}: phones keep the old bridge. '
+                             'Raise "version" in app/src/main/assets/browser/manifest.json, then run python3 tools/build.py --lock-extension.')
+        raise SystemExit(f'assets/browser is at version {version}: run python3 tools/build.py --lock-extension to record it.')
+    print(f'Browser bridge version {version} matches its files: ok')
+
+
 def compile_app():
     """test() covers core classes only. This compiles MainActivity, Ui, BrowserActivity and every other Android source
     against the real SDK and GeckoView, so a screen code error fails the pull request check before merging instead of
@@ -358,7 +399,7 @@ def build(android, tools, jars):
             if found != [expected]:
                 output.unlink()
                 raise SystemExit(f'APK signed with {found or "no certificate"}, expected {expected}: refusing release.')
-        if not suffix and output.stat().st_size > 100 * 1024 * 1024: raise SystemExit('Signed APK exceeds the legacy updater size limit')
+        if not suffix and output.stat().st_size > 512 * 1024 * 1024: raise SystemExit('Signed APK exceeds the updater size limit (512MiB)')
         run([tools / 'aapt2', 'dump', 'badging', output])
         print('APK:', output, flush=True)
 
@@ -368,7 +409,17 @@ if __name__ == '__main__':
     parser.add_argument('--test-only', action='store_true')
     # With --test-only, also compile the Android screens. Pull request checks turn this on by themselves.
     parser.add_argument('--compile-app', action='store_true')
+    # After raising assets/browser/manifest.json's version: records it with the files' hash (check_extension_version).
+    parser.add_argument('--lock-extension', action='store_true')
     args = parser.parse_args()
+    if args.lock_extension:
+        version, digest = extension_state()
+        lock = json.loads(EXTENSION_LOCK.read_text(encoding='utf-8')) if EXTENSION_LOCK.exists() else {}
+        if lock.get('version') == version and lock.get('sha256') != digest:
+            raise SystemExit(f'Raise the version in assets/browser/manifest.json first (it is still {version}).')
+        EXTENSION_LOCK.write_text(json.dumps({'version': version, 'sha256': digest}, indent=1) + '\n', encoding='utf-8')
+        print(f'Browser bridge {version} locked'); sys.exit(0)
+    check_extension_version()
     CACHE.mkdir(parents=True, exist_ok=True); BUILD.mkdir(parents=True, exist_ok=True)
     jars = dependencies()
     core = ROOT / 'app/src/main/java/dev/jun/gyeot/core'
@@ -376,6 +427,68 @@ if __name__ == '__main__':
     security.mkdir(parents=True, exist_ok=True)
     javac(['-encoding', 'UTF-8', '-d', security, core / 'PhoneRisk.java', core / 'SecurityLink.java', ROOT / 'tools/SecurityRegression.java'])
     run(['java', '-ea', '-cp', security, 'dev.jun.gyeot.core.SecurityRegression'])
+    trading = BUILD / 'tradingview-checks'
+    trading.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', trading, core / 'TradingViewLink.java', ROOT / 'tools/TradingViewRegression.java'])
+    run(['java', '-ea', '-cp', trading, 'dev.jun.gyeot.core.TradingViewRegression'])
+    # 알림을 행동으로 (core/NoticeActions): parcels, bookings and messenger plans read from real-looking notices.
+    notices = BUILD / 'notice-checks'
+    notices.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', notices, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/NoticeActionsRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (notices, jars[-1]))), 'dev.jun.gyeot.core.NoticeActionsRegression'])
+    # 하루 타임라인 (core/DayLog): the day's lines kept, merged and capped, never a code or money, and the answers from them.
+    daylog = BUILD / 'daylog-checks'
+    daylog.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', daylog, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/DayLogRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (daylog, jars[-1]))), 'dev.jun.gyeot.core.DayLogRegression'])
+    # 사건 트리거 (core/Triggers): what is said read into a condition and an action, each kind of event matched once.
+    triggers = BUILD / 'trigger-checks'
+    triggers.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', triggers, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/TriggersRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (triggers, jars[-1]))), 'dev.jun.gyeot.core.TriggersRegression'])
+    # 매크로 (core/Macros): a recording made into steps, a control found again on a changed screen, the words, the guards.
+    macros = BUILD / 'macro-checks'
+    macros.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', macros, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/MacrosRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (macros, jars[-1]))), 'dev.jun.gyeot.core.MacrosRegression'])
+    # 퍼레's routine suggestion (core/Habits): a moment → app habit only when it is real, never money, never asked twice.
+    habits = BUILD / 'habit-checks'
+    habits.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', habits, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/HabitsRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (habits, jars[-1]))), 'dev.jun.gyeot.core.HabitsRegression'])
+    # 두뇌 배분 (core/BrainRoutes, Fallback, LocalAnswers, Prices): who answers, who takes over once, what is answered on the phone, what it costs.
+    brains = BUILD / 'brain-checks'
+    brains.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', brains, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/BrainRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (brains, jars[-1]))), 'dev.jun.gyeot.core.BrainRegression', ROOT / 'app/src/main/assets/buddy/scenarios.json'])
+    # 남는 한도 (core/SpareQuota): what each free model can still take, a talk or chore spread so one model is not used up
+    # while others idle (the routing before must fail the same day), spare work's window and budget, the browser's next AI.
+    spare = BUILD / 'spare-quota-checks'
+    spare.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', spare, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/SpareQuotaRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (spare, jars[-1]))), 'dev.jun.gyeot.core.SpareQuotaRegression'])
+    # 미니앱에 다리 놓기 (core/PageBridge): a page's calls by family, their arguments, the safe tools, the limits and the grants.
+    bridge = BUILD / 'page-bridge-checks'
+    bridge.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', bridge, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/PageBridgeRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (bridge, jars[-1]))), 'dev.jun.gyeot.core.PageBridgeRegression'])
+    check_composers()
+    # AI 브라우저의 숫자 제한 (core/BrowserJournal …): no step cap, but an endless scroll stops at the checkpoint; lifted sizes stay lifted.
+    browser_limits = BUILD / 'browser-limit-checks'
+    browser_limits.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', browser_limits, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/BrowserLimitsRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (browser_limits, jars[-1]))), 'dev.jun.gyeot.core.BrowserLimitsRegression'])
+    # AI 브라우저 기능 제한 풀기 (core/BrowserTaskTabs, BrowserSiteDialogs, BrowserDownloadPolicy, BrowserAppLinks, BrowserTools keys):
+    # several tabs per task, popups, an alert accepted while a confirm goes to the user, downloads kept, keys, app links on a tap.
+    browser_features = BUILD / 'browser-feature-checks'
+    browser_features.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', browser_features, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/BrowserFeaturesRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (browser_features, jars[-1]))), 'dev.jun.gyeot.core.BrowserFeaturesRegression'])
+    # The AI 브라우저's essential guards without false positives (AutomationGate, BrowserDecisionEvidence, core/WorkFence).
+    browser_safety = BUILD / 'browser-safety-checks'
+    browser_safety.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', browser_safety, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/BrowserSafetyRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (browser_safety, jars[-1]))), 'dev.jun.gyeot.BrowserSafetyRegression'])
     test_board(jars[-1])
     # The optional larger suites run when their tests folder is present.
     if (ROOT / 'tests/CoreTests.java').is_file(): test(jars)

@@ -142,6 +142,9 @@ final class MainAdapters {
             case WorkBook.GEMINI -> completeGeminiText(app.gemini.key(), model, effort, request, tools, guard, cancel);
             case WorkBook.GROK -> grok(app.grok, model, effort, request, tools, guard, cancel);
             case WorkBook.NIM -> nim(app.nim, app.nim.generation(), model, request, tools, guard, cancel);
+            case WorkBook.ANTIGRAVITY -> antigravity(app, model, effort, request, tools, guard, cancel);
+            case WorkBook.GROQ -> { guard.run(); String said = app.groqModels.ask(model, effort, request.instructions(), request.input(), cancel); guard.run();
+                if (request.onText() != null) request.onText().accept(said); yield new Reply(said, new JSONArray(), ""); }
             default -> chatgpt(app.openai, model, effort, s.speed(model), request, tools, guard, cancel);
         };
     }
@@ -156,15 +159,22 @@ final class MainAdapters {
      * when cached. The client reports a refused search or page reading.
      */
     private static Reply claude(ClaudeAccount account, String model, String effort, MainRequest request, WorkTools tools, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
-        OpenAiClient.Result result = ClaudeClient.completeStrict(account, model, request.instructions(), request.input(), request.search(), request.fetch(), request.onThinking(), request.cacheKey() != null, effort, tools, guard, cancel, request.onText(), request.parts());
+        OpenAiClient.Result result = ClaudeClient.completeStrict(account, model, request.instructions(), request.input(), request.search(), request.fetch(), request.code(), request.onThinking(), request.cacheKey() != null, effort, tools, guard, cancel, request.onText(), request.parts());
         return new Reply(result.text, result.sources, result.searchRefusal == null ? "" : result.searchRefusal, "", request.search() && result.searchRefusal != null, request.fetch() && result.fetchRefused, result.usage, result.limits);
     }
     /** Grok 4.7, xAI Responses API on the signed-in account: web_search when asked, without inline citations in the answer (the strip shows them). */
     private static Reply grok(GrokAccount account, String model, String effort, MainRequest request, WorkTools tools, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
-        WorkClient.Result result = GrokWorkClient.complete(account, model, web -> request.instructions(), request.input(), request.search(), effort, tools, guard, cancel, request.onText(), false, request.parts());
+        WorkClient.Result result = GrokWorkClient.complete(account, model, web -> request.instructions(), request.input(), request.search(), request.code(), effort, tools, guard, cancel, request.onText(), false, request.parts());
         return new Reply(result.text, result.sources, result.note, "", request.search() && result.note.contains(GrokWorkClient.SEARCH_REFUSED), false, result.usage, result.limits);
     }
     /** NVIDIA NIM, Chat Completions: text only; stream_options.include_usage when usage is counted. */
+    /** Antigravity (agy in the app's Linux): one answer to the whole request, text only, shown when it comes. */
+    private static Reply antigravity(AppStore app, String model, String effort, MainRequest request, WorkTools tools, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        guard.run();
+        String prompt = request.instructions() + (tools == null ? "" : tools.instructions()) + "\n\n" + request.input();
+        AgyRunner.Result r = AgyRunner.run(app.antigravity.context(), app.antigravity.slug(model, effort), app.antigravity.flag(model, effort), "", prompt, tools, request.onText(), null, guard, cancel, 600_000);
+        return new Reply(r.text(), new JSONArray(), "");
+    }
     private static Reply nim(NimAccount account, long expected, String model, MainRequest request, WorkTools tools, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
         WorkClient.Result result = NimClient.complete(account, expected, model, request.instructions(), request.input(), request.countsUsage(), tools, guard, cancel, request.onText(), request.parts());
         return new Reply(result.text, result.sources, result.note, result.usage, result.limits);
@@ -185,7 +195,7 @@ final class MainAdapters {
         String instructions = r.instructions() + (tools == null ? "" : tools.instructions());
         JSONArray found = new JSONArray(); String suggestions = ""; Usage used = null; int rounds = 0;
         while (true) {
-            JSONObject request = GeminiWork.request(model, instructions, contents, r.search(), r.fetch(), false, tools == null ? null : tools.gemini(), effort, r.thinkingSummary(), true);
+            JSONObject request = GeminiWork.request(model, instructions, contents, r.search(), r.fetch(), r.code(), tools == null ? null : tools.gemini(), effort, r.thinkingSummary(), true);
             if (tools != null && rounds >= (tools.rounds() > 0 ? tools.rounds() : OpenAiClient.MAIN_ROUNDS)) request.put("toolConfig", obj("functionCallingConfig", obj("mode", "NONE")));
             guard.run();
             GeminiWork.Stream stream = new GeminiWork.Stream();

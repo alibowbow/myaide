@@ -69,7 +69,7 @@ final class MainBrowsing implements AutoCloseable {
             "ai", dev.jun.gyeot.core.Jsons.obj("type", "string", "enum", dev.jun.gyeot.core.Jsons.arr((Object[]) AIS), "description", "gpt (ChatGPT), claude, gemini, grok or nim"),
             "model", dev.jun.gyeot.core.Jsons.obj("type", "string", "description", "A model id from show, or words of its name (\"sonnet\")"),
             "effort", dev.jun.gyeot.core.Jsons.obj("type", "string", "description", "A reasoning effort the model offers (low, medium, high …); empty for its default")), "additionalProperties", false));
-    private static final java.util.regex.Pattern MODEL_WORDS = java.util.regex.Pattern.compile("(?i)모델|추론|생각\\s*깊이|클로드|소넷|오퍼스|하이쿠|제미나이|그록|\\b(?:gpt|chatgpt|claude|sonnet|opus|haiku|gemini|grok|nim|low|medium|high|effort)\\b");
+    private static final java.util.regex.Pattern MODEL_WORDS = java.util.regex.Pattern.compile("(?i)모델|추론|생각\\s*깊이|클로드|소넷|오퍼스|하이쿠|제미나이|그록|(?<![A-Za-z0-9])(?:gpt|chatgpt|claude|sonnet|opus|haiku|gemini|grok|nim|low|medium|high|effort)(?![A-Za-z0-9])");
     private boolean connected(String brain) {
         return switch (brain) {
             case "gpt" -> store.openai.connected(); case "claude" -> store.claude.connected(); case "grok" -> store.grok.connected();

@@ -43,7 +43,18 @@ final class AppStore {
     final GrokAccount grok;
     /** The user's own Google Drive for Work tools, through Google's sign-in on the phone. */
     final GoogleDriveAccount drive;
+    /** The user's Gmail for the main chat (설정 → 커넥터 → Gmail). */
+    final GmailAccount gmail;
     final NimAccount nim;
+    /** Groq's API key and the models it can use (GroqAccount). */
+    final GroqAccount groq;
+    /** Typecast's API key and 퍼레's chosen voice (TypecastAccount). */
+    final TypecastAccount typecast;
+    /** 퍼레's voice talk on the home screen is on (BuddyVoice): the edge handle hides meanwhile, so a touch near 퍼레 never starts the assistant. */
+    volatile boolean buddyTalking;
+    final GeminiKeyRing geminiKeys;
+    final AntigravityAccount antigravity;
+    final GroqModels groqModels;
     private JSONArray videos = new JSONArray();
     private boolean videosUnreadable;
     /** The other analysis LLM: Claude with an Anthropic API key. */
@@ -97,7 +108,7 @@ final class AppStore {
     String thinkingName() { return thinking > 0 ? thinkingBy : "Gemini"; }
     long thinkingStartedAt() { return thinking > 0 ? thinkingSince : liveReasoningSince; }
     /** "Claude가 생각하는 중 · 12초". */
-    String thinkingText() { return thinkingName() + "가 생각하는 중 · " + Math.max(0, (System.currentTimeMillis() - thinkingStartedAt()) / 1000) + "초"; }
+    String thinkingText() { return thinkingName() + " · 생각하는 중 · " + Math.max(0, (System.currentTimeMillis() - thinkingStartedAt()) / 1000) + "초"; }
     /** The thread the 작업창 should show (just sent, or opened from a notification); MainActivity is on screen. */
     volatile String workOpen = "";
     volatile String visibleGalleryImage = "";
@@ -118,6 +129,9 @@ final class AppStore {
     /** The recorder is running in AssistantService. */
     volatile boolean recording;
     volatile long recordingStartedAt, recordingsVersion;
+    /** The recording is paused (녹음 일시정지), and its paused spans in wall-clock milliseconds (the time shown leaves them out). */
+    volatile boolean recordingPaused;
+    volatile dev.jun.gyeot.core.RecordPauses recordingPauses = new dev.jun.gyeot.core.RecordPauses();
     volatile String status = "준비됐어요", error = "", interim = "", outputDraft = "", voiceMode = "assistant", searchHtml = "";
     volatile boolean voiceActive, muted, serviceActive;
     /** Where the voice call's connection is (core/VoiceLink); the orb reads it, never the status text. */
@@ -171,7 +185,15 @@ final class AppStore {
         codexImages = new CodexImageAccount(context, secrets, this::changed);
         grok = new GrokAccount(context, secrets, this::changed);
         drive = new GoogleDriveAccount(context, settings, this::changed);
+        gmail = new GmailAccount(context, settings, this::changed);
         nim = new NimAccount(secrets, settings, this::changed);
+        groq = new GroqAccount(secrets, settings, this::changed);
+        typecast = new TypecastAccount(secrets, settings, this::changed);
+        // The files the browser's AI may attach (fetched by the app for the user): kept across restarts and updates.
+        dev.jun.gyeot.core.BrowserUploads.persistWith(settings.getString("browserUploads", ""), json -> settings.edit().putString("browserUploads", json).apply(), System.currentTimeMillis());
+        geminiKeys = new GeminiKeyRing(secrets);
+        antigravity = new AntigravityAccount(context.getApplicationContext(), settings, this::changed);
+        groqModels = new GroqModels(groq, settings, this::changed);
         retireDecisions();
         retireGeminiPlan();
         try {
@@ -243,6 +265,11 @@ final class AppStore {
     boolean announce() { return settings.getBoolean("announce", true); }
     boolean bubble() { return settings.getBoolean("bubble", false); }
     boolean edgeButton() { return settings.getBoolean("edgeButton", false); }
+    /**
+     * 작업 표시줄 (Taskbar): on unless turned off. It shows only where it belongs anyway: 들퍼레 the home app, a large screen,
+     * a button navigation bar, another app in front.
+     */
+    boolean taskbar() { return settings.getBoolean("taskbar", true); }
     boolean screenView() { return settings.getBoolean("screenView", false); }
     /**
      * Connectors the user added besides 마이아카이브 (MCP servers): only what is shown and the tool declarations live here;
@@ -328,6 +355,7 @@ final class AppStore {
         try { gemini.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
         try { grok.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
         try { nim.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
+        try { antigravity.refreshModelsIfDue(); } catch (RuntimeException ignored) {}
     }
     String liveThinkingLevel() { return GeminiProtocol.thinkingLevel(settings.getString("liveThinkingLevel", "MEDIUM")); }
     /** 내비게이션 → 자주 가는 곳 (core/SavedPlaces): the words for places and where they are. */
@@ -431,18 +459,18 @@ final class AppStore {
         String chosen = settings.getString("analyst", "claude".equals(brain()) ? "claude" : "chatgpt");
         if (ready(chosen)) return WorkBook.engine(chosen);
         if (settings.contains("analyst")) return ""; // An explicit selection never silently changes provider.
-        for (String engine : new String[]{WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM}) if (ready(engine)) return engine;
+        for (String engine : new String[]{WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.ANTIGRAVITY, WorkBook.GROQ}) if (ready(engine)) return engine;
         return "";
     }
     String analystName() { return WorkBook.author(analyst()); }
     String analystChoice() { return settings.contains("analyst") ? WorkBook.engine(settings.getString("analyst", "chatgpt")) : analyst(); }
     /** That engine is connected for 작업창 and analysis. */
     boolean ready(String engine) {
-        return WorkBook.CLAUDE.equals(engine) ? claude.connected() : WorkBook.GEMINI.equals(engine) ? gemini.connected() : WorkBook.GROK.equals(engine) ? grok.connected() : WorkBook.NIM.equals(engine) ? nim.connected() : WorkBook.CHATGPT.equals(engine) && openai.connected();
+        return WorkBook.CLAUDE.equals(engine) ? claude.connected() : WorkBook.GEMINI.equals(engine) ? gemini.connected() : WorkBook.GROK.equals(engine) ? grok.connected() : WorkBook.NIM.equals(engine) ? nim.connected() : WorkBook.ANTIGRAVITY.equals(engine) ? antigravity.connected() : WorkBook.GROQ.equals(engine) ? groq.connected() : WorkBook.CHATGPT.equals(engine) && openai.connected();
     }
     /** Web search for that engine: on unless turned off, or refused by its connection during this run. */
     boolean webSearch(String engine) {
-        if (WorkBook.NIM.equals(engine)) return false;
+        if (WorkBook.NIM.equals(engine) || WorkBook.ANTIGRAVITY.equals(engine) || WorkBook.GROQ.equals(engine)) return false;
         boolean refused = WorkBook.CLAUDE.equals(engine) ? claudeSearchRefused : WorkBook.GEMINI.equals(engine) ? geminiSearchRefused : WorkBook.GROK.equals(engine) ? grokSearchRefused : chatgptSearchRefused;
         return settings.getBoolean("chatgptSearch", true) && !refused;
     }
@@ -752,6 +780,8 @@ final class AppStore {
     synchronized void nameSession(String id, String title, String summary) {
         JSONObject session = session(id); if (session == null || title == null || title.isBlank()) return;
         put(session, "title", title.strip()); put(session, "summary", summary == null ? "" : summary.strip()); saveSessionsSoon(0); sessionsVersion++; changed();
+        // 하루 기록: the voice assistant's call, by its title, when it began.
+        dev.jun.gyeot.core.DayLog.add(dev.jun.gyeot.core.DayLog.titled(dev.jun.gyeot.core.DayLog.TALK, "음성 비서", title, "", Math.max(1, session.optLong("startedAt", System.currentTimeMillis()))));
     }
     /** 자동 정리: unpinned sessions older than this many days are cleared (0 keeps them all, up to the limit). */
     static final int[] KEEP_DAYS = {0, 30, 90, 365};
@@ -812,6 +842,7 @@ final class AppStore {
     synchronized JSONArray conversation() {
         try { return new JSONArray(conversation.toString()); } catch (Exception e) { return new JSONArray(); }
     }
+    synchronized boolean conversationEmpty() { return conversation.length() == 0; }
     synchronized void clearConversation() { while (conversation.length() > 0) conversation.remove(0); conversationVersion++; changed(); }
     synchronized String conversationText() {
         StringBuilder text = new StringBuilder();
@@ -1018,6 +1049,8 @@ final class AppStore {
         return WorkBook.CLAUDE.equals(engine) ? secrets.get(SecretStore.CLAUDE)
             : WorkBook.GEMINI.equals(engine) ? gemini.credential()
             : WorkBook.NIM.equals(engine) ? secrets.get(SecretStore.NIM)
+            : WorkBook.ANTIGRAVITY.equals(engine) ? (antigravity.connected() ? "antigravity-cli-signed-in" : "")
+            : WorkBook.GROQ.equals(engine) ? secrets.get(SecretStore.GROQ)
             : WorkBook.GROK.equals(engine) ? secrets.get(SecretStore.GROK) : secrets.get(SecretStore.OPENAI);
     }
     /**
@@ -1047,13 +1080,15 @@ final class AppStore {
         return WorkBook.CLAUDE.equals(engine) ? secrets.stamp(SecretStore.CLAUDE)
             : WorkBook.GEMINI.equals(engine) ? secrets.stamp(SecretStore.GEMINI_WORK) + "|" + secrets.stamp(SecretStore.GEMINI)
             : WorkBook.NIM.equals(engine) ? secrets.stamp(SecretStore.NIM)
+            : WorkBook.ANTIGRAVITY.equals(engine) ? "agy:" + antigravity.connected()
+            : WorkBook.GROQ.equals(engine) ? secrets.stamp(SecretStore.GROQ)
             : WorkBook.GROK.equals(engine) ? secrets.stamp(SecretStore.GROK) : secrets.stamp(SecretStore.OPENAI);
     }
     /** How engine's requests are paid: a subscription sign-in (ChatGPT plan, Grok) or an API key. */
     String usageRoute(String engine) {
         return switch (WorkBook.engine(engine)) {
-            case WorkBook.GROK -> UsageLedger.PLAN;
-            case WorkBook.GEMINI, WorkBook.CLAUDE, WorkBook.NIM -> UsageLedger.KEY;
+            case WorkBook.GROK, WorkBook.ANTIGRAVITY -> UsageLedger.PLAN;
+            case WorkBook.GEMINI, WorkBook.CLAUDE, WorkBook.NIM, WorkBook.GROQ -> UsageLedger.KEY;
             default -> openai.usesPlan() ? UsageLedger.PLAN : UsageLedger.KEY;
         };
     }

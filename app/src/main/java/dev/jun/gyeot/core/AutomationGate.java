@@ -44,23 +44,25 @@ public final class AutomationGate {
     private static final Pattern FORBIDDEN_KO = Pattern.compile(
         "결제|결재|구매|구입|주문|송금|이체|출금|입금|납부|지불|환전|매수|매도|대출|현금서비스|카드론|선물하기|대여|소장(?:하기|권|구매)|^소장|"
         + "후원하기|기부하기|충전|삭제|지우기|지워|지울|제거|비우기|비워|탈퇴|해지|언인스톨|포맷|공장초기화|초기화|휴지통(?:으로|에)(?:이동|보내|버리)|"
-        + "업그레이드|크레딧(?:구매|구입|충전|추가)|요금제(?:가입|변경)|플랜(?:가입|변경)");
+        + "크레딧(?:구매|구입|충전|추가)|요금제(?:가입|변경)|플랜(?:가입|변경)|(?:유료|프리미엄|정기|멤버십)구독|멤버십(?:가입|결제|시작)|구독(?:결제|료결제)");
     // Benign uses of those stems: battery charging, resetting a filter or a search.
     private static final String KO_BENIGN = "(?:배터리|고속|급속|무선|유선)충전|충전(?:중|기|량|상태|속도|케이블|단자|제한|모드)|(?:필터|검색어?|조건|선택|정렬|옵션|입력|줌|확대|화면)초기화";
     private static final Pattern FORBIDDEN_EN = Regex.unicode(
-        "(?i)\\b(?:pay(?:ments?)?|purchases?|buy(?:ing)?|checkout|check\\s?out|(?:place|complete|submit|confirm)\\s+(?:your\\s+|the\\s+|my\\s+)?order|order\\s+now|"
+        "(?i)(?<![A-Za-z0-9])(?:pay(?:ments?)?|purchases?|buy(?:ing)?|checkout|check\\s?out|(?:place|complete|submit|confirm)\\s+(?:your\\s+|the\\s+|my\\s+)?order|order\\s+now|"
         + "order\\s+(?:complete[d]?|completion|done|confirm(?:ed|ation)?|pending|placed|processing|in\\s+progress|success(?:ful)?|succeeded|failed|submitted|received)|"
         + "transfers?|withdraw\\w*|deposits?|top\\s?up|recharge|donate|cash\\s+advance|send\\s+money|"
         + "delete|remove|erase|uninstall|wipe|discard|factory\\s?reset|reset\\s+(?:phone|device|data|all|everything)|"
         + "clear\\s+(?:data|storage|cache|history|chat|conversation|all\\s+data)|(?:close|delete|deactivate|cancel)\\s+(?:my\\s+|your\\s+|the\\s+)?account|"
         + "format\\s+(?:sd|card|storage|device|disk|drive|usb)|empty\\s+(?:the\\s+)?(?:trash|bin)|move\\s+to\\s+(?:the\\s+)?(?:trash|bin)|"
-        + "upgrade[sd]?|go\\s+(?:pro|premium|plus)|get\\s+(?:pro|premium|plus)|(?:buy|get|add|purchase)\\s+(?:more\\s+)?credits?|subscribe\\s+to\\s+(?:pro|premium|plus))\\b");
+        + "go\\s+(?:pro|premium|plus)|get\\s+(?:pro|premium|plus)|(?:buy|get|add|purchase)\\s+(?:more\\s+)?credits?|subscribe\\s+to\\s+(?:pro|premium|plus|a\\s+plan|the\\s+plan)"
+        + "|start\\s+(?:my\\s+|your\\s+)?(?:paid\\s+)?subscription)(?![A-Za-z0-9])");
     private static final String EN_BENIGN = "(?:remove|clear|reset)\\s+(?:all\\s+)?filters?|remove\\s+from\\s+(?:search|results)|(?:file|data|usb|photo|media)\\s+transfers?|"
         + "transfer\\s+(?:files?|photos?|media|data)|clear\\s+(?:search|text|query|input)";
-    // A price or a coin spend: "₩12,000", "3,900원", "$4.99", "쿠키 3개로 보기", "Unlock for 3 coins".
-    private static final Pattern PRICE = Regex.unicode("(?i)[₩$€£¥]\\s*\\d|\\d[\\d,.]*\\s*(?:원|달러|유로|엔)(?:(?![가-힣a-z])|(?=에|짜리|씩|부터|이에요|입니다))|\\b(?:usd|krw|eur)\\s*\\d");
-    private static final Pattern SPEND = Regex.unicode("(?i)\\d+\\s*(?:개|코인|쿠키|캐시|포인트|젬|다이아|루비|골드|하트|별|원)\\s*(?:으로|로)\\s*(?:보기|열기|구매|구입|대여|소장|이용|받기|사용|잠금\\s*해제)"
-        + "|\\b(?:unlock|use|spend|redeem)\\b[^\\n]{0,20}?\\b\\d+\\s*(?:coins?|gems?|credits?|points?|cookies?|tokens?|diamonds?)\\b|\\b\\d+\\s*(?:coins?|gems?|credits?|cookies?|diamonds?)\\s+to\\s+(?:unlock|read|watch|view|buy)\\b");
+    // A price or a coin spend: "₩12,000", "3,900원", "$4.99", "쿠키 3개로 보기", "Unlock for 3 coins". A price alone is no money step:
+    // a product link or card shows one and only opens the product page (pricePays).
+    private static final Pattern PRICE = Regex.unicode("(?i)[₩$€£¥]\\s*\\d|\\d[\\d,.]*\\s*(?:원|달러|유로|엔)(?:(?![가-힣a-z])|(?=에|짜리|씩|부터|이에요|입니다))|(?<![A-Za-z0-9])(?:usd|krw|eur)\\s*\\d");
+    private static final Pattern SPEND = Regex.unicode("(?i)\\d+\\s*(?:개|코인|쿠키|캐시|포인트|젬|다이아|루비|골드|하트|별|원)\\s*(?:으로|로|에)\\s*(?:보기|열기|구매|구입|대여|소장|이용|받기|사용|시청|열람|잠금\\s*해제)"
+        + "|(?<![A-Za-z0-9])(?:unlock|use|spend|redeem)(?![A-Za-z0-9])[^\\n]{0,20}?\\b\\d+\\s*(?:coins?|gems?|credits?|points?|cookies?|tokens?|diamonds?)(?![A-Za-z0-9])|\\b\\d+\\s*(?:coins?|gems?|credits?|cookies?|diamonds?)\\s+to\\s+(?:unlock|read|watch|view|buy)(?![A-Za-z0-9])");
     // A read or navigation label ("결제 내역", "주문 조회", "Purchase history"): exempt unless a money or confirm verb is present.
     private static final Pattern READ_ENDING = Regex.unicode("(?i)(?:(?:내역|이력|기록|목록|리스트|현황|상세|정보|영수증|명세서?)(?:확인|조회|보기)?|조회|보기|열기|"
         + "history|list|lists|details?|records?|receipts?|status|summary|statements?|activity)$");
@@ -70,10 +72,62 @@ public final class AutomationGate {
         + "complete|completed|done|pending|processing|in\\s*progress|confirmed|successful|succeeded|failed|cancell?ed)$");
     private static final Pattern MONEY_VERB = Regex.unicode("(?i)(?:결제|결재|구매|구입|주문|송금|이체|출금|입금|납부|지불|충전|환전|매수|매도|대여|소장|후원|기부|삭제|제거|초기화|탈퇴|해지|포맷|선물)"
         + "(?:하기|하고|하|해|할|합|진행|요청|신청|확인|승인|동의)|바로구매|즉시구매|(?:확인|동의)(?:및|하고|후)(?:결제|구매|주문|송금|이체)|지우|비우|비워|지워"
-        + "|\\b(?:pay|buy|checkout|delete|remove|erase|clear|wipe|discard|empty|uninstall|reset|format|confirm|agree)\\b|\\border\\s+now\\b|\\bplace\\s+(?:your\\s+)?order\\b");
+        + "|(?<![A-Za-z0-9])(?:pay|buy|checkout|delete|remove|erase|clear|wipe|discard|empty|uninstall|reset|format|confirm|agree)(?![A-Za-z0-9])|\\border\\s+now\\b|\\bplace\\s+(?:your\\s+)?order\\b");
     // A forbidden operation in a verb form, as on a control ("결제하기", "삭제하고", "Pay now").
     private static final Pattern FORBIDDEN_VERB = Regex.unicode("(?:결제|결재|구매|구입|주문|송금|이체|출금|입금|납부|지불|충전|환전|매수|매도|대출|대여|소장|후원|기부|삭제|제거|초기화|탈퇴|해지|포맷|업그레이드)"
-        + "(?:하기|하고|하|해|할|합)|바로구매|즉시구매|지우|비우|지워|비워|(?i)^\\W*(?:pay|buy|purchase|checkout|order|delete|remove|erase|uninstall|wipe|discard|transfer|withdraw|deposit|donate|top\\s?up|upgrade)\\b");
+        + "(?:하기|하고|하|해|할|합)|바로구매|즉시구매|지우|비우|지워|비워|(?i)^\\W*(?:pay|buy|purchase|checkout|order|delete|remove|erase|uninstall|wipe|discard|transfer|withdraw|deposit|donate|top\\s?up|upgrade)(?![A-Za-z0-9])");
+    // The words that take a price: subscribing, joining, renting, "for $4.99" ("월 9,900원 구독하기", "Get Pro for $20/month",
+    // "1,250,000원 구매"); and softer ones (starting, unlocking, continuing) that take it unless the price is a discount or a
+    // coupon ("10,000원 할인 쿠폰 받기", "Get $10 off" pay nothing).
+    private static final Pattern COMMIT = Regex.unicode("(?i)(?:구독|가입|결제|구매|구입|주문|충전|후원|기부|선물|대여|소장|업그레이드)(?:하기|하고|하|해|할|합|$)"
+        + "|(?<![A-Za-z0-9])(?:subscribe|rent|upgrade|order|pay|buy|purchase|checkout)(?![A-Za-z0-9])"
+        + "|(?<![A-Za-z0-9])for\\s+(?:just\\s+|only\\s+)?(?:[₩$€£¥]\\s*\\d|\\d[\\d,.]*\\s*(?:원|달러|usd|krw|eur))");
+    private static final Pattern SOFT_COMMIT = Regex.unicode("(?i)(?:신청|시작|이용|계속|잠금\\s*해제|열람|시청)(?:하기|하고|하|해|할|합|$)"
+        + "|(?<![A-Za-z0-9])(?:get|start|continue|join|try|unlock|book)(?![A-Za-z0-9])");
+    private static final Pattern DISCOUNT = Regex.unicode("(?i)할인|쿠폰|적립|캐시백|(?<![A-Za-z0-9])(?:off|discount|coupon|cashback|save)(?![A-Za-z0-9])");
+    private static boolean takesPrice(String lower) {
+        String compact = lower.replaceAll("\\s+", "");
+        return COMMIT.matcher(lower).find() || COMMIT.matcher(compact).find()
+            || (SOFT_COMMIT.matcher(lower).find() || SOFT_COMMIT.matcher(compact).find()) && !DISCOUNT.matcher(lower).find();
+    }
+    // A price for a period ("월 9,900원", "$20/month", "연 99,000원"): a plan's price.
+    private static final Pattern PERIOD = Regex.unicode("(?i)(?:^|[\\s(])(?:월|매월|연|매년|년)\\s*[₩$]?\\s*\\d|/\\s*(?:월|년|연|mo|month|yr|year)(?![A-Za-z])"
+        + "|(?<![A-Za-z0-9])(?:per|a|each)\\s+(?:month|year)(?![A-Za-z])|(?<![A-Za-z0-9])(?:monthly|yearly|annually)(?![A-Za-z0-9])");
+    // A bare price's parts: amounts, a period and price words ("₩12,000", "$4.99/mo", "월 9,900원부터", "할인가 12,000원").
+    private static final Pattern PRICE_PARTS = Regex.unicode("(?i)[₩$€£¥]\\s*\\d[\\d,.]*|\\d[\\d,.]*\\s*(?:원|달러|유로|엔|usd|krw|eur)|(?:usd|krw|eur)\\s*\\d[\\d,.]*|\\d+"
+        + "|(?:매월|매년|부터|짜리|정가|판매가|할인가|최저가|가격|부가세|포함|별도)|(?<![가-힣])[월연년씩](?![가-힣])"
+        + "|(?<![A-Za-z0-9])(?:per|a|each|month|monthly|year|yearly|annually|mo|yr|from|only|just|now|price|incl|vat|tax)(?![A-Za-z0-9])");
+    private static String priceRest(String text) {
+        return PRICE_PARTS.matcher(text.toLowerCase(Locale.ROOT)).replaceAll(" ").replaceAll("[^\\p{L}]+", " ").strip();
+    }
+    /** A price that pays: shown alone (an app store's buy button is its price), with words that take it (COMMIT), or a plan's
+     * price for a period on a short control. A product link or card that only shows a price ("아이폰 17 1,250,000원") is none. */
+    static boolean pricePays(String text) {
+        String value = text == null ? "" : text.strip(), lower = value.toLowerCase(Locale.ROOT);
+        if (!PRICE.matcher(lower).find()) return false;
+        if (priceRest(value).isEmpty() || takesPrice(lower)) return true;
+        return PERIOD.matcher(lower).find() && actionLike(value);
+    }
+    /** A price is all there is to this label that a money step could be ("1,250,000원", "아이폰 17 1,250,000원", "Pro $20/month"): no
+     * word that takes it, no coin spend, nothing else forbidden. A link with it to a product page only opens the page. */
+    public static boolean priceOnly(String label) {
+        String lower = label == null ? "" : label.strip().toLowerCase(Locale.ROOT), compact = lower.replaceAll("\\s+", "");
+        if (!PRICE.matcher(lower).find() || SPEND.matcher(compact).find() || SPEND.matcher(lower).find() || takesPrice(lower)) return false;
+        String rest = priceRest(label);
+        return rest.isEmpty() || !forbiddenText(rest);
+    }
+    // "Upgrade" is a money step when it is a paid plan's: a plan named, or nothing named ("Upgrade", "지금 업그레이드"). An upgrade
+    // of a browser, an app or software, and a notice or a guide about one ("브라우저 업그레이드 안내"), is none.
+    private static final Pattern UPGRADE = Regex.unicode("(?i)업그레이드|(?<![A-Za-z0-9])upgrad(?:e[sd]?|ing)(?![A-Za-z0-9])");
+    private static final Pattern PLAN = Regex.unicode("(?i)요금제|플랜|멤버십|구독|유료|프리미엄|프로(?![그필젝세모듀토])|플러스|이용권|등급|저장\\s*공간|요금"
+        + "|(?<![A-Za-z0-9])(?:plans?|pro|premium|plus|max|team|business|enterprise|tier|subscription|membership|billing|account|paid|ultra|unlimited|storage|seats?)(?![A-Za-z0-9])");
+    private static final Pattern NOT_PLAN = Regex.unicode("(?i)브라우저|크롬|파이어폭스|엣지|사파리|앱|어플|소프트웨어|펌웨어|버전|윈도우|안드로이드|드라이버|시스템|업데이트|프로그램|플러그인|확장|안내|방법|가이드|도움말|공지|소식|후기|리뷰|비교|정보"
+        + "|(?<![A-Za-z0-9])(?:browsers?|chrome|firefox|edge|safari|apps?|applications?|software|firmware|versions?|os|windows|android|ios|drivers?|system|updates?|programs?|plugins?|extensions?|guide|how|help|notice|news|review|faq|tips?|info)(?![A-Za-z0-9])");
+    /** An upgrade of a paid plan (PLAN named, or nothing else named), never of a browser, an app or software, nor a notice about one. */
+    static boolean planUpgrade(String text) {
+        if (text == null || !UPGRADE.matcher(text).find()) return false;
+        return PLAN.matcher(text).find() || !NOT_PLAN.matcher(text).find();
+    }
 
     /** A read label, or with status also a record's status, with no money, spend or confirm verb in it. */
     private static boolean readLabel(String text, boolean status) {
@@ -96,15 +150,17 @@ public final class AutomationGate {
         String trimmed = label.strip().replaceAll("[\\s\\d()\\[\\]·•,.:;>›»→…+|/-]+$", "");
         return READ_NAVIGATION.matcher(trimmed.replaceAll("\\s+", "").toLowerCase(Locale.ROOT)).find() || READ_NAVIGATION.matcher(trimmed.toLowerCase(Locale.ROOT)).find();
     }
-    /** Text naming a forbidden operation: payment, purchase, order, money transfer, deletion, an account or data wipe, a price
-     * or a coin spend. Read and navigation labels ("결제 내역", "Purchase history", "필터 초기화") and a record's status ("결제 완료",
-     * "Order completed") are not forbidden text; a control that shows a status still is (forbiddenLabel). */
+    /** Text naming a forbidden operation: payment, purchase, order, money transfer, deletion, an account or data wipe, a paid
+     * plan's upgrade, a price that pays (pricePays: alone, with a word that takes it, or a plan's period) or a coin spend. A
+     * product link or card that only shows a price is none. Read and navigation labels ("결제 내역", "Purchase history",
+     * "필터 초기화") and a record's status ("결제 완료", "Order completed") are not forbidden text; a control that shows a status
+     * still is (forbiddenLabel). */
     public static boolean forbiddenText(String text) { return forbiddenText(text, true); }
     private static boolean forbiddenText(String text, boolean status) {
         if (text == null || text.isBlank()) return false;
         String lower = text.toLowerCase(Locale.ROOT), compact = lower.replaceAll("\\s+", "");
         boolean hit = FORBIDDEN_KO.matcher(compact.replaceAll(KO_BENIGN, "")).find() || FORBIDDEN_EN.matcher(lower.replaceAll(EN_BENIGN, " ")).find()
-            || PRICE.matcher(lower).find() || SPEND.matcher(compact).find() || SPEND.matcher(lower).find();
+            || planUpgrade(text) || pricePays(text) || SPEND.matcher(compact).find() || SPEND.matcher(lower).find();
         return hit && !readLabel(text, status);
     }
     // Section names that also name a forbidden step: KakaoTalk's 선물하기 tab, a 충전 tab, a 대여 or 소장 shelf, a 초기화 menu. A
@@ -161,7 +217,7 @@ public final class AutomationGate {
         return words.length <= 4;
     }
     private static final Pattern TIME_OR_DATE = Regex.unicode("(?i)(?:오전|오후|am|pm)\\s*\\d|\\d{1,2}:\\d{2}|\\d+\\s*(?:초|분|시간|일|주|개월|년)\\s*전|어제|그제|방금|"
-        + "\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일|\\d{2,4}[./-]\\s*\\d{1,2}[./-]\\s*\\d{1,2}|\\b(?:yesterday|today|just\\s+now|\\d+\\s*(?:s|m|h|d|w|mins?|minutes?|hrs?|hours?|days?)\\s+ago)\\b");
+        + "\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일|\\d{2,4}[./-]\\s*\\d{1,2}[./-]\\s*\\d{1,2}|(?<![A-Za-z0-9])(?:yesterday|today|just\\s+now|\\d+\\s*(?:s|m|h|d|w|mins?|minutes?|hrs?|hours?|days?)\\s+ago)(?![A-Za-z0-9])");
     /** One short reply sentence ("네, 그렇게 할게요", "이따 전화할게", "Sounds good!"): at most 40 characters, a sentence ending,
      * no time or date in it. As the only text of a row in a messaging app, it is a reply that one tap sends. */
     public static boolean replySentence(String text) {
@@ -179,22 +235,58 @@ public final class AutomationGate {
         if (!forbiddenText(label, status)) return false;
         String text = label.strip();
         if (actionLike(text) || FORBIDDEN_VERB.matcher(text.replaceAll("\\s+", "")).find() || FORBIDDEN_VERB.matcher(text.toLowerCase(Locale.ROOT)).find()) return true;
+        // A price with the word that takes it is the money step however long it reads ("Get Pro for $20/month").
+        if (PRICE.matcher(text.toLowerCase(Locale.ROOT)).find() && takesPrice(text.toLowerCase(Locale.ROOT)) && !statusText(text)) return true;
         // "결제 완료됨" ends like a sentence, yet on a control of its own it is the money step all the same.
         return !status && statusEnding(text) && text.split("\\s+").length <= 4;
     }
-    // A web address step that pays, moves money or deletes.
-    private static final Pattern FORBIDDEN_URL = Pattern.compile("(?i)(?:/|[?&][a-z_]+=)(?:checkout|payment|pay|purchase|buy|order|transfer|withdraw|delete|remove|uninstall)(?:[/?#.&=_-]|$)");
-    /** A web address that pays, moves money or deletes. */
+    // A web address step that pays, moves money or deletes: a checkout, payment, billing or order-confirm path or a pay endpoint
+    // (one path part: "/checkout", "/order/pay", "/pay.do", "/orderSheet", "/post/3/delete"), or an action key naming one
+    // ("?action=checkout", "?cmd=pay"). A sort or a filter that says order ("?sort=order", "?order=asc") is none, nor is an
+    // order's own page ("/order/123", "/my/orders") or a page about payments ("/news/payments-industry").
+    private static final Pattern MONEY_PART = Pattern.compile("(?i)(?:secure-?)?check-?out|payments?|pay|billing|purchase|buy|buy-?now|direct-?buy|instant-?buy|place-?order"
+        + "|order-?(?:confirm(?:ation)?|pay(?:ment)?|checkout|sheet|form|submit|place)|transfer|withdraw(?:al)?|remit(?:tance)?|top-?up|recharge|delete|remove|uninstall"
+        + "|(?:do|go|req|request|submit|proc)?(?:pay(?:ment)?|checkout|purchase)(?:proc|process|action|submit|request|ok|start|form|info|ready|approve)?");
+    private static final Set<String> ORDER_PART = Set.of("order", "orders", "cart", "basket", "bag");
+    private static final Set<String> ORDER_STEP = Set.of("confirm", "confirmation", "pay", "payment", "checkout", "place", "submit", "sheet", "form", "approve");
+    private static final Set<String> PLAN_PART = Set.of("plan", "plans", "pricing", "subscription", "subscriptions", "premium", "pro", "plus", "membership", "account", "billing");
+    private static final Pattern ACTION_KEY = Pattern.compile("(?i)action|act|cmd|command|mode|method|step|op|operation|do|task|fn|func");
+    /** A web address that pays, moves money or deletes (its path parts and its action keys; never its sort or filter keys). */
     public static boolean forbiddenUrl(String url) {
         if (url == null || url.isBlank()) return false;
+        String path, query;
         try {
             java.net.URI uri = new java.net.URI(url.strip());
-            String rest = (uri.getRawPath() == null ? "" : uri.getRawPath()) + (uri.getRawQuery() == null ? "" : "?" + uri.getRawQuery());
-            return FORBIDDEN_URL.matcher(rest).find();
-        } catch (Exception invalid) { return FORBIDDEN_URL.matcher(url).find(); }
+            path = uri.getRawPath() == null ? "" : uri.getRawPath(); query = uri.getRawQuery() == null ? "" : uri.getRawQuery();
+        } catch (Exception invalid) {
+            String plain = url.strip().replaceFirst("^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*", "").replaceFirst("#.*$", "");
+            int at = plain.indexOf('?'); path = at < 0 ? plain : plain.substring(0, at); query = at < 0 ? "" : plain.substring(at + 1);
+        }
+        java.util.List<String> parts = new ArrayList<>();
+        for (String part : path.split("[/;]")) {
+            String decoded;
+            try { decoded = java.net.URLDecoder.decode(part, java.nio.charset.StandardCharsets.UTF_8); } catch (IllegalArgumentException bad) { decoded = part; }
+            decoded = decoded.toLowerCase(Locale.ROOT).replaceFirst("\\.[a-z0-9]{1,5}$", "");
+            if (!decoded.isBlank()) parts.add(decoded);
+        }
+        for (int i = 0; i < parts.size(); i++) {
+            String part = parts.get(i);
+            if (MONEY_PART.matcher(part).matches() || MONEY_PART.matcher(part.replaceAll("[-_]", "")).matches()) return true;
+            if (i > 0 && ORDER_PART.contains(parts.get(i - 1)) && ORDER_STEP.contains(part)) return true;
+            if (part.equals("upgrade") && parts.stream().anyMatch(PLAN_PART::contains)) return true;
+        }
+        for (String pair : query.split("&")) {
+            int eq = pair.indexOf('=');
+            if (eq <= 0 || !ACTION_KEY.matcher(pair.substring(0, eq)).matches()) continue;
+            String value;
+            try { value = java.net.URLDecoder.decode(pair.substring(eq + 1), java.nio.charset.StandardCharsets.UTF_8).toLowerCase(Locale.ROOT).strip(); }
+            catch (IllegalArgumentException bad) { value = pair.substring(eq + 1).toLowerCase(Locale.ROOT); }
+            if (MONEY_PART.matcher(value).matches() || MONEY_PART.matcher(value.replaceAll("[-_\\s]", "")).matches() || value.equals("order") || value.equals("place_order")) return true;
+        }
+        return false;
     }
 
-    // Banking, card, pay, securities and crypto apps and sites, by package, launcher label or host.
+    // Banking, card, pay, securities and crypto apps, by package or launcher label (sites: bankingHost).
     private static final Pattern BANKING = Regex.unicode("(?i)bank|뱅크|뱅킹|은행|증권|securit|kbstar|shinhan|wooribank|woori|hanabank|kebhana|hana\\.?onq|하나원큐|원큐|"
         + "nh\\.?smart|nhallonepay|nonghyup|농협|ibk|kakaobank|카카오뱅크|toss|토스|kbank|케이뱅크|epost|우체국|suhyup|수협|kdb|citibank|씨티|scbank|standardchartered|"
         + "busanbank|kjbank|jbbank|knbank|jejubank|dgb|bnk|imbank|아이엠뱅크|새마을금고|kfcc|신협|저축은행|savingsbank|sbisb|"
@@ -215,21 +307,60 @@ public final class AutomationGate {
         if (!value.contains(" ") && value.contains(".") && value.toLowerCase(Locale.ROOT).contains("pay")) return true;
         return BANKING.matcher(value).find();
     }
-    /** A banking, securities or payment website. */
+    // Banking, card, securities, pay and crypto-exchange websites by their own domains (each with its subdomains): never a word
+    // inside a host, which also caught security news, the World Bank and blogs. Look-alike hosts are SecurityLink's.
+    private static final Set<String> MONEY_SITES = Set.of(
+        // Korean banks, savings banks and cooperatives
+        "kbstar.com", "shinhan.com", "wooribank.com", "hanabank.com", "kebhana.com", "ibk.co.kr", "nonghyup.com", "nhbank.com", "kdb.co.kr", "suhyup-bank.com",
+        "kbanknow.com", "kakaobank.com", "tossbank.com", "sc.co.kr", "standardchartered.co.kr", "citibank.co.kr", "busanbank.co.kr", "dgb.co.kr", "imbank.co.kr",
+        "kjbank.com", "jbbank.co.kr", "knbank.co.kr", "jejubank.co.kr", "epostbank.go.kr", "cu.co.kr", "kfcc.co.kr", "mgbank.co.kr", "fsb.or.kr", "sbisb.co.kr",
+        "oksavingsbank.com", "welcomebank.co.kr", "pepperbank.kr",
+        // Korean card companies
+        "kbcard.com", "shinhancard.com", "samsungcard.com", "hyundaicard.com", "lottecard.co.kr", "hanacard.co.kr", "wooricard.com", "bccard.com", "nhcard.co.kr",
+        // Korean securities
+        "kiwoom.com", "miraeasset.com", "samsungpop.com", "truefriend.com", "koreainvestment.com", "nhqv.com", "kbsec.com", "shinhansec.com", "shinhaninvest.com",
+        "hanaw.com", "daishin.com", "yuantakorea.com", "eugenefn.com", "imeritz.com", "ls-sec.co.kr", "ebestsec.co.kr", "hanwhawm.com", "iprovest.com", "db-fi.com",
+        "hmsec.com", "ibks.com", "sks.co.kr", "shinyoung.com", "hi-ib.com", "kiwoomsec.com", "tossinvest.com", "kakaopaysec.com",
+        // Pay and payment gateways
+        "toss.im", "tosspayments.com", "pay.naver.com", "kakaopay.com", "payco.com", "pay.samsung.com", "samsungpay.com", "wallet.samsung.com", "paypal.com", "paypal.me",
+        "checkout.stripe.com", "buy.stripe.com", "billing.stripe.com", "invoice.stripe.com", "dashboard.stripe.com", "pay.google.com", "payments.google.com",
+        "wallet.google.com", "pay.amazon.com", "alipay.com", "paytm.com", "venmo.com", "cash.app", "zellepay.com", "wise.com", "revolut.com", "westernunion.com",
+        "remitly.com", "moneygram.com", "payoneer.com", "skrill.com", "klarna.com", "afterpay.com", "affirm.com", "ssgpay.com", "lpay.com", "zeropay.or.kr",
+        "chai.finance", "inicis.com", "kcp.co.kr", "nicepay.co.kr", "danal.co.kr", "danalpay.com", "kgmobilians.com", "settlebank.co.kr", "kicc.co.kr", "ksnet.co.kr",
+        "payapp.kr", "smilepay.co.kr",
+        // Crypto exchanges and wallets
+        "upbit.com", "bithumb.com", "coinone.co.kr", "korbit.co.kr", "gopax.co.kr", "binance.com", "coinbase.com", "okx.com", "bybit.com", "kraken.com", "bitget.com",
+        "kucoin.com", "gate.io", "gate.com", "htx.com", "huobi.com", "mexc.com", "bitfinex.com", "bitstamp.net", "gemini.com", "crypto.com", "bitflyer.com", "probit.com",
+        "blockchain.com",
+        // Major banks and brokers elsewhere
+        "chase.com", "bankofamerica.com", "wellsfargo.com", "citi.com", "citibank.com", "capitalone.com", "usbank.com", "pnc.com", "hsbc.com", "hsbc.co.uk",
+        "barclays.co.uk", "lloydsbank.com", "natwest.com", "santander.com", "santander.co.uk", "bnpparibas.com", "db.com", "deutsche-bank.de", "ing.com", "mufg.jp",
+        "bk.mufg.jp", "smbc.co.jp", "mizuhobank.co.jp", "n26.com", "monzo.com", "schwab.com", "fidelity.com", "etrade.com", "robinhood.com", "interactivebrokers.com",
+        "vanguard.com", "tdbank.com", "rbcroyalbank.com", "commbank.com.au", "anz.com", "westpac.com.au", "dbs.com.sg", "ocbc.com", "uob.com.sg");
+    // A host whose own part says pay ("pay.example.com", "checkout.example.com", "billing.example.com"), never its last part.
+    private static final Pattern PAY_LABEL = Pattern.compile("(?:^|\\.)(?:pay|payment|payments|checkout|billing)\\.[^.]+(?:\\.[^.]+)*$");
+    /** A banking, card, securities, pay or crypto-exchange website: its host is one of MONEY_SITES or a subdomain of one, or names
+     * pay itself (PAY_LABEL). worldbank.org, a security news site or a blog about securities is none. */
     public static boolean bankingHost(String url) {
         try {
             String host = new java.net.URI(url == null ? "" : url.strip()).getHost();
-            return host != null && (BANKING.matcher(host).find() || host.toLowerCase(Locale.ROOT).matches("(?:.+\\.)?pay\\..+|.*pay\\.(?:com|co\\.kr|kr|net)"));
+            if (host == null || host.isBlank()) return false;
+            host = host.toLowerCase(Locale.ROOT).replaceFirst("\\.$", "");
+            if (PAY_LABEL.matcher(host).find()) return true;
+            for (String site = host; ; site = site.substring(site.indexOf('.') + 1)) {
+                if (MONEY_SITES.contains(site)) return true;
+                if (site.indexOf('.') < 0) return false;
+            }
         } catch (Exception invalid) { return false; }
     }
 
     // ── Kinds of consequential controls, from their labels ─────────────────────────────────────
 
-    private static final Pattern SEND_LABEL = Regex.unicode("(?i)보내|전송|발송|답장|\\b(?:send|reply|forward)\\b");
-    private static final Pattern POST_LABEL = Regex.unicode("(?i)게시|올리기|업로드|댓글|공유|포스팅|\\b(?:post|publish|upload|comment|share|tweet)\\b");
-    private static final Pattern SUBMIT_LABEL = Regex.unicode("(?i)제출|신청|예약|예매|접수|등록|가입|응모|\\b(?:submit|apply|book|reserve|register|sign ?up|enroll)\\b");
-    private static final Pattern CALL_LABEL = Regex.unicode("(?i)전화|통화|발신|\\b(?:call|dial)\\b");
-    private static final Pattern CONFIRM_LABEL = Regex.unicode("(?i)^(?:예|네|확인|동의|수락|허용|계속|ok|okay|yes)$|수락|동의|허용|\\b(?:accept|agree|allow|confirm|continue)\\b");
+    private static final Pattern SEND_LABEL = Regex.unicode("(?i)보내|전송|발송|답장|(?<![A-Za-z0-9])(?:send|reply|forward)(?![A-Za-z0-9])");
+    private static final Pattern POST_LABEL = Regex.unicode("(?i)게시|올리기|업로드|댓글|공유|포스팅|(?<![A-Za-z0-9])(?:post|publish|upload|comment|share|tweet)(?![A-Za-z0-9])");
+    private static final Pattern SUBMIT_LABEL = Regex.unicode("(?i)제출|신청|예약|예매|접수|등록|가입|응모|(?<![A-Za-z0-9])(?:submit|apply|book|reserve|register|sign ?up|enroll)(?![A-Za-z0-9])");
+    private static final Pattern CALL_LABEL = Regex.unicode("(?i)전화|통화|발신|(?<![A-Za-z0-9])(?:call|dial)(?![A-Za-z0-9])");
+    private static final Pattern CONFIRM_LABEL = Regex.unicode("(?i)^(?:예|네|확인|동의|수락|허용|계속|ok|okay|yes)$|수락|동의|허용|(?<![A-Za-z0-9])(?:accept|agree|allow|confirm|continue)(?![A-Za-z0-9])");
     public static Kind kind(String label) {
         String text = label == null ? "" : label.strip();
         if (text.isEmpty()) return Kind.OTHER;
@@ -252,7 +383,7 @@ public final class AutomationGate {
     private static final Pattern QUOTED = Pattern.compile("(?<![A-Za-z0-9])'[^'\\n]{1,200}'(?![A-Za-z0-9])|\"[^\"\\n]{1,200}\"|“[^”\\n]{0,200}”|‘[^’\\n]{0,200}’|「[^」\\n]{0,200}」|『[^』\\n]{0,200}』");
     private static final Pattern CLAUSE_BREAK = Regex.unicode("(?i)[,，.!?。！？;\\n]+|\\s(?:그리고|그런데|근데|하지만|그다음에?|다음에|and|but|then)\\s");
     // A clause that says not to do something ("보내지 마", "답장은 하지 말고", "don't send"): its action words ask for nothing.
-    private static final Pattern NEGATION = Regex.unicode("(?i)지\\s*(?:는|도|를)?\\s*(?:마|말|않)|말고|(?:^|\\s)(?:안|못)\\s+\\S|필요\\s*(?:없|는\\s*없)|하지\\s*않|\\b(?:don'?t|do\\s+not|never|no\\s+need|without)\\b");
+    private static final Pattern NEGATION = Regex.unicode("(?i)지\\s*(?:는|도|를)?\\s*(?:마|말|않)|말고|(?:^|\\s)(?:안|못)\\s+\\S|필요\\s*(?:없|는\\s*없)|하지\\s*않|(?<![A-Za-z0-9])(?:don'?t|do\\s+not|never|no\\s+need|without)(?![A-Za-z0-9])");
     private static final String PARTICLE = "\\s*(?:을|를|은|는|도|만|좀)?\\s*";
     // Passing words on to someone: a quoted ending ("늦는다고", "언제 오냐고", "확인했다고") right before a telling or asking verb.
     // What comes before the ending is the message, not the request (reported).
@@ -281,24 +412,24 @@ public final class AutomationGate {
         + "|삭제" + PARTICLE + "(?:해|하)|지워|지우|사\\s*(?:줘|주세요|줄래)"
         + "|" + RECIPIENT_TELL + "|(?:다|냐|라|자)고(?:만|는|도|요)?\\s*(?:좀\\s*)?(?:" + TELL + ")"
         // English post and reply are nouns as often as verbs ("read this post", "read the reply"): only an imperative asks.
-        + "|^\\s*(?:(?:please|pls|can\\s+you|could\\s+you|would\\s+you|will\\s+you|just|now|go\\s+ahead\\s+and)\\s+)*(?:post|reply)\\b|\\byou\\s+to\\s+(?:post|reply)\\b"
+        + "|^\\s*(?:(?:please|pls|can\\s+you|could\\s+you|would\\s+you|will\\s+you|just|now|go\\s+ahead\\s+and)\\s+)*(?:post|reply)(?![A-Za-z0-9])|\\byou\\s+to\\s+(?:post|reply)(?![A-Za-z0-9])"
         + "|\\border\\b(?!\\s+(?:status|history|details?|number|list|of|tracking))"
-        + "|\\b(?:tell|ask)\\s+(?!(?:me|us|about|what|which|who|whom|when|where|why|how|if|whether)\\b)[a-z]"
-        + "|\\b(?:send|respond|forward|publish|share|upload|comment|tweet|submit|apply|book|reserve|register|sign\\s*up|enroll|call|dial|tap|click|press|hit|touch"
+        + "|(?<![A-Za-z0-9])(?:tell|ask)\\s+(?!(?:me|us|about|what|which|who|whom|when|where|why|how|if|whether)(?![A-Za-z0-9]))[a-z]"
+        + "|(?<![A-Za-z0-9])(?:send|respond|forward|publish|share|upload|comment|tweet|submit|apply|book|reserve|register|sign\\s*up|enroll|call|dial|tap|click|press|hit|touch"
         + "|select|choose|pick|toggle|turn\\s+(?:on|off)|switch|enable|disable|type|enter|fill|write|save|add|copy|paste|download|install|subscribe|follow|make|create|generate"
-        + "|compose|draw|build|play|start|accept|agree|allow|approve|confirm|pay|buy|purchase|checkout|transfer|delete|remove|erase|uninstall)\\b");
+        + "|compose|draw|build|play|start|accept|agree|allow|approve|confirm|pay|buy|purchase|checkout|transfer|delete|remove|erase|uninstall)(?![A-Za-z0-9])");
     // Words of a read or a question.
     private static final Pattern READ = Regex.unicode("(?i)읽|요약|정리|알려|말해|보여|확인|찾아|검색|설명|번역|비교|알아|봐\\s*(?:줘|주|줄)|뭐|무슨|무엇|어때|어떤|어떻|어디|언제|누가|누구|왜|몇"
         + "|있어|있나|있니|있는지|있을까|왔어|왔나|왔니|왔는지|됐어|됐나|맞아|맞나|인가|일까|[?？]"
-        + "|\\b(?:read|summari[sz]e|summary|tell\\s+me|show\\s+me|what|which|who|when|where|why|how|is\\s+there|are\\s+there|any|check|explain|translate|compare|look\\s+up|find|search|list)\\b");
+        + "|(?<![A-Za-z0-9])(?:read|summari[sz]e|summary|tell\\s+me|show\\s+me|what|which|who|when|where|why|how|is\\s+there|are\\s+there|any|check|explain|translate|compare|look\\s+up|find|search|list)(?![A-Za-z0-9])");
     // A forbidden step asked for ("결제해 줘", "이 메일 삭제해 줘"); a mention ("결제 내역 보여 줘") is not one.
     private static final Pattern FORBIDDEN_ASK = Regex.unicode("(?i)(?:결제|결재|구매|구입|주문|송금|이체|출금|입금|납부|지불|충전|환전|매수|매도|대출|삭제|제거|초기화|탈퇴|해지|포맷|언인스톨|선물|대여|소장|후원|기부)"
         + PARTICLE + "(?:해|하|합|할)|(?<![가-힣])사\\s*(?:줘|주세요|줄래|주실래요)|지워|지우|비워|비우|없애|돈" + PARTICLE + "(?:보내|부쳐|부치)"
-        + "|\\b(?:pay|buy|purchase|checkout|check\\s+out|transfer|withdraw|deposit|delete|remove|erase|uninstall|wipe|reset|donate|send\\s+money)\\b|\\border\\s+(?:it|this|that|a|an|the|me|some|now|online)\\b");
+        + "|(?<![A-Za-z0-9])(?:pay|buy|purchase|checkout|check\\s+out|transfer|withdraw|deposit|delete|remove|erase|uninstall|wipe|reset|donate|send\\s+money)(?![A-Za-z0-9])|\\border\\s+(?:it|this|that|a|an|the|me|some|now|online)(?![A-Za-z0-9])");
     // A generation request: make, create, draw, compose, write a text or code, or ask an AI. "그리고" is "and", never "draw".
     private static final Pattern GENERATE = Regex.unicode("(?i)만들(?!어진|어져|어졌)|(?:생성|제작|작곡|작사|편곡|작성|구현|개발|질문)" + PARTICLE + "(?:해|하)|그려|그리(?!고)|물어봐|물어보"
         + "|(?:글|코드|시|소설|가사|이야기|대본|스크립트|에세이|보고서|요약문|이메일|메일|답변|프롬프트|함수|프로그램)[^,\\n]{0,15}?(?:써|쓰)"
-        + "|\\b(?:make|making|create|creating|generate|generating|compose|composing|draw|drawing|build|building|write|ask)\\b");
+        + "|(?<![A-Za-z0-9])(?:make|making|create|creating|generate|generating|compose|composing|draw|drawing|build|building|write|ask)(?![A-Za-z0-9])");
     /** The user's words in clauses, quotes taken out, each with whether it says not to do something. A "not" or a question word
      * inside a message passed on ("오늘 못 간다고 알려 줘", "언제 오냐고 카톡해 줘") is the message's own (reported). */
     private record Clause(String text, String request, boolean negated) {}
@@ -343,10 +474,10 @@ public final class AutomationGate {
 
     // ── Deleting what the user asked to delete ───────────────────────────────────────────────────
 
-    private static final Pattern DELETE_WORDS = Regex.unicode("(?i)삭제(?:하기)?|지우기|지워|지울|지우|제거(?:하기)?|휴지통(?:으로|에)\\s*(?:이동|보내기?|버리기?)|\\b(?:delete|remove|erase|discard)\\b|\\bmove\\s+to\\s+(?:the\\s+)?(?:trash|bin)\\b");
+    private static final Pattern DELETE_WORDS = Regex.unicode("(?i)삭제(?:하기)?|지우기|지워|지울|지우|제거(?:하기)?|휴지통(?:으로|에)\\s*(?:이동|보내기?|버리기?)|(?<![A-Za-z0-9])(?:delete|remove|erase|discard)(?![A-Za-z0-9])|\\bmove\\s+to\\s+(?:the\\s+)?(?:trash|bin)(?![A-Za-z0-9])");
     // What an item's deletion never covers: an account or a membership, the phone or its data, an app, a store emptied at once.
-    private static final Pattern WIPE_WORDS = Regex.unicode("(?i)탈퇴|해지|계정|회원|초기화|포맷|언인스톨|비우|비워|모두|전체|일괄|\\b(?:account|reset|format|uninstall|empty|all|everything)\\b");
-    private static final Pattern DELETE_ASK = Regex.unicode("(?i)(?:삭제|제거)\\s*(?:해|하|시켜|좀)|(?:삭제|제거)[\\s.!~]*$|지워|지우|\\b(?:delete|remove|erase)\\b");
+    private static final Pattern WIPE_WORDS = Regex.unicode("(?i)탈퇴|해지|계정|회원|초기화|포맷|언인스톨|비우|비워|모두|전체|일괄|(?<![A-Za-z0-9])(?:account|reset|format|uninstall|empty|all|everything)(?![A-Za-z0-9])");
+    private static final Pattern DELETE_ASK = Regex.unicode("(?i)(?:삭제|제거)\\s*(?:해|하|시켜|좀)|(?:삭제|제거)[\\s.!~]*$|지워|지우|(?<![A-Za-z0-9])(?:delete|remove|erase)(?![A-Za-z0-9])");
     /**
      * A control whose only forbidden part is deleting an item ("삭제", "대화 삭제", "Delete", "Remove"): no price or coin, no
      * money step, no account, no wipe, no "delete all". Such a control may run when the user asked to delete (browser only).
@@ -359,7 +490,7 @@ public final class AutomationGate {
     /** Whether the user's own words ask to delete something ("최근 대화 10개 삭제해 줘", "지워"), outside a "don't", and not an account, the phone or everything. */
     public static boolean requestsDeletion(String userWords) {
         if (userWords == null || !asks(DELETE_ASK, userWords)) return false;
-        return !Regex.unicode("(?i)탈퇴|해지|계정|회원|초기화|포맷|언인스톨|\\b(?:account|reset|format|uninstall)\\b").matcher(userWords).find();
+        return !Regex.unicode("(?i)탈퇴|해지|계정|회원|초기화|포맷|언인스톨|(?<![A-Za-z0-9])(?:account|reset|format|uninstall)(?![A-Za-z0-9])").matcher(userWords).find();
     }
 
     // ── A generation site's own create control ───────────────────────────────────────────────────

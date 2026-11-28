@@ -11,9 +11,11 @@ import java.util.regex.Pattern;
 public final class MainBrowser {
     private MainBrowser() {}
     /** Function rounds a reply that browses may take: a large collection is several rounds of downloads and of saves. */
-    public static final int ROUNDS = 40;
+    public static final int ROUNDS = 200;
     private static final Pattern WANTED = Pattern.compile("브라우저|사이트|홈페이지|웹\\s*페이지|다운로드|내려\\s*받|받아\\s*(?:줘|주|서|와|놔|둬)|수집|모아\\s*(?:줘|주|서|와|놔|둬)|백그라운드|뒤에서|들퍼레|폴더"
-        + "|(?i:browser|download|background|folder)");
+        // Work done on a site (posting, uploading, signing up), the sites people do it on, an address, and a document of steps to follow.
+        + "|업로드|올려|올리기|게시|포스팅|발행|예약\\s*(?:해|걸)|신청|예매|주문|접속|유튜브|스튜디오|인스타|틱톡|페이스북|트위터|블로그|네이버|쿠팡|당근|지시서"
+        + "|https?://|www\\.|(?i:browser|download|background|folder|upload|youtube|studio|instagram|tiktok|facebook|twitter|website)");
     /** Whether the user's words are about what the browser and the folder do; only then are they offered. */
     public static boolean wanted(String words) { return words != null && WANTED.matcher(words).find(); }
 
@@ -27,5 +29,13 @@ public final class MainBrowser {
         + "Files you do not keep with folder_save in this reply are removed when it ends, so save every file the user wants kept before you answer; "
         + "a file you cannot tell apart is still saved, under its downloaded name, and you say so. "
         + "Check with folder_list first and do not download what is already there. "
+        + "To upload a file to a site (a video to YouTube Studio, a picture to a post), get it onto the phone first: a Drive file with drive_download (it returns size and sha256; compare them with what the user's document says before going on), then run browser_tasks naming that file to attach. "
+        + "Files already checked earlier in this conversation, or that the user says are fine, are not downloaded or checked again: they are in the 들퍼레 folder, and the browser job attaches them by path (영상/x.mp4) — name that path in the task. "
+        + "When the user names the browser's AI in their recent messages (\"grok으로\"), set it with browser_ai before the task, even if this message only says go. "
+        + "A YouTube upload to another channel or Google account: tell the browser job to switch on https://www.youtube.com first (its account menu → 계정 전환, then the channel), check the channel name shown, and only then upload at https://www.youtube.com/upload (Studio opens on the account chosen there); never attach a file while another channel is open. "
+        + "A browser job that comes back with mutation_unresolved met an earlier step whose result is unknown: read the site to see whether it happened (the content list, drafts), tell the user what you found, and ask them to tap the notification '이전 브라우저 작업 확인'; run it again after they confirm. "
+        + "When the user asks how browser work is going, answer from the browser work record in parallel_replies (its step count, site and latest steps), never that there is nothing to tell. "
+        + "A browser job that comes back with error_code no_progress stopped going in circles, or after 150 steps that reached no new page and gathered nothing: tell the user where (site) and why in one or two sentences, and what it already did (steps_done). "
+        + "When they ask to go on, run it again from the first step not done, naming what is done (\"영상은 이미 올라가 초안으로 있음: 스튜디오 콘텐츠 목록에서 그 초안을 열어 이어서\"); never upload the same file again. "
         + "When you answer, say plainly what was saved where and what could not be done and why; never claim a download or a save a result did not confirm.";
 }

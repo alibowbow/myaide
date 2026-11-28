@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 들퍼레 움직이는 배경화면 (HtmlWallpaper): the page is chosen in 내 휴대폰 → 화면 꾸미기 (DecorActivity). -->
+<wallpaper xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/wallpaper_about"
+    android:thumbnail="@mipmap/ic_launcher" />

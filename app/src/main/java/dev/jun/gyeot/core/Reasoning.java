@@ -12,6 +12,8 @@ public final class Reasoning {
         "default_reasoning_level", "default_reasoning_effort", "defaultReasoningEffort", "supports_reasoning"};
     private static final List<String> ORDER = List.of("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra");
     private Reasoning() {}
+    /** How deep a level thinks: none 0 … ultra 7 (unknown and the model default -1), for listing them shallow to deep. */
+    public static int rank(String effort) { return ORDER.indexOf(effort == null ? "" : effort); }
 
     public static final class Profile {
         public final List<String> efforts;

@@ -105,6 +105,49 @@ final class YouTubeTranscriptClient {
             if (failed instanceof java.util.concurrent.CancellationException) throw (RuntimeException) failed;
             why = failed.getMessage() == null || failed.getMessage().isBlank() ? "유튜브에 연결하지 못했어요." : failed.getMessage();
         }
+        // The page's caption files now ask for a token the app cannot make and come back empty. yt-dlp in the app's Linux
+        // asks as YouTube's TV and other apps do, whose caption files need none: the video's own captions in seconds, before
+        // its sound is downloaded for Whisper (준: "왜 대본가져오기를 한번에 못한거지" — a 23-minute talk went to Whisper).
+        if (YouTubeAudio.ready(context)) {
+            try {
+                if (progress != null) progress.accept("yt-dlp로 유튜브 자막을 받는 중");
+                JSONObject info = YouTubeAudio.info(context, id, cancel);
+                if (video.title().isEmpty() && !info.optString("title").isEmpty())
+                    video = new YouTubeTranscript.Video(id, info.optString("title"), info.optString("channel", info.optString("uploader", "")), info.optInt("duration"), true, "");
+                List<YouTubeTranscript.Track> listed = new java.util.ArrayList<>(YouTubeTranscript.ytdlpTracks(info));
+                Map<String, String> plain = new LinkedHashMap<>(); plain.put("User-Agent", DESKTOP); plain.put("Accept", "*/*");
+                int tries = 0; String empty = "";
+                while (!listed.isEmpty() && tries++ < 3) {
+                    YouTubeTranscript.Track track = YouTubeTranscript.pick(listed); listed.remove(track);
+                    List<YouTubeTranscript.Line> got = YouTubeTranscript.lines(get(track.url(), plain, CAPTION_BYTES, cancel));
+                    if (!got.isEmpty()) { save(context, id, YouTubeTranscript.readable(video, YouTubeTranscript.source(track), YouTubeTranscript.text(got))); return keep(id, YouTubeTranscript.block(video, track, got, YouTubeTranscript.LIMIT)); }
+                    empty = " (받은 자막 파일이 비어 있었어요)";
+                }
+                why += tries == 0 ? " yt-dlp로 봐도 이 영상에는 자막이 없어요." : " yt-dlp로 받은 자막도 쓸 수 없었어요" + empty + ".";
+            } catch (java.util.concurrent.CancellationException halted) { throw halted; }
+            catch (Exception failed) { why += " yt-dlp로 자막을 받는 것도 안 됐어요: " + (failed.getMessage() == null || failed.getMessage().isBlank() ? "이유를 알 수 없어요." : failed.getMessage()); }
+        }
+        // No captions to read (a song, as a rule): the sound itself, taken by yt-dlp in the app's Linux and written down by Groq's Whisper.
+        if (GroqWork.on()) {
+            if (!YouTubeAudio.ready(context)) why += " 마이튜브의 'MP3'에서 유튜브 오디오 도구를 준비하면 Groq Whisper가 소리를 듣고 받아 적을 수 있어요.";
+            else {
+                java.io.File audio = null;
+                try {
+                    if (progress != null) progress.accept("소리를 받아 Groq Whisper가 받아 적는 중");
+                    audio = YouTubeAudio.forTranscript(context, id, cancel);
+                    if (stopped != null && stopped.getAsBoolean()) throw new java.util.concurrent.CancellationException();
+                    String words = GroqWork.transcribe(audio, YouTubeAudio.mime(audio), cancel);
+                    if (words == null) why += " Groq Whisper가 지금은 받을 수 없었어요 (무료 한도이거나 소리 파일이 25MB를 넘어요).";
+                    else if (words.isBlank()) why += " Groq Whisper가 들은 말이 없었어요.";
+                    else {
+                        save(context, id, YouTubeTranscript.readable(video, "Groq Whisper가 소리를 듣고 받아 적은 대본 (가사·말이 틀릴 수 있어요)", words));
+                        return keep(id, YouTubeTranscript.fromSite(video, words, YouTubeTranscript.LIMIT));
+                    }
+                } catch (java.util.concurrent.CancellationException halted) { throw halted; }
+                catch (Exception failed) { why += " Groq Whisper로 받아 적는 것도 안 됐어요: " + (failed.getMessage() == null || failed.getMessage().isBlank() ? "이유를 알 수 없어요." : failed.getMessage()); }
+                finally { YouTubeAudio.forget(audio); }
+            }
+        }
         // The app could not read it itself: its own browser asks Gemini's site, in the background, when that is on.
         if (((GyeotApp) context.getApplicationContext()).store().youtubeGeminiWeb()) {
             try {
@@ -122,13 +165,38 @@ final class YouTubeTranscriptClient {
      * is kept like a transcript (saying where it came from). Blocking.
      */
     static String writeDown(android.content.Context context, String id, String title, String channel, String key, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
+        return writeDown(context, id, title, channel, key, "", guard, cancel);
+    }
+    /** As writeDown, saying under its title why Groq Whisper did not write it (note; "" for nothing). */
+    static String writeDown(android.content.Context context, String id, String title, String channel, String key, String note, Runnable guard, AtomicReference<Runnable> cancel) throws Exception {
         String words = GeminiAudioClient.watchYouTube(key, id, YouTubeTranscript.WRITE_DOWN, guard, cancel);
         if (words == null || words.isBlank()) throw new IOException("Gemini가 대본을 적어 주지 않았어요.");
         save(context, id, YouTubeTranscript.readable(new YouTubeTranscript.Video(id, title == null ? "" : title, channel == null ? "" : channel, 0, true, ""),
-            "Gemini가 영상을 보고 받아 적은 대본 (빠지거나 틀린 부분이 있을 수 있어요)", words));
+            GEMINI_WROTE + " (빠지거나 틀린 부분이 있을 수 있어요" + (note == null || note.isBlank() ? "" : " · Whisper를 못 쓴 이유: " + note) + ")", words));
         return saved(context, id);
     }
     static final String KIND = "youtube";
+    static final String GEMINI_WROTE = "Gemini가 영상을 보고 받아 적은 대본";
+    /** Why Groq Whisper cannot write this down now ("" when it can): no Groq key, or no audio tools in the app's Linux. */
+    static String whisperBlocker(android.content.Context context) {
+        if (!GroqWork.on()) return "Groq가 연결돼 있지 않아요 (설정 → Groq, 무료 키)";
+        if (!YouTubeAudio.ready(context)) return "유튜브 오디오 도구(yt-dlp)가 아직 없어요";
+        return "";
+    }
+    /** The sentence block() wrote about Groq Whisper's try, or "" when it did not try. */
+    static String whisperFailure(String block) {
+        String text = block == null ? "" : block; int at = text.indexOf("Groq Whisper");
+        if (at < 0) return "";
+        int end = text.indexOf('.', at); String said = text.substring(at, end < 0 ? Math.min(text.length(), at + 200) : end + 1).strip();
+        return said.length() > 200 ? said.substring(0, 200) + "…" : said;
+    }
+    /** The kept transcript was written by Gemini (its site or the API), not read from YouTube's captions or by Whisper. */
+    static boolean byGemini(android.content.Context context, String id) {
+        String kept = saved(context, id); int head = Math.min(kept.length(), 400);
+        return kept.substring(0, head).contains(GEMINI_WROTE) || kept.substring(0, head).contains("Gemini 홈페이지에서 받아 온 대본");
+    }
+    /** The kept transcript goes (to be read again another way). */
+    static void forget(android.content.Context context, String id) { KeptText.remove(context, KIND, id); synchronized (READ) { READ.remove(id); } }
     /** Whether a transcript is kept for this video. */
     static boolean kept(android.content.Context context, String id) { return KeptText.kept(context, KIND, id); }
     /** The transcript kept for reading (YouTubeTranscript.readable), or "" when this video has none. */

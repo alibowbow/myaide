@@ -17,7 +17,7 @@ import java.util.function.Consumer;
  * it is the same as without.
  */
 public record MainRequest(String instructions, String input, Consumer<String> onText, Consumer<String> onThinking,
-        boolean search, boolean fetch, List<Attachment> files, Consumer<Usage> onUsage, String cacheKey, boolean always) {
+        boolean search, boolean fetch, List<Attachment> files, Consumer<Usage> onUsage, String cacheKey, boolean always, boolean code) {
     /** The optional parts, all off by default; the label names one in a refusal. */
     public enum Option {
         THINKING_SUMMARY("생각 요약"), SEARCH("웹 검색"), FETCH("링크 읽기"), FILES("사진·PDF 첨부"), USAGE("사용량 집계");
@@ -69,21 +69,28 @@ public record MainRequest(String instructions, String input, Consumer<String> on
         if (cacheKey != null && cacheKey.isBlank()) cacheKey = null;
     }
     /** The text alone, as the main chat always sent it: no partial text and no option. */
-    public static MainRequest of(String instructions, String input) { return new MainRequest(instructions, input, QUIET, null, false, false, List.of(), null, null, false); }
+    public static MainRequest of(String instructions, String input) { return new MainRequest(instructions, input, QUIET, null, false, false, List.of(), null, null, false, false); }
     /** A copy whose answer goes to onText piece by piece as it streams in; null takes none. */
-    public MainRequest onText(Consumer<String> onText) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, cacheKey, always); }
+    public MainRequest onText(Consumer<String> onText) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, cacheKey, always, code); }
     /**
      * A copy asking for the provider's readable summary of its thinking, for onThinking; null asks for none. Only a request
      * that already thinks carries it (a GPT model sent a reasoning level, a Claude model with adaptive thinking, Gemini's
      * thinking setting); with no thinking there is nothing to summarize and no field is sent.
      */
-    public MainRequest thinkingSummary(Consumer<String> onThinking) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, cacheKey, always); }
+    public MainRequest thinkingSummary(Consumer<String> onThinking) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, cacheKey, always, code); }
     /** A copy with the provider's own hosted web search and page reading, as asked. */
-    public MainRequest tools(boolean search, boolean fetch) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, cacheKey, always); }
+    public MainRequest tools(boolean search, boolean fetch) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, cacheKey, always, code); }
     /** A copy whose web search is forced (검색: 항상) where the provider can force it; it rides on search, so alone it adds nothing. */
-    public MainRequest searchAlways(boolean always) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, cacheKey, always); }
+    public MainRequest searchAlways(boolean always) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, cacheKey, always, code); }
+    /**
+     * A copy whose provider may run code on its own servers (Claude's code execution, Gemini's, Grok's code interpreter) for
+     * exact numbers; the other engines ignore it (python_run on the phone is theirs).
+     */
+    public MainRequest code(boolean code) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, cacheKey, always, code); }
+    /** The engines whose main-chat client can ask for the provider's own code execution. */
+    public static boolean hostsCode(String engine) { String e = WorkBook.engine(engine); return WorkBook.CLAUDE.equals(e) || WorkBook.GEMINI.equals(e) || WorkBook.GROK.equals(e); }
     /** A copy with these photos and PDFs attached to the question; null or none attaches nothing. */
-    public MainRequest files(List<Attachment> files) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, cacheKey, always); }
+    public MainRequest files(List<Attachment> files) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, cacheKey, always, code); }
     /** The attached files as 작업창's turns carry them, for the clients; null when there are none, so a request without them is sent as before. */
     public org.json.JSONArray parts() {
         if (files.isEmpty()) return null;
@@ -95,13 +102,13 @@ public record MainRequest(String instructions, String input, Consumer<String> on
      * A copy that reports what the request used to onUsage, once, when its answer has come (the provider responses it took
      * summed, core/Usage); null reports nothing. A count the provider did not give is null there.
      */
-    public MainRequest onUsage(Consumer<Usage> onUsage) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, cacheKey, always); }
+    public MainRequest onUsage(Consumer<Usage> onUsage) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, cacheKey, always, code); }
     /**
      * A copy whose fixed start the provider may keep in its prompt cache, under key (a hash, never content): Claude marks the
      * end of the instructions for its cache, ChatGPT sends the key as prompt_cache_key, and the other engines cache on
      * their own. Not an option: every engine takes it or has nothing to send. Null or blank asks for nothing.
      */
-    public MainRequest cache(String key) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, key, always); }
+    public MainRequest cache(String key) { return new MainRequest(instructions, input, onText, onThinking, search, fetch, files, onUsage, key, always, code); }
 
     public boolean streams() { return onText != QUIET; }
     public boolean thinkingSummary() { return onThinking != null; }
@@ -132,6 +139,7 @@ public record MainRequest(String instructions, String input, Consumer<String> on
             case WorkBook.CLAUDE, WorkBook.GEMINI -> EnumSet.of(Option.THINKING_SUMMARY, Option.SEARCH, Option.FETCH, Option.FILES, Option.USAGE);
             case WorkBook.GROK -> EnumSet.of(Option.SEARCH, Option.FILES, Option.USAGE);
             case WorkBook.NIM -> EnumSet.of(Option.FILES, Option.USAGE);
+            case WorkBook.ANTIGRAVITY, WorkBook.GROQ -> EnumSet.noneOf(Option.class);
             default -> EnumSet.of(Option.THINKING_SUMMARY, Option.SEARCH, Option.FILES, Option.USAGE);
         };
     }
@@ -161,7 +169,7 @@ public record MainRequest(String instructions, String input, Consumer<String> on
         Set<Option> left = unsupported(engine);
         if (left.isEmpty()) return this;
         return new MainRequest(instructions, input, onText, left.contains(Option.THINKING_SUMMARY) ? null : onThinking, search && !left.contains(Option.SEARCH),
-            fetch && !left.contains(Option.FETCH), left.contains(Option.FILES) ? List.of() : files, left.contains(Option.USAGE) ? null : onUsage, cacheKey, always);
+            fetch && !left.contains(Option.FETCH), left.contains(Option.FILES) ? List.of() : files, left.contains(Option.USAGE) ? null : onUsage, cacheKey, always, code);
     }
     /** Sizes and options only: the conversation never goes to a log or an error. */
     @Override public String toString() { return "MainRequest[" + instructions.length() + "+" + input.length() + " chars, " + options() + (always && search ? ", always" : "") + (cacheKey == null ? "" : ", cached") + "]"; }

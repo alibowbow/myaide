@@ -17,6 +17,11 @@ public final class GyeotApp extends Application {
     private int startedActivities;
     /** The activity of this app in front now, if any (main thread). */
     private java.lang.ref.WeakReference<Activity> resumed = new java.lang.ref.WeakReference<>(null);
+    /** The phone's light/dark mode changed: the AI 브라우저's pages follow at once (BrowserRuntime.configurationChanged). */
+    @Override public void onConfigurationChanged(android.content.res.Configuration config) {
+        super.onConfigurationChanged(config);
+        BrowserRuntime.configurationChanged(config);
+    }
     @Override public void onCreate() {
         super.onCreate();
         // Gecko also starts Android child processes. They must not restore/cancel the main app's work journal.
@@ -34,6 +39,8 @@ public final class GyeotApp extends Application {
             });
             DiagnosticsExport.installCrashRecorder(this);
             store = new AppStore(this);
+            // 하루 기록 (core/DayLog): the book is only opened here; nothing is read until a line is kept or asked for.
+            DayLogs.start(this, store);
             // Gemini 무료 한도, shared by every Gemini call the app makes on its own.
             GeminiQuotas.use(store);
             if (SecurityWatch.enabled(this)) SecurityWatch.restore(this);
@@ -42,8 +49,18 @@ public final class GyeotApp extends Application {
             if (exit != null) store.exitNotice = exit;
             // Alarms do not survive a phone restart and nothing listens for boot: the 예약 작업 alarm comes back here.
             WorkScheduleAlarm.refresh(this, store);
+            // 조건 알림 (사건 트리거): read once and listened for as the triggers need, off the main thread.
+            TriggerWatch.start(this);
             // Pictures and videos saved by an older version were never registered with Android's media index; do it once, off the main thread.
-            AppStore saved = store; Thread index = new Thread(() -> MediaIndex.registerExisting(this, saved), "media-index"); index.setDaemon(true); index.start();
+            AppStore saved = store; Thread index = new Thread(() -> {
+                MediaIndex.registerExisting(this, saved);
+                // Sound files a YouTube fetch left half-made (stopped, failed, the app closed mid-way) go once they are an hour old.
+                try { YouTubeAudio.sweep(this, System.currentTimeMillis()); } catch (RuntimeException ignored) {}
+                // 미니앱 알림 set for later by a page: alarms do not survive a restart, so each is set again here.
+                try { PageNotices.rearm(this); } catch (RuntimeException ignored) {}
+                // 남는 한도로 한 일 (SpareWork): its job set for the hours before the free day starts again.
+                try { SpareWork.schedule(this, saved); } catch (RuntimeException ignored) {}
+            }, "media-index"); index.setDaemon(true); index.start();
         }
     }
     /** Any of this app's activities is started, not only MainActivity: the app has a visible window. */

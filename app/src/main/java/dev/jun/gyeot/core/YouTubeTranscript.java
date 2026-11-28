@@ -132,6 +132,39 @@ public final class YouTubeTranscript {
      * The track to read: Korean written by a person, Korean by recognition, English the same way, then any written by a
      * person, then the first. null when there is none.
      */
+    /**
+     * The caption tracks in yt-dlp's information on the video (yt-dlp -J): the ones people wrote (subtitles), then the speech
+     * recognition in the video's own language (automatic_captions' "<language>-orig", or its language's key), not the
+     * hundred machine translations of it. Each as its json3 file; addresses that need YouTube's token are left out.
+     */
+    public static List<Track> ytdlpTracks(org.json.JSONObject info) {
+        List<Track> out = new java.util.ArrayList<>(); if (info == null) return out;
+        org.json.JSONObject written = info.optJSONObject("subtitles"), auto = info.optJSONObject("automatic_captions");
+        if (written != null) for (java.util.Iterator<String> keys = written.keys(); keys.hasNext();) {
+            String key = keys.next(); if (key.equals("live_chat")) continue;
+            Track t = ytdlpTrack(written.optJSONArray(key), key, false); if (t != null) out.add(t);
+        }
+        if (auto != null) {
+            String own = info.optString("language", "");
+            String key = null;
+            for (java.util.Iterator<String> keys = auto.keys(); keys.hasNext();) { String k = keys.next(); if (k.endsWith("-orig")) { key = k; break; } }
+            if (key == null && !own.isEmpty() && auto.has(own)) key = own;
+            if (key != null) { Track t = ytdlpTrack(auto.optJSONArray(key), key.replace("-orig", ""), true); if (t != null) out.add(t); }
+        }
+        return out;
+    }
+    private static Track ytdlpTrack(org.json.JSONArray files, String language, boolean auto) {
+        if (files == null) return null;
+        String url = "", name = "";
+        for (int i = 0; i < files.length(); i++) {
+            org.json.JSONObject f = files.optJSONObject(i); if (f == null) continue;
+            String u = f.optString("url"); if (u.isEmpty() || needsToken(u)) continue;
+            if (name.isEmpty()) name = f.optString("name", "");
+            if ("json3".equals(f.optString("ext"))) { url = u; break; }
+            if (url.isEmpty() && ("srv3".equals(f.optString("ext")) || "srv1".equals(f.optString("ext")))) url = u;
+        }
+        return url.isEmpty() || !url.startsWith("https://www.youtube.com/") ? null : new Track(url, language, name, auto);
+    }
     public static Track pick(List<Track> tracks) {
         for (String language : new String[] {"ko", "en"}) for (boolean auto : new boolean[] {false, true})
             for (Track track : tracks) if (track.auto() == auto && track.language().toLowerCase(Locale.ROOT).startsWith(language)) return track;

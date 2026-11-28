@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>트레이딩</title>
+<style>
+  :root {
+    --bg: #f4f3ef; --card: #ffffff; --raised: #fbfaf7; --text: #1b1a18; --muted: #77736b; --line: rgba(27,26,24,.08);
+    --accent: #c2512f; --accent-soft: rgba(194,81,47,.12); --up: #1f9d6a; --down: #d64545; --shadow: 0 1px 2px rgba(20,18,14,.05), 0 8px 24px rgba(20,18,14,.06);
+    --chart-bg: #ffffff; --chart-grid: rgba(27,26,24,.06);
+  }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+    --bg: #121211; --card: #1c1c1a; --raised: #232321; --text: #f1efe9; --muted: #9b978e; --line: rgba(241,239,233,.09);
+    --accent: #f08a5d; --accent-soft: rgba(240,138,93,.16); --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 28px rgba(0,0,0,.28);
+    --chart-bg: #1c1c1a; --chart-grid: rgba(241,239,233,.06);
+  } }
+  :root[data-theme="dark"] {
+    --bg: #121211; --card: #1c1c1a; --raised: #232321; --text: #f1efe9; --muted: #9b978e; --line: rgba(241,239,233,.09);
+    --accent: #f08a5d; --accent-soft: rgba(240,138,93,.16); --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 28px rgba(0,0,0,.28);
+    --chart-bg: #1c1c1a; --chart-grid: rgba(241,239,233,.06);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body { font: 15px/1.45 -apple-system, "Pretendard", "Noto Sans KR", system-ui, sans-serif; padding: 16px 14px 40px; }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  header { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin: 4px 2px 14px; }
+  .titles { flex: 1 1 200px; min-width: 0; }
+  h1 { font-size: 26px; line-height: 1.15; letter-spacing: -.02em; margin: 0; font-weight: 800; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .live { display: inline-flex; align-items: center; gap: 6px; }
+  .live::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--up); box-shadow: 0 0 0 3px rgba(31,157,106,.18); }
+  .tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .seg { display: inline-flex; background: var(--raised); border: 1px solid var(--line); border-radius: 12px; padding: 3px; }
+  .seg button { min-width: 40px; height: 34px; padding: 0 10px; border-radius: 9px; font-size: 13px; font-weight: 600; color: var(--muted); }
+  .seg button.on { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+  .icon { width: 42px; height: 42px; border-radius: 12px; background: var(--raised); border: 1px solid var(--line); display: inline-grid; place-items: center; }
+  .icon svg { width: 20px; height: 20px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .tape { background: var(--card); border-radius: 18px; box-shadow: var(--shadow); padding: 4px 6px; margin-bottom: 14px; min-height: 76px; overflow: hidden; }
+  .tape.narrow { min-height: 50px; padding: 2px 0; border-radius: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 14px; }
+  .grid.one { grid-template-columns: 1fr; }
+  .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @media (max-width: 640px) { .grid.two { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border-radius: 20px; box-shadow: var(--shadow); overflow: hidden; display: flex; flex-direction: column; }
+  .card-head { display: flex; align-items: center; gap: 10px; padding: 12px 10px 10px 14px; }
+  .badge { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; font-weight: 800; font-size: 12.5px; letter-spacing: -.02em; color: #fff; flex: none; }
+  .name { flex: 1; min-width: 0; }
+  .name b { display: block; font-size: 16px; letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .name span { display: block; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chart { height: 420px; position: relative; border-top: 1px solid var(--line); }
+  .grid.one .chart { height: 480px; }
+  .chart .wait { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; }
+  .chart .tradingview-widget-container, .chart .tradingview-widget-container__widget { height: 100%; width: 100%; }
+  .card.focus { position: fixed; inset: 0; z-index: 20; border-radius: 0; }
+  .card.focus .chart { height: auto; flex: 1; }
+  body.focused { overflow: hidden; }
+  .sheet { position: fixed; inset: 0; z-index: 30; display: none; }
+  .sheet.open { display: block; }
+  .scrim { position: absolute; inset: 0; background: rgba(0,0,0,.38); }
+  .panel { position: absolute; left: 0; right: 0; bottom: 0; max-height: 86vh; overflow: auto; background: var(--card); border-radius: 24px 24px 0 0; padding: 10px 16px 24px; box-shadow: 0 -10px 40px rgba(0,0,0,.2); }
+  @media (min-width: 700px) { .panel { left: 50%; right: auto; width: 560px; transform: translateX(-50%); bottom: 24px; border-radius: 24px; } }
+  .grab { width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: 2px auto 12px; }
+  .panel h2 { font-size: 19px; margin: 0 0 4px; }
+  .panel p { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row { transition: transform .12s ease; background: var(--card); }
+  .row.dragging { transition: none; position: relative; z-index: 2; border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
+  .grip { width: 30px; height: 38px; display: grid; place-items: center; color: var(--muted); touch-action: none; cursor: grab; flex: none; margin-left: -4px; }
+  .row .name b { font-size: 15px; }
+  .small { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; color: var(--muted); }
+  .small svg, .grip svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  .add { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .add input { grid-column: span 1; height: 46px; border-radius: 12px; border: 1px solid var(--line); background: var(--raised); color: var(--text); padding: 0 12px; font: inherit; min-width: 0; }
+  .add .wide { grid-column: span 2; }
+  .primary { height: 46px; border-radius: 12px; background: var(--accent); color: #fff; font-weight: 700; }
+  .ghost { height: 46px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
+  .ask { height: 32px; padding: 0 10px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-size: 12.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; flex: none; }
+  .ask.quiet { background: var(--raised); color: var(--text); border: 1px solid var(--line); }
+  .ask svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+  /* AI 차트 분석: the AI 브라우저's own mark, a speech bubble with AI in it, no sparkle and no word (준: "Ai버튼도 별마크 없애고 ai브라우저처럼 풍선ai아이콘만"). */
+  .ask.bubble { width: 36px; padding: 0; justify-content: center; }
+  .ask.bubble svg { width: 22px; height: 22px; stroke-width: 1.5; }
+  .ai-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .ai-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .styles { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 -2px 4px; padding: 0 2px 2px; }
+  .styles::-webkit-scrollbar { display: none; }
+  .styles button { flex: none; height: 32px; padding: 0 11px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); font-size: 12.5px; font-weight: 650; color: var(--muted); }
+  .styles button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .style-about { font-size: 12.5px; color: var(--muted); margin: 2px 0 8px; }
+  .custom { width: 100%; height: 40px; border-radius: 12px; border: 1px solid var(--line); background: var(--raised); color: var(--text); padding: 0 12px; font: inherit; font-size: 14px; margin-bottom: 8px; }
+  .go { height: 36px; padding: 0 16px; border-radius: 10px; margin: 2px 0 12px; font-size: 13.5px; }
+  .chip { height: 32px; padding: 0 12px; border-radius: 10px; background: var(--raised); border: 1px solid var(--line); font-size: 12.5px; font-weight: 650; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .status { font-size: 13px; font-weight: 600; color: var(--accent); margin: 6px 0 10px; display: flex; align-items: center; gap: 8px; }
+  .status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.1s ease-in-out infinite; flex: none; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  .answer { font-size: 14.5px; line-height: 1.6; }
+  .answer h3 { font-size: 15.5px; margin: 16px 0 6px; }
+  .answer h3:first-child { margin-top: 2px; }
+  .answer ul { margin: 4px 0 8px; padding-left: 20px; } .answer li { margin: 3px 0; }
+  .answer p { margin: 6px 0; } .answer a { color: var(--accent); word-break: break-all; }
+  .answer .err { color: var(--down); font-weight: 600; }
+  .meta { font-size: 12px; color: var(--muted); margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .thread .q { margin: 16px 0 6px auto; max-width: 85%; width: fit-content; background: var(--raised); border: 1px solid var(--line); border-radius: 14px 14px 4px 14px; padding: 8px 12px; font-size: 14px; font-weight: 600; white-space: pre-wrap; }
+  .thread .by { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+  .thread .by button { font-size: 11.5px; color: var(--muted); text-decoration: underline; padding: 0 2px; margin-left: 4px; }
+  #aiDel.armed { background: var(--down); border-color: var(--down); color: #fff; }
+  .thread .err { color: var(--down); font-weight: 600; font-size: 13px; margin: 8px 0; }
+  .follow { display: flex; gap: 8px; margin-top: 12px; position: sticky; bottom: 0; background: var(--card, var(--bg)); padding: 8px 0 2px; }
+  .follow textarea { flex: 1; min-width: 0; min-height: 40px; max-height: 120px; border-radius: 12px; border: 1px solid var(--line); background: var(--raised); color: var(--text); padding: 9px 12px; font: inherit; font-size: 14px; resize: none; }
+  .follow .primary { height: 40px; padding: 0 14px; font-size: 13.5px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="titles">
+    <h1>트레이딩</h1>
+    <div class="sub"><span class="live" id="clock">한국 시간</span> · <span id="count"></span></div>
+  </div>
+  <div class="tools">
+    <div class="seg" id="intervals" role="tablist" aria-label="봉 단위"></div>
+    <button class="icon" id="layout" aria-label="배열 바꾸기"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></button>
+    <button class="icon" id="edit" aria-label="종목 편집"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg></button>
+  </div>
+</header>
+<div class="tape" id="tape"></div>
+<div class="grid" id="grid"></div>
+
+<div class="sheet" id="sheet" aria-hidden="true">
+  <div class="scrim" data-close></div>
+  <div class="panel" role="dialog" aria-label="종목 편집">
+    <div class="grab"></div>
+    <h2>종목 편집</h2>
+    <p>순서를 바꾸거나 빼고, 트레이딩뷰 심볼로 새 종목을 넣어요. 이 휴대폰에 저장돼요.</p>
+    <div id="rows"></div>
+    <div class="add">
+      <input id="sym" class="wide" placeholder="심볼 · 예: NASDAQ:TSLA, BINANCE:ETHUSDT" autocapitalize="characters" autocomplete="off">
+      <input id="label" placeholder="이름 · 예: 테슬라" autocomplete="off">
+      <button class="primary" id="addBtn">추가</button>
+      <button class="ghost wide" id="undoSym" hidden>방금 바꾼 것 되돌리기</button>
+      <button class="ghost wide" id="reset">처음 종목으로 되돌리기</button>
+    </div>
+    <div class="hint">심볼은 ‘거래소:종목’으로 써요. 미국 주식은 NASDAQ·NYSE·AMEX, 코인은 BINANCE·UPBIT 같은 거래소 이름을 앞에 붙여요.</div>
+  </div>
+</div>
+
+<div class="sheet" id="ai" aria-hidden="true">
+  <div class="scrim" data-close></div>
+  <div class="panel" role="dialog" aria-label="AI 분석과 뉴스">
+    <div class="grab"></div>
+    <div class="ai-head"><div class="badge" id="aiBadge"></div><div class="name"><b id="aiName"></b><span id="aiSub"></span></div>
+      <button class="small" data-close aria-label="닫기"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="ai-tools"><div class="seg" id="aiKind"><button data-kind="analyze">AI 차트 분석</button><button data-kind="news">최신 뉴스</button></div>
+      <button class="chip" id="aiModel" aria-label="분석할 AI 바꾸기"></button>
+      <button class="chip" id="aiAgain">다시</button>
+      <button class="chip" id="aiDel" hidden>지우기</button>
+      <button class="chip" id="aiCopy" hidden aria-label="출처와 링크 없이 글로 복사">텍스트 복사</button></div>
+    <div id="aiStyleBox"><div class="styles" id="aiStyles" role="tablist" aria-label="분석 스타일"></div><div class="style-about" id="aiStyleAbout"></div>
+      <input class="custom" id="aiCustom" maxlength="300" placeholder="원하는 관점 · 예: 실적 발표 앞두고 단기 변동성 위주로" hidden>
+      <button class="primary go" id="aiGo">분석하기</button></div>
+    <div class="status" id="aiStatus" hidden></div>
+    <div class="answer" id="aiBody"></div>
+    <div class="meta" id="aiMeta" hidden></div>
+    <div class="answer thread" id="aiThread"></div>
+    <div class="follow" id="aiFollow" hidden><textarea id="aiQ" rows="1" maxlength="1000" placeholder="이 분석에 이어서 물어보기"></textarea><button class="primary" id="aiAsk">묻기</button></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const KEY = 'gyeot.trading.v1';
+  const DEFAULTS = [
+    { s: 'AMEX:SOXL', n: 'SOXL', d: '반도체 3배 레버리지 ETF' },
+    { s: 'NASDAQ:NVDA', n: 'NVDA', d: '엔비디아' },
+    { s: 'NASDAQ:QQQ', n: 'QQQ', d: '나스닥 100 ETF' },
+    { s: 'BINANCE:BTCUSDT', n: 'BTCUSDT', d: '비트코인 · 바이낸스' },
+    { s: 'CBOE:BTCZ', n: 'BTCZ', d: '비트코인 2배 인버스 ETF' }
+  ];
+  const INTERVALS = [['15', '15분'], ['60', '1시간'], ['240', '4시간'], ['D', '일'], ['W', '주']];
+  const LAYOUTS = ['auto', 'one', 'two'];
+  const HUES = ['#5b5bd6', '#1f9d6a', '#c2512f', '#d4881c', '#2f7fd6', '#a04bc9', '#0f9aa6', '#d64575'];
+  let state;
+  try { state = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { state = null; }
+  if (!state || !Array.isArray(state.symbols)) state = { symbols: DEFAULTS.slice(), interval: 'D', layout: 'auto' };
+  // The symbol the app's TradingView button opens: the card last made large, else the first.
+  const picked = () => state.symbols.find(x => x.s === state.picked) || state.symbols[0];
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+  const dark = () => { const t = document.documentElement.getAttribute('data-theme'); return t ? t === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches; };
+  const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const hue = s => { const i = state.symbols.findIndex(x => x.s === s); return HUES[(i < 0 ? 0 : i) % HUES.length]; };
+  const $ = id => document.getElementById(id);
+
+  function widget(host, src, config) {
+    host.innerHTML = '';
+    const box = document.createElement('div'); box.className = 'tradingview-widget-container';
+    const inner = document.createElement('div'); inner.className = 'tradingview-widget-container__widget';
+    box.appendChild(inner);
+    const script = document.createElement('script'); script.type = 'text/javascript'; script.async = true; script.src = src;
+    script.text = JSON.stringify(config);
+    box.appendChild(script); host.appendChild(box);
+  }
+  // Wide: every quote side by side; a phone: one tape that runs.
+  let narrow = null;
+  function tape() {
+    narrow = innerWidth < 700;
+    $('tape').classList.toggle('narrow', narrow);
+    const symbols = state.symbols.map(x => ({ proName: x.s, title: x.n }));
+    if (narrow) widget($('tape'), 'https://s3.tradingview.com/external-embedding/embed-widget-ticker-tape.js', {
+      symbols, showSymbolLogo: true, isTransparent: true, displayMode: 'adaptive', colorTheme: dark() ? 'dark' : 'light', locale: 'kr'
+    });
+    else widget($('tape'), 'https://s3.tradingview.com/external-embedding/embed-widget-tickers.js', {
+      symbols, colorTheme: dark() ? 'dark' : 'light', locale: 'kr', isTransparent: true, showSymbolLogo: true
+    });
+  }
+  addEventListener('resize', () => { if ((innerWidth < 700) !== narrow) tape(); });
+  function chart(host, sym) {
+    host.dataset.loaded = '1';
+    widget(host, 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js', {
+      autosize: true, symbol: sym.s, interval: state.interval, timezone: 'Asia/Seoul', theme: dark() ? 'dark' : 'light', style: '1', locale: 'kr',
+      backgroundColor: css('--chart-bg'), gridColor: css('--chart-grid'), hide_side_toolbar: true, allow_symbol_change: false,
+      save_image: false, calendar: false, support_host: 'https://www.tradingview.com'
+    });
+  }
+  const watch = 'IntersectionObserver' in window ? new IntersectionObserver(entries => {
+    for (const e of entries) if (e.isIntersecting && !e.target.dataset.loaded) { const sym = state.symbols[+e.target.dataset.index]; if (sym) chart(e.target, sym); }
+  }, { rootMargin: '300px 0px' }) : null;
+
+  function grid() {
+    const g = $('grid'); g.innerHTML = '';
+    g.className = 'grid' + (state.layout === 'one' ? ' one' : state.layout === 'two' ? ' two' : '');
+    $('count').textContent = '관심 종목 ' + state.symbols.length + '개';
+    if (!state.symbols.length) { g.innerHTML = '<div class="empty">종목이 없어요. 오른쪽 위 연필을 눌러 추가해 보세요.</div>'; return; }
+    state.symbols.forEach((sym, i) => {
+      const card = document.createElement('section'); card.className = 'card';
+      const tag = sym.n.replace(/USDT$/, '').slice(0, 4);
+      card.innerHTML = `<div class="card-head"><div class="badge" style="background:${hue(sym.s)}">${tag}</div>
+        <div class="name"><b></b><span></span></div>
+        <button class="ask bubble" data-ai aria-label="AI 차트 분석"><svg viewBox="0 0 24 24"><path d="M12 4c4.7 0 8.5 3.2 8.5 7.2s-3.8 7.2-8.5 7.2c-1.1 0-2.1-.2-3-.5l-4.5 1.6 1.1-3.7c-1.3-1.2-2.1-2.8-2.1-4.6C3.5 7.2 7.3 4 12 4z"/><path d="M9 13.9l1.8-5.5 1.8 5.5M9.6 12.1H12M15 8.4v5.5"/></svg></button>
+        <button class="ask quiet" data-news aria-label="최신 뉴스 브리핑"><svg viewBox="0 0 24 24"><path d="M5 5h11v14H6a1 1 0 0 1-1-1z"/><path d="M16 9h3v9a1 1 0 0 1-2 0"/><path d="M8 9h5M8 12h5M8 15h3"/></svg>뉴스</button>
+        <button class="small" aria-label="크게 보기"><svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg></button></div>
+        <div class="chart" data-index="${i}"><div class="wait">차트를 불러오는 중…</div></div>`;
+      card.querySelector('b').textContent = sym.n;
+      card.querySelector('.name span').textContent = (sym.d ? sym.d + ' · ' : '') + sym.s.split(':')[0];
+      card.querySelector('.small').onclick = () => { focus(card); if (card.classList.contains('focus')) pick(sym); };
+      card.querySelector('[data-ai]').onclick = () => ask(sym, 'analyze', card, false);
+      card.querySelector('[data-news]').onclick = () => ask(sym, 'news', card, false);
+      g.appendChild(card);
+      const host = card.querySelector('.chart');
+      if (watch) watch.observe(host); else chart(host, sym);
+    });
+  }
+  function focus(card) {
+    const on = !card.classList.contains('focus');
+    document.querySelectorAll('.card.focus').forEach(c => c.classList.remove('focus'));
+    if (on) card.classList.add('focus');
+    document.body.classList.toggle('focused', on);
+    const btn = card.querySelector('.small'); btn.setAttribute('aria-label', on ? '작게 보기' : '크게 보기');
+    btn.innerHTML = on ? '<svg viewBox="0 0 24 24"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>' : '<svg viewBox="0 0 24 24"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>';
+  }
+  // The app's TradingView button opens the picked symbol at this page's interval.
+  const tellPicked = () => { const p = picked(); send({ type: 'tv_symbol', symbol: p ? p.s : '', interval: state.interval }); };
+  function pick(sym) { state.picked = sym.s; save(); tellPicked(); }
+  function intervals() {
+    const seg = $('intervals'); seg.innerHTML = '';
+    for (const [v, label] of INTERVALS) {
+      const b = document.createElement('button'); b.textContent = label; b.className = v === state.interval ? 'on' : ''; b.setAttribute('role', 'tab');
+      b.onclick = () => { if (state.interval === v) return; state.interval = v; save(); intervals(); grid(); tellPicked(); };
+      seg.appendChild(b);
+    }
+  }
+  function rows() {
+    const box = $('rows'); box.innerHTML = '';
+    state.symbols.forEach((sym, i) => {
+      const r = document.createElement('div'); r.className = 'row';
+      r.innerHTML = `<button class="grip" aria-label="끌어서 순서 바꾸기"><svg viewBox="0 0 24 24"><path d="M5 8h14M5 12h14M5 16h14"/></svg></button><div class="badge" style="background:${hue(sym.s)}">${sym.n.replace(/USDT$/, '').slice(0, 4)}</div><div class="name"><b></b><span></span></div>
+        <button class="small" data-up aria-label="위로"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+        <button class="small" data-down aria-label="아래로"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button class="small" data-del aria-label="빼기"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>`;
+      r.querySelector('b').textContent = sym.n; r.querySelector('.name span').textContent = sym.s + (sym.d ? ' · ' + sym.d : '');
+      r.querySelector('.grip').addEventListener('pointerdown', e => drag(e, r, i));
+      r.querySelector('[data-up]').onclick = () => move(i, -1);
+      r.querySelector('[data-down]').onclick = () => move(i, 1);
+      r.querySelector('[data-del]').onclick = () => { rememberSymbols(); state.symbols.splice(i, 1); changed(); };
+      box.appendChild(r);
+    });
+  }
+  // 끌어서 순서 바꾸기 (준: "드래그로도 바꿀 수 있게"): the row follows the finger on its ≡, the others make room, and it lands where let go.
+  function drag(e, row, from) {
+    e.preventDefault();
+    const grip = e.currentTarget, list = [...$('rows').children], h = row.getBoundingClientRect().height, y0 = e.clientY;
+    let to = from; try { grip.setPointerCapture(e.pointerId); } catch (_) {}
+    row.classList.add('dragging');
+    const moveTo = ev => {
+      const dy = ev.clientY - y0; row.style.transform = 'translateY(' + dy + 'px)';
+      to = Math.max(0, Math.min(list.length - 1, from + Math.round(dy / h)));
+      list.forEach((o, k) => { if (o === row) return; const shift = from < to && k > from && k <= to ? -h : from > to && k < from && k >= to ? h : 0; o.style.transform = shift ? 'translateY(' + shift + 'px)' : ''; });
+    };
+    const end = () => {
+      grip.removeEventListener('pointermove', moveTo); grip.removeEventListener('pointerup', end); grip.removeEventListener('pointercancel', end);
+      list.forEach(o => { o.style.transform = ''; }); row.classList.remove('dragging');
+      if (to !== from) { rememberSymbols(); const [s] = state.symbols.splice(from, 1); state.symbols.splice(to, 0, s); changed(); }
+    };
+    grip.addEventListener('pointermove', moveTo); grip.addEventListener('pointerup', end); grip.addEventListener('pointercancel', end);
+  }
+  function move(i, by) { const j = i + by; if (j < 0 || j >= state.symbols.length) return; rememberSymbols(); const s = state.symbols; [s[i], s[j]] = [s[j], s[i]]; changed(); }
+  // 방금 바꾼 것 되돌리기: the symbols as they were before the last add, removal, move or reset (준: "종목추가 한것만 되돌리려한건데").
+  let before = null;
+  // Not remember(): that name is the AI answers' (below), and a second function of one name replaces the first.
+  function rememberSymbols() { before = state.symbols.map(x => ({ ...x })); $('undoSym').hidden = false; }
+  function changed() { save(); rows(); tape(); grid(); tellPicked(); }
+  function sheet(open) { $('sheet').classList.toggle('open', open); $('sheet').setAttribute('aria-hidden', open ? 'false' : 'true'); if (open) rows(); }
+  $('edit').onclick = () => sheet(true);
+  $('sheet').addEventListener('click', e => { if (e.target.dataset.close !== undefined) sheet(false); });
+  $('addBtn').onclick = () => {
+    let s = $('sym').value.trim().toUpperCase().replace(/\s+/g, ''); if (!s) { $('sym').focus(); return; }
+    if (!s.includes(':')) s = (/USDT$|USD$|BTC$/.test(s) ? 'BINANCE:' : 'NASDAQ:') + s;
+    if (state.symbols.some(x => x.s === s)) { $('sym').value = ''; return; }
+    const n = s.split(':')[1]; rememberSymbols(); state.symbols.push({ s, n, d: $('label').value.trim() });
+    $('sym').value = ''; $('label').value = ''; changed();
+  };
+  $('reset').onclick = () => { rememberSymbols(); state.symbols = DEFAULTS.slice(); changed(); };
+  $('undoSym').onclick = () => { if (!before) return; state.symbols = before; before = null; $('undoSym').hidden = true; changed(); };
+  $('layout').onclick = () => { state.layout = LAYOUTS[(LAYOUTS.indexOf(state.layout) + 1) % LAYOUTS.length]; save(); grid(); };
+  function tick() {
+    const now = new Date();
+    $('clock').textContent = '한국 시간 ' + now.toLocaleTimeString('ko-KR', { timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit' });
+  }
+  // The app's back button: a chart shown large or the editor closes first.
+  window.gyeotBack = () => {
+    if ($('ai').classList.contains('open')) { showAi(false); return true; }
+    if ($('sheet').classList.contains('open')) { sheet(false); return true; }
+    const big = document.querySelector('.card.focus'); if (big) { focus(big); return true; }
+    return false;
+  };
+  // ── AI 차트 분석 · 최신 뉴스: asked of the 들퍼레 app through the port it gives this page (nothing else reaches the app) ──
+  let app = null, modelName = '', open = null, delArmed = null; const pendingKind = {}, pendingQ = {}, pendingStyle = {};
+  // 분석 스타일 (준: "여러 프리셋 분석스타일 선택 제공해줘"): what the AI weighs; the app holds each one's instructions (TradingData.STYLES).
+  const STYLES = [
+    ['overall', '종합', '주봉부터 15분봉까지 함께 보고 큰 방향과 상승·하락 시나리오'],
+    ['day', '단타', '15분·1시간봉 중심 · 진입 구간, 손절, 익절 가격과 손익비'],
+    ['swing', '스윙', '4시간·일봉 중심 · 며칠에서 몇 주 보는 진입·손절·목표가'],
+    ['long', '장기 추세', '주봉·일봉 중심 · 큰 흐름과 그 흐름이 바뀌는 가격'],
+    ['levels', '지지·저항', '의미 있는 가격대를 지도처럼 · 각 가격의 까닭과 지금 거리'],
+    ['risk', '리스크 점검', '하락 위험, 변동성(ATR), 다이버전스, 손절 기준과 거리'],
+    ['easy', '쉽게 설명', 'RSI·MACD 같은 말을 풀어서, 처음 보는 사람도 알게'],
+    ['custom', '직접 적기', '원하는 관점을 한 줄로 적어요']];
+  const STYLE_KEY = 'gyeot.trading.style.v1';
+  let style = 'overall', custom = '';
+  try { const s = JSON.parse(localStorage.getItem(STYLE_KEY) || 'null'); if (s && STYLES.some(x => x[0] === s.style)) { style = s.style; custom = String(s.custom || '').slice(0, 300); } } catch (e) {}
+  const keepStyle = () => { try { localStorage.setItem(STYLE_KEY, JSON.stringify({ style, custom })); } catch (e) {} };
+  const styleLabel = id => (STYLES.find(x => x[0] === id) || STYLES[0])[1];
+  function styles() {
+    const box = $('aiStyles'); box.innerHTML = '';
+    for (const [id, label] of STYLES) {
+      const b = document.createElement('button'); b.textContent = label; b.className = id === style ? 'on' : ''; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', id === style ? 'true' : 'false');
+      b.onclick = () => { style = id; keepStyle(); paint(); if (id === 'custom') $('aiCustom').focus(); };
+      box.appendChild(b);
+    }
+  }
+  $('aiCustom').value = custom;
+  $('aiCustom').addEventListener('input', () => { custom = $('aiCustom').value.slice(0, 300); keepStyle(); });
+  const ANSWERS = 'gyeot.trading.answers.v1';
+  let answers = {}; try { answers = JSON.parse(localStorage.getItem(ANSWERS) || '{}') || {}; } catch (e) { answers = {}; }
+  const keep = () => { try { localStorage.setItem(ANSWERS, JSON.stringify(answers)); } catch (e) {} };
+  const send = m => { if (!app) return false; try { app.postMessage(JSON.stringify(m)); return true; } catch (e) { return false; } };
+  addEventListener('message', e => {
+    if (e.data !== 'gyeot-app' || !e.ports || !e.ports[0]) return;
+    app = e.ports[0]; app.onmessage = m => { try { fromApp(JSON.parse(m.data)); } catch (err) {} };
+    send({ type: 'model' });
+    tellPicked();
+  });
+  const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // A small Markdown: headings, lists, bold, links (they open in the app's browser).
+  function md(text) {
+    const inline = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+      .replace(/\[\[(\d+)\]\]\((https?:\/\/[^\s)]+)\)/g, (m, n, url) => '<a href="' + url + '">[' + n + ']</a>')
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, label, url) => '<a href="' + url + '">' + label + '</a>')
+      .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (m, pre, url) => pre + '<a href="' + url + '">' + url.replace(/^https?:\/\/(www\.)?/, '').slice(0, 48) + '</a>');
+    let out = '', list = false;
+    for (const raw of String(text || '').split(/\n/)) {
+      const line = raw.trim();
+      const item = line.match(/^(?:[-*•]|\d+[.)])\s+(.*)$/);
+      if (item) { if (!list) { out += '<ul>'; list = true; } out += '<li>' + inline(item[1]) + '</li>'; continue; }
+      if (list) { out += '</ul>'; list = false; }
+      if (!line) continue;
+      const h = line.match(/^#{1,4}\s+(.*)$/);
+      out += h ? '<h3>' + inline(h[1]) + '</h3>' : '<p>' + inline(line) + '</p>';
+    }
+    return out + (list ? '</ul>' : '');
+  }
+  const ago = at => { const m = Math.round((Date.now() - at) / 60000); return m < 1 ? '방금' : m < 60 ? m + '분 전' : m < 1440 ? Math.round(m / 60) + '시간 전' : Math.round(m / 1440) + '일 전'; };
+  function showAi(on) { $('ai').classList.toggle('open', on); $('ai').setAttribute('aria-hidden', on ? 'false' : 'true'); if (!on) open = null; }
+  $('ai').addEventListener('click', e => { if (e.target.closest('[data-close]')) showAi(false); });
+  function paint() {
+    if (!open) return;
+    const { sym, kind } = open, saved = answers[kind + '|' + sym.s];
+    $('aiBadge').style.background = hue(sym.s); $('aiBadge').textContent = sym.n.replace(/USDT(\.P)?$/, '').slice(0, 4);
+    $('aiName').textContent = sym.n; $('aiSub').textContent = (sym.d ? sym.d + ' · ' : '') + sym.s;
+    for (const b of $('aiKind').children) b.className = b.dataset.kind === kind ? 'on' : '';
+    $('aiModel').hidden = kind !== 'analyze'; $('aiModel').textContent = (modelName || 'AI 고르기') + ' ▾';
+    // A follow-up's progress shows under its question at the foot, not at the top above the analysis (준: "생각중이란 표시가 제일 상단에 있어").
+    $('aiStatus').hidden = !open.status || !!open.asking; $('aiStatus').textContent = open.status || '';
+    $('aiAgain').textContent = open.status ? '멈추기' : saved ? '다시' : (kind === 'analyze' ? '분석하기' : '찾아보기');
+    // 분석: the styles and 분석하기 first; the analysis starts only from here (준: "AI버튼 누르자마자 분석이 시작돼").
+    const analyze = kind === 'analyze', changedStyle = saved && (saved.styleId || 'overall') !== style;
+    $('aiStyleBox').hidden = !analyze || !!open.status;
+    if (analyze) { styles(); $('aiStyleAbout').textContent = (STYLES.find(x => x[0] === style) || STYLES[0])[2]; $('aiCustom').hidden = style !== 'custom'; }
+    $('aiGo').hidden = !analyze || !!open.status || (saved && !changedStyle);
+    $('aiGo').textContent = saved ? '‘' + styleLabel(style) + '’(으)로 다시 분석' : '‘' + styleLabel(style) + '’ 분석하기';
+    $('aiAgain').hidden = analyze && !open.status && !saved;
+    if (open.error) $('aiBody').innerHTML = '<p class="err">' + esc(open.error) + '</p>';
+    else $('aiBody').innerHTML = saved ? md(saved.text) : open.status ? '' : '<p>' + (kind === 'analyze'
+      ? '지금 차트를 보이지 않는 곳에서 크게 찍고, 바이낸스 시세가 있으면 숫자와 함께 고른 AI에게 보내요.'
+      : 'Grok이 웹과 X에서 이 종목의 최신 소식을 찾아 정리해요.') + '</p>';
+    const meta = saved ? [saved.style, saved.model, saved.source, ago(saved.at)].filter(Boolean).join(' · ') : '';
+    $('aiMeta').hidden = !meta; $('aiMeta').textContent = meta;
+    // 이어서 묻기 (준: "Ai분석한것에 이어서 질문할 수 있게"): the questions asked on this answer and their answers, then the box.
+    const thread = saved && !open.error && Array.isArray(saved.thread) ? saved.thread : [];
+    $('aiThread').innerHTML = thread.map((t, i) => '<div class="q">' + esc(t.q) + '</div>' + md(t.a) + '<div class="by">' + esc([t.model, ago(t.at)].filter(Boolean).join(' · ')) + '<button data-q="' + i + '" aria-label="이 질문과 답 지우기">지우기</button></div>').join('')
+      + (open.asking ? '<div class="q">' + esc(open.asking) + '</div>' + (open.status ? '<div class="status">' + esc(open.status) + '</div>' : '') : '') + (open.qError ? '<p class="err">' + esc(open.qError) + '</p>' : '');
+    // The box stays while an answer is being written (준: "질문 입력칸도 없어져"): its button stops it then.
+    const answering = !!(open.asking && open.status);
+    // 지우기 (준: "분석 지우는게 없어"): the answer and its questions; a second tap within 3 seconds does it.
+    $('aiDel').hidden = !saved || !!open.status; if (!delArmed) { $('aiDel').textContent = '지우기'; $('aiDel').classList.remove('armed'); }
+    $('aiFollow').hidden = !saved || !!open.error || (!!open.status && !open.asking);
+    $('aiCopy').hidden = kind !== 'news' || !saved || !!open.error || !!open.status;
+    $('aiAsk').textContent = answering ? '멈추기' : kind === 'news' ? '묻기 (Grok)' : '묻기';
+  }
+  // 이어서 묻기: the answer shown, the questions before and the new one go to the same AI (news: Grok, searching again).
+  function followUp() {
+    if (!open) return;
+    if (open.asking && open.status) { send({ type: 'stop', id: open.id }); open.status = ''; open.id = ''; open.asking = ''; paint(); return; }
+    if (open.status) return;
+    const q = $('aiQ').value.trim(); if (!q) { $('aiQ').focus(); return; }
+    const key = open.kind + '|' + open.sym.s, saved = answers[key]; if (!saved) return;
+    const id = 'q' + Date.now().toString(36); open.id = id; open.asking = q; open.qError = ''; pendingQ[id] = { key, q };
+    const thread = (saved.thread || []).slice(-6).map(t => ({ q: t.q, a: String(t.a).slice(0, 3000) }));
+    if (!send({ type: 'followup', id, kind: open.kind, symbol: open.sym.s, name: open.sym.n, desc: open.sym.d || '', interval: state.interval, style: saved.styleId || 'overall', base: String(saved.text).slice(0, 12000), thread, question: q })) {
+      open.asking = ''; open.qError = '이 기능은 들퍼레 앱의 페이지에서만 돼요.'; paint(); return;
+    }
+    $('aiQ').value = ''; open.status = open.kind === 'news' ? 'Grok이 찾아보고 답하는 중' : '지금 시세와 차트를 다시 보는 중'; paint();
+    const panel = $('ai').querySelector('.panel'); setTimeout(() => { panel.scrollTop = panel.scrollHeight; }, 50);
+  }
+  $('aiAsk').onclick = followUp;
+  /*
+    텍스트 복사 (준: "트레이딩 뉴스 출처&링크 빼고 마크다운 없이 텍스트로 복사하기 버튼"): the briefing as plain words to paste anywhere:
+    no sources (a link, its source name, [1]-style marks, an address, a 출처 line or section), no Markdown (## headings become
+    a line of their own after a blank one, ** and ` go, a list item starts with •, a table row is its cells joined by ·).
+  */
+  function plain(text) {
+    let t = String(text || '').replace(/\r/g, '');
+    t = t.replace(/\n#{1,6}\s*(?:출처|참고(?:\s*자료)?|소스|링크|sources?|references?)\s*:?\s*\n[\s\S]*$/i, '\n');
+    t = t.replace(/\[\[\d+\]\]\((?:https?:\/\/[^\s)]+)\)/g, '').replace(/\[[^\]\n]*\]\((?:https?:\/\/[^\s)]+)\)/g, '')
+      .replace(/<?https?:\/\/[^\s>)]+>?/g, '').replace(/\[\d{1,2}\]/g, '');
+    const out = [];
+    for (const raw of t.split('\n')) {
+      let l = raw.trim();
+      if (/^(?:[-*•]\s*)?(?:출처|소스|참고|sources?)\s*[:：]/i.test(l)) continue;
+      const h = l.match(/^#{1,6}\s+(.*)$/); if (h) l = h[1];
+      if (/^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$/.test(l)) continue;
+      if (/^\|.*\|$/.test(l)) l = l.slice(1, -1).split('|').map(x => x.trim()).filter(Boolean).join(' · ');
+      l = l.replace(/^>\s?/, '').replace(/^[-*•]\s+/, '• ').replace(/^(\d+)[.)]\s+/, '$1. ')
+        .replace(/\*\*(.+?)\*\*/g, '$1').replace(/__(.+?)__/g, '$1').replace(/(^|[\s(])\*(\S(?:.*?\S)?)\*(?=[\s.,)!?]|$)/g, '$1$2').replace(/`([^`]*)`/g, '$1')
+        .replace(/\s*[(（]\s*(?:출처|source)\s*[:：][^)）]*[)）]/gi, '').replace(/\s*[,·]\s*(?:출처|source)\s*[:：][^)）]*(?=[)）])/gi, '')
+        .replace(/\s*(?:[—–-]\s*)?(?:출처|source)\s*[:：]\s*[^,.;)）]*$/i, '')
+        .replace(/\s*([,·])(?:\s*[,·])+/g, '$1').replace(/[(（]\s*[,·\-—–/]?\s*[)）]/g, '').replace(/[(（]\s*([^()（）]*?)\s*[,·\-—–/]\s*[)）]/g, '($1)')
+        .replace(/\s+([,.])/g, '$1').replace(/\s*[,·\-—–:/]\s*$/, '').replace(/\s{2,}/g, ' ').trim();
+      if (l === '•') continue;
+      if (h && out.length) out.push('');
+      out.push(l);
+    }
+    return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  function copyText(text) {
+    const fallback = () => { const box = document.createElement('textarea'); box.value = text; box.setAttribute('readonly', ''); box.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+      document.body.appendChild(box); box.select(); let ok = false; try { ok = document.execCommand('copy'); } catch (e) {} box.remove(); return ok; };
+    try { if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text).then(() => true, fallback); } catch (e) {}
+    return Promise.resolve(fallback());
+  }
+  $('aiCopy').onclick = () => {
+    if (!open) return;
+    const saved = answers[open.kind + '|' + open.sym.s]; if (!saved) return;
+    copyText(plain(saved.text)).then(ok => { const b = $('aiCopy'); b.textContent = ok ? '복사했어요' : '복사하지 못했어요'; clearTimeout(b._t); b._t = setTimeout(() => { b.textContent = '텍스트 복사'; }, 1600); });
+  };
+  window.gyeotPlain = plain;
+  $('aiDel').onclick = () => {
+    if (!open || open.status) return;
+    const key = open.kind + '|' + open.sym.s;
+    if (!delArmed) {
+      $('aiDel').textContent = '한 번 더 누르면 지워요'; $('aiDel').classList.add('armed');
+      delArmed = setTimeout(() => { delArmed = null; paint(); }, 3000); return;
+    }
+    clearTimeout(delArmed); delArmed = null; delete answers[key]; keep(); open.error = ''; open.qError = ''; paint();
+  };
+  // One question and its answer under an analysis.
+  $('aiThread').addEventListener('click', e => {
+    const b = e.target.closest('[data-q]'); if (!b || !open) return;
+    const saved = answers[open.kind + '|' + open.sym.s]; if (!saved || !Array.isArray(saved.thread)) return;
+    saved.thread.splice(Number(b.dataset.q), 1); keep(); paint();
+  });
+  $('aiQ').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); followUp(); } });
+  // One ask: the answer kept for this symbol shows at once; again asks anew.
+  function ask(sym, kind, card, again) {
+    open = { sym, kind, card, id: '', status: '', error: '' };
+    if (!app) { open.error = '이 기능은 들퍼레 앱의 페이지에서만 돼요.'; showAi(true); paint(); return; }
+    if (answers[kind + '|' + sym.s] && !again) { showAi(true); paint(); return; }
+    // An analysis waits for the style and the model to be chosen (분석하기); the news starts at once.
+    if (kind === 'analyze' && !again) { showAi(true); paint(); return; }
+    start(card);
+  }
+  function start(card) {
+    const id = open.kind[0] + Date.now().toString(36); open.id = id; open.error = ''; pendingKind[id] = open.sym;
+    const m = { type: open.kind, id, symbol: open.sym.s, name: open.sym.n, desc: open.sym.d || '', interval: state.interval };
+    if (open.kind === 'analyze') {
+      if (style === 'custom' && !custom.trim()) { open.error = ''; $('aiCustom').hidden = false; $('aiCustom').focus(); return; }
+      m.style = style; if (style === 'custom') m.custom = custom.trim(); pendingStyle[id] = { id: style, label: style === 'custom' ? '직접: ' + custom.trim().slice(0, 24) : styleLabel(style) };
+    }
+    if (open.kind === 'analyze') {
+      // The chart as it is now, for the app to use only if its own large off-screen pictures fail.
+      const host = (card || document).querySelector('.chart'); const r = host ? host.getBoundingClientRect() : null;
+      if (r) { m.rect = { x: r.left, y: r.top, w: r.width, h: r.height }; m.dpr = devicePixelRatio || 1; }
+      open.status = '차트를 찍는 중';
+      // The sheet opens once the app has the picture (its first progress), so the sheet is never in it.
+      const asked = open; setTimeout(() => { if (open === asked && !$('ai').classList.contains('open')) { showAi(true); paint(); } }, 1500);
+      if (!$('ai').classList.contains('open')) { send(m); return; }
+      showAi(false); open = asked; setTimeout(() => send(m), 250); return;
+    }
+    open.status = 'Grok이 웹과 X에서 찾는 중'; send(m); showAi(true); paint();
+  }
+  function fromApp(m) {
+    if (m.type === 'model') { modelName = m.label || ''; paint(); return; }
+    if (!open || m.id !== open.id) { if (m.type === 'result' && m.ok) remember(m); return; }
+    if (m.type === 'progress') {
+      open.status = m.text; if (!$('ai').classList.contains('open')) showAi(true); paint();
+      if (open.asking) { const panel = $('ai').querySelector('.panel'); panel.scrollTop = panel.scrollHeight; }
+      return;
+    }
+    if (m.type === 'result') {
+      open.status = '';
+      if (m.id[0] === 'q') { open.asking = ''; if (m.ok) { remember(m); open.qError = ''; } else open.qError = m.error || '답하지 못했어요.'; paint(); const panel = $('ai').querySelector('.panel'); setTimeout(() => { panel.scrollTop = panel.scrollHeight; }, 50); return; }
+      if (m.ok) { remember(m); open.error = ''; } else open.error = m.error || '하지 못했어요.';
+      if (!$('ai').classList.contains('open')) showAi(true);
+      paint();
+    }
+  }
+  function remember(m) {
+    if (m.id[0] === 'q') {
+      const p = pendingQ[m.id], saved = p && answers[p.key]; delete pendingQ[m.id]; if (!saved) return;
+      saved.thread = (saved.thread || []).concat([{ q: p.q, a: m.text, model: m.model || '', at: m.at || Date.now() }]).slice(-20); keep(); return;
+    }
+    const kind = m.id[0] === 'n' ? 'news' : 'analyze', sym = open && open.id === m.id ? open.sym : pendingKind[m.id];
+    if (!sym) return;
+    const st = pendingStyle[m.id]; delete pendingStyle[m.id];
+    answers[kind + '|' + sym.s] = { text: m.text, model: m.model || '', source: m.source || '', at: m.at || Date.now(), style: kind === 'analyze' && st ? st.label : '', styleId: st ? st.id : '' }; keep();
+  }
+  $('aiKind').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b || !open || b.dataset.kind === open.kind) return;
+    if (open.status && open.id) send({ type: 'stop', id: open.id });
+    ask(open.sym, b.dataset.kind, open.card, false);
+  });
+  $('aiAgain').onclick = () => {
+    if (!open) return;
+    if (open.status) { send({ type: 'stop', id: open.id }); open.status = ''; open.id = ''; open.asking = ''; paint(); return; }
+    start(open.card);
+  };
+  // Where the chip is, so the app opens its menu right at it (준: "생각깊이가 너무 동떨어진 곳에 떠").
+  $('aiModel').onclick = () => { const r = $('aiModel').getBoundingClientRect(); send({ type: 'choose_model', x: r.left, y: r.top, w: r.width, h: r.height, vw: innerWidth }); };
+  $('aiGo').onclick = () => { if (!open || open.status) return; if (!app) { open.error = '이 기능은 들퍼레 앱의 페이지에서만 돼요.'; paint(); return; } start(open.card); };
+
+  intervals(); tape(); grid(); tick(); setInterval(tick, 15000);
+})();
+</script>
+</body>
+</html>

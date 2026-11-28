@@ -30,10 +30,13 @@ public final class BrowserActivity extends Activity {
     private GeckoView splitView; private LinearLayout splitPane; private TextView splitTitle;
     /** 끝까지 조사: the next request goes as a deep research task (one request, then off). */
     private boolean deepNext; private TextView deepChip;
-    static final String SKILLS = "browserSkills", BOOKMARKS = "browserBookmarks", MEMORY = "browserMemory", PROJECTS = "browserProjects"; static final int REQUEST_BOOKMARKS = 7311;
+    static final String SKILLS = "browserSkills", BOOKMARKS = "browserBookmarks", MEMORY = "browserMemory", PROJECTS = "browserProjects"; static final int REQUEST_BOOKMARKS = 7311, REQUEST_FILES = 7312;
+    /** A page's file chooser waiting for the phone's picker (onFilePrompt), and its answer. */
+    private GeckoSession.PromptDelegate.FilePrompt filePrompt; private GeckoResult<GeckoSession.PromptDelegate.PromptResponse> fileAnswer;
     private EditText address, request;
     private TextView resultText, tabButton, notice, askBubble, statsText;
-    private ImageView sendButton, modelPicker, pageBackButton, pageForwardButton, pageRefreshButton, browserMenuButton, paneToggle, siteIcon, clearAddressButton;
+    private TextView modelLine;
+    private ImageView sendButton, pageBackButton, pageForwardButton, pageRefreshButton, browserMenuButton, paneToggle, siteIcon, clearAddressButton;
     private BrowserPanelHeader panelHeader;
     private ImageView appReturnButton;
     private LinearLayout browserToolbar;
@@ -43,7 +46,7 @@ public final class BrowserActivity extends Activity {
     private Bundle pendingDraftState;
     private String renderedResult;
     private ProgressBar progress;
-    private LinearLayout resultBox, pane, conversationBox, resultActions, omniRow, thinkingRow;
+    private LinearLayout resultBox, pane, conversationBox, resultActions, omniRow, thinkingRow, suggestBox;
     private ShimmerText thinkingText; private ImageView thinkingMark; private android.animation.ObjectAnimator thinkingSpin;
     private HorizontalScrollView omniStrip;
     private BrowserTabStrip tabStrip;
@@ -65,6 +68,16 @@ public final class BrowserActivity extends Activity {
      * even when the screen is made again (rotation, or the process restarting) with the same intent or an older one.
      */
     static final String OPEN = "dev.jun.gyeot.browser.OPEN", OPEN_ID = "dev.jun.gyeot.browser.OPEN_ID";
+    /**
+     * Opened from the home screen's left page (ClaudePage): its claude.ai tab again if one is open, and ways back to 홈 (준: "뒤로가기로
+     * 홈페이지 돌아가는 건 넣지마, 홈버튼이나 우측 스와이프로"): the ⌂ button and a swipe in from the right edge (HomeEdge); back stays
+     * the page's history.
+     */
+    static final String HOME_SIDE = "dev.jun.gyeot.browser.HOME_SIDE";
+    private boolean homeSide;
+    private HomeEdge homeEdge;
+    /** Opened from the "이전 브라우저 작업 확인" notification: the earlier Work step's review comes up at once. */
+    static final String REVIEW_WORK = "dev.jun.gyeot.browser.REVIEW_WORK", REVIEW_RECEIPT = "dev.jun.gyeot.browser.REVIEW_RECEIPT";
     private static final String OPENED = "browserOpened";
     /** The ids of the requests already opened, oldest first, the newest OPENED_KEPT of them; kept in the saved state. */
     static final int OPENED_KEPT = 32;
@@ -169,8 +182,18 @@ public final class BrowserActivity extends Activity {
         // Under the toolbar while typing: the address bar doubles as the AI's command line.
         omniRow = ui.row(); omniStrip = new HorizontalScrollView(this); omniStrip.setHorizontalScrollBarEnabled(false); omniStrip.setClipToPadding(false);
         omniStrip.setPadding(ui.dp(12), 0, ui.dp(12), ui.dp(6)); omniStrip.addView(omniRow); omniStrip.setVisibility(View.GONE); root.addView(omniStrip, 1, new LinearLayout.LayoutParams(-1, -2));
+        // The address bar's suggestions (준: "Ai브라우저 주소창 자동완성이 안돼"): open tabs, pages seen, bookmarks, Google's.
+        suggestBox = ui.column(); suggestBox.setVisibility(View.GONE); suggestBox.setBackgroundColor(CARD); suggestBox.setPadding(0, 0, 0, ui.dp(4));
+        root.addView(suggestBox, 2, new LinearLayout.LayoutParams(-1, -2));
         updatePaneVisibility();
         installBrowserContent(root);
+        homeEdge = new HomeEdge(this, ui, this::toHome); homeEdge.attach(findViewById(android.R.id.content)); fromHome(getIntent());
+        homeEdge.follow(new HomeEdge.Drag() {
+            @Override public void prepare() { if (slid == null && android.os.SystemClock.uptimeMillis() - shotAt > 800) { shotAt = android.os.SystemClock.uptimeMillis(); keepShot(null); } }
+            @Override public boolean begin() { return slideBegin(); }
+            @Override public void move(float dx) { slideMove(dx); }
+            @Override public void end(boolean home) { slideEnd(home); }
+        });
         bindDraftScope();
     }
     /** Browser owns the full safe viewport; app navigation remains available through Home. */
@@ -222,6 +245,11 @@ public final class BrowserActivity extends Activity {
         thinkingText = new ShimmerText(this, MUTED, TEXT); thinkingText.setTextSize(14); thinkingText.setTypeface(Ui.weight(500)); thinkingText.setIncludeFontPadding(false);
         thinkingText.setSingleLine(true); thinkingText.setEllipsize(android.text.TextUtils.TruncateAt.END); thinkingText.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
         thinkingRow.addView(thinkingText, new LinearLayout.LayoutParams(0, -2, 1));
+        // 중지, as small as the line: the work stops at once, without opening 작업 상세.
+        TextView stopWork = ui.text("중지", 13, 600, ERROR); stopWork.setPadding(ui.dp(12), ui.dp(8), ui.dp(4), ui.dp(8));
+        stopWork.setContentDescription("AI 작업 중지"); Ui.pressable(stopWork, true);
+        stopWork.setOnClickListener(v -> { BrowserProgressUi.StopTarget target = stopTarget(progressSnapshot()); if (target.canStop()) target.stop(); else detail(); });
+        thinkingRow.addView(stopWork);
         thinkingRow.setContentDescription("AI가 작업하는 중 · 작업 상세 열기"); thinkingRow.setOnClickListener(v -> detail()); Ui.pressable(thinkingRow, true);
         resultBox.addView(thinkingRow);
         resultText = ui.text("", 15, 450, TEXT); resultText.setTextIsSelectable(true); resultText.setVisibility(View.GONE);
@@ -229,7 +257,7 @@ public final class BrowserActivity extends Activity {
         // Under an answer: copy, share and run again, with how many steps and how long it took.
         resultActions = ui.row(); resultActions.setPadding(0, ui.dp(4), 0, 0); resultActions.setVisibility(View.GONE);
         // Small quiet icons, as under an answer in the main chat and 작업창: copy, share, run again.
-        resultActions.addView(ui.quietIcon(R.drawable.ic_copy, "복사", () -> copyText("브라우저 작업 결과", engine.status)), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
+        resultActions.addView(ui.quietIcon(R.drawable.ic_copy, "복사", () -> copyText("브라우저 작업 결과", dev.jun.gyeot.core.Markdown.plain(engine.status))), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
         resultActions.addView(ui.quietIcon(R.drawable.ic_share, "공유", () -> shareText(engine.status, "브라우저 작업 결과")), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
         resultActions.addView(ui.quietIcon(R.drawable.ic_refresh, "다시", this::again), new LinearLayout.LayoutParams(ui.dp(40), ui.dp(40)));
         statsText = ui.text("", 12, 450, MUTED); statsText.setGravity(Gravity.END | Gravity.CENTER_VERTICAL); statsText.setMaxLines(1);
@@ -239,12 +267,11 @@ public final class BrowserActivity extends Activity {
         else { ScrollView results = new ScrollView(this) {
             @Override protected void onMeasure(int width, int height) { super.onMeasure(width, View.MeasureSpec.makeMeasureSpec(Math.min(ui.dp(240), View.MeasureSpec.getSize(height)), View.MeasureSpec.AT_MOST)); }
         }; results.setVerticalScrollBarEnabled(false); results.addView(resultBox); resultScroll = results; pane.addView(results, new LinearLayout.LayoutParams(-1, 0, 1)); }
-        // A quiet composer: model menu, draft, then send or add an instruction to this tab's task.
+        // A quiet composer: draft, then send or add an instruction to this tab's task; the model on its line under it (ModelLine,
+        // 준: "Ai브라우저 채팅창. 모델선택을 메뉴깊숙히 숨기지말고 이런식으로 입력창아래에").
         LinearLayout compose = ui.row(); compose.setGravity(Gravity.BOTTOM); compose.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4));
         android.graphics.drawable.GradientDrawable composeSurface = ui.shape(FILL, 18); composeSurface.setStroke(Math.max(1, ui.dp(.6f)), DARK ? 0x24ffffff : 0x14000000); compose.setBackground(composeSurface);
-        modelPicker = icon(R.drawable.ic_add, "AI 모델과 생각 깊이 선택", this::models);
-        modelPicker.setTooltipText("모델 선택"); compose.addView(modelPicker, square());
-        request = ui.input("이 페이지에서 할 일", 2, 8000); request.setTextSize(15.5f); request.setMinLines(1); request.setMinimumHeight(0); request.setMinHeight(0); request.setMaxLines(wide ? 6 : 4); request.setBackgroundColor(android.graphics.Color.TRANSPARENT); request.setContentDescription("브라우저 AI에게 지시할 내용");
+        request = ui.input("이 페이지에서 할 일", 2, BrowserPrompts.REQUEST_LIMIT); request.setTextSize(15.5f); request.setMinLines(1); request.setMinimumHeight(0); request.setMinHeight(0); request.setMaxLines(wide ? 6 : 4); request.setBackgroundColor(android.graphics.Color.TRANSPARENT); request.setContentDescription("브라우저 AI에게 지시할 내용");
         request.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES); request.setPadding(ui.dp(6), ui.dp(12), ui.dp(6), ui.dp(12)); request.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         compose.addView(request, new LinearLayout.LayoutParams(0, -2, 1));
         // The round send/voice button as in the other chats: a smaller disc inside the same 48dp target.
@@ -262,6 +289,8 @@ public final class BrowserActivity extends Activity {
         deepChip.setVisibility(View.GONE); deepChip.setContentDescription("끝까지 조사 켜짐, 눌러서 끄기"); deepChip.setOnClickListener(v -> deep(false));
         LinearLayout.LayoutParams deepParams = new LinearLayout.LayoutParams(-2, -2); deepParams.bottomMargin = ui.dp(6); pane.addView(deepChip, deepParams);
         pane.addView(compose);
+        modelLine = ModelLine.make(this, ui, v -> models());
+        pane.addView(ModelLine.row(ui, modelLine), new LinearLayout.LayoutParams(-1, -2));
         updateComposerLines(false);
         return pane;
     }
@@ -307,9 +336,10 @@ public final class BrowserActivity extends Activity {
         address.setOnEditorActionListener((v, action, event) -> { if (action == android.view.inputmethod.EditorInfo.IME_ACTION_GO) { go(); return true; } return false; });
         address.setOnFocusChangeListener((v, focused) -> { if (focused && engine.current != null) { address.setText(engine.current.url); address.selectAll(); } refresh(); renderOmni(); });
         address.addTextChangedListener(new android.text.TextWatcher() {
+            private boolean forward;
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
-            @Override public void afterTextChanged(android.text.Editable s) { renderOmni(); }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { forward = count > before; }
+            @Override public void afterTextChanged(android.text.Editable s) { if (forward) complete(s); renderOmni(); }
         });
         omnibox.addView(address, new LinearLayout.LayoutParams(0, pillHeight(), 1));
         // Address editing is separate from page navigation: this × only clears typed text.
@@ -399,7 +429,7 @@ public final class BrowserActivity extends Activity {
                 () -> { if (engine.tabs.contains(tab)) { hideKeyboard(); engine.select(tab); } },
                 () -> { if (engine.tabs.contains(tab)) { hideKeyboard(); engine.close(tab); } }));
         }
-        tabStrip.render(items, engine.tabs.size() < 6);
+        tabStrip.render(items, true);
     }
     private LinearLayout.LayoutParams chipParams() { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, ui.dp(44)); p.rightMargin = ui.dp(8); return p; }
     /** The site shown at rest in the address capsule: the host without "www.", or the address itself when it has none. */
@@ -465,6 +495,41 @@ public final class BrowserActivity extends Activity {
         dialog.show();
     }
     /**
+     * A link to another app the user tapped on the page (tel:, mailto:, sms:, market:, a KakaoTalk or Naver app sign-in's
+     * intent://): handed to Android as Chrome does (BrowserAppIntent). When no app takes it, an intent:// link's own web page
+     * (browser_fallback_url) opens in the same tab, else Play opens on the app it names.
+     */
+    private void openAppLink(BrowserEngine.Tab tab, String raw) {
+        if (isFinishing() || isDestroyed()) return;
+        android.content.Intent intent = BrowserAppIntent.of(raw, getPackageName());
+        String app = dev.jun.gyeot.core.BrowserAppLinks.label(raw);
+        if (intent == null) { toast(app + " 링크는 열 수 없어요. 웹페이지는 그대로 유지했어요."); return; }
+        try { startActivity(intent); return; }
+        catch (android.content.ActivityNotFoundException none) { /* below: its web page, or Play */ }
+        catch (SecurityException refused) { toast(app + "을(를) 열 수 없어요. 웹페이지는 그대로 유지했어요."); return; }
+        String fallback = dev.jun.gyeot.core.BrowserAppLinks.fallback(raw);
+        if (!fallback.isEmpty()) { web.post(() -> engine.openFallback(tab, fallback)); toast(app + "이(가) 없어서 웹페이지로 열었어요."); return; }
+        String pkg = BrowserAppIntent.packageOf(raw);
+        if (!pkg.isEmpty()) try {
+            startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=" + pkg))
+                .addCategory(android.content.Intent.CATEGORY_BROWSABLE).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+            toast(app + "이(가) 설치돼 있지 않아 Play 스토어를 열었어요."); return;
+        } catch (RuntimeException noStore) { /* below */ }
+        toast(app + " 링크를 열 앱이 없어요. 웹페이지는 그대로 유지했어요.");
+    }
+    /** Opened from a site's question (BrowserTaskService.siteQuestion): that tab comes up and its question with it. */
+    private void consumeQuestion() {
+        android.content.Intent intent = getIntent();
+        if (!navigationResumed || engine == null || engine.historyRestorePending() || intent == null || !intent.hasExtra(BrowserTaskService.QUESTION_TAB_EXTRA)) return;
+        String id = intent.getStringExtra(BrowserTaskService.QUESTION_TAB_EXTRA);
+        intent.removeExtra(BrowserTaskService.QUESTION_TAB_EXTRA);
+        BrowserEngine.Tab asking = id == null ? null : engine.tab(id);
+        if (asking == null) { toast("질문한 탭이 이미 닫혔어요."); return; }
+        saveDraft();
+        if (dictation != null) dictation.cancel();
+        engine.select(asking);
+    }
+    /**
      * The page as drawn now and where it sits in the window, for 화면 보기 (GeckoView draws on a surface of its own, which a
      * copy of the window leaves out); null when there is none. The answer comes on the main thread.
      */
@@ -475,8 +540,14 @@ public final class BrowserActivity extends Activity {
         try { view.capturePixels().accept(bitmap -> done.accept(bitmap, at), failure -> done.accept(null, null)); }
         catch (RuntimeException failed) { done.accept(null, null); }
     }
-    @Override protected void onResume() { super.onResume(); if (voice != null) voice.attach(); navigationResumed = true; AppNavigator.browserInFront(true); AppNavigator.inFront("browser"); updateAiToolbarState(); engine.attach(this::refresh, prompts); engine.externalAppLink = this::offerYouTube; engine.store.observe(storeObserver); consumeTaskNotification(); consumeOpen(); acknowledgeNavigation(); }
+    @Override protected void onStart() { super.onStart(); slideReset(); coverWithShot(); }
+    /** Gone behind 홈 after the swipe: put back in place and opaque while unseen, so it comes back as it was, with no see-through open. */
+    @Override protected void onStop() { super.onStop(); if (seeThrough || slid != null) slideReset(); }
+    @Override protected void onResume() { super.onResume(); BrowserRuntime.configurationChanged(getResources().getConfiguration()); if (voice != null) voice.attach(); navigationResumed = true; AppNavigator.browserInFront(true); AppNavigator.inFront("browser"); updateAiToolbarState(); engine.attach(this::refresh, prompts); engine.externalAppLink = this::offerYouTube; engine.appLink = this::openAppLink; engine.store.observe(storeObserver); consumeTaskNotification(); consumeOpen(); consumeReview(); consumeQuestion(); acknowledgeNavigation(); }
     @Override protected void onPause() {
+        // Left by the phone's home button or a swipe home: the left page shows this screen as it was (keepShot).
+        // Not once the swipe back has begun: this screen shows 홈's picture then, and the left page would show 홈 (0.4.677's video).
+        if (homeSide && !leaving && slid == null && !isFinishing()) keepShot(null);
         if (voice != null) voice.detach();
         recoveryViewSequence++;
         navigationResumed = false; AppNavigator.browserInFront(false); stopProgressUiClock(); detailRefresh = null; progressDetails = null;
@@ -540,8 +611,8 @@ public final class BrowserActivity extends Activity {
         request.setText(text); int length = request.length(); request.setSelection(Math.max(0, Math.min(start, length)), Math.max(0, Math.min(end, length)));
     }
     @Override protected void onNewIntent(android.content.Intent intent) {
-        super.onNewIntent(intent); setIntent(intent);
-        web.post(() -> { consumeTaskNotification(); consumeOpen(); acknowledgeNavigation(); });
+        super.onNewIntent(intent); setIntent(intent); fromHome(intent);
+        web.post(() -> { consumeTaskNotification(); consumeOpen(); consumeReview(); consumeQuestion(); acknowledgeNavigation(); });
     }
     /**
      * Opens url in a new tab of the app's browser, the screen brought to the front: a source the main chat cited, or a
@@ -553,9 +624,200 @@ public final class BrowserActivity extends Activity {
             .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
     }
     /**
-     * The page open() asked for, once its tabs have been restored: a new tab, once per request, checked again. With six tabs
-     * open (the browser pins none, and each may hold a page and a conversation the user is in) the page opens outside the
-     * app instead, so the tap still lands.
+     * The AI 브라우저 from the home screen's left page (ClaudePage): fading in where the left page's card stands, its claude.ai tab
+     * again if one is open, and 홈 the way back.
+     */
+    static void openFromHome(android.app.Activity home, String url) {
+        String page = BrowserTools.url(url);
+        home.startActivity(new android.content.Intent(home, BrowserActivity.class).putExtra(OPEN, page).putExtra(OPEN_ID, UUID.randomUUID().toString()).putExtra(HOME_SIDE, true)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+            android.app.ActivityOptions.makeCustomAnimation(home, R.anim.page_fade_in, R.anim.page_hold).toBundle());
+    }
+    /** Whether this screen came from the home screen's left page: its edge swipe and its ⌂ to 홈. */
+    private void fromHome(android.content.Intent intent) {
+        homeSide = intent != null && intent.getBooleanExtra(HOME_SIDE, false);
+        if (homeEdge != null) homeEdge.on(homeSide);
+        if (appReturnButton != null) {
+            String what = homeSide ? "홈 화면으로 · 탭과 대화 유지" : "앱으로 돌아가기 · 웹페이지 뒤로가기 아님 · 탭과 대화 유지";
+            appReturnButton.setContentDescription(what); appReturnButton.setTooltipText(homeSide ? "홈 화면으로" : "앱으로 돌아가기");
+        }
+    }
+    /**
+     * The browser as the user left it from the home screen's left page (준: "검은 화면 안 뜨게 해줘", "전환이 더 자연스럽게",
+     * "화면 뜨는 딜레이를 획기적으로 줄여줘"): a picture of this screen, shown on the left page while it is swiped in (HomeActivity
+     * serves it as /left.jpg) and over this screen for its first moments back (while Gecko draws again), so the swipe shows the
+     * browser at once and its coming is not seen. Kept in memory for this run and in a file for the home screen.
+     */
+    static java.io.File leftShot(android.content.Context c) { return new java.io.File(c.getFilesDir(), "home_left.jpg"); }
+    private static volatile android.graphics.Bitmap shotInMemory;
+    private android.widget.ImageView shotCover;
+    /** A picture of the window now (PixelCopy: the page's own surface too), saved off the main thread; then runs at once after. */
+    private void keepShot(Runnable then) {
+        View decor = getWindow().getDecorView(); int w = decor.getWidth(), h = decor.getHeight();
+        if (w <= 0 || h <= 0 || !decor.isAttachedToWindow()) { if (then != null) then.run(); return; }
+        boolean[] done = {false};
+        Runnable go = () -> { if (done[0]) return; done[0] = true; if (then != null) then.run(); };
+        android.graphics.Bitmap shot;
+        try { shot = android.graphics.Bitmap.createBitmap(Math.max(1, Math.round(w * .6f)), Math.max(1, Math.round(h * .6f)), android.graphics.Bitmap.Config.ARGB_8888); }
+        catch (RuntimeException | OutOfMemoryError none) { go.run(); return; }
+        try {
+            android.view.PixelCopy.request(getWindow(), shot, result -> {
+                if (result == android.view.PixelCopy.SUCCESS) {
+                    shotInMemory = shot; java.io.File file = leftShot(getApplicationContext());
+                    new Thread(() -> {
+                        java.io.File part = new java.io.File(file.getPath() + ".part");
+                        try (java.io.FileOutputStream out = new java.io.FileOutputStream(part)) { shot.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, out); }
+                        catch (Exception unwritten) { return; }
+                        if (!part.renameTo(file)) part.delete();
+                    }, "gyeot-left-shot").start();
+                }
+                go.run();
+            }, progressUiHandler);
+        } catch (RuntimeException refused) { go.run(); return; }
+        // Never held back long by it.
+        progressUiHandler.postDelayed(go, 180);
+    }
+    /** The last picture over this screen while Gecko draws again, then faded away. */
+    private void coverWithShot() {
+        android.graphics.Bitmap shot = shotInMemory;
+        if (!homeSide || shot == null) return;
+        android.view.ViewGroup content = findViewById(android.R.id.content); if (content == null) return;
+        if (shotCover == null) {
+            shotCover = new android.widget.ImageView(this); shotCover.setScaleType(android.widget.ImageView.ScaleType.FIT_XY);
+            shotCover.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
+        shotCover.animate().cancel(); shotCover.setAlpha(1f); shotCover.setImageBitmap(shot);
+        if (shotCover.getParent() == null) content.addView(shotCover, new FrameLayout.LayoutParams(-1, -1));
+        android.widget.ImageView cover = shotCover;
+        cover.postDelayed(() -> cover.animate().alpha(0f).setDuration(160).withEndAction(() -> { android.view.ViewParent parent = cover.getParent(); if (parent instanceof android.view.ViewGroup g) g.removeView(cover); }).start(), 380);
+    }
+    // ── the swipe back to 홈, under the finger (준: "Ai브라우저에서 우측 홈으로 돌아갈때 슬라이드 방식으로 전환되게해줘") ──
+    private android.widget.ImageView homeCover; private View slid;
+    /** When this screen's picture was last taken as a finger came down at the edge (not again within the same touch). */
+    private long shotAt;
+    /** This screen will move with the finger and 홈's picture comes in at its right; false without a picture of 홈. */
+    private boolean slideBegin() {
+        android.graphics.Bitmap home = HomeActivity.homeShot;
+        android.view.ViewGroup content = findViewById(android.R.id.content);
+        if (home == null || content == null || content.getChildCount() == 0) return false;
+        // This screen's picture for the left page was taken before it moved (prepare, as the finger came down; toHome).
+        slid = content.getChildAt(0);
+        if (homeCover == null) { homeCover = new android.widget.ImageView(this); homeCover.setScaleType(android.widget.ImageView.ScaleType.FIT_XY); homeCover.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); homeCover.setElevation(ui.dp(2)); }
+        homeCover.animate().cancel(); homeCover.setImageBitmap(home); homeCover.setAlpha(1f);
+        if (homeCover.getParent() == null) content.addView(homeCover, new FrameLayout.LayoutParams(-1, -1));
+        homeCover.setTranslationX(content.getWidth()); homeEdge.handle.setVisibility(View.INVISIBLE);
+        seeThrough(true);
+        return true;
+    }
+    // ── see-through while swiped away (준: "LP턴테이블에서 홈으로 오는건 자연스러운데 왜 ai브라우저에서 홈으로 가면 요동을 치는거야?") ──
+    /**
+     * The LP page is a page of the home screen itself, so going from it to 홈 is the home screen's own scroll; this screen is
+     * another app window, and going from it to 홈 made the phone play its going-home transition whatever the app asked (its
+     * wallpaper alone, then 홈 fading and shrinking in), on top of the swipe. So while it is swiped away this screen is made
+     * see-through (Activity.setTranslucent): the home screen behind it is drawn again, as it is, under this one; and leaving only
+     * moves this screen back (moveTaskToBack) with 홈 already on the screen, so there is no going-home for the phone to play.
+     * Opaque again when the swipe springs back or this screen comes again (slideReset).
+     */
+    private boolean seeThrough;
+    private android.graphics.drawable.Drawable windowBackground;
+    private void seeThrough(boolean on) {
+        if (on == seeThrough) return;
+        if (on) {
+            boolean done; try { done = setTranslucent(true); } catch (RuntimeException refused) { done = false; }
+            if (!done) return;
+            seeThrough = true;
+            windowBackground = getWindow().getDecorView().getBackground();
+            getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        } else {
+            seeThrough = false;
+            try { setTranslucent(false); } catch (RuntimeException ignored) { /* stays as it is */ }
+            if (windowBackground != null) getWindow().setBackgroundDrawable(windowBackground);
+        }
+    }
+    /**
+     * The swipe has come all the way: with the home screen drawn behind (it came up behind this see-through screen, a moment
+     * after the swipe began; waited for a little), 홈's picture fades to 홈 as it is and this screen steps back; else 홈 is opened
+     * as before, its picture laid over the phone's transition (HomeCurtain).
+     */
+    private void leaveToHome(android.widget.ImageView cover, int tries) {
+        if (isFinishing() || isDestroyed()) return;
+        if (seeThrough && HomeActivity.visible) {
+            cover.animate().alpha(0f).setDuration(90).withEndAction(() -> { if (!isFinishing()) moveTaskToBack(true); }).start();
+            return;
+        }
+        if (seeThrough && tries < 20) { progressUiHandler.postDelayed(() -> leaveToHome(cover, tries + 1), 16); return; }
+        HomeCurtain.cover(this, HomeActivity.homeShot, HomeActivity.homeShotAt);
+        try { startActivity(homeIntent(this, true)); overridePendingTransition(0, 0); }
+        catch (RuntimeException none) { HomeCurtain.remove(); moveTaskToBack(true); }
+    }
+    private void slideMove(float dx) {
+        if (slid == null || homeCover == null) return;
+        int width = slid.getWidth();
+        slid.setTranslationX(dx); homeCover.setTranslationX(width + dx);
+    }
+    /** Let go: on to 홈 (the rest of the way, then 홈 itself, the same picture, with no animation of its own), or back. */
+    private void slideEnd(boolean home) {
+        if (slid == null || homeCover == null) return;
+        View page = slid; android.widget.ImageView cover = homeCover; int width = page.getWidth();
+        float left = width + page.getTranslationX(); long ms = Math.max(90, Math.min(240, Math.round(240 * (home ? left : width - left) / Math.max(1f, width))));
+        android.view.animation.Interpolator ease = new android.view.animation.DecelerateInterpolator(1.6f);
+        if (home) {
+            page.animate().translationX(-width).setDuration(ms).setInterpolator(ease).start();
+            cover.animate().translationX(0).setDuration(ms).setInterpolator(ease).withEndAction(() -> {
+                saveDraft(); if (dictation != null) dictation.cancel();
+                leaveToHome(cover, 0);
+            }).start();
+        } else {
+            page.animate().translationX(0).setDuration(ms).setInterpolator(ease).start();
+            cover.animate().translationX(width).setDuration(ms).setInterpolator(ease).withEndAction(this::slideReset).start();
+        }
+    }
+    /**
+     * To 홈 (its 홈 page). seamless: this screen already shows 홈's picture where it will be (the slide ended), so the phone plays
+     * no transition of its own (준: "슬라이드 전환할때 홈으로 바로 가지않고 다시 깜빡이는 효과가 들어가", "이중으로"): the home
+     * screen is in another task, and for a task the phone ignores an app's own animation (makeCustomAnimation(0, 0) was ignored)
+     * and plays its own: the phone's wallpaper alone, then 홈 fading and shrinking in over it. FLAG_ACTIVITY_NO_ANIMATION is the
+     * phone's own word for none, so 홈 replaces its picture in place.
+     */
+    static android.content.Intent homeIntent(android.content.Context c, boolean seamless) {
+        android.content.Intent home = new android.content.Intent(c, HomeActivity.class).putExtra(HomeActivity.PAGE, "홈").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (seamless) home.addFlags(android.content.Intent.FLAG_ACTIVITY_NO_ANIMATION);
+        return home;
+    }
+    /** Everything back in its place (after 홈 covered this screen, or after springing back). */
+    private void slideReset() {
+        if (slid != null) { slid.animate().cancel(); slid.setTranslationX(0); }
+        if (homeCover != null) { homeCover.animate().cancel(); android.view.ViewParent p = homeCover.getParent(); if (p instanceof android.view.ViewGroup g) g.removeView(homeCover); }
+        if (homeEdge != null && homeEdge.on()) homeEdge.handle.setVisibility(View.VISIBLE);
+        slid = null; seeThrough(false);
+    }
+    /** Touches go to the right edge's swipe first, when this screen came from the home screen (HomeEdge). */
+    @Override public boolean dispatchTouchEvent(MotionEvent e) {
+        if (homeEdge != null && homeEdge.touch(e, super::dispatchTouchEvent)) return true;
+        return super.dispatchTouchEvent(e);
+    }
+    /** To 홈: the home screen turns in from the right as this screen goes left, as from the left page to 홈. */
+    private boolean leaving;
+    private void toHome() {
+        if (leaving || slid != null) return;
+        saveDraft(); if (dictation != null) dictation.cancel();
+        // The screen as it is now goes to the home screen's left page first (keepShot), then 홈: with a picture of 홈 (the
+        // aurora) the swipe's own slide, played by itself, and 홈 in its place (homeIntent seamless).
+        leaving = true;
+        keepShot(() -> { leaving = false; if (slideBegin()) slideEnd(true); else goHome(); });
+    }
+    private void goHome() {
+        if (isFinishing() || isDestroyed()) return;
+        android.content.Intent home = homeIntent(this, false);
+        // Kept, not closed (준: "탭 내리고 올리듯이 바로 띄우는게 안되나", "그런 원리로"): the screen stays behind the home screen as it
+        // is, and the next swipe onto the left page only brings it to the front again (no new screen to build). The 들퍼레 icon
+        // still opens the app's main screen (this screen is a task of its own when opened from the home screen, see the manifest).
+        try { startActivity(home, android.app.ActivityOptions.makeCustomAnimation(this, R.anim.page_in_right, R.anim.page_out_left).toBundle()); }
+        catch (RuntimeException none) { moveTaskToBack(true); }
+    }
+    /**
+     * The page open() asked for, once its tabs have been restored: a new tab, once per request, checked again; as many tabs as
+     * the user likes (no cap), so it stays in the AI 브라우저.
      */
     private void consumeOpen() {
         android.content.Intent intent = getIntent();
@@ -566,13 +828,28 @@ public final class BrowserActivity extends Activity {
         opened.add(id); while (opened.size() > OPENED_KEPT) opened.remove(opened.iterator().next());
         String page;
         try { page = BrowserTools.url(url == null ? "" : url); } catch (IllegalArgumentException invalid) { toast(invalid.getMessage()); return; }
+        // From the home screen's left page: its claude.ai tab again (the conversation left there), else a new one.
+        if (homeSide && ClaudePage.inside(page)) {
+            BrowserEngine.Tab again = null;
+            for (BrowserEngine.Tab tab : engine.tabs) if (ClaudePage.inside(tab.url)) { again = tab; if (tab == engine.current) break; }
+            if (again != null) { if (again != engine.current) { saveDraft(); if (dictation != null) dictation.cancel(); engine.select(again); } return; }
+        }
         try { saveDraft(); if (dictation != null) dictation.cancel(); engine.newTab(page, true); }
         catch (Exception refused) {
+            // Never another app from the home screen (준: "Ai브라우저의 한 탭으로 열려야지": claude.ai had opened in the Claude app).
+            if (homeSide) { toast(refused.getMessage()); return; }
             try { startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(page)).addCategory(android.content.Intent.CATEGORY_BROWSABLE)); }
             catch (Exception none) { toast(refused.getMessage()); }
         }
     }
     /** Notification identity is a process plus an immutable run lease, never the visible tab. */
+    private void consumeReview() {
+        android.content.Intent intent = getIntent();
+        if (!navigationResumed || engine == null || intent == null || !intent.getBooleanExtra(REVIEW_WORK, false)) return;
+        String receipt = intent.getStringExtra(REVIEW_RECEIPT);
+        intent.removeExtra(REVIEW_WORK); intent.removeExtra(REVIEW_RECEIPT);
+        reviewWorkMutation(receipt == null ? "" : receipt);
+    }
     private void consumeTaskNotification() {
         android.content.Intent intent = getIntent();
         if (!navigationResumed || engine == null || engine.historyRestorePending() || intent == null || !intent.hasExtra(BrowserTaskService.TASK_LEASE_EXTRA)) return;
@@ -599,6 +876,8 @@ public final class BrowserActivity extends Activity {
         // Like a sheet in iOS: back first lowers the AI panel from over the page, then walks the page history.
         if (paneVisible && !wide) { setPaneVisible(false); return; }
         if (engine != null && engine.current != null && engine.current.back) { goBackInPage(); return; }
+        // From the home screen: back is the page's alone (준: "뒤로가기로 홈페이지 돌아가는 건 넣지마"); 홈 is ⌂ or the edge's swipe.
+        if (homeSide) { toast("홈으로는 ⌂ 버튼이나 오른쪽 끝에서 밀어 주세요"); return; }
         leaveBrowser();
     }
     /** The toolbar arrow is page history only; it must never close the browser screen. */
@@ -646,6 +925,7 @@ public final class BrowserActivity extends Activity {
     }
     /** One-tap, non-destructive return. A notification-launched task root still returns to the app, not Home. */
     private void leaveBrowser() {
+        if (homeSide) { toHome(); return; }
         saveDraft();
         if (isTaskRoot()) startActivity(new android.content.Intent(this, MainActivity.class));
         finish();
@@ -658,6 +938,7 @@ public final class BrowserActivity extends Activity {
         if (dictation != null) dictation.validateScope();
         updatePageNavigation();
         BrowserEngine.Tab tab = engine.current; if (tab == null || web == null) return;
+        loadHistory(); recordVisit(tab);
         refreshTabStrip();
         if (tabOverviewRefresh != null) tabOverviewRefresh.run();
         if (zoomMenuRefresh != null) zoomMenuRefresh.run();
@@ -680,8 +961,7 @@ public final class BrowserActivity extends Activity {
         // At large text sizes or with the keyboard up, keep the two-line draft reachable.
         updateComposerLines(engine.transcriptStorageWarning || engine.taskStorageWarning);
         panelHeader.update(host(tab.url));
-        String model = new BrowserModels(engine.store).summary(engine.brain());
-        modelPicker.setContentDescription("AI 모델과 생각 깊이 선택 · 현재 " + model); modelPicker.setTooltipText(model);
+        showModel();
         boolean anyRunning = engine.running(), otherTask = anyRunning && !engine.taskOnCurrentTab();
         boolean running = anyRunning && !otherTask, failed = !otherTask && engine.resultState.equals("error"), completed = !otherTask && engine.resultState.equals("done");
         boolean attention = !otherTask && (engine.resultState.equals("paused") || engine.paused);
@@ -858,8 +1138,28 @@ public final class BrowserActivity extends Activity {
     /** 기억: with it on, the notes the app keeps about the user that fit this request go along, marked as for the answer only. */
     private String withMemory(String text) {
         if (!engine.store.settings.getBoolean(MEMORY, false) || !engine.store.memoryOn()) return text;
-        String notes = engine.store.recallMemory(text, 1200);
-        return notes.isBlank() ? text : text + "\n\n[참고 · 사용자에 대해 기억한 것. 판단과 답에만 쓰고, 웹페이지에 입력하거나 사이트로 보내지 마세요]\n" + notes;
+        String header = "\n\n[참고 · 사용자에 대해 기억한 것. 판단과 답에만 쓰고, 웹페이지에 입력하거나 사이트로 보내지 마세요]\n";
+        // The notes fit beside the request within BrowserPrompts.REQUEST_LIMIT; a request that fills it goes alone.
+        int room = Math.min(MEMORY_NOTES, BrowserPrompts.REQUEST_LIMIT - text.length() - header.length());
+        if (room < 200) return text;
+        String notes = engine.store.recallMemory(text, room);
+        return notes.isBlank() ? text : text + header + notes;
+    }
+    /** Characters of remembered notes that go along with a request, and of a note written by hand in 기억. */
+    private static final int MEMORY_NOTES = 4000, NOTE_LIMIT = 2000;
+    /** A note written by hand, cut into pieces Memory keeps whole (Memory.TEXT_LIMIT each), at a sentence end or a space when it can. */
+    private static List<String> notePieces(String words) {
+        List<String> pieces = new ArrayList<>(); String rest = words.replaceAll("\\s+", " ").strip();
+        int most = dev.jun.gyeot.core.Memory.TEXT_LIMIT;
+        while (rest.length() > most) {
+            int cut = -1;
+            for (String end : new String[]{". ", "다. ", "요. ", "! ", "? ", "\n"}) cut = Math.max(cut, rest.lastIndexOf(end, most - end.length()) + end.length() - 1);
+            if (cut < most / 2) cut = rest.lastIndexOf(' ', most);
+            if (cut < most / 2) cut = most;
+            pieces.add(rest.substring(0, cut).strip()); rest = rest.substring(cut).strip();
+        }
+        if (!rest.isEmpty()) pieces.add(rest);
+        return pieces;
     }
     /** 기억: whether the browser's AI may use what the app remembers about the user, and a note written down by hand. */
     private void memorySheet() {
@@ -875,14 +1175,19 @@ public final class BrowserActivity extends Activity {
         for (int i = 0; i < notes.length(); i++) if (dev.jun.gyeot.core.Memory.ABOUT.equals(notes.optJSONObject(i).optString("kind"))) about++;
         sheet.body.addView(group);
         sheet.body.addView(ui.footer("나에 대해 기억한 것 " + about + "개 · 보기와 지우기는 설정 → 기억 → 기억한 것"));
-        EditText note = ui.input("기억해 둘 것 (예: 회의록은 표로 정리해 줘)", 2, 300);
+        EditText note = ui.input("기억해 둘 것 (예: 회의록은 표로 정리해 줘)", 2, NOTE_LIMIT);
         sheet.body.addView(note);
         sheet.primary.setText("기억에 적어 두기"); sheet.primary.setOnClickListener(v -> {
             String words = note.getText().toString().strip(); if (words.isEmpty()) { sheet.dismiss(); return; }
-            try { engine.store.changeMemory(list -> dev.jun.gyeot.core.Memory.add(list, dev.jun.gyeot.core.Memory.ABOUT, words, "", System.currentTimeMillis())); sheet.dismiss(); toast("기억해 둘게요"); }
+            // A note longer than one memory holds is kept whole, as several notes in a row, never cut short.
+            List<String> pieces = notePieces(words); long now = System.currentTimeMillis();
+            try {
+                engine.store.changeMemory(list -> { for (int i = 0; i < pieces.size(); i++) dev.jun.gyeot.core.Memory.add(list, dev.jun.gyeot.core.Memory.ABOUT, pieces.get(i), "", now + i); return null; });
+                sheet.dismiss(); toast(pieces.size() > 1 ? "길어서 기억 " + pieces.size() + "개로 나눠 적어 뒀어요" : "기억해 둘게요");
+            }
             catch (Exception e) { toast(e.getMessage() == null ? "기억하지 못했어요." : e.getMessage()); }
         });
-        show(sheet);
+        popup(sheet, true);
     }
     /** Starts the agent with exactly this request; a finished answer is added to the conversation with its steps and time. */
     private void run(String visible, String text) {
@@ -894,7 +1199,11 @@ public final class BrowserActivity extends Activity {
             } else toast("지시를 반영하지 못했어요. 입력은 유지했으니 작업 상태를 확인해 주세요.");
             return;
         }
-        if (!engine.canAcceptTask(text)) { toast("탭의 작업 기억을 불러오는 중이거나 문맥이 가득 찼어요. 잠시 후 다시 보내거나 새 대화를 시작해 주세요. 표시 기록은 유지돼요."); return; }
+        if (!engine.canAcceptTask(text)) {
+            toast(text.length() > BrowserPrompts.REQUEST_LIMIT ? String.format(java.util.Locale.ROOT, "요청이 %,d자를 넘어요. 나눠서 보내 주세요. 입력은 그대로 두었어요.", BrowserPrompts.REQUEST_LIMIT)
+                : "탭의 작업 기억을 불러오는 중이에요. 잠시 후 다시 보내 주세요. 입력은 그대로 두었어요.");
+            return;
+        }
         if (!engine.connected()) { engine.status = engine.brainName() + " 연결이 필요해요. 모델 선택에서 연결할 수 있어요."; engine.resultState = "error"; engine.changed(); return; }
         BrowserEngine.Tab target = engine.current;
         String conversation = target.conversationId, before = target.task.snapshot();
@@ -976,7 +1285,8 @@ public final class BrowserActivity extends Activity {
         ui.addRow(rows, menuRow(R.drawable.ic_search, MUTED, "웹 검색 입력", true, () -> draft("웹에서 "), sheet), true);
         for (BrowserPrompts.Recent recent : BrowserPrompts.recents(stored()))
             ui.addRow(rows, menuRow(R.drawable.ic_history, MUTED, (recent.pinned() ? "고정 · " : "최근 · ") + BrowserPrompts.label(recent.text()), true, () -> recentMenu(recent), sheet), true);
-        sheet.body.addView(rows); show(sheet);
+        if (!stored().isBlank()) ui.addRow(rows, menuRow(R.drawable.ic_close, ERROR, "최근·고정 요청 모두 지우기", true, () -> show(ui.confirm("AI 패널의 최근 요청과 고정한 요청을 모두 지울까요?", "모두 지우기", () -> saveRecents(""))), sheet), true);
+        sheet.body.addView(rows); popup(sheet, false);
     }
     private void recentMenu(BrowserPrompts.Recent recent) {
         haptic(HapticFeedbackConstants.LONG_PRESS);
@@ -1002,9 +1312,139 @@ public final class BrowserActivity extends Activity {
             omniRow.addView(ui.chip(BrowserPrompts.isAddress(typed) ? "주소로 이동" : "Google 검색", this::go), chipParams());
         } else if (editing) for (BrowserPrompts.Recent recent : BrowserPrompts.recents(stored())) {
             Button chip = ui.chip((recent.pinned() ? "📌 " : "↺ ") + BrowserPrompts.label(recent.text()), () -> askFromAddress(recent.text()));
-            chip.setContentDescription("최근 요청 " + recent.text() + ", AI에게 맡기기"); omniRow.addView(chip, chipParams());
+            chip.setContentDescription("최근 요청 " + clipLine(recent.text()) + ", AI에게 맡기기"); omniRow.addView(chip, chipParams());
         }
         omniStrip.setVisibility(omniRow.getChildCount() > 0 ? View.VISIBLE : View.GONE);
+        suggest(editing && !pageAddress ? typedOnly() : "");
+    }
+
+    // ── the address bar's autocomplete (준: "Ai브라우저 주소창 자동완성이 안돼") ──
+    private static dev.jun.gyeot.core.BrowserHistory history;
+    private static final java.util.concurrent.ExecutorService HISTORY_IO = java.util.concurrent.Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-browser-history"); t.setDaemon(true); return t; });
+    private static boolean historySaveQueued;
+    private boolean completing; private String recordedUrl = "", recordedTitle = ""; private long suggestTicket;
+    private static java.io.File historyFile(android.content.Context c) { return new java.io.File(c.getFilesDir(), "browser_history.json"); }
+    /** The history, read once per run off the main thread; null until then (no suggestions from it meanwhile). */
+    private void loadHistory() {
+        if (history != null) return;
+        android.content.Context app = getApplicationContext();
+        HISTORY_IO.execute(() -> {
+            if (history != null) return;
+            dev.jun.gyeot.core.BrowserHistory h;
+            try { h = dev.jun.gyeot.core.BrowserHistory.of(new org.json.JSONArray(new String(java.nio.file.Files.readAllBytes(historyFile(app).toPath()), StandardCharsets.UTF_8))); }
+            catch (Exception none) { h = new dev.jun.gyeot.core.BrowserHistory(); }
+            history = h;
+        });
+    }
+    /** The page in front, seen: kept in the history (never a secret tab's), written a moment later off the main thread. */
+    private void recordVisit(BrowserEngine.Tab tab) {
+        dev.jun.gyeot.core.BrowserHistory h = history;
+        if (h == null || tab == null || tab.secret || tab.loading || tab.url == null) return;
+        String title = tab.title == null ? "" : tab.title;
+        if (tab.url.equals(recordedUrl) && title.equals(recordedTitle)) return;
+        boolean same = tab.url.equals(recordedUrl); recordedUrl = tab.url; recordedTitle = title;
+        android.content.Context app = getApplicationContext(); long now = System.currentTimeMillis(); String url = tab.url;
+        HISTORY_IO.execute(() -> {
+            if (same) h.title(url, title); else h.visit(url, title, now);
+            if (historySaveQueued) return; historySaveQueued = true;
+            try { Thread.sleep(1500); } catch (InterruptedException ignored) {}
+            historySaveQueued = false;
+            java.io.File f = historyFile(app), part = new java.io.File(f.getPath() + ".part");
+            try { java.nio.file.Files.write(part.toPath(), h.json().toString().getBytes(StandardCharsets.UTF_8)); if (!part.renameTo(f)) part.delete(); } catch (Exception ignored) {}
+        });
+    }
+    /** What the user typed, without the part autocomplete filled in after the cursor. */
+    private String typedOnly() {
+        android.text.Editable t = address.getText(); int a = address.getSelectionStart(), b = address.getSelectionEnd();
+        String all = t.toString();
+        if (a >= 0 && b == all.length() && a < b) return all.substring(0, a).strip();
+        return all.strip();
+    }
+    /** Fills in the rest of the address the typed start most likely means, selected, so the next letter replaces it. */
+    private void complete(android.text.Editable s) {
+        dev.jun.gyeot.core.BrowserHistory h = history;
+        if (completing || h == null || !address.hasFocus()) return;
+        String typed = s.toString();
+        // Not while the keyboard still composes (Korean), not mid-text, not for words with spaces (a search).
+        if (android.view.inputmethod.BaseInputConnection.getComposingSpanStart(s) != -1 || address.getSelectionEnd() != typed.length() || !typed.matches("[A-Za-z0-9.:/\\-_~%?=&#+@]+")) return;
+        String bare = dev.jun.gyeot.core.BrowserHistory.bare(typed);
+        String fill = h.inline(typed, System.currentTimeMillis());
+        if (fill.isEmpty() || !fill.startsWith(bare) || fill.length() <= bare.length() || bare.isEmpty() || !typed.toLowerCase(java.util.Locale.ROOT).endsWith(bare)) return;
+        completing = true;
+        try { s.append(fill.substring(bare.length())); address.setSelection(typed.length(), s.length()); }
+        finally { completing = false; }
+    }
+    /** The list under the address bar: open tabs, pages seen and bookmarks that match, then Google's suggestions (off the main thread). */
+    private void suggest(String typed) {
+        if (suggestBox == null) return;
+        long ticket = ++suggestTicket;
+        if (typed.isEmpty()) { suggestBox.removeAllViews(); suggestBox.setVisibility(View.GONE); return; }
+        java.util.List<String[]> rows = new java.util.ArrayList<>(); java.util.Set<String> seen = new java.util.HashSet<>();
+        String low = typed.toLowerCase(java.util.Locale.ROOT);
+        for (BrowserEngine.Tab t : engine.tabs) {
+            if (t == engine.current || t.secret || t.url == null) continue;
+            String b = dev.jun.gyeot.core.BrowserHistory.bare(t.url), title = t.title == null ? "" : t.title;
+            if ((b.contains(low) || title.toLowerCase(java.util.Locale.ROOT).contains(low)) && seen.add(b)) rows.add(new String[]{"tab", title.isBlank() ? b : title, t.url, t.id});
+            if (rows.size() >= 2) break;
+        }
+        dev.jun.gyeot.core.BrowserHistory h = history;
+        if (h != null) for (dev.jun.gyeot.core.BrowserHistory.Page p : h.matches(typed, 6, System.currentTimeMillis()))
+            if (seen.add(dev.jun.gyeot.core.BrowserHistory.bare(p.url())) && rows.size() < 5) rows.add(new String[]{"page", p.title().isBlank() ? dev.jun.gyeot.core.BrowserHistory.bare(p.url()) : p.title(), p.url(), ""});
+        for (dev.jun.gyeot.core.BrowserKit.Bookmark b : dev.jun.gyeot.core.BrowserKit.bookmarks(engine.store.settings.getString(BOOKMARKS, ""))) {
+            if (rows.size() >= 6) break;
+            String bb = dev.jun.gyeot.core.BrowserHistory.bare(b.url());
+            if ((bb.contains(low) || b.title().toLowerCase(java.util.Locale.ROOT).contains(low)) && seen.add(bb)) rows.add(new String[]{"mark", b.title().isBlank() ? bb : b.title(), b.url(), ""});
+        }
+        drawSuggestions(rows, java.util.List.of());
+        if (BrowserPrompts.isAddress(typed) && !typed.contains(" ") && typed.contains(".")) return;
+        // Google's suggestions for the words, a moment after typing stops; dropped when newer words came.
+        String q = typed;
+        progressUiHandler.postDelayed(() -> {
+            if (ticket != suggestTicket) return;
+            HISTORY_IO.execute(() -> {
+                java.util.List<String> words = googleSuggestions(q);
+                runOnUiThread(() -> { if (ticket == suggestTicket && !isFinishing()) drawSuggestions(rows, words); });
+            });
+        }, 140);
+    }
+    /** Google's search suggestions for q (its public suggest address, as browsers use it), or none. */
+    private static java.util.List<String> googleSuggestions(String q) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        try {
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL("https://suggestqueries.google.com/complete/search?client=firefox&hl=ko&q=" + URLEncoder.encode(q, StandardCharsets.UTF_8)).openConnection();
+            c.setConnectTimeout(2500); c.setReadTimeout(2500);
+            try (java.io.InputStream in = c.getInputStream()) {
+                JSONArray a = new JSONArray(new String(in.readAllBytes(), StandardCharsets.UTF_8)); JSONArray list = a.optJSONArray(1);
+                for (int i = 0; list != null && i < list.length() && out.size() < 4; i++) { String w = list.optString(i); if (!w.isBlank() && !w.equalsIgnoreCase(q)) out.add(w); }
+            } finally { c.disconnect(); }
+        } catch (Exception none) { /* no suggestions offline */ }
+        return out;
+    }
+    private void drawSuggestions(java.util.List<String[]> rows, java.util.List<String> words) {
+        suggestBox.removeAllViews();
+        for (String[] r : rows) {
+            int icon = "tab".equals(r[0]) ? R.drawable.ic_globe : "mark".equals(r[0]) ? R.drawable.ic_heart : R.drawable.ic_history;
+            String sub = ("tab".equals(r[0]) ? "탭으로 전환 · " : "") + dev.jun.gyeot.core.BrowserHistory.bare(r[2]);
+            suggestBox.addView(suggestionRow(icon, r[1], sub, () -> {
+                hideKeyboard(); address.clearFocus();
+                if ("tab".equals(r[0])) { for (BrowserEngine.Tab t : engine.tabs) if (t.id.equals(r[3])) { saveDraft(); engine.select(t); return; } }
+                try { engine.navigate(r[2]); } catch (Exception e) { toast(e.getMessage()); }
+            }));
+        }
+        for (String w : words) suggestBox.addView(suggestionRow(R.drawable.ic_search, w, "", () -> { address.setText(w); go(); }));
+        suggestBox.setVisibility(suggestBox.getChildCount() > 0 ? View.VISIBLE : View.GONE);
+    }
+    /** One suggestion: its icon, its words (and the address under them), 44dp or two short lines. */
+    private View suggestionRow(int icon, String title, String sub, Runnable open) {
+        LinearLayout row = ui.row(); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(ui.dp(16), ui.dp(6), ui.dp(12), ui.dp(6)); row.setMinimumHeight(ui.dp(44));
+        ImageView i = new ImageView(this); i.setImageResource(icon); i.setImageTintList(android.content.res.ColorStateList.valueOf(MUTED));
+        row.addView(i, new LinearLayout.LayoutParams(ui.dp(18), ui.dp(18)));
+        LinearLayout words = ui.column(); words.setPadding(ui.dp(14), 0, 0, 0);
+        TextView t = ui.text(title, 14.5f, 500, TEXT); t.setSingleLine(true); t.setEllipsize(android.text.TextUtils.TruncateAt.END); words.addView(t);
+        if (!sub.isEmpty()) { TextView u = ui.text(sub, 12, 450, MUTED); u.setSingleLine(true); u.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE); words.addView(u); }
+        row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+        row.setContentDescription(title + (sub.isEmpty() ? " 검색" : ", " + sub)); row.setOnClickListener(v -> open.run()); Ui.pressable(row, false);
+        return row;
     }
     private void askFromAddress(String text) { if (text.isBlank()) return; hideKeyboard(); setPaneVisible(true); submit(text, text, true); }
     private static final String ASK_AI = "dev.jun.gyeot.ASK_AI", TRANSLATE_AI = "dev.jun.gyeot.TRANSLATE_AI", EXPLAIN_AI = "dev.jun.gyeot.EXPLAIN_AI";
@@ -1067,15 +1507,77 @@ public final class BrowserActivity extends Activity {
             return;
         }
         if (code == REQUEST_BOOKMARKS && result == RESULT_OK && data != null && data.getData() != null) importBookmarks(data.getData());
+        if (code == REQUEST_FILES) {
+            GeckoSession.PromptDelegate.FilePrompt p = filePrompt; GeckoResult<GeckoSession.PromptDelegate.PromptResponse> answer = fileAnswer;
+            filePrompt = null; fileAnswer = null;
+            if (p == null || answer == null) return;
+            java.util.List<android.net.Uri> picked = new java.util.ArrayList<>();
+            if (result == RESULT_OK && data != null) {
+                if (data.getClipData() != null) for (int i = 0; i < data.getClipData().getItemCount(); i++) { android.net.Uri u = data.getClipData().getItemAt(i).getUri(); if (u != null) picked.add(u); }
+                else if (data.getData() != null) picked.add(data.getData());
+            }
+            if (picked.isEmpty()) { answer.complete(p.dismiss()); return; }
+            // Gecko reads a file the page is given from a path of its own, not through Android's content links (준: "파일 첨부는
+            // 여전히 안돼": the picker opened, the file never reached the page): each picked file is copied into this app's cache,
+            // under its own name, off the main thread, and the page gets those files (as Firefox does).
+            android.content.Context app = getApplicationContext();
+            if (picked.size() > 0) toast(picked.size() == 1 ? "파일을 준비하고 있어요…" : "파일 " + picked.size() + "개를 준비하고 있어요…");
+            new Thread(() -> {
+                java.util.List<android.net.Uri> files = new java.util.ArrayList<>();
+                for (android.net.Uri u : picked) { android.net.Uri f = uploadCopy(app, u); if (f != null) files.add(f); }
+                runOnUiThread(() -> {
+                    try { answer.complete(files.isEmpty() ? p.dismiss() : files.size() == 1 ? p.confirm(app, files.get(0)) : p.confirm(app, files.toArray(new android.net.Uri[0]))); }
+                    catch (RuntimeException unreadable) { answer.complete(p.dismiss()); toast("고른 파일을 페이지에 넣지 못했어요."); return; }
+                    if (files.size() < picked.size()) toast("파일 " + (picked.size() - files.size()) + "개는 읽지 못했어요.");
+                });
+            }, "gyeot-browser-upload").start();
+        }
+    }
+    /**
+     * A picked file (content://) as a file of this app's own, under its own name, for a page's upload: cache/uploads/<id>/<name>.
+     * Uploads older than a day are cleared first. null when it cannot be read.
+     */
+    static android.net.Uri uploadCopy(android.content.Context c, android.net.Uri picked) {
+        if ("file".equals(picked.getScheme())) return picked;
+        java.io.File base = new java.io.File(c.getCacheDir(), "uploads");
+        java.io.File[] old = base.listFiles(); long day = System.currentTimeMillis() - 86_400_000L;
+        if (old != null) for (java.io.File d : old) if (d.lastModified() < day) { java.io.File[] inside = d.listFiles(); if (inside != null) for (java.io.File f : inside) f.delete(); d.delete(); }
+        String name = "file";
+        try (android.database.Cursor q = c.getContentResolver().query(picked, new String[]{android.provider.OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+            if (q != null && q.moveToFirst() && !q.isNull(0)) name = q.getString(0);
+        } catch (RuntimeException unnamed) { /* "file" */ }
+        name = name.replaceAll("[\\\\/:*?\"<>|\\u0000-\\u001f]", "_").strip(); if (name.isEmpty() || name.equals(".") || name.equals("..")) name = "file";
+        java.io.File dir = new java.io.File(base, java.util.UUID.randomUUID().toString()); if (!dir.mkdirs()) return null;
+        java.io.File out = new java.io.File(dir, name);
+        try (java.io.InputStream in = c.getContentResolver().openInputStream(picked); java.io.OutputStream o = new java.io.FileOutputStream(out)) {
+            if (in == null) return null;
+            byte[] buf = new byte[256 * 1024]; for (int n; (n = in.read(buf)) > 0; ) o.write(buf, 0, n);
+        } catch (Exception unreadable) { out.delete(); dir.delete(); return null; }
+        return android.net.Uri.fromFile(out);
+    }
+    /** The line under the composer: the browser AI's model in bold, its thinking level beside it (ModelLine). */
+    private void showModel() {
+        if (modelLine == null) return;
+        BrowserModels models = new BrowserModels(engine.store); String brain = engine.brain();
+        if (brain == null || brain.isBlank() || "none".equals(brain)) { ModelLine.show(modelLine, "AI 연결·선택", "", "AI 브라우저"); return; }
+        String model = models.model(brain), effort = models.effort(brain, model);
+        String name = models.label(brain, model) + ("gpt".equals(brain) && "fast".equals(models.speed(model)) ? " · Fast" : "");
+        String engine = switch (brain) { case "gpt" -> dev.jun.gyeot.core.WorkBook.CHATGPT; case "claude" -> dev.jun.gyeot.core.WorkBook.CLAUDE; case "gemini" -> dev.jun.gyeot.core.WorkBook.GEMINI; case "grok" -> dev.jun.gyeot.core.WorkBook.GROK; default -> dev.jun.gyeot.core.WorkBook.NIM; };
+        String level = effort == null || effort.isEmpty() ? "" : MainChatPage.level(engine, effort);
+        ModelLine.show(modelLine, name, level, "AI 브라우저");
     }
     private void models() {
         showBrowserPopup(BrowserModelUi.create(this, ui, engine.store, engine.brain(), () -> { engine.changed(); refresh(); },
-            () -> startActivity(new android.content.Intent(this, MainActivity.class).putExtra("tab", 2))), modelPicker, true);
+            () -> startActivity(new android.content.Intent(this, MainActivity.class).putExtra("tab", 2))), modelLine, true);
     }
     private void conversationMenu() {
         BrowserEngine.Tab tab = engine.current; if (tab == null) return;
         String id = tab.conversationId, title = host(tab.url) + " · 이 탭의 대화";
+        popupAnchor = panelHeader.menuButton;
         Ui.Sheet sheet = ui.selectionSheet("대화 메뉴", host(tab.url)); LinearLayout rows = ui.group();
+        // The AI working in this tab can be stopped from here too, not only from 작업 상세.
+        BrowserProgressUi.StopTarget stopping = stopTarget(progressSnapshot());
+        if (stopping.canStop()) ui.addRow(rows, menuRow(R.drawable.ic_close, ERROR, "작업 중지", true, stopping::stop, sheet), true);
         ui.addRow(rows, menuRow(R.drawable.ic_chat, ACCENT, "새 대화", engine.canManageConversations(), this::freshConversation, sheet), true);
         ui.addRow(rows, menuRow(R.drawable.ic_history, MUTED, "보관된 대화 기록", true, this::conversationHistory, sheet), true);
         ui.addRow(rows, menuRow(R.drawable.ic_close, ERROR, "이 탭의 대화 지우기", engine.canManageConversations() && engine.hasConversation(), () -> confirmDeleteConversation(id, title, null), sheet), true);
@@ -1085,102 +1587,125 @@ public final class BrowserActivity extends Activity {
         ui.addRow(rows, menuRow(R.drawable.ic_mic, MUTED, "음성으로 입력 · 초안만", true, this::speak, sheet), true);
         sheet.body.addView(rows); showBrowserPopup(sheet, panelHeader.menuButton, false);
     }
+    /**
+     * The browser menu (⋯), dropping from its button as Chrome's does (준: "Ai 브라우저 메뉴창이 어지럽게 나열되어 있어 체계적이지
+     * 않고 필요없는 메뉴도 있고 거기서 뜨는 팝업메뉴는 쓸데없이 큼직하고 컴팩트하지도 않아"): the page's own actions as icons along the
+     * top, then four short groups (탭, 페이지, AI, 로그인). Not here, as they are one tap away already: 앱으로 돌아가기 (⌂), the AI
+     * panel (the AI button), 모델·생각 깊이 (the model line under the AI's input), and the talk's own items (새 대화, 대화 기록, 이
+     * 탭의 대화 지우기, 작업 상세, 다시 실행: the AI panel's ⋯). 음악 저장 위치 is asked for when music is first saved. What it
+     * opens drops from the same button, as small (popup()).
+     */
     private void menu() {
-        // Grouped icon rows, as in a system menu: moving around, sharing the page, the AI, then logins.
-        BrowserEngine.Tab tab = engine.current;
-        Ui.Sheet sheet = ui.selectionSheet("브라우저", host(tab.url));
-        // As in the iOS share sheet: the everyday page actions as round buttons across the top, then the grouped rows.
-        LinearLayout quick = ui.row(); quick.setGravity(Gravity.TOP);
-        quick.addView(quickAction(R.drawable.ic_nav_back, "페이지 뒤로", tab.back && pageReady(tab), this::goBackInPage, sheet), new LinearLayout.LayoutParams(0, -2, 1));
-        quick.addView(quickAction(R.drawable.ic_nav_forward, "앞으로", tab.forward && pageReady(tab), this::goForwardInPage, sheet), new LinearLayout.LayoutParams(0, -2, 1));
-        quick.addView(quickAction(tab.loading ? R.drawable.ic_close : R.drawable.ic_refresh, tab.loading ? "로드 중지" : "새로고침", pageReady(tab), tab.loading ? this::stopPageLoad : this::reloadPage, sheet), new LinearLayout.LayoutParams(0, -2, 1));
-        quick.addView(quickAction(R.drawable.ic_share, "공유", true, () -> shareText(tab.url, tab.title), sheet), new LinearLayout.LayoutParams(0, -2, 1));
-        ui.add(sheet.body, quick, 16);
-        LinearLayout moves = ui.group();
-        ui.addRow(moves, menuRow(R.drawable.ic_home, MUTED, "앱으로 돌아가기", true, this::leaveBrowser, sheet), true);
-        ui.addRow(moves, menuRow(R.drawable.ic_layers, MUTED, "열린 탭 " + engine.tabs.size() + "개", true, this::tabs, sheet), true);
-        // 시크릿 탭: its own cookies and logins, nothing kept once it closes (no restore, no 대화 기록).
-        ui.addRow(moves, menuRow(R.drawable.ic_lock, MUTED, "새 시크릿 탭", engine.tabs.size() < 6, this::newSecretTab, sheet), true);
+        BrowserEngine.Tab tab = engine.current; if (tab == null) return;
+        popupAnchor = browserMenuButton;
+        Ui.Sheet sheet = ui.selectionSheet(host(tab.url).isBlank() ? "브라우저" : host(tab.url), null);
+        // The page's own actions, icons only (each named for touch and screen readers): with the back, forward and refresh of
+        // the toolbar on a wide screen, only the ones it does not have.
+        boolean wideBar = getResources().getConfiguration().screenWidthDp >= 680;
         boolean marked = dev.jun.gyeot.core.BrowserKit.bookmarked(engine.store.settings.getString(BOOKMARKS, ""), tab.url);
-        ui.addRow(moves, menuRow(marked ? R.drawable.ic_heart_filled : R.drawable.ic_heart, Ui.PINK, marked ? "북마크에서 빼기" : "북마크에 추가", pageReady(tab), () -> toggleBookmark(tab), sheet), true);
-        ui.addRow(moves, menuRow(R.drawable.ic_book, Ui.PINK, "북마크", true, this::bookmarks, sheet), true);
-        ui.addRow(moves, menuRow(R.drawable.ic_layers, Ui.PINK, "프로젝트 · 탭 묶음", true, this::projects, sheet), true);
-        if (splitRoom()) ui.addRow(moves, menuRow(R.drawable.ic_layers, Ui.BLUE, engine.split == null ? "화면 분할 · 두 페이지 나란히" : "화면 분할 바꾸기·끄기", true, this::splitMenu, sheet), true);
-        ui.addRow(moves, menuRow(R.drawable.ic_globe, Ui.BLUE, tab.desktop ? "모바일 사이트로 보기" : "데스크톱 사이트로 보기", true, () -> engine.setDesktop(tab, !tab.desktop), sheet), true);
-        ui.add(sheet.body, moves, 12);
-        // These controls deliberately keep the menu open for repeated adjustments.
-        LinearLayout zoom = ui.column(); zoom.setPadding(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(4));
-        TextView zoomTitle = ui.text("페이지 배율", 13, 600, MUTED); zoom.addView(zoomTitle);
-        LinearLayout zoomButtons = ui.row(); zoom.addView(zoomButtons);
-        Button smaller = ui.chip("−", () -> {}), reset = ui.chip("100%", () -> {}), larger = ui.chip("+", () -> {});
-        smaller.setPadding(ui.dp(8), 0, ui.dp(8), 0); larger.setPadding(ui.dp(8), 0, ui.dp(8), 0); reset.setPadding(ui.dp(6), 0, ui.dp(6), 0); reset.setSingleLine(true);
-        smaller.setContentDescription("페이지 배율 10퍼센트 줄이기"); larger.setContentDescription("페이지 배율 10퍼센트 늘리기");
-        reset.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
-        TextView zoomNotice = ui.text("", 12, 450, MUTED);
-        Runnable updateZoom = () -> {
-            zoomNotice.setText(tab.zoomFailed ? "이 페이지에서는 배율을 적용하지 못했어요." : tab.appliedZoom != tab.zoomPercent ? tab.zoomPercent + "% 적용 대기 · 페이지 연결 후 적용돼요." : "적용됨 · 배율을 누르면 100%로 돌아가요.");
-            reset.setText(tab.zoomPercent + "%"); reset.setContentDescription("페이지 배율 " + tab.zoomPercent + "퍼센트, 눌러서 100퍼센트로 초기화");
-            smaller.setEnabled(tab.zoomPercent > 50); larger.setEnabled(tab.zoomPercent < 200);
-            smaller.setAlpha(smaller.isEnabled() ? 1f : .38f); larger.setAlpha(larger.isEnabled() ? 1f : .38f);
-        };
-        smaller.setOnClickListener(v -> { engine.setZoom(tab, Math.max(50, tab.zoomPercent - 10)); updateZoom.run(); });
-        reset.setOnClickListener(v -> { engine.setZoom(tab, 100); updateZoom.run(); });
-        larger.setOnClickListener(v -> { engine.setZoom(tab, Math.min(200, tab.zoomPercent + 10)); updateZoom.run(); });
-        for (Button button : new Button[]{smaller, reset, larger}) { button.setTextSize(14); button.setBackground(ui.shape(FILL, 10)); zoomButtons.addView(button, new LinearLayout.LayoutParams(0, ui.dp(48), 1)); }
-        zoomMenuRefresh = updateZoom;
-        sheet.setOnDismissListener(d -> { if (zoomMenuRefresh == updateZoom) zoomMenuRefresh = null; dialogs.remove(sheet); });
-        updateZoom.run(); ui.add(sheet.body, zoom, 12); ui.add(sheet.body, zoomNotice, 8);
-        LinearLayout sharing = ui.group();
-        ui.addRow(sharing, menuRow(R.drawable.ic_copy, Ui.GREEN, "주소 복사", true, () -> copyText("웹 주소", tab.url), sheet), true);
-        ui.addRow(sharing, menuRow(R.drawable.ic_globe, Ui.GREEN, "시스템 브라우저에서 열기", true, this::openOutside, sheet), true);
+        LinearLayout quick = ui.row(); quick.setGravity(Gravity.CENTER_VERTICAL); quick.setPadding(ui.dp(4), 0, ui.dp(4), ui.dp(6));
+        if (!wideBar) quick.addView(menuIcon(R.drawable.ic_nav_forward, "앞으로", tab.forward && pageReady(tab), true, this::goForwardInPage, sheet), new LinearLayout.LayoutParams(0, ui.dp(40), 1));
+        quick.addView(menuIcon(marked ? R.drawable.ic_heart_filled : R.drawable.ic_heart, marked ? "북마크에서 빼기" : "북마크에 추가", pageReady(tab), true, () -> toggleBookmark(tab), sheet), new LinearLayout.LayoutParams(0, ui.dp(40), 1));
+        quick.addView(menuIcon(R.drawable.ic_share, "공유", true, true, () -> shareText(tab.url, tab.title), sheet), new LinearLayout.LayoutParams(0, ui.dp(40), 1));
+        quick.addView(menuIcon(R.drawable.ic_copy, "주소 복사", true, true, () -> copyText("웹 주소", tab.url), sheet), new LinearLayout.LayoutParams(0, ui.dp(40), 1));
+        if (!wideBar) quick.addView(menuIcon(tab.loading ? R.drawable.ic_close : R.drawable.ic_refresh, tab.loading ? "로드 중지" : "새로고침", pageReady(tab), true, tab.loading ? this::stopPageLoad : this::reloadPage, sheet), new LinearLayout.LayoutParams(0, ui.dp(40), 1));
+        sheet.body.addView(quick);
+
+        LinearLayout tabsGroup = ui.group();
+        ui.addRow(tabsGroup, menuRow(R.drawable.ic_pages, MUTED, "탭 " + engine.tabs.size() + "개", true, this::tabs, sheet), true);
+        // 시크릿 탭: its own cookies and logins, nothing kept once it closes (no restore, no 대화 기록).
+        ui.addRow(tabsGroup, menuRow(R.drawable.ic_lock, MUTED, "새 시크릿 탭", true, this::newSecretTab, sheet), true);
+        ui.addRow(tabsGroup, menuRow(R.drawable.ic_folder, MUTED, "프로젝트 · 탭 묶음", true, this::projects, sheet), true);
+        if (splitRoom()) ui.addRow(tabsGroup, menuRow(R.drawable.ic_grid, MUTED, engine.split == null ? "화면 분할" : "화면 분할 바꾸기·끄기", true, this::splitMenu, sheet), true);
+        ui.add(sheet.body, tabsGroup, 8);
+
+        LinearLayout pageGroup = ui.group();
+        ui.addRow(pageGroup, menuRow(R.drawable.ic_book, MUTED, "북마크", true, this::bookmarks, sheet), true);
+        ui.addRow(pageGroup, menuSwitch(R.drawable.ic_browser, "데스크톱 사이트", null, tab.desktop, true, on -> engine.setDesktop(tab, on)), true);
+        ui.addRow(pageGroup, zoomRow(tab, sheet), true);
+        ui.addRow(pageGroup, menuRow(R.drawable.ic_globe, MUTED, "다른 브라우저로 열기", true, this::openOutside, sheet), true);
         String youtubePage = tab.url;
         String youtube = dev.jun.gyeot.core.BrowserYouTubeLinks.webUrl(youtubePage);
-        if (youtube != null) ui.addRow(sharing, menuRow(R.drawable.ic_video, Ui.RED, "YouTube 앱에서 열기", engine.canOpenExternalApp(tab), () -> { if (Objects.equals(youtubePage, tab.url)) offerYouTube(tab, youtube); }, sheet), true);
-        // Music goes to the 들퍼레 folder the app already uses (들퍼레/음악): it is asked for only when none is connected yet.
-        boolean musicFolder = sharedFolderConnected();
-        ui.addRow(sharing, menuRow(R.drawable.ic_tune, Ui.GREEN, musicFolder ? "음악 저장 위치 · 들퍼레/음악" : "음악 저장 폴더 연결", true, () -> {
-            if (!musicFolder) { BrowserMusicDownloads.chooseFolder(this, BrowserMusicDownloads.REQUEST_FOLDER); return; }
-            new AlertDialog.Builder(this).setTitle("음악 저장 위치")
-                .setMessage("이미 연결된 들퍼레 폴더를 써요. 받은 음악은 내장 저장공간/들퍼레/음악에 저장되고, 기존 파일은 그대로 둬요.")
-                .setPositiveButton("확인", null)
-                .setNeutralButton("권한 다시 설정", (dialog, which) -> BrowserMusicDownloads.chooseFolder(this, BrowserMusicDownloads.REQUEST_FOLDER)).show();
-        }, sheet), true);
-        ui.add(sheet.body, sharing, 12);
-        String deleteConversationId = tab.conversationId;
-        String deleteConversationTitle = host(tab.url) + " · 이 탭의 대화";
-        LinearLayout assistant = ui.group();
-        ui.addRow(assistant, menuRow(R.drawable.ic_ai_chat, Ui.INDIGO, paneVisible ? "AI 패널 접기" : "AI 패널 열기", true, () -> setPaneVisible(!paneVisible), sheet), true);
-        ui.addRow(assistant, menuRow(R.drawable.ic_tune, Ui.INDIGO, "모델·생각 깊이", true, this::models, sheet), true);
-        ui.addRow(assistant, menuRow(R.drawable.ic_lock, Ui.INDIGO, "권한 모드 · " + (engine.readOnly() ? "읽기만" : "확인받기"), true, this::permissionMode, sheet), true);
-        ui.addRow(assistant, menuRow(R.drawable.ic_search, Ui.INDIGO, deepNext ? "끝까지 조사 끄기" : "끝까지 조사로 맡기기", !engine.running(), () -> deep(!deepNext), sheet), true);
-        ui.addRow(assistant, menuRow(R.drawable.ic_bolt, Ui.INDIGO, "스킬 · 자주 하는 일", true, this::skills, sheet), true);
-        ui.addRow(assistant, menuRow(R.drawable.ic_bulb, Ui.INDIGO, "기억 · " + (engine.store.settings.getBoolean(MEMORY, false) && engine.store.memoryOn() ? "참고함" : "참고 안 함"), true, this::memorySheet, sheet), true);
-        ui.addRow(assistant, menuRow(R.drawable.ic_history, Ui.INDIGO, "작업 상세", true, this::detail, sheet), true);
-        ui.addRow(assistant, menuRow(R.drawable.ic_info, Ui.ORANGE, "확인 필요한 작업", true, this::reviewPendingMutation, sheet), true);
-        ui.addRow(assistant, menuRow(R.drawable.ic_bolt, Ui.INDIGO, "같은 지시 다시 실행", !engine.lastRequest.isBlank() && !engine.running(), this::again, sheet), true);
-        // 예약 작업: the AI browser does this at set times in a background tab, from the page open now.
-        String startPage = tab == null || tab.url == null ? "" : tab.url;
-        ui.addRow(assistant, menuRow(R.drawable.ic_history, Ui.INDIGO, "이 페이지에서 할 일 예약", true, () -> scheduleHere(startPage), sheet), true);
-        ui.addRow(assistant, menuRow(R.drawable.ic_history, Ui.INDIGO, "예약 작업 목록", true, () -> schedules().show(), sheet), true);
-        ui.addRow(assistant, menuRow(R.drawable.ic_chat, Ui.INDIGO, "새 대화", engine.canManageConversations(), this::freshConversation, sheet), true);
-        ui.addRow(assistant, menuRow(R.drawable.ic_history, Ui.INDIGO, "보관된 대화 기록", true, this::conversationHistory, sheet), true);
-        ui.addRow(assistant, menuRow(R.drawable.ic_close, ERROR, "이 탭의 대화 지우기", engine.canManageConversations() && engine.hasConversation(), () -> confirmDeleteConversation(deleteConversationId, deleteConversationTitle, null), sheet), true);
-        ui.addRow(assistant, menuRow(R.drawable.ic_close, Ui.INDIGO, "최근·고정 요청 모두 지우기", !stored().isBlank(), () -> show(ui.confirm("AI 패널의 최근 요청과 고정한 요청을 모두 지울까요?", "모두 지우기", () -> saveRecents(""))), sheet), true);
-        ui.add(sheet.body, assistant, 12);
+        if (youtube != null) ui.addRow(pageGroup, menuRow(R.drawable.ic_video, MUTED, "YouTube 앱에서 열기", engine.canOpenExternalApp(tab), () -> { if (Objects.equals(youtubePage, tab.url)) offerYouTube(tab, youtube); }, sheet), true);
+        ui.add(sheet.body, pageGroup, 8);
+
+        LinearLayout ai = ui.group();
+        ui.addRow(ai, menuRow(R.drawable.ic_hand, MUTED, "권한 · " + (engine.readOnly() ? "읽기만" : PERMISSION_FULL), true, this::permissionMode, sheet), true);
+        ui.addRow(ai, menuSwitch(R.drawable.ic_search, "끝까지 조사", null, deepNext, !engine.running(), this::deep), true);
+        ui.addRow(ai, menuRow(R.drawable.ic_bolt, MUTED, "스킬 · 자주 하는 일", true, this::skills, sheet), true);
+        ui.addRow(ai, menuRow(R.drawable.ic_bulb, MUTED, "기억 · " + (engine.store.settings.getBoolean(MEMORY, false) && engine.store.memoryOn() ? "참고함" : "참고 안 함"), true, this::memorySheet, sheet), true);
+        // 예약 작업: the list, and a new one starts from this page (what is typed in the AI box, else the last request).
+        String startPage = tab.url == null ? "" : tab.url;
+        ui.addRow(ai, menuRow(R.drawable.ic_calendar, MUTED, "예약 작업", true, () -> schedules().show(startPage, scheduleGoal()), sheet), true);
+        ui.addRow(ai, menuRow(R.drawable.ic_info, Ui.ORANGE, "확인 필요한 작업", true, this::reviewPendingMutation, sheet), true);
+        ui.add(sheet.body, ai, 8);
+
         LinearLayout login = ui.group();
-        ui.addRow(login, menuRow(R.drawable.ic_key, Ui.ORANGE, engine.paused ? "AI 다시 사용" : "로그인 관리", true, this::loginMenu, sheet), true);
-        ui.addRow(login, menuRow(R.drawable.ic_lock, Ui.ORANGE, "비밀번호", true, () -> passwords().show(), sheet), true);
-        sheet.body.addView(login); showBrowserPopup(sheet, browserMenuButton, false);
+        ui.addRow(login, menuRow(R.drawable.ic_person, MUTED, engine.paused ? "AI 다시 사용" : "로그인", true, this::loginMenu, sheet), true);
+        ui.addRow(login, menuRow(R.drawable.ic_key, MUTED, "비밀번호", true, () -> passwords().show(), sheet), true);
+        sheet.body.addView(login);
+        showBrowserPopup(sheet, browserMenuButton, false);
+    }
+    /** One icon of the menu's top row: the glyph alone in a 40dp target, named for touch (tooltip) and screen readers. */
+    private View menuIcon(int icon, String label, boolean enabled, boolean closes, Runnable action, Ui.Sheet sheet) {
+        ImageView view = ui.quietIcon(icon, label, enabled ? () -> { if (closes) sheet.dismiss(); action.run(); } : () -> {});
+        view.setImageTintList(android.content.res.ColorStateList.valueOf(enabled ? TEXT : MUTED)); view.setEnabled(enabled);
+        if (!enabled) { view.setAlpha(0.38f); view.setContentDescription(label + ", 지금은 사용할 수 없음"); }
+        return view;
+    }
+    /** A menu row with a switch at its end: tapping the row or the switch turns it, and the menu stays open. */
+    private View menuSwitch(int icon, String title, String subtitle, boolean checked, boolean enabled, java.util.function.Consumer<Boolean> action) {
+        android.widget.Switch toggle = ui.toggle("", checked, action); toggle.setPadding(0, 0, 0, 0); toggle.setEnabled(enabled);
+        toggle.setContentDescription(title);
+        LinearLayout row = ui.listRow(icon, MUTED, title, subtitle, toggle, enabled ? toggle::toggle : null);
+        if (!enabled) { row.setAlpha(0.38f); row.setContentDescription(title + ", 지금은 사용할 수 없음"); }
+        return row;
+    }
+    /** 배율: − 100% + at the row's end, small (30dp); the menu stays open for a few presses. A word under it only when the zoom could not be applied yet. */
+    private View zoomRow(BrowserEngine.Tab tab, Ui.Sheet sheet) {
+        LinearLayout buttons = ui.row(); buttons.setGravity(Gravity.CENTER_VERTICAL);
+        TextView smaller = ui.pill("−", 0, false, () -> {}), reset = ui.pill("100%", 0, false, () -> {}), larger = ui.pill("+", 0, false, () -> {});
+        smaller.setPadding(ui.dp(12), 0, ui.dp(12), 0); larger.setPadding(ui.dp(12), 0, ui.dp(12), 0); reset.setPadding(ui.dp(8), 0, ui.dp(8), 0);
+        reset.setMinWidth(ui.dp(52)); reset.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        // 30dp, so the row stays a row (44dp) and not a block of its own.
+        for (TextView b : new TextView[]{smaller, reset, larger}) { b.setMinHeight(ui.dp(30)); b.setMinimumHeight(ui.dp(30)); b.setHeight(ui.dp(30)); }
+        smaller.setContentDescription("페이지 배율 10퍼센트 줄이기"); larger.setContentDescription("페이지 배율 10퍼센트 늘리기");
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, ui.dp(30)); gap.leftMargin = ui.dp(4);
+        buttons.addView(smaller, new LinearLayout.LayoutParams(-2, ui.dp(30))); buttons.addView(reset, gap); buttons.addView(larger, new LinearLayout.LayoutParams(gap));
+        LinearLayout row = ui.listRow(R.drawable.ic_text, MUTED, "배율", "적용 대기", buttons, null);
+        TextView notice = ((Ui.ListRow) row).parts.subtitle();
+        Runnable update = () -> {
+            String word = tab.zoomFailed ? "이 페이지는 배율을 바꾸지 못했어요" : tab.appliedZoom != tab.zoomPercent ? "페이지가 열리면 적용돼요" : "";
+            if (notice != null) { notice.setText(word); notice.setVisibility(word.isEmpty() ? View.GONE : View.VISIBLE); }
+            reset.setText(tab.zoomPercent + "%"); reset.setContentDescription("페이지 배율 " + tab.zoomPercent + "퍼센트, 눌러서 100퍼센트로");
+            smaller.setEnabled(tab.zoomPercent > BrowserEngine.ZOOM_LEAST); larger.setEnabled(tab.zoomPercent < BrowserEngine.ZOOM_MOST);
+            smaller.setAlpha(smaller.isEnabled() ? 1f : .38f); larger.setAlpha(larger.isEnabled() ? 1f : .38f);
+        };
+        smaller.setOnClickListener(v -> { engine.setZoom(tab, Math.max(BrowserEngine.ZOOM_LEAST, tab.zoomPercent - 10)); update.run(); });
+        reset.setOnClickListener(v -> { engine.setZoom(tab, 100); update.run(); });
+        larger.setOnClickListener(v -> { engine.setZoom(tab, Math.min(BrowserEngine.ZOOM_MOST, tab.zoomPercent + 10)); update.run(); });
+        zoomMenuRefresh = update;
+        sheet.setOnDismissListener(d -> { if (zoomMenuRefresh == update) zoomMenuRefresh = null; dialogs.remove(sheet); });
+        update.run(); return row;
+    }
+    /** What a schedule made from this page repeats: what is typed in the AI box, else the last request. */
+    private String scheduleGoal() {
+        String typed = request == null ? "" : request.getText().toString().strip();
+        return typed.isEmpty() ? engine.lastRequest : typed;
+    }
+    /** The button the menu now open dropped from (the toolbar's ⋯, or the AI panel's): what it opens drops from there too. */
+    private View popupAnchor;
+    /** A sheet opened from a menu, as a small card at that menu's button (BrowserPopup), not a sheet across the bottom. */
+    private void popup(Ui.Sheet sheet, boolean action) {
+        View anchor = popupAnchor != null && popupAnchor.isAttachedToWindow() ? popupAnchor : browserMenuButton;
+        showBrowserPopup(sheet, anchor, action);
     }
     /** 예약 작업 (WorkSchedulesUi); a run's results open in 작업창. */
     private WorkSchedulesUi schedules() {
-        return new WorkSchedulesUi(this, ui, engine.store, room -> startActivity(new android.content.Intent(this, MainActivity.class).putExtra("tab", 3).putExtra("work", room)
+        WorkSchedulesUi schedules = new WorkSchedulesUi(this, ui, engine.store, room -> startActivity(new android.content.Intent(this, MainActivity.class).putExtra("tab", 3).putExtra("work", room)
             .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)));
-    }
-    /** A browser task from this page: what is typed in the AI box (else the last request) as the request to repeat. */
-    private void scheduleHere(String startPage) {
-        String typed = request == null ? "" : request.getText().toString().strip();
-        schedules().edit(null, typed.isEmpty() ? engine.lastRequest : typed, null, startPage);
+        schedules.presenter = sheet -> popup(sheet, true);
+        return schedules;
     }
     /** Review this tab first; a different/background receipt never substitutes for its approval. */
     private void reviewPendingMutation() {
@@ -1189,12 +1714,13 @@ public final class BrowserActivity extends Activity {
         if (!receipt.optBoolean("ok") || receipt.optBoolean("pending")) {
             long view = ++recoveryViewSequence;
             showMutationReview(receipt, view, "현재 탭 작업 직접 확인", (id, done) -> engine.acknowledgeTabMutation(token, id, done));
-        } else reviewWorkMutation();
+        } else reviewWorkMutation("");
     }
-    /** Only direct user inspection can clear an exact durable receipt; this never replays work. */
-    private void reviewWorkMutation() {
+    /** Only direct user inspection can clear an exact durable receipt; this never replays work. Each Work job has its own:
+     * the notification's (receiptId), else the newest. */
+    private void reviewWorkMutation(String receiptId) {
         long view = ++recoveryViewSequence;
-        BrowserEngine.pendingWorkMutation(this, receipt -> {
+        BrowserEngine.pendingWorkMutation(this, receiptId, receipt -> {
             if (view != recoveryViewSequence || !navigationResumed || isFinishing() || isDestroyed()) return;
             showWorkMutationReview(receipt, view);
         });
@@ -1227,30 +1753,44 @@ public final class BrowserActivity extends Activity {
             acknowledge.accept(id, cleared -> {
                 if (view != recoveryViewSequence || !navigationResumed || isFinishing() || isDestroyed()) return;
                 sheet.dismiss();
-                toast(cleared ? "확인을 기록했어요. 이전 작업은 다시 실행하지 않았어요." : "기록이 바뀌었거나 저장하지 못했어요. 차단은 유지되니 다시 확인해 주세요.");
+                int more = receipt.optInt("more");
+                toast(!cleared ? "기록이 바뀌었거나 저장하지 못했어요. 차단은 유지되니 다시 확인해 주세요."
+                    : "확인을 기록했어요. 이전 작업은 다시 실행하지 않았어요." + (more > 0 ? " 확인할 다른 작업이 " + more + "개 더 있어요(메뉴 → 확인 필요한 작업)." : ""));
             });
         });
         sheet.setOnDismissListener(dialog -> { dialogs.remove(sheet); if (view == recoveryViewSequence) recoveryViewSequence++; });
-        show(sheet);
+        popup(sheet, true);
     }
     private static String reviewText(String value, int limit) {
         String text = value == null ? "" : value;
         return text.length() <= limit ? text : text.substring(0, limit) + "…";
+    }
+    /** Rows a long list (스킬, 프로젝트, 북마크) draws at first, and again on each "N개 더 보기"; 작업 상세's newest log lines. */
+    static final int LIST_PAGE = 50, DETAIL_LINES = 12;
+    /** "스킬 N개 더 보기" under a list drawn LIST_PAGE rows at a time (only what is seen is drawn). */
+    private TextView moreRow(String what, int hidden, Runnable more) {
+        TextView row = ui.text(what + " " + hidden + "개 더 보기", 13, 650, ACCENT); row.setGravity(Gravity.CENTER); row.setPadding(0, ui.dp(10), 0, ui.dp(10));
+        row.setOnClickListener(v -> more.run()); Ui.pressable(row, true); return row;
+    }
+    /** A long text as one row's subtitle: only what a line can show is laid out. */
+    private static String clipLine(String text) {
+        String line = text == null ? "" : text.replaceAll("\\s+", " ").strip();
+        return line.length() > 120 ? line.substring(0, 119) + "…" : line;
     }
     // ── 스킬 ──────────────────────────────────────────────────────────────
 
     /** 스킬: requests kept by name to run again (optionally from a start page); tap runs, swipe deletes, long press edits. */
     private void skills() {
         Ui.Sheet sheet = ui.selectionSheet("스킬", "자주 하는 일을 이름 붙여 두고 한 번에 맡겨요");
-        Runnable[] fill = new Runnable[1];
+        Runnable[] fill = new Runnable[1]; int[] shown = {LIST_PAGE};
         fill[0] = () -> {
             sheet.body.removeAllViews();
             List<dev.jun.gyeot.core.BrowserKit.Skill> list = dev.jun.gyeot.core.BrowserKit.skills(engine.store.settings.getString(SKILLS, ""));
             if (list.isEmpty()) sheet.body.addView(ui.footer("아직 스킬이 없어요. 예: '오늘 IT 뉴스 5개 정리', '이 쇼핑몰 최저가 비교'."));
             else {
                 LinearLayout group = ui.group();
-                for (dev.jun.gyeot.core.BrowserKit.Skill skill : list) {
-                    LinearLayout row = ui.listRow(R.drawable.ic_bolt, Ui.INDIGO, skill.name(), (skill.url().isBlank() ? "" : host(skill.url()) + " · ") + skill.prompt(), ui.chevron(), () -> {
+                for (dev.jun.gyeot.core.BrowserKit.Skill skill : list.subList(0, Math.min(list.size(), shown[0]))) {
+                    LinearLayout row = ui.listRow(R.drawable.ic_bolt, Ui.INDIGO, skill.name(), (skill.url().isBlank() ? "" : host(skill.url()) + " · ") + clipLine(skill.prompt()), ui.chevron(), () -> {
                         if (engine.running()) { toast("진행 중인 작업이 끝난 뒤 실행해 주세요."); return; }
                         sheet.dismiss(); setPaneVisible(true); submit(skill.name(), skill.request(), false);
                     });
@@ -1260,16 +1800,18 @@ public final class BrowserActivity extends Activity {
                     }), true);
                 }
                 sheet.body.addView(group);
+                if (list.size() > shown[0]) sheet.body.addView(moreRow("스킬", list.size() - shown[0], () -> { shown[0] += LIST_PAGE; fill[0].run(); }));
                 sheet.body.addView(ui.footer("누르면 실행 · 길게 누르면 고치기 · 왼쪽으로 밀면 지우기"));
             }
             if (!engine.lastRequest.isBlank()) sheet.body.addView(ui.button("방금 요청을 스킬로 저장", false, () -> { sheet.dismiss(); editSkill(new dev.jun.gyeot.core.BrowserKit.Skill("", "", engine.lastRequest, "", 0)); }));
         };
         sheet.primary.setText("새 스킬"); sheet.primary.setOnClickListener(v -> { sheet.dismiss(); editSkill(null); });
-        fill[0].run(); show(sheet);
+        fill[0].run(); popup(sheet, true);
     }
     private void editSkill(dev.jun.gyeot.core.BrowserKit.Skill skill) {
         Ui.Sheet sheet = ui.selectionSheet(skill == null || skill.id().isBlank() ? "새 스킬" : "스킬 고치기", null);
-        EditText name = ui.input("이름 (예: 아침 뉴스 정리)", 1, 60), words = ui.input("할 일", 3, 2000), page = ui.input("시작 페이지 (선택)", 1, 2000);
+        EditText name = ui.input("이름 (예: 아침 뉴스 정리)", 1, dev.jun.gyeot.core.BrowserKit.SKILL_NAME), words = ui.input("할 일", 3, dev.jun.gyeot.core.BrowserKit.SKILL_PROMPT),
+            page = ui.input("시작 페이지 (선택)", 1, dev.jun.gyeot.core.BrowserKit.URL_LIMIT);
         if (skill != null) { name.setText(skill.name()); words.setText(skill.prompt()); page.setText(skill.url()); }
         else if (engine.current != null && engine.current.url != null && engine.current.url.startsWith("http")) page.setHint("시작 페이지 (선택) · 예: " + host(engine.current.url));
         page.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
@@ -1283,7 +1825,7 @@ public final class BrowserActivity extends Activity {
                 sheet.dismiss(); toast("스킬을 저장했어요"); skills();
             } catch (RuntimeException e) { toast(e.getMessage()); }
         });
-        show(sheet);
+        popup(sheet, true);
     }
 
     // ── 프로젝트 ──────────────────────────────────────────────────────────
@@ -1294,19 +1836,27 @@ public final class BrowserActivity extends Activity {
         List<dev.jun.gyeot.core.BrowserKit.Project> list = dev.jun.gyeot.core.BrowserKit.projects(engine.store.settings.getString(PROJECTS, ""));
         if (list.isEmpty()) sheet.body.addView(ui.footer("아직 프로젝트가 없어요. 예: 여행 준비, 노트북 고르기 — 관련 탭을 열어 둔 채 아래 버튼을 눌러요."));
         else {
-            LinearLayout group = ui.group();
-            for (dev.jun.gyeot.core.BrowserKit.Project project : list) {
-                StringBuilder sites = new StringBuilder(); for (dev.jun.gyeot.core.BrowserKit.Bookmark b : project.pages()) sites.append(sites.length() == 0 ? "" : " · ").append(host(b.url()));
-                View row = ui.listRow(R.drawable.ic_layers, Ui.PINK, project.name(), "탭 " + project.pages().size() + "개 · " + sites, ui.chevron(), () -> { sheet.dismiss(); openProject(project); });
-                ui.addRow(group, SwipeDelete.wrap(ui, row, "이 프로젝트", () -> {
-                    engine.store.settings.edit().putString(PROJECTS, dev.jun.gyeot.core.BrowserKit.deleteProject(engine.store.settings.getString(PROJECTS, ""), project.id())).apply(); return true;
-                }), true);
-            }
-            sheet.body.addView(group);
+            LinearLayout group = ui.group(); int[] shown = {0};
+            Runnable[] more = new Runnable[1]; TextView[] moreView = new TextView[1];
+            more[0] = () -> {
+                int until = Math.min(list.size(), shown[0] + LIST_PAGE);
+                for (dev.jun.gyeot.core.BrowserKit.Project project : list.subList(shown[0], until)) {
+                    StringBuilder sites = new StringBuilder(); int named = 0;
+                    for (dev.jun.gyeot.core.BrowserKit.Bookmark b : project.pages()) { if (named++ == 4) { sites.append(" 외 ").append(project.pages().size() - 4).append("곳"); break; } sites.append(sites.length() == 0 ? "" : " · ").append(host(b.url())); }
+                    View row = ui.listRow(R.drawable.ic_layers, Ui.PINK, project.name(), "탭 " + project.pages().size() + "개 · " + sites, ui.chevron(), () -> { sheet.dismiss(); openProject(project); });
+                    ui.addRow(group, SwipeDelete.wrap(ui, row, "이 프로젝트", () -> {
+                        engine.store.settings.edit().putString(PROJECTS, dev.jun.gyeot.core.BrowserKit.deleteProject(engine.store.settings.getString(PROJECTS, ""), project.id())).apply(); return true;
+                    }), true);
+                }
+                shown[0] = until;
+                if (moreView[0] != null) { sheet.body.removeView(moreView[0]); moreView[0] = null; }
+                if (shown[0] < list.size()) { moreView[0] = moreRow("프로젝트", list.size() - shown[0], more[0]); sheet.body.addView(moreView[0], sheet.body.indexOfChild(group) + 1); }
+            };
+            sheet.body.addView(group); more[0].run();
             sheet.body.addView(ui.footer("누르면 그 탭들을 열어요 · 왼쪽으로 밀면 지우기 · 같은 이름으로 저장하면 바뀐 탭으로 고쳐요"));
         }
         sheet.primary.setText("지금 탭들을 프로젝트로 저장"); sheet.primary.setOnClickListener(v -> { sheet.dismiss(); saveProject(); });
-        show(sheet);
+        popup(sheet, true);
     }
     private void saveProject() {
         List<dev.jun.gyeot.core.BrowserKit.Bookmark> pages = new ArrayList<>();
@@ -1314,29 +1864,28 @@ public final class BrowserActivity extends Activity {
             pages.add(new dev.jun.gyeot.core.BrowserKit.Bookmark(tab.url, tab.title == null || tab.title.isBlank() ? host(tab.url) : tab.title, "", System.currentTimeMillis()));
         if (pages.isEmpty()) { toast("저장할 웹 페이지 탭이 없어요."); return; }
         Ui.Sheet sheet = ui.selectionSheet("프로젝트로 저장", "열린 탭 " + pages.size() + "개");
-        EditText name = ui.input("이름 (예: 여행 준비)", 1, 40); sheet.body.addView(name);
+        EditText name = ui.input("이름 (예: 여행 준비)", 1, dev.jun.gyeot.core.BrowserKit.PROJECT_NAME); sheet.body.addView(name);
         sheet.primary.setText("저장"); sheet.primary.setOnClickListener(v -> {
             try {
                 engine.store.settings.edit().putString(PROJECTS, dev.jun.gyeot.core.BrowserKit.saveProject(engine.store.settings.getString(PROJECTS, ""), name.getText().toString(), pages, System.currentTimeMillis())).apply();
                 sheet.dismiss(); toast("‘" + name.getText().toString().strip() + "’ 프로젝트로 저장했어요");
             } catch (RuntimeException e) { toast(e.getMessage()); }
         });
-        show(sheet);
+        popup(sheet, true);
     }
-    /** Opens a project's pages as tabs: one already open is only selected, and no more than the browser's 6 tabs open. */
+    /** Opens a project's pages as tabs: one already open is only selected, the rest each in a new tab. */
     private void openProject(dev.jun.gyeot.core.BrowserKit.Project project) {
         int opened = 0, skipped = 0; BrowserEngine.Tab first = null;
         for (dev.jun.gyeot.core.BrowserKit.Bookmark page : project.pages()) {
             BrowserEngine.Tab open = null;
             for (BrowserEngine.Tab tab : engine.tabs) if (dev.jun.gyeot.core.BrowserKit.bookmarked(new org.json.JSONArray().put(page.json()).toString(), tab.url)) { open = tab; break; }
             if (open == null) {
-                if (engine.tabs.size() >= 6) { skipped++; continue; }
                 try { open = engine.newTab(page.url(), false); opened++; } catch (Exception e) { skipped++; continue; }
             }
             if (first == null) first = open;
         }
         if (first != null && engine.tabs.contains(first)) engine.select(first);
-        toast("‘" + project.name() + "’ · 새 탭 " + opened + "개" + (skipped > 0 ? " · 탭이 가득 차서 " + skipped + "개는 못 열었어요" : ""));
+        toast("‘" + project.name() + "’ · 새 탭 " + opened + "개" + (skipped > 0 ? " · " + skipped + "개는 못 열었어요" : ""));
     }
 
     // ── 북마크 ────────────────────────────────────────────────────────────
@@ -1347,23 +1896,26 @@ public final class BrowserActivity extends Activity {
         if (dev.jun.gyeot.core.BrowserKit.bookmarked(saved, tab.url)) { engine.store.settings.edit().putString(BOOKMARKS, dev.jun.gyeot.core.BrowserKit.deleteBookmark(saved, tab.url)).apply(); toast("북마크에서 뺐어요"); }
         else {
             String title = tab.title == null || tab.title.isBlank() ? host(tab.url) : tab.title;
-            engine.store.settings.edit().putString(BOOKMARKS, dev.jun.gyeot.core.BrowserKit.addBookmarks(saved, List.of(new dev.jun.gyeot.core.BrowserKit.Bookmark(tab.url, title, "", System.currentTimeMillis())))).apply();
-            toast("북마크에 추가했어요");
+            dev.jun.gyeot.core.BrowserKit.Added added = dev.jun.gyeot.core.BrowserKit.add(saved, List.of(new dev.jun.gyeot.core.BrowserKit.Bookmark(tab.url, title, "", System.currentTimeMillis())));
+            engine.store.settings.edit().putString(BOOKMARKS, added.saved()).apply();
+            // Past MAX_BOOKMARKS the oldest goes, and the user hears which one: never let go silently.
+            toast(added.note().isEmpty() ? "북마크에 추가했어요" : "북마크에 추가했어요 · " + added.note());
         }
     }
     /** 북마크: kept pages, searched, opened with a tap, deleted with a swipe; other browsers' bookmarks are brought in from their export file. */
     private void bookmarks() {
         Ui.Sheet sheet = ui.selectionSheet("북마크", null);
         EditText search = ui.input("북마크 검색", 1, 100); sheet.controls.addView(search);
-        Runnable[] fill = new Runnable[1];
+        Runnable[] fill = new Runnable[1]; int[] page = {dev.jun.gyeot.core.BrowserKit.MAX_BOOKMARKS};
         fill[0] = () -> {
             sheet.body.removeAllViews();
             String query = search.getText().toString().strip().toLowerCase(java.util.Locale.ROOT);
             List<dev.jun.gyeot.core.BrowserKit.Bookmark> list = dev.jun.gyeot.core.BrowserKit.bookmarks(engine.store.settings.getString(BOOKMARKS, ""));
-            LinearLayout group = ui.group(); int shown = 0;
+            // At most MAX_BOOKMARKS are kept, all drawn; a list saved before that cap draws that many at a time.
+            LinearLayout group = ui.group(); int shown = 0, more = 0;
             for (dev.jun.gyeot.core.BrowserKit.Bookmark b : list) {
                 if (!query.isEmpty() && !(b.title() + " " + b.url() + " " + b.folder()).toLowerCase(java.util.Locale.ROOT).contains(query)) continue;
-                if (shown >= 300) break;
+                if (shown >= page[0]) { more++; continue; }
                 View row = ui.listRow(R.drawable.ic_globe, Ui.PINK, b.title(), (b.folder().isBlank() ? "" : b.folder() + " · ") + host(b.url()), null, () -> { sheet.dismiss(); engine.navigate(b.url()); });
                 ui.addRow(group, SwipeDelete.wrap(ui, row, "이 북마크", () -> {
                     engine.store.settings.edit().putString(BOOKMARKS, dev.jun.gyeot.core.BrowserKit.deleteBookmark(engine.store.settings.getString(BOOKMARKS, ""), b.url())).apply(); return true;
@@ -1371,7 +1923,8 @@ public final class BrowserActivity extends Activity {
                 shown++;
             }
             if (shown > 0) sheet.body.addView(group);
-            else sheet.body.addView(ui.footer(list.isEmpty() ? "아직 북마크가 없어요. 브라우저 메뉴에서 '북마크에 추가'를 누르거나, 다른 브라우저의 북마크를 가져와요." : "검색과 맞는 북마크가 없어요."));
+            if (more > 0) sheet.body.addView(moreRow("북마크", more, () -> { page[0] += dev.jun.gyeot.core.BrowserKit.MAX_BOOKMARKS; fill[0].run(); }));
+            if (shown == 0) sheet.body.addView(ui.footer(list.isEmpty() ? "아직 북마크가 없어요. 브라우저 메뉴 맨 위의 ♡를 누르거나, 다른 브라우저의 북마크를 가져와요." : "검색과 맞는 북마크가 없어요."));
             sheet.body.addView(ui.footer("크롬은 북마크 관리자 → ⋮ → 북마크 내보내기로 HTML 파일을 만들 수 있어요(엣지·사파리·파이어폭스도 같은 형식)."));
         };
         search.addTextChangedListener(new android.text.TextWatcher() {
@@ -1385,38 +1938,46 @@ public final class BrowserActivity extends Activity {
                 .putExtra(android.content.Intent.EXTRA_MIME_TYPES, new String[]{"text/html", "application/xhtml+xml", "application/octet-stream", "text/plain"});
             try { startActivityForResult(pick, REQUEST_BOOKMARKS); } catch (RuntimeException e) { toast("파일을 고를 수 없어요."); }
         });
-        fill[0].run(); show(sheet);
+        fill[0].run(); popup(sheet, true);
     }
-    /** Reads another browser's exported bookmarks file (at most 8 MB) and adds the pages not kept yet. */
+    /** An exported bookmarks file read whole: 64 MB at most. */
+    private static final int IMPORT_BYTES = 64 * 1024 * 1024;
+    /** Reads another browser's exported bookmarks file (at most IMPORT_BYTES) and adds the pages not kept yet. */
     private void importBookmarks(android.net.Uri uri) {
         new Thread(() -> {
             String message;
             try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
                 if (in == null) throw new java.io.IOException("파일을 열지 못했어요.");
-                byte[] bytes = in.readNBytes(8 * 1024 * 1024 + 1); if (bytes.length > 8 * 1024 * 1024) throw new java.io.IOException("파일이 너무 커요 (8MB까지).");
+                byte[] bytes = in.readNBytes(IMPORT_BYTES + 1); if (bytes.length > IMPORT_BYTES) throw new java.io.IOException("파일이 너무 커요 (" + (IMPORT_BYTES >> 20) + "MB까지).");
                 List<dev.jun.gyeot.core.BrowserKit.Bookmark> pages = dev.jun.gyeot.core.BrowserKit.parseExport(new String(bytes, java.nio.charset.StandardCharsets.UTF_8), System.currentTimeMillis());
                 if (pages.isEmpty()) throw new java.io.IOException("이 파일에서 북마크를 찾지 못했어요. 브라우저의 '북마크 내보내기'로 만든 HTML 파일인지 확인해 주세요.");
-                String before = engine.store.settings.getString(BOOKMARKS, ""); int had = dev.jun.gyeot.core.BrowserKit.bookmarks(before).size();
-                String after = dev.jun.gyeot.core.BrowserKit.addBookmarks(before, pages);
-                engine.store.settings.edit().putString(BOOKMARKS, after).apply();
-                message = "북마크 " + (dev.jun.gyeot.core.BrowserKit.bookmarks(after).size() - had) + "개를 가져왔어요 (파일 " + pages.size() + "개 중 새 것만)";
+                dev.jun.gyeot.core.BrowserKit.Added added = dev.jun.gyeot.core.BrowserKit.add(engine.store.settings.getString(BOOKMARKS, ""), pages);
+                engine.store.settings.edit().putString(BOOKMARKS, added.saved()).apply();
+                // What the cap let go is said, never dropped silently: the oldest of those kept and of the file's pages.
+                message = "북마크 " + added.added() + "개를 가져왔어요 (파일 " + pages.size() + "개 중 새 것만)" + (added.note().isEmpty() ? "" : " · " + added.note());
             } catch (Exception e) { message = e.getMessage() == null ? "북마크를 가져오지 못했어요." : e.getMessage(); }
             String shown = message; runOnUiThread(() -> { if (!isFinishing() && !isDestroyed()) { toast(shown); bookmarks(); } });
         }, "gyeot-bookmark-import").start();
     }
-    /** 권한 모드: 확인받기 (the default: the AI works on pages and asks before what matters) or 읽기만 (it only reads). */
+    /**
+     * 권한 모드, said as it is (there is no ask-first flow): 조작 허용 (the default: the AI also types, chooses, presses and
+     * attaches on pages) or 읽기만 (BrowserEngine refuses typing, choosing, pressing and attaching). In both, payment, money
+     * transfers, deletion and passwords or codes stay with the user (AutomationGate).
+     */
+    /** The default 권한 모드's name, in the AI menu and its sheet. */
+    static final String PERMISSION_FULL = "조작 허용";
     private void permissionMode() {
         Ui.Sheet sheet = ui.selectionSheet("권한 모드", "다음 지시부터 적용돼요");
         boolean readOnly = engine.readOnly(); LinearLayout rows = ui.group();
         android.widget.ImageView on = new android.widget.ImageView(this); on.setImageResource(R.drawable.ic_check); on.setImageTintList(android.content.res.ColorStateList.valueOf(ACCENT));
         android.widget.ImageView on2 = new android.widget.ImageView(this); on2.setImageResource(R.drawable.ic_check); on2.setImageTintList(android.content.res.ColorStateList.valueOf(ACCENT));
-        ui.addRow(rows, ui.listRow(R.drawable.ic_hand, Ui.BLUE, "확인받기 (기본)", "페이지에서 입력·클릭까지 하고, 결제·삭제·전송 전에는 꼭 물어봐요", readOnly ? null : on, () -> {
-            engine.store.settings.edit().putBoolean(BrowserEngine.READ_ONLY, false).apply(); sheet.dismiss(); toast("권한 모드: 확인받기"); refresh(); }), true);
-        ui.addRow(rows, ui.listRow(R.drawable.ic_eye, Ui.GREEN, "읽기만", "읽기·스크롤·링크 이동만 해요. 입력하거나 버튼을 누르지 않아요", readOnly ? on2 : null, () -> {
+        ui.addRow(rows, ui.listRow(R.drawable.ic_hand, Ui.BLUE, PERMISSION_FULL + " (기본)", "읽기·링크 이동에 더해 글 입력·고르기·버튼 누르기·파일 첨부까지 해요", readOnly ? null : on, () -> {
+            engine.store.settings.edit().putBoolean(BrowserEngine.READ_ONLY, false).apply(); sheet.dismiss(); toast("권한 모드: " + PERMISSION_FULL); refresh(); }), true);
+        ui.addRow(rows, ui.listRow(R.drawable.ic_eye, Ui.GREEN, "읽기만", "읽기·스크롤·링크 이동만 해요. 글 입력·고르기·버튼 누르기·파일 첨부는 하지 않아요", readOnly ? on2 : null, () -> {
             engine.store.settings.edit().putBoolean(BrowserEngine.READ_ONLY, true).apply(); sheet.dismiss(); toast("권한 모드: 읽기만"); refresh(); }), true);
         sheet.body.addView(rows);
-        sheet.body.addView(ui.footer("어느 모드에서든 결제·삭제·전송·로그인은 AI가 혼자 하지 않아요."));
-        show(sheet);
+        sheet.body.addView(ui.footer("어느 모드에서든 결제·송금·삭제와 비밀번호·인증번호 입력은 AI가 하지 않고 직접 하시도록 남겨 둬요."));
+        popup(sheet, false);
     }
     /** Room for two pages side by side (a foldable opened, a tablet): 600dp and wider. */
     private boolean splitRoom() { return getResources().getConfiguration().screenWidthDp >= 600; }
@@ -1451,13 +2012,13 @@ public final class BrowserActivity extends Activity {
             String title = t.title == null || t.title.isBlank() ? host(t.url) : t.title;
             ui.addRow(rows, menuRow(R.drawable.ic_layers, Ui.BLUE, title + (t == engine.split ? " · 지금 옆 화면" : ""), true, () -> engine.split(t), sheet), true);
         }
-        ui.addRow(rows, menuRow(R.drawable.ic_add, ACCENT, "새 탭을 옆에 열기", engine.tabs.size() < 6, () -> {
+        ui.addRow(rows, menuRow(R.drawable.ic_add, ACCENT, "새 탭을 옆에 열기", true, () -> {
             BrowserEngine.Tab main = engine.current;
             try { BrowserEngine.Tab fresh = engine.newTab("https://www.google.com/", true); engine.select(main); engine.split(fresh); }
             catch (RuntimeException e) { toast(e.getMessage()); }
         }, sheet), true);
         if (engine.split != null) ui.addRow(rows, menuRow(R.drawable.ic_close, ERROR, "화면 분할 끄기", true, () -> engine.split(null), sheet), true);
-        sheet.body.addView(rows); show(sheet);
+        sheet.body.addView(rows); popup(sheet, false);
     }
     /** Reading an archive never makes it active AI context. Deletion always names a captured conversation ID. */
     private void conversationHistory() {
@@ -1474,7 +2035,7 @@ public final class BrowserActivity extends Activity {
             View row = ui.listRow(R.drawable.ic_history, ACCENT, title, description, null, () -> { sheet.dismiss(); archivedConversation(id, targetTitle, 40); });
             ui.addRow(sheet.body, SwipeDelete.wrap(ui, row, "이 대화", () -> deleteConversationNow(id)), true);
         }
-        show(sheet);
+        popup(sheet, false);
     }
     /** 대화 기록's X: deletes the conversation at once, as 이 대화 지우기 does after asking. */
     private boolean deleteConversationNow(String id) {
@@ -1566,8 +2127,12 @@ public final class BrowserActivity extends Activity {
         elapsed.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         waiting.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         sheet.body.addView(elapsed); sheet.body.addView(waiting);
+        // The action log keeps up to BrowserEngine.ACTIVITY lines; only the newest DETAIL_LINES are drawn until asked for more.
+        int[] drawn = {DETAIL_LINES}; Runnable[] again = new Runnable[1];
+        TextView earlier = ui.text("", 13, 650, ACCENT); earlier.setGravity(Gravity.CENTER); earlier.setPadding(0, ui.dp(6), 0, ui.dp(6));
+        earlier.setOnClickListener(v -> { drawn[0] += DETAIL_LINES; if (again[0] != null) again[0].run(); }); Ui.pressable(earlier, true); sheet.body.addView(earlier);
         TextView actions = ui.label("", 13, MUTED); actions.setTextIsSelectable(true); sheet.body.addView(actions);
-        ViewGroup resultCommands = ui.actions(ui.chip("결과 복사", () -> copyText("브라우저 작업 결과", engine.status)), ui.chip("결과 공유", () -> shareText(engine.status, "브라우저 작업 결과"))); sheet.body.addView(resultCommands);
+        ViewGroup resultCommands = ui.actions(ui.chip("결과 복사", () -> copyText("브라우저 작업 결과", dev.jun.gyeot.core.Markdown.plain(engine.status))), ui.chip("결과 공유", () -> shareText(engine.status, "브라우저 작업 결과"))); sheet.body.addView(resultCommands);
         Button direct = ui.button("페이지에서 직접 확인", false, sheet::dismiss); sheet.body.addView(direct);
         Button resume = ui.button("직접 확인 완료 · AI 다시 사용", false, () -> {
             sheet.dismiss();
@@ -1582,17 +2147,20 @@ public final class BrowserActivity extends Activity {
             BrowserProgressUi.Snapshot snapshot = progressSnapshot();
             boolean other = engine.running() && !engine.taskOnCurrentTab();
             long now = android.os.SystemClock.elapsedRealtime();
-            setProgressText(ask, other ? "" : engine.lastAsk.isBlank() ? engine.lastRequest : engine.lastAsk);
+            String asked = other ? "" : engine.lastAsk.isBlank() ? engine.lastRequest : engine.lastAsk;
+            setProgressText(ask, asked.length() > 500 ? asked.substring(0, 499) + "…" : asked); // a long request: what fits the sheet
             setProgressText(stage, snapshot.running() || other ? snapshot.stage() : engine.status);
             setProgressText(elapsed, BrowserProgressUi.elapsed(snapshot, now));
             setProgressText(waiting, BrowserProgressUi.waiting(snapshot, now));
-            setProgressText(actions, String.join("\n", snapshot.actions()));
+            List<String> lines = snapshot.actions(); int hidden = Math.max(0, lines.size() - drawn[0]);
+            setProgressText(earlier, hidden > 0 ? "이전 기록 " + hidden + "개 더 보기" : "");
+            setProgressText(actions, String.join("\n", lines.subList(hidden, lines.size())));
             resultCommands.setVisibility(!engine.running() && !engine.status.isBlank() ? View.VISIBLE : View.GONE);
             stop.setVisibility(stopTarget.canStop() ? View.VISIBLE : View.GONE);
             direct.setVisibility(!other && (engine.paused || "paused".equals(engine.resultState)) ? View.VISIBLE : View.GONE);
             resume.setVisibility(!other && engine.paused ? View.VISIBLE : View.GONE);
         };
-        detailRefresh = render;
+        detailRefresh = render; again[0] = render;
         sheet.setOnDismissListener(d -> { dialogs.remove(sheet); if (progressDetails == sheet) { progressDetails = null; detailRefresh = null; } });
         render.run(); showBrowserPopup(sheet, paneToggle, false);
     }
@@ -1646,9 +2214,7 @@ public final class BrowserActivity extends Activity {
             if (rendered[0].equals(signature.toString())) return;
             rendered[0] = signature.toString(); cards.removeAllViews();
             int count = engine.tabs.size(); heading.setText("탭 " + count);
-            subtitle.setText(count >= 6 ? "탭은 최대 6개까지 열 수 있어요. 먼저 탭을 닫아 주세요." : "카드로 전환 · ×로 닫기");
-            add.setEnabled(count < 6); add.setAlpha(count < 6 ? 1f : .38f);
-            secret.setEnabled(count < 6); secret.setAlpha(count < 6 ? 1f : .38f);
+            subtitle.setText("카드로 전환 · ×로 닫기");
             android.content.res.Configuration config = getResources().getConfiguration();
             int cardWidth = Math.round(168 * Math.max(1f, config.fontScale));
             int columns = Math.max(1, Math.min(3, (config.screenWidthDp - 24) / cardWidth));
@@ -1694,24 +2260,27 @@ public final class BrowserActivity extends Activity {
         }
         root.requestApplyInsets();
     }
+    /** 로그인: three short rows (no stacked full-width buttons), a line about the system browser under them. */
     private void loginMenu() {
         if (engine.paused) { engine.loginMode(false); return; }
         BrowserEngine.PromptToken token = engine.promptToken(engine.current.session);
-        Ui.Sheet sheet = ui.new Sheet("로그인", "이 브라우저에서 로그인하면 세션이 유지돼요");
-        sheet.body.addView(ui.button("직접 로그인 · AI 잠시 멈추기", true, () -> {
-            sheet.dismiss(); if (engine.validPrompt(token)) engine.loginMode(true); else toast("대상 탭이 바뀌었어요. 로그인 메뉴를 다시 열어 주세요.");
-        }));
-        sheet.body.addView(ui.button("이 사이트의 저장된 로그인", false, () -> {
-            sheet.dismiss(); if (engine.validPrompt(token)) vault(); else toast("대상 탭이 바뀌었어요. 로그인 메뉴를 다시 열어 주세요.");
-        }));
-        sheet.body.addView(ui.button("시스템 브라우저에서 열기", false, () -> {
-            sheet.dismiss();
+        Ui.Sheet sheet = ui.selectionSheet("로그인", "이 브라우저에서 로그인하면 세션이 유지돼요");
+        LinearLayout rows = ui.group();
+        ui.addRow(rows, menuRow(R.drawable.ic_hand, MUTED, "직접 로그인 · AI 잠시 멈추기", true, () -> {
+            if (engine.validPrompt(token)) engine.loginMode(true); else toast("대상 탭이 바뀌었어요. 로그인 메뉴를 다시 열어 주세요.");
+        }, sheet), true);
+        ui.addRow(rows, menuRow(R.drawable.ic_key, MUTED, "이 사이트의 저장된 로그인", true, () -> {
+            if (engine.validPrompt(token)) vault(); else toast("대상 탭이 바뀌었어요. 로그인 메뉴를 다시 열어 주세요.");
+        }, sheet), true);
+        ui.addRow(rows, menuRow(R.drawable.ic_globe, MUTED, "시스템 브라우저에서 로그인", true, () -> {
             if (!engine.validPrompt(token)) { toast("대상 탭이 바뀌었어요. 로그인 메뉴를 다시 열어 주세요."); return; }
             String url = token.url; engine.loginMode(true);
             try { new CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(this, android.net.Uri.parse(BrowserTools.url(url))); }
             catch (Exception e) { toast("시스템 브라우저를 열지 못했어요."); }
-        }));
-        sheet.body.addView(ui.label("시스템 브라우저의 로그인은 들퍼레에 자동으로 옮겨지지 않아요. 사이트가 내부 로그인을 지원하지 않을 때 이용해 주세요.", 13, MUTED)); show(sheet);
+        }, sheet), true);
+        sheet.body.addView(rows);
+        sheet.body.addView(ui.footer("시스템 브라우저의 로그인은 들퍼레로 옮겨지지 않아요. 사이트가 이 브라우저 로그인을 막을 때만 써 주세요."));
+        popup(sheet, false);
     }
     /** 비밀번호 (PasswordsUi): every saved login, kept by LoginVault. */
     private PasswordsUi passwords() { return new PasswordsUi(this, ui, LoginVault.of(this), this::toast); }
@@ -1782,6 +2351,26 @@ public final class BrowserActivity extends Activity {
         dialog.setOnDismissListener(d -> { dialogs.remove(dialog); if (!prompt.isComplete()) result.complete(prompt.dismiss()); }); show(dialog); return result;
     }
     private final GeckoSession.PromptDelegate prompts = new GeckoSession.PromptDelegate() {
+        /**
+         * A page's "파일 올리기" (준: "AI 브라우저에서 이 동작이 안돼": claude.ai's 파일 또는 사진 추가 did nothing, the chooser had no
+         * handler): the phone's own picker, one file or several as the page asks, of the kinds it accepts; what is picked goes to
+         * the page (GeckoView copies it in). Cancelled, the page hears no file.
+         */
+        @Override public GeckoResult<PromptResponse> onFilePrompt(GeckoSession session, FilePrompt p) {
+            if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss());
+            if (fileAnswer != null && filePrompt != null) { fileAnswer.complete(filePrompt.dismiss()); fileAnswer = null; filePrompt = null; }
+            android.content.Intent pick = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).addCategory(android.content.Intent.CATEGORY_OPENABLE);
+            java.util.List<String> kinds = new java.util.ArrayList<>();
+            if (p.mimeTypes != null) for (String m : p.mimeTypes) if (m != null && m.contains("/")) kinds.add(m.strip().toLowerCase(java.util.Locale.ROOT));
+            pick.setType(kinds.size() == 1 ? kinds.get(0) : "*/*");
+            if (kinds.size() > 1) pick.putExtra(android.content.Intent.EXTRA_MIME_TYPES, kinds.toArray(new String[0]));
+            if (p.type == FilePrompt.Type.MULTIPLE) pick.putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true);
+            GeckoResult<PromptResponse> answer = new GeckoResult<>();
+            try { startActivityForResult(pick, REQUEST_FILES); }
+            catch (RuntimeException none) { toast("파일을 고를 앱이 없어요."); return GeckoResult.fromValue(p.dismiss()); }
+            filePrompt = p; fileAnswer = answer;
+            return answer;
+        }
         @Override public GeckoResult<PromptResponse> onAlertPrompt(GeckoSession session, AlertPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss()); return prompt(session, p, (b, r) -> b.setMessage(p.message).setPositiveButton("확인", (d, w) -> r.complete(p.dismiss()))); }
         @Override public GeckoResult<PromptResponse> onButtonPrompt(GeckoSession session, ButtonPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss()); return prompt(session, p, (b, r) -> b.setMessage(p.message).setPositiveButton("확인", (d, w) -> r.complete(p.confirm(ButtonPrompt.Type.POSITIVE))).setNegativeButton("취소", (d, w) -> r.complete(p.confirm(ButtonPrompt.Type.NEGATIVE)))); }
         @Override public GeckoResult<PromptResponse> onTextPrompt(GeckoSession session, TextPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss());
@@ -1794,6 +2383,14 @@ public final class BrowserActivity extends Activity {
             return prompt(session, p, (b, r) -> b.setMessage(BrowserEngine.safeUrl(p.authOptions.uri)).setView(box).setPositiveButton("로그인", (d, w) -> r.complete(p.confirm(user.getText().toString(), pass.getText().toString()))).setNegativeButton("취소", (d, w) -> r.complete(p.dismiss())));
         }
         @Override public GeckoResult<PromptResponse> onPopupPrompt(GeckoSession session, PopupPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss()); return prompt(session, p, (b, r) -> b.setMessage("새 탭을 열까요?\n" + BrowserEngine.safeUrl(p.targetUri)).setPositiveButton("열기", (d, w) -> r.complete(p.confirm(AllowOrDeny.ALLOW))).setNegativeButton("취소", (d, w) -> r.complete(p.confirm(AllowOrDeny.DENY)))); }
+        /** The page asks before it is left (a form not saved yet): the user decides, as in any browser. */
+        @Override public GeckoResult<PromptResponse> onBeforeUnloadPrompt(GeckoSession session, BeforeUnloadPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss());
+            return prompt(session, p, (b, r) -> b.setMessage("이 페이지를 떠날까요?\n입력한 내용이 저장되지 않았을 수 있어요.").setPositiveButton("떠나기", (d, w) -> r.complete(p.confirm(AllowOrDeny.ALLOW))).setNegativeButton("머무르기", (d, w) -> r.complete(p.confirm(AllowOrDeny.DENY))));
+        }
+        /** A page sent by a form is loaded again: sending it again could order or pay twice. */
+        @Override public GeckoResult<PromptResponse> onRepostConfirmPrompt(GeckoSession session, RepostConfirmPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss());
+            return prompt(session, p, (b, r) -> b.setMessage("양식을 다시 보낼까요?\n주문·결제·글 올리기가 한 번 더 될 수 있어요.").setPositiveButton("다시 보내기", (d, w) -> r.complete(p.confirm(AllowOrDeny.ALLOW))).setNegativeButton("취소", (d, w) -> r.complete(p.confirm(AllowOrDeny.DENY))));
+        }
         /** After a login with details not kept yet: keep them (encrypted on this device, never sent to an AI)? */
         @Override public GeckoResult<PromptResponse> onLoginSave(GeckoSession session, AutocompleteRequest<Autocomplete.LoginSaveOption> p) {
             if (!engine.liveSession(session) || p.options == null || p.options.length == 0) return GeckoResult.fromValue(p.dismiss());

@@ -79,6 +79,8 @@ import static dev.jun.gyeot.core.Jsons.*;
 public final class AssistantService extends Service {
     public static final String LIVE = "gyeot.LIVE", END_LIVE = "gyeot.END_LIVE", TASK = "gyeot.TASK", CANCEL = "gyeot.CANCEL", STOP = "gyeot.STOP", MUTE = "gyeot.MUTE", SAY = "gyeot.SAY", APPLY = "gyeot.APPLY", WORK_SEND = "gyeot.WORK_SEND", WORK_STOP = "gyeot.WORK_STOP", WORK_NEXT = "gyeot.WORK_NEXT", WORK_STEER_NOW = "gyeot.WORK_STEER_NOW", WORK_CLEAR = "gyeot.WORK_CLEAR", WORK_SORT = "gyeot.WORK_SORT";
     public static final String RECORD_START = "gyeot.RECORD_START", RECORD_STOP = "gyeot.RECORD_STOP", SUMMARIZE = "gyeot.SUMMARIZE";
+    /** 녹음 일시정지 · 재개 (MediaRecorder.pause/resume): the notification, the floating controls and the home screen send these. */
+    public static final String RECORD_PAUSE = "gyeot.RECORD_PAUSE", RECORD_RESUME = "gyeot.RECORD_RESUME";
     public static final String VIDEO_START = "gyeot.VIDEO_START", VIDEO_RESUME = "gyeot.VIDEO_RESUME", VIDEO_PAUSE = "gyeot.VIDEO_PAUSE";
     private final java.util.Map<String, Control> videoRuns = new java.util.concurrent.ConcurrentHashMap<>();
     private static final String CHANNEL = "assistant", RESULTS = "results";
@@ -356,6 +358,7 @@ public final class AssistantService extends Service {
                 case CANCEL -> { if (cancelTask(intent.getStringExtra("id")) && !store.voiceActive) store.status("작업을 취소했어요"); idle(); }
                 case RECORD_START -> startRecording();
                 case RECORD_STOP -> { stopRecording(); idle(); }
+                case RECORD_PAUSE, RECORD_RESUME -> { pauseRecording(RECORD_PAUSE.equals(action)); idle(); }
                 case SUMMARIZE -> summarize(intent.getStringExtra("recording"), intent.getStringExtra("modelSelection"));
                 default -> idle();
             }
@@ -969,14 +972,18 @@ public final class AssistantService extends Service {
     private void searchFor(LiveVoiceSession session, String id, String query, BooleanSupplier current, Consumer<JSONArray> onSources) {
         String first = store.searchProvider();
         String clock = GeminiProtocol.clock(ZonedDateTime.now());
-        List<String> order = new ArrayList<>(List.of(first));
+        // Groq compound searches on its own free tier: before Gemini (whose free searches are fewer), after a paid choice.
+        List<String> order = new ArrayList<>("gemini".equals(first) ? List.of("groq", "gemini") : List.of(first, "groq"));
         for (String provider : new String[]{"gemini", "chatgpt", "claude"}) if (!order.contains(provider)) order.add(provider);
         searches.execute(() -> {
             JSONObject reply = null; JSONArray found = new JSONArray(); Exception failure = null;
             for (String provider : order) {
-                if (provider.equals("chatgpt") && !store.openai.connected() || provider.equals("claude") && !store.claude.connected()) continue;
+                if (provider.equals("chatgpt") && !store.openai.connected() || provider.equals("claude") && !store.claude.connected() || provider.equals("groq") && !store.groq.connected()) continue;
                 try {
-                    if (!provider.equals("gemini")) {
+                    if (provider.equals("groq")) {
+                        String text = GroqWork.search(OpenAiProtocol.searchInstructions(clock), query);
+                        reply = obj("answer", text, "sources", new JSONArray(), "searched_by", "Groq"); found = new JSONArray();
+                    } else if (!provider.equals("gemini")) {
                         boolean claude = provider.equals("claude"); String name = claude ? "Claude" : "ChatGPT";
                         OpenAiClient.Result answer = claude
                             // A quick lookup the voice waits on: the lowest effort the model offers.
@@ -1020,7 +1027,7 @@ public final class AssistantService extends Service {
         }
         String clock = GeminiProtocol.clock(ZonedDateTime.now());
         String input = Think.input(question, purpose, recap(), store.memoryOn() ? Memory.recipes(store.memories()) : "");
-        store.status(Think.PLAN.equals(purpose) ? name + "가 작업 계획을 세우는 중…" : name + "에게 물어보는 중…");
+        store.status(Think.PLAN.equals(purpose) ? name + " · 작업 계획을 세우는 중…" : name + " · 물어보는 중…");
         store.phoneLog("→ " + name + " " + (Think.PLAN.equals(purpose) ? "작업 계획" : Think.TEXT.equals(purpose) ? "입력할 글" : "생각") + " 요청");
         thinkingStarted(name);
         // One answer per request: the reply, or the time limit, whichever comes first. A request past the limit is cut off.
@@ -1130,11 +1137,14 @@ public final class AssistantService extends Service {
     private boolean scheduleAlive(JSONObject schedule) {
         String room = schedule.optString("lastRoom");
         if (room.isBlank()) return false;
+        // A macro's run (MacroRunner) is its job while it runs.
+        if (room.startsWith("macro:")) { dev.jun.gyeot.core.BuddyJobs.Job job = dev.jun.gyeot.core.BuddyJobs.find(room.substring(6)); return job != null && job.running(); }
         JSONObject thread = WorkBook.find(store.works(), room);
         return workRuns.containsKey(room) || thread != null && WorkBook.RUNNING.equals(thread.optString("state"));
     }
     private void startScheduled(JSONObject claimed, boolean open) {
         String id = claimed.optString("id"), run = claimed.optString("runId"), errorBefore = store.error;
+        if (!dev.jun.gyeot.core.WorkSchedules.macro(claimed).isEmpty()) { startScheduledMacro(claimed, id, run, open); return; }
         try {
             JSONObject selection = claimed.optJSONObject("selection");
             String engine = selection == null ? "" : selection.optString("engine");
@@ -1148,6 +1158,32 @@ public final class AssistantService extends Service {
             if (!open && room.equals(store.workOpen)) store.workOpen = "";
             store.changeSchedules(list -> dev.jun.gyeot.core.WorkSchedules.attach(list, id, run, room));
             store.status("예약 작업을 시작했어요 · " + dev.jun.gyeot.core.WorkSchedules.describe(claimed));
+        } catch (Exception e) {
+            String why = message(e, "예약 작업을 시작하지 못했어요.");
+            try { store.changeSchedules(list -> dev.jun.gyeot.core.WorkSchedules.finished(list, id, run, dev.jun.gyeot.core.WorkSchedules.ERROR, "", null, why, System.currentTimeMillis())); }
+            catch (Exception ignored) { /* The next store load marks the run interrupted. */ }
+            if (!store.appVisible) notify(2800 + (id.hashCode() & 0x3ff), Brand.NAME + " · 예약 작업", "실행하지 못했어요 · " + why, why, openApp(2800 + (id.hashCode() & 0x3ff), 3));
+            else store.error("예약 작업을 실행하지 못했어요. " + why);
+        }
+    }
+    /**
+     * A 예약 작업 that runs a macro: its recorded steps with no AI and no room (MacroRunner), nobody watching unless the user
+     * pressed 지금 실행 (open), so it asks before a send. How it ended is the run's result.
+     */
+    private void startScheduledMacro(JSONObject claimed, String id, String run, boolean open) {
+        String name = dev.jun.gyeot.core.WorkSchedules.macro(claimed);
+        dev.jun.gyeot.core.Macros.Macro macro = MacroBook.named(this, name);
+        BuddyHands.Started s = macro == null ? new BuddyHands.Started(false, "‘" + name + "’ 매크로가 없어요. 지웠거나 이름을 바꿨으면 예약을 다시 만들어 주세요.", "", null)
+            : MacroRunner.start(this, macro, !open, "", job -> {
+                dev.jun.gyeot.core.BuddyJobs.State how = job.state();
+                String state = how == dev.jun.gyeot.core.BuddyJobs.State.DONE ? dev.jun.gyeot.core.WorkSchedules.DONE : how == dev.jun.gyeot.core.BuddyJobs.State.STOPPED ? dev.jun.gyeot.core.WorkSchedules.CANCELLED : dev.jun.gyeot.core.WorkSchedules.ERROR;
+                try { store.changeSchedules(list -> dev.jun.gyeot.core.WorkSchedules.finished(list, id, run, state, job.result(), null, state.equals(dev.jun.gyeot.core.WorkSchedules.DONE) ? "" : job.result(), System.currentTimeMillis())); }
+                catch (Exception ignored) { /* The next store load marks the run interrupted. */ }
+            });
+        try {
+            if (!s.ok()) throw new IllegalStateException(s.say());
+            store.changeSchedules(list -> dev.jun.gyeot.core.WorkSchedules.attach(list, id, run, "macro:" + s.job().id));
+            store.status("예약 작업을 시작했어요 · ‘" + name + "’ 매크로");
         } catch (Exception e) {
             String why = message(e, "예약 작업을 시작하지 못했어요.");
             try { store.changeSchedules(list -> dev.jun.gyeot.core.WorkSchedules.finished(list, id, run, dev.jun.gyeot.core.WorkSchedules.ERROR, "", null, why, System.currentTimeMillis())); }
@@ -1616,9 +1652,13 @@ public final class AssistantService extends Service {
                 // 페이지: the user's documents on this phone, for every model; a save or a change only when the run's
                 // own user words ask for it. As media: not for recovery, and not for jobs the main chat delegated (their requests stay as they were).
                 PageWorkTools pages = mediaAllowed ? new PageWorkTools(PageStore.book(this), dev.jun.gyeot.core.PageBook.WORK, title, () -> WorkBook.authority(WorkBook.find(store.works(), id)), "work:" + id) : null;
+                // 프로젝트: the user's small web apps (들퍼레/프로젝트), made or changed only when the run's own words ask; as 페이지.
+                ProjectWorkTools projects = mediaAllowed ? new ProjectWorkTools(this, () -> WorkBook.authority(WorkBook.find(store.works(), id)), "work:" + id) : null;
+                // Python on this phone (연구실's 계산 환경), for exact numbers and charts; not for recovery.
+                PythonWorkTools python = recovering ? null : PythonWorkTools.offered(this, "work-" + id, () -> control.stopped || destroying || workRuns.get(id) != control);
                 // The 들퍼레 folder: what is in it, and keeping files this job downloaded there when the user's words ask; not for recovery.
                 FolderWorkTools folders = recovering ? null : new FolderWorkTools(this, () -> WorkBook.authority(WorkBook.find(store.works(), id)), FolderWorkTools.room(store, id), () -> control.stopped || destroying || workRuns.get(id) != control);
-                WorkLedger ledger = new WorkLedger(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(repos, team[0]), browser[0]), media.offers() ? media : null), drive), calendar), pages), folders), (tool, target, outcome) ->
+                WorkLedger ledger = new WorkLedger(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(repos, team[0]), browser[0]), media.offers() ? media : null), drive), calendar), pages), projects), python), folders), (tool, target, outcome) ->
                     saveWorkCheckpoint(id, run, draft.toString(), tool, target, outcome, control));
                 JSONObject submittedModels = checkpoint == null ? null : checkpoint.optJSONObject(ScopedModels.KEY);
                 String submittedSpeed = WorkBook.CHATGPT.equals(engine) && submittedModels != null ? ScopedModels.frozen(store, submittedModels).speed(model) : "standard";
@@ -1917,7 +1957,7 @@ public final class AssistantService extends Service {
                 android.net.Uri uri; long size;
                 try (java.io.InputStream body = connection.getInputStream()) {
                     if (!category.isEmpty()) {
-                        if (announced > SharedMediaOutput.MAX_BYTES) throw new IllegalStateException("파일이 너무 커요 (2GB까지).");
+                        if (announced > SharedMediaOutput.MAX_BYTES) throw new IllegalStateException("파일이 너무 커요 (" + (SharedMediaOutput.MAX_BYTES >> 30) + "GB까지).");
                         java.util.concurrent.atomic.AtomicLong count = new java.util.concurrent.atomic.AtomicLong();
                         java.io.InputStream counted = new java.io.FilterInputStream(body) {
                             @Override public int read() throws IOException { int b = super.read(); if (b >= 0) count.incrementAndGet(); return b; }
@@ -1954,6 +1994,8 @@ public final class AssistantService extends Service {
                 made.add(kept);
                 return obj("name", kept.optString("name"), "uri", kept.optString("uri"));
             }
+            @Override public JSONObject already(String fileId, String version) { return DriveFiles.already(AssistantService.this, fileId, version); }
+            @Override public void remember(String fileId, String version, JSONObject kept) { DriveFiles.remember(AssistantService.this, fileId, version, kept); }
         };
     }
     private DriveWorkTools.Payload driveMedia(String workId, String reference) throws Exception {
@@ -3093,10 +3135,10 @@ public final class AssistantService extends Service {
         String input = transcript, id = session.optString("id");
         archives.execute(() -> {
             String key;
-            try { key = store.secrets.get(); } catch (Exception e) { return; }
-            if (key.isBlank()) return;
+            try { key = store.secrets.get(); } catch (Exception e) { key = ""; }
+            if (key.isBlank() && !store.groq.connected()) return;
             try {
-                dev.jun.gyeot.core.SessionTitles.Title named = dev.jun.gyeot.core.SessionTitles.parse(GeminiAudioClient.light(key, dev.jun.gyeot.core.SessionTitles.PROMPT, input));
+                dev.jun.gyeot.core.SessionTitles.Title named = dev.jun.gyeot.core.SessionTitles.parse(Chores.run(store, dev.jun.gyeot.core.SessionTitles.PROMPT, input, false));
                 if (named != null) store.nameSession(id, named.title(), named.summary());
             } catch (Exception ignored) {}
         });
@@ -3115,15 +3157,15 @@ public final class AssistantService extends Service {
         String input = transcript, log = String.join("\n", steps);
         archives.execute(() -> {
             String key;
-            try { key = store.secrets.get(); } catch (Exception e) { return; }
-            if (key.isBlank()) return;
+            try { key = store.secrets.get(); } catch (Exception e) { key = ""; }
+            if (key.isBlank() && !store.groq.connected()) return;
             int remembered = 0, learned = 0;
             if (facts) try {
-                String answer = GeminiAudioClient.light(key, Memory.extraction(Memory.prompt(store.memories(), false)), input);
+                String answer = Chores.run(store, Memory.extraction(Memory.prompt(store.memories(), false)), input, false);
                 remembered = store.changeMemory(list -> Memory.apply(list, answer, System.currentTimeMillis()));
             } catch (Exception ignored) {}
             if (phone) try {
-                String answer = GeminiAudioClient.light(key, Memory.phoneExtraction(Memory.recipes(store.memories())), input + "\n\n폰 조작 기록:\n" + log);
+                String answer = Chores.run(store, Memory.phoneExtraction(Memory.recipes(store.memories())), input + "\n\n폰 조작 기록:\n" + log, false);
                 learned = store.changeMemory(list -> Memory.applyPhone(list, answer, System.currentTimeMillis()));
             } catch (Exception ignored) {}
             String news = (remembered > 0 ? "새로 기억한 것 " + remembered + "개" : "") + (remembered > 0 && learned > 0 ? " · " : "") + (learned > 0 ? "폰 사용법 " + learned + "개" : "");
@@ -3237,21 +3279,40 @@ public final class AssistantService extends Service {
             next.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC);
             next.setAudioChannels(1); next.setAudioSamplingRate(44100); next.setAudioEncodingBitRate(64000);
             next.setOutputFile(file); next.prepare();
-            store.recording = true; store.recordingStartedAt = System.currentTimeMillis(); store.stopReading("녹음을 시작해서 읽기를 멈췄어요.");
+            store.recording = true; store.recordingPaused = false; store.recordingPauses = new dev.jun.gyeot.core.RecordPauses();
+            store.recordingStartedAt = System.currentTimeMillis(); store.stopReading("녹음을 시작해서 읽기를 멈췄어요.");
             // The microphone foreground type must be in place before recording, so it keeps going with the screen off.
             foreground();
             if (!foregroundHas(MICROPHONE)) throw new IllegalStateException("Android가 백그라운드 마이크 사용을 허용하지 않았어요. 앱 화면에서 다시 시작해 주세요.");
             next.start();
         } catch (Exception error) {
-            store.recording = false; store.recordingStartedAt = 0; next.release(); file.delete(); throw error;
+            store.recording = false; store.recordingStartedAt = 0; next.release(); file.delete(); RecordControl.changed(this); throw error;
         }
         recorder = next; recordingId = id; store.error = ""; store.status("녹음 중이에요 · 화면을 꺼도 계속돼요");
+        RecordControl.changed(this);
+    }
+    /**
+     * 녹음 일시정지 (pause true) or 재개: MediaRecorder writes nothing while paused and goes on in the same file; the time shown
+     * and the saved length leave the pause out. A phone whose recorder refuses says so and records on.
+     */
+    private void pauseRecording(boolean pause) {
+        android.media.MediaRecorder current = recorder;
+        if (current == null || !store.recording || store.recordingPaused == pause) { store.changed(); return; }
+        try { if (pause) current.pause(); else current.resume(); }
+        catch (RuntimeException refused) { store.error(pause ? "이 휴대폰의 녹음기가 일시정지를 받지 않았어요 · 녹음은 계속돼요" : "녹음을 다시 이어 가지 못했어요 · 중지하면 지금까지 저장해요"); return; }
+        long now = System.currentTimeMillis();
+        if (pause) store.recordingPauses.pause(now); else store.recordingPauses.resume(now);
+        store.recordingPaused = pause;
+        store.status(pause ? "녹음을 잠시 멈췄어요 · 재개하면 같은 파일에 이어서 녹음해요" : "녹음을 이어서 하고 있어요");
+        RecordControl.changed(this);
     }
     /** Stops and keeps the recording; a recording too short to hold audio is discarded. */
     private void stopRecording() {
         android.media.MediaRecorder current = recorder; String id = recordingId;
-        long started = store.recordingStartedAt, duration = System.currentTimeMillis() - started;
-        recorder = null; recordingId = ""; store.recording = false; store.recordingStartedAt = 0;
+        // The length leaves the pauses out (MediaRecorder wrote nothing then).
+        long started = store.recordingStartedAt, duration = store.recordingPauses.elapsed(started, System.currentTimeMillis());
+        recorder = null; recordingId = ""; store.recording = false; store.recordingPaused = false; store.recordingStartedAt = 0;
+        RecordControl.changed(this);
         if (current == null) { store.changed(); return; }
         boolean saved = true;
         try { current.stop(); } catch (RuntimeException tooShort) { saved = false; }
@@ -3298,7 +3359,7 @@ public final class AssistantService extends Service {
                     transcript = GeminiAudioClient.transcribe(key(), store.recordingFile(recording));
                     store.updateRecording(recording, "transcript", transcript);
                 }
-                main.post(() -> { if (epoch == taskEpoch && !store.voiceActive) store.status(gpt ? name + "가 녹음을 요약하는 중…" : "녹음을 요약하는 중…"); });
+                main.post(() -> { if (epoch == taskEpoch && !store.voiceActive) store.status(gpt ? name + " · 녹음을 요약하는 중…" : "녹음을 요약하는 중…"); });
                 String input = transcript.length() > 200_000 ? transcript.substring(0, 200_000) : transcript, instructions = OpenAiProtocol.recordingInstructions(clock);
                 String summary;
                 if (gpt) {
@@ -3344,7 +3405,7 @@ public final class AssistantService extends Service {
         String id = task.optString("id"); long epoch = ++taskEpoch;
         String engine = store.analyst(), name = store.analystName(), model = analystModel(engine), effort = analystEffort(engine, model);
         boolean webSearch = store.webSearch(engine);
-        if (!store.voiceActive) store.status(webSearch ? name + "가 검색하며 분석하고 있어요" : name + "가 분석하고 있어요");
+        if (!store.voiceActive) store.status(webSearch ? name + " · 검색하며 분석하는 중" : name + " · 분석하는 중");
         long startedAt = SystemClock.elapsedRealtime(); workerActivity = startedAt;
         String clock = GeminiProtocol.clock(ZonedDateTime.now());
         holdWake(); foreground();
@@ -3376,6 +3437,11 @@ public final class AssistantService extends Service {
             WorkClient.Result answer = GrokWorkClient.complete(store.grok, model, instructions, input, search, effort, onActivity, cancel);
             return new OpenAiClient.Result(answer.text, answer.sources, answer.note.isBlank() ? null : answer.note);
         }
+        if (WorkBook.GROQ.equals(engine)) return new OpenAiClient.Result(store.groqModels.ask(model, effort, instructions.apply(false), input, cancel), new org.json.JSONArray(), null);
+        if (WorkBook.ANTIGRAVITY.equals(engine)) {
+            String said = store.antigravity.ask(model, instructions.apply(false), input, cancel);
+            return new OpenAiClient.Result(said, new org.json.JSONArray(), null);
+        }
         if (WorkBook.NIM.equals(engine)) {
             WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), model, instructions.apply(false), input, onActivity, cancel);
             return new OpenAiClient.Result(answer.text, answer.sources, null);
@@ -3383,13 +3449,13 @@ public final class AssistantService extends Service {
         return OpenAiClient.complete(store.openai, model, instructions, input, search, effort, speed, onActivity, cancel);
     }
     private String analystModel(String engine) {
-        return WorkBook.CLAUDE.equals(engine) ? store.claude.model() : WorkBook.GEMINI.equals(engine) ? store.gemini.model() : WorkBook.GROK.equals(engine) ? store.grok.model() : WorkBook.NIM.equals(engine) ? store.nim.model() : store.openai.model();
+        return WorkBook.CLAUDE.equals(engine) ? store.claude.model() : WorkBook.GEMINI.equals(engine) ? store.gemini.model() : WorkBook.GROK.equals(engine) ? store.grok.model() : WorkBook.GROQ.equals(engine) ? store.groqModels.model() : WorkBook.ANTIGRAVITY.equals(engine) ? store.antigravity.model() : WorkBook.NIM.equals(engine) ? store.nim.model() : store.openai.model();
     }
     private String analystEffort(String engine, String model) {
-        return WorkBook.CLAUDE.equals(engine) ? store.claude.effort(model) : WorkBook.GEMINI.equals(engine) ? store.gemini.effort(model) : WorkBook.GROK.equals(engine) ? store.grok.effort(model) : WorkBook.NIM.equals(engine) ? store.nim.effort(model) : store.openai.effectiveReasoningEffort(model);
+        return WorkBook.CLAUDE.equals(engine) ? store.claude.effort(model) : WorkBook.GEMINI.equals(engine) ? store.gemini.effort(model) : WorkBook.GROK.equals(engine) ? store.grok.effort(model) : WorkBook.GROQ.equals(engine) ? store.groqModels.effort(model) : WorkBook.ANTIGRAVITY.equals(engine) ? store.antigravity.effort(model) : WorkBook.NIM.equals(engine) ? store.nim.effort(model) : store.openai.effectiveReasoningEffort(model);
     }
     private Reasoning.Profile profile(String engine, String model) {
-        return WorkBook.CLAUDE.equals(engine) ? store.claude.profile(model) : WorkBook.GEMINI.equals(engine) ? store.gemini.profile(model) : WorkBook.GROK.equals(engine) ? store.grok.profile(model) : WorkBook.NIM.equals(engine) ? store.nim.profile(model) : store.openai.reasoningProfile(model);
+        return WorkBook.CLAUDE.equals(engine) ? store.claude.profile(model) : WorkBook.GEMINI.equals(engine) ? store.gemini.profile(model) : WorkBook.GROK.equals(engine) ? store.grok.profile(model) : WorkBook.GROQ.equals(engine) ? store.groqModels.profile(model) : WorkBook.ANTIGRAVITY.equals(engine) ? store.antigravity.profile(model) : WorkBook.NIM.equals(engine) ? store.nim.profile(model) : store.openai.reasoningProfile(model);
     }
     /**
      * withoutSearch is set on the retry after a quota error with search. searchRefusal is set only when that error came at setup,
@@ -3890,6 +3956,7 @@ public final class AssistantService extends Service {
             if (AppNavigation.FUNCTION.equals(name)) { if ("mytube".equals(args.optString("screen"))) MyTubeActivity.ask(args.optString("play")); openAppScreen(session, id, name, args.optString("screen")); continue; }
             if (dev.jun.gyeot.core.VoiceBoard.FUNCTION.equals(name)) { boardExplain(session, id, name, args); continue; }
             if (dev.jun.gyeot.core.Bgm.FUNCTION.equals(name)) { touch(); session.tool(id, name, backgroundMusic(args)); continue; }
+            if (dev.jun.gyeot.core.Macros.FUNCTION.equals(name)) { touch(); session.tool(id, name, MacroActs.voice(this, args)); continue; }
             if (dev.jun.gyeot.core.Notices.FUNCTION.equals(name)) { touch(); session.tool(id, name, dev.jun.gyeot.core.Notices.answer(NoticeListener.on(this) && NoticeListener.allowed(this), NoticeListener.list(this), System.currentTimeMillis(), args.optDouble("hours", 6))); continue; }
             if (DeviceActions.NAMES.contains(name)) { deviceAction(session, id, name, args); continue; }
             if (dev.jun.gyeot.core.CalendarQuery.VOICE.contains(name)) { calendarFor(session, id, name, args); continue; }
@@ -4401,6 +4468,7 @@ public final class AssistantService extends Service {
     /** note: why it fell back to a search; with the waypoints it goes through (said in its answer) and a note about any left out. */
     private void finishNavigation(LiveVoiceSession session, String id, DeviceActions.Action action, dev.jun.gyeot.core.NaverPlaces.Place place, String note, String viaNote, java.util.List<dev.jun.gyeot.core.NaverPlaces.Place> via) {
         JSONObject result;
+        DayLogs.placeHint(place);
         try { result = DeviceActionRunner.run(this, action, bubble != null && bubble.visible()); }
         catch (RuntimeException refused) { result = DeviceActions.failed(action, "지도 앱을 열지 못했어요."); }
         if (place != null) put(result, "place", obj("name", place.name(), "address", place.address()));
@@ -5013,16 +5081,18 @@ public final class AssistantService extends Service {
     }
     private Notification ongoing() {
         int pending = store.tasks.pendingCount() + workQueued;
-        String detail = store.recording ? "마이크로 녹음하고 있어요" + (pending > 0 ? " · 작업 " + pending + "개" : "")
-            : store.voiceActive ? (store.voiceNetwork.offline() ? "오프라인 · " : store.thinking() ? store.thinkingName() + "가 생각하는 중 · " : "") + (store.muted ? "마이크 음소거 중" : "마이크 사용 중") + (pending > 0 ? " · 작업 " + pending + "개" : "")
+        String detail = store.recording ? (store.recordingPaused ? "녹음을 잠시 멈췄어요 · 재개하면 이어서 녹음해요" : "마이크로 녹음하고 있어요") + (pending > 0 ? " · 작업 " + pending + "개" : "")
+            : store.voiceActive ? (store.voiceNetwork.offline() ? "오프라인 · " : store.thinking() ? store.thinkingName() + " · 생각하는 중 · " : "") + (store.muted ? "마이크 음소거 중" : "마이크 사용 중") + (pending > 0 ? " · 작업 " + pending + "개" : "")
             : reportsPlaying > 0 ? "작업 결과를 읽고 있어요" : "백그라운드 작업 " + pending + "개";
         Notification.Builder builder = new Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(store.recording ? Brand.NAME + " · 녹음 중" : store.voiceActive ? Brand.NAME + " · " + modeName() : Brand.NAME).setContentText(detail).setContentIntent(openApp(1, 0))
+            .setContentTitle(store.recording ? Brand.NAME + (store.recordingPaused ? " · 녹음 일시정지 · " + dev.jun.gyeot.core.RecordPauses.clock(RecordControl.audioElapsedMs(store)) : " · 녹음 중") : store.voiceActive ? Brand.NAME + " · " + modeName() : Brand.NAME).setContentText(detail).setContentIntent(openApp(1, 0))
             .setOngoing(true).setOnlyAlertOnce(true).setCategory(Notification.CATEGORY_SERVICE).setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
-        if (store.recording && store.recordingStartedAt > 0) builder.setWhen(store.recordingStartedAt).setUsesChronometer(true).setShowWhen(true);
+        if (store.recording && store.recordingPaused) builder.setShowWhen(false);
+        else if (store.recording && store.recordingStartedAt > 0) builder.setWhen(System.currentTimeMillis() - RecordControl.audioElapsedMs(store)).setUsesChronometer(true).setShowWhen(true);
         else if (store.voiceActive && store.voiceStartedAt > 0) builder.setWhen(store.voiceStartedAt).setUsesChronometer(true).setShowWhen(true);
         else builder.setShowWhen(false);
-        if (store.recording) builder.addAction(new Notification.Action.Builder(null, "녹음 중지", action(RECORD_STOP)).build());
+        if (store.recording) builder.addAction(new Notification.Action.Builder(null, store.recordingPaused ? "재개" : "일시정지", action(store.recordingPaused ? RECORD_RESUME : RECORD_PAUSE)).build())
+            .addAction(new Notification.Action.Builder(null, "녹음 중지", action(RECORD_STOP)).build());
         if (store.voiceActive) builder.addAction(new Notification.Action.Builder(null, store.muted ? "음소거 해제" : "마이크 음소거", action(MUTE)).build())
             .addAction(new Notification.Action.Builder(null, "음성 종료", action(END_LIVE)).build());
         // A notification action cannot be held: it opens the chat listening until the speech ends. Not while a call or recording has the mic.

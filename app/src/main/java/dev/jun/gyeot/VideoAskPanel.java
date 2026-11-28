@@ -33,7 +33,9 @@ import static dev.jun.gyeot.Ui.*;
  */
 final class VideoAskPanel {
     /** What the panel needs from 마이튜브. */
-    interface Host { MyTubePlayer player(); void closed(); boolean gone(); }
+    interface Host { MyTubePlayer player(); void closed(); boolean gone();
+        /** The audio tools for Groq Whisper (the app's Linux, Python, ffmpeg, yt-dlp), each after the user says so, then then. */
+        default void prepareAudio(Runnable then) {} }
     /**
      * Each video's conversation, oldest first: read from the phone once (mytube-chats.json) and written back after every
      * answer, so it stays when the app is closed; the newest VideoChat.KEPT videos with an answer are kept, older ones go.
@@ -76,8 +78,8 @@ final class VideoAskPanel {
         for (VideoChat.Turn turn : one.turns()) out.append("\n\n").append(turn.user() ? "■ " + turn.shown() : turn.shown() + (turn.by().isEmpty() ? "" : "\n(" + turn.by() + ")"));
         return out.toString();
     }
-    /** The video's conversation changed: it becomes the newest, older ones past the limit go, and the file is written. */
-    private void keep(MyTube.Video v) {
+    /** The video's conversation changed: it becomes the newest, older ones past the limit go, and the file is written. Main thread. */
+    private static void keep(android.content.Context app, MyTube.Video v) {
         String json;
         synchronized (CHATS) {
             List<VideoChat.Turn> list = CHATS.remove(v.id()); if (list != null) CHATS.put(v.id(), list);
@@ -89,15 +91,15 @@ final class VideoAskPanel {
             }
             org.json.JSONObject saved = VideoChat.save(all);
             json = saved.toString();
-            // In memory too, only what the file keeps (and the one shown now).
-            java.util.Set<String> kept = new java.util.HashSet<>();
+            // In memory too, only what the file keeps (and what a panel shows or a job is making now).
+            java.util.Set<String> kept = new java.util.HashSet<>(JOBS.keySet());
+            for (VideoAskPanel panel : live()) if (panel.video != null) kept.add(panel.video.id());
             org.json.JSONArray videos = saved.optJSONArray("videos");
             for (int i = 0; videos != null && i < videos.length(); i++) kept.add(videos.optJSONObject(i).optString("id"));
-            CHATS.keySet().removeIf(id -> !kept.contains(id) && (video == null || !id.equals(video.id())));
+            CHATS.keySet().removeIf(id -> !kept.contains(id));
             ABOUT.keySet().removeIf(id -> !CHATS.containsKey(id));
         }
-        android.content.Context app = activity.getApplicationContext();
-        work.execute(() -> {
+        RUN.execute(() -> {
             java.io.File file = file(app), next = new java.io.File(file.getPath() + ".new");
             try {
                 java.nio.file.Files.write(next.toPath(), json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
@@ -111,13 +113,25 @@ final class VideoAskPanel {
     final LinearLayout view;
     private final Activity activity; private final Ui ui; private final AppStore store; private final ExecutorService work; private final android.os.Handler main; private final Host host;
     private final LinearLayout talk; private final ScrollView scroll; private final EditText input; private final ImageView send; private final TextView model, waiting;
-    private final AtomicReference<Runnable> stop = new AtomicReference<>();
     private MyTube.Video video; private List<VideoChat.Turn> turns = new ArrayList<>();
-    private boolean busy, halted, open; private String transcript; private long generation; private String error = "";
+    private boolean open; private String transcript; private String error = "";
+    /** One video's running job: what it is doing, and how to stop it. It outlives the panel and 마이튜브's screen. */
+    private static final class Job { volatile String status = ""; volatile boolean halted; final AtomicReference<Runnable> stop = new AtomicReference<>(); }
+    /** The running jobs, by video: a panel opened again on the video shows it going on. */
+    private static final Map<String, Job> JOBS = new java.util.concurrent.ConcurrentHashMap<>();
+    /** The app's threads for jobs and for writing the kept conversations (not the screen's, which go with it). */
+    private static final ExecutorService RUN = java.util.concurrent.Executors.newFixedThreadPool(2, r -> { Thread t = new Thread(r, "gyeot-video-ask"); t.setDaemon(true); return t; });
+    /** The panels alive now, so a job that ends finds the one showing its video. Main thread. */
+    private static final java.util.Set<VideoAskPanel> LIVE = java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+    private static List<VideoAskPanel> live() { return new ArrayList<>(LIVE); }
+    /** A summary, an answer, a picture or a transcript is being made now (RunningWork). */
+    static boolean anyRunning() { return !JOBS.isEmpty() || !FETCHING.isEmpty(); }
+    private boolean busy() { return video != null && JOBS.containsKey(video.id()); }
     private ComposerDictation dictation;
 
     VideoAskPanel(Activity activity, Ui ui, AppStore store, ExecutorService work, android.os.Handler main, Host host) {
         this.activity = activity; this.ui = ui; this.store = store; this.work = work; this.main = main; this.host = host;
+        LIVE.add(this);
         // Its own card, set apart from the page: the card color, rounded, a hairline around it and a soft lift.
         view = ui.column(); view.setVisibility(View.GONE);
         android.graphics.drawable.GradientDrawable surface = ui.shape(CARD, 20); surface.setStroke(Math.max(1, ui.dp(1)), SEPARATOR);
@@ -128,14 +142,14 @@ final class VideoAskPanel {
         LinearLayout chips = ui.row(); chips.setGravity(Gravity.CENTER_VERTICAL); strip.addView(chips);
         for (String each : new String[]{VideoChat.TIMELINE, VideoChat.PLAIN}) {
             Button chip = ui.smallChip(each, () -> {
-                if (busy || video == null) return;
+                if (busy() || video == null) return;
                 store.settings.edit().putBoolean("mytubeTimeline", VideoChat.TIMELINE.equals(each)).apply();
                 ask(VideoChat.Turn.user(each, VideoChat.request(video, each), true));
             });
             LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-2, -2); at.rightMargin = ui.dp(6); chips.addView(chip, at);
         }
-        Button script = ui.smallChip("대본 보기", null); script.setOnClickListener(x -> transcriptSheet(script));
-        chips.addView(script, new LinearLayout.LayoutParams(-2, -2));
+        scriptChip = ui.smallChip("대본 보기", null); scriptChip.setOnClickListener(x -> transcriptSheet(scriptChip));
+        chips.addView(scriptChip, new LinearLayout.LayoutParams(-2, -2));
         top.addView(strip, new LinearLayout.LayoutParams(0, -2, 1));
         top.addView(ui.bareIcon(R.drawable.ic_close, TEXT, "닫기", this::close), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         view.addView(top, new LinearLayout.LayoutParams(-1, -2));
@@ -158,12 +172,13 @@ final class VideoAskPanel {
         input.setOnEditorActionListener((v, id, event) -> { if (id == EditorInfo.IME_ACTION_SEND) { submit(); return true; } return false; });
         box.addView(input, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout bar = ui.row(); bar.setGravity(Gravity.CENTER_VERTICAL);
-        model = ui.text("", 13.5f, 500, TEXT); model.setSingleLine(true); model.setEllipsize(TextUtils.TruncateAt.END);
-        model.setGravity(Gravity.CENTER_VERTICAL | Gravity.END); model.setPadding(ui.dp(10), 0, ui.dp(6), 0); model.setMinHeight(ui.dp(44));
-        model.setOnClickListener(v -> chooseModel()); Ui.pressable(model, true);
+        // +: pictures of the video with GPT image (그래픽 레코딩, 인포그래픽, 4컷 만화, or the user's own words).
+        plusButton = ui.bareIcon(R.drawable.ic_add, TEXT, "더하기 · 그림 그리기, HTML 페이지", this::plus);
+        bar.addView(plusButton, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
+        model = ModelLine.make(activity, ui, v -> chooseModel()); model.setMinHeight(ui.dp(44));
         bar.addView(model, new LinearLayout.LayoutParams(0, -2, 1));
         bar.addView(ui.bareIcon(R.drawable.ic_mic, TEXT, "음성 입력 · 입력창에만 넣기", this::dictate), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
-        send = ui.sendButton("보내기", () -> { if (busy) halt(); else submit(); });
+        send = ui.sendButton("보내기", () -> { if (busy()) halt(); else submit(); });
         bar.addView(send, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         box.addView(bar, new LinearLayout.LayoutParams(-1, -2));
         view.addView(composer, new LinearLayout.LayoutParams(-1, -2));
@@ -174,7 +189,7 @@ final class VideoAskPanel {
     void open(MyTube.Video v) {
         if (v == null) return;
         if (open && video != null && video.id().equals(v.id())) { draw(); return; }
-        abandon();
+        // Another video's job (or this one's) goes on; the panel only shows a different conversation.
         video = v; open = true; error = ""; transcript = null;
         load(activity.getApplicationContext());
         synchronized (CHATS) { turns = CHATS.computeIfAbsent(v.id(), id -> new ArrayList<>()); }
@@ -182,26 +197,103 @@ final class VideoAskPanel {
         // Nothing starts by itself: a summary begins when 타임라인 요약 or 일반 요약 above is pressed, or a question is sent.
         draw();
     }
-    /** ✕ or back: the panel goes, an answer being made stops, and the list comes back. */
+    /** ✕ or back: the panel goes and the list comes back; an answer being made goes on and is kept (멈추기 stops it). */
     void close() {
         if (!open) return;
-        abandon(); open = false; view.setVisibility(View.GONE);
+        open = false; view.setVisibility(View.GONE);
         android.view.inputmethod.InputMethodManager keyboard = activity.getSystemService(android.view.inputmethod.InputMethodManager.class);
         if (keyboard != null) keyboard.hideSoftInputFromWindow(input.getWindowToken(), 0);
         host.closed();
     }
     /** Whatever is running for the video shown stops, and its answer, if it comes, is dropped. */
-    private void abandon() { generation++; halted = true; busy = false; Runnable abort = stop.getAndSet(null); if (abort != null) abort.run(); }
-    private void halt() { halted = true; Runnable abort = stop.getAndSet(null); if (abort != null) abort.run(); }
+    /** 멈추기: the job for the video shown stops. */
+    private void halt() { Job job = video == null ? null : JOBS.get(video.id()); if (job == null) return; job.halted = true; Runnable abort = job.stop.getAndSet(null); if (abort != null) abort.run(); }
+    /** The video the panel shows, when open (마이튜브 keeps it across being made again). */
+    MyTube.Video shown() { return open ? video : null; }
     private void submit() {
-        String text = input.getText().toString().strip(); if (text.isEmpty() || busy || video == null) return;
-        input.setText(""); ask(VideoChat.Turn.user(text, text, false));
+        String text = input.getText().toString().strip(); if (text.isEmpty() || busy() || video == null) return;
+        input.setText("");
+        boolean draw = drawNext; drawNext(false);
+        ask(VideoChat.Turn.user(text, draw ? DRAW + text : text, false));
+    }
+    /** A request sent with this before it is drawn (+ → 직접 적어서 그리기), whatever its words. */
+    private static final String DRAW = "[그림] ";
+    /** + → HTML 페이지로 만들기: the request is made into an HTML page kept in 페이지. */
+    private static final String PAGE = "[페이지] ";
+    private View plusButton;
+    /** How many pictures one request draws (+ → 그림 장수), 1 to 4. */
+    private int pictureCount() { return Math.max(1, Math.min(4, store.settings.getInt("mytubePictures", 1))); }
+    /** The shape of the pictures (+ → 그림 비율: 세로, 가로, 정사각, 9:16, 16:9) and how much they say (+ → 그림 분량: 간단, 노멀, 상세). */
+    private String pictureAspect() { return store.settings.getString("mytubeAspect", "portrait"); }
+    private String pictureDetail() { return store.settings.getString("mytubeDetail", "normal"); }
+    private static String named(String[][] choices, String id) { for (String[] c : choices) if (c[0].equals(id)) return c[1]; return choices[0][1]; }
+    private void choose(String[][] choices, String now, String key, String told) {
+        String[] names = new String[choices.length]; int at = 0;
+        for (int k = 0; k < choices.length; k++) { names[k] = choices[k][1]; if (choices[k][0].equals(now)) at = k; }
+        ui.miniMenu(plusButton, names, at, c -> { store.settings.edit().putString(key, choices[c][0]).apply(); Toast.makeText(activity, String.format(told, choices[c][1]), Toast.LENGTH_SHORT).show(); });
+    }
+    /** + → 직접 적어서 그리기: the next words sent are drawn; the box says so until then. */
+    private boolean drawNext;
+    private void drawNext(boolean on) { drawNext = on; input.setHint(on ? "어떤 그림을 그릴까요? 예: 핵심만 인포그래픽으로" : "질문하기…"); }
+    /**
+     * +: a small menu right at the button (준: "더 심플하고 컴팩트하게"): the pictures GPT image draws, writing one's own, an HTML
+     * page kept in 페이지 (준: "Html로 시각화해서 페이지로 저장하기도"), and how many pictures one request draws.
+     */
+    private void plus() {
+        if (video == null) return;
+        String[][] ways = {{"그래픽 레코딩", "대본을 요약해서 그래픽 레코딩 스타일로 그려줘"}, {"인포그래픽", "핵심 내용과 숫자를 인포그래픽으로 그려줘"}, {"4컷 만화", "영상 내용을 4컷 만화로 그려줘"}};
+        int n = pictureCount();
+        String[] labels = {"그래픽 레코딩", "인포그래픽", "4컷 만화", "직접 적어서 그리기", "HTML 페이지로 만들기", "그림 장수 · " + n + "장",
+            "그림 비율 · " + named(VideoChat.ASPECTS, pictureAspect()), "그림 분량 · " + named(VideoChat.DETAILS, pictureDetail())};
+        ui.miniMenu(plusButton, labels, -1, i -> {
+            if (i < 3) { if (!busy()) ask(VideoChat.Turn.user(ways[i][0] + (n > 1 ? " " + n + "장" : ""), DRAW + ways[i][1], false)); }
+            else if (i == 3) { drawNext(true); input.requestFocus(); }
+            else if (i == 4) { if (!busy()) ask(VideoChat.Turn.user("HTML 페이지로 시각화", PAGE + "이 영상을 한눈에 보이게 HTML 페이지로 시각화해 줘", false)); }
+            else if (i == 5) {
+                String[] counts = {"1장", "2장", "3장", "4장"};
+                ui.miniMenu(plusButton, counts, n - 1, c -> { store.settings.edit().putInt("mytubePictures", c + 1).apply(); Toast.makeText(activity, "한 번에 " + (c + 1) + "장씩 그려요", Toast.LENGTH_SHORT).show(); });
+            }
+            // 준: "유튜브 이미지로 정리가 세로모드 밖에 안돼", "간단 노멀 상세를 설정 가능하게": the shape and how much a picture says, kept.
+            else if (i == 6) {
+                // The shapes as a list with their outlines (RatioPicker), in a sheet that fits the screen (준: "좌하단 메뉴가 잘려서 안 보여").
+                Ui.Sheet sheet = ui.selectionSheet("그림 비율", "GPT 이미지가 그리는 비율이에요"); sheet.primary.setVisibility(android.view.View.GONE);
+                sheet.body.addView(new RatioPicker(activity, ui, pictureAspect(), chosen -> {
+                    store.settings.edit().putString("mytubeAspect", chosen).apply(); sheet.dismiss();
+                    Toast.makeText(activity, "그림을 " + dev.jun.gyeot.core.Drawing.label(chosen) + "로 그려요", Toast.LENGTH_SHORT).show();
+                }));
+                sheet.show();
+            }
+            else choose(VideoChat.DETAILS, pictureDetail(), "mytubeDetail", "그림을 %s 분량으로 정리해요");
+        });
+    }
+    private MainChatPictures pictures;
+    private MainChatPictures pictures() { if (pictures == null) pictures = new MainChatPictures(activity, store); return pictures; }
+    /** The picture an answer holds, from its private copy (small), as wide as the panel; a tap shows it whole. */
+    private View picture(String id) {
+        java.io.File file = store.attachmentFile(id);
+        android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
+        android.graphics.BitmapFactory.decodeFile(file.getPath(), bounds);
+        if (bounds.outWidth <= 0) { TextView gone = ui.text("그림을 찾지 못했어요 (갤러리에서 지웠을 수 있어요).", FOOTNOTE, 450, MUTED); return gone; }
+        int sample = 1; while (bounds.outWidth / (sample * 2) >= 1200) sample *= 2;
+        android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options(); opts.inSampleSize = sample;
+        android.graphics.Bitmap b = android.graphics.BitmapFactory.decodeFile(file.getPath(), opts);
+        ImageView image = new ImageView(activity); image.setImageBitmap(b); image.setAdjustViewBounds(true); image.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        image.setBackground(ui.shape(FILL, 14)); image.setClipToOutline(true); image.setContentDescription("그린 그림, 누르면 크게 보기");
+        image.setOnClickListener(v -> {
+            android.app.Dialog dialog = new android.app.Dialog(activity, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+            ImageView whole = new ImageView(activity); whole.setImageBitmap(b); whole.setScaleType(ImageView.ScaleType.FIT_CENTER); whole.setBackgroundColor(0xff0b0b0c);
+            whole.setOnClickListener(x -> dialog.dismiss()); dialog.setContentView(whole); dialog.show();
+        });
+        Ui.pressable(image, true);
+        return image;
     }
 
     /** The suggestions, the turns and what is being made, then to the newest; the model and the button as they are now. */
     private void draw() {
         talk.removeAllViews();
         List<VideoChat.Turn> shown; synchronized (CHATS) { shown = new ArrayList<>(turns); }
+        boolean busy = busy(); Job running = video == null ? null : JOBS.get(video.id());
+        if (running != null && !running.status.isEmpty()) waiting.setText(running.status);
         if (shown.isEmpty() && !busy && error.isEmpty()) {
             TextView hint = ui.text("위에서 타임라인 요약이나 일반 요약을 누르거나, 아래에 물어보세요.", FOOTNOTE, 450, MUTED); hint.setPadding(0, ui.dp(8), 0, 0);
             talk.addView(hint);
@@ -221,7 +313,7 @@ final class VideoAskPanel {
             TextView why = ui.text(error, FOOTNOTE, 450, MUTED); why.setPadding(0, ui.dp(14), 0, 0); talk.addView(why);
         }
         scroll.post(() -> scroll.fullScroll(View.FOCUS_DOWN));
-        renderModel();
+        renderModel(); scriptLooks();
         ui.sendLooks(send, busy); send.setContentDescription(busy ? "멈추기" : "보내기");
     }
     /** The user's turn: on the right in a soft box; a summary chip with its mark, as YouTube's. */
@@ -241,14 +333,24 @@ final class VideoAskPanel {
     /** An answer: the text (its times jump the video), and its icons; the AI that gave it, quietly. */
     private View answered(VideoChat.Turn turn, boolean last) {
         LinearLayout wrap = ui.column(); wrap.setPadding(0, ui.dp(18), 0, 0);
+        for (String id : VideoChat.pictureIds(turn.shown())) { LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(-1, -2); pa.bottomMargin = ui.dp(8); wrap.addView(picture(id), pa); }
+        String pageId = VideoChat.pageId(turn.shown());
+        if (!pageId.isEmpty()) {
+            // The page it saved, one tap away (the 페이지 screen opens on it).
+            android.widget.Button open = ui.smallChip("페이지 열기", () -> {
+                if (PageStore.book(activity).page(pageId) == null) { Toast.makeText(activity, "페이지를 찾지 못했어요 (지웠을 수 있어요).", Toast.LENGTH_SHORT).show(); return; }
+                activity.startActivity(new android.content.Intent(activity, PagesActivity.class).putExtra(PagesActivity.OPEN, pageId).addFlags(android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP));
+            });
+            LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(-2, -2); pa.bottomMargin = ui.dp(6); wrap.addView(open, pa);
+        }
+        String text = VideoChat.words(turn.shown());
         TextView answer = ui.text("", BODY, 450, TEXT); answer.setLineSpacing(ui.dp(4), 1);
-        answer.setText(timed(RichText.render(turn.shown()))); answer.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
+        answer.setText(timed(RichText.render(text))); answer.setMovementMethod(android.text.method.LinkMovementMethod.getInstance());
         wrap.addView(answer, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout foot = ui.row(); foot.setGravity(Gravity.CENTER_VERTICAL);
-        String text = turn.shown();
         // Small icons: a 16dp mark in a 36dp target, quiet under the text.
         ImageView copy = ui.footIcon(R.drawable.ic_copy, "복사", () -> {
-            activity.getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("영상 답", text));
+            activity.getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("영상 답", MyTube.withoutTimes(dev.jun.gyeot.core.Markdown.plain(text))));
             Toast.makeText(activity, "복사했어요", Toast.LENGTH_SHORT).show();
         });
         copy.setPadding(ui.dp(10), ui.dp(10), ui.dp(10), ui.dp(10)); foot.addView(copy, new LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)));
@@ -260,7 +362,7 @@ final class VideoAskPanel {
     }
     /** 다시 답하기: the last answer goes and its request is asked again. */
     private void again() {
-        if (busy) return;
+        if (busy()) return;
         VideoChat.Turn asked;
         synchronized (CHATS) { if (turns.size() < 2 || turns.get(turns.size() - 1).user()) return; turns.remove(turns.size() - 1); asked = turns.remove(turns.size() - 1); }
         ask(asked);
@@ -268,77 +370,141 @@ final class VideoAskPanel {
 
     /** Asks: a summary to Gemini watching the video (else the transcript to the AI chosen here), a question to the AI chosen here. */
     private void ask(VideoChat.Turn question) {
-        if (busy || video == null) return;
-        MyTube.Video v = video; long mine = generation;
+        if (busy() || video == null) return;
+        MyTube.Video v = video; Job job = new Job(); List<VideoChat.Turn> list = turns;
         List<VideoChat.Turn> sent;
-        synchronized (CHATS) { turns.add(question); while (turns.size() > VideoChat.MOST_TURNS) turns.remove(0); while (!turns.isEmpty() && !turns.get(0).user()) turns.remove(0); sent = new ArrayList<>(turns); }
-        busy = true; halted = false; error = "";
-        waiting.setText(question.summary() ? "Gemini가 영상을 보는 중" : "생각하는 중"); draw();
-        work.execute(() -> {
+        synchronized (CHATS) { list.add(question); while (list.size() > VideoChat.MOST_TURNS) list.remove(0); while (!list.isEmpty() && !list.get(0).user()) list.remove(0); sent = new ArrayList<>(list); }
+        JOBS.put(v.id(), job); error = "";
+        android.content.Context app = activity.getApplicationContext(); String known = transcript;
+        boolean page = !question.summary() && question.sent().startsWith(PAGE);
+        boolean picture = !page && !question.summary() && (question.sent().startsWith(DRAW) || VideoChat.asksPicture(question.shown()));
+        int count = picture ? pictureCount() : 1;
+        String aspect = pictureAspect(), detail = pictureDetail();
+        // A different way to draw each time (VideoChat.look): the turn is kept, so the next picture takes the next one.
+        int turn = picture ? store.settings.getInt("mytubeLookTurn", 0) : 0;
+        if (picture) store.settings.edit().putInt("mytubeLookTurn", turn + 1).apply();
+        String look = picture ? VideoChat.look(question.sent() + " " + question.shown(), turn) : "";
+        job.status = question.summary() ? "Gemini가 영상을 보는 중" : page ? "페이지를 만드는 중" : picture ? "그릴 내용을 정리하는 중" : "생각하는 중"; waiting.setText(job.status); draw();
+        // On the app's own threads: closing the panel or leaving 마이튜브 does not end it; only 멈추기 does.
+        RUN.execute(() -> {
             String said = null, failure = null;
             String[] by = {""};
-            Runnable guard = () -> { if (halted || mine != generation || host.gone()) throw new java.util.concurrent.CancellationException("멈췄어요."); };
+            Runnable guard = () -> { if (job.halted) throw new java.util.concurrent.CancellationException("멈췄어요."); };
+            String script = known;
             String gemini; try { gemini = store.secrets.workKey(); } catch (Exception e) { gemini = ""; }
             String[] how = {""};
             try {
-                // The transcript first (kept, or read now): far fewer tokens than the video, and it carries the times.
-                if (transcript == null) {
-                    status(mine, "대본을 가져오는 중");
-                    if (!YouTubeTranscriptClient.kept(activity, v.id()))
-                        YouTubeTranscriptClient.block(activity, v.id(), () -> halted || mine != generation, step -> status(mine, step), stop);
-                    // Only a transcript really kept (from YouTube, or written down by Gemini on 대본 보기).
-                    String kept = YouTubeTranscriptClient.saved(activity, v.id());
-                    transcript = kept.length() <= TRANSCRIPT_CHARS ? kept : kept.substring(0, TRANSCRIPT_CHARS) + "\n…(대본이 길어 앞부분만)";
+                // The script first (kept, or read now): far fewer tokens than the video, and it carries the times.
+                if (script == null) {
+                    status(v, job, "대본을 가져오는 중");
+                    if (!YouTubeTranscriptClient.kept(app, v.id()))
+                        YouTubeTranscriptClient.block(app, v.id(), () -> job.halted, step -> status(v, job, step), job.stop);
+                    // Only a script really kept (from YouTube, or written down by Gemini on 대본 보기).
+                    String kept = YouTubeTranscriptClient.saved(app, v.id());
+                    script = kept.length() <= TRANSCRIPT_CHARS ? kept : kept.substring(0, TRANSCRIPT_CHARS) + "\n…(대본이 길어 앞부분만)";
                 }
                 guard.run();
-                if (question.summary()) {
+                if (page) {
+                    // The AI chosen here writes one HTML page of the video; it is kept in 페이지 (마이튜브 category), opened from the answer.
+                    status(v, job, "HTML 페이지를 만드는 중");
+                    String written = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.PAGE, VideoChat.chatInput(v, script, sent), job.stop,
+                        name -> { by[0] = name; status(v, job, name + " · 페이지를 만드는 중"); });
+                    guard.run();
+                    String html = VideoChat.html(written);
+                    if (html.isBlank()) throw new java.io.IOException("AI가 HTML 페이지를 쓰지 않았어요. 다시 해 주세요.");
+                    dev.jun.gyeot.core.PageBook.Page kept = PageStore.book(app).save("", "마이튜브", dev.jun.gyeot.core.PageBook.HTML, html, "https://www.youtube.com/watch?v=" + v.id(), "");
+                    said = "[[page:" + kept.id() + "]]\n‘" + kept.title() + "’ 페이지로 저장했어요 · 페이지 → 마이튜브에서도 볼 수 있어요.";
+                } else if (picture) {
+                    // The AI chosen here writes the pictures' prompts from the video, then GPT image draws them one by one.
+                    status(v, job, "그릴 내용을 정리하는 중");
+                    String planned = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.pictures(count, aspect, detail, look), VideoChat.chatInput(v, script, sent) + (count > 1 ? "\n\n그림 " + count + "장으로 그려 주세요." : ""), job.stop, name -> by[0] = name);
+                    guard.run();
+                    List<org.json.JSONObject> plans = new ArrayList<>();
+                    int from = planned == null ? -1 : planned.indexOf('{'), to = planned == null ? -1 : planned.lastIndexOf('}');
+                    if (from >= 0 && to > from) try {
+                        org.json.JSONObject plan = new org.json.JSONObject(planned.substring(from, to + 1));
+                        org.json.JSONArray many = plan.optJSONArray("pictures");
+                        if (many != null) { for (int k = 0; k < many.length() && plans.size() < count; k++) { org.json.JSONObject one = many.optJSONObject(k); if (one != null && !one.optString("prompt").isBlank()) plans.add(one); } }
+                        else if (!plan.optString("prompt").isBlank()) plans.add(plan);
+                    } catch (org.json.JSONException notJson) { /* the words themselves below */ }
+                    if (plans.isEmpty()) plans.add(new org.json.JSONObject().put("prompt", planned == null ? question.shown() : planned.strip()).put("aspect", aspect));
+                    // A plan that names no shape gets the one set.
+                    for (org.json.JSONObject one : plans) if (one.optString("aspect").isBlank()) one.put("aspect", aspect);
+                    StringBuilder marks = new StringBuilder(); String failed = ""; int drawn = 0;
+                    for (int k = 0; k < plans.size(); k++) {
+                        status(v, job, "GPT 이미지가 그리는 중" + (plans.size() > 1 ? " (" + (k + 1) + "/" + plans.size() + ")" : ""));
+                        try {
+                            org.json.JSONObject made = pictures().drawFor("마이튜브", "마이튜브", plans.get(k), question.shown(), "mytube-picture-" + java.util.UUID.randomUUID(), k, plans.size(), guard, job.stop);
+                            marks.append("[[picture:").append(made.optString("id")).append("]]"); drawn++;
+                        } catch (java.util.concurrent.CancellationException stopped) { if (drawn == 0) throw stopped; failed = "멈췄어요"; break; }
+                        catch (Exception e) { if (drawn == 0 && k == plans.size() - 1) throw e; failed = reason(e); }
+                    }
+                    if (drawn == 0) throw new java.io.IOException(failed.isEmpty() ? "그림을 그리지 못했어요." : failed);
+                    said = marks + "\n" + (drawn > 1 ? drawn + "장을 그렸어요" : "그림을 그렸어요") + " · 갤러리와 들퍼레/이미지에 저장했어요."
+                        + (drawn < plans.size() ? " " + (plans.size() - drawn) + "장은 못 그렸어요" + (failed.isEmpty() ? "." : ": " + failed) : "");
+                    by[0] = "GPT 이미지" + (by[0].isBlank() ? "" : " · 내용 정리 " + by[0]);
+                } else if (question.summary()) {
                     boolean timeline = VideoChat.TIMELINE.equals(question.shown());
                     String textFail = "", watchFail = "";
-                    // 1. Gemini Flash-Lite sums up the transcript.
-                    if (!transcript.isBlank() && !gemini.isBlank()) try {
-                        status(mine, "Gemini가 대본을 정리하는 중");
-                        said = GeminiAudioClient.summarize(gemini, VideoChat.transcriptSummary(timeline), MyTube.summaryInput(v, transcript), guard, stop); by[0] = "Gemini · 대본";
+                    // 1. Gemini Flash-Lite sums up the script.
+                    if (!script.isBlank() && !gemini.isBlank()) try {
+                        status(v, job, "Gemini가 대본을 정리하는 중");
+                        said = GeminiAudioClient.summarize(gemini, VideoChat.transcriptSummary(timeline), MyTube.summaryInput(v, script), guard, job.stop); by[0] = "Gemini · 대본";
                     } catch (java.util.concurrent.CancellationException stopped) { throw stopped; } catch (Exception e) { textFail = reason(e); }
-                    // 2. No transcript: Gemini watches the video itself.
-                    if ((said == null || said.isBlank()) && transcript.isBlank() && !gemini.isBlank()) try {
-                        status(mine, "Gemini가 영상을 보는 중");
-                        said = GeminiAudioClient.watchYouTube(gemini, VideoChat.watch(v, List.of(question)), guard, stop); by[0] = "Gemini · 영상";
+                    // 2. No script: Gemini watches the video itself.
+                    if ((said == null || said.isBlank()) && script.isBlank() && !gemini.isBlank()) try {
+                        status(v, job, "Gemini가 영상을 보는 중");
+                        said = GeminiAudioClient.watchYouTube(gemini, VideoChat.watch(v, List.of(question)), guard, job.stop); by[0] = "Gemini · 영상";
                     } catch (java.util.concurrent.CancellationException stopped) { throw stopped; } catch (Exception e) { watchFail = reason(e); }
-                    // 3. Gemini could not: the AI chosen here, from the transcript.
-                    if ((said == null || said.isBlank()) && !transcript.isBlank()) {
-                        status(mine, "AI가 정리하는 중");
-                        said = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.transcriptSummary(timeline), MyTube.summaryInput(v, transcript), stop, name -> by[0] = name);
+                    // 3. Gemini could not: the AI chosen here, from the script.
+                    if ((said == null || said.isBlank()) && !script.isBlank()) {
+                        status(v, job, "AI가 정리하는 중");
+                        said = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.transcriptSummary(timeline), MyTube.summaryInput(v, script), job.stop, name -> by[0] = name);
                         how[0] = "Gemini가 정리하지 못해 고른 AI가 대본으로 정리했어요" + (gemini.isBlank() ? " · Gemini API 키가 없어요" : textFail.isEmpty() ? "" : " · " + textFail);
                         store.phoneLog("마이튜브 · 영상 요약 · " + how[0]);
                     }
-                    if (said == null || said.isBlank()) throw new java.io.IOException(!transcript.isBlank() ? "요약하지 못했어요."
+                    if (said == null || said.isBlank()) throw new java.io.IOException(!script.isBlank() ? "요약하지 못했어요."
                         : gemini.isBlank() ? "대본을 가져오지 못했고, 영상을 직접 볼 Gemini API 키도 없어요."
                         : "대본을 가져오지 못했고, Gemini가 영상을 직접 보지도 못했어요" + (watchFail.isEmpty() ? "." : " · " + watchFail));
-                } else said = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.CHAT, VideoChat.chatInput(v, transcript, sent), stop,
-                    name -> { by[0] = name; status(mine, name + " 생각하는 중"); });
+                } else said = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.CHAT, VideoChat.chatInput(v, script, sent), job.stop,
+                    name -> { by[0] = name; status(v, job, name + " 생각하는 중"); });
             } catch (java.util.concurrent.CancellationException stopped) { said = null; failure = "멈췄어요."; }
             catch (Exception e) { said = null; failure = reason(e); }
-            if (halted) { said = null; failure = "멈췄어요."; }
-            String answer = said, why = failure, who = by[0];
+            if (job.halted) { said = null; failure = "멈췄어요."; }
+            String answer = said, why = failure, who = by[0], found = script;
             main.post(() -> {
-                if (mine != generation) return;
-                busy = false; stop.set(null);
+                JOBS.remove(v.id(), job);
                 synchronized (CHATS) {
-                    if (answer != null && !answer.isBlank()) turns.add(VideoChat.Turn.model(answer.strip(), who, question.summary(), how[0]));
+                    if (answer != null && !answer.isBlank()) list.add(VideoChat.Turn.model(answer.strip(), who, question.summary(), how[0]));
                     // Not answered: the question leaves the conversation and goes back into the box, to send again.
-                    else if (!turns.isEmpty() && turns.get(turns.size() - 1) == question) turns.remove(turns.size() - 1);
+                    else if (!list.isEmpty() && list.get(list.size() - 1) == question) list.remove(list.size() - 1);
                 }
-                if (answer == null || answer.isBlank()) {
-                    error = why == null ? "답하지 못했어요." : why;
-                    if (!question.summary() && input.getText().length() == 0) input.setText(question.shown());
-                }
-                if (answer != null && !answer.isBlank()) keep(v);
-                if (open) draw();
+                if (answer != null && !answer.isBlank()) keep(app, v);
+                // Whichever panel shows this video now (this one, or the one 마이튜브 made when it came back) shows the outcome.
+                boolean shown = false;
+                for (VideoAskPanel panel : live()) shown |= panel.finished(v.id(), question, answer, why, found);
+                if (!shown && answer != null && !answer.isBlank() && app != null)
+                    Toast.makeText(app, (question.summary() ? "영상 요약" : "답") + "이 끝났어요 · ‘요약’을 누르면 보여요", Toast.LENGTH_SHORT).show();
             });
         });
     }
     private static String reason(Exception e) { return e.getMessage() == null || e.getMessage().isBlank() ? "답하지 못했어요." : e.getMessage().strip(); }
-    private void status(long mine, String text) { main.post(() -> { if (mine == generation && busy) waiting.setText(text); }); }
+    /** What a job is doing now: kept on the job, shown by whichever panel shows its video. */
+    private void status(MyTube.Video v, Job job, String text) {
+        job.status = text;
+        main.post(() -> { for (VideoAskPanel panel : live()) if (panel.video != null && panel.video.id().equals(v.id()) && JOBS.get(v.id()) == job) panel.waiting.setText(text); });
+    }
+    /** A job for this panel's video ended: its answer (already in the conversation) or why not. True when this panel shows that video. */
+    private boolean finished(String id, VideoChat.Turn question, String answer, String why, String found) {
+        if (video == null || !video.id().equals(id)) return false;
+        if (found != null) transcript = found;
+        if (answer == null || answer.isBlank()) {
+            error = why == null ? "답하지 못했어요." : why;
+            if (!question.summary() && input.getText().length() == 0) input.setText(question.shown());
+        }
+        if (open) draw();
+        return open;
+    }
 
     /** Makes each time in an answer (03:12, 1:02:03) a link that jumps the video there, when it is the one playing. */
     private CharSequence timed(CharSequence rendered) {
@@ -362,33 +528,106 @@ final class VideoAskPanel {
      * 대본 보기: the kept transcript, else read now (YouTube's captions, else Gemini writes it down from the video), then shown.
      * The chip says what it is doing meanwhile.
      */
+    private Button scriptChip;
+    /** The videos whose transcript is being read now (the app's, not the panel's: it goes on when the panel or 마이튜브 closes). */
+    private static final java.util.Set<String> FETCHING = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** 대본 보기 as it is for the video shown: waiting while its transcript is being read. */
+    private void scriptLooks() {
+        if (scriptChip == null) return;
+        boolean reading = video != null && FETCHING.contains(video.id());
+        scriptChip.setEnabled(!reading); scriptChip.setText(reading ? "대본 가져오는 중…" : "대본 보기");
+    }
     private void transcriptSheet(Button chip) {
         MyTube.Video v = video; if (v == null) return;
-        if (YouTubeTranscriptClient.kept(activity, v.id())) { YouTubeTranscriptUi.show(activity, MyTube.watch(v.id())); return; }
-        if (!chip.isEnabled()) return;
-        chip.setEnabled(false); chip.setText("대본 가져오는 중…");
-        work.execute(() -> {
-            String why = null;
+        if (YouTubeTranscriptClient.kept(activity, v.id())) {
+            // Written by Gemini, while Groq Whisper could listen to the sound itself (a song, as a rule): offered once more.
+            if (YouTubeTranscriptClient.byGemini(activity, v.id()) && GroqWork.on()) {
+                Ui.Sheet sheet = ui.new Sheet("Gemini가 받아 적은 대본이에요", "노래처럼 자막이 없는 영상은 Groq Whisper가 소리를 직접 듣고 받아 적는 게 더 정확해요.");
+                sheet.primary.setText("Whisper로 다시 받아 적기");
+                sheet.primary.setOnClickListener(x -> { sheet.dismiss(); host.prepareAudio(() -> { YouTubeTranscriptClient.forget(activity, v.id()); transcript = null; fetchScript(v, true); }); });
+                LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-1, -2); at.topMargin = ui.dp(8);
+                sheet.footer.addView(ui.button("이 대본 보기", false, () -> { sheet.dismiss(); YouTubeTranscriptUi.show(activity, MyTube.watch(v.id())); }), at);
+                sheet.show();
+                return;
+            }
+            YouTubeTranscriptUi.show(activity, MyTube.watch(v.id())); return;
+        }
+        fetchScript(v, false);
+    }
+    /**
+     * Reads the transcript off the main thread: YouTube's captions, then Groq Whisper (block). When neither gives one, Whisper
+     * could not be tried and its tools could be put in, the user chooses first (도구 받기 or Gemini); else Gemini writes it
+     * down, saying why Whisper did not. whisperOnly: asked for Whisper again, so no Gemini after it.
+     */
+    private void fetchScript(MyTube.Video v, boolean whisperOnly) {
+        if (!FETCHING.add(v.id())) return;
+        scriptLooks();
+        android.content.Context app = activity.getApplicationContext();
+        RUN.execute(() -> {
+            String why = null, blocker = "";
             try {
-                String block = YouTubeTranscriptClient.block(activity, v.id(), host::gone, step -> {}, null);
-                if (!YouTubeTranscriptClient.kept(activity, v.id())) {
+                String block = YouTubeTranscriptClient.block(app, v.id(), () -> false, step -> main.post(() -> { for (VideoAskPanel panel : live()) if (panel.video != null && panel.video.id().equals(v.id()) && panel.scriptChip != null) panel.scriptChip.setText(step.contains("Whisper") ? "받아 적는 중…" : step.contains("Gemini") ? "Gemini가 받는 중…" : "자막 받는 중…"); }), null);
+                if (!YouTubeTranscriptClient.kept(app, v.id())) {
+                    blocker = YouTubeTranscriptClient.whisperBlocker(app);
+                    String tried = YouTubeTranscriptClient.whisperFailure(block);
                     String key = store.secrets.workKey();
-                    if (key.isBlank()) why = firstLine(block);
-                    else {
-                        main.post(() -> chip.setText("Gemini가 받아 적는 중…"));
-                        YouTubeTranscriptClient.writeDown(activity, v.id(), v.title(), v.channel(), key, () -> { if (host.gone()) throw new java.util.concurrent.CancellationException(); }, null);
-                    }
+                    if (whisperOnly) why = tried.isEmpty() ? (blocker.isEmpty() ? firstLine(block) : blocker) : tried;
+                    else if (!blocker.isEmpty() && GroqWork.on() && LinuxRuntime.supported(app)) { /* asked below, on the main thread */ }
+                    else if (key.isBlank()) why = firstLine(block);
+                    else YouTubeTranscriptClient.writeDown(app, v.id(), v.title(), v.channel(), key, tried.isEmpty() ? blocker : tried, () -> {}, null);
                 }
-            } catch (java.util.concurrent.CancellationException stopped) { return; }
-            catch (Exception e) { why = e.getMessage() == null || e.getMessage().isBlank() ? "대본을 가져오지 못했어요." : e.getMessage(); }
-            String reason = why;
+            } catch (Exception e) { why = e.getMessage() == null || e.getMessage().isBlank() ? "대본을 가져오지 못했어요." : e.getMessage(); }
+            String reason = why, missing = blocker;
             main.post(() -> {
-                chip.setEnabled(true); chip.setText("대본 보기");
-                if (host.gone()) return;
-                if (YouTubeTranscriptClient.kept(activity, v.id())) { if (video == v) transcript = null; YouTubeTranscriptUi.show(activity, MyTube.watch(v.id())); }
-                else Toast.makeText(activity, "대본을 가져오지 못했어요" + (reason == null || reason.isBlank() ? "" : ": " + reason), Toast.LENGTH_LONG).show();
+                FETCHING.remove(v.id());
+                boolean ask = !whisperOnly && reason == null && !YouTubeTranscriptClient.kept(app, v.id()) && !missing.isEmpty() && GroqWork.on();
+                if (ask) { boolean asked = false; for (VideoAskPanel panel : live()) asked |= panel.askTools(v, missing); if (asked) return; }
+                boolean shown = false;
+                for (VideoAskPanel panel : live()) shown |= panel.scriptDone(v, reason);
+                if (!shown) Toast.makeText(app, YouTubeTranscriptClient.kept(app, v.id()) ? "대본을 받았어요 · ‘대본 보기’를 누르면 보여요" : "대본을 가져오지 못했어요" + (reason == null || reason.isBlank() ? "" : ": " + reason), Toast.LENGTH_LONG).show();
             });
         });
+    }
+    /** No captions and Whisper cannot run yet (missing: why): 도구 받기 (then Whisper), or Gemini writes it down. True when asked here. */
+    private boolean askTools(MyTube.Video v, String missing) {
+        scriptLooks();
+        if (host.gone() || !open || video == null || !video.id().equals(v.id())) return false;
+        Ui.Sheet sheet = ui.new Sheet("이 영상은 자막이 없어요", "Groq Whisper가 소리를 듣고 받아 적으면 더 정확해요. 지금은 쓸 수 없어요: " + missing + ".");
+        sheet.primary.setText("도구 받고 Whisper로");
+        sheet.primary.setOnClickListener(x -> { sheet.dismiss(); host.prepareAudio(() -> fetchScript(v, true)); });
+        LinearLayout.LayoutParams at = new LinearLayout.LayoutParams(-1, -2); at.topMargin = ui.dp(8);
+        sheet.footer.addView(ui.button("Gemini로 받아 적기", false, () -> { sheet.dismiss(); geminiScript(v, missing); }), at);
+        sheet.show();
+        return true;
+    }
+    /** Gemini writes the transcript down from the video (the user chose it over Whisper). */
+    private void geminiScript(MyTube.Video v, String note) {
+        if (!FETCHING.add(v.id())) return;
+        scriptLooks();
+        android.content.Context app = activity.getApplicationContext();
+        RUN.execute(() -> {
+            String why = null;
+            try {
+                String key = store.secrets.workKey();
+                if (key.isBlank()) why = "Gemini API 키가 없어요.";
+                else YouTubeTranscriptClient.writeDown(app, v.id(), v.title(), v.channel(), key, note, () -> {}, null);
+            } catch (Exception e) { why = e.getMessage() == null || e.getMessage().isBlank() ? "대본을 가져오지 못했어요." : e.getMessage(); }
+            String reason = why;
+            main.post(() -> {
+                FETCHING.remove(v.id());
+                boolean shown = false;
+                for (VideoAskPanel panel : live()) shown |= panel.scriptDone(v, reason);
+                if (!shown) Toast.makeText(app, YouTubeTranscriptClient.kept(app, v.id()) ? "대본을 받았어요 · ‘대본 보기’를 누르면 보여요" : "대본을 가져오지 못했어요" + (reason == null || reason.isBlank() ? "" : ": " + reason), Toast.LENGTH_LONG).show();
+            });
+        });
+    }
+    /** A transcript read for v came back: shown here when this panel is open on v (the chip is set right either way). */
+    private boolean scriptDone(MyTube.Video v, String reason) {
+        scriptLooks();
+        if (host.gone() || !open || video == null || !video.id().equals(v.id())) return false;
+        if (YouTubeTranscriptClient.kept(activity, v.id())) { transcript = null; YouTubeTranscriptUi.show(activity, MyTube.watch(v.id())); }
+        else Toast.makeText(activity, "대본을 가져오지 못했어요" + (reason == null || reason.isBlank() ? "" : ": " + reason), Toast.LENGTH_LONG).show();
+        return true;
     }
     private static String firstLine(String text) {
         String value = text == null ? "" : text.strip(); int cut = value.indexOf('\n');
@@ -401,11 +640,7 @@ final class VideoAskPanel {
     /** The model as 작업창 shows it: its name in bold, its thinking level quiet beside it. */
     private void renderModel() {
         String[] parts = modelParts();
-        android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(parts[0]);
-        label.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, label.length(), 0);
-        if (!parts[1].isEmpty()) { int at = label.length(); label.append("  ").append(parts[1]); label.setSpan(new android.text.style.ForegroundColorSpan(MUTED), at, label.length(), 0); }
-        model.setText(label);
-        model.setContentDescription("질문에 답할 모델과 생각 깊이 바꾸기, 지금 " + parts[0] + (parts[1].isEmpty() ? "" : " " + parts[1]));
+        ModelLine.show(model, parts, "질문에 답할");
     }
     private String[] modelParts() {
         try {

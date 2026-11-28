@@ -10,8 +10,8 @@ android {
         minSdk 33
         targetSdk 35
         ndk { abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64' }
-        versionCode 459
-        versionName '0.4.434'
+        versionCode 704
+        versionName '0.4.679'
     }
     packaging { jniLibs { useLegacyPackaging = true; keepDebugSymbols += ["**/*.so"] } }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
@@ -31,6 +31,8 @@ dependencies {
     implementation 'androidx.media3:media3-common:1.5.1'
     // Profile pictures drawn as SVG (GPT Image 2.6): rendered on the phone into the square profile picture. Apache-2.0.
     implementation 'com.caverock:androidsvg-aar:1.4'
+    // 설정 → Antigravity: the Linux environment's archive (.tar.xz) unpacked on the phone. Public domain.
+    implementation 'org.tukaani:xz:1.10'
 }
 
 

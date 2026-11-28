@@ -54,6 +54,26 @@ final class ScopedModels {
         return new ScopedModels(store, "", "boardModels");
     }
     /** 마이튜브 AI's own choice: copied from the main chat's the first time, independent after. */
+    /** 페이지 → 프로젝트's own choice (the AI that makes and changes a project): copied from the main chat's the first time. */
+    static ScopedModels projects(AppStore store) {
+        synchronized (store) {
+            if (!store.settings.contains("projectModels")) {
+                JSONObject value = main(store).snapshot(); value.remove("team");
+                if (!store.settings.edit().putString("projectModels", value.toString()).commit()) throw new IllegalStateException("프로젝트 모델 설정을 저장하지 못했어요.");
+            }
+        }
+        return new ScopedModels(store, "", "projectModels");
+    }
+    /** 트레이딩's AI chart analysis (프로젝트 → 트레이딩): its own choice, copied from the main chat's the first time. */
+    static ScopedModels trading(AppStore store) {
+        synchronized (store) {
+            if (!store.settings.contains("tradingModels")) {
+                JSONObject value = main(store).snapshot(); value.remove("team");
+                if (!store.settings.edit().putString("tradingModels", value.toString()).commit()) throw new IllegalStateException("트레이딩 모델 설정을 저장하지 못했어요.");
+            }
+        }
+        return new ScopedModels(store, "", "tradingModels");
+    }
     static ScopedModels mytube(AppStore store) {
         synchronized (store) {
             if (!store.settings.contains("mytubeModels")) {
@@ -62,6 +82,19 @@ final class ScopedModels {
             }
         }
         return new ScopedModels(store, "", "mytubeModels");
+    }
+    /**
+     * 퍼레's own brain when the user picks one of the app's AIs for it (준: "퍼레두뇌 설정 메뉴에서 이 앱의 모든 ai 모델을 다 설정할
+     * 수 있게 해줘"): copied from the main chat's the first time, independent after. Used when BuddyTalk.brain is CUSTOM.
+     */
+    static ScopedModels buddy(AppStore store) {
+        synchronized (store) {
+            if (!store.settings.contains("buddyModels")) {
+                JSONObject value = main(store).snapshot(); value.remove("team");
+                if (!store.settings.edit().putString("buddyModels", value.toString()).commit()) throw new IllegalStateException("퍼레 모델 설정을 저장하지 못했어요.");
+            }
+        }
+        return new ScopedModels(store, "", "buddyModels");
     }
     /** 이 영상에 대해 물어보세요's own choice: copied from 마이튜브 AI's the first time, independent after. */
     static ScopedModels videoChat(AppStore store) {
@@ -72,6 +105,49 @@ final class ScopedModels {
             }
         }
         return new ScopedModels(store, "", "videoChatModels");
+    }
+    /** 나의학교: one teacher's own choice of the app's AIs, copied from the main chat's the first time, independent after. */
+    static ScopedModels tutor(AppStore store, String teacher) {
+        String key = "tutorModels:" + teacher;
+        synchronized (store) {
+            if (!store.settings.contains(key)) {
+                JSONObject value = main(store).snapshot();
+                if (!store.settings.edit().putString(key, value.toString()).commit()) throw new IllegalStateException("선생님 모델 설정을 저장하지 못했어요.");
+            }
+        }
+        return new ScopedModels(store, "", key);
+    }
+    /**
+     * A 연구실 researcher's own model ("labModels:<project>:<role>"). A new one starts from the main chat's choice with the
+     * engine its role suits best among those connected, so the team mixes companies (같은 회사 모델은 같은 실수를 하기 쉬워서).
+     */
+    static ScopedModels lab(AppStore store, String project, String role) {
+        String key = "labModels:" + project + ":" + role;
+        synchronized (store) {
+            if (!store.settings.contains(key)) {
+                JSONObject value = main(store).snapshot();
+                for (String engine : labPreference(role)) if (store.ready(engine)) { try { value.put("engine", engine); } catch (Exception ignored) {} break; }
+                value.remove("team");
+                if (!store.settings.edit().putString(key, value.toString()).commit()) throw new IllegalStateException("연구원 모델 설정을 저장하지 못했어요.");
+            }
+        }
+        return new ScopedModels(store, "", key);
+    }
+    static java.util.List<String> labPreference(String role) {
+        return switch (role == null ? "" : role) {
+            case "pi" -> java.util.List.of(WorkBook.CLAUDE, WorkBook.CHATGPT, WorkBook.GEMINI, WorkBook.ANTIGRAVITY, WorkBook.GROK, WorkBook.NIM, WorkBook.GROQ);
+            case "scout" -> java.util.List.of(WorkBook.GEMINI, WorkBook.GROK, WorkBook.CHATGPT, WorkBook.ANTIGRAVITY, WorkBook.CLAUDE, WorkBook.GROQ, WorkBook.NIM);
+            case "theorist" -> java.util.List.of(WorkBook.CHATGPT, WorkBook.ANTIGRAVITY, WorkBook.CLAUDE, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.GROQ);
+            case "experimenter" -> java.util.List.of(WorkBook.CLAUDE, WorkBook.CHATGPT, WorkBook.ANTIGRAVITY, WorkBook.GEMINI, WorkBook.GROK, WorkBook.NIM, WorkBook.GROQ);
+            case "critic" -> java.util.List.of(WorkBook.GROK, WorkBook.GEMINI, WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.ANTIGRAVITY, WorkBook.NIM, WorkBook.GROQ);
+            default -> java.util.List.of(WorkBook.GROQ, WorkBook.GEMINI, WorkBook.NIM, WorkBook.CHATGPT, WorkBook.CLAUDE, WorkBook.GROK, WorkBook.ANTIGRAVITY);
+        };
+    }
+    /** A project's researchers' models are forgotten with it. */
+    static void forgetLab(AppStore store, String project) {
+        android.content.SharedPreferences.Editor edit = store.settings.edit();
+        for (dev.jun.gyeot.core.LabBook.Role r : dev.jun.gyeot.core.LabBook.ROLES) edit.remove("labModels:" + project + ":" + r.id());
+        edit.apply();
     }
     static JSONObject copy(JSONObject value) { try { return new JSONObject(value.toString()); } catch (Exception e) { throw new IllegalStateException(e); } }
     static JSONObject saved(AppStore store, String key) {
@@ -97,7 +173,7 @@ final class ScopedModels {
     }
     private static String rawEffort(AppStore s, String e, String m) {
         return switch (e) { case WorkBook.CLAUDE -> s.claude.effort(m); case WorkBook.GEMINI -> s.gemini.effort(m);
-            case WorkBook.GROK -> s.grok.effort(m); case WorkBook.NIM -> s.nim.effort(m); default -> s.openai.reasoningEffort(m); };
+            case WorkBook.GROK -> s.grok.effort(m); case WorkBook.NIM -> s.nim.effort(m); case WorkBook.ANTIGRAVITY -> s.antigravity.effort(m); case WorkBook.GROQ -> s.groqModels.effort(m); default -> s.openai.reasoningEffort(m); };
     }
     /** One-time snapshot, not a reconstruction of historical per-room choices which were never stored. */
     static void initialize(AppStore store) {
@@ -188,7 +264,13 @@ final class ScopedModels {
     String engine() { if (store.scopedModelsUnavailable) return ""; return snapshot().optString("engine"); }
     String readyEngine() { String e = engine(); return store.ready(e) ? e : ""; }
     /** This scope's saved model for engine, a replaced one read as its successor (core/ModelIds). */
-    String model(String engine) { if (store.scopedModelsUnavailable) return ""; JSONObject m = snapshot().optJSONObject("models"); return m == null ? "" : ModelIds.current(engine, m.optString(engine)); }
+    /** The model chosen here for engine; one this selection has none for (an AI added after it was made) is the AI's own default. */
+    String model(String engine) {
+        if (store.scopedModelsUnavailable) return "";
+        JSONObject m = snapshot().optJSONObject("models"); String saved = m == null ? "" : ModelIds.current(engine, m.optString(engine));
+        if (!saved.isBlank() || engine == null || engine.isBlank()) return saved;
+        try { return ModelIds.current(engine, new TeamRoster(store).selected(engine)); } catch (Exception unavailable) { return ""; }
+    }
     String effort(String engine, String model) { if (store.scopedModelsUnavailable) return ""; JSONObject e = snapshot().optJSONObject("efforts"); return new TeamRoster(store).profile(engine, model).normalize(e == null ? "" : e.optString(engine + ":" + model)); }
     String speed(String model) {
         JSONObject saved = snapshot(); JSONObject speeds = saved.optJSONObject("speeds");

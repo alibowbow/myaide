@@ -62,6 +62,20 @@ public final class DeviceActions {
         PANELS.put("display", new String[]{"디스플레이", "", "android.settings.DISPLAY_SETTINGS"});
         PANELS.put("location", new String[]{"위치", "", "android.settings.LOCATION_SOURCE_SETTINGS"});
         PANELS.put("battery", new String[]{"절전 모드", "", "android.settings.BATTERY_SAVER_SETTINGS"});
+        // More screens the user changes themselves (퍼레's settings tool, 2026-11-26); after the first, the next ones are tried in order.
+        PANELS.put("dnd", new String[]{"방해 금지", "", "android.settings.ZEN_MODE_PRIORITY_SETTINGS", "android.settings.SOUND_SETTINGS"});
+        PANELS.put("sound", new String[]{"소리", "", "android.settings.SOUND_SETTINGS"});
+        PANELS.put("notifications", new String[]{"알림", "", "android.settings.ALL_APPS_NOTIFICATION_SETTINGS"});
+        PANELS.put("timeout", new String[]{"화면 꺼짐 시간(디스플레이)", "", "android.settings.DISPLAY_SETTINGS"});
+        PANELS.put("night", new String[]{"블루라이트(야간 모드)", "", "android.settings.NIGHT_DISPLAY_SETTINGS", "android.settings.DISPLAY_SETTINGS"});
+        PANELS.put("rotate", new String[]{"자동 회전", "", "android.settings.AUTO_ROTATE_SETTINGS", "android.settings.DISPLAY_SETTINGS"});
+        PANELS.put("apps", new String[]{"애플리케이션", "", "android.settings.MANAGE_APPLICATIONS_SETTINGS"});
+        PANELS.put("data", new String[]{"데이터 사용", "", "android.settings.DATA_USAGE_SETTINGS", "android.settings.WIRELESS_SETTINGS"});
+        PANELS.put("airplane", new String[]{"비행기 모드", "", "android.settings.AIRPLANE_MODE_SETTINGS", "android.settings.WIRELESS_SETTINGS"});
+        PANELS.put("cast", new String[]{"화면 공유(캐스트)", "", "android.settings.CAST_SETTINGS"});
+        PANELS.put("date", new String[]{"날짜와 시간", "", "android.settings.DATE_SETTINGS"});
+        PANELS.put("language", new String[]{"언어", "", "android.settings.LOCALE_SETTINGS"});
+        PANELS.put("keyboard", new String[]{"키보드", "", "android.settings.INPUT_METHOD_SETTINGS"});
     }
     public static final Set<String> PANEL_NAMES = Collections.unmodifiableSet(PANELS.keySet());
     /** Added to the phone-control instructions: these tools come before screen automation whenever they fit. */
@@ -231,7 +245,7 @@ public final class DeviceActions {
         if (panel == null) throw new IllegalArgumentException("열 수 있는 설정 화면은 " + String.join(", ", PANEL_NAMES) + "예요.");
         List<Launch> launches = new ArrayList<>();
         if (!panel[1].isEmpty()) launches.add(new Launch(panel[1], "", "설정", "panel", Map.of()));
-        launches.add(new Launch(panel[2], "", "설정", "settings", Map.of()));
+        for (int i = 2; i < panel.length; i++) launches.add(new Launch(panel[i], "", "설정", "settings", Map.of()));
         launches.add(new Launch(SETTINGS_HOME, "", "설정", "settings_home", Map.of()));
         return new Action(SETTINGS, panel[0], launches, false, false, false, 0);
     }
@@ -334,6 +348,97 @@ public final class DeviceActions {
         if (raw.isEmpty() || raw.endsWith("?") || raw.endsWith("？")) return false;
         String text = raw.toLowerCase(Locale.ROOT).replaceAll("[\\s\\p{Punct}·…~。，！]+", "");
         return !text.isEmpty() && text.length() <= 20 && YES.matcher(text).matches();
+    }
+
+    // ── what the user said themselves (준: "퍼레의 판단력 … 강화해줘"): only a guessed alarm or timer waits for a yes ──
+    /** A number before its unit, as written (7시, 90초) or said (일곱 시, 삼십 분, 한 시간 반); 시·간·분 may stand right before one. */
+    private static final String NATIVE = "열두|열한|열|아홉|여덟|일곱|여섯|다섯|네|세|두|한", SINO = "(?:[일이삼사오육칠팔구]?백)?(?:[일이삼사오육칠팔구]?십)?[일이삼사오육칠팔구]?";
+    private static final Pattern AMOUNT = Pattern.compile("(?:(?<!\\d)(\\d{1,4})|(?<![가-힣&&[^시간분]])(" + NATIVE + "|" + SINO + "))\\s*(시간|시|분|초)(\\s*반(?![가-힣&&[^에으]]))?");
+    private static final Pattern CLOCK = Pattern.compile("(?<!\\d)(\\d{1,2}):(\\d{2})(?!\\d)");
+    /** From now, not a time of day (10분 뒤에, 한 시간 후에, 7시 10분 전): the alarm's hour was worked out, not said. */
+    private static final Pattern RELATIVE = Pattern.compile("(분|시간)\\s*(뒤|후|있다가|이따|전)");
+    private static final Pattern MORNING = Pattern.compile("오전|아침|새벽"), AFTERNOON = Pattern.compile("오후|저녁"), NIGHT = Pattern.compile("밤"), DAYTIME = Pattern.compile("낮(?!춰)|점심");
+    private static final Pattern HALF_DAY = Pattern.compile("오전|오후|아침|저녁|밤|새벽|낮(?!춰)|점심|정오|자정"), DAY_WORDS = Pattern.compile("매일|평일|주말|마다|요일|매주");
+    /** What heard says: the hour of day (−1 none, −2 two of them), its minute (−1 none, −2 two), a length in seconds (0 none, −1 two of one unit). */
+    private record Said(int hour, int minute, int length, boolean relative) {}
+    private static Said said(String heard) {
+        String text = heard == null ? "" : heard.replaceAll("[,.!?~…·]", " ");
+        int[] hour = {-1}, minute = {-1}, hours = {-1}, minutes = {-1}, seconds = {-1}; int halves = 0;
+        // A unit said twice with two values (7시 말고 8시): −2, nothing to go by.
+        java.util.function.BiConsumer<int[], Integer> put = (slot, v) -> { if (slot[0] == -1) slot[0] = v; else if (slot[0] != v) slot[0] = -2; };
+        java.util.regex.Matcher c = CLOCK.matcher(text);
+        while (c.find()) { put.accept(hour, Integer.parseInt(c.group(1))); put.accept(minute, Integer.parseInt(c.group(2))); }
+        if (text.contains("정오")) { put.accept(hour, 12); put.accept(minute, 0); }
+        if (text.contains("자정")) { put.accept(hour, 0); put.accept(minute, 0); }
+        java.util.regex.Matcher m = AMOUNT.matcher(text);
+        while (m.find()) {
+            String n = m.group(1) != null ? m.group(1) : m.group(2);
+            if (n == null || n.isEmpty()) continue;
+            int v = number(n); boolean half = m.group(4) != null;
+            switch (m.group(3)) {
+                case "시" -> { put.accept(hour, v); if (half) put.accept(minute, 30); }
+                case "시간" -> { put.accept(hours, v); if (half) halves += 1800; }
+                case "분" -> { put.accept(minute, v); put.accept(minutes, v); if (half) halves += 30; }
+                default -> put.accept(seconds, v);
+            }
+        }
+        int length = Math.max(0, hours[0]) * 3600 + Math.max(0, minutes[0]) * 60 + Math.max(0, seconds[0]) + halves;
+        boolean lengthTwice = hours[0] == -2 || minutes[0] == -2 || seconds[0] == -2;
+        return new Said(hour[0], minute[0], lengthTwice ? -1 : length, RELATIVE.matcher(text).find());
+    }
+    private static int number(String n) {
+        if (n.chars().allMatch(Character::isDigit)) return Integer.parseInt(n);
+        int at = List.of("한", "두", "세", "네", "다섯", "여섯", "일곱", "여덟", "아홉", "열", "열한", "열두").indexOf(n);
+        if (at >= 0) return at + 1;
+        int total = 0, digit = 0;
+        for (char ch : n.toCharArray()) {
+            int d = "일이삼사오육칠팔구".indexOf(ch) + 1;
+            if (d > 0) digit = d;
+            else { total += (digit == 0 ? 1 : digit) * (ch == '백' ? 100 : 10); digit = 0; }
+        }
+        return total + digit;
+    }
+    /**
+     * Whether heard says these values itself, so nothing was guessed: a timer's whole length (3분, 1시간 반, 90초), or an
+     * alarm's hour (in either half of the day, unless a word for the half is said: then it must agree) and minute (none
+     * said: 0), one time only, from no "N분 뒤", and for repeat days a word for them. tool: alarm or timer (or their
+     * DeviceActions names); args: the call's.
+     */
+    public static boolean stated(String tool, JSONObject args, String heard) {
+        if (args == null || heard == null || heard.isBlank()) return false;
+        String t = tool == null ? "" : tool.strip().toLowerCase(Locale.ROOT);
+        Said s = said(heard);
+        if (t.equals("timer") || t.equals(TIMER)) {
+            double want = args.optDouble("seconds", Double.NaN);
+            return !Double.isNaN(want) && s.length() > 0 && Math.round(want) == s.length();
+        }
+        if (!(t.equals("alarm") || t.equals(ALARM)) || !args.has("hour") || s.hour() < 0 || s.minute() == -2 || s.relative()) return false;
+        int hour = args.optInt("hour", -1), minute = args.optInt("minute", 0);
+        if (hour < 0 || hour > 23) return false;
+        // 15시, 0시: that hour; 3시, 12시: either half of the day.
+        if (s.hour() >= 13 || s.hour() == 0) { if (s.hour() % 24 != hour) return false; }
+        else if (s.hour() % 12 != hour % 12) return false;
+        if (minute != Math.max(0, s.minute())) return false;
+        if (MORNING.matcher(heard).find() && hour >= 12 || AFTERNOON.matcher(heard).find() && hour < 12
+            || NIGHT.matcher(heard).find() && hour < 18 && hour >= 5 || DAYTIME.matcher(heard).find() && (hour < 10 || hour > 16)
+            || wakes(heard, s.hour()) && hour >= 12) return false;
+        Object days = args.opt("days");
+        boolean repeats = days instanceof JSONArray list ? list.length() > 0 : days != null && days != JSONObject.NULL && !String.valueOf(days).isBlank();
+        return !repeats || DAY_WORDS.matcher(heard).find();
+    }
+    /** "7시에 깨워 줘": waking at 4 to 11 is the morning; at 12 to 3 it may be a nap, so it says nothing of the half of the day. */
+    private static boolean wakes(String heard, int said) { return heard.contains("깨워") && said >= 4 && said <= 11; }
+    /**
+     * Whether heard leaves the half of the day open (준: an alarm said as "7시" may be 7 or 19): an hour of 1 to 12 with no
+     * 오전·오후·아침·저녁·밤·새벽·낮·점심 and no waking at 4 to 11, and no hour of 13 or more. hour: the alarm's (used when
+     * heard says none).
+     */
+    public static boolean halfDayUnsaid(int hour, String heard) {
+        if (heard == null || heard.isBlank()) return true;
+        Said s = said(heard);
+        if (s.hour() >= 13 || s.hour() == 0 || HALF_DAY.matcher(heard).find()) return false;
+        int said = s.hour() > 0 ? s.hour() : hour % 12 == 0 ? 12 : hour % 12;
+        return !wakes(heard, said);
     }
 
     /** The next time the clock app rings for this hour:minute (and these Calendar days), as it computes it. */

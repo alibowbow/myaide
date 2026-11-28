@@ -31,16 +31,16 @@ final class BrowserPopup {
     static void prepare(Ui ui,Ui.Sheet sheet,boolean applyAction) {
         sheet.dragHandle.setVisibility(View.GONE);
         GradientDrawable surface=ui.shape(CARD,18);surface.setStroke(Math.max(1,ui.dp(.6f)),SEPARATOR);sheet.panel.setBackground(surface);
-        sheet.header.setPadding(ui.dp(16),ui.dp(6),ui.dp(8),ui.dp(6));sheet.header.setOnTouchListener(null);
-        sheet.heading.setTextSize(18);sheet.heading.setTypeface(weight(650));sheet.heading.setMaxLines(2);sheet.heading.setEllipsize(TextUtils.TruncateAt.END);
+        sheet.header.setPadding(ui.dp(14),ui.dp(4),ui.dp(4),ui.dp(2));sheet.header.setOnTouchListener(null);
+        sheet.heading.setTextSize(16);sheet.heading.setTypeface(weight(650));sheet.heading.setMaxLines(2);sheet.heading.setEllipsize(TextUtils.TruncateAt.END);
         sheet.heading.setContentDescription(sheet.heading.getText());
-        if(sheet.subheading!=null) {sheet.subheading.setTextSize(12);sheet.subheading.setMaxLines(2);sheet.subheading.setEllipsize(TextUtils.TruncateAt.END);}
+        if(sheet.subheading!=null) {sheet.subheading.setTextSize(11.5f);sheet.subheading.setMaxLines(2);sheet.subheading.setEllipsize(TextUtils.TruncateAt.END);}
         sheet.closeButton.setBackgroundColor(Color.TRANSPARENT);sheet.closeButton.setImageTintList(ColorStateList.valueOf(TEXT));
-        sheet.closeButton.setPadding(ui.dp(14),ui.dp(14),ui.dp(14),ui.dp(14));sheet.closeButton.setContentDescription(sheet.heading.getText()+" 닫기");
-        sheet.controls.setPadding(ui.dp(12),0,ui.dp(12),ui.dp(8));sheet.body.setPadding(ui.dp(8),0,ui.dp(8),ui.dp(8));
-        sheet.footer.setPadding(ui.dp(12),ui.dp(8),ui.dp(12),ui.dp(12));
+        sheet.closeButton.setPadding(ui.dp(10),ui.dp(10),ui.dp(10),ui.dp(10));sheet.closeButton.setContentDescription(sheet.heading.getText()+" 닫기");
+        sheet.controls.setPadding(ui.dp(10),0,ui.dp(10),ui.dp(6));sheet.body.setPadding(ui.dp(6),0,ui.dp(6),ui.dp(6));
+        sheet.footer.setPadding(ui.dp(10),ui.dp(6),ui.dp(10),ui.dp(10));
         sheet.footer.setVisibility(applyAction?View.VISIBLE:View.GONE);
-        sheet.primary.setTextSize(15);sheet.primary.setMinimumHeight(ui.dp(48));sheet.primary.setBackground(ui.shape(ACCENT,12));
+        sheet.primary.setTextSize(14.5f);sheet.primary.setMinHeight(ui.dp(42));sheet.primary.setMinimumHeight(ui.dp(42));sheet.primary.setBackground(ui.shape(ACCENT,12));
         if(applyAction)sheet.scrollControlsWithBody();
         styleControls(ui,sheet.controls);styleTree(ui,sheet.body);
         sheet.body.setOnHierarchyChangeListener(new ViewGroup.OnHierarchyChangeListener() {
@@ -51,10 +51,10 @@ final class BrowserPopup {
     private static void styleTree(Ui ui,View view) {
         Ui.RowParts parts=view instanceof Ui.ListRow row?row.parts:null;
         if(parts!=null) {
-            view.setMinimumHeight(ui.dp(48));view.setPadding(ui.dp(12),ui.dp(10),ui.dp(12),ui.dp(10));
+            view.setMinimumHeight(ui.dp(42));view.setPadding(ui.dp(12),ui.dp(7),ui.dp(10),ui.dp(7));
             view.setBackground(ui.shape(view.isSelected()?ACCENT_SOFT:Color.TRANSPARENT,10));
-            parts.title().setTextSize(15);parts.title().setTypeface(weight(view.isSelected()?600:450));
-            if(parts.subtitle()!=null){parts.subtitle().setTextSize(12);parts.subtitle().setSingleLine(false);parts.subtitle().setMaxLines(2);parts.subtitle().setEllipsize(TextUtils.TruncateAt.END);}
+            parts.title().setTextSize(14.5f);parts.title().setTypeface(weight(view.isSelected()?600:450));
+            if(parts.subtitle()!=null){parts.subtitle().setTextSize(11.5f);parts.subtitle().setSingleLine(false);parts.subtitle().setMaxLines(2);parts.subtitle().setEllipsize(TextUtils.TruncateAt.END);}
             if(parts.tile()!=null) {
                 parts.tile().setBackgroundColor(Color.TRANSPARENT);
                 LinearLayout.LayoutParams lp=(LinearLayout.LayoutParams)parts.tile().getLayoutParams();lp.width=lp.height=ui.dp(20);lp.rightMargin=ui.dp(12);parts.tile().setLayoutParams(lp);
@@ -132,14 +132,15 @@ final class BrowserPopup {
         available.inset(bars.left,bars.top,bars.right,bars.bottom);
         boolean keyboard=metrics.getWindowInsets().isVisible(WindowInsets.Type.ime());
         Rect target=new Rect();boolean attached=anchor!=null&&anchor.isAttachedToWindow()&&anchor.getGlobalVisibleRect(target);
-        boolean anchored=attached&&anchor.getResources().getConfiguration().screenWidthDp>=680&&!keyboard&&anchor.getResources().getConfiguration().fontScale<1.6f;
+        // At its button on a phone too, as Chrome's menu drops from its ⋯ (준: "팝업메뉴는 쓸데없이 큼직하고 컴팩트하지도 않아");
+        // across the bottom only while typing (the keyboard) or with very large text.
+        boolean anchored=attached&&!keyboard&&anchor.getResources().getConfiguration().fontScale<1.6f;
         boolean mobile=available.width()<ui.dp(680);
-        int gap=ui.dp(mobile?12:8);
-        // Narrow multi-window/mobile menus leave the page visible. Only the body scrolls;
-        // the fixed 48dp close/action controls remain reachable, including enlarged text.
-        int width=mobile?Math.min(ui.dp(360),Math.round(available.width()*.88f))
-                :Math.min(ui.dp(anchored?(applyAction?440:360):520),available.width()-gap*2);
-        int heightLimit=mobile?Math.min(ui.dp(560),Math.round(available.height()*.70f)):available.height()-gap*2;
+        int gap=ui.dp(mobile?8:8);
+        // Only the body scrolls; the close/action controls remain reachable, including enlarged text.
+        int width=mobile?(anchored?Math.min(ui.dp(applyAction?340:296),Math.round(available.width()*.94f)):Math.min(ui.dp(360),Math.round(available.width()*.92f)))
+                :Math.min(ui.dp(anchored?(applyAction?400:320):480),available.width()-gap*2);
+        int heightLimit=mobile?Math.min(ui.dp(600),Math.round(available.height()*(anchored?.80f:.70f))):available.height()-gap*2;
         Rect bounds=measureBounds(sheet,available,target,width,anchored,gap,heightLimit);
         WindowManager.LayoutParams p=window.getAttributes();
         int gravity=Gravity.TOP|Gravity.LEFT;

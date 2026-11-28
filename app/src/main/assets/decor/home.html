@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>퍼레 홈</title>
+<!--
+  퍼레 홈 (화면 꾸미기's home-screen board). 준: "자비스 같이", "사이버틱하게 디자인 하지 말기", "닌텐도나 애플 like 디자인으로".
+  So: no neon, grids or scan lines. Soft daylight colors that follow the hour, frosted rounded cards like phone widgets,
+  a friend who hops when touched. It keeps to the top half: the rest is the home screen's own icons. Each launcher page has its slot (the
+  photo, this board, or a web piece) and the slots slide with the pages. 퍼레 is still called with the edge handle.
+  The app sets window.GYEOT (the slots) where the marker below is, and calls board.at(page) and board.data({...}).
+-->
+<link rel="stylesheet" href="/board.css">
+<style>
+#track{position:absolute;inset:0;will-change:transform}
+.slot{position:absolute;top:0;width:100vw;height:100%;overflow:hidden}
+.slot iframe{border:0;width:100%;height:100%;display:block;background:#101010}
+.photo{position:absolute;inset:0;background:linear-gradient(160deg,#ffe3d3,#dcefff) center/cover no-repeat}
+.photo .hint{position:absolute;left:24px;right:24px;top:44%;text-align:center;color:#5b5b66;font-size:15px;line-height:1.5}
+</style>
+</head>
+<body>
+<div id="track"></div>
+<script>/*GYEOT*/</script>
+<script src="/talk.js"></script>
+<script src="/board.js"></script>
+<script>
+"use strict";
+const track = document.getElementById("track");
+let pos = G.start || 0;
+const frames = [];
+
+/* ── slots ────────────────────────────────────────────────── */
+function build() { G.slots.forEach((slot, i) => {
+  const el = document.createElement("div"); el.className = "slot"; el.style.left = (i * 100) + "vw"; track.appendChild(el);
+  if (slot.src === "photo") {
+    const p = document.createElement("div"); p.className = "photo";
+    if (G.photo) p.style.backgroundImage = "url(/photo.jpg?v=" + encodeURIComponent(G.photoAt || 0) + ")";
+    else p.innerHTML = '<div class="hint">들퍼레 → 화면 꾸미기에서<br>이 페이지에 깔 사진을 골라 주세요</div>';
+    el.appendChild(p);
+  } else if (slot.src === "home") {
+    makeBoard(el);
+  } else {
+    const f = document.createElement("iframe");
+    f.setAttribute("sandbox", "allow-scripts allow-same-origin allow-pointer-lock");
+    f.setAttribute("allow", "autoplay; accelerometer; gyroscope");
+    f.setAttribute("title", slot.title || "");
+    el.appendChild(f);
+    // (the LP piece from the app's own address: slot.frame, PieceExtras.frameUrl)
+    const fr = {i, f, src: slot.src.startsWith("page:") ? "https://pages.gyeot.local/" + encodeURIComponent(slot.src.slice(5)) : typeof slot.frame === "string" && slot.frame.startsWith("https://") ? slot.frame : slot.src, on: false, far: 0, shown: null};
+    // Under the phone's own home screen: the status bar above, its dock and the system bar below (the LP page's list bar
+    // sits above them); and whether it is in sight (this board slides its pages, so the browser does not know a page next
+    // to the one shown is out of sight: the LP page's 3D deck waits until it is).
+    f.addEventListener("load", () => { try { if (f.src.startsWith("https://")) f.contentWindow.postMessage({gyeot: "insets", top: 28, bottom: 24 + 120}, new URL(f.src).origin); } catch (e) {} fr.shown = null; tellShown(fr); });
+    frames.push(fr);
+  }
+}); }
+
+/** {gyeot: "shown", on} to a page's frame when it comes into sight or leaves it (to its own origin only). */
+function tellShown(fr) {
+  const on = fr.on && Math.abs(fr.i - pos) < 0.999;
+  if (on === fr.shown) return;
+  fr.shown = on;
+  try { if (fr.f.src.startsWith("https://")) fr.f.contentWindow.postMessage({gyeot: "shown", on}, new URL(fr.f.src).origin); } catch (e) {}
+}
+
+/* ── the app's calls ──────────────────────────────────────── */
+window.board = {
+  /** The launcher page (fractional mid-swipe): the slots slide with it. */
+  at(page) {
+    const last = Math.max(0, G.slots.length - 1);
+    pos = Math.max(0, Math.min(last, +page || 0));
+    track.style.transform = "translate3d(" + (-pos * 100) + "vw,0,0)";
+    // A piece starts when its page comes near and stops when it is far (only what is seen keeps running).
+    for (const fr of frames) {
+      const d = Math.abs(fr.i - pos);
+      if (d < 1.02 && !fr.on) { fr.on = true; fr.f.src = fr.src; }
+      // (a page playing music stays, though far: 준 "Lp가 다른창 열면 재생이 끊겨")
+      if (d >= 2 && fr.on && !fr.playing) { fr.on = false; fr.f.src = "about:blank"; }
+      tellShown(fr);
+    }
+  },
+  data(k) { setBoardData(k); },
+  /** The LP page's media notification (or the audio focus) asks it to play, pause or stop. */
+  lp(cmd) { for (const fr of frames) try { if (fr.on && new URL(fr.f.src).origin === "https://lp.gyeot.local") fr.f.contentWindow.postMessage({gyeot: "lp", cmd: String(cmd)}, "https://lp.gyeot.local"); } catch (e) {} return true; }
+};
+// The LP page says when it plays: 퍼레 hears music at once (준: "퍼레가 lp에서 노래 나오는 걸 인식못하네"), and its page is not let go.
+addEventListener("message", e => {
+  if (e.origin !== "https://lp.gyeot.local" || !e.data || e.data.gyeot !== "playing") return;
+  for (const fr of frames) if (fr.f.contentWindow === e.source) fr.playing = !!e.data.on;
+  boardPlaying(frames.some(fr => fr.playing));
+  if (!frames.some(fr => fr.playing)) board.at(pos);
+});
+build();
+board.at(pos);
+addEventListener("resize", () => boards.forEach(fit));
+</script>
+</body>
+</html>

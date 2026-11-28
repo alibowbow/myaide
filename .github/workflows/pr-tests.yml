@@ -1,8 +1,11 @@
 name: PR verification
 
+# Not on every push to a draft (GitHub minutes: 준, "한 달 2000분에 맞춰야지"): when a pull request is opened ready or marked
+# ready for review, and by hand.
 on:
   pull_request:
     branches: [main, master]
+    types: [opened, ready_for_review]
   workflow_dispatch:
 
 permissions:

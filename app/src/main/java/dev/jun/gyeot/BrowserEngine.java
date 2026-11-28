@@ -38,6 +38,8 @@ final class BrowserEngine {
         }
     }
     static boolean busy() { BrowserEngine e = instance; return e != null && e.anyRunning(); }
+    /** A browser task runs now in the app's browser (RunningWork); never makes the browser. */
+    static boolean anyTaskRunning() { BrowserEngine e = instance; return e != null && e.anyRunning(); }
     static BrowserEngine get(Context context) {
         if (Looper.myLooper() != Looper.getMainLooper()) throw new IllegalStateException("Browser must run on the main thread");
         if (instance == null) instance = new BrowserEngine(context.getApplicationContext());
@@ -61,16 +63,20 @@ final class BrowserEngine {
         BrowserEngine engine = new BrowserEngine(context.getApplicationContext(), true, workScope);
         engine.current.url = BrowserTools.url(url); return engine;
     }
-    /** Native recovery UI only; page/model claims never call this API. */
-    static void pendingWorkMutation(Context context, Consumer<JSONObject> callback) {
+    /** Native recovery UI only; page/model claims never call this API. The newest Work job's unconfirmed step. */
+    static void pendingWorkMutation(Context context, Consumer<JSONObject> callback) { pendingWorkMutation(context, "", callback); }
+    /** The unconfirmed step of this receipt (a notification's), else the newest; "more" tells how many other jobs have one. */
+    static void pendingWorkMutation(Context context, String receipt, Consumer<JSONObject> callback) {
         AppStore store = ((GyeotApp) context.getApplicationContext()).store();
         Handler main = new Handler(Looper.getMainLooper());
         WORK_STORAGE_IO.execute(() -> {
             JSONObject result;
             try {
-                JSONObject pending = readWorkPending(store);
-                result = pending == null ? obj("ok", true, "pending", false) : pending;
-                put(result, "ok", true); put(result, "pending", pending != null);
+                dev.jun.gyeot.core.WorkFence fence = readWorkFence(store);
+                JSONObject pending = receipt == null || receipt.isBlank() ? null : fence.receipt(receipt);
+                if (pending == null) pending = fence.newest();
+                result = pending == null ? obj("ok", true, "pending", false) : new JSONObject(pending.toString());
+                put(result, "ok", true); put(result, "pending", pending != null); put(result, "more", Math.max(0, fence.rows().size() - 1));
                 if (pending != null) put(result, "active", activeWorkReceipts.contains(pending.optString("receipt_id")));
             } catch (Exception failure) { result = obj("ok", false, "pending", true, "error_code", "work_recovery_unreadable"); }
             final JSONObject value = result; main.post(() -> callback.accept(value));
@@ -83,14 +89,17 @@ final class BrowserEngine {
         WORK_STORAGE_IO.execute(() -> {
             boolean cleared = false; String scope = "";
             try {
-                JSONObject pending = readWorkPending(store);
-                if (pending != null && pending.optString("receipt_id").equals(receiptId) && !activeWorkReceipts.contains(receiptId)) {
+                dev.jun.gyeot.core.WorkFence fence = readWorkFence(store);
+                JSONObject pending = fence.receipt(receiptId);
+                if (pending != null && !activeWorkReceipts.contains(receiptId)) {
                     scope = pending.getString("job_id");
                     BrowserTaskContext task = readWorkTask(store, scope);
                     if (task.confirmMutationInspected(receiptId)
                             || task.lastMutationId().equals(receiptId) && !task.mutationUnresolved()) {
                         store.secrets.put(workTaskKey(scope), task.snapshot());
-                        store.secrets.put(WORK_PENDING_KEY, ""); cleared = true;
+                        // Only this job's fence: the other jobs' stay as they are.
+                        fence.removeReceipt(receiptId);
+                        store.secrets.put(WORK_PENDING_KEY, fence.save()); cleared = true;
                     }
                 }
             } catch (Exception failure) { /* Preserve the guard unless every required write succeeded. */ }
@@ -109,11 +118,15 @@ final class BrowserEngine {
             });
         });
     }
-    private static JSONObject readWorkPending(AppStore store) throws Exception {
+    /** Every Work job's fence (core/WorkFence), each row checked; an unreadable or invalid one fails closed (no dispatch). */
+    private static dev.jun.gyeot.core.WorkFence readWorkFence(AppStore store) throws Exception {
         String saved = store.secrets.get(WORK_PENDING_KEY);
         if (saved == null) throw new IllegalStateException("Unreadable Work recovery record");
-        if (saved.isBlank()) return null;
-        JSONObject row = new JSONObject(saved);
+        dev.jun.gyeot.core.WorkFence fence = dev.jun.gyeot.core.WorkFence.read(saved);
+        for (JSONObject row : fence.rows()) checkWorkRow(row);
+        return fence;
+    }
+    private static void checkWorkRow(JSONObject row) throws Exception {
         if (row.optInt("version") != 1 || !validIdentity(row.optString("receipt_id"))
                 || !row.optString("job_id").matches("[A-Za-z0-9_.:-]{1,160}")
                 || !(row.opt("request") instanceof String) || row.getString("request").length() > BrowserPrompts.REQUEST_LIMIT
@@ -121,7 +134,6 @@ final class BrowserEngine {
                 || !row.optString("reason").matches("[a-z][a-z0-9_]{0,79}")
                 || !Set.of("click", "type", "select", "press", "vault_fill").contains(row.optString("action"))
                 || !row.optString("state").equals("awaiting_acknowledgement")) throw new IllegalArgumentException("Invalid Work recovery record");
-        return row;
     }
     private static BrowserTaskContext readWorkTask(AppStore store, String scope) throws Exception {
         String saved = store.secrets.get(workTaskKey(scope)); BrowserTaskContext task = new BrowserTaskContext();
@@ -159,6 +171,11 @@ final class BrowserEngine {
          */
         final boolean secret;
         final GeckoSession session;
+        /**
+         * The tab whose page opened this one as its window (a sign-in popup: Google's for TradingView, which closes itself when
+         * done): the page goes back to it, not to whichever tab is beside it.
+         */
+        Tab opener;
         Tab() { this(false); }
         Tab(boolean secret) {
             this.secret = secret;
@@ -187,6 +204,10 @@ final class BrowserEngine {
         long pdfEpoch = -1, pdfAskedAt = Long.MIN_VALUE / 2;
         boolean pdfAsking;
         int pdfSaving;
+        // The words of the PDF in the viewer (BrowserPdfText), for the navigation it was read in; reads answer from them.
+        int pdfReading, pdfOffset;
+        JSONObject pdfText;
+        long pdfTextEpoch = -1;
         // The label of the page's link a file being handed to workDownload came from ("" when unknown); untrusted page text.
         String downloadLabel = "";
         // The label of the element the last click pressed: a file its script sends has no link address to name it by.
@@ -253,8 +274,15 @@ final class BrowserEngine {
         String taskWords = "";
         long requestStarted, progressStartedElapsed, progressUpdatedElapsed;
         final List<String> activity = new ArrayList<>();
+        /** Changes this lane's own task dispatched; observedUncertain: the unconfirmed one of them the task has read the page after. */
+        final Set<String> ownMutations = new HashSet<>();
+        String observedUncertain = "";
         java.util.function.BiFunction<String, String, Boolean> steering;
-        Lane(long id, Tab owner) { this.id = id; this.owner = owner; conversation = owner.conversationId; }
+        /** The tabs this task works in: its own, those it opened and those it moved to; one task per tab (BrowserTaskTabs). */
+        final dev.jun.gyeot.core.BrowserTaskTabs<Tab> tabs;
+        /** What this task copied or cut (Control+c, Control+x), for its Control+v: never the phone's clipboard. */
+        String clipboard = "";
+        Lane(long id, Tab owner) { this.id = id; this.owner = owner; conversation = owner.conversationId; tabs = new dev.jun.gyeot.core.BrowserTaskTabs<>(owner); }
     }
     private final java.util.concurrent.ConcurrentHashMap<Long, Lane> lanes = new java.util.concurrent.ConcurrentHashMap<>();
     private final Map<Tab, Lane> tabLanes = new IdentityHashMap<>();
@@ -270,8 +298,38 @@ final class BrowserEngine {
     }
     private Lane lane(long lease) { return lanes.get(lease); }
     private Lane selected() { return lane(current); }
-    private Pending pending(Tab tab) { Lane l = tabLanes.get(tab); return l == null ? null : l.pending; }
-    private boolean working(Tab tab) { Lane l = tabLanes.get(tab); return l != null && (l.onCancel != null || l.pending != null); }
+    /** The step waiting on this tab: its own task's, or that of a task working in it from another tab. */
+    private Pending pending(Tab tab) {
+        if (tab == null) return null;
+        Lane own = tabLanes.get(tab);
+        if (own != null && own.pending != null && own.pending.tab == tab) return own.pending;
+        for (Lane l : lanes.values()) if (l.pending != null && l.pending.tab == tab) return l.pending;
+        return null;
+    }
+    private boolean working(Tab tab) { Lane l = tabLanes.get(tab); return l != null && (l.onCancel != null || l.pending != null) || pending(tab) != null || taskUsing(tab) != null; }
+    /**
+     * The running task that works in this tab: the tab's own task, or one that opened it or moved to it (BrowserTaskTabs);
+     * null when none. One task per tab: another task never takes it.
+     */
+    private Lane taskUsing(Tab tab) {
+        if (tab == null) return null;
+        Lane own = tabLanes.get(tab);
+        if (own != null && own.onCancel != null) return own;
+        for (Lane l : lanes.values()) if (l.onCancel != null && l.tabs.uses(tab)) return l;
+        return null;
+    }
+    /** The tab a running task's steps go to now: its own until it opens or moves to another; null when the lease runs none. */
+    Tab workTab(long lease) {
+        Lane l = lane(lease); if (!valid(lease)) return null;
+        Tab focus = l.tabs.focus(); return live(focus) ? focus : l.owner;
+    }
+    /** How a task's journal names the tab a step ran in: "" for its own tab, else "탭 3" (its place in the tab strip). */
+    String stepTab(long lease, String tabId) {
+        Lane l = lane(lease);
+        if (l == null || tabId == null || tabId.isBlank() || tabId.equals(l.owner.id)) return "";
+        for (int i = 0; i < tabs.size(); i++) if (tabs.get(i).id.equals(tabId)) return "탭 " + (i + 1);
+        return "";
+    }
     long activeTaskLease() {
         Lane selected = tabLanes.get(current);
         if (selected != null && taskRunning(selected)) return selected.id;
@@ -284,11 +342,20 @@ final class BrowserEngine {
      * the job's notification or report a job as running forever.
      */
     private static boolean taskRunning(Lane l) { return l.onCancel != null && l.owner.retained; }
-    private boolean rendering(Tab tab) { Lane l = tabLanes.get(tab); return l != null && l.onCancel != null; }
+    /**
+     * Whether the tab is kept live for a running task while out of sight: the task's own tab, the tab it is on now and the tab
+     * its step waits on. Other tabs it opened rest until it goes to them (a page each is not drawn for nothing).
+     */
+    private boolean rendering(Tab tab) {
+        Lane own = tabLanes.get(tab);
+        if (own != null && own.onCancel != null) return true;
+        for (Lane l : lanes.values()) if (l.onCancel != null && (l.tabs.focus() == tab || l.pending != null && l.pending.tab == tab)) return true;
+        return false;
+    }
     boolean anyRunning() { return lanes.values().stream().anyMatch(BrowserEngine::taskRunning); }
     boolean running() { Lane l = selected(); return l != null && l.onCancel != null; }
-    /** An AI task works in this tab now (its tab shows the AI mark). */
-    boolean aiWorking(Tab tab) { return rendering(tab); }
+    /** An AI task works in this tab now (its tab shows the AI mark): its own task, or one working in it from another tab. */
+    boolean aiWorking(Tab tab) { return taskUsing(tab) != null; }
     boolean running(long lease) { Lane l = lane(lease); return valid(lease) && l.onCancel != null; }
     Tab tabForLease(long lease) { Lane l = lane(lease); return valid(lease) ? l.owner : null; }
     Tab taskTab(long lease) { return tabForLease(lease); }
@@ -302,7 +369,8 @@ final class BrowserEngine {
     boolean acceptSteering(long lease, String visible, String actual) {
         Lane l = lane(lease);
         if (!valid(lease) || l.onCancel == null || l.owner != current || !canAcceptTask(actual)) return false;
-        l.owner.task.accept(actual); l.owner.taskChanged = true; l.lastAsk = visible; l.lastRequest = actual;
+        int dropped = l.owner.task.accept(actual); l.owner.taskChanged = true; l.lastAsk = visible; l.lastRequest = actual;
+        if (dropped > 0) record(lease, forgotten(dropped));
         l.taskWords = (l.taskWords + "\n" + dev.jun.gyeot.core.AutomationGate.userWords(actual)).strip();
         l.transcriptRequest = transcript.request(l.conversation, visible);
         persistTranscript(); changed(); return true;
@@ -322,7 +390,17 @@ final class BrowserEngine {
     void record(long lease, String text) {
         Lane l = lane(lease); if (!valid(lease) || l.completed) return;
         l.progressUpdatedElapsed = android.os.SystemClock.elapsedRealtime(); l.activity.add(text);
-        if (l.activity.size() > 30) l.activity.remove(0); changed();
+        if (l.activity.size() > ACTIVITY) l.activity.remove(0); changed();
+    }
+    /** Lines 작업 상세 keeps for a task (it draws the newest few and the rest on request). */
+    static final int ACTIVITY = 200;
+    /** A quiet line in 작업 상세 when a tab's long task memory let its oldest turns go (BrowserTaskContext.USER_BUDGET). */
+    private static String forgotten(int dropped) { return "이 탭의 작업 기억이 길어 가장 오래된 지시 " + dropped + "개는 기억에서 뺐어요 · 대화 기록은 그대로예요"; }
+    /** A step's outcome line (BrowserAgent's journal) in place of the "…하는 중" line its start added. */
+    void recordStep(long lease, String started, String text) {
+        Lane l = lane(lease); if (!valid(lease) || l.completed) return;
+        if (!l.activity.isEmpty() && l.activity.get(l.activity.size() - 1).equals(started)) l.activity.remove(l.activity.size() - 1);
+        record(lease, text);
     }
     // Existing UI/voice callers still assign these fields. Capture such changes only
     // against the lane that was projected, never against a newly selected tab.
@@ -360,6 +438,15 @@ final class BrowserEngine {
     PromptToken promptToken(GeckoSession session) {
         if (!visible || current == null || current.session != session || !liveSession(session)) return null;
         return new PromptToken(current, lease(), viewEpoch);
+    }
+    /**
+     * A page's file chooser answered from the phone's picker (준: "Ai 브라우저에서 클로드 쓸때 파일 첨부가 안돼"): the picker is an
+     * activity of its own, so the browser stops and starts again while it is open (visible and viewEpoch change) and validPrompt
+     * dropped every file picked. The file still goes to the same tab's same page: its session open, not navigated away.
+     */
+    boolean validFilePrompt(PromptToken token) {
+        return token != null && liveSession(token.session) && tabs.contains(token.tab) && token.tab.session == token.session
+            && token.navigationEpoch == token.tab.navigationEpoch && token.url.equals(token.tab.url);
     }
     boolean validPrompt(PromptToken token) {
         return token != null && visible && current == token.tab && current.session == token.session
@@ -411,14 +498,41 @@ final class BrowserEngine {
     private long sequence;
     private GeckoSession.PromptDelegate prompts;
     java.util.function.BiConsumer<Tab,String> externalAppLink;
+    /** A link to another app the user tapped on the page in front (tel:, mailto:, intent:// …): the screen hands it to Android (BrowserAppLinks). */
+    java.util.function.BiConsumer<Tab,String> appLink;
     boolean canOpenExternalApp(Tab tab) {
-        return live(tab) && !workEngine && visible && current == tab && !running() && pending(current) == null
+        return live(tab) && !workEngine && visible && current == tab && !running() && pending(current) == null && taskUsing(tab) == null
             && dev.jun.gyeot.core.BrowserYouTubeLinks.origin(tab.url)
             && !tab.needsLoad && !tab.loading && !tab.loadFailed && tab.session.isOpen();
+    }
+    /**
+     * A page asked to open a link that is not a web page (tel:, mailto:, sms:, market:, intent:// …). The user's own tap on
+     * the page in front goes to Android as Chrome does (appLink → BrowserAppIntent). An AI step, or the page reacting to one,
+     * keeps the old refusal: a page never makes the AI open the phone's apps; the task hears it and can tell the user to tap.
+     */
+    private void appLinkRequested(Tab tab, String uri, boolean gesture) {
+        Lane ai = taskUsing(tab);
+        boolean front = !workEngine && visible && current == tab;
+        switch (dev.jun.gyeot.core.BrowserAppLinks.decide(uri, gesture, front, ai != null || pending(tab) != null)) {
+            case HANDOFF -> {
+                if (appLink != null) appLink.accept(tab, uri);
+                else { status = "이 앱 링크는 지금 열 수 없어요. 브라우저 화면에서 다시 눌러 주세요."; changed(); }
+            }
+            case REFUSE -> {
+                String app = dev.jun.gyeot.core.BrowserAppLinks.label(uri);
+                if (ai != null) {
+                    ai.tabs.event(obj("app_link_refused", obj("app", app, "scheme", dev.jun.gyeot.core.BrowserAppLinks.scheme(uri)), "note",
+                        "The page tried to open another app (" + app + "). An AI step never opens the phone's apps: nothing was opened. If the user needs it, tell them to tap that link on the page themselves."));
+                    record(ai.id, "다른 앱(" + app + ") 링크는 AI가 열지 않아요 · 직접 누르면 열려요");
+                } else if (front) { status = app + " 링크는 직접 눌러야 열려요. 웹페이지는 그대로 유지했어요."; changed(); }
+            }
+            case NOT_APP -> { if (front) { status = "이 앱 링크는 열 수 없어요. 웹페이지는 그대로 유지했어요."; changed(); } }
+        }
     }
     private static final class Pending {
         long generation; String id; Tab tab; WebExtension.Port port, dispatchPort; Consumer<JSONObject> callback;
         boolean sent, mutation, dispatched, observingNavigation, rereadRejected, preparingMutation, mutationSaved, settlingMutation;
+        boolean reloadedForRead; // a read found no page to read (a black screen) and loaded the page again once
         String dispatchId = "", readReceiptId = "", dispatchDocument = "";
         boolean actionAcknowledged;
         boolean navigationProposalAccepted, recoveryChecked;
@@ -426,7 +540,10 @@ final class BrowserEngine {
         boolean routine; // the gate classified this step routine (BrowserAgent): it leaves no fence
         boolean repeatSafe; // a step of a repeat-safe Work job on its own site (repeatSafeHost): no global fence, settled as dispatched
         boolean nativeTap; // a click on the page's upload button while a file is ready: tapped for real (BrowserTouch)
+        String uploadToken = ""; // a file being put straight into the page's file field (put_file), by this token
         JSONObject fileStarted; // the file a click on a file control started fetching instead of navigating (scriptedFile)
+        // The page a load left (open, a followed link): back to it when the load turns out to be a file (downloadedInstead).
+        WebExtension.Port leftPort; String leftUrl = "", leftDocument = ""; boolean downloadedInstead;
         String action = "", navigationAction = "", previousDocument = "", previousUrl = "", navigationTarget = "", committedUrl = "";
         int sends;
         long deadline;
@@ -491,7 +608,8 @@ final class BrowserEngine {
         Set<String> restoredIds = new HashSet<>(), restoredConversations = new HashSet<>();
         int savedSelected = -1;
         tabsWritable = saved.tabs() != null;
-        try { JSONArray values = new JSONArray(saved.tabs() == null || saved.tabs().isBlank() ? "[]" : saved.tabs()); if (values.length() > 6) tabsWritable = false; for (int i = 0; i < Math.min(6, values.length()); i++) {
+        // Every saved tab comes back: there is no cap on tabs (준: "탭갯수 제한 없애"), and a tab out of sight loads only when shown.
+        try { JSONArray values = new JSONArray(saved.tabs() == null || saved.tabs().isBlank() ? "[]" : saved.tabs()); for (int i = 0; i < values.length(); i++) {
             try {
                 JSONObject entry = values.optJSONObject(i);
                 if (entry != null && entry.has("task") && !(entry.opt("task") instanceof String)) throw new IllegalArgumentException("Invalid tab task memory");
@@ -527,8 +645,6 @@ final class BrowserEngine {
             tabs.clear();
             for (int i = 0; i < urls.size(); i++) {
                 if (i == savedSelected) continue;
-                // The tab cap is not permission to discard a saved task during a slow restore.
-                if (tabs.size() + liveTabs.size() >= 6) { tabsWritable = false; continue; }
                 Tab tab = addTab(urls.get(i), false); tab.zoomPercent = zooms.get(i); tab.desktop = desktops.get(i); restoreIdentity(tab, ids.get(i), conversations.get(i)); restoreTask(tab, tasks.get(i), urls.get(i)); tab.title = BrowserTools.origin(tab.url); tab.needsLoad = true;
             }
             tabs.addAll(liveTabs); current = selected;
@@ -590,6 +706,10 @@ final class BrowserEngine {
         if (old == null) throw new IllegalStateException("탭이 닫혔어요.");
         if (old.onCancel != null || old.pending != null)
             throw new IllegalStateException("이 탭의 작업이 진행 중이에요. 현재 작업에 지시하거나 중지해 주세요.");
+        // One task per tab: a tab another tab's task opened or moved to stays that task's until it ends.
+        Lane other = taskUsing(current);
+        if (other != null && other != old)
+            throw new IllegalStateException("이 탭은 다른 탭의 AI 작업이 쓰고 있어요. 그 작업이 끝나거나, 그 탭의 진행 줄에서 '작업 중지'를 누른 뒤 지시해 주세요.");
         // A task begun before the saved tabs are back (a voice browser_task right after the app starts) owns this tab:
         // restore keeps it (and its conversation), as it keeps a tab the user typed an address into, instead of
         // discarding it as an untouched placeholder and leaving the task on no tab. restoring itself stays as it is: it
@@ -639,8 +759,9 @@ final class BrowserEngine {
     }
     void acceptRequest(long lease, String visible, String actual) {
         Lane l = lane(lease); if (!valid(lease) || l.completed || !l.transcriptRequest.isEmpty()) return;
-        l.owner.task.accept(actual); l.owner.taskChanged = true;
+        int dropped = l.owner.task.accept(actual); l.owner.taskChanged = true;
         l.lastAsk = visible; l.lastRequest = actual; l.lastStats = ""; l.requestStarted = System.currentTimeMillis();
+        if (dropped > 0) record(lease, forgotten(dropped));
         l.taskWords = dev.jun.gyeot.core.AutomationGate.userWords(actual);
         transcript.ensure(l.conversation, BrowserTools.origin(l.owner.url));
         l.transcriptRequest = transcript.request(l.conversation, visible);
@@ -741,7 +862,12 @@ final class BrowserEngine {
     }
     void stop(String message){stop(current,message);}
     void stop(Tab tab,String message){Lane l=lane(tab);if(l!=null)stopTask(l.id,message);}
-    void stopTask(long lease, String message) {
+    void stopTask(long lease, String message) { stopTask(lease, message, false); }
+    /** Why the engine stopped a task (stopTask's message; requires_user when it waits for the user), given once to the task's own answer. */
+    private final Map<Long, JSONObject> stops = new LinkedHashMap<>();
+    JSONObject stopped(long lease) { JSONObject why = stops.remove(lease); return why == null ? obj() : why; }
+    /** needsUser: the task stopped for the user to answer something (a site's question): its result says so and asks for them. */
+    void stopTask(long lease, String message, boolean needsUser) {
         Lane l = lane(lease); if (!valid(lease)) return;
         absorbProjection();
         Runnable cancel = l.onCancel; Pending pending = l.pending;
@@ -751,7 +877,7 @@ final class BrowserEngine {
         if (!message.isBlank()) l.status = message;
         else if (active) l.status = "브라우저 작업을 중지했어요";
         if (active) {
-            l.resultState = "stopped";
+            l.resultState = needsUser ? "paused" : "stopped";
             l.owner.task.liveness("interrupted", "engine_stopped");
             saveAnswer(l);
         }
@@ -766,7 +892,11 @@ final class BrowserEngine {
         replacement.progressStartedElapsed = l.progressStartedElapsed;
         replacement.progressUpdatedElapsed = l.progressUpdatedElapsed;
         tabLanes.put(l.owner, replacement); lanes.put(replacement.id, replacement);
-        project(); releaseJob(l, l.paused && !active);
+        if (cancel != null && !message.isBlank()) {
+            stops.put(l.id, obj("message", message, "requires_user", needsUser));
+            while (stops.size() > 16) stops.remove(stops.keySet().iterator().next());
+        }
+        project(); releaseJob(l, needsUser || l.paused && !active);
         try { if (cancel != null) cancel.run(); }
         finally {
             try {
@@ -792,7 +922,11 @@ final class BrowserEngine {
             try { stopTask(l.id, message); } catch (RuntimeException ignored) { /* Stop the remaining owners as well. */ }
         }
     }
-    void manual(){Lane l=selected();if(l!=null&&(l.onCancel!=null||l.pending!=null)){l.paused=true;stopTask(l.id,"직접 조작 중 · AI가 멈췄어요");}}
+    void manual(){
+        Lane l=selected();if(l!=null&&(l.onCancel!=null||l.pending!=null)){l.paused=true;stopTask(l.id,"직접 조작 중 · AI가 멈췄어요");}
+        // The user took over a tab another tab's task was working in: that task stops too, so the two never race on one page.
+        Lane other=taskUsing(current);if(other!=null&&other!=l){other.paused=true;stopTask(other.id,"직접 조작 중 · AI가 쓰던 다른 탭을 직접 만져서 멈췄어요");}
+    }
     void loginMode(boolean enable){Lane l=selected();if(l!=null)l.paused=enable;stop(enable?"로그인은 직접 진행해 주세요":"AI를 다시 사용할 수 있어요");}
     void attach(Runnable observer, GeckoSession.PromptDelegate delegate) {
         this.observer = observer; this.prompts = delegate; visible = true; viewEpoch++;
@@ -801,9 +935,10 @@ final class BrowserEngine {
         activate(current);
         for(Lane l:lanes.values())if(l.onCancel!=null&&live(l.owner))activate(l.owner);
         changed();
+        main.post(this::askHeld); // A site's question that waited for this tab comes up now.
     }
     void detach() {
-        visible = false; viewEpoch++; observer = null; prompts = null; externalAppLink = null;
+        visible = false; viewEpoch++; observer = null; prompts = null; externalAppLink = null; appLink = null;
         for (Tab tab : tabs) tab.session.setPromptDelegate(backgroundPrompts);
         // GeckoView releases its display; the session and extension keep working in the foreground service.
         main.post(() -> {
@@ -836,8 +971,8 @@ final class BrowserEngine {
     private Tab addTab(String url, boolean open) { return addTab(url, open, false); }
     private Tab addTab(String url, boolean open, boolean secret) {
         if (disposed) throw new IllegalStateException("작업 브라우저가 종료됐어요.");
-        if (workEngine && tabs.size() >= 2) throw new IllegalStateException("작업별 탭은 2개까지 열 수 있어요. 별도 병렬 작업을 사용해 주세요.");
-        if (tabs.size() >= 6) throw new IllegalStateException("탭은 6개까지 열 수 있어요. 사용하지 않는 탭을 닫아 주세요.");
+        // No cap on tabs, a Work job's own included (준: "탭갯수 제한 없애", "쓸데 없는 제한이 너무 많아"): a tab out of sight is
+        // paused and lets its display go.
         Tab tab = new Tab(secret); tab.url = BrowserTools.url(url); tabs.add(tab); current = tab; viewEpoch++;
         tab.session.setPromptDelegate(gatedPrompts);
         tab.session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
@@ -855,8 +990,8 @@ final class BrowserEngine {
                 catch (Exception e) {
                     String target = dev.jun.gyeot.core.BrowserYouTubeLinks.appLink(request.uri, tab.url, request.triggerUri,
                         request.hasUserGesture, request.isRedirect, request.isDirectNavigation);
-                    if (target != null && canOpenExternalApp(tab) && externalAppLink != null) externalAppLink.accept(tab, target);
-                    else if (visible && current == tab) { status = "이 앱 링크는 열 수 없어요. 웹페이지는 그대로 유지했어요."; changed(); }
+                    if (target != null && canOpenExternalApp(tab) && externalAppLink != null) { externalAppLink.accept(tab, target); return GeckoResult.fromValue(AllowOrDeny.DENY); }
+                    appLinkRequested(tab, request.uri, request.hasUserGesture);
                     return GeckoResult.fromValue(AllowOrDeny.DENY);
                 }
             }
@@ -871,24 +1006,33 @@ final class BrowserEngine {
             @Override public void onCanGoForward(GeckoSession session, boolean value) { if (!live(tab)) return; tab.forward = value; changed(); }
             @Override public GeckoResult<GeckoSession> onNewSession(GeckoSession session, String uri) {
                 if (!live(tab) || blockSecurityLink(uri)) return GeckoResult.fromValue(null);
-                if (working(tab)) {
-                    stopAffected(tab, "새 탭은 직접 열어 주세요. 작업 대상 탭은 바뀌지 않았어요.");
-                    return GeckoResult.fromValue(null);
-                }
+                // A page a task works in opened a new window (a target=_blank link, window.open): it opens as a tab that task may
+                // use (BrowserTaskTabs.popup), the task goes on, and the user's screen stays where it was (준: "쓸데 없는 제한이 너무 많아").
+                Lane user = taskUsing(tab);
                 try {
-                    Tab selected = current;
+                    Tab selected = current; long epoch = viewEpoch;
                     restoring = false;
-                    Tab popup = addTab(uri, false);
-                    if (!workEngine && !visible) {
+                    Tab popup = addTab(uri, false, tab.secret);
+                    if (user != null || !workEngine && !visible) {
                         current = selected; // No screen/tab-close action was requested by the user.
-
+                        if (user != null) viewEpoch = epoch; // and the screen did not change
                         showTaskState();
                     }
-                    popup.desktop = tab.desktop; popup.zoomPercent = tab.zoomPercent; desktopSettings(popup); persist();
-                    main.post(() -> { if (popup.session.isOpen() && live(popup)) { if (current == popup || working(popup)) activate(popup); else popup.session.setActive(false); changed(); } });
+                    popup.desktop = tab.desktop; popup.zoomPercent = tab.zoomPercent; popup.opener = tab; desktopSettings(popup); persist();
+                    if (user != null) {
+                        user.tabs.popup(popup, obj("tab", popup.id, "url", safeUrl(uri), "from_tab", tab.id));
+                        record(user.id, "새 탭이 열렸어요 · " + hostOf(uri));
+                    }
+                    main.post(() -> { if (popup.session.isOpen() && live(popup)) { if (current == popup || rendering(popup)) activate(popup); else popup.session.setActive(false); changed(); } });
                     return GeckoResult.fromValue(popup.session);
                 }
-                catch (Exception e) { status = e.getMessage(); changed(); return GeckoResult.fromValue(null); }
+                catch (Exception e) {
+                    if (user != null) {
+                        user.tabs.event(obj("new_tab_refused", obj("url", safeUrl(uri)), "note", "The page tried to open a new tab, which could not open (" + e.getMessage() + "). Open that address with open or open_tab if the task needs it."));
+                        record(user.id, "새 탭을 열지 못했어요 · " + e.getMessage());
+                    } else status = e.getMessage();
+                    changed(); return GeckoResult.fromValue(null);
+                }
             }
             @Override public GeckoResult<String> onLoadError(GeckoSession session, String uri, WebRequestError error) {
                 if (!live(tab)) return null;
@@ -912,24 +1056,44 @@ final class BrowserEngine {
         tab.session.setContentDelegate(new GeckoSession.ContentDelegate() {
             @Override public void onExternalResponse(GeckoSession session, WebResponse response) {
                 if (!live(tab)) { try { if (response.body != null) response.body.close(); } catch (java.io.IOException ignored) { } return; }
-                if (workEngine) {
-                    if (!disposed && workDownload != null) handOver(tab, response, fileLabel(tab, response.uri));
-                    else { try { if (response.body != null) response.body.close(); } catch (java.io.IOException ignored) { } }
-                } else { final long downloadLease = lane(tab).id;
-                    BrowserMusicDownloads.save(context, response, result -> {
-                        if (!valid(downloadLease)) return;
-                        setTaskStatus(downloadLease, result); record(downloadLease, result);
-                    });
-                }
+                // A step's page load that turned out to be a file: the tab stays on its page, and the step is answered now.
+                Pending step = pending(tab);
+                if (step != null && valid(step.generation) && !step.downloadedInstead && tab.port == null
+                        && (step.action.equals("open") || step.navigationAction.equals("read_get"))) downloadedInstead(step, response.uri);
+                handOver(tab, response, fileLabel(tab, response.uri));
             }
             @Override public void onTitleChange(GeckoSession session, String title) { if (!live(tab)) return; tab.title = title; changed(); }
             @Override public void onCloseRequest(GeckoSession session) { close(tab); }
-            @Override public void onCrash(GeckoSession session) { if (!live(tab)) return; stopAffected(tab,"페이지가 중단됐어요. 탭을 닫고 다시 열어 주세요."); tab.port = null; tab.document = ""; }
+            @Override public void onCrash(GeckoSession session) { if (!live(tab)) return; recoverPage(tab, "페이지가 멈춰서 다시 불러왔어요. 하던 일은 이어서 맡겨 주세요."); }
+            // Android closed the page's process (often while the app was in the background, for memory): the screen went black
+            // and stayed so. It is loaded again by itself; the work on it stops and says why.
+            @Override public void onKill(GeckoSession session) { if (!live(tab)) return; recoverPage(tab, "휴대폰이 메모리를 비우느라 페이지를 닫아서 다시 불러왔어요. 하던 일은 이어서 맡겨 주세요."); }
         });
         bind(tab);
         if (open) { tab.needsLoad = true; activate(tab); }
         if (!running()) showTaskState();
         changed(); return tab;
+    }
+    /** The page's process ended: the work on the tab stops with message, and the page is loaded again. */
+    private void recoverPage(Tab tab, String message) {
+        stopAffected(tab, message); tab.port = null; tab.document = ""; tab.loading = false; tab.loadFailed = false; tab.needsLoad = true;
+        main.post(() -> { if (live(tab) && (tab == current || rendering(tab))) { activate(tab); changed(); } });
+    }
+    /**
+     * The user gave this tab a new instruction, from any surface (the browser's own box, voice, 퍼레's job, a background
+     * request), while an earlier task's step on it is unconfirmed: that step is settled (the new task reads the page first and
+     * is told about it; the step is never reported as done) instead of refusing every click and keystroke of the new task.
+     * Not for a Work job's tab: no one gives it a new instruction, each run is its job again, and its fence is lifted by the
+     * user's check of the job's notification.
+     */
+    boolean releaseForNewRequest(long lease) {
+        Lane l = lane(lease);
+        if (workEngine || !valid(lease) || l.pending != null) return false;
+        Tab tab = l.owner;
+        if (!tab.task.mutationUnresolved() || !tab.recoveringMutationId.isEmpty()) return false;
+        String id = tab.task.pendingMutation().optString("id");
+        if (l.ownMutations.contains(id) || !tab.task.settleForNewRequest(id)) return false;
+        tab.taskChanged = true; persistTask(tab, null); changed(); return true;
     }
     private void stopAffected(Tab tab, String message) {
         Lane l = tabLanes.get(tab); if (l != null) stopTask(l.id, message);
@@ -938,8 +1102,10 @@ final class BrowserEngine {
         if (disposed || tab == null || !tabs.contains(tab)) return;
         if (tab == restoreTab) restoreTabReplaced = true;
         restoring = false; viewEpoch++;
-        // Closing an unrelated background tab must not stop another tab's AI job.
-        stopAffected(tab,"");
+        // Closing an unrelated background tab must not stop another tab's AI job. A tab with no work of its own (one a task
+        // opened and closes) is only removed: stopping its idle lane would post a result notification for nothing.
+        Lane own = tabLanes.get(tab);
+        if (own != null && (own.onCancel != null || own.pending != null)) stopAffected(tab,"");
         removeTab(tab);
     }
     private void removeTab(Tab tab) {
@@ -949,7 +1115,21 @@ final class BrowserEngine {
         tab.retained = false; tabs.remove(closedIndex); Lane removed=tabLanes.remove(tab);if(removed!=null)lanes.remove(removed.id); tab.port = null; tab.document = ""; releaseDisplay(tab); if (tab.session.isOpen()) tab.session.close();
         if (split == tab) split = null;
         if (tabs.isEmpty()) newTab("https://www.google.com/", true);
-        else if (current == tab) current = tabs.get(Math.min(closedIndex, tabs.size() - 1));
+        else if (current == tab) current = tab.opener != null && tabs.contains(tab.opener) ? tab.opener : tabs.get(Math.min(closedIndex, tabs.size() - 1));
+        for (Tab other : tabs) if (other.opener == tab) other.opener = null;
+        Question asked = questions.remove(tab);
+        if (asked != null && !asked.prompt.isComplete()) asked.answer.complete(asked.prompt.dismiss());
+        // A tab another tab's task worked in went away (the task closed it, the page closed itself, the user did): the task's
+        // steps go back to its own tab, and a step waiting on it is answered now; the task goes on.
+        for (Lane l : new ArrayList<>(lanes.values())) {
+            if (l.owner == tab || !l.tabs.uses(tab)) continue;
+            l.tabs.closed(tab);
+            Pending waiting = l.pending;
+            if (waiting != null && waiting.tab == tab && valid(waiting.generation))
+                finish(waiting, obj("ok", true, "tab_closed", true, "tab", tab.id, "action_may_have_run", waiting.dispatched,
+                    "note", "That tab closed (the page closed itself, or it was closed). " + (waiting.dispatched ? "The step was sent before it closed and may have run. " : "")
+                        + "Steps now go to this task's own tab (" + l.owner.id + "): read it, or tabs to see the open tabs."));
+        }
         showTaskState(); activate(current); persist(); changed();
     }
     void navigate(String value) {
@@ -962,6 +1142,14 @@ final class BrowserEngine {
     void select(Tab tab) {
         if (!live(tab)) return;
         if (current != tab) viewEpoch++; absorbProjection(); current = tab; showTaskState(); activate(tab); persist(); changed();
+        main.post(this::askHeld);
+    }
+    /** The tab with this id, or null. */
+    Tab tab(String id) { for (Tab t : tabs) if (t.id.equals(id)) return t; return null; }
+    /** A page Chrome would open when no app takes a tapped app link (browser_fallback_url): in the same tab, if it is still in front. */
+    void openFallback(Tab tab, String url) {
+        if (!live(tab) || current != tab) return;
+        try { navigate(url); } catch (IllegalArgumentException notWeb) { /* never a non-web address */ }
     }
     private boolean blockSecurityLink(String url) {
         var link = dev.jun.gyeot.core.SecurityLink.inspect(url, "");
@@ -970,21 +1158,27 @@ final class BrowserEngine {
         changed();
         return true;
     }
-    static int clampZoom(int percent) { return Math.max(50, Math.min(200, percent)); }
-    /** Page layout zoom, separate from system font scale and pinch zoom. Never reloads forms. */
+    static int clampZoom(int percent) { return Math.max(ZOOM_LEAST, Math.min(ZOOM_MOST, percent)); }
+    /** Page zoom from a quarter to three times (as wide as Chrome's, a little wider at the small end). */
+    static final int ZOOM_LEAST = 25, ZOOM_MOST = 300;
+    /**
+     * Page layout zoom, separate from system font scale and pinch zoom. Never reloads forms. A task running in the tab goes
+     * on: how the page is shown is the user's to change while the AI works (the next read sees the page as it is then).
+     */
     void setZoom(Tab tab, int percent) {
         if (tab == null || !tabs.contains(tab)) return;
-        stop(tab,"직접 조작 중 · AI가 멈췄어요"); tab.settingsChanged = true; tab.appliedZoom = -1; tab.zoomFailed = false; tab.zoomPercent = clampZoom(percent); applyZoom(tab); persist(); changed();
+        tab.settingsChanged = true; tab.appliedZoom = -1; tab.zoomFailed = false; tab.zoomPercent = clampZoom(percent); applyZoom(tab); persist(); changed();
     }
     private void applyZoom(Tab tab) {
         if (tab.port == null) return;
-        try { tab.port.postMessage(obj("page_zoom", tab.zoomPercent)); }
+        try { tab.port.postMessage(obj("page_zoom", tab.zoomPercent, "desktop", tab.desktop)); }
         catch (Exception e) { if (tab == current) status = "페이지 연결 뒤 확대·축소를 다시 적용할게요."; }
     }
 
+    /** 데스크톱 보기 on or off; like the zoom it leaves a running task going (the page reloads and the task reads it again). */
     void setDesktop(Tab tab, boolean desktop) {
         if (tab == null || !tabs.contains(tab)) return;
-        stop(tab,"직접 조작 중 · AI가 멈췄어요"); changeDesktop(tab, desktop); changed();
+        changeDesktop(tab, desktop); changed();
     }
     private void desktopSettings(Tab tab) {
         tab.session.getSettings().setUserAgentMode(tab.desktop ? GeckoSessionSettings.USER_AGENT_MODE_DESKTOP : GeckoSessionSettings.USER_AGENT_MODE_MOBILE);
@@ -998,7 +1192,7 @@ final class BrowserEngine {
         else { tab.needsLoad = true; activate(tab); }
         persist();
     }
-    /** 권한 모드: '읽기만' keeps the AI to reading (BrowserActivity's AI menu sets it); '확인받기' is the default. */
+    /** 권한 모드: '읽기만' keeps the AI to reading (BrowserActivity's AI menu sets it); '조작 허용' is the default. */
     static final String READ_ONLY = "browserReadOnly";
     boolean readOnly() { return store != null && store.settings.getBoolean(READ_ONLY, false); }
     /** 화면 분할: the tab shown beside the current one on a wide screen (kept live and active while shown), or null. */
@@ -1048,18 +1242,19 @@ final class BrowserEngine {
         if (!pendingId.isEmpty() && old.lastMutationId().equals(pendingId) && old.lastMutationState().equals("user_inspected"))
             next.confirmMutationInspected(pendingId);
         store.secrets.put(workTaskKey(), next.snapshot());
-        JSONObject guard = readWorkPending(store);
-        if (guard != null && guard.optString("job_id").equals(workScope)) {
+        dev.jun.gyeot.core.WorkFence fence = readWorkFence(store);
+        JSONObject guard = fence.job(workScope);
+        if (guard != null) {
             String receipt = guard.optString("receipt_id");
             if (next.lastMutationId().equals(receipt) && !next.mutationUnresolved()) {
-                store.secrets.put(WORK_PENDING_KEY, "");
+                fence.remove(workScope); store.secrets.put(WORK_PENDING_KEY, fence.save());
             } else if (next.pendingMutation().optString("id").equals(receipt)) {
                 JSONObject state = new JSONObject(next.snapshot());
                 JSONObject live = state.optJSONObject("liveness");
                 if (live != null) put(guard, "reason", live.optString("reason", "awaiting_acknowledgement"));
                 String stopped = next.lastResult();
                 if (!stopped.isBlank()) put(guard, "stop_reason", stopped.substring(0, Math.min(stopped.length(), BrowserPrompts.REQUEST_LIMIT)));
-                store.secrets.put(WORK_PENDING_KEY, guard.toString());
+                fence.put(guard); store.secrets.put(WORK_PENDING_KEY, fence.save());
             }
         }
     }
@@ -1088,7 +1283,9 @@ final class BrowserEngine {
         if (!p.mutation || !p.dispatched || p.dispatchId.isEmpty()) return;
         // Only this matching bundled-extension reply is an acknowledgement. A later read is not.
         boolean acknowledged = Boolean.TRUE.equals(result.opt("action_accepted"))
-            || p.action.equals("vault_fill") && Boolean.TRUE.equals(result.opt("filled")) && Boolean.TRUE.equals(result.opt("ok"));
+            || p.action.equals("vault_fill") && Boolean.TRUE.equals(result.opt("filled")) && Boolean.TRUE.equals(result.opt("ok"))
+            // put_file: the page's own script put the file into the field and said so.
+            || !p.uploadToken.isEmpty() && Boolean.TRUE.equals(result.opt("ok")) && !result.optString("attached").isEmpty();
         boolean rejectedBeforeEffect = Boolean.TRUE.equals(result.opt("stale_observation"));
         if ((acknowledged || rejectedBeforeEffect) && p.tab.task.settleMutation(p.dispatchId, acknowledged)) {
             p.settlingMutation = workEngine;
@@ -1116,6 +1313,7 @@ final class BrowserEngine {
         }
         p.navigationProposalAccepted = true; p.dispatched = false; p.sends++;
         p.previousDocument = p.tab.document; p.previousUrl = p.tab.url;
+        p.leftPort = p.tab.port; p.leftUrl = p.tab.url; p.leftDocument = p.tab.document;
         p.navigationTarget = destination; p.navigationAction = "read_get"; p.readReceiptId = p.dispatchId;
         if (!p.tab.task.prepareReadNavigation(p.dispatchId, navigationHash(destination), navigationHash(p.previousDocument))) {
             finish(p, error("읽기 이동 기록이 바뀌어 실행하지 않았어요.")); return;
@@ -1132,13 +1330,18 @@ final class BrowserEngine {
     }
     /** File addresses a Work browser keeps instead of opening: documents, sound, video and archives (not pages, not pictures). */
     private static final Set<String> FILE_TYPES = Set.of("pdf", "hwp", "hwpx", "zip", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "mp3", "m4a", "wav", "mp4");
-    /** Whether this Work browser keeps the address as a file: the path names one of FILE_TYPES. */
+    /**
+     * Whether the browser keeps the address as a file instead of opening it: the path names one of FILE_TYPES. A Work browser
+     * keeps it as the job's file; the app's own browser saves it to the phone's 다운로드, except a PDF, which opens in its
+     * viewer to be read (pdfOpened).
+     */
     private boolean keepsFile(String url) {
-        if (!workEngine || workDownload == null || disposed) return false;
+        if (disposed || workEngine && workDownload == null) return false;
         try {
             String path = URI.create(BrowserTools.url(url)).getPath();
             int dot = path == null ? -1 : path.lastIndexOf('.');
-            return dot > path.lastIndexOf('/') && FILE_TYPES.contains(path.substring(dot + 1).toLowerCase(Locale.ROOT));
+            String type = dot > path.lastIndexOf('/') ? path.substring(dot + 1).toLowerCase(Locale.ROOT) : "";
+            return FILE_TYPES.contains(type) && (workEngine || !type.equals("pdf"));
         } catch (RuntimeException invalid) { return false; }
     }
     /**
@@ -1170,7 +1373,7 @@ final class BrowserEngine {
         fetched.accept(response -> main.post(() -> handOver(tab, response, label)),
             failed -> main.post(() -> handOver(tab, new WebResponse.Builder(url).statusCode(0).body(new java.io.ByteArrayInputStream(new byte[0])).build(), label)));
         return obj("ok", true, "file_download", true, "download_started", true, "tab", tab.id, "url", safeUrl(url), "document", tab.document, "link_text", label,
-            "message", "파일 주소라 페이지를 옮기지 않고 이 작업의 파일로 받고 있어요. 탭은 지금 페이지에 그대로 있고, 지금 요소 ref도 그대로 쓸 수 있어요. 같은 파일을 다시 받지 말고 다음 링크로 이어 가세요.");
+            "message", "파일 주소라 페이지를 옮기지 않고 " + (workEngine ? "이 작업의 파일로" : "휴대폰의 다운로드 폴더에") + " 받고 있어요. 탭은 지금 페이지에 그대로 있고, 지금 요소 ref도 그대로 쓸 수 있어요. 같은 파일을 다시 받지 말고 다음 링크로 이어 가세요.");
     }
     /**
      * A click on a control named for a file ("국어영역_문제지.pdf") whose script then sends the page to the file's address: in
@@ -1194,12 +1397,61 @@ final class BrowserEngine {
         put(value, "file_message", "누른 버튼이 파일을 열려고 해서, 페이지를 옮기지 않고 이 작업의 파일로 받고 있어요. 탭은 지금 페이지에 그대로 있어요. 같은 파일을 다시 받지 말고 다음 버튼으로 이어 가세요.");
     }
     private void handOver(Tab tab, WebResponse response, String label) {
+        if (!workEngine && !disposed && live(tab)) { saveDownload(tab, response); return; }
         if (disposed || workDownload == null || !live(tab)) {
             try { if (response.body != null) response.body.close(); } catch (java.io.IOException ignored) { }
             return;
         }
         tab.downloadLabel = label == null ? "" : label;
         try { workDownload.accept(tab, response); } finally { tab.downloadLabel = ""; }
+    }
+    /**
+     * A file in the app's own browser (the user's download, or a file an AI step opened): it goes to the phone's 다운로드 folder,
+     * or music to 들퍼레/음악 when that is connected (BrowserDownloads). The tab's line says how it went, and a task working in
+     * the tab hears it with its next step.
+     */
+    private void saveDownload(Tab tab, WebResponse response) {
+        Lane own = lane(tab), task = taskUsing(tab);
+        final long shown = own == null ? -1 : own.id, working = task == null ? -1 : task.id;
+        BrowserDownloads.save(context, response, saved -> {
+            String line = saved.optString("message");
+            if (valid(shown)) { setTaskStatus(shown, line); record(shown, line); }
+            Lane worker = lane(working);
+            if (worker != null && valid(working)) {
+                if (working != shown) record(working, line);
+                JSONObject file = copy(saved); file.remove("message");
+                worker.tabs.event(obj("file_saved", file, "note", saved.optBoolean("ok")
+                    ? "The file was saved in the phone's 다운로드 folder (name, size). Do not download it again." : "The file was not saved: " + line));
+            }
+        });
+    }
+    /**
+     * A step's load (open, or a link it followed) turned out to be a file the site sends to be saved, not a page: the tab is
+     * still on the page it was on, so it goes back to that page's bridge and the step is answered now instead of waiting for a
+     * page that never comes. A link followed this way settles its read-navigation record as a file link (fileLink).
+     */
+    private void downloadedInstead(Pending p, String uri) {
+        Tab tab = p.tab; p.downloadedInstead = true;
+        tab.port = p.leftPort; tab.document = p.leftDocument; tab.url = p.leftUrl.isEmpty() ? tab.url : p.leftUrl;
+        tab.loading = false; tab.needsLoad = false; tab.loadFailed = false;
+        JSONObject value = obj("ok", true, "file_download", true, "download_started", true, "tab", tab.id, "url", safeUrl(uri), "document", tab.document,
+            "message", (workEngine ? "그 주소는 파일이라 이 작업의 파일로 받고 있어요. " : "그 주소는 파일이라 휴대폰의 다운로드 폴더에 받고 있어요. ")
+                + "탭은 원래 페이지에 그대로 있고 지금 ref도 그대로 써요. 같은 파일을 다시 받지 마세요.");
+        if (p.navigationAction.equals("read_get") && !p.readReceiptId.isBlank() && !p.recoveryChecked) {
+            String before = tab.task.snapshot();
+            if (tab.task.settleReadNavigation(p.readReceiptId, navigationHash(p.navigationTarget), navigationHash("file:" + p.navigationTarget + ":" + p.previousDocument))) {
+                p.recoveryChecked = true; p.settlingMutation = true;
+                persistTask(tab, saved -> {
+                    p.settlingMutation = false;
+                    if (!saved) tab.task.restoreMutationFence(before); else activeWorkReceipts.remove(p.readReceiptId);
+                    if (!isPending(p) || !valid(p.generation)) return;
+                    if (!saved) { finish(p, error("파일 링크 기록을 저장하지 못했어요. 동작을 반복하지 않았어요.")); return; }
+                    p.dispatched = true; put(value, "public_get_navigation_verified", true); finish(p, value);
+                });
+                return;
+            }
+        }
+        finish(p, value);
     }
     /** The label of the element with this ref on the tab's last read page; "" when there is none. Untrusted page text. */
     private static String elementLabel(Tab tab, String ref) {
@@ -1257,8 +1509,8 @@ final class BrowserEngine {
         catch (RuntimeException malformed) { return false; }
     }
     /**
-     * Releases a global Work fence an earlier repeat-safe job left (REPEAT_SAFE_SCOPE: one question typed to Gemini, which may
-     * safely be sent twice) when no running job holds it, as such jobs left before they took none. Any other job's fence
+     * Releases the Work fences earlier repeat-safe jobs left (REPEAT_SAFE_SCOPE: one question typed to Gemini, which may
+     * safely be sent twice) when no running job holds them, as such jobs left before they took none. Any other job's fence
      * stays for the user to look at (Work 실행 확인). Native code only; done hears on the main thread whether one went.
      */
     static void releaseRepeatSafeWork(Context context, Consumer<Boolean> done) {
@@ -1267,30 +1519,75 @@ final class BrowserEngine {
         WORK_STORAGE_IO.execute(() -> {
             boolean released = false;
             try {
-                JSONObject pending = readWorkPending(store);
-                if (pending != null && pending.optString("job_id").startsWith(REPEAT_SAFE_SCOPE) && !activeWorkReceipts.contains(pending.optString("receipt_id"))) {
-                    store.secrets.put(WORK_PENDING_KEY, ""); released = true;
-                }
+                dev.jun.gyeot.core.WorkFence fence = readWorkFence(store);
+                boolean leftover = false;
+                for (JSONObject row : fence.rows())
+                    if (row.optString("job_id").startsWith(REPEAT_SAFE_SCOPE) && !activeWorkReceipts.contains(row.optString("receipt_id")))
+                        leftover |= fence.remove(row.optString("job_id"));
+                if (leftover) { store.secrets.put(WORK_PENDING_KEY, fence.save()); released = true; }
             } catch (Exception unreadable) { /* The fence stays. */ }
             final boolean value = released;
             if (done != null) main.post(() -> done.accept(value));
         });
     }
-    private JSONObject mutationBlocked() {
-        return obj("ok", false, "requires_user", true, "error_code", "mutation_unresolved", "action_executed", false,
-            "action_may_have_run", false, "previous_action_may_have_run", true, "retryable", false,
+    private JSONObject mutationBlocked() { return mutationBlocked(null); }
+    /** The tab's own unconfirmed step as a record for mutationBlocked (its receipt, action, site and request; no time). */
+    private static JSONObject earlierStep(Tab tab) {
+        JSONObject step = tab.task.pendingMutation();
+        if (step.optString("id").isEmpty()) return null;
+        put(step, "receipt_id", step.optString("id"));
+        return step;
+    }
+    /**
+     * A change refused because an earlier one's result is unknown. The fence is the tab's own (a Work job's, or this tab's):
+     * other tabs and other Work jobs go on. With the earlier step's record (earlier), the answer says which step it was (when,
+     * on which site, what it did, for what request), that reading still works, and how the user lifts the block: in the app's
+     * browser a new instruction to that tab does it, from any surface; a Work job's one tap on its notification. The AI can
+     * then look for the earlier result itself and tell the user exactly what to check.
+     */
+    private JSONObject mutationBlocked(JSONObject earlier) {
+        JSONObject out = obj("ok", false, "requires_user", true, "error_code", "mutation_unresolved", "action_executed", false,
+            "action_may_have_run", false, "previous_action_may_have_run", true, "retryable", false, "reads_allowed", true,
             "error", workEngine
-                ? "이전 Work 작업의 변경 결과가 불확실해 현재 변경은 실행하지 않았어요. 읽기로 상태를 확인한 뒤 브라우저 메뉴의 Work 실행 확인에서 해당 기록을 직접 확인해 주세요."
-                : "이 탭의 이전 변경 결과가 불확실해 현재 변경은 실행하지 않았어요. 읽기로 상태를 확인한 뒤 브라우저 메뉴에서 해당 실행 기록을 직접 확인해 주세요.");
+                ? "이 Work 작업의 이전 변경 결과가 불확실해 현재 변경은 실행하지 않았어요. 다른 Work 작업은 그대로 해요. 읽기로 상태를 확인한 뒤 알림의 '이전 작업 확인'(또는 브라우저 메뉴 → 확인 필요한 작업)에서 직접 확인해 주세요."
+                : "이 탭의 이전 변경 결과가 불확실해 현재 변경은 실행하지 않았어요. 읽기로 상태를 확인해 주세요. 이 탭에 새로 지시하면(브라우저 창·음성·퍼레 어디서든) 그 표시가 풀리고 페이지를 먼저 읽고 이어 가요.");
+        if (earlier == null) return out;
+        String site = siteOf(earlier.optString("url")), action = stepName(earlier.optString("action")), asked = earlier.optString("request");
+        if (asked.length() > 300) asked = asked.substring(0, 300) + "…";
+        long at = earlier.optLong("at");
+        String when = at > 0 ? new java.text.SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(new Date(at)) + "에" : "앞서";
+        put(out, "previous_step", obj("site", site, "action", earlier.optString("action"), "at", at > 0 ? at : JSONObject.NULL, "request", asked,
+            "reason", earlier.optString("stop_reason", earlier.optString("reason"))));
+        if (!workEngine) {
+            put(out, "error", "이 탭에서 " + when + " " + site + "에서 '" + action + "'을 한 뒤 결과를 확인하지 못해서, 같은 일이 두 번 일어나지 않도록 이번 변경은 실행하지 않았어요."
+                + " 페이지 읽기는 돼요: " + site + "에서 그 동작이 실제로 됐는지 먼저 읽어서 확인하세요. 이 탭에 새로 지시하면(브라우저 창·음성·퍼레 어디서든) 그 표시가 풀려요."
+                + (asked.isBlank() ? "" : " 이전 요청: " + asked));
+            return out;
+        }
+        put(out, "error", "이 Work 작업이 " + when + " " + site + "에서 '" + action + "'을 한 뒤 결과를 확인하지 못했어요. 같은 일이 두 번 일어나지 않도록 이 작업의 클릭·입력 같은 변경만 막았고(다른 Work 작업은 그대로 해요), 이번 변경은 실행하지 않았어요."
+            + " 주소 열기와 페이지 읽기는 돼요: " + site + "에서 그 작업이 실제로 됐는지(이미 올라간 글·영상·초안 등) 먼저 읽어서 확인하고, 사용자에게 알림의 '이전 작업 확인'(또는 브라우저 메뉴 → 확인 필요한 작업)을 눌러 차단을 풀어 달라고 한 뒤 다시 하세요."
+            + (asked.isBlank() ? "" : " 이전 요청: " + asked));
+        BrowserTaskService.askWorkReview(context, earlier.optString("receipt_id"), site, action);
+        return out;
+    }
+    private static String siteOf(String url) {
+        try { String host = URI.create(url == null ? "" : url).getHost(); return host == null || host.isBlank() ? "같은 사이트" : host; }
+        catch (RuntimeException malformed) { return "같은 사이트"; }
+    }
+    private static String stepName(String action) {
+        return switch (action == null ? "" : action) {
+            case "click" -> "누르기"; case "type" -> "입력"; case "select" -> "선택"; case "press" -> "키 누르기"; case "vault_fill" -> "로그인 정보 입력"; default -> "변경";
+        };
     }
     private void prepareDispatch(Pending p, Runnable dispatch) {
         if (!isPending(p) || !valid(p.generation)) return;
         if (p.mutationSaved) { dispatch.run(); return; }
         if (p.preparingMutation) return;
-        if (p.tab.task.mutationUnresolved()) { finish(p, mutationBlocked()); return; }
+        if (p.tab.task.mutationUnresolved()) { finish(p, mutationBlocked(earlierStep(p.tab))); return; }
         p.dispatchId = UUID.randomUUID().toString();
         if (!p.tab.task.prepareMutation(p.dispatchId, p.action)) { finish(p, mutationBlocked()); return; }
         Lane owner = lane(p.generation);
+        if (owner != null) owner.ownMutations.add(p.dispatchId);
         String request = p.action.equals("vault_fill") ? "사용자가 저장된 로그인 정보 입력을 승인함" : owner == null ? "" : owner.lastRequest;
         try { p.tab.task.mutationContext(p.dispatchId, request, safeWorkUrl(p.tab.url)); }
         catch (IllegalArgumentException invalidContext) { settleUnsent(p); finish(p, obj("ok", false, "action_executed", false, "error", "변경 요청의 복구 문맥을 저장할 수 없어 실행하지 않았어요.")); return; }
@@ -1313,43 +1610,49 @@ final class BrowserEngine {
         // a repeat-safe job's step on its own site: doing it twice is harmless, so it takes no global fence.
         if (p.routine || p.repeatSafe) { ready.accept(true); return; }
         if (!workEngine) { persistTask(p.tab, ready); return; }
+        // A Work job keeps one durable record, for its own tab: a change in another tab it opened has nowhere to be kept, so it
+        // does not run, and the job is told how to go on (that address in its own tab), instead of ending on a storage error.
+        if (p.tab != restoreTab && restoreTab != null && workTaskWritable && !restorePending) {
+            p.preparingMutation = false; settleUnsent(p);
+            finish(p, dev.jun.gyeot.core.BrowserTaskTabs.refusal("work_other_tab", "Work 작업은 자기 탭에서만 누르기·입력 같은 변경을 기록해요. 이 탭에서는 실행하지 않았어요. 읽기와 링크 이동은 돼요: 이 페이지 주소를 작업 탭에서 open 해서 이어 가세요."));
+            return;
+        }
         if (workScope.isEmpty() || !workTaskWritable || restorePending || p.tab != restoreTab) { ready.accept(false); return; }
-        // Reserve globally, then dispatch only after both encrypted records commit. Serial Work IO
-        // means concurrent/new UUID jobs cannot observe an empty guard and both submit effects.
+        // Reserve this job's fence, then dispatch only after both encrypted records commit. Serial Work IO means a run of the
+        // same job cannot observe an empty guard and submit its effect twice; another job's fence never stops this one.
         String snapshot = p.tab.task.snapshot();
         JSONObject record = obj("version", 1, "receipt_id", p.dispatchId, "job_id", workScope,
             "request", request, "url", safeWorkUrl(p.tab.url), "reason", "awaiting_acknowledgement",
-            "action", p.action, "state", "awaiting_acknowledgement", "tier", "consequential");
+            "action", p.action, "state", "awaiting_acknowledgement", "tier", "consequential", "at", System.currentTimeMillis());
         reserveWorkDispatch(p, snapshot, record, ready);
     }
     private void reserveWorkDispatch(Pending p, String snapshot, JSONObject record, Consumer<Boolean> ready) {
         if (!isPending(p) || !valid(p.generation)) return;
         storageIo.execute(() -> {
-            boolean saved = false, blocked = false, waiting = false;
+            boolean saved = false, blocked = false, waiting = false; JSONObject earlier = null;
             try {
-                JSONObject existing = readWorkPending(store);
-                // Records from before steps were tiered fenced every click, links and file buttons included: one that no
-                // running job holds is released, so an ordinary click does not stop all later browser work.
-                if (existing != null && !existing.has("tier") && !activeWorkReceipts.contains(existing.optString("receipt_id"))) {
-                    store.secrets.put(WORK_PENDING_KEY, ""); existing = null;
-                }
-                if (existing != null) {
-                    waiting = activeWorkReceipts.contains(existing.optString("receipt_id")); blocked = !waiting;
-                }
-                else {
-                    store.secrets.put(workTaskKey(), snapshot);
-                    store.secrets.put(WORK_PENDING_KEY, record.toString()); saved = true;
+                // Only this job's own row decides (core/WorkFence.reserve); a record from before steps were tiered that no
+                // running job holds is released there, so an ordinary click does not stop later browser work.
+                dev.jun.gyeot.core.WorkFence fence = readWorkFence(store);
+                dev.jun.gyeot.core.WorkFence.Decision decision = fence.reserve(workScope, activeWorkReceipts);
+                switch (decision.step()) {
+                    case WAIT -> { waiting = true; earlier = decision.earlier(); }
+                    case BLOCKED -> { blocked = true; earlier = decision.earlier(); }
+                    case RESERVE -> {
+                        store.secrets.put(workTaskKey(), snapshot);
+                        fence.put(record); store.secrets.put(WORK_PENDING_KEY, fence.save()); saved = true;
+                    }
                 }
             } catch (Exception failure) { /* No durable reservation, no dispatch. */ }
-            final boolean durable = saved, conflict = blocked, awaitActive = waiting;
+            final boolean durable = saved, conflict = blocked, awaitActive = waiting; final JSONObject previous = earlier;
             main.post(() -> {
                 if (!isPending(p) || !valid(p.generation)) return;
                 if (awaitActive) {
-                    setTaskStatus(p.generation, "다른 Work 동작의 실행 확인을 기다리는 중이에요");
+                    setTaskStatus(p.generation, "이 작업의 이전 동작이 끝나기를 기다리는 중이에요");
                     main.postDelayed(() -> reserveWorkDispatch(p, snapshot, record, ready), 150);
                 } else if (conflict) {
                     p.preparingMutation = false; settleUnsent(p);
-                    if (isPending(p) && valid(p.generation)) finish(p, mutationBlocked());
+                    if (isPending(p) && valid(p.generation)) finish(p, mutationBlocked(previous));
                 } else ready.accept(durable);
             });
         });
@@ -1421,6 +1724,8 @@ final class BrowserEngine {
                                 acceptReadNavigation(p, value); return;
                             }
                             acknowledgeMutation(p, value);
+                            // The file went into the page's field: nothing is left ready for a chooser.
+                            if (!p.uploadToken.isEmpty() && value.optBoolean("ok") && !value.optString("attached").isEmpty()) { p.tab.upload = null; p.nativeTap = false; }
                             if (p.nativeTap && value.optJSONObject("tap") != null) { JSONObject at = value.optJSONObject("tap"); p.nativeTap = false; BrowserTouch.tap(p.tab.session, at.optDouble("x", -1), at.optDouble("y", -1)); }
                             if (value.optBoolean("stale_observation") && !p.rereadRejected) {
                                 p.rereadRejected = true; p.sends++;
@@ -1469,6 +1774,23 @@ final class BrowserEngine {
         for (Tab t : tabs) list.put(obj("tab", t.id, "title", BrowserTools.googleLogin(t.url) ? "Google 로그인" : t.title, "url", safeUrl(t.url), "selected", t == current, "desktop", t.desktop, "zoom", t.zoomPercent));
         return obj("ok", true, "tabs", list, "working_tab", current == null ? "" : current.id);
     }
+    /** The open tabs as a task sees them: its own, the one it is on, those it opened, and those another task uses (busy). */
+    private JSONObject tabList(Lane l) {
+        JSONObject value = tabList();
+        JSONArray list = value.optJSONArray("tabs");
+        Tab on = live(l.tabs.focus()) ? l.tabs.focus() : l.owner;
+        for (int i = 0; list != null && i < list.length() && i < tabs.size(); i++) {
+            JSONObject row = list.optJSONObject(i); Tab t = tabs.get(i);
+            put(row, "own", t == l.owner); put(row, "current", t == on);
+            if (l.tabs.opened(t)) put(row, "opened_by_task", true);
+            Lane other = taskUsing(t);
+            if (other != null && other != l) put(row, "busy", true);
+            if (t.secret) put(row, "secret", true);
+        }
+        put(value, "working_tab", on.id); put(value, "own_tab", l.owner.id);
+        return value;
+    }
+    private static String hostOf(String url) { String host = dev.jun.gyeot.core.BrowserJournal.host(url); return host.isEmpty() ? "새 페이지" : host; }
     static String safeUrl(String url) { try { URI u = URI.create(BrowserTools.url(url)); return BrowserTools.origin(url) + (BrowserTools.googleLogin(url) ? "" : u.getRawPath()); } catch (Exception e) { return ""; } }
     static JSONObject error(String message) { return obj("ok", false, "error", message); }
     /** A spoken conversation is going on with the browser (VoiceTargets.browser): its page stays live to be read while hidden. */
@@ -1500,32 +1822,69 @@ final class BrowserEngine {
         if (action.equals("stop")) { l.paused = true; stopTask(lease,"AI 작업을 중지했어요"); callback.accept(obj("ok", true, "stopped", true)); return; }
         if (l.paused) { callback.accept(obj("ok", false, "requires_user", true, "error", "직접 조작 모드예요. 브라우저에서 AI 계속을 누르거나 새 지시를 입력해 주세요.")); return; }
         if (l.pending != null) { callback.accept(error("이전 브라우저 동작이 끝난 뒤 다시 요청해 주세요.")); return; }
-        if (action.equals("tabs")) { JSONObject value = tabList(); put(value, "working_tab", l.owner.id); callback.accept(value); return; }
-        Tab tab = l.owner;
-        if (!args.optString("tab").isBlank()) { tab = null; for (Tab t : tabs) if (t.id.equals(args.optString("tab"))) tab = t; }
-        if (tab == null) { callback.accept(error("탭이 닫혔어요. 탭 목록을 다시 읽어 주세요.")); return; }
-        if (tab != l.owner) { callback.accept(obj("ok", false, "error_code", "task_target_mismatch", "action_executed", false, "error", "작업 대상 탭은 바꿀 수 없어요. 해당 탭에서 별도로 지시해 주세요.")); return; }
+        if (action.equals("tabs")) { callback.accept(tabList(l)); return; }
+        if (action.equals("open_tab")) { openTab(l, lease, routine, args, callback); return; }
+        // Several tabs per task (준: "쓸데 없는 제한이 너무 많아"): a step goes to the tab it names, else to the tab the task is on.
+        Tab tab = live(l.tabs.focus()) ? l.tabs.focus() : l.owner;
+        if (!args.optString("tab").isBlank()) tab = tab(args.optString("tab"));
+        if (action.equals("close")) {
+            JSONObject refused = l.tabs.closing(tab); // only a tab this task opened
+            if (refused != null) { callback.accept(refused); return; }
+            close(tab); callback.accept(tabList(l)); return;
+        }
+        {
+            // The task works in that tab from now on, unless another running task uses it (one task per tab). A secret tab's
+            // pages never go into an ordinary tab's kept conversation: a task is given there itself.
+            Lane other = taskUsing(tab);
+            JSONObject refused = tab != null && tab.secret && !l.owner.secret && !l.tabs.uses(tab)
+                ? dev.jun.gyeot.core.BrowserTaskTabs.refusal("secret_tab", "시크릿 탭의 내용은 이 탭의 대화에 남기지 않아요. 그 탭에서 따로 맡겨 주세요.")
+                : l.tabs.use(tab, other != null && other != l);
+            if (refused != null) { callback.accept(refused); return; }
+        }
 
         boolean observedReadNavigation = action.equals("open") && dev.jun.gyeot.core.BrowserReadNavigation.allowed(tab.lastReadObservation, tab.document, args.optString("url"));
         JSONObject userNavigation = BrowserTools.explicitNavigation(l.lastAsk.isBlank() ? l.lastRequest : l.lastAsk);
         boolean explicitBack = action.equals("back") && args.optBoolean("navigation_only") && tab.back
             && userNavigation != null && "back".equals(userNavigation.optString("action"));
         if (tab.task.mutationUnresolved() && !Set.of("read", "scroll", "switch").contains(action) && !observedReadNavigation && !explicitBack) {
-            callback.accept(mutationBlocked()); return;
+            // The running task's own step whose confirmation never came (a page busy uploading, a receipt lost) does not end
+            // the task: the page is read first and the task decides again from what it shows; once it has, the step is
+            // settled and work goes on. Another task's unconfirmed step stays fenced in this tab only: a new instruction to the
+            // tab lifts it (releaseForNewRequest), a Work job's the user's check of its notification.
+            String unresolved = tab.task.pendingMutation().optString("id");
+            if (!l.ownMutations.contains(unresolved)) { callback.accept(mutationBlocked(earlierStep(tab))); return; }
+            if (!unresolved.equals(l.observedUncertain)) {
+                execute(obj("action", "read"), lease, false, value -> {
+                    put(value, "action_executed", false); put(value, "previous_action_rejected", true); put(value, "earlier_step_unconfirmed", true);
+                    put(value, "replan_hint", "Nothing was executed now. The step before this one was sent but the page never confirmed it; this fresh page shows what happened. "
+                        + "If it already took effect (a file attached, a form saved, a post made), go on from here and never repeat it. Choose again with these refs.");
+                    callback.accept(value);
+                });
+                return;
+            }
+            if (!tab.task.settleObservedByTask(unresolved)) { callback.accept(mutationBlocked()); return; }
+            l.observedUncertain = ""; tab.taskChanged = true;
+            persistTask(tab, saved -> { if (workEngine) activeWorkReceipts.remove(unresolved); });
         }
-        // Every task, including an isolated Work browser, retains its original tab.
-        // Only explicit native UI selection changes the visible conversation.
-        if (action.equals("close")) { close(tab); callback.accept(tabList()); return; }
+        // Only explicit native UI selection changes the visible conversation: a task's other tabs open and work beside it.
         if (!extensionError.isBlank()) { callback.accept(obj("ok", false, "error_code", "bridge_install_failed", "error", extensionError)); return; }
+        // A PDF in the viewer whose words were read: a read shows them, a scroll moves through them (pdfPage).
+        if (!workEngine && pdfShown(tab) && Set.of("read", "scroll").contains(action)) {
+            callback.accept(pdfPage(tab, action.equals("scroll") ? args.optString("direction", "down") : "")); return;
+        }
         if (action.equals("open") && keepsFile(args.optString("url"))) { record(lease, "파일을 받는 중"); callback.accept(fetchFile(tab, args.optString("url"), linkLabel(tab, args.optString("url")))); return; }
-        if (action.equals("back") && !tab.back) { callback.accept(obj("ok", false, "error_code", "no_history", "action_executed", false, "retryable", false, "error", "돌아갈 이전 페이지가 없어요. 이동할 공개 HTTPS 홈페이지 주소를 알려 주세요.")); return; }
-        // 권한 모드 '읽기만': the AI reads, scrolls, follows links and opens pages, and never types, chooses or presses on one.
-        if (readOnly() && (Set.of("type", "select", "press", "attach").contains(action) || action.equals("click") && !routine)) {
+        if (action.equals("back") && !tab.back) { callback.accept(obj("ok", false, "error_code", "no_history", "action_executed", false, "retryable", false, "error", "돌아갈 이전 페이지가 없어요. 이동할 주소를 알려 주세요.")); return; }
+        // 권한 모드 '읽기만': the AI reads, scrolls, follows links and opens pages, and never types, chooses or presses on one
+        // (a key that only moves or selects, QUIET_KEYS, changes nothing and goes through).
+        if (readOnly() && (Set.of("type", "select", "attach").contains(action) || action.equals("press") && !BrowserTools.QUIET_KEYS.contains(args.optString("text"))
+                || action.equals("click") && !routine)) {
             callback.accept(obj("ok", false, "error_code", "read_only_mode", "action_executed", false, "retryable", false,
-                "error", "읽기만 모드예요: 페이지에 입력하거나 고르거나 누르는 동작은 하지 않아요. 읽기·스크롤·링크 이동으로만 이어 가고, 필요하면 사용자에게 AI 메뉴 → 권한 모드에서 '확인받기'로 바꿔 달라고 말해 주세요.")); return;
+                "error", "읽기만 모드예요: 페이지에 입력하거나 고르거나 누르는 동작은 하지 않아요. 읽기·스크롤·링크 이동으로만 이어 가고, 필요하면 사용자에게 AI 메뉴 → 권한 모드에서 '조작 허용'으로 바꿔 달라고 말해 주세요.")); return;
         }
         if (action.equals("attach")) { callback.accept(stageUpload(tab, lease, args.optString("file"))); return; }
         if (action.equals("click")) tab.clickLabel = elementLabel(tab, args.optString("ref"));
+        // Control+v pastes what this task copied (its own clipboard), never the phone's.
+        if (action.equals("press") && args.optString("text").matches("(?:Control|Meta)\\+v")) put(args, "paste", l.clipboard);
         Pending p = new Pending(); p.id = Long.toString(++sequence); p.tab = tab; p.generation = lease; p.callback = callback; p.action = action; p.readReceiptId = tab.task.pendingMutation().optString("id");
         p.routine = routine; p.repeatSafe = repeatSafe(tab);
         if (args.optBoolean("navigation_only") && Set.of("open", "back").contains(action)) {
@@ -1534,9 +1893,9 @@ final class BrowserEngine {
         p.mutation = Set.of("click", "type", "select", "press").contains(action);
         p.deadline = android.os.SystemClock.uptimeMillis() + 20000;
         tab.automationInput = true;
-        l.pending = p; record(lease,BrowserTools.actionLabel(action));
+        l.pending = p; if (!action.equals("read")) record(lease,BrowserTools.actionLabel(action));
         if (Set.of("open", "back", "forward", "reload", "set_mode").contains(action)) p.dispatched = true;
-        if (action.equals("open")) { tab.url = args.optString("url"); tab.needsLoad = true; }
+        if (action.equals("open")) { p.leftPort = tab.port; p.leftUrl = tab.url; p.leftDocument = tab.document; tab.url = args.optString("url"); tab.needsLoad = true; }
         if (action.equals("set_mode")) changeDesktop(tab, args.optString("mode").equals("desktop"));
         activate(tab);
         if (l.pending != p || !valid(lease)) return; // Native loading can fail synchronously.
@@ -1547,11 +1906,101 @@ final class BrowserEngine {
             case "reload" -> { tab.loadFailed = false; tab.port = null; tab.session.reload(); args = obj("action", "read"); }
             case "switch", "set_mode" -> args = obj("action", "read");
         }
-        // A file is ready for this tab's chooser: the click is a real tap (a file chooser opens only for a user's own touch).
-        if (action.equals("click") && tab.upload != null && android.os.SystemClock.uptimeMillis() <= tab.uploadUntil) { p.nativeTap = true; args = copy(args); put(args, "native_tap", true); }
+        // A file is ready for this tab: it goes straight into the page's file field (put_file), the way automation puts a file
+        // in, so no chooser has to open — an offscreen tab has no one to touch it. The bytes go to the page first, in pieces;
+        // a page with no file field gets the old real tap (its chooser takes the file, stagedUpload).
+        if (action.equals("click") && tab.upload != null && android.os.SystemClock.uptimeMillis() <= tab.uploadUntil) {
+            dev.jun.gyeot.core.BrowserUploads.Entry file = tab.upload; Tab target = tab;
+            String token = UUID.randomUUID().toString(); p.uploadToken = token; p.nativeTap = true;
+            JSONObject put = obj("action", "put_file", "ref", args.optString("ref"), "document", args.optString("document"), "token", token,
+                "name", file.name(), "type", file.mime(), "native_tap", true);
+            p.deadline = android.os.SystemClock.uptimeMillis() + 240_000;
+            record(lease, "파일을 페이지로 보내는 중 · " + file.name());
+            streamUpload(target, file, token, () -> { if (isPending(p) && valid(p.generation)) { changed(); sendWhenReady(p, put, p.deadline); } },
+                why -> { if (isPending(p) && valid(p.generation)) finish(p, obj("ok", false, "action_executed", false, "retryable", true, "error", why)); });
+            changed(); return;
+        }
         changed(); sendWhenReady(p, args, p.deadline);
     }
     private boolean isPending(Pending p){Lane l=lane(p.generation);return l!=null&&l.pending==p;}
+    /**
+     * open_tab: the address opens in a new tab beside the user's (the screen stays on the tab they look at), the task works
+     * there next and may close it; a secret tab's task opens a secret tab. A file's address is kept without a tab (keepsFile).
+     */
+    private void openTab(Lane l, long lease, boolean routine, JSONObject args, Consumer<JSONObject> callback) {
+        String url = args.optString("url");
+        Tab from = live(l.tabs.focus()) ? l.tabs.focus() : l.owner;
+        if (keepsFile(url)) { record(lease, "파일을 받는 중"); callback.accept(fetchFile(from, url, linkLabel(from, url))); return; }
+        if (blockSecurityLink(url)) { callback.accept(dev.jun.gyeot.core.BrowserTaskTabs.refusal("security_link", "휴대폰 보안이 막은 주소라 열지 않았어요. " + status)); return; }
+        Tab shown = current, opened; long epoch = viewEpoch;
+        try { opened = newTab(url, false, l.owner.secret); }
+        catch (RuntimeException refused) {
+            callback.accept(dev.jun.gyeot.core.BrowserTaskTabs.refusal("tab_not_opened", message(refused, "새 탭을 열지 못했어요.") + " 지금 탭에서 open으로 이어 가세요.")); return;
+        }
+        if (shown != null && live(shown)) { current = shown; viewEpoch = epoch; showTaskState(); }
+        opened.desktop = from.desktop; opened.zoomPercent = from.zoomPercent; opened.opener = from; desktopSettings(opened);
+        l.tabs.opened(opened, null);
+        record(lease, "새 탭 · " + hostOf(url));
+        persist(); changed();
+        execute(obj("action", "open", "url", url, "tab", opened.id), lease, routine, value -> { put(value, "tab_opened", true); callback.accept(value); });
+    }
+    /** The tab shows a PDF in the viewer whose words were read for this navigation (pdfOpened, BrowserPdfText). */
+    private static boolean pdfShown(Tab tab) {
+        return tab.port == null && tab.pdfText != null && tab.pdfText.optBoolean("ok") && tab.pdfTextEpoch == tab.navigationEpoch && tab.pdfEpoch == tab.navigationEpoch;
+    }
+    /** A PDF's words are given this many characters at a time, as a page's text is. */
+    private static final int PDF_WINDOW = 12000;
+    /** The PDF's words from where the task reads (a scroll moves a window down or up), with what lies above and below. */
+    private JSONObject pdfPage(Tab tab, String direction) {
+        String text = tab.pdfText.optString("text");
+        int before = tab.pdfOffset;
+        if ("down".equals(direction) && tab.pdfOffset + PDF_WINDOW < text.length()) tab.pdfOffset += PDF_WINDOW;
+        else if ("up".equals(direction)) tab.pdfOffset = Math.max(0, tab.pdfOffset - PDF_WINDOW);
+        int from = Math.min(tab.pdfOffset, text.length()), to = Math.min(text.length(), from + PDF_WINDOW);
+        int pages = tab.pdfText.optInt("pages"), read = tab.pdfText.optInt("pages_read", pages);
+        JSONObject page = obj("ok", true, "pdf", true, "tab", tab.id, "url", safeUrl(tab.url), "title", tab.title, "document", tab.document,
+            "elements", arr(), "text", text.substring(from, to), "pages", pages, "pages_read", read, "text_from", from, "text_length", text.length(),
+            "more_below", to < text.length(), "more_above", from > 0, "desktop", tab.desktop, "zoom", tab.zoomPercent,
+            "message", "PDF 문서의 글이에요(휴대폰의 PDF 읽기로 꺼냈어요). 화면은 PDF 보기 그대로예요."
+                + (to < text.length() ? " 뒤에 더 있어요: scroll down으로 이어 읽어요." : "")
+                + (tab.pdfText.optBoolean("truncated") ? " 아주 긴 문서라 앞쪽 " + read + "쪽까지만 읽었어요." : ""));
+        if (!direction.isEmpty()) put(page, "scroll", obj("moved", tab.pdfOffset != before, "what", "pdf_text"));
+        return page;
+    }
+    /** A step on a tab whose PDF viewer has no bridge: its words when they were read (the app's own browser), else why not. */
+    private JSONObject pdfAnswer(Pending p, JSONObject args) {
+        Tab tab = p.tab;
+        if (workEngine || tab.pdfText == null || tab.pdfTextEpoch != tab.navigationEpoch) return pdfResult(tab, false);
+        if (!tab.pdfText.optBoolean("ok")) return obj("ok", false, "pdf", true, "tab", tab.id, "url", safeUrl(tab.url),
+            "error_code", tab.pdfText.optString("error_code", "pdf_unreadable"), "retryable", false, "error", tab.pdfText.optString("error"));
+        JSONObject page = pdfPage(tab, "");
+        if (!"read".equals(args.optString("action"))) {
+            put(page, "action_executed", false);
+            put(page, "note", "PDF 보기 화면이라 누르거나 입력할 곳이 없어요. 읽기와 스크롤만 돼요: 다른 페이지는 open 하거나 back 하세요.");
+        }
+        if (p.recoveryChecked && p.navigationAction.equals("read_get")) put(page, "public_get_navigation_verified", true);
+        return page;
+    }
+    /**
+     * The app's own browser reads the words of the PDF in the viewer (its own copy, PdfFileSaver, read by BrowserPdfText) so a
+     * task can read it while the page stays shown. Returns whether reading began; the waiting step is answered by it (pdfAnswer).
+     */
+    private boolean readPdf(Tab tab, long epoch) {
+        if (workEngine || disposed || !BrowserPdfText.available()) return false;
+        GeckoResult<WebResponse> kept;
+        try { kept = tab.session.getPdfFileSaver().save(); } catch (RuntimeException unavailable) { return false; }
+        if (kept == null) return false;
+        tab.pdfReading++;
+        Runnable done = () -> { tab.pdfReading = Math.max(0, tab.pdfReading - 1); changed(); };
+        kept.accept(response -> BrowserPdfText.read(context, response, text -> main.post(() -> {
+            if (live(tab) && tab.navigationEpoch == epoch) {
+                tab.pdfText = text; tab.pdfTextEpoch = epoch; tab.pdfOffset = 0;
+                if (text.optBoolean("ok")) tab.document = "pdf-" + UUID.randomUUID();
+            }
+            done.run();
+        })), failed -> main.post(done));
+        return true;
+    }
     private void sendWhenReady(Pending p, JSONObject args, long deadline) {
         if (!isPending(p) || !valid(p.generation) || p.pdfAnswered) return;
         if (lane(p.generation).paused) { finish(p,error("브라우저 작업이 중지됐어요.")); return; }
@@ -1579,9 +2028,20 @@ final class BrowserEngine {
                     else finish(p,obj("ok", false, "action_may_have_run", p.dispatched, "error", "페이지 응답을 확인하지 못했어요. 동작을 반복하지 말고 먼저 페이지를 다시 읽어 주세요."));
                 }
             }, 6000);
-        } else if (p.tab.port == null && p.tab.pdfEpoch == p.tab.navigationEpoch && p.tab.pdfSaving == 0) finish(p, pdfResult(p.tab, false));
-        // A PDF still being kept turns back to its page when kept: wait for that a while longer than for a page.
-        else if (android.os.SystemClock.uptimeMillis() >= (p.tab.pdfSaving > 0 && p.tab.pdfEpoch == p.tab.navigationEpoch ? deadline + 90_000 : deadline)) finish(p,readinessFailure(p, extension == null ? "bridge_not_ready" : "page_not_ready", "아직 페이지를 읽을 수 없어요. 로딩이 끝난 뒤 다시 요청해 주세요."));
+        } else if (p.tab.port == null && p.tab.pdfEpoch == p.tab.navigationEpoch && p.tab.pdfSaving == 0 && p.tab.pdfReading == 0) finish(p, pdfAnswer(p, args));
+        // A PDF still being kept turns back to its page when kept, and one being read is answered with its words: wait for
+        // those a while longer than for a page.
+        // A read that finds no page to read (a black screen: the page's process ended, its script never came back) loads the
+        // page again once and waits for it, instead of telling the user to come back later.
+        else if (android.os.SystemClock.uptimeMillis() >= deadline && extension != null && !p.reloadedForRead && !p.dispatched
+                && "read".equals(args.optString("action")) && p.tab.pdfSaving == 0 && p.tab.pdfReading == 0) {
+            p.reloadedForRead = true; record(p.generation, "페이지가 응답하지 않아 다시 불러오는 중");
+            p.tab.port = null; p.tab.document = ""; p.tab.loading = false; p.tab.loadFailed = false;
+            if (p.tab.session.isOpen()) p.tab.session.reload(); else { p.tab.needsLoad = true; activate(p.tab); }
+            long more = android.os.SystemClock.uptimeMillis() + 25_000; p.deadline = Math.max(p.deadline, more);
+            main.postDelayed(() -> sendWhenReady(p, args, more), 300);
+        }
+        else if (android.os.SystemClock.uptimeMillis() >= ((p.tab.pdfSaving > 0 || p.tab.pdfReading > 0) && p.tab.pdfEpoch == p.tab.navigationEpoch ? deadline + 90_000 : deadline)) finish(p,readinessFailure(p, extension == null ? "bridge_not_ready" : "page_not_ready", "페이지를 다시 불러와도 읽지 못했어요. 주소창 옆 새로고침을 한 번 눌러 준 뒤 다시 맡겨 주세요."));
         else { if (p.tab.port == null) askPdf(p.tab); main.postDelayed(() -> sendWhenReady(p, args, deadline), 150); }
     }
     /**
@@ -1608,6 +2068,8 @@ final class BrowserEngine {
     private void pdfOpened(Tab tab, long epoch) {
         tab.pdfEpoch = epoch;
         boolean saving = false;
+        // The app's own browser: the PDF stays shown and its words are read for the task (the step waits for them).
+        boolean reading = readPdf(tab, epoch);
         if (workEngine && workDownload != null && !disposed) {
             GeckoResult<WebResponse> kept;
             try { kept = tab.session.getPdfFileSaver().save(); } catch (RuntimeException unavailable) { kept = null; }
@@ -1619,7 +2081,7 @@ final class BrowserEngine {
         }
         Pending p = pending(tab);
         if (p == null || p.tab != tab || !valid(p.generation)) { changed(); return; }
-        p.pdfAnswered = true;
+        if (!reading) p.pdfAnswered = true;
         // An observed public link that opened a PDF arrived where it was proposed to go: the viewer is the new document there.
         if (p.navigationAction.equals("read_get") && !p.readReceiptId.isBlank() && !p.recoveryChecked && sameNavigationUrl(tab.url, p.navigationTarget)) {
             String before = tab.task.snapshot();
@@ -1632,11 +2094,13 @@ final class BrowserEngine {
                     else if (workEngine) activeWorkReceipts.remove(p.readReceiptId);
                     if (!isPending(p) || !valid(p.generation)) return;
                     if (!saved) { finish(p, error("PDF 문서는 열렸지만 복구 기록 저장을 확인하지 못했어요.")); return; }
+                    if (reading) return; // its words answer the step once read (sendWhenReady → pdfAnswer)
                     put(result, "public_get_navigation_verified", true); finish(p, result);
                 });
                 return;
             }
         }
+        if (reading) { changed(); return; }
         finish(p, pdfResult(tab, saving));
     }
     private void deliverPdf(Tab tab, long epoch, WebResponse response) {
@@ -1672,7 +2136,8 @@ final class BrowserEngine {
                 + "같은 PDF를 다시 열지 마세요.");
         return obj("ok", false, "pdf", true, "tab", tab.id, "url", url, "error_code", "pdf_viewer", "retryable", false,
             "error", workEngine ? "이 탭은 PDF 문서를 보여 주고 있어서 읽을 수 없어요. 이 PDF는 이미 받았거나 받지 못했어요(작업 결과의 artifacts 확인). 다른 페이지를 open 하세요."
-                : "PDF 문서가 PDF 보기 화면으로 열렸어요. 이 화면의 내용은 읽을 수 없어요. 뒤로 가거나 다른 페이지로 이동해 주세요.");
+                : BrowserPdfText.available() ? "PDF 문서가 PDF 보기 화면으로 열렸지만 글을 꺼내지 못했어요. 뒤로 가거나 다른 페이지로 이동해 주세요."
+                : "PDF 문서가 PDF 보기 화면으로 열렸어요. 이 휴대폰에는 PDF의 글을 꺼내는 기능이 없어서(안드로이드 15부터) 내용을 읽을 수 없어요. 뒤로 가거나 다른 페이지로 이동해 주세요.");
     }
     // Readiness recovery is never permission to replay a dispatched action or a mutation.
     private static JSONObject readinessFailure(Pending p, String code, String message) {
@@ -1741,20 +2206,103 @@ final class BrowserEngine {
         // automation lease). Bind the resulting manual session after that handoff.
         PromptToken token = promptToken(session);
         GeckoResult<GeckoSession.PromptDelegate.PromptResponse> guarded = new GeckoResult<>();
+        boolean file = prompt instanceof GeckoSession.PromptDelegate.FilePrompt;
         source.accept(response -> {
-            if (validPrompt(token)) guarded.complete(response);
+            if (file ? validFilePrompt(token) : validPrompt(token)) guarded.complete(response);
             else guarded.completeExceptionally(new IllegalStateException("Stale browser prompt target"));
         }, guarded::completeExceptionally);
         return guarded;
     }
+    private Tab tabOf(GeckoSession session) { for (Tab t : tabs) if (t.session == session) return t; return null; }
+    private static String site(Tab tab) { String host = tab == null ? "" : dev.jun.gyeot.core.BrowserJournal.host(tab.url); return host.isEmpty() ? "웹사이트" : host; }
+    /**
+     * A site's alert while a task works in its tab: accepted (확인, its only button), its words go to the task with its next
+     * step (BrowserSiteDialogs.accepted) and the task goes on. null when no task works there: the alert is the user's then.
+     */
+    private GeckoResult<GeckoSession.PromptDelegate.PromptResponse> taskAlert(GeckoSession session, GeckoSession.PromptDelegate.AlertPrompt prompt) {
+        Tab tab = tabOf(session); Lane l = taskUsing(tab);
+        if (l == null || dev.jun.gyeot.core.BrowserSiteDialogs.route(dev.jun.gyeot.core.BrowserSiteDialogs.Kind.ALERT, true) != dev.jun.gyeot.core.BrowserSiteDialogs.Route.ACCEPT) return null;
+        l.tabs.event(dev.jun.gyeot.core.BrowserSiteDialogs.accepted(site(tab), prompt.message));
+        record(l.id, dev.jun.gyeot.core.BrowserSiteDialogs.acceptedLine(site(tab), prompt.message));
+        return GeckoResult.fromValue(prompt.dismiss());
+    }
+    /**
+     * A site's question (confirm, prompt, leave page, a form sent again, sign-in, choice) can finalize a purchase or a deletion,
+     * so the user answers it. A task working in its tab stops, saying which site asked what (BrowserSiteDialogs.stopped); the
+     * question is shown at once on the tab in front, and otherwise waits, unanswered, for the user to open its tab (a
+     * notification opens it). A Work job's tab is never in front: its question is declined, as before.
+     */
+    private GeckoResult<GeckoSession.PromptDelegate.PromptResponse> question(GeckoSession session, GeckoSession.PromptDelegate.BasePrompt prompt,
+            dev.jun.gyeot.core.BrowserSiteDialogs.Kind kind, String message,
+            java.util.function.Function<GeckoSession.PromptDelegate, GeckoResult<GeckoSession.PromptDelegate.PromptResponse>> show) {
+        Tab tab = tabOf(session);
+        if (tab == null || !liveSession(session)) return GeckoResult.fromValue(prompt.dismiss());
+        boolean front = !workEngine && visible && current == tab && prompts != null;
+        Lane l = taskUsing(tab);
+        if (l != null) {
+            l.paused = true;
+            stopTask(l.id, dev.jun.gyeot.core.BrowserSiteDialogs.stopped(kind, site(tab), message, front), true);
+            if (!workEngine && !front) BrowserTaskService.siteQuestion(context, tab.id, dev.jun.gyeot.core.BrowserSiteDialogs.question(kind, site(tab), message));
+        }
+        if (front) return routePrompt(session, prompt, () -> show.apply(prompts));
+        if (workEngine) return GeckoResult.fromValue(prompt.dismiss());
+        return hold(tab, prompt, show);
+    }
+    /** A site's question that came while its tab was out of sight: it waits until that tab is in front of the user (askHeld). */
+    private static final class Question {
+        final GeckoSession.PromptDelegate.BasePrompt prompt;
+        final java.util.function.Function<GeckoSession.PromptDelegate, GeckoResult<GeckoSession.PromptDelegate.PromptResponse>> show;
+        final GeckoResult<GeckoSession.PromptDelegate.PromptResponse> answer = new GeckoResult<>();
+        Question(GeckoSession.PromptDelegate.BasePrompt prompt, java.util.function.Function<GeckoSession.PromptDelegate, GeckoResult<GeckoSession.PromptDelegate.PromptResponse>> show) { this.prompt = prompt; this.show = show; }
+    }
+    private final Map<Tab, Question> questions = new IdentityHashMap<>();
+    private GeckoResult<GeckoSession.PromptDelegate.PromptResponse> hold(Tab tab, GeckoSession.PromptDelegate.BasePrompt prompt,
+            java.util.function.Function<GeckoSession.PromptDelegate, GeckoResult<GeckoSession.PromptDelegate.PromptResponse>> show) {
+        Question earlier = questions.remove(tab);
+        if (earlier != null && !earlier.prompt.isComplete()) earlier.answer.complete(earlier.prompt.dismiss());
+        Question asked = new Question(prompt, show); questions.put(tab, asked);
+        // The page took its question back (it moved on): nothing is shown later.
+        try { prompt.setDelegate(new GeckoSession.PromptDelegate.PromptInstanceDelegate() {
+            @Override public void onPromptDismiss(GeckoSession.PromptDelegate.BasePrompt gone) { main.post(() -> { if (questions.get(tab) == asked) questions.remove(tab); }); }
+        }); } catch (RuntimeException unsupported) { /* shown when the tab comes up; a finished one is skipped (isComplete) */ }
+        main.post(this::askHeld);
+        return asked.answer;
+    }
+    /** Shows the question held for the tab in front, once the browser's screen is there to show it. */
+    private void askHeld() {
+        if (!visible || prompts == null || current == null || disposed) return;
+        Question asked = questions.remove(current);
+        if (asked == null || asked.prompt.isComplete()) return;
+        GeckoResult<GeckoSession.PromptDelegate.PromptResponse> shown;
+        try { shown = asked.show.apply(prompts); } catch (RuntimeException failed) { shown = null; }
+        if (shown == null) { asked.answer.complete(asked.prompt.dismiss()); return; }
+        shown.accept(asked.answer::complete, failed -> { if (!asked.prompt.isComplete()) asked.answer.complete(asked.prompt.dismiss()); });
+    }
+    /**
+     * Gecko's popup blocker asks whether a page may open a new window. While a task works in the tab, its own step (a click
+     * or key it sent) opens it, as a tab the task may use (onNewSession); a window the page opens by itself is blocked and
+     * the task hears where it pointed. Without a task the user decides, as before.
+     */
+    private GeckoResult<GeckoSession.PromptDelegate.PromptResponse> popupPrompt(GeckoSession s, GeckoSession.PromptDelegate.PopupPrompt p, boolean gated) {
+        Tab tab = tabOf(s); Lane l = taskUsing(tab);
+        if (l == null) return gated ? routePrompt(s, p, () -> prompts.onPopupPrompt(s, p)) : needUser(s, p);
+        Pending step = pending(tab);
+        if (step != null && lane(step.generation) == l && (step.dispatched || step.sent)) return GeckoResult.fromValue(p.confirm(AllowOrDeny.ALLOW));
+        l.tabs.event(obj("popup_blocked", obj("url", p.targetUri == null ? "" : safeUrl(p.targetUri)), "note",
+            "The page tried to open a new window by itself (not after this task's step); it was blocked. Open the address with open_tab if the task needs it."));
+        record(l.id, "페이지가 스스로 연 새 창은 막았어요 · " + hostOf(p.targetUri));
+        return GeckoResult.fromValue(p.confirm(AllowOrDeny.DENY));
+    }
     private final GeckoSession.PromptDelegate gatedPrompts = new GeckoSession.PromptDelegate() {
-        @Override public GeckoResult<PromptResponse> onAlertPrompt(GeckoSession s, AlertPrompt p) { return routePrompt(s, p, () -> prompts.onAlertPrompt(s, p)); }
-        @Override public GeckoResult<PromptResponse> onButtonPrompt(GeckoSession s, ButtonPrompt p) { return routePrompt(s, p, () -> prompts.onButtonPrompt(s, p)); }
-        @Override public GeckoResult<PromptResponse> onTextPrompt(GeckoSession s, TextPrompt p) { return routePrompt(s, p, () -> prompts.onTextPrompt(s, p)); }
-        @Override public GeckoResult<PromptResponse> onAuthPrompt(GeckoSession s, AuthPrompt p) { return routePrompt(s, p, () -> prompts.onAuthPrompt(s, p)); }
-        @Override public GeckoResult<PromptResponse> onPopupPrompt(GeckoSession s, PopupPrompt p) { return routePrompt(s, p, () -> prompts.onPopupPrompt(s, p)); }
+        @Override public GeckoResult<PromptResponse> onAlertPrompt(GeckoSession s, AlertPrompt p) { GeckoResult<PromptResponse> accepted = taskAlert(s, p); return accepted != null ? accepted : routePrompt(s, p, () -> prompts.onAlertPrompt(s, p)); }
+        @Override public GeckoResult<PromptResponse> onButtonPrompt(GeckoSession s, ButtonPrompt p) { return question(s, p, dev.jun.gyeot.core.BrowserSiteDialogs.Kind.CONFIRM, p.message, d -> d.onButtonPrompt(s, p)); }
+        @Override public GeckoResult<PromptResponse> onTextPrompt(GeckoSession s, TextPrompt p) { return question(s, p, dev.jun.gyeot.core.BrowserSiteDialogs.Kind.PROMPT, p.message, d -> d.onTextPrompt(s, p)); }
+        @Override public GeckoResult<PromptResponse> onAuthPrompt(GeckoSession s, AuthPrompt p) { return question(s, p, dev.jun.gyeot.core.BrowserSiteDialogs.Kind.AUTH, p.message, d -> d.onAuthPrompt(s, p)); }
+        @Override public GeckoResult<PromptResponse> onBeforeUnloadPrompt(GeckoSession s, BeforeUnloadPrompt p) { return question(s, p, dev.jun.gyeot.core.BrowserSiteDialogs.Kind.LEAVE, "", d -> d.onBeforeUnloadPrompt(s, p)); }
+        @Override public GeckoResult<PromptResponse> onRepostConfirmPrompt(GeckoSession s, RepostConfirmPrompt p) { return question(s, p, dev.jun.gyeot.core.BrowserSiteDialogs.Kind.REPOST, "", d -> d.onRepostConfirmPrompt(s, p)); }
+        @Override public GeckoResult<PromptResponse> onPopupPrompt(GeckoSession s, PopupPrompt p) { return popupPrompt(s, p, true); }
         @Override public GeckoResult<PromptResponse> onFilePrompt(GeckoSession s, FilePrompt p) { GeckoResult<PromptResponse> staged = stagedUpload(s, p); return staged != null ? staged : routePrompt(s, p, () -> prompts.onFilePrompt(s, p)); }
-        @Override public GeckoResult<PromptResponse> onChoicePrompt(GeckoSession s, ChoicePrompt p) { return routePrompt(s, p, () -> prompts.onChoicePrompt(s, p)); }
+        @Override public GeckoResult<PromptResponse> onChoicePrompt(GeckoSession s, ChoicePrompt p) { return question(s, p, dev.jun.gyeot.core.BrowserSiteDialogs.Kind.CHOICE, p.message == null || p.message.isBlank() ? p.title : p.message, d -> d.onChoicePrompt(s, p)); }
         // Saved logins: keeping one the user just typed, or which account to fill (비밀번호 관리자). Off the page in front, nothing is kept or filled.
         @Override public GeckoResult<PromptResponse> onLoginSave(GeckoSession s, AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption> p) {
             if (!liveSession(s) || !visible || current == null || current.session != s || prompts == null) return GeckoResult.fromValue(p.dismiss());
@@ -1766,32 +2314,97 @@ final class BrowserEngine {
         }
     };
     private final GeckoSession.PromptDelegate backgroundPrompts = new GeckoSession.PromptDelegate() {
-        @Override public GeckoResult<PromptResponse> onAlertPrompt(GeckoSession s, AlertPrompt p) { return needUser(s, p); }
-        @Override public GeckoResult<PromptResponse> onButtonPrompt(GeckoSession s, ButtonPrompt p) { return needUser(s, p); }
-        @Override public GeckoResult<PromptResponse> onTextPrompt(GeckoSession s, TextPrompt p) { return needUser(s, p); }
-        @Override public GeckoResult<PromptResponse> onAuthPrompt(GeckoSession s, AuthPrompt p) { return needUser(s, p); }
-        @Override public GeckoResult<PromptResponse> onPopupPrompt(GeckoSession s, PopupPrompt p) { return needUser(s, p); }
+        @Override public GeckoResult<PromptResponse> onAlertPrompt(GeckoSession s, AlertPrompt p) { GeckoResult<PromptResponse> accepted = taskAlert(s, p); return accepted != null ? accepted : needUser(s, p); }
+        @Override public GeckoResult<PromptResponse> onButtonPrompt(GeckoSession s, ButtonPrompt p) { return question(s, p, dev.jun.gyeot.core.BrowserSiteDialogs.Kind.CONFIRM, p.message, d -> d.onButtonPrompt(s, p)); }
+        @Override public GeckoResult<PromptResponse> onTextPrompt(GeckoSession s, TextPrompt p) { return question(s, p, dev.jun.gyeot.core.BrowserSiteDialogs.Kind.PROMPT, p.message, d -> d.onTextPrompt(s, p)); }
+        @Override public GeckoResult<PromptResponse> onAuthPrompt(GeckoSession s, AuthPrompt p) { return question(s, p, dev.jun.gyeot.core.BrowserSiteDialogs.Kind.AUTH, p.message, d -> d.onAuthPrompt(s, p)); }
+        @Override public GeckoResult<PromptResponse> onBeforeUnloadPrompt(GeckoSession s, BeforeUnloadPrompt p) { return question(s, p, dev.jun.gyeot.core.BrowserSiteDialogs.Kind.LEAVE, "", d -> d.onBeforeUnloadPrompt(s, p)); }
+        @Override public GeckoResult<PromptResponse> onRepostConfirmPrompt(GeckoSession s, RepostConfirmPrompt p) { return question(s, p, dev.jun.gyeot.core.BrowserSiteDialogs.Kind.REPOST, "", d -> d.onRepostConfirmPrompt(s, p)); }
+        @Override public GeckoResult<PromptResponse> onPopupPrompt(GeckoSession s, PopupPrompt p) { return popupPrompt(s, p, false); }
         @Override public GeckoResult<PromptResponse> onFilePrompt(GeckoSession s, FilePrompt p) { GeckoResult<PromptResponse> staged = stagedUpload(s, p); return staged != null ? staged : needUser(s, p); }
-        @Override public GeckoResult<PromptResponse> onChoicePrompt(GeckoSession s, ChoicePrompt p) { return needUser(s, p); }
+        @Override public GeckoResult<PromptResponse> onChoicePrompt(GeckoSession s, ChoicePrompt p) { return question(s, p, dev.jun.gyeot.core.BrowserSiteDialogs.Kind.CHOICE, p.message == null || p.message.isBlank() ? p.title : p.message, d -> d.onChoicePrompt(s, p)); }
         @Override public GeckoResult<PromptResponse> onLoginSave(GeckoSession s, AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSaveOption> p) { return GeckoResult.fromValue(p.dismiss()); }
         @Override public GeckoResult<PromptResponse> onLoginSelect(GeckoSession s, AutocompleteRequest<org.mozilla.geckoview.Autocomplete.LoginSelectOption> p) { return GeckoResult.fromValue(p.dismiss()); }
     };
     /** attach: gets a file the app fetched for the user ready for this tab's next file chooser (two minutes); nothing else can be attached. */
     private JSONObject stageUpload(Tab tab, long lease, String reference) {
         dev.jun.gyeot.core.BrowserUploads.Entry e = dev.jun.gyeot.core.BrowserUploads.find(reference, System.currentTimeMillis());
+        if (e == null) e = folderUpload(lease, reference);
         if (e == null) return obj("ok", false, "error_code", "attach_not_allowed", "action_executed", false, "retryable", false,
-            "error", "그 파일은 첨부할 수 없어요. 이 작업에서 drive_download로 받은 파일(돌려준 uri나 이름)만 첨부할 수 있어요.");
+            "error", "그 파일은 첨부할 수 없어요. drive_download로 받은 파일(돌려준 uri나 이름), 또는 사용자가 올려 달라고 한 들퍼레 폴더 파일(영상/x.mp4처럼)만 첨부할 수 있어요.");
         tab.upload = e; tab.uploadUntil = android.os.SystemClock.uptimeMillis() + 120_000;
         record(lease, "파일 첨부 준비 · " + e.name());
         return obj("ok", true, "attached", e.name(), "action_executed", true,
             "next", "Now click the page's own upload or select-file button; its file chooser receives " + e.name() + " by itself.");
+    }
+    /**
+     * A file in the user's 들퍼레 folder (영상/x.mp4, or 들퍼레/영상/x.mp4) for attach, when the user's own words for this task ask
+     * to upload and name the file or the folder; null otherwise or when it is not there. The folder is reached through the
+     * app's own documents provider, as everything else that writes there.
+     */
+    private dev.jun.gyeot.core.BrowserUploads.Entry folderUpload(long lease, String reference) {
+        String ref = reference == null ? "" : reference.strip().replace('\\', '/');
+        if (ref.startsWith(ManagedSharedStorage.ROOT_NAME + "/")) ref = ref.substring(ManagedSharedStorage.ROOT_NAME.length() + 1);
+        if (ref.isEmpty() || ref.contains("..") || ref.startsWith("/") || ref.startsWith(".") || ref.contains("//")) return null;
+        Lane l = lane(lease); String words = l == null ? "" : l.lastRequest + "\n" + l.lastAsk;
+        String name = ref.substring(ref.lastIndexOf('/') + 1), stem = name.contains(".") ? name.substring(0, name.lastIndexOf('.')) : name;
+        boolean pointed = !stem.isBlank() && words.contains(stem) || words.contains(ManagedSharedStorage.ROOT_NAME) || words.contains("폴더");
+        if (!pointed || !dev.jun.gyeot.core.AutomationGate.asksForAction(words)) return null;
+        try (ManagedSharedStorage.Access access = ManagedSharedStorage.access(context); ManagedSharedStorage.Node node = access.node(ManagedSharedStorage.ROOT_NAME + "/" + ref, false)) { node.check(); }
+        catch (Exception missing) { return null; }
+        String mime = java.net.URLConnection.guessContentTypeFromName(name);
+        return new dev.jun.gyeot.core.BrowserUploads.Entry(ManagedSharedStorage.document(ref).toString(), name, mime == null ? "application/octet-stream" : mime, System.currentTimeMillis());
+    }
+    /** Reads the files put into pages, off the main thread. */
+    private static final java.util.concurrent.ExecutorService UPLOAD_IO = java.util.concurrent.Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-browser-upload"); t.setDaemon(true); return t; });
+    private static final int UPLOAD_PIECE = 512 * 1024;
+    /**
+     * Sends a file the AI got ready (a content URI the app wrote) to the tab's page, in base64 pieces of 512 KB, one after
+     * another on the main thread, then says how many there were; done runs once all went to this same page, failed if
+     * the page changed or the file could not be read. The page keeps them only under token (content.js put_file).
+     */
+    private void streamUpload(Tab tab, dev.jun.gyeot.core.BrowserUploads.Entry file, String token, Runnable done, Consumer<String> failed) {
+        WebExtension.Port port = tab.port;
+        if (port == null) { failed.accept("페이지와 아직 연결되지 않았어요. 페이지를 읽은 뒤 다시 해 주세요."); return; }
+        UPLOAD_IO.execute(() -> {
+            int pieces = 0; String why = null;
+            try (java.io.InputStream in = context.getContentResolver().openInputStream(android.net.Uri.parse(file.uri()))) {
+                if (in == null) throw new java.io.IOException("파일을 열지 못했어요.");
+                byte[] buffer = new byte[UPLOAD_PIECE];
+                while (true) {
+                    int filled = 0, n;
+                    while (filled < buffer.length && (n = in.read(buffer, filled, buffer.length - filled)) > 0) filled += n;
+                    if (filled == 0) break;
+                    String data = android.util.Base64.encodeToString(buffer, 0, filled, android.util.Base64.NO_WRAP);
+                    int index = pieces++;
+                    java.util.concurrent.CountDownLatch sent = new java.util.concurrent.CountDownLatch(1); boolean[] alive = {true};
+                    main.post(() -> {
+                        try { if (tab.port != port || !live(tab)) alive[0] = false; else port.postMessage(obj("upload_chunk", obj("token", token, "index", index, "data", data))); }
+                        catch (RuntimeException gone) { alive[0] = false; }
+                        finally { sent.countDown(); }
+                    });
+                    sent.await();
+                    if (!alive[0]) { why = "파일을 보내는 사이 페이지가 바뀌었어요. 다시 해 주세요."; break; }
+                    Thread.sleep(10);
+                }
+            } catch (InterruptedException stopped) { Thread.currentThread().interrupt(); why = "파일 보내기를 멈췄어요."; }
+            catch (Exception unreadable) { why = "첨부할 파일을 읽지 못했어요."; }
+            String trouble = why; int total = pieces;
+            main.post(() -> {
+                if (trouble != null) { failed.accept(trouble); return; }
+                if (total == 0) { failed.accept("첨부할 파일이 비어 있어요."); return; }
+                try { if (tab.port != port) throw new IllegalStateException(); port.postMessage(obj("upload_done", obj("token", token, "total", total))); }
+                catch (RuntimeException gone) { failed.accept("파일을 보내는 사이 페이지가 바뀌었어요. 다시 해 주세요."); return; }
+                done.run();
+            });
+        });
     }
     /** The file chooser a page opened, answered with the file the AI got ready for that tab (while its task runs), or null to ask the user. */
     private GeckoResult<GeckoSession.PromptDelegate.PromptResponse> stagedUpload(GeckoSession s, GeckoSession.PromptDelegate.FilePrompt p) {
         for (Tab t : new ArrayList<>(tabs)) {
             if (t.session != s || t.upload == null) continue;
             dev.jun.gyeot.core.BrowserUploads.Entry e = t.upload; boolean fresh = android.os.SystemClock.uptimeMillis() <= t.uploadUntil; t.upload = null;
-            Lane l = tabLanes.get(t);
+            Lane l = taskUsing(t); // the tab's own task, or one working in it from another tab
             if (!fresh || l == null || l.onCancel == null) return null;
             try { record(l.id, "파일 첨부 · " + e.name()); return GeckoResult.fromValue(p.confirm(context, android.net.Uri.parse(e.uri()))); }
             catch (RuntimeException failed) { return null; }
@@ -1809,6 +2422,11 @@ final class BrowserEngine {
         if (result.optBoolean("ok") && !result.optBoolean("requires_user") && !result.optString("document").isBlank()
                 && result.optString("document").equals(p.tab.document) && result.optJSONArray("elements") != null)
             p.tab.lastReadObservation = copy(result);
+        Lane owning = lane(p.generation);
+        if (owning != null && !p.mutation && p.tab.task.mutationUnresolved() && result.optBoolean("ok") && result.optJSONArray("elements") != null
+                && !result.optString("document").isBlank() && result.optString("document").equals(p.tab.document)
+                && owning.ownMutations.contains(p.tab.task.pendingMutation().optString("id")))
+            owning.observedUncertain = p.tab.task.pendingMutation().optString("id");
         if (p.tab.task.mutationUnresolved() && !p.mutation) {
             put(result, "previous_mutation_unresolved", true);
             put(result, "recovery_rule", "Earlier mutation remains unresolved. Safe reading and observed public GET links may continue; never repeat a submission or infer its success.");
@@ -1825,8 +2443,30 @@ final class BrowserEngine {
                 && result.optJSONArray("elements") != null;
             put(result, "navigation_performed", fresh);
         }
+        if (owning != null) {
+            // What this task copied or cut stays with it for its Control+v; the phone's clipboard gets it only when the user asked to copy.
+            Object copied = result.remove("copied");
+            if (copied instanceof String text && !text.isEmpty()) {
+                owning.clipboard = text; put(result, "copied_characters", text.length());
+                if (!workEngine && owning.taskWords.matches("(?is).*(복사|클립보드|copy|clipboard).*")) toPhoneClipboard(text);
+            }
+            JSONArray events = owning.tabs.drain();
+            if (events.length() > 0) put(result, "events", events);
+            // The newest tab a page opened during the step, on the result itself as well (BrowserJournal's checkpoint reads new_tab).
+            for (int i = events.length() - 1; i >= 0; i--) {
+                JSONObject opened = events.optJSONObject(i) == null ? null : events.optJSONObject(i).optJSONObject("new_tab");
+                if (opened != null) { put(result, "new_tab", opened); break; }
+            }
+            if (owning.tabs.several() && !result.has("own_tab")) put(result, "own_tab", owning.owner.id);
+        }
         p.callback.accept(result);
         settleDisplays();
+    }
+    private void toPhoneClipboard(String text) {
+        try {
+            android.content.ClipboardManager board = context.getSystemService(android.content.ClipboardManager.class);
+            if (board != null) board.setPrimaryClip(android.content.ClipData.newPlainText("브라우저 AI", text));
+        } catch (RuntimeException unavailable) { /* this task's own copy stays */ }
     }
 }
 

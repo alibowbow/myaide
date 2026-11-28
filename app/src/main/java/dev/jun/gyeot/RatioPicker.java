@@ -4,57 +4,59 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.graphics.drawable.GradientDrawable;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import dev.jun.gyeot.core.Drawing;
 import static dev.jun.gyeot.Ui.*;
 
-/** Real ratio silhouettes, with a check as well as a tint; the entire tile is a touch target. */
+/**
+ * A picture's shape as a list (준: "이미지크기를 이런식으로 선택할 수 있게해줘", "gpt에서 제공하는 비율에 맞게"): each shape GPT
+ * Image draws (core/Drawing.SHAPES) as one row: its outline drawn to scale, its name and ratio ("가로 와이드 (16:9)"), a check by
+ * the one chosen. A tap picks it; given picked, that is told at once.
+ */
 final class RatioPicker extends LinearLayout {
-    static final String[] ASPECTS = {"square", "portrait", "landscape", "9:16", "16:9", "4:3", "3:4"};
-    private static final String[] LABELS = {"1:1", "2:3", "3:2", "9:16", "16:9", "4:3", "3:4"},
-        NOTES = {"정사각형", "세로", "가로", "스토리", "와이드", "가로", "세로"};
-    private static final float[] RATIOS = {1, 2f/3, 3f/2, 9f/16, 16f/9, 4f/3, 3f/4};
-    private final Ui ui; private int chosen; private final Runnable[] paint = new Runnable[7];
-    RatioPicker(Context context, Ui ui, String aspect) {
-        super(context); this.ui = ui; setOrientation(VERTICAL);
-        for (int i = 0; i < ASPECTS.length; i++) if (ASPECTS[i].equals(aspect)) chosen = i;
-        int available = context.getResources().getConfiguration().screenWidthDp;
-        int columns = available >= 560 ? 4 : available < 300 ? 2 : 3;
-        for (int start = 0; start < ASPECTS.length; start += columns) {
-            LinearLayout row = ui.row();
-            for (int col = 0; col < columns; col++) {
-                int index = start + col; LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1); if (col > 0) p.leftMargin = ui.dp(8);
-                row.addView(index < ASPECTS.length ? tile(index) : new View(context), p);
-            }
-            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2); if (start > 0) rp.topMargin = ui.dp(8); addView(row, rp);
-        }
-        refresh();
+    private final Ui ui; private final LinearLayout rows; private final java.util.function.Consumer<String> picked;
+    private String chosen;
+    RatioPicker(Context context, Ui ui, String aspect, java.util.function.Consumer<String> picked) {
+        super(context); this.ui = ui; this.picked = picked; setOrientation(VERTICAL);
+        String[] now = Drawing.shape(aspect); chosen = now == null ? "square" : now[0];
+        TextView title = ui.text("화면 비율", 14, 650, TEXT); title.setPadding(ui.dp(2), 0, 0, ui.dp(6));
+        addView(title, new LinearLayout.LayoutParams(-1, -2));
+        rows = ui.column(); addView(rows, new LinearLayout.LayoutParams(-1, -2));
+        fill();
     }
-    String aspect() { return ASPECTS[chosen]; }
-    private View tile(int index) {
-        LinearLayout tile = ui.column(); tile.setGravity(Gravity.CENTER); tile.setPadding(ui.dp(6), ui.dp(10), ui.dp(6), ui.dp(9)); tile.setMinimumHeight(ui.dp(100));
-        TextView check = ui.text("", 11, 700, ACCENT); check.setGravity(Gravity.END); tile.addView(check, new LinearLayout.LayoutParams(-1, ui.dp(12)));
-        Paint pen = new Paint(Paint.ANTI_ALIAS_FLAG); pen.setStyle(Paint.Style.STROKE); pen.setStrokeWidth(ui.dp(1.5f));
-        View silhouette = new View(getContext()) {
+    String aspect() { return chosen; }
+    private void fill() {
+        rows.removeAllViews();
+        for (String[] one : Drawing.SHAPES) rows.addView(row(one), new LinearLayout.LayoutParams(-1, ui.dp(44)));
+    }
+    private View row(String[] one) {
+        boolean on = one[0].equals(chosen); float ratio = (float) Drawing.ratio(one[0]);
+        LinearLayout row = ui.row(); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(ui.dp(6), 0, ui.dp(6), 0);
+        Paint pen = new Paint(Paint.ANTI_ALIAS_FLAG); pen.setStyle(Paint.Style.STROKE); pen.setStrokeWidth(ui.dp(1.8f)); pen.setColor(on ? ACCENT : TEXT);
+        View outline = new View(getContext()) {
             @Override protected void onDraw(Canvas canvas) {
-                super.onDraw(canvas); float w = ui.dp(38), h = w / RATIOS[index]; if (h > ui.dp(34)) { h = ui.dp(34); w = h * RATIOS[index]; }
-                pen.setColor(chosen == index ? ACCENT : MUTED); float x = (getWidth() - w) / 2, y = (getHeight() - h) / 2;
+                super.onDraw(canvas);
+                // The long side 24dp (wide) or 22dp (tall), the short side to scale, never thinner than 7dp.
+                float w = ratio >= 1 ? ui.dp(24) : Math.max(ui.dp(7), ui.dp(22) * ratio), h = ratio >= 1 ? Math.max(ui.dp(7), ui.dp(24) / ratio) : ui.dp(22);
+                float x = (getWidth() - w) / 2, y = (getHeight() - h) / 2;
                 canvas.drawRoundRect(new RectF(x, y, x + w, y + h), ui.dp(3), ui.dp(3), pen);
             }
         };
-        tile.addView(silhouette, new LinearLayout.LayoutParams(-1, ui.dp(40)));
-        TextView label = ui.text(LABELS[index], 14, 650, TEXT), note = ui.text(NOTES[index], 11.5f, 420, MUTED); label.setGravity(Gravity.CENTER); note.setGravity(Gravity.CENTER);
-        tile.addView(label); note.setPadding(0, ui.dp(3), 0, 0); tile.addView(note);
-        tile.setFocusable(true); tile.setOnClickListener(v -> { chosen = index; refresh(); }); Ui.pressable(tile, true);
-        paint[index] = () -> {
-            boolean on = chosen == index; GradientDrawable background = ui.shape(on ? ACCENT_SOFT : CARD, 16); background.setStroke(Math.max(1, ui.dp(on ? 1.5f : 0.5f)), on ? ACCENT : SEPARATOR); tile.setBackground(background);
-            check.setText(on ? "✓" : ""); label.setTextColor(on ? ACCENT : TEXT); silhouette.invalidate(); tile.setSelected(on); tile.setStateDescription(on ? "선택됨" : "선택 안 됨");
-            tile.setContentDescription(LABELS[index] + " " + NOTES[index]);
-        };
-        return tile;
+        outline.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        row.addView(outline, new LinearLayout.LayoutParams(ui.dp(32), ui.dp(28)));
+        TextView name = ui.text(one[2] + " (" + one[1] + ")", 15, on ? 650 : 450, on ? ACCENT : TEXT); name.setSingleLine(true); name.setPadding(ui.dp(12), 0, ui.dp(8), 0);
+        row.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+        if (on) {
+            ImageView check = new ImageView(getContext()); check.setImageResource(R.drawable.ic_check); check.setImageTintList(android.content.res.ColorStateList.valueOf(ACCENT));
+            row.addView(check, new LinearLayout.LayoutParams(ui.dp(18), ui.dp(18)));
+        }
+        row.setContentDescription(one[2] + " " + one[1].replace(":", " 대 ") + (on ? ", 선택됨" : "")); row.setSelected(on); row.setFocusable(true);
+        row.setOnClickListener(v -> { Ui.tick(v); chosen = one[0]; fill(); if (picked != null) picked.accept(chosen); });
+        Ui.pressable(row, true);
+        return row;
     }
-    private void refresh() { for (Runnable update : paint) if (update != null) update.run(); }
 }

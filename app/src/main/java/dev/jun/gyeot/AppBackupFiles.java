@@ -47,7 +47,8 @@ final class AppBackupFiles {
         JSONObject settings = settings(context); List<String> appFiles = new ArrayList<>(); appFiles(context.getFilesDir(), "", appFiles);
         int settingCount = 0; for (java.util.Iterator<String> names = settings.keys(); names.hasNext(); ) settingCount += settings.optJSONObject(names.next()).length();
         JSONObject counts = obj("settings", settingCount, "appFiles", appFiles.size(), "memories", length(memory.optJSONArray("memories")), "pinned", length(memory.optJSONArray("notes")), "persona", !memory.optString("persona").isBlank(),
-            "notes", notes.length(), "sessions", sessions.length(), "works", works.length(), "schedules", schedules.length(), "routines", routines.length(), "pages", PageStore.book(context).pages().size(), "messages", messages);
+            "notes", notes.length(), "sessions", sessions.length(), "works", works.length(), "schedules", schedules.length(), "routines", routines.length(), "pages", PageStore.book(context).pages().size(), "messages", messages,
+            "projects", ProjectMaker.get(context).book().projects().size(), "lab", LabRunner.get(context).book().projects().size());
         File copy = new File(context.getCacheDir(), "backup-main-chat.db"); copy.delete();
         try (ZipOutputStream zip = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(target)))) {
             entry(zip, AppBackup.MANIFEST, AppBackup.manifest(version(context), now, counts).toString(2).getBytes(StandardCharsets.UTF_8));
@@ -111,6 +112,7 @@ final class AppBackupFiles {
      * and said so; the other parts still come in.
      */
     static JSONObject restore(Context context, AppStore store, File zipFile) throws Exception {
+        contextFiles = context.getFilesDir();
         File dir = new File(context.getCacheDir(), "backup-in"); delete(dir);
         if (!dir.mkdirs()) throw new IOException("백업을 풀 자리를 만들지 못했어요.");
         JSONObject added = obj(); JSONArray skipped = new JSONArray();
@@ -208,6 +210,13 @@ final class AppBackupFiles {
                     Files.copy(new File(from, relative).toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING); count++;
                 }
                 if (count > 0) { put(added, "appFiles", count); put(added, "restart", true); }
+                // 프로젝트 and 연구실 keep their list in one file: this phone's list (already started, kept above) takes the
+                // backup's projects it does not have yet, whose folders were just copied in. Projects then go out to
+                // 들퍼레/프로젝트 at the next look (ProjectBook.sync: this phone has not seen their folders).
+                int projects = mergeList(from, "projects"), lab = mergeList(from, "lab");
+                if (projects > 0) put(added, "projects", projects);
+                if (lab > 0) put(added, "lab", lab);
+                if (projects + lab > 0) put(added, "restart", true);
             });
             part(skipped, "메인 대화", () -> {
                 File chat = new File(dir, AppBackup.MAIN); if (!chat.isFile()) return;
@@ -225,6 +234,27 @@ final class AppBackupFiles {
         File[] files = dir.listFiles(); if (files == null) return;
         for (File file : files) { String relative = prefix + file.getName(); if (file.isDirectory()) walk(file, relative + "/", out); else if (file.isFile()) out.add(relative); }
     }
+    /** Adds the backup's entries of <folder>/projects.json whose id this phone's list lacks (and whose folder is here). */
+    private static int mergeList(File from, String folder) {
+        try {
+            File theirs = new File(from, folder + "/projects.json"); if (!theirs.isFile()) return 0;
+            File base = new File(contextFiles, folder), mine = new File(base, "projects.json");
+            JSONArray incoming = new JSONArray(text(theirs)), list = mine.isFile() ? new JSONArray(text(mine)) : new JSONArray();
+            java.util.Set<String> have = new java.util.HashSet<>(); for (int i = 0; i < list.length(); i++) have.add(list.optJSONObject(i) == null ? "" : list.optJSONObject(i).optString("id"));
+            int added = 0;
+            for (int i = 0; i < incoming.length(); i++) {
+                JSONObject o = incoming.optJSONObject(i); String id = o == null ? "" : o.optString("id");
+                if (id.isBlank() || !id.matches("[A-Za-z0-9_-]{1,40}") || have.contains(id) || !new File(base, id).isDirectory()) continue;
+                // A project brought in has not been in this phone's 들퍼레 folder: it goes out there afresh.
+                if (o.has("seen")) o.put("seen", 0);
+                list.put(o); have.add(id); added++;
+            }
+            if (added > 0) { base.mkdirs(); Files.write(mine.toPath(), list.toString().getBytes(StandardCharsets.UTF_8)); }
+            return added;
+        } catch (Exception failed) { return 0; }
+    }
+    /** The app's own folder for mergeList (set when a backup is brought in). */
+    private static File contextFiles;
     private interface Part { void run() throws Exception; }
     private static void part(JSONArray skipped, String name, Part part) {
         try { part.run(); }

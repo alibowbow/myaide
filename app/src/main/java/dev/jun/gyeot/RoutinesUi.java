@@ -33,7 +33,10 @@ final class RoutinesUi {
         boolean full = list.length() >= Routines.MOST;
         Button make = ui.button(full ? "루틴은 " + Routines.MOST + "개까지예요" : "루틴 만들기", !full, () -> { if (!full) edit(null); });
         make.setEnabled(!full); ui.add(page, make, 0);
-        page.addView(ui.footer("한마디만 따로 말했을 때만 루틴으로 알아들어요. 긴 문장 속에 섞여 있으면 보통 말로 들어요. 음성 대화 중에 바꿨다면 위에 뜨는 ‘지금 적용’을 눌러 주세요."));
+        page.addView(ui.footer("한마디만 따로 말했을 때만 루틴으로 알아들어요. 긴 문장 속에 섞여 있으면 보통 말로 들어요. 음성 대화 중에 바꿨다면 위에 뜨는 ‘지금 적용’을 눌러 주세요. "
+            + "할 일에 ‘출근 체크 매크로 실행’처럼 매크로를 적으면 음성 비서가 그 매크로를 그대로 해요."));
+        // 매크로: what the user did by hand once, done again (MacrosUi).
+        new MacrosUi(activity, ui, redraw).section(page);
         return page;
     }
 

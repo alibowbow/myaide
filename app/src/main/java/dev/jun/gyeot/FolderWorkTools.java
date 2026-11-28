@@ -136,7 +136,7 @@ final class FolderWorkTools extends WorkTools {
         if (name == null) {
             String asked = FolderTools.extension(args.optString("name"));
             return GitHubFunctions.failure(asked.equals("pdf") && !kind.equals("pdf") ? "받은 파일이 PDF가 아니에요. 웹페이지나 오류 화면을 받은 것 같아요. 저장하지 않았어요."
-                : "저장할 수 없는 파일 이름이나 형식이에요. 문서, 사진, 소리, 영상, 압축 파일만 저장해요.");
+                : "저장할 수 없는 파일 이름이에요. 실행 파일·설치 파일(apk, exe 같은)은 저장하지 않고, 이름에 / \\ : * ? \" < > | 는 쓸 수 없어요.");
         }
         long size = source.length();
         try (ManagedSharedStorage.Access access = access()) {

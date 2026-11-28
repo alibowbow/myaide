@@ -172,13 +172,20 @@ final class Ui {
 
     /** A full-width action: filled with the accent when primary, a soft accent wash otherwise (Toss-style rounded rectangle). */
     Button button(String value, boolean primary, Runnable action) {
-        Button button = new Button(context); button.setText(value); button.setAllCaps(false); button.setTextSize(BODY); button.setTypeface(weight(680));
-        button.setTextColor(primary ? ON_ACCENT : ACCENT); button.setBackground(shape(primary ? ACCENT : ACCENT_SOFT, R_BUTTON));
-        button.setStateListAnimator(null); button.setElevation(0); button.setMinHeight(dp(54)); button.setMinimumHeight(dp(54)); button.setPadding(dp(16), dp(12), dp(16), dp(12));
+        // Compact: 44dp tall in the callout size, so a sheet's button and a page's actions do not shout.
+        Button button = new Button(context); button.setText(value); button.setAllCaps(false); button.setTextSize(CALLOUT); button.setTypeface(weight(650));
+        button.setTextColor(primary ? ON_ACCENT : ACCENT); button.setBackground(shape(primary ? ACCENT : ACCENT_SOFT, R_CONTROL));
+        button.setStateListAnimator(null); button.setElevation(0); button.setMinHeight(dp(44)); button.setMinimumHeight(dp(44)); button.setPadding(dp(16), dp(8), dp(16), dp(8));
         button.setOnClickListener(v -> action.run()); pressable(button, false); return button;
     }
     /** A capsule drawn 40dp tall inside a 48dp touch target, so rows of them stay light without shrinking the target. */
-    android.graphics.drawable.Drawable capsule(int color) { return new android.graphics.drawable.InsetDrawable(shape(color, PILL), 0, dp(4), 0, dp(4)); }
+    android.graphics.drawable.Drawable capsule(int color) {
+        // No padding of its own: a background swapped on a tap (a pill chosen) must not reset the view's padding, which
+        // squeezed the words against the capsule's ends.
+        return new android.graphics.drawable.InsetDrawable(shape(color, PILL), 0, dp(4), 0, dp(4)) {
+            @Override public boolean getPadding(android.graphics.Rect padding) { padding.set(0, 0, 0, 0); return false; }
+        };
+    }
     /** A compact capsule for secondary actions on cards. */
     /**
      * A capsule at most `tallest` high, centred in its view whatever the view's height (a 48dp touch target or a 36dp row),
@@ -287,6 +294,11 @@ final class Ui {
         return flow;
     }
     /** iOS segmented control: equal segments on a gray track, the chosen one raised. */
+    /**
+     * The full-width, 48dp switch. The user asked again and again for compact controls: a screen's tabs and a setting's few
+     * choices use switcher() (as wide as its words, 34dp), at the end of a line that is already there. This one only where a
+     * sheet's whole body is that one choice.
+     */
     LinearLayout segmented(String[] labels, int selected, IntConsumer action) { return segmented(labels, selected, action, false); }
     /**
      * A small switch between two or three views of the same thing (a page's 미리보기 and 소스): as wide as its words, to sit at
@@ -313,7 +325,8 @@ final class Ui {
         selectSegment(track, labels, selected);
         return track;
     }
-    private void selectSegment(LinearLayout track, String[] labels, int selected) {
+    /** Shows selected as the chosen segment of a switcher made here, without running its action (the screen changed it itself). */
+    void selectSegment(LinearLayout track, String[] labels, int selected) {
         for (int i = 0; i < track.getChildCount(); i++) {
             TextView segment = (TextView) track.getChildAt(i); boolean on = i == selected;
             segment.setSelected(on); segment.setTextColor(on ? TEXT : MUTED); segment.setTypeface(weight(on ? 650 : 500));
@@ -334,14 +347,15 @@ final class Ui {
             TextView pill = text(labels[i], small ? FOOTNOTE : SUBHEAD, i == selected ? 680 : 560, i == selected ? BG : TEXT); pill.setGravity(Gravity.CENTER);
             pill.setBackground(capsule(i == selected ? TEXT : FILL));
             if (small) { pill.setPadding(dp(14), dp(6), dp(14), dp(6)); pill.setMinimumHeight(dp(34)); }
-            else { pill.setPadding(dp(17), dp(10), dp(17), dp(10)); pill.setMinimumHeight(dp(48)); }
+            else { pill.setPadding(dp(14), dp(7), dp(14), dp(7)); pill.setMinimumHeight(dp(42)); }
             pill.setSelected(i == selected); pill.setFocusable(true); pill.setAccessibilityDelegate(new View.AccessibilityDelegate() { @Override public void onInitializeAccessibilityNodeInfo(View host, android.view.accessibility.AccessibilityNodeInfo info) { super.onInitializeAccessibilityNodeInfo(host, info); info.setClassName("android.widget.RadioButton"); info.setCheckable(true); info.setChecked(host.isSelected()); } });
             pill.setContentDescription(labels[i] + (i == selected ? ", 선택됨" : ""));
             pill.setOnClickListener(v -> {
                 if (!v.isSelected()) tick(v);
                 for (int j = 0; j < row.getChildCount(); j++) {
                     TextView option = (TextView) row.getChildAt(j); boolean on = j == index;
-                    option.setSelected(on); option.setTextColor(on ? BG : TEXT); option.setBackground(capsule(on ? TEXT : FILL)); option.setTypeface(weight(on ? 680 : 560));
+                    int l = option.getPaddingLeft(), t = option.getPaddingTop(), r = option.getPaddingRight(), b = option.getPaddingBottom();
+                    option.setSelected(on); option.setTextColor(on ? BG : TEXT); option.setBackground(capsule(on ? TEXT : FILL)); option.setPadding(l, t, r, b); option.setTypeface(weight(on ? 680 : 560));
                     option.setContentDescription(labels[j] + (on ? ", 선택됨" : ""));
                 }
                 action.accept(index);
@@ -447,14 +461,14 @@ final class Ui {
         LinearLayout list = group();
         for (int i = 0; i < labels.length; i++) {
             int index = i; boolean on = i == selected; String[] parts = labels[i].split(" · ", 2);
-            LinearLayout option = row(); option.setMinimumHeight(dp(56)); option.setPadding(dp(16), dp(11), dp(14), dp(11));
+            LinearLayout option = row(); option.setMinimumHeight(dp(46)); option.setPadding(dp(16), dp(8), dp(14), dp(8));
             LinearLayout words = column();
-            words.addView(text(parts[0], BODY, on ? 680 : 500, on ? ACCENT : TEXT));
+            words.addView(text(parts[0], CALLOUT, on ? 650 : 480, on ? ACCENT : TEXT));
             if (parts.length > 1) { TextView note = text(parts[1], FOOTNOTE, 450, MUTED); note.setPadding(0, dp(2), 0, 0); words.addView(note); }
             option.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
             ImageView check = new ImageView(context); check.setImageResource(R.drawable.ic_check); check.setImageTintList(ColorStateList.valueOf(ACCENT));
             check.setVisibility(on ? View.VISIBLE : View.INVISIBLE); check.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(dp(22), dp(22)); checkParams.leftMargin = dp(10); option.addView(check, checkParams);
+            LinearLayout.LayoutParams checkParams = new LinearLayout.LayoutParams(dp(18), dp(18)); checkParams.leftMargin = dp(10); option.addView(check, checkParams);
             option.setContentDescription(labels[i] + (on ? ", 선택됨" : ""));
             option.setOnClickListener(o -> {
                 dialog.dismiss();
@@ -475,12 +489,16 @@ final class Ui {
         LinearLayout[] row = {null};
         row[0] = listRow(0, 0, title, labels.length == 0 ? "" : labels[chosen[0]], chevron(), () -> {
             if (labels.length == 0) return;
-            choices(sheetTitle, sheetSubtitle, labels, chosen[0], index -> {
+            IntConsumer picked = index -> {
                 chosen[0] = index;
                 RowParts parts = ((ListRow) row[0]).parts; if (parts.subtitle() != null) parts.subtitle().setText(labels[index]);
                 row[0].setContentDescription(title + ", " + labels[index] + ", 눌러서 바꾸기");
                 action.accept(index);
-            }).show();
+            };
+            // A few short options (no notes): a small menu at the row; longer lists or ones with notes keep the sheet.
+            boolean plain = labels.length <= 8; for (String label : labels) if (label.contains(" · ") || label.length() > 24) plain = false;
+            if (plain) miniMenu(row[0], labels, chosen[0], index -> { if (index != chosen[0]) picked.accept(index); });
+            else choices(sheetTitle, sheetSubtitle, labels, chosen[0], picked).show();
         });
         RowParts parts = ((ListRow) row[0]).parts;
         if (parts.subtitle() != null) { parts.subtitle().setSingleLine(false); parts.subtitle().setMaxLines(2); }
@@ -575,8 +593,7 @@ final class Ui {
     /** Image controls edit the next chat message's mode; the chat composer is the only prompt editor. */
     Sheet imageOptions(String aspect, boolean edit, java.util.function.BiConsumer<String, Boolean> apply) {
         Sheet sheet = selectionSheet("이미지 옵션", "그릴 내용은 대화 입력창에 적어 주세요");
-        TextView heading = text("화면 비율", 14, 650, TEXT); heading.setPadding(dp(2), dp(4), 0, dp(12)); sheet.body.addView(heading);
-        RatioPicker ratios = new RatioPicker(context, this, aspect); sheet.body.addView(ratios);
+        RatioPicker ratios = new RatioPicker(context, this, aspect, null); sheet.body.addView(ratios);
         boolean[] editing = {edit};
         View editingSwitch = toggle("기존 이미지로 편집하기", edit, value -> editing[0] = value); editingSwitch.setPadding(dp(2), dp(18), dp(2), dp(8)); sheet.body.addView(editingSwitch);
         TextView note = label("옵션을 적용한 뒤 대화창에서 내용을 적고 보내세요.", 12, MUTED); note.setPadding(dp(2), dp(8), dp(2), 0); sheet.body.addView(note);
@@ -638,13 +655,14 @@ final class Ui {
             frame.setFocusableInTouchMode(true);
             dragHandle = new View(context); dragHandle.setBackground(shape(MUTED, PILL)); dragHandle.setAlpha(0.28f);
             LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(dp(36), dp(5)); hp.gravity = Gravity.CENTER_HORIZONTAL; hp.topMargin = dp(8); frame.addView(dragHandle, hp);
-            header = row(); header.setPadding(dp(20), dp(10), dp(12), dp(12));
-            LinearLayout words = column(); heading = text(title, TITLE2, 740, TEXT); heading.setLetterSpacing(-0.025f); heading.setAccessibilityHeading(true); words.addView(heading);
+            header = row(); header.setGravity(Gravity.CENTER_VERTICAL); header.setPadding(dp(20), dp(4), dp(8), dp(8));
+            LinearLayout words = column(); heading = text(title, HEADLINE + 1, 700, TEXT); heading.setLetterSpacing(-0.025f); heading.setAccessibilityHeading(true); words.addView(heading);
             subheading = subtitle != null && !subtitle.isBlank() ? text(subtitle, FOOTNOTE, 450, MUTED) : null;
-            if (subheading != null) { subheading.setPadding(0, dp(5), 0, 0); words.addView(subheading); }
+            if (subheading != null) { subheading.setPadding(0, dp(2), 0, 0); words.addView(subheading); }
             header.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
             closeButton = iconButton(R.drawable.ic_close, CARD, MUTED, "닫기", this::dismiss);
-            header.addView(closeButton, new LinearLayout.LayoutParams(dp(48), dp(48))); frame.addView(header);
+            closeButton.setPadding(dp(9), dp(9), dp(9), dp(9));
+            header.addView(closeButton, new LinearLayout.LayoutParams(dp(38), dp(38))); frame.addView(header);
             float[] down = {0, 0};
             header.setOnTouchListener((v, e) -> {
                 if (e.getActionMasked() == MotionEvent.ACTION_DOWN) { down[0] = e.getRawX(); down[1] = e.getRawY(); return true; }
@@ -655,7 +673,7 @@ final class Ui {
             body.setPadding(dp(16), dp(2), dp(16), dp(16));
             scroll.setFillViewport(false); scroll.setClipToPadding(false); scroll.setVerticalScrollBarEnabled(false); scroll.addView(body);
             frame.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-            footer.setPadding(dp(16), dp(10), dp(16), dp(14)); footer.setBackgroundColor(Color.TRANSPARENT);
+            footer.setPadding(dp(16), dp(6), dp(16), dp(12)); footer.setBackgroundColor(Color.TRANSPARENT);
             primary = button("완료", true, this::dismiss); footer.addView(primary, new LinearLayout.LayoutParams(-1, -2)); frame.addView(footer);
             setContentView(frame);
             Window window = getWindow();
@@ -671,7 +689,8 @@ final class Ui {
             android.view.WindowMetrics metrics = window.getWindowManager().getCurrentWindowMetrics();
             android.graphics.Insets bars = metrics.getWindowInsets().getInsetsIgnoringVisibility(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
             int width = metrics.getBounds().width() - bars.left - bars.right;
-            window.setLayout(Math.min(dp(600), Math.max(1, width - dp(24))), -2);
+            // At most 480dp wide: on an unfolded Fold or a tablet it stays a sheet, not a wall.
+            window.setLayout(Math.min(dp(480), Math.max(1, width - dp(24))), -2);
             android.view.WindowManager.LayoutParams params = window.getAttributes(); params.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL; params.y = bars.bottom + dp(8); window.setAttributes(params);
             // The sheet rises into place and settles on an ease-out-expo curve, instead of popping in.
             if (panel != null && android.animation.ValueAnimator.areAnimatorsEnabled()) {
@@ -775,14 +794,25 @@ final class Ui {
         }
         card.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
         android.util.DisplayMetrics screen = context.getResources().getDisplayMetrics();
-        int width = Math.max(dp(104), Math.max(anchor.getWidth(), card.getMeasuredWidth())), height = Math.min(card.getMeasuredHeight(), screen.heightPixels - dp(96));
+        // As wide as its words (a small button's width at least); a wide anchor (a settings row) gets it at its right end.
+        boolean wide = anchor.getWidth() > dp(240);
+        int width = Math.max(dp(120), wide ? card.getMeasuredWidth() : Math.max(anchor.getWidth(), card.getMeasuredWidth()));
+        // Inside the part of the window that shows (not the screen's size: a window on a fold or beside another app is smaller,
+        // and the keyboard or the system bars take some), on the side of the button with more room, scrolling when the list is
+        // taller than that room (준: "좌하단 메뉴가 잘려서 안 보여").
+        int[] at = new int[2]; anchor.getLocationInWindow(at); int[] onScreen = new int[2]; anchor.getLocationOnScreen(onScreen);
+        android.graphics.Rect shown = new android.graphics.Rect(); anchor.getWindowVisibleDisplayFrame(shown);
+        int top = shown.top - (onScreen[1] - at[1]) + dp(12), bottom = shown.bottom - (onScreen[1] - at[1]) - dp(12);
+        int left = shown.left - (onScreen[0] - at[0]) + dp(8), right = shown.right - (onScreen[0] - at[0]) - dp(8);
+        if (bottom - top < dp(120)) { top = dp(12); bottom = screen.heightPixels - dp(12); left = dp(8); right = screen.widthPixels - dp(8); }
+        int roomBelow = bottom - (at[1] + anchor.getHeight() + dp(6)), roomAbove = at[1] - dp(6) - top;
+        boolean below = roomBelow >= card.getMeasuredHeight() || roomBelow >= roomAbove;
+        int height = Math.max(dp(48), Math.min(card.getMeasuredHeight(), below ? roomBelow : roomAbove));
         window[0] = new android.widget.PopupWindow(scroll, width, height, true);
         window[0].setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0)); window[0].setOutsideTouchable(true); window[0].setElevation(dp(12));
         window[0].setAnimationStyle(android.R.style.Animation_Dialog);
-        int[] at = new int[2]; anchor.getLocationInWindow(at);
-        boolean below = at[1] + anchor.getHeight() + dp(6) + height < screen.heightPixels - dp(24);
-        int x = Math.max(dp(8), Math.min(at[0], screen.widthPixels - width - dp(8)));
-        int y = below ? at[1] + anchor.getHeight() + dp(6) : Math.max(dp(12), at[1] - height - dp(6));
+        int x = Math.max(left, Math.min(wide ? at[0] + anchor.getWidth() - width - dp(12) : at[0], right - width));
+        int y = below ? at[1] + anchor.getHeight() + dp(6) : Math.max(top, at[1] - height - dp(6));
         window[0].showAtLocation(anchor.getRootView(), Gravity.NO_GRAVITY, x, y);
         return window[0];
     }
@@ -834,7 +864,7 @@ final class Ui {
     GradientDrawable shape(int color, int radius) { GradientDrawable shape = new GradientDrawable(); shape.setColor(color); shape.setCornerRadius(dp(radius)); return shape; }
 
     /** color (with its alpha) drawn over an opaque background, as the eye sees it. */
-    private static int over(int color, int background) {
+    static int over(int color, int background) {
         float a = Color.alpha(color) / 255f;
         return Color.rgb(Math.round(Color.red(color) * a + Color.red(background) * (1 - a)), Math.round(Color.green(color) * a + Color.green(background) * (1 - a)),
             Math.round(Color.blue(color) * a + Color.blue(background) * (1 - a)));

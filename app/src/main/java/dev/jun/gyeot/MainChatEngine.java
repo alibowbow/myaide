@@ -47,6 +47,10 @@ final class MainChatEngine implements AutoCloseable {
          * provider that takes only text.
          */
         default WorkTools pages(JSONObject selection,boolean wanted,java.util.function.Supplier<String> words){return null;}
+        /** 프로젝트 (the user's small web apps) for one reply when wanted, as pages(); null for a provider that takes only text. */
+        default WorkTools projects(JSONObject selection,boolean wanted,java.util.function.Supplier<String> words){return null;}
+        /** python_run when wanted and Python is ready on this phone; null for a provider that takes only text. */
+        default WorkTools python(JSONObject selection,boolean wanted,java.util.function.BooleanSupplier stopped){return null;}
         /** The reply with those tools; a provider without tools answers as reply() does. */
         default MainAdapters.Reply reply(JSONObject selection,MainRequest request,WorkTools tools,Runnable guard,AtomicReference<Runnable> cancel) throws Exception{return reply(selection,request,guard,cancel);}
     }
@@ -107,8 +111,12 @@ final class MainChatEngine implements AutoCloseable {
      * After the fixed instructions when a reply offers the user's connected services (MainTools):
      * the same on every such turn, so the cached prefix holds. Each service's own instructions follow it.
      */
-    static final String TOOLS=" Exception: this conversation also offers functions that act on services the user connected in settings (GitHub, Google Drive, 마이아카이브, connectors); the app runs them on the phone. Use them when the user's request needs that service and answer from their results. Never claim an action a function did not confirm.";
+    static final String TOOLS=" Exception: this conversation also offers functions that act on services the user connected in settings (GitHub, Google Drive, Gmail, 마이아카이브, connectors); the app runs them on the phone. Use them when the user's request needs that service and answer from their results. Never claim an action a function did not confirm.";
     /** The same exception when only 페이지's functions are offered. */
+    /** The same exception when only python_run is offered. */
+    static final String PYTHON_TOOLS=" Exception: this conversation also offers python_run, Python on the user's phone; the app runs it there. Use it on your own when the answer needs exact numbers or a chart, and answer from what it printed. Never claim a result it did not print.";
+    /** The same exception when only 프로젝트's functions are offered. */
+    static final String PROJECT_TOOLS=" Exception: this conversation also offers functions for this app's own 프로젝트 (the user's small web apps); the app runs them on the phone. Use them when the user's request is about a project, an app or a dashboard and answer from their results. Never claim an action a function did not confirm.";
     static final String PAGE_TOOLS=" Exception: this conversation also offers functions for this app's own 페이지 (the user's saved documents); the app runs them on the phone. Use them when the user's request is about 페이지 and answer from their results. Never claim an action a function did not confirm.";
     /**
      * What a request says about the page the conversation was opened about: which page the user's questions
@@ -135,6 +143,8 @@ final class MainChatEngine implements AutoCloseable {
         @Override public MainAdapters.Reply reply(JSONObject selection,MainRequest request,Runnable guard,AtomicReference<Runnable> cancel)throws Exception{return MainAdapters.send(app,selection,request,guard,cancel);}
         @Override public WorkTools tools(JSONObject selection,AtomicReference<Runnable> cancel,java.util.function.BooleanSupplier stopped){return MainTools.build(context,app,cancel,stopped,AppStore.modelLabel(model(selection)));}
         @Override public WorkTools pages(JSONObject selection,boolean wanted,java.util.function.Supplier<String> words){return wanted?new PageWorkTools(PageStore.book(context),dev.jun.gyeot.core.PageBook.CHAT,AppStore.modelLabel(model(selection)),words,"main"):null;}
+        @Override public WorkTools projects(JSONObject selection,boolean wanted,java.util.function.Supplier<String> words){return wanted?new ProjectWorkTools(context,words,"main"):null;}
+        @Override public WorkTools python(JSONObject selection,boolean wanted,java.util.function.BooleanSupplier stopped){return wanted?PythonWorkTools.offered(context,"main",stopped):null;}
         @Override public MainAdapters.Reply reply(JSONObject selection,MainRequest request,WorkTools tools,Runnable guard,AtomicReference<Runnable> cancel)throws Exception{return MainAdapters.send(app,selection,request,tools,guard,cancel);}
         @Override public Set<MainRequest.Option> carries(String engine){return MainRequest.supported(engine);}
     }
@@ -247,6 +257,26 @@ final class MainChatEngine implements AutoCloseable {
     long enqueue(String text,JSONArray files){return enqueue(text,files,UsageLedger.MAIN,null);}
     /** As above; files the selected engine cannot take (a PDF on NIM) are refused before the message is kept. */
     long enqueue(String text,JSONArray files,String surface,Listener listener){settingsAndReconcile();if(closed)throw new IllegalStateException("대화가 닫혔어요.");ScopedModels chosen=ScopedModels.main(app);String engine=chosen.engine();if(!app.ready(engine))throw new IllegalStateException("메인 대화에서 사용할 AI를 먼저 연결해 주세요.");JSONObject selection=chosen.snapshot();String fingerprint=app.workConnectionFingerprint(engine);if(fingerprint.isBlank())throw new IllegalStateException("AI 연결을 확인해 주세요.");String refused=MainAttachments.refusedBy(engine,files);if(!refused.isEmpty())throw new IllegalArgumentException(refused);MainChatStore.Turn turn=history.enqueue(text,files,selection,fingerprint);AtomicReference<Runnable> abort=new AtomicReference<>();cancellations.put(turn.reply(),abort);Deltas deltas=new Deltas(turn.reply(),listener);streams.put(turn.reply(),deltas);app.changed();try{replies.execute(()->answer(turn,abort,deltas,surface));}catch(RejectedExecutionException e){history.cancel(turn.reply());cancellations.remove(turn.reply());streams.remove(turn.reply());app.changed();throw e;}return turn.reply();}
+    /** 설정 → 사용량's 막히면 다음 모델로 (on unless the user turned it off): the main chat may hand a failed turn to the next model once. */
+    static final String FALLBACK="brainFallback";
+    /**
+     * The selection a turn goes on with when using could not answer it (core/Fallback.why is not NONE): using's own with the
+     * engine set to the first of BrainRoutes.WORK_FALLBACK that is connected, bound to a connection and able to take the
+     * turn's files, on the model the user last chose for that engine here (else its default), at standard speed. Null when
+     * the user turned this off, the failure is not one another model helps with, or no other model is there. Never saved.
+     */
+    private JSONObject handoff(JSONObject using,Exception failed,MainRequest request,boolean shown,boolean ran,boolean hopped){
+        if(BrainRoutes.hop(failed,app.settings.getBoolean(FALLBACK,true),shown,ran,hopped)==Fallback.Why.NONE)return null;
+        List<String> chain=BrainRoutes.chain(BrainRoutes.Kind.WORK,using.optString("engine"),true,e->app.ready(e)&&request.filesRefused(e).isEmpty()&&!app.workConnectionFingerprint(e).isBlank());
+        if(chain.size()<2)return null;
+        String to=chain.get(1);JSONObject next=ScopedModels.copy(using);Jsons.put(next,"engine",to);Jsons.put(next,"speeds",new JSONObject());
+        String chosen;try{chosen=ScopedModels.frozen(app,next).model(to);}catch(RuntimeException unavailable){return null;}
+        if(chosen==null||chosen.isBlank())return null;
+        JSONObject models=next.optJSONObject("models");if(models==null){models=new JSONObject();Jsons.put(next,"models",models);}Jsons.put(models,to,chosen);
+        return next;
+    }
+    /** A model's name as the main chat shows it ("GPT-6.1 Terra"), its id when the catalog does not have it. */
+    private String label(String engine,String model){try{return new TeamRoster(app,ScopedModels.main(app)).label(engine,model);}catch(Exception unknown){return model;}}
     /** One request that answered, in the usage ledger: metadata only, counted unknown when the provider told nothing. */
     private void counted(String surface,JSONObject selection,String identity,Usage used){String engine=selection.optString("engine");app.usage.record(new UsageLedger.Row(System.currentTimeMillis(),surface,engine,model(selection),app.usageRoute(engine),identity,used==null?Usage.UNKNOWN:used));}
     private void connection(JSONObject selection,String fingerprint){String engine=selection.optString("engine");if(closed||!app.ready(engine)||fingerprint.isBlank()||!fingerprint.equals(app.workConnectionFingerprint(engine))||!inUse(selection).equals(inUse(ScopedModels.main(app).snapshot())))throw new CancellationException("메인 AI 연결이나 모델 선택이 바뀌어 이전 요청을 중단했어요.");}
@@ -384,18 +414,35 @@ final class MainChatEngine implements AutoCloseable {
         // Offered also for two follow-ups after a question about 페이지; what may be saved or changed is decided by this
         // question's own words (and by which pages the last replies made), never by older messages.
         String question=query==null?"":query;
+        // Gmail (설정 → 커넥터 → Gmail) beside the other connected services; whether a mail may go out is read from the user's own
+        // last words (GmailWorkTools: sent only when they ask to send).
+        if(app.gmail.forWork())connected=WorkTools.combine(connected,new GmailWorkTools(app.gmail,()->userWords(turn,question,4),()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}}));
         // The page this conversation was opened about (질문하기 on the page's screen): its tools are offered without the word
         // 페이지, and the request says which page the questions mean.
         dev.jun.gyeot.core.PageBook.Page subject=PageStore.subject(context,"main");
         WorkTools pages=provider.pages(selection,connected!=null||subject!=null||dev.jun.gyeot.core.PageTools.wanted(pageWords(turn,question)),()->question);
+        // 프로젝트: the same way, when the words (or the last ones) are about a project, an app or a dashboard.
+        WorkTools projects=provider.projects(selection,connected!=null||dev.jun.gyeot.core.ProjectTools.wanted(pageWords(turn,question)),()->question);
+        // Python on this phone (once 연구실's 계산 환경 is ready): offered beside other tools, or when the words ask for numbers or a chart.
+        // Numbers: the provider's own code execution where its client has one (Claude, Gemini, Grok: faster, more packages);
+        // Python on this phone (once 연구실's 계산 환경 is ready) for the other engines, and for a chart the user should see.
+        String numberWords=pageWords(turn,question);boolean numbers=dev.jun.gyeot.core.PythonTools.wanted(numberWords),hosted=numbers&&MainRequest.hostsCode(engine);
+        WorkTools python=(!MainRequest.hostsCode(engine)||dev.jun.gyeot.core.PythonTools.chart(numberWords))?provider.python(selection,connected!=null||pages!=null||projects!=null||numbers,()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}}):null;
         // A reply whose functions ran is never sent a second time (below): a save would be made twice.
         java.util.concurrent.atomic.AtomicBoolean ran=new java.util.concurrent.atomic.AtomicBoolean();
         // The browser and the 들퍼레 folder, run by this reply itself: offered only when this question's words are about them.
         // Offered also for two follow-ups after a question about them ("이 주소에도 있어", "맡겨 줘"), and those words are the user's too.
-        String browsingWords=MainBrowser.wanted(question)?question:pageWords(turn,question);
-        MainBrowsing browsing=MainBrowser.wanted(browsingWords)?new MainBrowsing(context,app,turn.run(),browsingWords,userWords(turn,question,6),()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},deltas::status):null;
-        WorkTools tools=counted(WorkTools.combine(WorkTools.combine(connected,pages),browsing==null?null:browsing.tools()),ran);
-        String instructions=instructions(memory)+(web.any()?WEB:"")+(connected!=null?TOOLS:pages!=null?PAGE_TOOLS:"")+(subject!=null&&pages!=null?aboutPage(subject):"")+(browsing!=null?MainBrowser.INSTRUCTIONS:"");
+        // A browser task often goes back and forth ("다시 해 봐", "확인했어, 계속해"): the user's last four messages count.
+        // Also when the conversation is in the middle of browser work ("업데이트했어, 다시 해 봐" after an upload): the user's last eight
+        // messages, or 퍼레's own last two answers, speak of it. Whose words the browser works under stays the user's own.
+        String userRecent=userWords(turn,question,8);
+        boolean browserWork=MainBrowser.wanted(question)||MainBrowser.wanted(userRecent)||MainBrowser.wanted(answerWords(turn,2));
+        // What the browser may do is read from the user's own recent words together, not from this message alone: a question
+        // now ("계정 전환으로 바꿀 수 없나?") does not turn the upload asked for a few messages ago into a read-only task.
+        String browsingWords=userWords(turn,question,12);
+        MainBrowsing browsing=browserWork?new MainBrowsing(context,app,turn.run(),browsingWords,browsingWords,()->{try{guard.run();return false;}catch(RuntimeException stopped){return true;}},deltas::status):null;
+        WorkTools tools=counted(WorkTools.combine(WorkTools.combine(WorkTools.combine(WorkTools.combine(connected,pages),projects),python),browsing==null?null:browsing.tools()),ran);
+        String instructions=instructions(memory)+(web.any()?WEB:"")+(connected!=null?TOOLS:pages!=null?PAGE_TOOLS:projects!=null?PROJECT_TOOLS:python!=null?PYTHON_TOOLS:"")+(subject!=null&&pages!=null?aboutPage(subject):"")+(browsing!=null?MainBrowser.INSTRUCTIONS:"");
         boolean summary=memory&&app.settings.getBoolean("mainSummaryOn",true);int budget=budget(app,selection);
         // The notes related to this question first, within 2% of the window; the chosen ones are marked used.
         String longTerm=memory?app.recallMemory(query,Memory.budget(budget)):"";
@@ -405,11 +452,18 @@ final class MainChatEngine implements AutoCloseable {
         String identity=app.usageIdentity(engine),cacheKey=history.cacheKey();
         // A schedule question's events, read once for the turn and sent with this request only.
         long asked=System.currentTimeMillis();String events=MainChatCalendar.context(context,app,query,asked);
+        // 하루 기록: a question about the past ("어제 뭐 했더라") carries the day log's lines for it, this request only.
+        String past=DayLogs.mainChat(context,query,asked);if(!past.isEmpty())events=events.isEmpty()?past:events+"\n\n"+past;
         // A YouTube address in the question: the video's transcript, read once, goes with this request only.
         String video=video(turn,query,guard,abort);guard.run();
         // The photos and PDFs attached to the question go with it as the provider's file parts, every time it is answered;
         // a text file's text is in the input already.
         List<MainRequest.Attachment> attached=attachments(turn);
+        // 막히면 다음 모델로 (두뇌 배분, core/Fallback): who answers this turn, at first the model chosen. Once, before a word or a
+        // function of it reached the user, a failure of that model or its account (no key, refused, limit, server, timeout, gone,
+        // never a stop or a content refusal) hands the turn to the next connected big model (handoff, BrainRoutes.WORK_FALLBACK);
+        // the answer says so in its foot (via) and the ledger counts the model that answered. The user's choice is not changed.
+        JSONObject using=selection;String usingEngine=engine,usingModel=model,usingIdentity=identity,via="",gaveUp="";MainSearch.Tools usingWeb=web;
         try{for(int attempt=0;;attempt++){
             String input=history.context(turn,new MainChatStore.Options(memory,summary,budget,longTerm,asked,events,video));
             if(attempt>0)deltas.restart();
@@ -418,21 +472,35 @@ final class MainChatEngine implements AutoCloseable {
             long sent=System.currentTimeMillis();long[] first={0};Usage[] used={null};
             Consumer<String> pieces=delta->{if(first[0]==0&&delta!=null&&!delta.isEmpty())first[0]=Math.max(1,System.currentTimeMillis()-sent);deltas.text(delta);};
             // The instructions and tools stay the same from reply to reply, so the provider may keep them cached under the conversation's key.
-            MainRequest request=MainRequest.of(instructions,input).onText(pieces).onUsage(u->used[0]=u).cache(cacheKey).tools(web.search(),web.fetch()).searchAlways(web.always()).files(attached);
-            if(provider.carries(engine).contains(MainRequest.Option.THINKING_SUMMARY))request=request.thinkingSummary(deltas::thinking);
-            try{MainAdapters.Reply got=tools==null?provider.reply(selection,request,guard,abort):provider.reply(selection,request,tools,guard,abort);counted(surface,selection,identity,used[0]);spent[0]=(used[0]==null?Usage.UNKNOWN:used[0]).json(first[0]);
-                return mode!=MainSearch.Mode.OFF&&(web.unsearched()||got.unsearched())?got.withoutSearch():new MainAdapters.Reply(got.text(),got.sources(),got.note(),got.suggestions(),false,got.unread(),got.usage(),got.limits());}
+            MainRequest request=MainRequest.of(instructions,input).onText(pieces).onUsage(u->used[0]=u).cache(cacheKey).tools(usingWeb.search(),usingWeb.fetch()).searchAlways(usingWeb.always()).files(attached).code(hosted&&MainRequest.hostsCode(usingEngine));
+            // The model that took over carries what it can of the request (a search, a summary it has no field for, left out).
+            if(!via.isEmpty())request=request.forEngine(usingEngine);
+            if(provider.carries(usingEngine).contains(MainRequest.Option.THINKING_SUMMARY))request=request.thinkingSummary(deltas::thinking);
+            try{MainAdapters.Reply got=tools==null?provider.reply(using,request,guard,abort):provider.reply(using,request,tools,guard,abort);counted(surface,using,usingIdentity,used[0]);spent[0]=(used[0]==null?Usage.UNKNOWN:used[0]).json(first[0]);if(!via.isEmpty())Jsons.put(spent[0],"via",via);
+                return mode!=MainSearch.Mode.OFF&&(usingWeb.unsearched()||got.unsearched())?got.withoutSearch():new MainAdapters.Reply(got.text(),got.sources(),got.note(),got.suggestions(),false,got.unread(),got.usage(),got.limits());}
             catch(CancellationException stopped){throw stopped;}
             catch(Exception failed){
                 String message=failed.getMessage()==null?"":failed.getMessage();
+                JSONObject next=handoff(using,failed,request,first[0]!=0,ran.get(),!via.isEmpty());
+                if(next!=null){
+                    guard.run();
+                    String to=next.optString("engine"),toModel=model(next),label=label(to,toModel);Fallback.Why why=Fallback.why(failed);
+                    via=Fallback.note(why,WorkBook.author(usingEngine),label);gaveUp=WorkBook.author(usingEngine)+" "+why.label+" → "+label+"도 답하지 못했어요. ";
+                    using=next;usingEngine=to;usingModel=toModel;usingIdentity=app.usageIdentity(to);usingWeb=MainSearch.tools(mode,to,provider.carries(to),query);
+                    // The history is cut to what the model taking over can read.
+                    int window=budget(app,next);if(window<budget){budget=window;if(memory)longTerm=app.recallMemory(query,Memory.budget(budget));}
+                    deltas.restart();deltas.status(via.replace("답했어요","답하는 중이에요"));
+                    attempt=-1;continue;
+                }
+                if(!gaveUp.isEmpty()&&!ContextWindow.overflow(message))throw new IllegalStateException(gaveUp+message,failed);
                 if(attempt>0)throw new IllegalStateException("대화 맥락을 줄여 한 번 더 보냈지만 답변을 받지 못했어요. "+message,failed);
                 if(!ContextWindow.overflow(message))throw failed;
                 // Too long only after functions ran (a long page read part by part): what they did stands, so the turn is not
                 // sent again and the window is not made smaller for what the conversation itself did not cause.
                 if(ran.get())throw new IllegalStateException("읽은 내용이 너무 길어서 답변을 마치지 못했어요. 이미 실행한 저장·수정은 그대로예요. 범위를 나눠서 다시 요청해 주세요.",failed);
-                int smaller=ContextWindow.shrink(engine,model,input.length()+instructions.length(),message);
+                int smaller=ContextWindow.shrink(usingEngine,usingModel,input.length()+instructions.length(),message);
                 if(smaller>=budget)throw failed;
-                guard.run();budget=smaller;app.settings.edit().putInt(limitKey(engine,model),smaller).apply();
+                guard.run();budget=smaller;app.settings.edit().putInt(limitKey(usingEngine,usingModel),smaller).apply();
                 // The notes about the user shrink with the window they are 2% of.
                 if(memory)longTerm=app.recallMemory(query,Memory.budget(budget));
             }
@@ -474,6 +542,14 @@ final class MainChatEngine implements AutoCloseable {
      * follow-ups ("거기에 한 줄 더 넣어 줘", "제목도 바꿔 줘") right after a save still have them. They allow nothing by themselves.
      */
     private String pageWords(MainChatStore.Turn turn,String query){return userWords(turn,query,2);}
+    /** 퍼레's own last answers before the question (up to count), for deciding which tools the conversation is in the middle of. */
+    private String answerWords(MainChatStore.Turn turn,int count){
+        StringBuilder words=new StringBuilder();int taken=0;
+        try{JSONArray before=history.page(turn.user(),Math.max(8,count*3));
+            for(int i=before.length()-1;i>=0&&taken<count;i--){JSONObject m=before.optJSONObject(i);if(m!=null&&"assistant".equals(m.optString("role"))){words.append('\n').append(m.optString("text"));taken++;}}}
+        catch(RuntimeException unreadable){/* none */}
+        return words.toString();
+    }
     /** The question with the user's own last messages before it (up to count of them), newest first. */
     private String userWords(MainChatStore.Turn turn,String query,int count){
         StringBuilder words=new StringBuilder(query==null?"":query);int taken=0;

@@ -10,7 +10,8 @@ import static dev.jun.gyeot.core.Jsons.*;
 /** Process-local browser jobs outlive a voice tool call. Never replay a job after process death. Main thread only. */
 public final class BrowserJobs {
     public interface Starter { void start(String request, Consumer<JSONObject> complete); }
-    private static final int LIMIT = 16;
+    /** Voice browser jobs kept at once; running jobs are never evicted, finished ones make room. */
+    private static final int LIMIT = 64;
     private final Map<String, Job> jobs = new LinkedHashMap<>();
     private String latest = "";
     private static final class Job {
@@ -19,8 +20,8 @@ public final class BrowserJobs {
         Job(String call, String request) { this.call = call; this.request = request; }
     }
     public JSONObject submit(String call, String request, Starter starter, Consumer<JSONObject> completed) {
-        if (call == null || call.isBlank() || request == null || request.isBlank() || request.length() > 8000)
-            return obj("ok", false, "error", "8000자 이내로 브라우저에서 할 일을 알려 주세요.");
+        if (call == null || call.isBlank() || request == null || request.isBlank() || request.length() > BrowserPrompts.REQUEST_LIMIT)
+            return obj("ok", false, "error", String.format(java.util.Locale.ROOT, "%,d자 이내로 브라우저에서 할 일을 알려 주세요.", BrowserPrompts.REQUEST_LIMIT));
         for (Job job : jobs.values()) if (job.call.equals(call)) return status(job.id);
         // The caller binds each job to its tab lane. A different tab must not be
         // blocked by the most recently submitted task; running jobs are never evicted.

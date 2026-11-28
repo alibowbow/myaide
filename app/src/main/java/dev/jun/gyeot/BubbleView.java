@@ -286,9 +286,12 @@ final class BubbleView {
 
     /** The moon: a small dark glass disc with a hairline edge and a white stop mark, or a play mark while control is paused. */
     static final class Moon extends View {
-        private boolean paused;
+        private boolean paused, record;
         private final android.graphics.Path play = new android.graphics.Path();
+        private final Paint dot = new Paint(Paint.ANTI_ALIAS_FLAG);
         void paused(boolean value) { if (paused != value) { paused = value; invalidate(); } }
+        /** 녹화: the voice bubble's satellite starts a screen recording; it shows a red record dot instead of a stop mark. */
+        void record(boolean value) { if (record != value) { record = value; invalidate(); } }
         private final Paint shadow = new Paint(Paint.ANTI_ALIAS_FLAG), base = new Paint(Paint.ANTI_ALIAS_FLAG), edge = new Paint(Paint.ANTI_ALIAS_FLAG), stop = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final float density;
         Moon(Context context) {
@@ -306,6 +309,7 @@ final class BubbleView {
             base.setShader(new RadialGradient(cx - r * 0.4f, cy - r * 0.5f, r * 1.7f, 0xff403a34, 0xff14110e, Shader.TileMode.CLAMP));
             canvas.drawCircle(cx, cy, r, base);
             canvas.drawCircle(cx, cy, r - density / 2, edge);
+            if (record) { dot.setColor(0xffff4d4f); canvas.drawCircle(cx, cy, 4.6f * density, dot); return; }
             if (!paused) { canvas.drawRoundRect(cx - q, cy - q, cx + q, cy + q, 1.6f * density, 1.6f * density, stop); return; }
             // ▶: phone control is paused; a tap turns it back on.
             float h = 4.2f * density;

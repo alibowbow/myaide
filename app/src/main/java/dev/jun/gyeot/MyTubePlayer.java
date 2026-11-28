@@ -209,7 +209,7 @@ final class MyTubePlayer {
         feed = from; queue.clear(); queue.addAll(list); load(Math.max(0, Math.min(index, list.size() - 1)));
     }
     private void load(int index) {
-        at = index; MyTube.Video v = current(); if (v == null) return;
+        at = index; MyTube.Video v = current(); if (v == null) return; retried.clear();
         signingIn = false; browsing = false;
         // Off the screen without background play, the next video waits (paused) for the screen to come back.
         wantPlay = onScreen || background(); playing = false; qualityNow = ""; levels = List.of(); qualitySettable = true;
@@ -222,7 +222,29 @@ final class MyTubePlayer {
     /** Pauses what plays (or is about to), else plays: as the page is, not as it was asked. */
     void toggle() { if (playing || wantPlay && "불러오는 중".equals(status)) pause(); else resume(); }
     void pause() { wantPlay = false; send("pause"); status = "멈춤"; changed(); }
-    void resume() { if (!active()) return; wantPlay = true; if (session != null) session.setActive(true); send("play"); status = "재생 중"; if (background()) MyTubeService.start(context); changed(); }
+    /** When the page stopped by itself and was played again (the last minute's tries), so a page that keeps stopping is not fought. */
+    private final java.util.ArrayDeque<Long> retried = new java.util.ArrayDeque<>();
+    private boolean retry(MyTube.Video v, JSONObject event) {
+        long now = System.currentTimeMillis();
+        while (!retried.isEmpty() && now - retried.peekFirst() > 60_000) retried.removeFirst();
+        if (retried.size() >= 3) return false;
+        retried.addLast(now);
+        store.phoneLog("마이튜브 · 페이지가 스스로 멈춰 다시 재생 (" + retried.size() + "/3) · " + state(event));
+        status = "끊겨서 다시 재생하는 중… (" + retried.size() + "/3)"; changed();
+        main.postDelayed(() -> { if (current() == v && !playing && wantPlay && active()) send("play"); }, 1500);
+        return true;
+    }
+    /** Why it stays stopped after the tries, in words: no data (the connection), or a play the page refused. */
+    private static String stopped(JSONObject event) {
+        String why = event.optString("why");
+        if (event.optInt("ready", 4) < 3 && event.optDouble("ahead", 0) < 1) return "영상 데이터가 오지 않아 멈췄어요 · 인터넷이 느리거나 유튜브가 응답하지 않아요 · ▶를 눌러 다시 해 보세요";
+        if (!why.isEmpty()) return "유튜브 페이지가 재생을 거부했어요 (" + why + ") · ▶를 눌러 보세요";
+        return "유튜브 페이지가 스스로 멈췄어요 · ▶를 눌러 다시 재생해요";
+    }
+    private static String state(JSONObject event) {
+        return "준비 " + event.optInt("ready", -1) + " · 네트워크 " + event.optInt("net", -1) + " · 앞에 받아 둔 " + event.optDouble("ahead", 0) + "초" + (event.optString("why").isEmpty() ? "" : " · " + event.optString("why"));
+    }
+    void resume() { if (!active()) return; retried.clear(); wantPlay = true; if (session != null) session.setActive(true); send("play"); status = "재생 중"; if (background()) MyTubeService.start(context); changed(); }
     void previous() { if (at > 0) load(at - 1); }
     /** 앞뒤 이동: seconds forward (or back, negative) from where the video is. */
     void seek(int seconds) { if (active()) post(dev.jun.gyeot.core.Jsons.obj("command", "seek", "by", seconds)); }
@@ -302,7 +324,17 @@ final class MyTubePlayer {
                 if (rate != 1f && !event.optBoolean("ad")) sendRate(); // YouTube starts each video at 1×
                 changed();
             }
-            case "paused" -> { playing = false; wantPlay = false; status = "멈춤"; changed(); }
+            case "paused" -> {
+                playing = false;
+                // The page stopped by itself while it should play (its data stopped coming, a play it refused): played
+                // again, up to three times a minute, then the reason is shown (준: "이런 재생이 안되는 오류는 왜일까").
+                if (event.optBoolean("self") && !event.optBoolean("ad") && retry(v, event)) return;
+                wantPlay = false; status = event.optBoolean("self") ? stopped(event) : "멈춤"; changed();
+            }
+            case "stalling" -> {
+                status = "영상 데이터가 오지 않아요 · " + (event.optDouble("ahead", 0) < 1 ? "인터넷이 느리거나 끊긴 것 같아요" : "불러오는 중이에요");
+                store.phoneLog("마이튜브 · 재생이 멈칫함 · " + state(event)); changed();
+            }
             case "ended" -> next();
             case "error" -> { status = "재생할 수 없는 영상이라 다음으로 넘겨요"; changed(); main.postDelayed(() -> { if (current() == v) next(); }, 1500); }
             case "stuck" -> {

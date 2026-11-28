@@ -39,6 +39,8 @@ final class GeminiQuotas {
     /** Google refused it (status and error body): true when the next model should be tried (quota used up, resting, or not usable). */
     static boolean refused(String model, int status, String body) {
         AppStore s = store; if (s == null) return false;
+        // The app's light work goes with the 작업창·메인 대화 key: Google naming the free tier's limit marks that key 무료.
+        if (GeminiKeyRing.freeTierAnswer(status, body)) try { s.geminiKeys.sawFreeTier(s.secrets.workKey()); } catch (Exception ignored) {}
         return s.changeGeminiQuota(state -> GeminiQuota.refused(state, model, status, body, System.currentTimeMillis()), true);
     }
     /** The first of models this key can use, or null when it can use none (no store: the first). */
@@ -58,5 +60,22 @@ final class GeminiQuotas {
     static void used(String model, int tokens, int count) {
         AppStore s = store; if (s == null || count <= 0) return;
         s.changeGeminiQuota(state -> { long now = System.currentTimeMillis(); for (int i = 0; i < count; i++) GeminiQuota.used(state, model, now, i == 0 ? tokens : 0); return null; }, false);
+    }
+    /** The app's store, for the Groq side (GroqWork), once GyeotApp made it. */
+    static AppStore store() { return store; }
+    /**
+     * Groq refused (status and body): a day's limit (requests or tokens a day) rests the model as long as Groq said and keeps which
+     * limit it was (GeminiQuota.groqDay), a minute's rests it as long as Groq said. True when it was a limit, so the next choice
+     * should be tried.
+     */
+    static boolean refusedGroq(String model, int status, String body) {
+        AppStore s = store; if (s == null || status != 429) return false;
+        String text = body == null ? "" : body.toLowerCase(java.util.Locale.ROOT);
+        boolean day = text.contains("per day") || text.contains("(rpd)") || text.contains("(tpd)") || text.contains("(asd)");
+        return s.changeGeminiQuota(state -> {
+            long now = System.currentTimeMillis();
+            if (day) GeminiQuota.groqDay(state, model, now, body); else GeminiQuota.rest(state, model, now, GeminiQuota.groqRetry(body));
+            return true;
+        }, true);
     }
 }

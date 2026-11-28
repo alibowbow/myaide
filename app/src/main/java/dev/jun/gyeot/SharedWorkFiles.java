@@ -32,6 +32,25 @@ final class SharedWorkFiles {
         try { return export(context, record, state, () -> false); }
         catch (Exception error) { throw new IOException("결과 파일은 앱 내부에 보관했어요. 내 휴대폰 > 저장 위치 > 대기 파일 저장에서 확인해 주세요. " + error.getMessage(), error); }
     }
+    /**
+     * The same for a file already on disk (a Drive download), copied in pieces and hashed on the way, never read whole into
+     * memory: a file of any size the disk holds. check stops it when the job is stopped.
+     */
+    static synchronized Uri save(Context context, String name, String mime, File source, Runnable check) throws Exception {
+        FileOrganizationPlan.safeName(name);
+        String id = UUID.randomUUID().toString(); File dir = directory(context), body = new File(dir, id + ".data"), record = new File(dir, id + ".json");
+        MessageDigest digest = MessageDigest.getInstance("SHA-256"); long count = 0;
+        try (InputStream in = new FileInputStream(source); FileOutputStream out = new FileOutputStream(body)) {
+            byte[] buffer = new byte[65536]; int n;
+            while ((n = in.read(buffer)) != -1) { check.run(); out.write(buffer, 0, n); digest.update(buffer, 0, n); count += n; }
+            out.getFD().sync();
+        } catch (Exception failed) { if (!body.delete()) body.deleteOnExit(); throw failed; }
+        JSONObject state = new JSONObject().put("id", id).put("name", name).put("mime", mime).put("bytes", count)
+            .put("sha256", FileExplorerRepository.hex(digest.digest())).put("state", "prepared");
+        write(record, state);
+        try { return export(context, record, state, () -> false); }
+        catch (Exception error) { throw new IOException("결과 파일은 앱 내부에 보관했어요. 내 휴대폰 > 저장 위치 > 대기 파일 저장에서 확인해 주세요. " + error.getMessage(), error); }
+    }
     static int pendingCount(Context context) {
         File dir = new File(context.getFilesDir(), "pending-work-exports"); File[] files = dir.listFiles((d,n) -> n.endsWith(".json")); int count=0;
         if (files != null) for (File file : files) try { if (!"verified".equals(read(file).optString("state"))) count++; } catch (Exception error) { count++; }

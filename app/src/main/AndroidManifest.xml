@@ -6,9 +6,12 @@
     <!-- 화면 방향 (음성 “가로로 바꿔 줘”): only after the user allows ‘시스템 설정 변경’ for this app in Settings. -->
     <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-feature android:name="android.software.live_wallpaper" android:required="false" />
     <!-- A voice call notices at once when the default network drops or returns (install-time, no prompt). -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- 퍼레's private memories open after the phone's fingerprint (Fingerprint, BiometricPrompt). -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- GPT-Live's call (a WebView WebRTC call) sets the call's sound route: headset or speaker. -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.CAMERA" />
@@ -19,6 +22,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- 화면 녹화: the screen capture runs in a foreground service while it records (Android 14 asks for this type). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 예약 작업 on time. The user grants it in Android settings (알람 및 리마인더); without it runs come late or by a tap. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
@@ -30,6 +35,17 @@
     <!-- 캘린더: the phone's calendar provider, Google Calendar included; asked at first use. Writes add
          an event the user asked for, or undo the one the app just added. -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- 퍼레's "엄마한테 전화해 줘": the number from the contacts, put in the dialer (the user presses call). -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- LP 페이지 내 음악의 '휴대폰 노래': the songs in Android's media index (music only, recordings left out), asked when
+         the user first opens that list; without it the file picker still adds music. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <!-- 들퍼레 홈 화면's weather: roughly where the phone is (Weather), asked once on the home screen. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- 조건 알림 "집에 도착하면 …": Android's proximity alert per place needs the precise location and ‘항상 허용’; both are
+         asked only when the user makes a place trigger (TriggerActivity, Android's own screens), never at start. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.WRITE_CALENDAR" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
@@ -40,6 +56,8 @@
          Read-aloud binds the device's text-to-speech engine when there is no Gemini key or no internet.
          누르고 말하기 and the no-key composer mic bind the device's speech recognition service. -->
     <queries>
+        <!-- The home screen's date shows Google Calendar's widget when it is there (CalendarWidget: its providers are listed). -->
+        <package android:name="com.google.android.calendar" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -61,6 +79,23 @@
         <intent><action android:name="android.accessibilityservice.AccessibilityService" /></intent>
         <intent><action android:name="android.service.notification.NotificationListenerService" /></intent>
         <intent><action android:name="android.app.action.DEVICE_ADMIN_ENABLED" /></intent>
+        <!-- 퍼레's 찾아 틀기: music and video apps that play or search what is asked. -->
+        <intent><action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" /></intent>
+        <intent><action android:name="android.intent.action.SEARCH" /></intent>
+        <!-- 퍼레 using apps their own way: share, a text, the dialer, the camera, a new event, a page. -->
+        <intent><action android:name="android.intent.action.SEND" /><data android:mimeType="text/plain" /></intent>
+        <intent><action android:name="android.intent.action.SENDTO" /><data android:scheme="smsto" /></intent>
+        <intent><action android:name="android.intent.action.DIAL" /></intent>
+        <intent><action android:name="android.media.action.STILL_IMAGE_CAMERA" /></intent>
+        <intent><action android:name="android.media.action.VIDEO_CAMERA" /></intent>
+        <intent><action android:name="android.intent.action.INSERT" /><data android:mimeType="vnd.android.cursor.dir/event" /></intent>
+        <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="https" /></intent>
+        <!-- 퍼레's more tools: the clock's timers, a recorder, the downloads, a new mail, a translator's text action. -->
+        <intent><action android:name="android.intent.action.SHOW_TIMERS" /></intent>
+        <intent><action android:name="android.provider.MediaStore.RECORD_SOUND" /></intent>
+        <intent><action android:name="android.intent.action.VIEW_DOWNLOADS" /></intent>
+        <intent><action android:name="android.intent.action.SENDTO" /><data android:scheme="mailto" /></intent>
+        <intent><action android:name="android.intent.action.PROCESS_TEXT" /><data android:mimeType="text/plain" /></intent>
         <package android:name="com.android.vending" />
         <package android:name="com.android.settings" />
     </queries>
@@ -70,6 +105,31 @@
         <activity android:name=".PhoneSecurityActivity" android:enableOnBackInvokedCallback="true" android:windowSoftInputMode="adjustResize" android:exported="false" />
         <activity android:name=".NavigationActivity" android:windowSoftInputMode="adjustResize" android:exported="false" />
         <activity android:name=".NoticeActivity" android:exported="false" />
+        <!-- 알림을 행동으로: one tap from a home screen pill or 퍼레's bubble (open the notice, fill the calendar, the reply sheet), over what shows. -->
+        <activity android:name=".NoticeActActivity" android:exported="false" android:theme="@style/QuickTheme" android:taskAffinity=""
+            android:excludeFromRecents="true" android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
+        <!-- 내 휴대폰 → 화면 꾸미기: 움직이는 배경화면 (HtmlWallpaper) and what goes on the home screen. -->
+        <activity android:name=".DecorActivity" android:exported="false" />
+        <!-- 들퍼레 홈 화면: chosen as the home app only when the user picks it (화면 꾸미기 → 홈 화면 앱). Its own task, never in recents;
+             folding or unfolding keeps the page. -->
+        <activity android:name=".HomeActivity" android:exported="true" android:launchMode="singleTask" android:stateNotNeeded="true"
+            android:clearTaskOnLaunch="true" android:excludeFromRecents="true" android:taskAffinity="dev.jun.gyeot.home" android:resizeableActivity="true"
+            android:theme="@style/HomeTheme" android:windowSoftInputMode="adjustNothing" android:screenOrientation="unspecified"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density|fontScale">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <service android:name=".HtmlWallpaper" android:label="@string/wallpaper_label" android:exported="true"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data android:name="android.service.wallpaper" android:resource="@xml/html_wallpaper" />
+        </service>
         <service android:name=".NoticeListener" android:exported="true" android:label="들퍼레 알림 비서" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
         </service>
@@ -86,8 +146,17 @@
         <activity android:name=".PagesActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".MyTubeActivity" android:exported="false" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize" />
         <activity android:name=".SearchActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".SchoolActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".LabActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ProjectActivity" android:exported="false" android:windowSoftInputMode="adjustResize" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
         <activity android:name=".BoardActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
-        <activity android:name=".BrowserActivity" android:exported="false" android:launchMode="singleTop" android:windowSoftInputMode="adjustResize" />
+        <!-- finishOnTaskLaunch: kept behind the home screen for the left page's quick return, closed when the app is opened from its icon. -->
+        <!-- Opened as a new task (from the home screen's left page, its notifications, 퍼레), the AI 브라우저 is a task of its own
+             (dev.jun.gyeot.browser), not on top of the app's main screen: what is behind it is the home screen, so the swipe back
+             can make it see-through and leave with 홈 already there (BrowserActivity.seeThrough), and the 들퍼레 icon still opens
+             the main screen. Opened from inside the app (no new task) it sits in the app's task as before. -->
+        <activity android:name=".BrowserActivity" android:exported="false" android:launchMode="singleTop" android:finishOnTaskLaunch="true" android:windowSoftInputMode="adjustResize"
+            android:taskAffinity="dev.jun.gyeot.browser" />
         <!-- Explicit navigation, shortcut and sign-in intents keep a single main window. -->
         <activity android:name=".MainChatActivity" android:exported="true" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask"
@@ -131,17 +200,57 @@
             </intent-filter>
         </activity>
         <service android:name=".BoardJobService" android:exported="false" android:foregroundServiceType="dataSync" />
+        <service android:name=".LabJobService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name=".MainBrowserService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name=".BrowserTaskService" android:exported="false" android:foregroundServiceType="dataSync" />
         <!-- 예약 작업: only this app's own alarm reaches it (no intent filter, not exported, no boot listener). -->
         <receiver android:name=".WorkScheduleAlarm" android:exported="false" />
+        <!-- 미니앱 알림 (gyeot.notify at a time): only this app's own alarm reaches it, the same way. -->
+        <receiver android:name=".PageNotices" android:exported="false" />
         <service android:name=".BriefingJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <!-- 남는 한도로 한 일 (SpareWork): before the free day starts again, while charging on Wi-Fi with the screen off. -->
+        <service android:name=".SpareJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <!-- 조건 알림 (사건 트리거): each door is switched on by TriggerWatch only while a trigger of its kind is on. Boot: the places
+             watched again after a restart or an update. Bluetooth: a paired device (the car) connecting or going, a protected
+             broadcast only Android sends. Place: Android's proximity alert, from this app's own PendingIntent only. -->
+        <receiver android:name=".TriggerReceiver$Boot" android:exported="true" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <receiver android:name=".TriggerReceiver$Bluetooth" android:exported="true" android:enabled="false">
+            <intent-filter>
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+                <action android:name="android.bluetooth.device.action.ACL_DISCONNECTED" />
+            </intent-filter>
+        </receiver>
+        <receiver android:name=".TriggerReceiver$Place" android:exported="false" />
+        <!-- 매크로: a run's 중지, its ask before a send, a recording's 끝 and 취소, from this app's own notifications only. -->
+        <receiver android:name=".MacroReceiver" android:exported="false" />
+        <!-- 조건 알림's price reads and battery checks while charging, set only while a trigger needs them. -->
+        <service android:name=".TriggerJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <!-- 조건 알림's one tap: a draft to send, an app to open, a permission, which device is the car; see-through. -->
+        <activity android:name=".TriggerActivity" android:exported="false" android:theme="@style/QuickTheme" android:taskAffinity=""
+            android:excludeFromRecents="true" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
         <!-- 차에서 호출어: started from the settings while the app is in front, so Android lets it use the microphone later. -->
         <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone" />
         <!-- The main chat's spoken conversation: started from the chat screen, so it keeps hearing with the screen off. -->
         <service android:name=".VoiceChatService" android:exported="false" android:foregroundServiceType="microphone" />
+        <service android:name=".BuddyVoiceService" android:exported="false" android:foregroundServiceType="microphone" />
+        <!-- 화면 녹화: the whole screen at its own size into Movies/들퍼레. Started only after Android's consent (ScreenRecordActivity);
+             the microphone type only while a recording has sound. shortService answers the start when Android 14 allows no
+             other type, so the app is not ended for leaving it unanswered; it is never combined with the others. -->
+        <service android:name=".ScreenRecordService" android:exported="false" android:foregroundServiceType="mediaProjection|microphone|shortService" />
+        <activity android:name=".ScreenRecordActivity" android:exported="false" android:theme="@style/QuickTheme" android:taskAffinity=""
+            android:excludeFromRecents="true" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
+        <!-- 내 음악 on the LP page: Android's own file picker for music files or a folder, over the page; closes by itself. -->
+        <activity android:name=".MusicPickActivity" android:exported="false" android:theme="@style/QuickTheme" android:taskAffinity=""
+            android:excludeFromRecents="true" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
         <service android:name=".MyTubeService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".LyriaService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
+        <!-- LP 페이지가 다른 앱 뒤에서 재생되는 동안의 미디어 알림 (LpMedia): only while it plays. -->
+        <service android:name=".LpService" android:exported="false" android:foregroundServiceType="mediaPlayback" />
         <service android:name=".AssistantService" android:exported="false"
             android:foregroundServiceType="microphone|mediaPlayback|dataSync" android:stopWithTask="false" />
         <provider android:name=".ManagedDocumentsProvider" android:authorities="dev.jun.gyeot.shared-documents"
@@ -153,6 +262,14 @@
         <!-- Quick settings tile "들퍼레": only the system UI can bind it; a tap goes through QuickVoiceActivity. -->
         <service android:name=".QuickTile" android:exported="true" android:label="@string/quick_tile_label"
             android:icon="@drawable/ic_mic" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.TOGGLEABLE_TILE" android:value="true" />
+        </service>
+        <!-- Quick settings tile "화면 녹화": starts a recording through ScreenRecordActivity, stops it with another tap. -->
+        <service android:name=".ScreenRecordTile" android:exported="true" android:label="@string/screen_record_tile_label"
+            android:icon="@drawable/ic_video" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
