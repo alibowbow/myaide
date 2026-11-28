@@ -111,6 +111,12 @@ public class BuddyBrainTests {
         assertTrue(dev.jun.gyeot.core.BuddyChat.asksBack("할 일 관리 앱 코드 짜 줘", "좋아! 어떤 기능이 필요할지 좀 더 구체적으로 말해 줄래?"));
         assertFalse(dev.jun.gyeot.core.BuddyChat.asksBack("심심해", "뭐 하고 놀까? 어떤 걸 좋아해?"));
         assertFalse(dev.jun.gyeot.core.BuddyChat.asksBack("카톡으로 보내 줘", "보낼게!\n할일: {\"tool\":\"share\",\"text\":\"늦어\"}"));
+        // A 조건 알림 chosen with its condition left out: filled from the words (the condition, what then, every time).
+        JSONObject car = BuddyTools.refine("차 타면 매번 네이버 지도 켜 줘", new JSONObject("{\"tool\":\"when_event\",\"command\":\"make\"}"));
+        assertEquals("차 타면", car.optString("when")); assertEquals("open_app", car.optString("then")); assertTrue(car.optBoolean("every"));
+        JSONObject given = new JSONObject("{\"tool\":\"when_event\",\"command\":\"make\",\"when\":\"차에 타면\",\"then\":\"open_app\",\"what\":\"네이버 지도\",\"every\":true}");
+        assertSame("already whole: left as it is", given, BuddyTools.refine("차에 타면 매번 네이버 지도 켜 줘", given));
+        assertTrue(dev.jun.gyeot.core.BuddyChat.asksBack("어제 유튜브 얼마나 봤지", "그건 나도 볼 수 없어 ㅠㅠ 휴대폰 설정에서 '디지털 웰빙'으로 확인해 봐"));
         // Asked twice and still not done: the thing read from the words alone, when they are that plain.
         JSONObject home = BuddyTools.fromWords("집에 도착하면 엄마한테 문자 보내 줘");
         assertEquals("when_event", home.optString("tool")); assertEquals("집에 도착하면", home.optString("when")); assertEquals("message", home.optString("then"));

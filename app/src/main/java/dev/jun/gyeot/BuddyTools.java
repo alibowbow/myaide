@@ -316,6 +316,20 @@ final class BuddyTools {
         String tool = act.optString("tool"), words = said.strip();
         try {
             String when = condition(words);
+            // A 조건 알림 chosen with its condition left out ("차 타면 매번 네이버 지도 켜 줘" → when_event with only command=make):
+            // the condition, what then and every time from the words.
+            if (tool.equals("when_event") && (act.optString("command").isBlank() || act.optString("command").equals("make")) && when != null) {
+                JSONObject filled = new JSONObject(act.toString());
+                if (filled.optString("when").isBlank()) filled.put("when", when);
+                String rest = words.substring(Math.min(words.length(), words.indexOf(when) + when.length())).strip();
+                if (filled.optString("then").isBlank() || filled.optString("then").equals("tell") && !rest.isEmpty() && !TELLS.matcher(rest).find()) {
+                    String then = MESSAGE.matcher(rest).find() ? "message" : NAVIGATE.matcher(rest).find() ? "navigate" : PLAYS.matcher(rest).find() ? "play" : OPENS.matcher(rest).find() ? "open_app" : "tell";
+                    filled.put("then", then);
+                }
+                if (filled.optString("what").isBlank() && !rest.isEmpty()) filled.put("what", rest);
+                if (!filled.has("every") && EVERY.matcher(words).find()) filled.put("every", true);
+                return filled.toString().equals(act.toString()) ? act : filled;
+            }
             java.util.Map<String, String> then = java.util.Map.of("navigate", "navigate", "open_app", "open_app", "play", "play", "phone_job", "phone_job", "web_job", "web_job", "work_job", "work_job");
             if (when != null && then.containsKey(tool)) {
                 String what = tool.equals("navigate") ? act.optString("destination") : tool.equals("open_app") ? act.optString("app") : tool.equals("play") ? act.optString("query") : act.optString("request");
@@ -362,6 +376,7 @@ final class BuddyTools {
         if (!said.isBlank()) return said;
         return switch (act.optString("tool")) { case "when_event" -> "그때 하도록 걸어 둘게!"; case "day_recall" -> "기록에서 찾아볼게!"; default -> "바로 할게!"; };
     }
+    private static final java.util.regex.Pattern TELLS = java.util.regex.Pattern.compile("알려|말해|알림"), EVERY = java.util.regex.Pattern.compile("매번|마다|항상|늘");
     private static final java.util.regex.Pattern MESSAGE = java.util.regex.Pattern.compile("(문자|카톡|메시지|메세지|톡)\\S*\\s*.*(보내|전해)|보내\\s*줘"),
         NAVIGATE = java.util.regex.Pattern.compile("길\\s*안내|안내해|데려다|가는\\s*길"), PLAYS = java.util.regex.Pattern.compile("틀어|재생"), OPENS = java.util.regex.Pattern.compile("열어|켜\\s*줘"),
         WORK = java.util.regex.Pattern.compile("(코드|앱|어플|프로그램|웹\\s*사이트|홈페이지|스크립트|문서|보고서|발표\\s*자료|PPT|엑셀)\\S*\\s*(을|를)?\\s*(짜|만들어|작성해|써)\\s*줘", java.util.regex.Pattern.CASE_INSENSITIVE),
