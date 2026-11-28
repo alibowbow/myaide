@@ -699,9 +699,11 @@ public final class BrowserActivity extends Activity {
     private void goHome() {
         if (isFinishing() || isDestroyed()) return;
         android.content.Intent home = new android.content.Intent(this, HomeActivity.class).putExtra(HomeActivity.PAGE, "홈").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+        // Kept, not closed (준: "탭 내리고 올리듯이 바로 띄우는게 안되나", "그런 원리로"): the screen stays behind the home screen as it
+        // is, and the next swipe onto the left page only brings it to the front again (no new screen to build). The 들퍼레 icon
+        // still opens the app's main screen: finishOnTaskLaunch closes this one then (its tabs and talks are the engine's, kept).
         try { startActivity(home, android.app.ActivityOptions.makeCustomAnimation(this, R.anim.page_in_right, R.anim.page_out_left).toBundle()); }
-        catch (RuntimeException none) { moveTaskToBack(true); return; }
-        finish(); overridePendingTransition(R.anim.page_in_right, R.anim.page_out_left);
+        catch (RuntimeException none) { moveTaskToBack(true); }
     }
     /**
      * The page open() asked for, once its tabs have been restored: a new tab, once per request, checked again; as many tabs as

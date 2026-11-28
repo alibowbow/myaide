@@ -150,7 +150,8 @@
         <activity android:name=".LabActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ProjectActivity" android:exported="false" android:windowSoftInputMode="adjustResize" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
         <activity android:name=".BoardActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
-        <activity android:name=".BrowserActivity" android:exported="false" android:launchMode="singleTop" android:windowSoftInputMode="adjustResize" />
+        <!-- finishOnTaskLaunch: kept behind the home screen for the left page's quick return, closed when the app is opened from its icon. -->
+        <activity android:name=".BrowserActivity" android:exported="false" android:launchMode="singleTop" android:finishOnTaskLaunch="true" android:windowSoftInputMode="adjustResize" />
         <!-- Explicit navigation, shortcut and sign-in intents keep a single main window. -->
         <activity android:name=".MainChatActivity" android:exported="true" android:launchMode="singleTask" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask"
