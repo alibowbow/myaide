@@ -251,7 +251,10 @@ public final class PagesActivity extends Activity {
             if (i == 0) openProject(p.id());
             else if (i == 1) { try { maker.book().save(p.pin(!p.pinned())); } catch (IOException e) { toast(e.getMessage()); } showList(); }
             else confirm("‘" + p.title() + "’ 프로젝트를 지울까요? 들퍼레/프로젝트의 폴더와 이전 버전도 함께 지워져요.", "지우기", () -> {
-                maker.stop(p.id()); try { maker.book().remove(p.id()); } catch (IOException e) { toast(e.getMessage()); } showList(); });
+                maker.stop(p.id()); try { maker.book().remove(p.id()); } catch (IOException e) { toast(e.getMessage()); } showList();
+                // Its grants (window.gyeot) and the notifications it set for later go with it.
+                android.content.Context app = getApplicationContext(); String key = "project:" + p.id();
+                new Thread(() -> PageBridgeHost.forget(app, key), "project-forget").start(); });
         });
     }
     /** 새 프로젝트: what to make (the AI writes it), or a ready one to start from; the AI that makes it under the field. */

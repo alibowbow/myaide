@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>물 마시기</title>
+<style>
+  :root { --bg: #f6f7f9; --card: #fff; --ink: #17181c; --muted: #6b7280; --line: rgba(0,0,0,.07); --accent: #2f80ed; --soft: rgba(47,128,237,.11); --warn: #c2410c; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #101114; --card: #1a1c21; --ink: #eceef2; --muted: #9aa1ad; --line: rgba(255,255,255,.08); --accent: #5aa0ff; --soft: rgba(90,160,255,.14); --warn: #fb923c; } }
+  :root[data-theme="dark"] { --bg: #101114; --card: #1a1c21; --ink: #eceef2; --muted: #9aa1ad; --line: rgba(255,255,255,.08); --accent: #5aa0ff; --soft: rgba(90,160,255,.14); --warn: #fb923c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, 'Pretendard', 'Noto Sans KR', sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: 18px 16px 32px; }
+  .card { background: var(--card); border-radius: 20px; padding: 18px; box-shadow: 0 1px 2px rgba(0,0,0,.04); margin-bottom: 12px; }
+  .count { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .big { font-size: 44px; font-weight: 750; letter-spacing: -.02em; }
+  .big small { font-size: 16px; font-weight: 550; color: var(--muted); margin-left: 4px; }
+  .cups { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .cup { width: 26px; height: 32px; border-radius: 6px 6px 9px 9px; border: 2px solid var(--accent); opacity: .35; }
+  .cup.on { background: var(--accent); opacity: 1; }
+  button { font: inherit; border: 0; border-radius: 999px; min-height: 44px; padding: 0 18px; cursor: pointer; }
+  .add { background: var(--accent); color: #fff; font-weight: 650; min-width: 112px; }
+  .less { background: var(--soft); color: var(--accent); width: 44px; padding: 0; font-size: 20px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; }
+  .label { font-weight: 620; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { min-height: 34px; padding: 0 12px; background: var(--soft); color: var(--accent); font-size: 13.5px; font-weight: 600; }
+  .chip.on { background: var(--accent); color: #fff; }
+  .switch { width: 52px; min-height: 32px; height: 32px; padding: 3px; background: var(--line); display: flex; }
+  .switch i { width: 26px; height: 26px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .2s; }
+  .switch.on { background: var(--accent); } .switch.on i { transform: translateX(20px); }
+  #say { min-height: 20px; margin-top: 8px; font-size: 13px; color: var(--muted); }
+  #say.warn { color: var(--warn); }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <div class="count">
+      <div><div class="sub" id="today"></div><div class="big"><span id="n">0</span><small>/ <span id="goal">8</span>잔</small></div></div>
+      <div class="chips"><button class="less" id="less" aria-label="한 잔 빼기">−</button><button class="add" id="add">한 잔 마셨어요</button></div>
+    </div>
+    <div class="cups" id="cups"></div>
+  </div>
+  <div class="card">
+    <div class="row"><div><div class="label">마실 때 알려 주기</div><div class="sub" id="next">휴대폰 알림으로 알려 드려요</div></div><button class="switch" id="remind" role="switch" aria-checked="false" aria-label="알림"><i></i></button></div>
+    <div class="row"><div class="sub">간격</div><div class="chips" id="every"></div></div>
+    <div class="row"><div class="sub">하루 목표</div><div class="chips" id="goals"></div></div>
+    <div id="say" role="status"></div>
+  </div>
+</main>
+<script>
+(() => {
+  const KEY = 'water.v1', $ = id => document.getElementById(id);
+  const today = () => { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
+  // set: the reminders waiting on the phone (their times), set in one go for today and tomorrow (at most 14).
+  let s = { day: today(), n: 0, goal: 8, every: 2, remind: false, set: [] };
+  try { Object.assign(s, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+  if (!Array.isArray(s.set)) s.set = [];
+  if (s.day !== today()) { s.day = today(); s.n = 0; }
+  const keep = () => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} };
+  const say = (text, warn) => { $('say').textContent = text || ''; $('say').classList.toggle('warn', !!warn); };
+  const clock = t => { const d = new Date(t); return (d.getDate() !== new Date().getDate() ? '내일 ' : '') + (d.getHours() < 12 ? '오전 ' : '오후 ') + ((d.getHours() + 11) % 12 + 1) + ':' + String(d.getMinutes()).padStart(2, '0'); };
+  function chips(box, values, pick, label) {
+    $(box).innerHTML = '';
+    for (const v of values) { const b = document.createElement('button'); b.className = 'chip' + (v === pick() ? ' on' : ''); b.textContent = label(v); b.onclick = () => choose(box, v); $(box).appendChild(b); }
+  }
+  function draw() {
+    $('today').textContent = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' });
+    $('n').textContent = s.n; $('goal').textContent = s.goal;
+    $('cups').innerHTML = Array.from({ length: Math.max(s.goal, s.n) }, (_, i) => '<span class="cup' + (i < s.n ? ' on' : '') + '"></span>').join('');
+    $('remind').classList.toggle('on', s.remind); $('remind').setAttribute('aria-checked', String(s.remind));
+    const next = s.set.filter(t => t > Date.now()).sort((a, b) => a - b)[0];
+    $('next').textContent = s.remind && next ? '다음 알림 ' + clock(next) : '휴대폰 알림으로 알려 드려요';
+    chips('every', [1, 2, 3], () => s.every, v => v + '시간마다');
+    chips('goals', [6, 8, 10], () => s.goal, v => v + '잔');
+  }
+  // The reminder times: every few hours from 9 to 21, today's still ahead and tomorrow's (14 at most).
+  function times() {
+    const out = [], now = Date.now();
+    for (let d = 0; d < 2; d++) for (let h = 9; h <= 21; h += s.every) {
+      const t = new Date(); t.setDate(t.getDate() + d); t.setHours(h, 0, 0, 0);
+      if (t.getTime() > now + 5 * 60000 && out.length < 14) out.push(t.getTime());
+    }
+    return out;
+  }
+  // All of this page's reminders set again (an interval changed, turned on), or off.
+  async function schedule() {
+    if (!window.gyeot) { if (s.remind) say('알림은 들퍼레 앱 안에서만 받을 수 있어요.', true); s.remind = false; keep(); draw(); return; }
+    try { await gyeot.notify.cancel(); } catch (e) {}
+    s.set = []; keep();
+    if (!s.remind) { say(''); draw(); return; }
+    await topUp();
+  }
+  // Those not yet set (opened again the next day: tomorrow's are set then).
+  async function topUp() {
+    s.set = s.set.filter(t => t > Date.now());
+    try {
+      for (const at of times()) {
+        if (s.set.includes(at)) continue;
+        await gyeot.notify('물 마실 시간이에요 💧', '한 컵 마시고 기록해 두세요 · 하루 목표 ' + s.goal + '잔', { at });
+        s.set.push(at); keep();
+      }
+      say('');
+    } catch (e) { if (!s.set.length) s.remind = false; keep(); say(e.message, true); }
+    draw();
+  }
+  function choose(box, v) { if (box === 'every') { s.every = v; keep(); schedule(); } else { s.goal = v; keep(); draw(); } }
+  $('add').onclick = () => { s.n++; keep(); say(s.n === s.goal ? '오늘 목표를 채웠어요! 🎉' : ''); draw(); };
+  $('less').onclick = () => { if (s.n > 0) { s.n--; keep(); draw(); } };
+  $('remind').onclick = () => { s.remind = !s.remind; keep(); schedule(); };
+  draw();
+  if (s.remind && window.gyeot) topUp();
+})();
+</script>
+</body>
+</html>

@@ -145,7 +145,9 @@ public final class HomeActivity extends Activity {
             @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                 Uri u = request.getUrl(); String host = u.getHost() == null ? "" : u.getHost().toLowerCase(java.util.Locale.ROOT);
                 if (HtmlWallpaper.PAGES_HOST.equals(host)) {
-                    try { return HtmlWallpaper.html(PageStore.book(HomeActivity.this).body(Uri.decode(u.getLastPathSegment() == null ? "" : u.getLastPathSegment()))); }
+                    // window.gyeot for the user's own pages here (미니앱에 다리 놓기): its script, first in each page.
+                    if (dev.jun.gyeot.core.PageBridge.HOME_SCRIPT.equals(u.toString())) return PageBridgeHost.script(HomeActivity.this);
+                    try { return HtmlWallpaper.html(dev.jun.gyeot.core.PageBridge.inject(PageStore.book(HomeActivity.this).body(Uri.decode(u.getLastPathSegment() == null ? "" : u.getLastPathSegment())), dev.jun.gyeot.core.PageBridge.tag(dev.jun.gyeot.core.PageBridge.HOME_SCRIPT))); }
                     catch (Exception gone) { return HtmlWallpaper.html("<body style='background:#111;color:#bbb;font:16px sans-serif;display:grid;place-items:center;height:100vh'>이 페이지를 찾지 못했어요</body>"); }
                 }
                 // A piece on a page of the user's own: its fixes, and the LP page's add-on (PieceExtras: 내 음악's picker opens over this).
@@ -300,6 +302,8 @@ public final class HomeActivity extends Activity {
         super.onPause();
     }
     @Override protected void onStop() {
+        // 이번만 on a page here lasts while the home screen is in front.
+        for (PageBridgeHost h : bridges.values()) h.forgetOnce();
         // Left late in the evening: the night's digest now if it was not done today (BuddyTalk.dream), off the main thread.
         if (java.time.LocalTime.now().getHour() >= 22) try { io.execute(() -> BuddyTalk.dreamTonight(getApplicationContext())); } catch (RuntimeException stopped) {}
         // The home screen is gone: the taskbar over other apps may show (Taskbar).
@@ -321,6 +325,25 @@ public final class HomeActivity extends Activity {
         if (ready && web != null) web.evaluateJavascript(front ? "launcher.home()" : "launcher.closeAll&&launcher.closeAll()", null);
     }
     private long pausedAt;
+    /**
+     * window.gyeot for the user's own pages on the home screen (미니앱에 다리 놓기): one PageBridgeHost per page, its grants
+     * keyed "home:page:<id>" (no other page's, and never a piece from another site: the home screen relays page: frames
+     * only), its answers back to that page's frame alone. Main thread.
+     */
+    private final java.util.Map<String, PageBridgeHost> bridges = new java.util.HashMap<>();
+    private Ui bridgeUi;
+    private void bridge(String src, String title, String message) {
+        if (src == null || !src.startsWith(HtmlWallpaper.PAGE) || message == null || message.length() > 20_000) return;
+        boolean placed = false;
+        for (dev.jun.gyeot.core.HomeBoard.Slot s : dev.jun.gyeot.core.HomeBoard.slots(prefs.getString(PAGES, ""), "", "")) if (src.equals(s.src())) { placed = true; break; }
+        if (!placed) return;
+        JSONObject m; try { m = new JSONObject(message); } catch (Exception unreadable) { return; }
+        if (bridgeUi == null) bridgeUi = new Ui(this);
+        String name = title == null || title.isBlank() ? "홈 화면 페이지" : title;
+        PageBridgeHost host = bridges.computeIfAbsent(src, k -> new PageBridgeHost(this, bridgeUi, "home:" + src, () -> name, "화면 꾸미기 → 그 페이지 → 권한",
+            reply -> js("launcher.bridgeReply&&launcher.bridgeReply(" + JSONObject.quote(src) + "," + JSONObject.quote(reply.toString()) + ")")));
+        host.handle(m);
+    }
     private void goPage(String page) { if (web != null) web.evaluateJavascript("launcher.goPage(" + org.json.JSONObject.quote(page) + ")", null); }
     /** The 작업 표시줄's all-apps button: Launchpad over whatever was open, with its search when the button was held. */
     private void showPad(String show) {
@@ -342,6 +365,8 @@ public final class HomeActivity extends Activity {
         if (NoticeListener.changed == badgesChanged) NoticeListener.changed = null;
         if (NoticeListener.deliveryChanged == deliveryChanged) NoticeListener.deliveryChanged = null;
         LpMedia.host(this, null); LpMedia.gone(this);
+        for (PageBridgeHost h : bridges.values()) h.close();
+        bridges.clear();
         main.removeCallbacksAndMessages(null); io.shutdownNow();
         if (web != null) { try { web.destroy(); } catch (RuntimeException ignored) {} web = null; }
         super.onDestroy();
@@ -586,6 +611,8 @@ public final class HomeActivity extends Activity {
                         if (!back[0].isEmpty()) js("launcher.jobDone&&launcher.jobDone(" + Jsons.obj("id", "routine", "text", back[0], "go", back[1].isEmpty() ? "" : "fix:" + back[1]) + ")");
                     }); } catch (RuntimeException ignored) {}
                 }
+                // 미니앱에 다리 놓기: a call of window.gyeot from one of the user's own pages here (page:…), relayed by the page.
+                case "bridge" -> { String src = a.optString(0, ""), title = a.optString(1, ""), message = a.optString(2, ""); main.post(() -> bridge(src, title, message)); }
                 case "think" -> { String why = a.optString(0, "tap"); try { io.execute(() -> BuddyTalk.think(HomeActivity.this, why, line -> js("launcher.thought(" + JSONObject.quote(line) + ")"), () -> js("launcher.thoughtFail()"))); } catch (RuntimeException ignored) {} }
                 default -> {}
             }
@@ -657,7 +684,8 @@ public final class HomeActivity extends Activity {
             // 퍼레's brain (BuddyTalk.brain): Groq's Qwen unless the user chose NVIDIA; the other when the chosen one is not connected.
             boolean custom = BuddyTalk.CUSTOM.equals(BuddyTalk.brain(HomeActivity.this)) && !BuddyTalk.customLabel(store).isEmpty();
             boolean qwen = GroqWork.on() && !BuddyTalk.NIM.equals(BuddyTalk.brain(HomeActivity.this));
-            if (!custom && !qwen && !store.nim.connected()) { js("launcher.replyError(" + JSONObject.quote("퍼레의 두뇌가 아직 연결되지 않았어요. 설정 → AI 연결에서 Groq나 NVIDIA 키를 넣으면 여기서 바로 답해요.") + ",\"settings\")"); return; }
+            // No brain connected: what 기기 안 answers (the time, a timer, an app by its name …) still goes through chatText.
+            if (!custom && !qwen && !store.nim.connected() && BuddyTalk.local(HomeActivity.this, question) == null) { js("launcher.replyError(" + JSONObject.quote("퍼레의 두뇌가 아직 연결되지 않았어요. 설정 → AI 연결에서 Groq나 NVIDIA 키를 넣으면 여기서 바로 답해요.") + ",\"settings\")"); return; }
             // Private memories asked for: the fingerprint first (준: "개인정보 중 중요한 내용은 지문인식을 요청해줘"); without it the answer leaves them out.
             if (!fingerprinted && BuddyTalk.needsUnlock(HomeActivity.this, question)) {
                 main.post(() -> Fingerprint.ask(HomeActivity.this, "퍼레의 비밀 기억", "지문으로 확인하면 말해 줄게", () -> { BuddyTalk.unlock(); fingerprinted = true; chat(question, history); fingerprinted = false; }, () -> { fingerprinted = true; chat(question, history); fingerprinted = false; }));
