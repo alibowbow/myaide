@@ -1363,7 +1363,7 @@ public final class MainActivity extends Activity {
         }
         refreshWorkProgress(); refreshTeamProgress();
         if (tab == 4 && store.galleryVersion != galleryDrawn) { int y = scroll.getScrollY(); showTab(4); scroll.post(() -> scroll.scrollTo(0, y)); return; }
-        if (recordButton != null) { recordButton.setText(store.recording ? "녹음 중 · " + AssistantService.durationText(System.currentTimeMillis() - store.recordingStartedAt) + " · 눌러서 멈추기" : "눌러서 녹음 시작"); recordButton.setTextColor(store.recording ? Ui.RED : MUTED); }
+        if (recordButton != null) { recordButton.setText(store.recording ? (store.recordingPaused ? "일시정지 · " : "녹음 중 · ") + AssistantService.durationText(RecordControl.audioElapsedMs(store)) + " · 눌러서 멈추기" : "눌러서 녹음 시작"); recordButton.setTextColor(store.recording ? store.recordingPaused ? Ui.ORANGE : Ui.RED : MUTED); }
         if (screenRecordUi != null) screenRecordUi.refresh();
         if ((store.recording || ScreenRecordService.running() || store.thinking() || workRunning()) && !ticker.hasCallbacks(tick)) ticker.postDelayed(tick, 1000);
         if (phoneGptCheckState != null) phoneGptCheckState.setText(phoneGptCheckResult);

@@ -7,6 +7,8 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.PixelFormat;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.media.AudioAttributes;
@@ -14,6 +16,8 @@ import android.media.AudioFormat;
 import android.media.AudioPlaybackCaptureConfiguration;
 import android.media.AudioRecord;
 import android.media.AudioTimestamp;
+import android.media.Image;
+import android.media.ImageReader;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
@@ -32,6 +36,7 @@ import android.provider.MediaStore;
 import android.view.Display;
 import android.view.Surface;
 import dev.jun.gyeot.core.Brand;
+import dev.jun.gyeot.core.RecordPauses;
 import dev.jun.gyeot.core.ScreenRecordAudio;
 import dev.jun.gyeot.core.ScreenRecordPlan;
 import java.io.IOException;
@@ -49,6 +54,8 @@ import java.util.Locale;
  * H.264 High) at the bitrate ScreenRecordPlan chose, the phone's sound and/or the microphone into AAC, and both into an MP4 in
  * Movies/들퍼레 (MediaStore, pending while it is written). Runs on its own threads; the service calls start() and stop() from
  * its worker thread, never the main thread. Every failure releases what was opened, and a file without a picture is deleted.
+ * 일시정지 (pause, resume): the picture encoder is suspended and nothing taken while paused reaches the file; the paused span
+ * is cut out of the times (RecordPauses), so the same file plays on without a hole after 재개.
  */
 final class ScreenRecorder {
     /** Called on a recorder thread when the recording has to stop by itself (an encoder stopped, the storage is full). */
@@ -157,6 +164,8 @@ final class ScreenRecorder {
     private final ScreenRecordPlan.Quality quality;
     private final ScreenRecordPlan.Sound sound;
     private final Stop stop;
+    /** The paused spans, on the samples' clock (System.nanoTime in microseconds), shared with the service for the time shown. */
+    private final RecordPauses pauses;
     /** The screen's size as last reported, and the size the picture encoder in use was planned for (they differ after a refused turn). */
     private int screenWidth, screenHeight, plannedWidth, plannedHeight;
     private volatile Picture picture;
@@ -171,8 +180,8 @@ final class ScreenRecorder {
     private volatile String problem = "", note = "";
     private int turns;
 
-    ScreenRecorder(Context context, MediaProjection projection, int width, int height, int dpi, float refresh, ScreenRecordPlan.Quality quality, ScreenRecordPlan.Sound sound, Stop stop) {
-        this.context = context.getApplicationContext(); this.projection = projection;
+    ScreenRecorder(Context context, MediaProjection projection, int width, int height, int dpi, float refresh, ScreenRecordPlan.Quality quality, ScreenRecordPlan.Sound sound, RecordPauses pauses, Stop stop) {
+        this.context = context.getApplicationContext(); this.projection = projection; this.pauses = pauses;
         screenWidth = plannedWidth = width; screenHeight = plannedHeight = height;
         this.dpi = Math.max(120, dpi); this.refresh = refresh; this.quality = quality; this.sound = sound; this.stop = stop;
     }
@@ -209,7 +218,7 @@ final class ScreenRecorder {
         Picture first = openPicture(plans);
         picture = first;
         boolean withSound = sound.any() && openAudio();
-        mux = new Mux(context, LocalDateTime.now(), withSound, stop);
+        mux = new Mux(context, LocalDateTime.now(), withSound, pauses, stop);
         // After the encoder runs: on Android 14 and later a projection gives only one VirtualDisplay, so it is made once, last,
         // and a turned screen resizes this one (see resize).
         display = projection.createVirtualDisplay(Brand.NAME + " 화면 녹화", first.plan.width(), first.plan.height(), dpi,
@@ -246,7 +255,9 @@ final class ScreenRecorder {
         try { next = openPicture(plans); } catch (IOException busy) { /* after the old one, below */ }
         if (next != null && !moveTo(next)) { next.release(); next = null; }
         if (next == null) try { display.setSurface(null); } catch (RuntimeException ignored) { /* gone: stops below */ }
-        // The old encoder writes the frames it still has into the current file.
+        // The old encoder writes the frames it still has into the current file (running again, so its end of stream comes;
+        // what it takes while paused is still left out).
+        suspend(old, false);
         old.finish(3000);
         old.release();
         picture = null;
@@ -261,6 +272,7 @@ final class ScreenRecorder {
         mux.newPicture();
         picture = next; turns++;
         if (turned) { plannedWidth = width; plannedHeight = height; }
+        if (pauses.paused()) suspend(next, true);
         next.start();
         return next.plan;
     }
@@ -281,6 +293,76 @@ final class ScreenRecorder {
             display.setSurface(p.input);
             return true;
         } catch (RuntimeException refused) { return false; }
+    }
+
+    /** Pauses: the picture encoder stops taking frames (and whatever still comes is left out); false when it was paused. */
+    boolean pause() {
+        if (ending) return false;
+        if (!pauses.pause(System.nanoTime() / 1000)) return false;
+        suspend(picture, true);
+        return true;
+    }
+    /** Goes on in the same file: the encoder takes frames again and is asked for a key frame, so the picture starts clean. */
+    boolean resume() {
+        if (ending) return false;
+        if (!pauses.resume(System.nanoTime() / 1000)) return false;
+        Picture p = picture;
+        suspend(p, false);
+        if (p != null) try { Bundle sync = new Bundle(); sync.putInt(MediaCodec.PARAMETER_KEY_REQUEST_SYNC_FRAME, 0); p.codec.setParameters(sync); } catch (RuntimeException ignored) { /* the next key frame */ }
+        return true;
+    }
+    boolean paused() { return pauses.paused(); }
+    /**
+     * Stops or restarts the encoder's taking of frames, from now (Android 10+: MediaCodec's suspend). An encoder that does
+     * not do it goes on encoding, and the file leaves those frames out all the same (RecordPauses.video).
+     */
+    private static void suspend(Picture p, boolean on) {
+        if (p == null) return;
+        try {
+            Bundle b = new Bundle();
+            b.putInt(MediaCodec.PARAMETER_KEY_SUSPEND, on ? 1 : 0);
+            b.putLong(MediaCodec.PARAMETER_KEY_SUSPEND_TIME, System.nanoTime() / 1000);
+            p.codec.setParameters(b);
+        } catch (RuntimeException unsupported) { /* the file leaves the frames out */ }
+    }
+
+    /**
+     * 캡쳐 while recording (CapturePlan.RECORDING): one picture of the screen from this recording's own capture, so no second
+     * consent ends the recording. The display draws into a picture reader for a moment, then back into the encoder, which
+     * repeats its last frame meanwhile (the video holds still for a fraction of a second). On the service's worker thread;
+     * null when no picture came within waitMs.
+     */
+    Bitmap grab(long waitMs) {
+        Picture p = picture;
+        if (ending || display == null || p == null) return null;
+        int width = p.plan.width(), height = p.plan.height();
+        ImageReader reader;
+        try { reader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2); } catch (RuntimeException refused) { return null; }
+        try {
+            display.setSurface(reader.getSurface());
+            long until = System.nanoTime() + waitMs * 1_000_000L;
+            while (System.nanoTime() < until && !ending) {
+                Image image = reader.acquireLatestImage();
+                if (image != null) { try { return pixels(image, width, height); } finally { image.close(); } }
+                try { Thread.sleep(16); } catch (InterruptedException stopped) { Thread.currentThread().interrupt(); break; }
+            }
+            return null;
+        } catch (RuntimeException failed) { return null; }
+        finally {
+            try { if (display != null && picture == p) display.setSurface(p.input); } catch (RuntimeException gone) { /* stops below */ }
+            reader.close();
+        }
+    }
+    /** An RGBA image from a reader as a bitmap of width×height (its rows may be wider). */
+    static Bitmap pixels(Image image, int width, int height) {
+        Image.Plane plane = image.getPlanes()[0];
+        int pixel = plane.getPixelStride(), row = plane.getRowStride();
+        Bitmap wide = Bitmap.createBitmap(row / pixel, height, Bitmap.Config.ARGB_8888);
+        wide.copyPixelsFromBuffer(plane.getBuffer());
+        if (wide.getWidth() == width) return wide;
+        Bitmap cut = Bitmap.createBitmap(wide, 0, 0, width, height);
+        wide.recycle();
+        return cut;
     }
 
     /**
@@ -584,6 +666,8 @@ final class ScreenRecorder {
         stopRecording(primary); stopRecording(secondary);
         join(audioThread, 3000);
         Picture p = picture;
+        // A paused encoder runs again so its end of stream comes; what it takes now falls in the open pause and is left out.
+        if (p != null && pauses.paused()) suspend(p, false);
         if (p != null && p.thread != null) p.finish(3000);
         String why = turns == 0 ? note : note.isEmpty() ? "화면을 돌린 곳에서 파일을 나눠 저장했어요" : note + " · 화면을 돌린 곳에서 파일을 나눠 저장했어요";
         Result result = mux == null ? new Result(List.of(), 0, 0, problem, why) : mux.finish(problem, why);
@@ -654,6 +738,7 @@ final class ScreenRecorder {
         private final LocalDateTime at;
         private final boolean wantSound;
         private final Stop stop;
+        private final RecordPauses pauses;
         private MediaFormat videoFormat, audioFormat;
         private boolean soundGone, started, finished, spaceWarned, nextPicture;
         private MediaMuxer muxer;
@@ -667,8 +752,8 @@ final class ScreenRecorder {
         private long pendingBytes;
         private String note = "";
 
-        Mux(Context context, LocalDateTime at, boolean wantSound, Stop stop) throws IOException {
-            resolver = context.getContentResolver(); this.at = at; this.wantSound = wantSound; this.stop = stop;
+        Mux(Context context, LocalDateTime at, boolean wantSound, RecordPauses pauses, Stop stop) throws IOException {
+            resolver = context.getContentResolver(); this.at = at; this.wantSound = wantSound; this.pauses = pauses; this.stop = stop;
             open();
         }
         private void open() throws IOException {
@@ -743,12 +828,17 @@ final class ScreenRecorder {
         }
         synchronized void audio(ByteBuffer data, MediaCodec.BufferInfo info) throws IOException {
             if (finished || !started || audioTrack < 0) return;
-            long t = timeline.audio(info.presentationTimeUs);
+            // Taken while paused: not written; after a pause, earlier by the time it was paused.
+            long kept = pauses.audio(info.presentationTimeUs);
+            if (kept < 0) return;
+            long t = timeline.audio(kept);
             if (t >= 0) write(audioTrack, data, info.offset, info.size, t, 0);
         }
         private void writeVideo(ByteBuffer data, int offset, int size, long pts, int flags) throws IOException {
             boolean key = (flags & MediaCodec.BUFFER_FLAG_KEY_FRAME) != 0;
-            long t = timeline.video(pts, key);
+            long kept = pauses.video(pts, key);
+            if (kept < 0) return;
+            long t = timeline.video(kept, key);
             if (t >= 0) write(videoTrack, data, offset, size, t, key ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0);
         }
         private void write(int track, ByteBuffer data, int offset, int size, long time, int flags) throws IOException {

@@ -129,6 +129,9 @@ final class AppStore {
     /** The recorder is running in AssistantService. */
     volatile boolean recording;
     volatile long recordingStartedAt, recordingsVersion;
+    /** The recording is paused (녹음 일시정지), and its paused spans in wall-clock milliseconds (the time shown leaves them out). */
+    volatile boolean recordingPaused;
+    volatile dev.jun.gyeot.core.RecordPauses recordingPauses = new dev.jun.gyeot.core.RecordPauses();
     volatile String status = "준비됐어요", error = "", interim = "", outputDraft = "", voiceMode = "assistant", searchHtml = "";
     volatile boolean voiceActive, muted, serviceActive;
     /** Where the voice call's connection is (core/VoiceLink); the orb reads it, never the status text. */

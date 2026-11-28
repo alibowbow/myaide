@@ -48,10 +48,8 @@ final class ScreenRecordUi {
     }
     /** The page was redrawn without the row. */
     void forget() { line = null; value = null; }
-    private void toggle() {
-        if (ScreenRecordService.running()) ScreenRecordService.stop(activity);
-        else activity.startActivity(new Intent(activity, ScreenRecordActivity.class));
-    }
+    /** Starts or stops it, through the one controller (RecordControl) the home screen and the floating controls use too. */
+    private void toggle() { RecordControl.act(activity, RecordControl.SCREEN); }
     private String soundWord() { ScreenRecordPlan.Sound sound = ScreenRecordService.sound(store.settings); return sound == ScreenRecordPlan.Sound.NONE ? "소리 없음" : sound.label; }
     private boolean known() { return planFor.equals(key()); }
     private String planLine() { return plan == null ? ScreenRecordPlan.summary(null, ScreenRecordPlan.Sound.NONE) : plan.label(); }
@@ -59,8 +57,9 @@ final class ScreenRecordUi {
     void refresh() {
         if (line == null) return;
         if (ScreenRecordService.running()) {
-            line.setText("녹화 중 · " + AssistantService.durationText(System.currentTimeMillis() - ScreenRecordService.startedAt()) + " · 눌러서 멈추기");
-            line.setTextColor(Ui.RED);
+            // The time it has recorded, the pauses left out (it stands still while paused).
+            line.setText((ScreenRecordService.paused() ? "일시정지 · " : "녹화 중 · ") + AssistantService.durationText(ScreenRecordService.elapsedMs()) + " · 눌러서 멈추기");
+            line.setTextColor(ScreenRecordService.paused() ? Ui.ORANGE : Ui.RED);
         } else {
             line.setText(known() ? planLine() : ScreenRecordService.quality(store.settings).label + " 화질");
             line.setTextColor(Ui.MUTED);

@@ -22,8 +22,10 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
 import android.os.Looper;
+import android.provider.Settings;
 import android.view.Display;
 import android.widget.Toast;
+import dev.jun.gyeot.core.RecordPauses;
 import dev.jun.gyeot.core.ScreenRecordPlan;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -38,23 +40,40 @@ import java.util.Locale;
  * in the next file. The recording stops from that button, the quick settings tile, the app's row, or Android itself (its
  * screen-sharing chip, another app's capture, the lock screen: MediaProjection.Callback.onStop, which says which); every way
  * finishes the file. Then "저장했어요" opens the video, or a plain reason says why nothing was saved.
+ *
+ * 일시정지 · 재개 (준: "녹화 시작 일시정지 및 정지 버튼도 구현해줘 녹화화면상에서 바로 조작할 수 있기"): from the notification, the
+ * floating controls over every app (RecordPill) or the home screen; the recorder writes nothing while paused and goes on in the
+ * same file, and the time shown leaves the pauses out. Every start, pause and stop goes through RecordControl, so the home
+ * screen's dot, the controls, the notification, the tile and the app's row say the same.
  */
 public final class ScreenRecordService extends Service {
     static final String CHANNEL = "screenRecord", DONE_CHANNEL = "screenRecordDone";
     private static final int NOTIFICATION = 7461, DONE = 7462;
-    private static final String START = "start", STOP = "stop";
+    private static final String START = "start", STOP = "stop", PAUSE = "pause", RESUME = "resume", GRAB = "grab";
     static final String QUALITY = "screenRecordQuality", SOUND = "screenRecordSound";
     /** When notifications are off, what the ongoing notification would have told. */
     static final String NO_NOTIFICATIONS = "알림이 꺼져 있어서 녹화 중 표시가 안 보여요 · 타일이나 들퍼레에서 멈춰요";
-    private static volatile boolean running, saving;
-    private static volatile long startedAt;
+    private static volatile boolean running, saving, paused;
+    private static volatile long startedAt, startedMono;
     private static volatile String label = "";
+    /** The paused spans of the recording on now (System.nanoTime microseconds, the samples' clock). */
+    private static volatile RecordPauses pauses = new RecordPauses();
 
     /** Whether a recording is on (from the start until its file is finished). */
     static boolean running() { return running; }
     /** Whether the recording was stopped and its file is being finished. */
     static boolean saving() { return saving; }
     static long startedAt() { return startedAt; }
+    /** Whether its encoder runs (after the consent and the encoder's start; before, it is still starting). */
+    static boolean started() { return running && startedMono != 0; }
+    /** Whether the recording is paused (일시정지): nothing is written until 재개. */
+    static boolean paused() { return running && paused; }
+    /** How long it has recorded, the pauses left out (0 before the encoder runs). */
+    static long elapsedMs() {
+        long start = startedMono;
+        if (!running || start == 0) return 0;
+        return pauses.elapsed(start, System.nanoTime() / 1000) / 1000;
+    }
     /** The plan in use ("1440×3120 · 60fps · HEVC 48Mbps"), once the encoder runs. */
     static String label() { return label; }
     static ScreenRecordPlan.Quality quality(SharedPreferences settings) { return ScreenRecordPlan.Quality.of(settings.getString(QUALITY, "")); }
@@ -66,8 +85,14 @@ public final class ScreenRecordService extends Service {
             .putExtra("width", width).putExtra("height", height).putExtra("dpi", dpi).putExtra("refresh", refresh);
         context.startForegroundService(intent);
     }
-    static void stop(Context context) {
-        try { context.startService(new Intent(context, ScreenRecordService.class).setAction(STOP)); } catch (RuntimeException notRunning) { /* nothing to stop */ }
+    static void stop(Context context) { send(context, STOP); }
+    /** 일시정지 · 재개, while it records. */
+    static void pause(Context context) { send(context, PAUSE); }
+    static void resume(Context context) { send(context, RESUME); }
+    /** 캡쳐 while recording: one picture from the recording's own capture (no second consent), saved like any capture. */
+    static void grab(Context context) { send(context, GRAB); }
+    private static void send(Context context, String action) {
+        try { context.startService(new Intent(context, ScreenRecordService.class).setAction(action)); } catch (RuntimeException notRunning) { /* nothing to do */ }
     }
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -78,7 +103,7 @@ public final class ScreenRecordService extends Service {
     /** The recorder once it runs, for the worker's own steps (a turn of the screen). */
     private volatile ScreenRecorder live;
     private boolean stopping, destroyed;
-    private String stopWhy = "", sounds = "";
+    private String stopWhy = "", sounds = "", detail = "";
     private int types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
     /** The screen size last reported, so a display change that is not a new size (a refresh rate) asks nothing. */
     private int seenWidth, seenHeight;
@@ -98,6 +123,8 @@ public final class ScreenRecordService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? STOP : intent.getAction();
         if (START.equals(action)) begin(intent);
+        else if (PAUSE.equals(action) || RESUME.equals(action)) pauseOrResume(PAUSE.equals(action));
+        else if (GRAB.equals(action)) grabNow();
         else finish("");
         return START_NOT_STICKY;
     }
@@ -116,7 +143,7 @@ public final class ScreenRecordService extends Service {
         boolean allowed = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
         ScreenRecordPlan.Sound sound = wanted.needsRecordPermission() && !allowed ? ScreenRecordPlan.Sound.NONE : wanted;
         String early = sound != wanted ? "마이크 권한이 없어서 소리 없이 녹화했어요" : "";
-        startedAt = System.currentTimeMillis(); label = "";
+        startedAt = System.currentTimeMillis(); startedMono = 0; label = ""; paused = false; pauses = new RecordPauses();
         // To the foreground before the projection is taken (Android 14). The phone's sound is also captured through the
         // recording permission, so any sound holds the microphone type; without it the capture would go silent in the background.
         types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION | (sound.any() ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE : 0);
@@ -144,12 +171,12 @@ public final class ScreenRecordService extends Service {
         float refresh = intent.getFloatExtra("refresh", 0);
         seenWidth = width; seenHeight = height;
         watchDisplay();
-        ScreenRecordPlan.Sound chosen = sound; String note = early; MediaProjection held = projection;
+        ScreenRecordPlan.Sound chosen = sound; String note = early; MediaProjection held = projection; RecordPauses spans = pauses;
         // Files, encoders and the display on the worker thread, never the main thread.
         work.post(() -> {
             String cleared = ScreenRecorder.clearUnfinished(this);
             if (!cleared.isEmpty()) main.post(() -> { try { ((GyeotApp) getApplication()).store().status(cleared); } catch (RuntimeException ignored) { /* no screens */ } });
-            ScreenRecorder made = new ScreenRecorder(this, held, width, height, dpi, refresh, quality, chosen, why -> main.post(() -> finish(why)));
+            ScreenRecorder made = new ScreenRecorder(this, held, width, height, dpi, refresh, quality, chosen, spans, why -> main.post(() -> finish(why)));
             try {
                 ScreenRecordPlan.Plan plan = made.start();
                 live = made;
@@ -159,8 +186,9 @@ public final class ScreenRecordService extends Service {
                     sounds = heard;
                     // A stop that came while it was starting (or the service ended) finishes what has just started.
                     if (stopping) { saving = true; changed(); work.post(() -> save(made.stop(), stopWhy)); return; }
-                    recorder = made; label = plan.label(); startedAt = System.currentTimeMillis();
-                    show(recording(plan.label() + " · " + heard));
+                    recorder = made; label = plan.label(); startedAt = System.currentTimeMillis(); startedMono = System.nanoTime() / 1000;
+                    detail = plan.label() + " · " + heard;
+                    show(recording(detail));
                     changed();
                 });
             } catch (Exception failed) {
@@ -215,7 +243,8 @@ public final class ScreenRecordService extends Service {
                 if (stopping || recorder != current) return;
                 if (plan != null) label = plan.label();
                 String extra = current.note();
-                show(recording(label + " · " + sounds + (extra.isEmpty() || sounds.contains(extra) ? "" : " · " + extra)));
+                detail = label + " · " + sounds + (extra.isEmpty() || sounds.contains(extra) ? "" : " · " + extra);
+                show(recording(detail));
                 changed();
             });
         });
@@ -226,6 +255,37 @@ public final class ScreenRecordService extends Service {
         KeyguardManager keyguard = getSystemService(KeyguardManager.class);
         if (keyguard != null && keyguard.isKeyguardLocked()) return "화면이 잠겨서 Android가 녹화를 끝냈어요 (" + time + ")";
         return "Android가 화면 공유를 끝냈어요 (" + time + " · 상태 표시줄의 중지, 또는 다른 앱의 화면 녹화)";
+    }
+
+    /** 일시정지 (pause true) or 재개, on the worker; then the notification and everything else that shows the recording. */
+    private void pauseOrResume(boolean pause) {
+        ScreenRecorder current = recorder;
+        // Nothing recording (the service was started for this alone, or the file is being finished): nothing to pause.
+        if (current == null || stopping) { if (projection == null && !stopping) quit(); return; }
+        work.post(() -> {
+            boolean done = pause ? current.pause() : current.resume();
+            main.post(() -> {
+                if (!done || stopping || recorder != current) return;
+                paused = pause;
+                show(recording(detail));
+                changed();
+            });
+        });
+    }
+    /** 캡쳐 while recording: one frame of this recording's own capture, saved as a picture (ScreenCapture). */
+    private void grabNow() {
+        ScreenRecorder current = recorder;
+        if (current == null || stopping) {
+            if (projection == null && !stopping) quit();
+            ScreenCapture.failed(this, "화면 녹화가 시작되기 전이라 캡쳐하지 못했어요 · 잠시 뒤 다시 눌러 주세요");
+            return;
+        }
+        Context app = getApplicationContext();
+        work.post(() -> {
+            android.graphics.Bitmap shot = current.grab(1500);
+            if (shot == null) { main.post(() -> ScreenCapture.failed(app, "녹화 중인 화면에서 캡쳐하지 못했어요 · 폰 조작(접근성)을 켜면 녹화와 따로 캡쳐해요")); return; }
+            ScreenCapture.keep(app, shot);
+        });
     }
 
     /** Ends the recording (why: why it stopped by itself, or ""), finishes the file on the worker thread and leaves. */
@@ -258,7 +318,7 @@ public final class ScreenRecordService extends Service {
         if (destroyed && worker != null) worker.quitSafely();
     }
     private void quit() {
-        running = false; saving = false; label = "";
+        running = false; saving = false; paused = false; label = ""; startedMono = 0;
         if (destroyed) { try { channels().cancel(NOTIFICATION); } catch (RuntimeException ignored) { /* none */ } }
         else { try { stopForeground(STOP_FOREGROUND_REMOVE); } catch (RuntimeException ignored) { /* not in front */ } stopSelf(); }
         changed();
@@ -276,7 +336,7 @@ public final class ScreenRecordService extends Service {
         }
         if (projection == null && recorder == null) {
             if (worker != null) worker.quitSafely();
-            running = false; saving = false;
+            running = false; saving = false; paused = false;
         }
         super.onDestroy();
     }
@@ -285,6 +345,7 @@ public final class ScreenRecordService extends Service {
     /** The app's screens and the tile (it observes the store while the shade is open) follow the recording. */
     private void changed() {
         try { ((GyeotApp) getApplication()).store().changed(); } catch (RuntimeException ignored) { /* no screens */ }
+        RecordControl.changed(this);
     }
 
     // ── Notifications ─────────────────────────────────────────────────
@@ -298,15 +359,34 @@ public final class ScreenRecordService extends Service {
         return notifications;
     }
     private void show(Notification notification) { if (destroyed) return; try { channels().notify(NOTIFICATION, notification); } catch (RuntimeException ignored) { /* not allowed */ } }
-    /** "화면 녹화 중", the time since it began, what it records, and 중지. */
+    /** "화면 녹화 중", the time it has recorded (the pauses left out), what it records, and 일시정지 · 중지. */
     private Notification recording(String text) {
         channels();
-        PendingIntent stopIt = PendingIntent.getService(this, NOTIFICATION, new Intent(this, ScreenRecordService.class).setAction(STOP), PendingIntent.FLAG_IMMUTABLE);
-        PendingIntent open = PendingIntent.getActivity(this, NOTIFICATION + 1, new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE);
-        return new Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_record).setContentTitle("화면 녹화 중").setContentText(text)
-            .setUsesChronometer(true).setWhen(startedAt).setShowWhen(true).setOngoing(true).setOnlyAlertOnce(true).setContentIntent(open)
-            .setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE)
-            .addAction(new Notification.Action.Builder(null, "중지", stopIt).build()).build();
+        boolean recordingNow = recorder != null && !stopping;
+        return notification(this, text, recordingNow, recordingNow && paused, elapsedMs(), !RecordPill.possible(this));
+    }
+    /**
+     * The ongoing notification: while it records, 일시정지 (or 재개) beside 중지, the time standing still while paused; when
+     * nothing can float over other apps (no overlay permission, no 폰 조작), a third button opens that permission in one tap,
+     * so the controls can be on the recording screen.
+     */
+    static Notification notification(Context c, String text, boolean recordingNow, boolean pausedNow, long elapsedMs, boolean offerOverlay) {
+        PendingIntent stopIt = PendingIntent.getService(c, NOTIFICATION, new Intent(c, ScreenRecordService.class).setAction(STOP), PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent open = PendingIntent.getActivity(c, NOTIFICATION + 1, new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE);
+        Notification.Builder b = new Notification.Builder(c, CHANNEL).setSmallIcon(R.drawable.ic_record).setOngoing(true).setOnlyAlertOnce(true).setContentIntent(open)
+            .setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
+        if (pausedNow) b.setContentTitle("화면 녹화 일시정지 · " + RecordPauses.clock(elapsedMs)).setContentText(text).setShowWhen(false).setUsesChronometer(false);
+        else b.setContentTitle("화면 녹화 중").setContentText(text).setUsesChronometer(true).setWhen(System.currentTimeMillis() - elapsedMs).setShowWhen(true);
+        if (recordingNow) {
+            PendingIntent toggle = PendingIntent.getService(c, NOTIFICATION + 2, new Intent(c, ScreenRecordService.class).setAction(pausedNow ? RESUME : PAUSE), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            b.addAction(new Notification.Action.Builder(null, pausedNow ? "재개" : "일시정지", toggle).build());
+        }
+        b.addAction(new Notification.Action.Builder(null, "중지", stopIt).build());
+        if (recordingNow && offerOverlay) {
+            Intent allow = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            b.addAction(new Notification.Action.Builder(null, "화면 위 버튼 켜기", PendingIntent.getActivity(c, NOTIFICATION + 3, allow, PendingIntent.FLAG_IMMUTABLE)).build());
+        }
+        return b.build();
     }
     /** Notifications are off for the app: the same words as a toast (a service may show text toasts), so the result is not silent. */
     private void toastWhenSilent(String text) {

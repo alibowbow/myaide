@@ -618,6 +618,18 @@ public final class PhoneService extends AccessibilityService {
         } catch (RuntimeException refused) { main.post(() -> done.accept(null, "화면을 캡처하지 못했어요")); }
     }
 
+    // ── 캡쳐 (홈 화면의 녹화 바로가기, 녹화 중 조작 버튼) ──────────────────────
+    /** The whole screen as it shows, the user having pressed 캡쳐 (CapturePlan.SERVICE): as shootArea, uncut. */
+    static void shootScreen(java.util.function.BiConsumer<Bitmap, String> done) { shootArea(new android.graphics.Rect(0, 0, 1 << 15, 1 << 15), done); }
+    /** The phone's own screenshot (CapturePlan.SYSTEM): it saves and shows it its own way. False when the service is off or paused. */
+    static boolean systemScreenshot() {
+        PhoneService s = instance;
+        if (s == null || SecurityWatch.paused(s)) return false;
+        try { return s.performGlobalAction(GLOBAL_ACTION_TAKE_SCREENSHOT); } catch (RuntimeException refused) { return false; }
+    }
+    /** The service as a place for windows over every app (TYPE_ACCESSIBILITY_OVERLAY: the recording's controls); null when off. */
+    static Context overlayContext() { return instance; }
+
     // ── 화면 보기 ─────────────────────────────────────────────────────────
 
     private void requireScreenView() {

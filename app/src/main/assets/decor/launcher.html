@@ -120,6 +120,30 @@ body.launcher{position:fixed;inset:0}
 .own-ic.update{background:linear-gradient(155deg,#9cd2ff 0%,#3d8bfd 50%,#1f56d6 100%)}
 .own-ic.update svg{width:58%;height:58%}
 .shorts .app .dot{position:absolute;right:-3px;top:-3px;width:11px;height:11px;border-radius:50%;background:#ff4d4f;box-shadow:0 0 0 2px rgba(20,16,40,.55)}
+/* 녹화·녹음·캡쳐 (준: "녹화하기가 너무 번거로워. 홈에 바로가기를 만들자"): a camera with a red record dot on coral; while a 화면 녹화 or
+   녹음 is on, the same small red dot as 업데이트's, breathing. */
+.own-ic.rec{background:linear-gradient(155deg,#ffb4a6 0%,#ff6f69 48%,#de3350 100%)}
+.own-ic.rec svg{width:62%;height:62%}
+.shorts .app .dot.live{animation:recPulse 1.6s ease-in-out infinite}
+@keyframes recPulse{50%{box-shadow:0 0 0 2px rgba(20,16,40,.55),0 0 0 5px rgba(255,77,79,.28)}}
+.shorts .app.short.open .ic{transform:scale(.92)}
+/* Its satellite: three small round icons spring out around it in an arc, each with a tiny name; a tap outside (or on the
+   shortcut again) folds them back. Near a screen edge the arc slides in so all three stay on screen. */
+.sat{position:fixed;inset:0;z-index:30;display:none;touch-action:none}
+.sat.on{display:block}
+.sat-veil{position:absolute;inset:0;background:rgba(8,10,24,.26);opacity:0;transition:opacity .2s ease}
+.sat.shown .sat-veil{opacity:1}
+.sat-b{position:absolute;width:56px;margin:-20px 0 0 -28px;display:flex;flex-direction:column;align-items:center;gap:4px;border:0;background:none;padding:0;font:inherit;color:#1c1c1e;
+  transform:translate(var(--fx),var(--fy)) scale(.3);opacity:0;transition:transform .42s var(--spring),opacity .16s ease}
+.sat.shown .sat-b{transform:none;opacity:1}
+.sat.shown .sat-b:nth-of-type(2){transition-delay:.03s}.sat.shown .sat-b:nth-of-type(3){transition-delay:.06s}
+.sat-b .o{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.95);box-shadow:0 4px 14px rgba(10,14,40,.3)}
+.sat-b .o svg{width:20px;height:20px;display:block}
+.sat-b .l{font-size:10.5px;font-weight:750;letter-spacing:-.3px;line-height:1.15;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.6);white-space:nowrap}
+.sat-b.stop .o{background:#ff4d4f;color:#fff}
+.sat-b:disabled{opacity:.6}
+.sat-b:active .o{transform:scale(.92)}
+@media (prefers-reduced-motion:reduce){.shorts .app .dot.live{animation:none}}
 .app .label{font-size:11.5px;font-weight:650;letter-spacing:-.3px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:var(--halo)}
 .app .badge{right:-6px;top:-6px}
 
@@ -582,6 +606,7 @@ body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18p
 </section>
 <div class="menu" id="menu"></div>
 <div class="ideas" id="ideas"></div>
+<div class="sat" id="sat" role="menu" aria-label="녹화·녹음·캡쳐"><div class="sat-veil" id="satVeil"></div></div>
 <script>
 "use strict";
 /*
@@ -929,17 +954,93 @@ const SHORTS = [{id: "mytube", label: "마이튜브",
   {id: "update", label: "업데이트",
   icon: '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v10"/><path d="M7.5 10 12 14.5 16.5 10"/><path d="M5 15.5v2.2c0 .9.7 1.6 1.6 1.6h10.8c.9 0 1.6-.7 1.6-1.6v-2.2"/></svg>'},
   {id: "decor", label: "화면 꾸미기", settings: true,
-  icon: '<svg viewBox="0 0 24 24"><path fill="#fff" fill-rule="evenodd" d="M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>'}];
+  icon: '<svg viewBox="0 0 24 24"><path fill="#fff" fill-rule="evenodd" d="M12 3a9 9 0 0 0 0 18c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm5 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>'},
+  // 녹화·녹음·캡쳐 (준: "홈에 바로가기를 만들자 그걸 누르면 위성처럼 여러가지 팝업아이콘이 뜨고"): a tap opens its satellite.
+  {id: "rec", label: "녹화·녹음·캡쳐", sat: true,
+  icon: '<svg viewBox="0 0 24 24"><rect x="2.6" y="6.4" width="13.6" height="11.2" rx="3" fill="#fff"/><path d="M17.2 10.6 21 8.3c.4-.24.9.05.9.5v6.4c0 .45-.5.74-.9.5l-3.8-2.3z" fill="#fff"/>'
+    + '<circle cx="9.4" cy="12" r="2.9" fill="#ef3a50"/></svg>'}];
 let newBuild = "";
+/** 화면 녹화 and 녹음 now, as the app says them (launcher.record): "" (none), "starting", "on", "paused", "saving". */
+let REC = {screen: "", audio: ""};
+const recOn = () => !!(REC.screen || REC.audio);
+function shortName(x) {
+  if (x.id === "update" && newBuild) return "새 업데이트 " + newBuild + " 받기";
+  if (x.id === "rec" && recOn()) return (REC.screen ? "화면 녹화" : "녹음") + (REC.screen === "paused" || !REC.screen && REC.audio === "paused" ? " 일시정지" : " 중") + " · " + x.label + " 열기";
+  return x.label + " 열기";
+}
 function drawShorts() {
   const box = el("shorts"); if (!box) return;
-  box.innerHTML = SHORTS.map(x => '<button class="app short" data-short="' + x.id + '" aria-label="' + esc(x.id === "update" && newBuild ? "새 업데이트 " + newBuild + " 받기" : x.label + " 열기") + '"><span class="ic"><span class="own-ic ' + x.id + '">' + x.icon + '</span>'
-    + (x.id === "update" && newBuild ? '<i class="dot"></i>' : '') + '</span></button>').join("");
+  box.innerHTML = SHORTS.map(x => '<button class="app short' + (x.sat && satOpen() ? ' open' : '') + '" data-short="' + x.id + '" aria-label="' + esc(shortName(x)) + '"' + (x.sat ? ' aria-haspopup="menu" aria-expanded="' + satOpen() + '"' : '') + '><span class="ic"><span class="own-ic ' + x.id + '">' + x.icon + '</span>'
+    + (x.id === "update" && newBuild ? '<i class="dot"></i>' : '') + (x.id === "rec" && recOn() ? '<i class="dot live"></i>' : '') + '</span></button>').join("");
 }
 el("shorts").addEventListener("click", e => {
-  const b = e.target.closest("[data-short]"); if (!b || !B) return;
+  const b = e.target.closest("[data-short]"); if (!b) return;
   const x = SHORTS.find(s => s.id === b.dataset.short); if (!x) return;
+  if (x.sat) { if (satOpen()) closeSat(); else openSat(b); return; }
+  if (!B) return;
   if (x.settings) B.settings(x.id); else B.open(x.id);
+});
+/*
+  The satellite: 녹화하기 (화면 녹화, Android's consent once), 녹음하기 and 캡쳐, in an arc above the shortcut; while one is on its
+  icon turns into 정지 for it. A tap on one folds the satellite at once (so 캡쳐 does not take it) and asks the app (B.record).
+*/
+const SAT_ICON = {
+  screen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6.5" y="2.6" width="11" height="18.8" rx="2.8"/><circle cx="12" cy="12" r="3" fill="#ef3a50" stroke="none"/></svg>',
+  audio: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.8" width="6" height="11.4" rx="3" fill="#ef3a50" stroke="none"/><path d="M5.6 11a6.4 6.4 0 0 0 12.8 0M12 17.6v3.6"/></svg>',
+  capture: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.8 8V6.3a2.5 2.5 0 0 1 2.5-2.5H8M16 3.8h1.7a2.5 2.5 0 0 1 2.5 2.5V8M20.2 16v1.7a2.5 2.5 0 0 1-2.5 2.5H16M8 20.2H6.3a2.5 2.5 0 0 1-2.5-2.5V16"/><circle cx="12" cy="12" r="3.2"/></svg>',
+  stop: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2.2" fill="currentColor"/></svg>'
+};
+function satItems() {
+  const s = REC.screen, a = REC.audio;
+  return [
+    s === "saving" ? {act: "", label: "저장 중", icon: SAT_ICON.screen} : s ? {act: "screenStop", label: "녹화 정지", icon: SAT_ICON.stop, stop: true} : {act: "screen", label: "녹화하기", icon: SAT_ICON.screen},
+    a ? {act: "audioStop", label: "녹음 정지", icon: SAT_ICON.stop, stop: true} : {act: "audio", label: "녹음하기", icon: SAT_ICON.audio},
+    {act: "capture", label: "캡쳐", icon: SAT_ICON.capture}];
+}
+const satOpen = () => el("sat").classList.contains("on");
+let satAt = null;
+/**
+  Where the three go: on an arc of 96px above the shortcut's middle (135°, 90°, 45°), each icon with its name clear of the row
+  (an arc turned further would bring one down among the other icons). Near a screen edge the whole arc slides in until every
+  icon with its name is on screen; they still spring out of the shortcut.
+*/
+function satPlaces(cx, cy) {
+  const R = 96, half = 30, W = innerWidth, edge = 8, top = (INSETS.top || 0) + 8;
+  const best = [135, 90, 45].map(a => { const r = a * Math.PI / 180; return {x: cx + R * Math.cos(r), y: cy - R * Math.sin(r)}; });
+  const minX = Math.min(...best.map(p => p.x - half)), maxX = Math.max(...best.map(p => p.x + half)), minY = Math.min(...best.map(p => p.y - 20));
+  const dx = minX < edge ? edge - minX : maxX > W - edge ? W - edge - maxX : 0, dy = minY < top ? top - minY : 0;
+  return best.map(p => ({x: p.x + dx, y: p.y + dy}));
+}
+function drawSat() {
+  const box = el("sat"); if (!satAt) return;
+  const items = satItems(), ps = satPlaces(satAt.x, satAt.y);
+  box.querySelectorAll(".sat-b").forEach(b => b.remove());
+  box.insertAdjacentHTML("beforeend", items.map((x, i) => '<button class="sat-b' + (x.stop ? ' stop' : '') + '" role="menuitem" data-act="' + x.act + '"' + (x.act ? '' : ' disabled')
+    + ' style="left:' + ps[i].x.toFixed(1) + 'px;top:' + ps[i].y.toFixed(1) + 'px;--fx:' + (satAt.x - ps[i].x).toFixed(1) + 'px;--fy:' + (satAt.y - ps[i].y).toFixed(1) + 'px">'
+    + '<span class="o">' + x.icon + '</span><span class="l">' + esc(x.label) + '</span></button>').join(""));
+}
+function openSat(b) {
+  closeMenu(); closeFan(); closeIdeas();
+  const r = b.querySelector(".ic").getBoundingClientRect();
+  satAt = {x: r.left + r.width / 2, y: r.top + r.height / 2};
+  const box = el("sat");
+  box.classList.add("on"); drawSat(); drawShorts();
+  requestAnimationFrame(() => requestAnimationFrame(() => { if (satOpen()) box.classList.add("shown"); }));
+}
+let satTimer = 0;
+function closeSat(now) {
+  const box = el("sat"); if (!satOpen()) return;
+  box.classList.remove("shown"); clearTimeout(satTimer);
+  const gone = () => { box.classList.remove("on"); box.querySelectorAll(".sat-b").forEach(b => b.remove()); satAt = null; drawShorts(); };
+  if (now) gone(); else satTimer = setTimeout(gone, 200);
+}
+el("satVeil").addEventListener("click", () => closeSat());
+el("sat").addEventListener("click", e => {
+  const b = e.target.closest(".sat-b"); if (!b || b.disabled) return;
+  const act = b.dataset.act;
+  // Folded at once: 캡쳐 is taken a moment later (the app waits for the screen to settle), without the satellite in it.
+  closeSat(true);
+  if (B && act) B.record(act);
 });
 drawShorts();
 /*
@@ -1790,6 +1891,12 @@ window.launcher = {
     requestAnimationFrame(() => boards.forEach(fit)); setTimeout(() => boards.forEach(fit), 900);
   },
   badges(k) { BADGES = k || {}; drawAll(); },
+  /** 화면 녹화 and 녹음 now (RecordControl.state: {screen, audio}): the shortcut's dot, and 정지 in its satellite while open. */
+  record(k) {
+    const next = {screen: String((k && k.screen) || ""), audio: String((k && k.audio) || "")};
+    if (next.screen === REC.screen && next.audio === REC.audio) return;
+    REC = next; drawShorts(); if (satOpen()) drawSat();
+  },
   insets(top, bottom, kb) {
     document.documentElement.style.setProperty("--top", top + "px"); document.documentElement.style.setProperty("--bottom", bottom + "px");
     INSETS = {top: +top || 0, bottom: +bottom || 0}; pagesBox.querySelectorAll(".page.custom iframe").forEach(tellInsets);
@@ -1797,13 +1904,14 @@ window.launcher = {
     if (chatting) { const body = el("padBody"); requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; }); }
   },
   /** Home pressed while the home screen is in front: back to its top, everything closed (a Mac's desktop). */
-  home() { closeMenu(); closeFan(); closePad(); closeIdeas(); toPage(1, true); el("home").scrollTo({top: 0, behavior: "smooth"}); },
+  home() { closeSat(true); closeMenu(); closeFan(); closePad(); closeIdeas(); toPage(1, true); el("home").scrollTo({top: 0, behavior: "smooth"}); },
   /** Back from another app: what was left open closes; the page stays. */
-  closeAll() { closeMenu(); closeFan(); closePad(); closeIdeas(); },
+  closeAll() { closeSat(true); closeMenu(); closeFan(); closePad(); closeIdeas(); },
   /** The 작업 표시줄's all-apps button (Taskbar.java): Launchpad, with its search when the button was held. */
-  pad(search) { closeMenu(); closeFan(); closeIdeas(); openPad(!!search); },
+  pad(search) { closeSat(true); closeMenu(); closeFan(); closeIdeas(); openPad(!!search); },
   /** Back: the open thing closes; true when something did. */
   back() {
+    if (satOpen()) { closeSat(); return true; }
     if (el("menu").classList.contains("on")) { closeMenu(); return true; }
     if (el("ideas").classList.contains("on")) { closeIdeas(); return true; }
     if (el("fan").classList.contains("on")) { closeFan(); return true; }

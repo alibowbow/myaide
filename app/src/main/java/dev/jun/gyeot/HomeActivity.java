@@ -249,6 +249,17 @@ public final class HomeActivity extends Activity {
         // 하루 기록: a saved place the phone is at now (its last fix, no new one), and 퍼레's routine suggestion once a day.
         DayLogs.here(this);
         if (ready) habits();
+        ((GyeotApp) getApplication()).store().observe(recordChanged); recordShown = ""; pushRecord();
+    }
+    // ── 녹화·녹음·캡쳐 바로가기: its dot while a recording is on, and 정지 in its satellite (RecordControl.state) ──
+    private String recordShown = "";
+    private final Runnable recordChanged = this::pushRecord;
+    private void pushRecord() {
+        if (!ready || web == null) return;
+        String now = RecordControl.state(((GyeotApp) getApplication()).store()).toString();
+        if (now.equals(recordShown)) return;
+        recordShown = now;
+        js("launcher.record&&launcher.record(" + now + ")");
     }
     /**
      * 퍼레's routine suggestion (BuddyHabits, core/Habits): looked for at most once a day, off the main thread; the one found is
@@ -294,6 +305,7 @@ public final class HomeActivity extends Activity {
     @Override protected void onPause() {
         resumed = false; PhoneService.taskbarChanged();
         BuddyBoard.away(); dev.jun.gyeot.core.BuddyJobs.unlisten(jobsChanged);
+        ((GyeotApp) getApplication()).store().unobserve(recordChanged);
         shown = false; pausedAt = android.os.SystemClock.uptimeMillis(); NoticeListener.changed = null; NoticeListener.deliveryChanged = null; main.removeCallbacks(refresh); main.removeCallbacks(boardSoon);
         prefs.edit().putLong("awaySince", System.currentTimeMillis()).apply();
         // The voice talk goes on over the next app (준: "퍼레가 말할때 브라우저라도 켜면 바로 꺼져버려").
@@ -592,6 +604,8 @@ public final class HomeActivity extends Activity {
                 case "info" -> b.info(a.optString(0, null));
                 case "uninstall" -> b.uninstall(a.optString(0, null));
                 case "open" -> b.open(a.optString(0, ""));
+                // The 녹화·녹음·캡쳐 shortcut's satellite: 녹화하기, 녹음하기, 캡쳐 and their 정지 (RecordControl, the one controller).
+                case "record" -> { String what = a.optString(0, ""); main.post(() -> RecordControl.act(HomeActivity.this, what)); }
                 // 중지 on a job's line (BuddyJobs.stop: the engine's own stop, the same as the voice pill's).
                 case "jobStop" -> { String id = a.optString(0, ""); try { io.execute(() -> dev.jun.gyeot.core.BuddyJobs.stop(id)); } catch (RuntimeException ignored) {} }
                 case "ask" -> b.ask(a.optString(0, null));
@@ -627,6 +641,7 @@ public final class HomeActivity extends Activity {
                 pushApps(); main.removeCallbacks(refresh); if (shown) refresh.run(); else pushBoard();
                 if (shown) pushJobs(true);
                 if (shown) habits();
+                recordShown = ""; pushRecord();
                 if (pendingShow != null) { showPad(pendingShow); pendingShow = null; }
                 if (pendingPage != null) { goPage(pendingPage); pendingPage = null; }
                 // 퍼레 itself, asked by voice or in the talk (BuddyBoard): now that the page can hear it.

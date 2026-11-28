@@ -34,10 +34,10 @@ public final class ScreenRecordTile extends TileService {
     private void show() {
         Tile tile = getQsTile();
         if (tile == null) return;
-        boolean on = ScreenRecordService.running(), saving = on && ScreenRecordService.saving();
+        boolean on = ScreenRecordService.running(), saving = on && ScreenRecordService.saving(), paused = on && ScreenRecordService.paused();
         tile.setState(on && !saving ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE);
-        tile.setSubtitle(saving ? "저장하는 중" : on ? "녹화 중 · 눌러서 중지" : "눌러서 녹화");
-        tile.setContentDescription(saving ? "화면 녹화를 저장하는 중" : on ? "화면 녹화 중. 누르면 중지" : "화면 녹화 시작");
+        tile.setSubtitle(saving ? "저장하는 중" : paused ? "일시정지 · 눌러서 중지" : on ? "녹화 중 · 눌러서 중지" : "눌러서 녹화");
+        tile.setContentDescription(saving ? "화면 녹화를 저장하는 중" : paused ? "화면 녹화 일시정지. 누르면 중지" : on ? "화면 녹화 중. 누르면 중지" : "화면 녹화 시작");
         tile.updateTile();
     }
 }

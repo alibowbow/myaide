@@ -79,6 +79,8 @@ import static dev.jun.gyeot.core.Jsons.*;
 public final class AssistantService extends Service {
     public static final String LIVE = "gyeot.LIVE", END_LIVE = "gyeot.END_LIVE", TASK = "gyeot.TASK", CANCEL = "gyeot.CANCEL", STOP = "gyeot.STOP", MUTE = "gyeot.MUTE", SAY = "gyeot.SAY", APPLY = "gyeot.APPLY", WORK_SEND = "gyeot.WORK_SEND", WORK_STOP = "gyeot.WORK_STOP", WORK_NEXT = "gyeot.WORK_NEXT", WORK_STEER_NOW = "gyeot.WORK_STEER_NOW", WORK_CLEAR = "gyeot.WORK_CLEAR", WORK_SORT = "gyeot.WORK_SORT";
     public static final String RECORD_START = "gyeot.RECORD_START", RECORD_STOP = "gyeot.RECORD_STOP", SUMMARIZE = "gyeot.SUMMARIZE";
+    /** 녹음 일시정지 · 재개 (MediaRecorder.pause/resume): the notification, the floating controls and the home screen send these. */
+    public static final String RECORD_PAUSE = "gyeot.RECORD_PAUSE", RECORD_RESUME = "gyeot.RECORD_RESUME";
     public static final String VIDEO_START = "gyeot.VIDEO_START", VIDEO_RESUME = "gyeot.VIDEO_RESUME", VIDEO_PAUSE = "gyeot.VIDEO_PAUSE";
     private final java.util.Map<String, Control> videoRuns = new java.util.concurrent.ConcurrentHashMap<>();
     private static final String CHANNEL = "assistant", RESULTS = "results";
@@ -356,6 +358,7 @@ public final class AssistantService extends Service {
                 case CANCEL -> { if (cancelTask(intent.getStringExtra("id")) && !store.voiceActive) store.status("작업을 취소했어요"); idle(); }
                 case RECORD_START -> startRecording();
                 case RECORD_STOP -> { stopRecording(); idle(); }
+                case RECORD_PAUSE, RECORD_RESUME -> { pauseRecording(RECORD_PAUSE.equals(action)); idle(); }
                 case SUMMARIZE -> summarize(intent.getStringExtra("recording"), intent.getStringExtra("modelSelection"));
                 default -> idle();
             }
@@ -3247,21 +3250,40 @@ public final class AssistantService extends Service {
             next.setAudioEncoder(android.media.MediaRecorder.AudioEncoder.AAC);
             next.setAudioChannels(1); next.setAudioSamplingRate(44100); next.setAudioEncodingBitRate(64000);
             next.setOutputFile(file); next.prepare();
-            store.recording = true; store.recordingStartedAt = System.currentTimeMillis(); store.stopReading("녹음을 시작해서 읽기를 멈췄어요.");
+            store.recording = true; store.recordingPaused = false; store.recordingPauses = new dev.jun.gyeot.core.RecordPauses();
+            store.recordingStartedAt = System.currentTimeMillis(); store.stopReading("녹음을 시작해서 읽기를 멈췄어요.");
             // The microphone foreground type must be in place before recording, so it keeps going with the screen off.
             foreground();
             if (!foregroundHas(MICROPHONE)) throw new IllegalStateException("Android가 백그라운드 마이크 사용을 허용하지 않았어요. 앱 화면에서 다시 시작해 주세요.");
             next.start();
         } catch (Exception error) {
-            store.recording = false; store.recordingStartedAt = 0; next.release(); file.delete(); throw error;
+            store.recording = false; store.recordingStartedAt = 0; next.release(); file.delete(); RecordControl.changed(this); throw error;
         }
         recorder = next; recordingId = id; store.error = ""; store.status("녹음 중이에요 · 화면을 꺼도 계속돼요");
+        RecordControl.changed(this);
+    }
+    /**
+     * 녹음 일시정지 (pause true) or 재개: MediaRecorder writes nothing while paused and goes on in the same file; the time shown
+     * and the saved length leave the pause out. A phone whose recorder refuses says so and records on.
+     */
+    private void pauseRecording(boolean pause) {
+        android.media.MediaRecorder current = recorder;
+        if (current == null || !store.recording || store.recordingPaused == pause) { store.changed(); return; }
+        try { if (pause) current.pause(); else current.resume(); }
+        catch (RuntimeException refused) { store.error(pause ? "이 휴대폰의 녹음기가 일시정지를 받지 않았어요 · 녹음은 계속돼요" : "녹음을 다시 이어 가지 못했어요 · 중지하면 지금까지 저장해요"); return; }
+        long now = System.currentTimeMillis();
+        if (pause) store.recordingPauses.pause(now); else store.recordingPauses.resume(now);
+        store.recordingPaused = pause;
+        store.status(pause ? "녹음을 잠시 멈췄어요 · 재개하면 같은 파일에 이어서 녹음해요" : "녹음을 이어서 하고 있어요");
+        RecordControl.changed(this);
     }
     /** Stops and keeps the recording; a recording too short to hold audio is discarded. */
     private void stopRecording() {
         android.media.MediaRecorder current = recorder; String id = recordingId;
-        long started = store.recordingStartedAt, duration = System.currentTimeMillis() - started;
-        recorder = null; recordingId = ""; store.recording = false; store.recordingStartedAt = 0;
+        // The length leaves the pauses out (MediaRecorder wrote nothing then).
+        long started = store.recordingStartedAt, duration = store.recordingPauses.elapsed(started, System.currentTimeMillis());
+        recorder = null; recordingId = ""; store.recording = false; store.recordingPaused = false; store.recordingStartedAt = 0;
+        RecordControl.changed(this);
         if (current == null) { store.changed(); return; }
         boolean saved = true;
         try { current.stop(); } catch (RuntimeException tooShort) { saved = false; }
@@ -5029,16 +5051,18 @@ public final class AssistantService extends Service {
     }
     private Notification ongoing() {
         int pending = store.tasks.pendingCount() + workQueued;
-        String detail = store.recording ? "마이크로 녹음하고 있어요" + (pending > 0 ? " · 작업 " + pending + "개" : "")
+        String detail = store.recording ? (store.recordingPaused ? "녹음을 잠시 멈췄어요 · 재개하면 이어서 녹음해요" : "마이크로 녹음하고 있어요") + (pending > 0 ? " · 작업 " + pending + "개" : "")
             : store.voiceActive ? (store.voiceNetwork.offline() ? "오프라인 · " : store.thinking() ? store.thinkingName() + " · 생각하는 중 · " : "") + (store.muted ? "마이크 음소거 중" : "마이크 사용 중") + (pending > 0 ? " · 작업 " + pending + "개" : "")
             : reportsPlaying > 0 ? "작업 결과를 읽고 있어요" : "백그라운드 작업 " + pending + "개";
         Notification.Builder builder = new Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(store.recording ? Brand.NAME + " · 녹음 중" : store.voiceActive ? Brand.NAME + " · " + modeName() : Brand.NAME).setContentText(detail).setContentIntent(openApp(1, 0))
+            .setContentTitle(store.recording ? Brand.NAME + (store.recordingPaused ? " · 녹음 일시정지 · " + dev.jun.gyeot.core.RecordPauses.clock(RecordControl.audioElapsedMs(store)) : " · 녹음 중") : store.voiceActive ? Brand.NAME + " · " + modeName() : Brand.NAME).setContentText(detail).setContentIntent(openApp(1, 0))
             .setOngoing(true).setOnlyAlertOnce(true).setCategory(Notification.CATEGORY_SERVICE).setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
-        if (store.recording && store.recordingStartedAt > 0) builder.setWhen(store.recordingStartedAt).setUsesChronometer(true).setShowWhen(true);
+        if (store.recording && store.recordingPaused) builder.setShowWhen(false);
+        else if (store.recording && store.recordingStartedAt > 0) builder.setWhen(System.currentTimeMillis() - RecordControl.audioElapsedMs(store)).setUsesChronometer(true).setShowWhen(true);
         else if (store.voiceActive && store.voiceStartedAt > 0) builder.setWhen(store.voiceStartedAt).setUsesChronometer(true).setShowWhen(true);
         else builder.setShowWhen(false);
-        if (store.recording) builder.addAction(new Notification.Action.Builder(null, "녹음 중지", action(RECORD_STOP)).build());
+        if (store.recording) builder.addAction(new Notification.Action.Builder(null, store.recordingPaused ? "재개" : "일시정지", action(store.recordingPaused ? RECORD_RESUME : RECORD_PAUSE)).build())
+            .addAction(new Notification.Action.Builder(null, "녹음 중지", action(RECORD_STOP)).build());
         if (store.voiceActive) builder.addAction(new Notification.Action.Builder(null, store.muted ? "음소거 해제" : "마이크 음소거", action(MUTE)).build())
             .addAction(new Notification.Action.Builder(null, "음성 종료", action(END_LIVE)).build());
         // A notification action cannot be held: it opens the chat listening until the speech ends. Not while a call or recording has the mic.

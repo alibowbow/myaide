@@ -1,0 +1,5 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <!-- 캡쳐: a small camera, its lens cut out. -->
+    <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
+        android:pathData="M4.5,7H7.2L8.7,5H15.3L16.8,7H19.5A2,2 0,0 1,21.5,9V17.5A2,2 0,0 1,19.5,19.5H4.5A2,2 0,0 1,2.5,17.5V9A2,2 0,0 1,4.5,7Z M12,9.2A4,4 0,1 0,12,17.2A4,4 0,1 0,12,9.2Z M12,11A2.2,2.2 0,1 1,12,15.4A2.2,2.2 0,1 1,12,11Z"/>
+</vector>

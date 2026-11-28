@@ -22,9 +22,15 @@ import java.util.List;
  * it, then Android's screen capture consent for the whole screen, hands the result and the screen's real size to
  * ScreenRecordService, and closes. When a recording is already on, it stops it instead. Only one asks at a time: a second
  * tap while the first one's prompt shows closes at once, so the user never gets two consent prompts.
+ *
+ * The home screen's satellite (RecordControl) opens it in two more ways (MODE): 녹음하기 (AUDIO: the microphone asked as the
+ * app's 녹음 asks it, then 녹음 starts) and 캡쳐's last way (CAPTURE: Android's consent, then one frame, ScreenShotService).
  */
 public final class ScreenRecordActivity extends Activity {
-    private static final int PERMISSIONS = 1, CONSENT = 2;
+    private static final int PERMISSIONS = 1, CONSENT = 2, MIC = 3;
+    /** How it was opened: absent for 화면 녹화, AUDIO or CAPTURE. */
+    static final String MODE = "mode", AUDIO = "audio", CAPTURE = "capture";
+    private String mode = "";
     /** An instance is asking (its permission or consent prompt is up). */
     private static volatile boolean open;
     private boolean asked, requesting, owns;
@@ -37,6 +43,10 @@ public final class ScreenRecordActivity extends Activity {
         if (asked || requesting) { open = true; owns = true; return; }
         // Another tap while the first one still asks: that one goes on, this one leaves.
         if (open) { close(); return; }
+        String how = getIntent() == null ? null : getIntent().getStringExtra(MODE);
+        mode = how == null ? "" : how;
+        if (AUDIO.equals(mode)) { audio(); return; }
+        if (CAPTURE.equals(mode)) { open = true; owns = true; ask(); return; }
         if (ScreenRecordService.running()) { ScreenRecordService.stop(this); close(); return; }
         open = true; owns = true;
         SharedPreferences settings = ((GyeotApp) getApplication()).store().settings;
@@ -50,10 +60,24 @@ public final class ScreenRecordActivity extends Activity {
         if (!missing.isEmpty()) { requesting = true; requestPermissions(missing.toArray(new String[0]), PERMISSIONS); return; }
         ask();
     }
+    /** 녹음하기 from the home screen: the microphone first when it is not allowed yet, then 녹음 starts (in AssistantService). */
+    private void audio() {
+        if (((GyeotApp) getApplication()).store().recording) { RecordControl.act(this, RecordControl.AUDIO_STOP); close(); return; }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) { RecordControl.startAudioNow(this); close(); return; }
+        open = true; owns = true; requesting = true;
+        requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, MIC);
+    }
     @Override protected void onSaveInstanceState(Bundle state) { super.onSaveInstanceState(state); state.putBoolean("asked", asked); state.putBoolean("requesting", requesting); }
     @Override protected void onDestroy() { if (owns && !isChangingConfigurations()) open = false; super.onDestroy(); }
     @Override public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(code, permissions, results);
+        if (code == MIC) {
+            requesting = false;
+            if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) RecordControl.startAudioNow(this);
+            else Toast.makeText(this, "녹음에는 마이크 권한이 필요해요 · Android 설정 → 앱 → 들퍼레 → 권한에서 켤 수 있어요", Toast.LENGTH_LONG).show();
+            close();
+            return;
+        }
         if (code != PERMISSIONS) return;
         requesting = false;
         // A second answer (the window was recreated while the prompt showed) must not open a second consent prompt.
@@ -80,10 +104,17 @@ public final class ScreenRecordActivity extends Activity {
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
         if (request != CONSENT) return;
-        if (result != RESULT_OK || data == null) { Toast.makeText(this, "화면 녹화를 시작하지 않았어요", Toast.LENGTH_SHORT).show(); close(); return; }
+        boolean capture = CAPTURE.equals(mode) || getIntent() != null && CAPTURE.equals(getIntent().getStringExtra(MODE));
+        if (result != RESULT_OK || data == null) { Toast.makeText(this, capture ? "캡쳐하지 않았어요" : "화면 녹화를 시작하지 않았어요", Toast.LENGTH_SHORT).show(); close(); return; }
         // The screen's real size in its current orientation: the recording is made at this size, not scaled down. Its refresh
         // rate sets the frame rate (an even share of it).
         Rect screen = getWindowManager().getMaximumWindowMetrics().getBounds();
+        if (capture) {
+            try { ScreenShotService.start(this, result, data, screen.width(), screen.height(), getResources().getConfiguration().densityDpi); }
+            catch (RuntimeException refused) { ScreenCapture.failed(this, "캡쳐를 시작하지 못했어요 · " + refused.getClass().getSimpleName()); }
+            close();
+            return;
+        }
         float refresh = ScreenRecorder.refreshRate(this);
         try {
             ScreenRecordService.start(this, result, data, screen.width(), screen.height(), getResources().getConfiguration().densityDpi, refresh);
