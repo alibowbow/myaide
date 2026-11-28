@@ -37,8 +37,8 @@ public class ScreenRecordPlanTests {
         assertEquals(48_000_000, plan.bitrate());
         assertTrue(plan.vbr());
         assertEquals("1440×3120 · 60fps · HEVC 48Mbps", plan.label());
-        assertEquals("1440×3120 · 60fps · HEVC 48Mbps · 기기 소리", ScreenRecordPlan.summary(plan, Sound.DEVICE));
-        assertEquals("1440×3120 · 60fps · HEVC 48Mbps · 소리 없음", ScreenRecordPlan.summary(plan, Sound.NONE));
+        assertEquals("1440×3120 · 60fps · HEVC 48Mbps · 미디어", ScreenRecordPlan.summary(plan, Sound.DEVICE));
+        assertEquals("1440×3120 · 60fps · HEVC 48Mbps · 화면만", ScreenRecordPlan.summary(plan, Sound.NONE));
         // Landscape stays landscape.
         Plan wide = ScreenRecordPlan.best(3120, 1440, Quality.BEST, FLAGSHIP);
         assertEquals(3120, wide.width()); assertEquals(1440, wide.height());
@@ -205,11 +205,18 @@ public class ScreenRecordPlanTests {
         assertEquals("Movies/들퍼레", ScreenRecordPlan.FOLDER);
         assertEquals("312MB", ScreenRecordPlan.size(312_400_000)); assertEquals("1.4GB", ScreenRecordPlan.size(1_400_000_000L)); assertEquals("1MB", ScreenRecordPlan.size(10));
         assertEquals("48", ScreenRecordPlan.mbps(48_500_000)); assertEquals("7.6", ScreenRecordPlan.mbps(7_650_000));
-        assertArrayEquals(new String[]{"기기 소리", "마이크", "둘 다", "없음"}, Sound.labels());
-        assertTrue(Sound.DEVICE.needsRecordPermission()); assertTrue(Sound.MIC.needsRecordPermission()); assertTrue(Sound.BOTH.needsRecordPermission());
-        assertFalse(Sound.NONE.needsRecordPermission());
-        assertTrue(Sound.BOTH.device() && Sound.BOTH.mic()); assertFalse(Sound.DEVICE.mic()); assertFalse(Sound.MIC.device());
-        assertEquals(Sound.DEVICE, Sound.of("?")); assertEquals(Sound.BOTH, Sound.of("BOTH"));
+        // 준: "화면만 / 미디어 / 마이크+미디어 — 이걸 설정 가능하게 해줘", in that order.
+        assertArrayEquals(new String[]{"화면만", "미디어", "마이크+미디어"}, Sound.labels());
+        assertFalse("화면만: an MP4 with the picture alone (no sound track)", Sound.NONE.any());
+        assertTrue(Sound.DEVICE.any()); assertTrue(Sound.BOTH.any());
+        assertFalse("화면만 asks for no microphone", Sound.NONE.needsRecordPermission());
+        // Android lets an app capture what other apps play only with the recording permission, so 미디어 asks for it too.
+        assertTrue(Sound.DEVICE.needsRecordPermission()); assertTrue(Sound.BOTH.needsRecordPermission());
+        assertTrue(Sound.DEVICE.device()); assertFalse("미디어 opens no microphone", Sound.DEVICE.mic());
+        assertTrue(Sound.BOTH.device() && Sound.BOTH.mic());
+        assertEquals("unknown or unset: 미디어", Sound.DEVICE, Sound.of("?")); assertEquals(Sound.DEVICE, Sound.of(""));
+        assertEquals(Sound.BOTH, Sound.of("BOTH")); assertEquals(Sound.NONE, Sound.of("NONE"));
+        assertEquals("a saved 마이크 alone became 마이크+미디어", Sound.BOTH, Sound.of("MIC"));
     }
 
     // ── Sound and timing ────────────────────────────────────────────────

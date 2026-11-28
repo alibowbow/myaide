@@ -543,6 +543,8 @@ public final class PhoneService extends AccessibilityService {
         // The taskbar follows windows coming and going, and which app came to the front (its package only, in memory).
         if (taskbar != null && (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED))
             try { taskbar.windowsChanged(event); } catch (RuntimeException ignored) {}
+        // The edge handle sits below Samsung's Edge handle and follows it (looked for at most every few seconds).
+        if (edge != null && type == AccessibilityEvent.TYPE_WINDOWS_CHANGED) try { edge.windowsChanged(); } catch (RuntimeException ignored) {}
         // 하루 기록: which app came to the front (its package and class only), for "네이버 지도 12분" (DayLogs.front).
         if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) try { DayLogs.front(this, event.getPackageName(), event.getClassName()); } catch (RuntimeException ignored) {}
     }
@@ -618,15 +620,7 @@ public final class PhoneService extends AccessibilityService {
         } catch (RuntimeException refused) { main.post(() -> done.accept(null, "화면을 캡처하지 못했어요")); }
     }
 
-    // ── 캡쳐 (홈 화면의 녹화 바로가기, 녹화 중 조작 버튼) ──────────────────────
-    /** The whole screen as it shows, the user having pressed 캡쳐 (CapturePlan.SERVICE): as shootArea, uncut. */
-    static void shootScreen(java.util.function.BiConsumer<Bitmap, String> done) { shootArea(new android.graphics.Rect(0, 0, 1 << 15, 1 << 15), done); }
-    /** The phone's own screenshot (CapturePlan.SYSTEM): it saves and shows it its own way. False when the service is off or paused. */
-    static boolean systemScreenshot() {
-        PhoneService s = instance;
-        if (s == null || SecurityWatch.paused(s)) return false;
-        try { return s.performGlobalAction(GLOBAL_ACTION_TAKE_SCREENSHOT); } catch (RuntimeException refused) { return false; }
-    }
+    // ── 녹화 (RecordBubble) ─────────────────────────────────────────────
     /** The service as a place for windows over every app (TYPE_ACCESSIBILITY_OVERLAY: the recording's controls); null when off. */
     static Context overlayContext() { return instance; }
 
@@ -1476,6 +1470,8 @@ public final class PhoneService extends AccessibilityService {
         params.gravity = Gravity.TOP | Gravity.END;
         float[] start = new float[4]; boolean[] moved = new boolean[1];
         stop.setOnTouchListener((view, event) -> {
+            // See-through while a screen recording writes frames: a touch pauses it first (then it shows again).
+            if (RecordControl.veiledTouch(view, event)) return true;
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> { start[0] = event.getRawX(); start[1] = event.getRawY(); start[2] = params.x; start[3] = params.y; moved[0] = false; }
                 case MotionEvent.ACTION_MOVE, MotionEvent.ACTION_UP -> {
@@ -1498,8 +1494,11 @@ public final class PhoneService extends AccessibilityService {
         }
         placeStop();
         getSystemService(WindowManager.class).addView(stop, params);
+        RecordControl.onVeil(stopVeil); stopVeil.run();
         if (anchor != null) anchor.armed(true);
     }
+    /** Not in a screen recording: see-through while it writes frames (RecordControl's veil). */
+    private final Runnable stopVeil = () -> { FrameLayout stop = stopButton; if (stop != null) stop.setAlpha(RecordControl.veiled() ? 0f : 1f); };
     /** A light fingerprint of what the active window shows (its texts), to notice a change during a wait; kept nowhere. */
     private String signature() {
         AccessibilityNodeInfo root = getRootInActiveWindow();
@@ -1522,6 +1521,7 @@ public final class PhoneService extends AccessibilityService {
     }
     private void removeStop() {
         if (stopButton == null) return;
+        RecordControl.offVeil(stopVeil);
         try { getSystemService(WindowManager.class).removeView(stopButton); } catch (IllegalArgumentException ignored) {}
         stopButton = null; stopParams = null;
         if (anchor != null) anchor.armed(false);

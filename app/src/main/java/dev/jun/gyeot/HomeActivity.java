@@ -251,7 +251,7 @@ public final class HomeActivity extends Activity {
         if (ready) habits();
         ((GyeotApp) getApplication()).store().observe(recordChanged); recordShown = ""; pushRecord();
     }
-    // ── 녹화·녹음·캡쳐 바로가기: its dot while a recording is on, and 정지 in its satellite (RecordControl.state) ──
+    // ── 녹화·녹음 바로가기: its dot while a recording is on, and 정지 in its satellite (RecordControl.state) ──
     private String recordShown = "";
     private final Runnable recordChanged = this::pushRecord;
     private void pushRecord() {
@@ -604,7 +604,7 @@ public final class HomeActivity extends Activity {
                 case "info" -> b.info(a.optString(0, null));
                 case "uninstall" -> b.uninstall(a.optString(0, null));
                 case "open" -> b.open(a.optString(0, ""));
-                // The 녹화·녹음·캡쳐 shortcut's satellite: 녹화하기, 녹음하기, 캡쳐 and their 정지 (RecordControl, the one controller).
+                // The 녹화·녹음 shortcut's satellite: 녹화하기, 녹음하기 and their 정지 (RecordControl, the one controller).
                 case "record" -> { String what = a.optString(0, ""); main.post(() -> RecordControl.act(HomeActivity.this, what)); }
                 // 중지 on a job's line (BuddyJobs.stop: the engine's own stop, the same as the voice pill's).
                 case "jobStop" -> { String id = a.optString(0, ""); try { io.execute(() -> dev.jun.gyeot.core.BuddyJobs.stop(id)); } catch (RuntimeException ignored) {} }

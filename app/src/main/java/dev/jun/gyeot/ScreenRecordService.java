@@ -42,22 +42,33 @@ import java.util.Locale;
  * finishes the file. Then "저장했어요" opens the video, or a plain reason says why nothing was saved.
  *
  * 일시정지 · 재개 (준: "녹화 시작 일시정지 및 정지 버튼도 구현해줘 녹화화면상에서 바로 조작할 수 있기"): from the notification, the
- * floating controls over every app (RecordPill) or the home screen; the recorder writes nothing while paused and goes on in the
- * same file, and the time shown leaves the pauses out. Every start, pause and stop goes through RecordControl, so the home
- * screen's dot, the controls, the notification, the tile and the app's row say the same.
+ * recording bubble over every app (RecordBubble) or the home screen; the recorder writes nothing while paused and goes on in
+ * the same file, and the time shown leaves the pauses out. Every start, pause and stop goes through RecordControl, so the home
+ * screen's dot, the bubble, the notification, the tile and the app's row say the same.
+ *
+ * Nothing of ours is in the video (준: "같이 녹화되면 안되지"; Android gives an app no way to keep one of its windows out of its
+ * own capture, and FLAG_SECURE would leave a black box): our windows over other apps are only seen while nothing is written.
+ * The recording starts held (hold) while the recording bubble counts down 3-2-1 at its place; then everything of ours is
+ * veiled and it goes (go) once that is drawn. A touch on the see-through bubble (or any of our see-through controls) pauses at
+ * the touch's own time first (pauseAt), then they show; 재개 veils them first and writes again only once they are gone
+ * (resume). The hold and the pauses are one RecordPauses, cut out of the file by each sample's time, so how late the encoder
+ * hands a frame over does not matter.
  */
 public final class ScreenRecordService extends Service {
     static final String CHANNEL = "screenRecord", DONE_CHANNEL = "screenRecordDone";
     private static final int NOTIFICATION = 7461, DONE = 7462;
-    private static final String START = "start", STOP = "stop", PAUSE = "pause", RESUME = "resume", GRAB = "grab";
+    private static final String START = "start", STOP = "stop", PAUSE = "pause", RESUME = "resume", SYNC = "sync";
     static final String QUALITY = "screenRecordQuality", SOUND = "screenRecordSound";
     /** When notifications are off, what the ongoing notification would have told. */
     static final String NO_NOTIFICATIONS = "알림이 꺼져 있어서 녹화 중 표시가 안 보여요 · 타일이나 들퍼레에서 멈춰요";
-    private static volatile boolean running, saving, paused;
-    private static volatile long startedAt, startedMono;
+    private static volatile boolean running, saving, counting;
+    private static volatile long startedAt, startedMono, heldAt;
     private static volatile String label = "";
-    /** The paused spans of the recording on now (System.nanoTime microseconds, the samples' clock). */
+    /** The paused spans of the recording on now (System.nanoTime microseconds, the samples' clock), the countdown's hold too. */
     private static volatile RecordPauses pauses = new RecordPauses();
+    /** The samples' clock in microseconds (CLOCK_MONOTONIC, as the screen's frames are stamped); tests put a clock of their own. */
+    static volatile java.util.function.LongSupplier clock = () -> System.nanoTime() / 1000;
+    static long now() { return clock.getAsLong(); }
 
     /** Whether a recording is on (from the start until its file is finished). */
     static boolean running() { return running; }
@@ -66,13 +77,55 @@ public final class ScreenRecordService extends Service {
     static long startedAt() { return startedAt; }
     /** Whether its encoder runs (after the consent and the encoder's start; before, it is still starting). */
     static boolean started() { return running && startedMono != 0; }
+    /** Whether the controls are counting down before the first frame (nothing is written until go). */
+    static boolean counting() { return running && counting; }
     /** Whether the recording is paused (일시정지): nothing is written until 재개. */
-    static boolean paused() { return running && paused; }
+    static boolean paused() { return running && !counting && startedMono != 0 && pauses.paused(); }
+    /** Whether anything is being written now (false while starting, counting down, paused or saving). */
+    static boolean writing() { return running && !saving && startedMono != 0 && !pauses.paused(); }
     /** How long it has recorded, the pauses left out (0 before the encoder runs). */
     static long elapsedMs() {
         long start = startedMono;
         if (!running || start == 0) return 0;
-        return pauses.elapsed(start, System.nanoTime() / 1000) / 1000;
+        return pauses.elapsed(start, now()) / 1000;
+    }
+    /** The paused spans now (tests read what the file would keep). */
+    static RecordPauses pauses() { return pauses; }
+
+    /**
+     * Before the first frame: the recording starts held, and nothing is written until everything of ours is off the screen
+     * (RecordControl.clearThen, then go). When the recording bubble can float over other apps it first counts down 3-2-1 at
+     * its place (counting), so the user sees where to touch.
+     */
+    static void hold(Context c) {
+        counting = RecordBubble.possible(c);
+        heldAt = now();
+        pauses.pause(heldAt);
+    }
+    /**
+     * 일시정지 at at (the samples' clock; the controls' touch passes the touch's own time): from then nothing is written, then
+     * the controls show (they are drawn after this, so later than at). False when it is not recording.
+     */
+    static boolean pauseAt(Context c, long at) {
+        if (!running || saving || counting || startedMono == 0) return false;
+        if (!pauses.pause(Math.min(at, now()))) return false;
+        // Held first; only now everything of ours may show again.
+        RecordControl.unveil();
+        send(c, SYNC);
+        RecordControl.changed(c);
+        return true;
+    }
+    /**
+     * The controls are off the screen (after the countdown, or after 재개): writing goes on from now, and what was taken
+     * before now is left out. False when nothing was held.
+     */
+    static boolean go(Context c) {
+        if (!running || saving || startedMono == 0) return false;
+        counting = false;
+        boolean went = pauses.resume(now());
+        send(c, SYNC);
+        RecordControl.changed(c);
+        return went;
     }
     /** The plan in use ("1440×3120 · 60fps · HEVC 48Mbps"), once the encoder runs. */
     static String label() { return label; }
@@ -86,11 +139,14 @@ public final class ScreenRecordService extends Service {
         context.startForegroundService(intent);
     }
     static void stop(Context context) { send(context, STOP); }
-    /** 일시정지 · 재개, while it records. */
-    static void pause(Context context) { send(context, PAUSE); }
-    static void resume(Context context) { send(context, RESUME); }
-    /** 캡쳐 while recording: one picture from the recording's own capture (no second consent), saved like any capture. */
-    static void grab(Context context) { send(context, GRAB); }
+    /** 일시정지 now (the notification, the home screen): held at once, then the controls show. */
+    static void pause(Context context) { pauseAt(context, now()); }
+    /** 재개: everything of ours leaves the screen first; the recording goes on once it is gone. */
+    static void resume(Context context) {
+        if (!paused()) return;
+        Context app = context.getApplicationContext();
+        RecordControl.clearThen(app, () -> go(app));
+    }
     private static void send(Context context, String action) {
         try { context.startService(new Intent(context, ScreenRecordService.class).setAction(action)); } catch (RuntimeException notRunning) { /* nothing to do */ }
     }
@@ -123,8 +179,9 @@ public final class ScreenRecordService extends Service {
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? STOP : intent.getAction();
         if (START.equals(action)) begin(intent);
-        else if (PAUSE.equals(action) || RESUME.equals(action)) pauseOrResume(PAUSE.equals(action));
-        else if (GRAB.equals(action)) grabNow();
+        else if (PAUSE.equals(action)) { pause(this); if (recorder == null && projection == null && !stopping) quit(); }
+        else if (RESUME.equals(action)) { resume(this); if (recorder == null && projection == null && !stopping) quit(); }
+        else if (SYNC.equals(action)) follow();
         else finish("");
         return START_NOT_STICKY;
     }
@@ -143,7 +200,9 @@ public final class ScreenRecordService extends Service {
         boolean allowed = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
         ScreenRecordPlan.Sound sound = wanted.needsRecordPermission() && !allowed ? ScreenRecordPlan.Sound.NONE : wanted;
         String early = sound != wanted ? "마이크 권한이 없어서 소리 없이 녹화했어요" : "";
-        startedAt = System.currentTimeMillis(); startedMono = 0; label = ""; paused = false; pauses = new RecordPauses();
+        startedAt = System.currentTimeMillis(); startedMono = 0; label = ""; counting = false; pauses = new RecordPauses();
+        // The controls count down over the screen first (when they can float): nothing is written until they are gone.
+        hold(this);
         // To the foreground before the projection is taken (Android 14). The phone's sound is also captured through the
         // recording permission, so any sound holds the microphone type; without it the capture would go silent in the background.
         types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION | (sound.any() ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE : 0);
@@ -181,12 +240,17 @@ public final class ScreenRecordService extends Service {
                 ScreenRecordPlan.Plan plan = made.start();
                 live = made;
                 String extra = note.isEmpty() ? made.note() : note;
-                String heard = (chosen == ScreenRecordPlan.Sound.NONE ? "소리 없음" : chosen.label) + (extra.isEmpty() ? "" : " · " + extra);
+                String heard = chosen.label + (extra.isEmpty() ? "" : " · " + extra);
                 main.post(() -> {
                     sounds = heard;
                     // A stop that came while it was starting (or the service ended) finishes what has just started.
                     if (stopping) { saving = true; changed(); work.post(() -> save(made.stop(), stopWhy)); return; }
-                    recorder = made; label = plan.label(); startedAt = System.currentTimeMillis(); startedMono = System.nanoTime() / 1000;
+                    // Held for the countdown: its time counts from the hold, so the time shown starts at 0:00 when it goes.
+                    recorder = made; label = plan.label(); startedAt = System.currentTimeMillis(); startedMono = counting ? heldAt : now();
+                    // No bubble to count down on: everything of ours off the screen, then it goes. Should the bubble never come
+                    // (its window refused), it goes on by itself the same way.
+                    if (!counting) RecordControl.clearThen(this, () -> go(this));
+                    else main.postDelayed(() -> { if (counting && recorder == made && !stopping) RecordControl.clearThen(this, () -> go(this)); }, 10_000);
                     detail = plan.label() + " · " + heard;
                     show(recording(detail));
                     changed();
@@ -257,37 +321,24 @@ public final class ScreenRecordService extends Service {
         return "Android가 화면 공유를 끝냈어요 (" + time + " · 상태 표시줄의 중지, 또는 다른 앱의 화면 녹화)";
     }
 
-    /** 일시정지 (pause true) or 재개, on the worker; then the notification and everything else that shows the recording. */
-    private void pauseOrResume(boolean pause) {
+    /**
+     * The hold changed (paused, held for the countdown, or going on): the encoder follows on the worker (stops taking frames
+     * while held, asked for a key frame when it goes on), then the notification. The file already keeps to the hold by the
+     * samples' times, whatever the encoder still hands over.
+     */
+    private void follow() {
         ScreenRecorder current = recorder;
-        // Nothing recording (the service was started for this alone, or the file is being finished): nothing to pause.
+        // Nothing recording (the service was started for this alone, or the file is being finished): nothing to follow.
         if (current == null || stopping) { if (projection == null && !stopping) quit(); return; }
         work.post(() -> {
-            boolean done = pause ? current.pause() : current.resume();
+            current.follow();
             main.post(() -> {
-                if (!done || stopping || recorder != current) return;
-                paused = pause;
+                if (stopping || recorder != current) return;
                 show(recording(detail));
                 changed();
             });
         });
     }
-    /** 캡쳐 while recording: one frame of this recording's own capture, saved as a picture (ScreenCapture). */
-    private void grabNow() {
-        ScreenRecorder current = recorder;
-        if (current == null || stopping) {
-            if (projection == null && !stopping) quit();
-            ScreenCapture.failed(this, "화면 녹화가 시작되기 전이라 캡쳐하지 못했어요 · 잠시 뒤 다시 눌러 주세요");
-            return;
-        }
-        Context app = getApplicationContext();
-        work.post(() -> {
-            android.graphics.Bitmap shot = current.grab(1500);
-            if (shot == null) { main.post(() -> ScreenCapture.failed(app, "녹화 중인 화면에서 캡쳐하지 못했어요 · 폰 조작(접근성)을 켜면 녹화와 따로 캡쳐해요")); return; }
-            ScreenCapture.keep(app, shot);
-        });
-    }
-
     /** Ends the recording (why: why it stopped by itself, or ""), finishes the file on the worker thread and leaves. */
     private void finish(String why) {
         if (stopping) return;
@@ -318,7 +369,7 @@ public final class ScreenRecordService extends Service {
         if (destroyed && worker != null) worker.quitSafely();
     }
     private void quit() {
-        running = false; saving = false; paused = false; label = ""; startedMono = 0;
+        running = false; saving = false; counting = false; label = ""; startedMono = 0;
         if (destroyed) { try { channels().cancel(NOTIFICATION); } catch (RuntimeException ignored) { /* none */ } }
         else { try { stopForeground(STOP_FOREGROUND_REMOVE); } catch (RuntimeException ignored) { /* not in front */ } stopSelf(); }
         changed();
@@ -336,7 +387,7 @@ public final class ScreenRecordService extends Service {
         }
         if (projection == null && recorder == null) {
             if (worker != null) worker.quitSafely();
-            running = false; saving = false; paused = false;
+            running = false; saving = false; counting = false;
         }
         super.onDestroy();
     }
@@ -363,7 +414,8 @@ public final class ScreenRecordService extends Service {
     private Notification recording(String text) {
         channels();
         boolean recordingNow = recorder != null && !stopping;
-        return notification(this, text, recordingNow, recordingNow && paused, elapsedMs(), !RecordPill.possible(this));
+        // While the controls count down only 중지: 일시정지 comes once it records.
+        return notification(this, text, recordingNow && !counting, recordingNow && paused(), elapsedMs(), !RecordBubble.possible(this));
     }
     /**
      * The ongoing notification: while it records, 일시정지 (or 재개) beside 중지, the time standing still while paused; when

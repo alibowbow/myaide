@@ -230,8 +230,6 @@
              the microphone type only while a recording has sound. shortService answers the start when Android 14 allows no
              other type, so the app is not ended for leaving it unanswered; it is never combined with the others. -->
         <service android:name=".ScreenRecordService" android:exported="false" android:foregroundServiceType="mediaProjection|microphone|shortService" />
-        <!-- 캡쳐's last way (no 폰 조작, no recording on): after Android's consent, one frame of a screen capture, then it ends. -->
-        <service android:name=".ScreenShotService" android:exported="false" android:foregroundServiceType="mediaProjection" />
         <activity android:name=".ScreenRecordActivity" android:exported="false" android:theme="@style/QuickTheme" android:taskAffinity=""
             android:excludeFromRecents="true" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden" />
         <!-- 내 음악 on the LP page: Android's own file picker for music files or a folder, over the page; closes by itself. -->

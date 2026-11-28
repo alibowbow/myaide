@@ -20,7 +20,7 @@ import java.util.function.IntConsumer;
 
 /**
  * 비서 → 녹음 → 화면 녹화: one row beside 녹음. Its line says what the next recording will be ("1440×3120 · 60fps · HEVC
- * 48Mbps"), or how long it has been recording; its end says the sound ("기기 소리 ›") and opens a small sheet with 화질 and 소리
+ * 48Mbps"), or how long it has been recording; its end says the sound ("미디어 ›") and opens a small sheet with 화질 and 소리
  * as switchers at the end of their lines. A tap on the row starts or stops the recording.
  */
 final class ScreenRecordUi {
@@ -50,7 +50,7 @@ final class ScreenRecordUi {
     void forget() { line = null; value = null; }
     /** Starts or stops it, through the one controller (RecordControl) the home screen and the floating controls use too. */
     private void toggle() { RecordControl.act(activity, RecordControl.SCREEN); }
-    private String soundWord() { ScreenRecordPlan.Sound sound = ScreenRecordService.sound(store.settings); return sound == ScreenRecordPlan.Sound.NONE ? "소리 없음" : sound.label; }
+    private String soundWord() { return ScreenRecordService.sound(store.settings).label; }
     private boolean known() { return planFor.equals(key()); }
     private String planLine() { return plan == null ? ScreenRecordPlan.summary(null, ScreenRecordPlan.Sound.NONE) : plan.label(); }
     /** The row's line (the time while recording, the plan otherwise) and its sound. */
@@ -102,7 +102,7 @@ final class ScreenRecordUi {
         }));
         sheet.body.addView(preview);
         TextView about = ui.label("최고·고화질은 화면을 줄이지 않고 원래 크기 그대로, 보통은 폭 1080으로 " + ScreenRecordPlan.FOLDER + "에 저장해요. "
-            + "휴대폰 설정의 화면 해상도가 높을수록 더 선명해요. 기기 소리는 그 앱이 허용할 때만 담겨요.", 12, Ui.MUTED);
+            + "휴대폰 설정의 화면 해상도가 높을수록 더 선명해요. 미디어 소리는 그 앱이 허용할 때만 담겨요. 녹화를 시작할 때도 고를 수 있어요.", 12, Ui.MUTED);
         about.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0); about.setLineSpacing(ui.dp(3), 1);
         sheet.body.addView(about);
         TextView tile = ui.text("알림창에 ‘화면 녹화’ 타일 추가 ›", 13, 600, Ui.ACCENT); tile.setPadding(ui.dp(4), ui.dp(10), ui.dp(4), ui.dp(6));

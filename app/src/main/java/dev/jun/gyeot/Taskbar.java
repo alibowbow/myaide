@@ -122,6 +122,8 @@ final class Taskbar implements AutoCloseable {
 
     Taskbar(AccessibilityService service, AppStore store) {
         this.service = service; this.store = store;
+        // Not in a screen recording: off the screen at once while it writes frames (the system's own bar is there meanwhile).
+        RecordControl.onVeil(veiled);
         manager = service.getSystemService(WindowManager.class);
         launcher = service.getSystemService(LauncherApps.class);
         users = service.getSystemService(UserManager.class);
@@ -195,6 +197,8 @@ final class Taskbar implements AutoCloseable {
             density = d; synchronized (icons) { icons.evictAll(); } drawn = "";
             endDrag(); drop = null; hideMenu(); hideChip();
         }
+        // A screen recording writes frames: nothing of ours on the screen (RecordControl's veil); back when it pauses or ends.
+        if (RecordControl.veiled()) { hideMenu(); hideChip(); endDrag(); detach(); return; }
         TaskbarPlan.State state = state();
         TaskbarPlan.Hidden now = TaskbarPlan.hidden(state);
         boolean changed = now != hidden;
@@ -739,7 +743,10 @@ final class Taskbar implements AutoCloseable {
         };
     }
 
+    /** RecordControl's veil changed: looked at again at once (a later one would let frames with the bar in them through). */
+    private final Runnable veiled = () -> refresh();
     @Override public void close() {
+        RecordControl.offVeil(veiled);
         closed = true;
         main.removeCallbacksAndMessages(null); splitting = null;
         try { hideMenu(); hideChip(); endDrag(); detach(); } catch (RuntimeException ignored) {}

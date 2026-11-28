@@ -109,7 +109,7 @@ public class ScreenRecordScreenTests {
         assertEquals(0, line.getLayout().getEllipsisCount(0));
         assertTrue("a list row, not a big button: " + row.getHeight() / density + "dp", row.getHeight() <= 74 * density);
         // The sound at its end, which opens the settings.
-        View settings = exact(decor, "기기 소리 ›"); assertNotNull("the sound at the row's end", settings);
+        View settings = exact(decor, "미디어 ›"); assertNotNull("the sound at the row's end", settings);
         assertTrue(settings.getContentDescription().toString().startsWith("화면 녹화 설정"));
         shot(decor, "screen_record_row");
 
@@ -117,7 +117,7 @@ public class ScreenRecordScreenTests {
         Dialog sheet = ShadowDialog.getLatestDialog(); assertNotNull(sheet); assertTrue(sheet.isShowing());
         View panel = sheet.getWindow().getDecorView();
         layout(panel, a); shadowOf(Looper.getMainLooper()).idle(); layout(panel, a);
-        View best = exact(panel, "최고"), normal = exact(panel, "보통"), mic = exact(panel, "마이크");
+        View best = exact(panel, "최고"), normal = exact(panel, "보통"), mic = exact(panel, "마이크+미디어");
         assertNotNull(best); assertNotNull(normal); assertNotNull(mic);
         View qualities = (View) best.getParent();
         assertSame("one switcher for 화질", qualities, normal.getParent());
@@ -127,18 +127,18 @@ public class ScreenRecordScreenTests {
         assertTrue(normal.performClick()); shadowOf(Looper.getMainLooper()).idle();
         assertEquals(ScreenRecordPlan.Quality.NORMAL, ScreenRecordService.quality(((GyeotApp) a.getApplication()).store().settings));
         assertTrue(mic.performClick()); shadowOf(Looper.getMainLooper()).idle();
-        assertEquals(ScreenRecordPlan.Sound.MIC, ScreenRecordService.sound(((GyeotApp) a.getApplication()).store().settings));
+        assertEquals(ScreenRecordPlan.Sound.BOTH, ScreenRecordService.sound(((GyeotApp) a.getApplication()).store().settings));
         View preview = null;
         for (int i = 0; i < 50 && (preview = text(panel, "1080×")) == null; i++) { Thread.sleep(50); shadowOf(Looper.getMainLooper()).idle(); layout(panel, a); }
         assertNotNull("the sheet says what 보통 will record", preview);
         String next = ((TextView) preview).getText().toString();
-        assertTrue(next, next.matches("1080×\\d+ · 30fps · HEVC [0-9.]+Mbps · 마이크"));
+        assertTrue(next, next.matches("1080×\\d+ · 30fps · HEVC [0-9.]+Mbps · 마이크\\+미디어"));
         shot(panel, "screen_record_sheet");
         sheet.dismiss(); settle(a);
         // The row follows the new settings.
         for (int i = 0; i < 50 && !line.getText().toString().startsWith("1080×"); i++) { Thread.sleep(50); settle(a); }
         assertTrue(line.getText().toString(), line.getText().toString().matches("1080×\\d+ · 30fps · HEVC [0-9.]+Mbps"));
-        assertNotNull(exact(decor, "마이크 ›"));
+        assertNotNull(exact(decor, "마이크+미디어 ›"));
     }
 
     @Test public void unfinishedPartsAreLookedForWithoutFailing() {

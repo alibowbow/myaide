@@ -93,8 +93,22 @@ final class BuddyOverlay {
         });
         try { manager.addView(card, params); } catch (RuntimeException refused) { card = null; face = null; words = null; job = null; jobLine = null; jobStop = null; return; }
         state(state, null); drawJob();
+        RecordControl.onVeil(veil); veil.run();
+    }
+    /**
+     * Not in a screen recording: while it writes frames 퍼레's card is see-through and lets touches through to the app under it
+     * (RecordControl's veil); it is back as soon as the recording pauses or ends.
+     */
+    private final Runnable veil = this::veil;
+    private void veil() {
+        if (card == null || params == null) return;
+        boolean on = RecordControl.veiled();
+        card.setAlpha(on ? 0f : 1f);
+        int flags = on ? params.flags | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE : params.flags & ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        if (flags != params.flags) { params.flags = flags; try { manager.updateViewLayout(card, params); } catch (RuntimeException gone) { /* off */ } }
     }
     void hide() {
+        RecordControl.offVeil(veil);
         main.removeCallbacks(mouth);
         if (card != null) { try { manager.removeView(card); } catch (RuntimeException gone) {} }
         card = null; face = null; words = null; job = null; jobLine = null; jobStop = null;

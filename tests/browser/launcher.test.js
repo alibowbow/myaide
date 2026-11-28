@@ -406,7 +406,7 @@ async function open(browser, at, bridge, pages, scale) {
     for (const x of s) {
       assert(x.w <= 44 && x.h <= 44 && x.w >= 36, 'small, smaller than an app icon: ' + JSON.stringify(x));
       assert.strictEqual(x.text, '', 'no name under it');
-      assert(/마이튜브|화면 꾸미기|업데이트|녹화·녹음·캡쳐/.test(x.name), 'its name for the screen reader: ' + x.name);
+      assert(/마이튜브|화면 꾸미기|업데이트|녹화·녹음/.test(x.name), 'its name for the screen reader: ' + x.name);
       assert(x.below && x.bottom <= x.dots, 'under App Library, above the dots: ' + JSON.stringify(x));
     }
     await p.evaluate(() => { window._calls.length = 0; ['mytube', 'update', 'decor'].forEach(id => document.querySelector('#shorts [data-short="' + id + '"]').click()); });
@@ -423,10 +423,10 @@ async function open(browser, at, bridge, pages, scale) {
     await shortsPage.ctx.close();
   });
   // 준, 2026-11-28: "녹화하기가 너무 번거로워. 홈에 바로가기를 만들자 그걸 누르면 위성처럼 여러가지 팝업아이콘이 뜨고 그중 하나가
-  // 녹화하기야 캡쳐도 만들어줘", "일단 팝업아이콘 구성은 녹화하기 녹음하기 캡쳐 이 세가지로".
+  // 녹화하기야", "팝업아이콘 구성은 녹화하기 녹음하기 …", then "화면캡쳐는 굳이 안 만들어도 되겠다".
   // At a phone's pixel density, so the preview for 준 is sharp.
   const satPage = await open(browser, '2026-11-28T10:00:00+09:00', true, null, 2.625);
-  await check('녹화·녹음·캡쳐: a tap springs out 녹화하기 · 녹음하기 · 캡쳐 in an arc with tiny names, inside the screen at the row\'s edges; a tap outside or on it again folds them; each asks the app; a red dot and 정지 while one records', async () => {
+  await check('녹화·녹음: a tap springs out 녹화하기 · 녹음하기 in an arc with tiny names, inside the screen at the row\'s edges; a tap outside or on it again folds them; each asks the app; a red dot and 정지 while one records', async () => {
     const p = satPage.page, SHOTS = '/tmp/claude-0/-home-user/138b3987-18a5-5339-9471-114de8ffce30/scratchpad/satellite';
     fs.mkdirSync(SHOTS, { recursive: true });
     const recAt = () => p.evaluate(() => { const r = document.querySelector('#shorts [data-short="rec"] .ic').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, top: r.top, w: r.width }; });
@@ -443,11 +443,11 @@ async function open(browser, at, bridge, pages, scale) {
     await tapRec();
     assert(await isOpen(), 'a tap opens the satellite');
     let items = await sat();
-    assert.deepStrictEqual(items.map(x => x.label), ['녹화하기', '녹음하기', '캡쳐']);
-    assert.deepStrictEqual(items.map(x => x.act), ['screen', 'audio', 'capture']);
+    assert.deepStrictEqual(items.map(x => x.label), ['녹화하기', '녹음하기']);
+    assert.deepStrictEqual(items.map(x => x.act), ['screen', 'audio']);
     for (const x of items) assert(x.d >= 36 && x.d <= 42, 'small round icons: ' + x.d);
     for (const x of items) assert(x.bottom <= r.top - 6, 'above the shortcut, names clear of the row: ' + JSON.stringify(x));
-    assert(items[1].y < items[0].y && items[1].y < items[2].y && items[0].x < items[1].x && items[1].x < items[2].x, 'an arc, the middle one highest: ' + JSON.stringify(items));
+    assert(Math.abs(items[0].y - items[1].y) < 1 && items[0].x < r.x && items[1].x > r.x, 'an arc above it, one on each side: ' + JSON.stringify(items));
     const dist = items.map(x => Math.round(Math.hypot(x.x - r.x, x.y - r.y)));
     assert(dist.every(v => Math.abs(v - dist[0]) <= 2), 'on one circle around it: ' + dist);
     inside(items, 'inside the screen');
@@ -459,14 +459,14 @@ async function open(browser, at, bridge, pages, scale) {
     await tapRec(); assert(!(await isOpen()), 'a tap on the shortcut again folds them');
     // Back folds them first.
     await tapRec(); assert.strictEqual(await p.evaluate(() => launcher.back()), true); await p.clock.runFor(400); assert(!(await isOpen()));
-    // Each asks the app; the satellite folds at once (캡쳐 must not take it).
-    for (const act of ['screen', 'audio', 'capture']) {
+    // Each asks the app; the satellite folds at once.
+    for (const act of ['screen', 'audio']) {
       await tapRec();
       await p.evaluate(() => { window._calls.length = 0; });
       const b = (await sat()).find(x => x.act === act);
       await p.touchscreen.tap(b.x, b.y);
       assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'record').map(c => JSON.parse(c[1])[0])), [act]);
-      assert(!(await isOpen()), 'folded at once after ' + act);
+      assert(!(await isOpen()), 'folded at once after ' + act + ' (before the sheet or the microphone question comes up)');
     }
     // At the row's edges the arc turns away from the edge and every icon with its name stays on screen.
     for (const side of ['flex-end', 'flex-start']) {
@@ -488,7 +488,7 @@ async function open(browser, at, bridge, pages, scale) {
     assert(dot.dots === 1 && /화면 녹화 중/.test(dot.name), 'a red dot, and it says so: ' + JSON.stringify(dot));
     await tapRec();
     items = await sat();
-    assert.deepStrictEqual(items.map(x => x.label), ['녹화 정지', '녹음하기', '캡쳐']);
+    assert.deepStrictEqual(items.map(x => x.label), ['녹화 정지', '녹음하기']);
     assert(items[0].stop, '정지 in red');
     assert.strictEqual(await p.evaluate(() => getComputedStyle(el('satVeil')).opacity), '1', 'the rest of the screen dims under it');
     await p.screenshot({ path: SHOTS + '/satellite_recording.png' });
@@ -498,7 +498,7 @@ async function open(browser, at, bridge, pages, scale) {
     // 녹음 paused: still the dot, 녹음 정지 in its place; the open satellite follows the app's word at once.
     await tapRec();
     await p.evaluate(() => launcher.record({ screen: '', audio: 'paused' }));
-    assert.deepStrictEqual((await sat()).map(x => x.label), ['녹화하기', '녹음 정지', '캡쳐']);
+    assert.deepStrictEqual((await sat()).map(x => x.label), ['녹화하기', '녹음 정지']);
     assert(/녹음 일시정지/.test(await p.evaluate(() => document.querySelector('#shorts [data-short="rec"]').getAttribute('aria-label'))));
     await tapRec();
     await p.evaluate(() => launcher.record({ screen: '', audio: '' }));

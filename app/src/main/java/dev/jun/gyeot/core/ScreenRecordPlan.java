@@ -39,20 +39,29 @@ public final class ScreenRecordPlan {
         public static String[] labels() { Quality[] all = values(); String[] labels = new String[all.length]; for (int i = 0; i < all.length; i++) labels[i] = all[i].label; return labels; }
     }
 
-    /** 소리: what goes into the recording beside the picture. 기기 소리 is what the phone plays (apps that allow it), 둘 다 mixes it with the mic. */
+    /**
+     * 녹음할 오디오 (준: "화면만 / 미디어 / 마이크+미디어 — 이걸 설정 가능하게 해줘"), in the order shown: 화면만 (no sound track at
+     * all), 미디어 (what the phone plays, from apps that allow it) and 마이크+미디어 (both mixed).
+     */
     public enum Sound {
-        DEVICE("기기 소리"), MIC("마이크"), BOTH("둘 다"), NONE("없음");
+        NONE("화면만"), DEVICE("미디어"), BOTH("마이크+미디어");
         public final String label;
         Sound(String label) { this.label = label; }
         public boolean device() { return this == DEVICE || this == BOTH; }
-        public boolean mic() { return this == MIC || this == BOTH; }
+        public boolean mic() { return this == BOTH; }
+        /** Whether the file gets a sound track: 화면만 is an MP4 with the picture alone. */
         public boolean any() { return this != NONE; }
         /**
-         * Whether Android's microphone permission is needed: the microphone, and also the phone's own sound, because Android
-         * counts capturing what other apps play as recording audio.
+         * Whether Android's microphone permission is needed: for the microphone, and also for 미디어, because Android lets an
+         * app capture what other apps play only with the recording permission (the microphone itself is not opened then).
          */
         public boolean needsRecordPermission() { return any(); }
-        public static Sound of(String name) { for (Sound s : values()) if (s.name().equals(name)) return s; return DEVICE; }
+        /** The saved choice; the old 마이크 alone became 마이크+미디어, and anything unknown 미디어. */
+        public static Sound of(String name) {
+            if ("MIC".equals(name)) return BOTH;
+            for (Sound s : values()) if (s.name().equals(name)) return s;
+            return DEVICE;
+        }
         public static String[] labels() { Sound[] all = values(); String[] labels = new String[all.length]; for (int i = 0; i < all.length; i++) labels[i] = all[i].label; return labels; }
     }
 
@@ -300,10 +309,10 @@ public final class ScreenRecordPlan {
         return 0;
     }
 
-    /** The row's line: "1440×3120 · 60fps · HEVC 48Mbps · 기기 소리". */
+    /** The row's line: "1440×3120 · 60fps · HEVC 48Mbps · 미디어". */
     public static String summary(Plan plan, Sound sound) {
         if (plan == null) return "이 휴대폰에서 화면을 담을 영상 인코더를 찾지 못했어요";
-        return plan.label() + " · " + (sound == Sound.NONE ? "소리 없음" : sound.label);
+        return plan.label() + " · " + sound.label;
     }
 
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss", Locale.ROOT);
