@@ -530,8 +530,11 @@ public final class BrowserActivity extends Activity {
         try { view.capturePixels().accept(bitmap -> done.accept(bitmap, at), failure -> done.accept(null, null)); }
         catch (RuntimeException failed) { done.accept(null, null); }
     }
+    @Override protected void onStart() { super.onStart(); coverWithShot(); }
     @Override protected void onResume() { super.onResume(); if (voice != null) voice.attach(); navigationResumed = true; AppNavigator.browserInFront(true); AppNavigator.inFront("browser"); updateAiToolbarState(); engine.attach(this::refresh, prompts); engine.externalAppLink = this::offerYouTube; engine.appLink = this::openAppLink; engine.store.observe(storeObserver); consumeTaskNotification(); consumeOpen(); consumeReview(); consumeQuestion(); acknowledgeNavigation(); }
     @Override protected void onPause() {
+        // Left by the phone's home button or a swipe home: the left page shows this screen as it was (keepShot).
+        if (homeSide && !leaving && !isFinishing()) keepShot(null);
         if (voice != null) voice.detach();
         recoveryViewSequence++;
         navigationResumed = false; AppNavigator.browserInFront(false); stopProgressUiClock(); detailRefresh = null; progressDetails = null;
@@ -626,14 +629,71 @@ public final class BrowserActivity extends Activity {
             appReturnButton.setContentDescription(what); appReturnButton.setTooltipText(homeSide ? "홈 화면으로" : "앱으로 돌아가기");
         }
     }
+    /**
+     * The browser as the user left it from the home screen's left page (준: "검은 화면 안 뜨게 해줘", "전환이 더 자연스럽게",
+     * "화면 뜨는 딜레이를 획기적으로 줄여줘"): a picture of this screen, shown on the left page while it is swiped in (HomeActivity
+     * serves it as /left.jpg) and over this screen for its first moments back (while Gecko draws again), so the swipe shows the
+     * browser at once and its coming is not seen. Kept in memory for this run and in a file for the home screen.
+     */
+    static java.io.File leftShot(android.content.Context c) { return new java.io.File(c.getFilesDir(), "home_left.jpg"); }
+    private static volatile android.graphics.Bitmap shotInMemory;
+    private android.widget.ImageView shotCover;
+    /** A picture of the window now (PixelCopy: the page's own surface too), saved off the main thread; then runs at once after. */
+    private void keepShot(Runnable then) {
+        View decor = getWindow().getDecorView(); int w = decor.getWidth(), h = decor.getHeight();
+        if (w <= 0 || h <= 0 || !decor.isAttachedToWindow()) { if (then != null) then.run(); return; }
+        boolean[] done = {false};
+        Runnable go = () -> { if (done[0]) return; done[0] = true; if (then != null) then.run(); };
+        android.graphics.Bitmap shot;
+        try { shot = android.graphics.Bitmap.createBitmap(Math.max(1, Math.round(w * .6f)), Math.max(1, Math.round(h * .6f)), android.graphics.Bitmap.Config.ARGB_8888); }
+        catch (RuntimeException | OutOfMemoryError none) { go.run(); return; }
+        try {
+            android.view.PixelCopy.request(getWindow(), shot, result -> {
+                if (result == android.view.PixelCopy.SUCCESS) {
+                    shotInMemory = shot; java.io.File file = leftShot(getApplicationContext());
+                    new Thread(() -> {
+                        java.io.File part = new java.io.File(file.getPath() + ".part");
+                        try (java.io.FileOutputStream out = new java.io.FileOutputStream(part)) { shot.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, out); }
+                        catch (Exception unwritten) { return; }
+                        if (!part.renameTo(file)) part.delete();
+                    }, "gyeot-left-shot").start();
+                }
+                go.run();
+            }, progressUiHandler);
+        } catch (RuntimeException refused) { go.run(); return; }
+        // Never held back long by it.
+        progressUiHandler.postDelayed(go, 180);
+    }
+    /** The last picture over this screen while Gecko draws again, then faded away. */
+    private void coverWithShot() {
+        android.graphics.Bitmap shot = shotInMemory;
+        if (!homeSide || shot == null) return;
+        android.view.ViewGroup content = findViewById(android.R.id.content); if (content == null) return;
+        if (shotCover == null) {
+            shotCover = new android.widget.ImageView(this); shotCover.setScaleType(android.widget.ImageView.ScaleType.FIT_XY);
+            shotCover.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
+        shotCover.animate().cancel(); shotCover.setAlpha(1f); shotCover.setImageBitmap(shot);
+        if (shotCover.getParent() == null) content.addView(shotCover, new FrameLayout.LayoutParams(-1, -1));
+        android.widget.ImageView cover = shotCover;
+        cover.postDelayed(() -> cover.animate().alpha(0f).setDuration(160).withEndAction(() -> { android.view.ViewParent parent = cover.getParent(); if (parent instanceof android.view.ViewGroup g) g.removeView(cover); }).start(), 380);
+    }
     /** Touches go to the right edge's swipe first, when this screen came from the home screen (HomeEdge). */
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
         if (homeEdge != null && homeEdge.touch(e, super::dispatchTouchEvent)) return true;
         return super.dispatchTouchEvent(e);
     }
     /** To 홈: the home screen turns in from the right as this screen goes left, as from the left page to 홈. */
+    private boolean leaving;
     private void toHome() {
+        if (leaving) return;
         saveDraft(); if (dictation != null) dictation.cancel();
+        // The screen as it is now goes to the home screen's left page first (keepShot), then home.
+        leaving = true;
+        keepShot(() -> { leaving = false; goHome(); });
+    }
+    private void goHome() {
+        if (isFinishing() || isDestroyed()) return;
         android.content.Intent home = new android.content.Intent(this, HomeActivity.class).putExtra(HomeActivity.PAGE, "홈").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
         try { startActivity(home, android.app.ActivityOptions.makeCustomAnimation(this, R.anim.page_in_right, R.anim.page_out_left).toBundle()); }
         catch (RuntimeException none) { moveTaskToBack(true); return; }

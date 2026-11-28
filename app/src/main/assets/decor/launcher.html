@@ -228,11 +228,13 @@ body.on-custom .dock{opacity:0;pointer-events:none}
 body.on-custom .pager{bottom:calc(var(--bottom) + 10px)}
 /* 왼쪽 · Claude Code (준: "왼쪽 페이지는 하단 독 없애고"): coming to rest here opens the AI 브라우저 (HomeActivity, ClaudePage); this
    card shows meanwhile, with no dock, and the dots low, a tap on one turning to it. */
-.page.claude{position:relative;overflow:hidden;padding:0;background:#0b0c12}
+.page.claude{position:relative;overflow:hidden;padding:0;background:#f4f3ee center top/100% 100% no-repeat}
+/* The AI 브라우저 as last left (준: "검은 화면 안 뜨게 해줘"): its picture fills the page while it is swiped in (launcher.leftShot). */
+.page.claude.shot .claude-ph{display:none}
 .claude-ph{position:absolute;left:0;right:0;top:40%;display:flex;flex-direction:column;align-items:center;gap:10px}
-.claude-ph b{font-size:15px;font-weight:700;letter-spacing:-.02em;color:rgba(255,255,255,.7)}
-.claude-ph small{font-size:12px;color:rgba(255,255,255,.45)}
-.claude-open{border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#f5f5f7;font:inherit;font-size:12.5px;font-weight:650;padding:6px 13px;border-radius:999px}
+.claude-ph b{font-size:15px;font-weight:700;letter-spacing:-.02em;color:#3d3929}
+.claude-ph small{font-size:12px;color:#8a8475}
+.claude-open{border:1px solid rgba(0,0,0,.12);background:#fff;color:#3d3929;font:inherit;font-size:12.5px;font-weight:650;padding:6px 13px;border-radius:999px}
 body.on-claude .dock{opacity:0;pointer-events:none}
 body.on-claude .dock *{pointer-events:none!important}
 body.on-claude .pager{bottom:calc(var(--bottom) + 9px)}
@@ -272,6 +274,8 @@ body.on-claude .pager i::after{content:"";position:absolute;inset:-9px -4px}
   font-family:var(--sans);color:var(--ink);letter-spacing:-.011em}
 /* the page is see-through (the wallpaper is behind it): the night sky is painted by this layer itself */
 .aurora-bg{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;display:none;background:#05060b}
+/* The aurora's dark under everything, so the phone's wallpaper never shows while the blurred lights paint again (back from an app). */
+body.liquid.aurora{background:#05060b}
 body.liquid #pages,body.liquid .dock{z-index:1}
 body.liquid .aurora-bg{display:block}
 body.liquid.photo .aurora-bg{background:rgba(5,6,11,.46)}
@@ -836,7 +840,7 @@ function dotsAt(i) { Array.from(el("dots").children).forEach((d, k) => d.classLi
   told where the first page is (the scroll in pages: 0 shown, 1 a page away), whether the swipe has ended and whether Launchpad
   covers the pages; only while the left page is in reach, and once on settling. 오늘 is not shown meanwhile (화면 꾸미기 brings it back).
 */
-let CLAUDE = !!G.claude, leftSent = "", leftAt = 1, leftSettled = true, leftCovered = false, leftTimer = 0;
+let CLAUDE = !!G.claude, leftSent = "", leftAt = 1, leftSettled = true, leftCovered = false, leftTimer = 0, leftShotAt = 0;
 function leftPage() { el("claudePage").hidden = !CLAUDE; el("todayPage").hidden = CLAUDE; }
 function tellLeft(settled) {
   if (!B || !CLAUDE) return;
@@ -2039,6 +2043,12 @@ window.launcher = {
   claude(on) { CLAUDE = !!on; leftPage(); dotsAt(pageAt); leftSent = ""; leftAt = 0; tellLeft(true); return true; },
   /** 퍼레와 대화's model chip: the brain chosen now. */
   brain(name) { BRAIN = String(name || ""); drawBrain(); return true; },
+  /** The AI 브라우저's picture as last left (its time; 0: none): loaded first, then shown on the left page, never a blank between. */
+  leftShot(at) {
+    if (!at || at === leftShotAt) return true; leftShotAt = at;
+    const img = new Image(); img.onload = () => { const p = el("claudePage"); p.style.backgroundImage = "url('" + img.src + "')"; p.classList.add("shot"); };
+    img.src = "/left.jpg?t=" + at; return true;
+  },
   /** The AI 브라우저 came over the left page: 홈 under it at once, so coming back lands there. */
   toHome() { if (el("pad").classList.contains("on")) closePad(); toPage(1, false); return true; },
   /** window.gyeot's answer for one of the user's own pages (its src): to that page's frame alone, at its own origin. */

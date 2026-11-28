@@ -26,15 +26,26 @@ final class ClaudePage {
      * come to rest on the left page and nothing covers it. A home screen that merely starts there (drawn again) opens nothing.
      */
     static final class Swipe {
-        private boolean moving;
-        /** True when this report should open the browser. */
+        private boolean moving, opened;
+        /**
+         * True when this report should open the browser: once a swipe toward the left page is most of the way there (EARLY, 준:
+         * "화면 뜨는 딜레이를 획기적으로 줄여줘": the page's picture shows meanwhile, BrowserActivity.leftShot), or comes to rest on
+         * it; once a swipe.
+         */
         boolean opens(float pages, boolean settled, boolean covered) {
-            if (!settled) { if (pages < 1) moving = true; return false; }
-            boolean there = moving && !covered && pages < .02f;
-            moving = false;
+            if (covered) { if (settled) { moving = false; opened = false; } return false; }
+            if (!settled) {
+                if (pages < 1) moving = true;
+                if (moving && !opened && pages <= EARLY) { opened = true; return true; }
+                return false;
+            }
+            boolean there = moving && !opened && pages < .02f;
+            moving = false; opened = false;
             return there;
         }
     }
+    /** How far onto the left page a swipe has come (in pages from it) when the browser starts to open. */
+    static final float EARLY = .25f;
 
     private static String host(String uri) {
         try { String h = java.net.URI.create(uri.strip()).getHost(); return h == null ? "" : h.toLowerCase(Locale.ROOT); } catch (RuntimeException bad) { return ""; }

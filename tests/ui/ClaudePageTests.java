@@ -108,6 +108,11 @@ public class ClaudePageTests {
         assertNull("covered: nothing", started(a));
         page(a, "left", "[0.5,false,false]"); page(a, "left", "[0,true,false]");
         assertNotNull("again later", started(a));
+        // Most of the way there: it opens before the page comes to rest (its picture shows meanwhile), and not again when it does.
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(2));
+        page(a, "left", "[0.6,false,false]"); assertNull(started(a));
+        page(a, "left", "[0.2,false,false]"); assertNotNull("opened early", started(a));
+        page(a, "left", "[0,true,false]"); assertNull("not twice", started(a));
         // Turned off in 화면 꾸미기: 오늘 is there, nothing opens.
         shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(2));
         app.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).edit().putBoolean(ClaudePage.ON, false).commit(); idle();
@@ -119,12 +124,15 @@ public class ClaudePageTests {
     @Test public void onlyASwipeComeToRestOpensIt() {
         ClaudePage.Swipe s = new ClaudePage.Swipe();
         assertFalse("starting there", s.opens(0, true, false));
-        assertFalse(s.opens(0.7f, false, false)); assertFalse(s.opens(0.2f, false, false));
-        assertTrue("came to rest on it", s.opens(0, true, false));
+        assertFalse(s.opens(0.7f, false, false)); assertFalse("not yet most of the way", s.opens(0.4f, false, false));
+        assertTrue("most of the way there: it opens now, not when the page comes to rest", s.opens(0.2f, false, false));
+        assertFalse("once a swipe", s.opens(0.1f, false, false)); assertFalse("not again when it rests", s.opens(0, true, false));
+        assertFalse(s.opens(0.6f, false, false));
+        assertTrue("came to rest on it (a quick swipe told only its end)", s.opens(0, true, false));
         assertFalse("once", s.opens(0, true, false));
         assertFalse(s.opens(0.5f, false, false)); assertFalse("rested on 홈", s.opens(1, true, false));
         assertFalse("then starting there again", s.opens(0, true, false));
-        assertFalse(s.opens(0.5f, false, false)); assertFalse("covered", s.opens(0, true, true));
+        assertFalse(s.opens(0.5f, false, true)); assertFalse("covered", s.opens(0, true, true));
         assertFalse("a swipe toward the right pages", s.opens(1.5f, false, false) || s.opens(2, true, false));
         assertTrue(ClaudePage.inside("https://claude.ai/code/session_01abc")); assertFalse(ClaudePage.inside("http://claude.ai/code"));
         assertFalse("not claude.ai by its name alone", ClaudePage.inside("https://claude.ai.example.com/"));

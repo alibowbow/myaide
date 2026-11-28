@@ -116,7 +116,7 @@ public final class HomeActivity extends Activity {
         launcher = getSystemService(LauncherApps.class);
         getWindow().setDecorFitsSystemWindows(false);
         FrameLayout root = new FrameLayout(this);
-        setContentView(root);
+        setContentView(root); windowBack();
         build(root);
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             var bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
@@ -167,6 +167,12 @@ public final class HomeActivity extends Activity {
                 String path = u.getPath() == null ? "/" : u.getPath();
                 // The home screen page (and its secret) only as the page itself, never inside a frame.
                 if ((path.equals("/") || path.equals("/launcher.html")) && !request.isForMainFrame()) return HtmlWallpaper.missing();
+                // The AI 브라우저 as last left from the left page (BrowserActivity.leftShot): what the left page shows while swiped in.
+                if (path.equals("/left.jpg")) {
+                    java.io.File shot = BrowserActivity.leftShot(HomeActivity.this);
+                    try { WebResourceResponse r = new WebResourceResponse("image/jpeg", null, new java.io.FileInputStream(shot)); r.setResponseHeaders(java.util.Map.of("Cache-Control", "no-store")); return r; }
+                    catch (Exception none) { return HtmlWallpaper.missing(); }
+                }
                 return own(path);
             }
             @Override public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
@@ -177,6 +183,21 @@ public final class HomeActivity extends Activity {
         });
         root.addView(web, 0, new FrameLayout.LayoutParams(-1, -1));
         web.loadUrl(BASE + "launcher.html");
+    }
+    /**
+     * Under the page, before it draws (준: "검은 화면 안 뜨게 해줘", "전환이 더 자연스럽게"): with the aurora the window is the aurora's
+     * own dark, so coming back from the AI 브라우저 never shows the phone's wallpaper for a moment while the page paints again;
+     * with the user's photo (the wallpaper under a veil) it stays clear.
+     */
+    private void windowBack() {
+        boolean photo = "photo".equals(prefs.getString("bg", "aurora"));
+        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(photo ? 0 : 0xff05060b));
+    }
+    /** The left page's picture of the AI 브라우저: its time, read off the main thread, told to the page (launcher.leftShot). */
+    private void pushLeftShot() {
+        if (!ClaudePage.on(prefs)) return;
+        try { io.execute(() -> { long at = BrowserActivity.leftShot(HomeActivity.this).lastModified(); main.post(() -> { if (ready && web != null) js("launcher.leftShot&&launcher.leftShot(" + at + ")"); }); }); }
+        catch (java.util.concurrent.RejectedExecutionException closed) { /* the home screen is going */ }
     }
     /** The home screen is dark glass (the aurora, or the wallpaper under a dark veil): the bars' icons are light on it. */
     private void systemBars() {
@@ -252,6 +273,8 @@ public final class HomeActivity extends Activity {
         super.onResume(); shown = true; resumed = true; PhoneService.taskbarChanged();
         // The brain may have been changed in 화면 꾸미기 meanwhile: the talk's chip says the one in use.
         pushBrain();
+        // Back from the AI 브라우저: the left page shows it as it was left (the picture is written a moment after).
+        main.postDelayed(this::pushLeftShot, 500);
         NoticeListener.changed = badgesChanged; NoticeListener.deliveryChanged = deliveryChanged;
         main.removeCallbacks(refresh); if (ready) { refresh.run(); pushBadges(); if (web != null) web.evaluateJavascript("launcher.shown&&launcher.shown()", null); }
         BuddyVoice talk = BuddyVoice.current(); if (talk != null) talk.attach(talkShown, talkUnlock);
@@ -690,7 +713,7 @@ public final class HomeActivity extends Activity {
                 pushApps(); main.removeCallbacks(refresh); if (shown) refresh.run(); else pushBoard();
                 if (shown) pushJobs(true);
                 if (shown) habits();
-                recordShown = ""; pushRecord();
+                recordShown = ""; pushRecord(); pushLeftShot();
                 if (pendingShow != null) { showPad(pendingShow); pendingShow = null; }
                 if (pendingPage != null) { goPage(pendingPage); pendingPage = null; }
                 // 퍼레 itself, asked by voice or in the talk (BuddyBoard): now that the page can hear it.
@@ -812,7 +835,7 @@ public final class HomeActivity extends Activity {
             });
         }
         /** The background: "aurora" (the home screen's own night sky) or "photo" (the user's wallpaper under a dark veil). */
-        public void look(String bg) { prefs.edit().putString("bg", "photo".equals(bg) ? "photo" : "aurora").apply(); }
+        public void look(String bg) { prefs.edit().putString("bg", "photo".equals(bg) ? "photo" : "aurora").apply(); main.post(HomeActivity.this::windowBack); }
         /** A folder's icons in the order the user dragged them into (준: "폴더 내에서 아이콘 위치 이동이 안돼"). */
         public void order(String stack, String ids) {
             try {
