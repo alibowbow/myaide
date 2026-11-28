@@ -211,7 +211,7 @@ public final class DecorActivity extends Activity {
         if (slots.size() < HomeBoard.MOST_SLOTS) head.addView(ui.smallChip("+ 페이지", () -> choose(slots.size())));
         body.addView(head);
         LinearLayout pages = ui.group();
-        ui.addRow(pages, ui.listRow(R.drawable.ic_bulb, Ui.TEAL, "왼쪽 · 오늘", "오늘 일정 · 알림 · 이건 어때요? · 퍼레에게 묻기", null, null), true);
+        ui.addRow(pages, leftPageRow(), true);
         ui.addRow(pages, ui.listRow(R.drawable.ic_home, Ui.ACCENT, "가운데 · 홈", "시계 · 시세 · 날씨 · App Library · 독", null, null), true);
         for (int i = 0; i < slots.size(); i++) {
             HomeBoard.Slot slot = slots.get(i); int at = i;
@@ -222,6 +222,17 @@ public final class DecorActivity extends Activity {
         body.addView(pages);
         TextView note = ui.label("홈에서 오른쪽으로 넘기면 나와요. 페이지 양쪽 가장자리를 밀면 언제든 옆 페이지로 넘어가요.", 12, Ui.MUTED);
         note.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0); body.addView(note);
+    }
+    /**
+     * 왼쪽 페이지 (준: "홈화면 왼쪽 페이지 자체를 내 ai브라우저로 https://claude.ai/code 이페이지를 띄울 수 있어?"): Claude Code in the AI
+     * 브라우저's sign-in (ClaudePage), or 오늘 as before; the switch at the end of the row, as 하루 기록's.
+     */
+    private View leftPageRow() {
+        boolean claude = ClaudePage.on(homePrefs());
+        android.widget.Switch toggle = ui.toggle("", claude, value -> { homePrefs().edit().putBoolean(ClaudePage.ON, value).apply(); draw(); });
+        toggle.setContentDescription("왼쪽 페이지 Claude Code " + (claude ? "켜짐" : "꺼짐")); toggle.setPadding(0, 0, 0, 0); toggle.setMinHeight(0); toggle.setMinimumHeight(0); toggle.setSwitchPadding(0);
+        return claude ? ui.listRow(R.drawable.ic_browser, Ui.ORANGE, "왼쪽 · Claude Code", "claude.ai/code · AI 브라우저 로그인", toggle, null)
+            : ui.listRow(R.drawable.ic_bulb, Ui.TEAL, "왼쪽 · 오늘", "오늘 일정 · 알림 · 켜면 Claude Code", toggle, null);
     }
     /** What 퍼레 thinks with now, in a line. */
     private String brainLabel() {

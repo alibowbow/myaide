@@ -100,7 +100,7 @@ public class DecorScreenTests {
         assertTrue("locked still shows the quotes", locked.has("quotes")); assertFalse("no battery", locked.has("battery"));
     }
 
-    /** With 들퍼레 홈 화면 as the home app, the section is its own pages: 오늘, 홈, then the user's pages on the right. */
+    /** With 들퍼레 홈 화면 as the home app, the section is its own pages: the left one (Claude Code), 홈, then the user's pages on the right. */
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void listsTheHomeScreensRightPages() throws Exception {
         Application app = RuntimeEnvironment.getApplication();
         File kept = new File(new File(app.getFilesDir(), "decor"), "opus.js"); kept.getParentFile().mkdirs();
@@ -115,7 +115,8 @@ public class DecorScreenTests {
         for (int i = 0; i < 30; i++) { Thread.sleep(40); shadowOf(Looper.getMainLooper()).idle(); }
         layout(decor);
         assertNotNull(find(decor, v -> v instanceof TextView t && t.getText().toString().equals("들퍼레 홈 화면 페이지")));
-        assertNotNull(find(decor, v -> v instanceof TextView t && t.getText().toString().equals("왼쪽 · 오늘")));
+        // The left page is Claude Code unless turned off (ClaudePageTests: its switch).
+        assertNotNull(find(decor, v -> v instanceof TextView t && t.getText().toString().equals("왼쪽 · Claude Code")));
         assertNotNull(find(decor, v -> v instanceof TextView t && t.getText().toString().equals("가운데 · 홈")));
         assertNotNull("the piece on the right", find(decor, v -> v instanceof TextView t && t.getText().toString().equals("오른쪽 1 · 상상 속 식물 표본함")));
         assertNull("only web pages on the right (no photo)", find(decor, v -> v instanceof TextView t && t.getText().toString().startsWith("오른쪽 2")));

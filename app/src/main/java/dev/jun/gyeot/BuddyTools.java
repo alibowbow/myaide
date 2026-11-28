@@ -80,7 +80,7 @@ final class BuddyTools {
             props("mood", "string", "분위기·장르·악기를 영어로 짧게 (예: calm piano, warm / upbeat lo-fi hip hop / cozy jazz cafe)", "bpm", "integer", "빠르기 60~200, 말하지 않았으면 빼기"), "mood"))
         .put(fn("close_app", "앱을 끈다: 그 앱에서 나오는 소리를 멈추고 홈 화면으로 나간다. '유튜브 꺼 줘', '그 앱 닫아 줘', '이거 꺼 줘'처럼 앱을 끄라고 할 때(소리만 멈추라는 말은 media pause). 어느 앱인지 말하지 않았으면 묻지 말고 app 없이 불러: 지금 앞에 있는 앱을 끈다.",
             props("app", "string", "끌 앱 이름, 말했으면 (예: 유튜브). 말하지 않았으면 묻지 말고 빼기(지금 앞의 앱을 끈다)")))
-        .put(fn("home_page", "들퍼레 홈 화면의 페이지로 넘긴다: 홈, 오늘(왼쪽), 사용자가 넣은 페이지(LP 등)는 그 이름, 또는 오른쪽·왼쪽.",
+        .put(fn("home_page", "들퍼레 홈 화면의 페이지로 넘긴다: 홈, 왼쪽 페이지(오늘 또는 Claude Code), 사용자가 넣은 페이지(LP 등)는 그 이름, 또는 오른쪽·왼쪽.",
             props("page", "string", "페이지 이름 (홈, 오늘, LP, 오른쪽, 왼쪽 …)"), "page"))
         // 문 하나 (준): 무슨 일이든 퍼레가 직접 맡는다. 여러 단계·오래 걸리는 일은 앱의 엔진에 넘긴다 (BuddyHands).
         // Short: they go with every turn (Groq's free tier counts tokens a minute); JOBS_RULE in the rule says when to use which.

@@ -24,7 +24,7 @@ async function check(name, fn) {
 }
 
 /** bridge: the app's bridge played by the page itself, each call kept in window._calls as [name, args] (otherwise none). */
-async function open(browser, at, bridge, pages, scale) {
+async function open(browser, at, bridge, pages, scale, config) {
   const ctx = await browser.newContext({ viewport: { width: 412, height: 900 }, hasTouch: true, deviceScaleFactor: scale || 1, timezoneId: 'Asia/Seoul' });
   const page = await ctx.newPage();
   const errors = [];
@@ -41,7 +41,7 @@ async function open(browser, at, bridge, pages, scale) {
     if (u.host === 'gyeot.local') {
       if (u.pathname === '/') {
         const html = fs.readFileSync(path.join(DECOR, 'launcher.html'), 'utf8')
-          .replace('/*GYEOT*/', 'window.GYEOT=' + JSON.stringify({ launcher: true, pages: pages || [{ src: 'https://piece.test/lp.html', frame: 'https://lp.piece.test/lp.html', title: 'LP' }], bg: 'aurora', token: bridge ? 'test' : undefined }) + ';');
+          .replace('/*GYEOT*/', 'window.GYEOT=' + JSON.stringify(Object.assign({ launcher: true, pages: pages || [{ src: 'https://piece.test/lp.html', frame: 'https://lp.piece.test/lp.html', title: 'LP' }], bg: 'aurora', token: bridge ? 'test' : undefined }, config || {})) + ';');
         return route.fulfill({ body: html, contentType: 'text/html' });
       }
       const f = path.join(DECOR, path.basename(u.pathname));
@@ -870,6 +870,80 @@ async function open(browser, at, bridge, pages, scale) {
     } finally { await p.evaluate(() => toPage(1, false)); await p.clock.runFor(300); }
   });
   await own.ctx.close();
+
+  // 준, 2026-11-28: "홈화면 왼쪽 페이지 자체를 내 ai브라우저로 https://claude.ai/code 이페이지를 띄울 수 있어?", "왼쪽 페이지는 하단 독
+  // 없애고". The app's page (ClaudePage, a GeckoView) lies over the first page; here a stand-in div is moved as the app moves it,
+  // from the page's own reports, for the preview pictures.
+  const SHOTS = process.env.LAUNCHER_SHOTS || path.join(require('os').tmpdir(), 'leftpage');
+  const left = await open(browser, '2026-11-28T11:00:00+09:00', true, null, 2, { claude: true });
+  await check('왼쪽 · Claude Code: the first page is its place (오늘 not shown); the page tells the app where it is mid-swipe and settled, and when Launchpad covers it; no dock there; the dots stay low and a tap on one turns the page', async () => {
+    const p = left.page; fs.mkdirSync(SHOTS, { recursive: true });
+    const reports = () => p.evaluate(() => window._calls.filter(c => c[0] === 'left').map(c => JSON.parse(c[1])));
+    const last = async () => (await reports()).pop();
+    const settle = async () => { for (let i = 0; i < 6; i++) { await p.waitForTimeout(40); await p.clock.runFor(100); } };
+    const until = async (test, why) => { for (let i = 0; i < 60; i++) { if (await test()) return; await p.waitForTimeout(50); await p.clock.runFor(100); } assert.fail(why); };
+    // The app's page, as the app lays it: under the status bar, over the dots' strip (24px) and the system bar, moved by the report.
+    await p.evaluate(() => {
+      const n = document.createElement('div'); n.id = 'native';
+      n.style.cssText = 'position:fixed;left:0;right:0;top:var(--top);bottom:calc(var(--bottom) + 24px);z-index:100;background:#262624;color:#e8e6dc;font:14px system-ui,sans-serif;pointer-events:none;box-shadow:0 0 0 1px rgba(255,255,255,.04)';
+      n.innerHTML = '<div style="display:flex;align-items:center;gap:12px;padding:13px 16px;border-bottom:1px solid #3a3a37"><span style="font-size:18px">☰</span><b style="font-size:16px">Claude Code</b></div>'
+        + '<div style="padding:12px 16px;display:grid;gap:10px">' + ['myaide · 홈 화면 왼쪽 페이지', 'engine · 쇼츠 게이트', 'myaide · LP 내 음악'].map(t => '<div style="padding:12px;border-radius:12px;background:#30302e">' + t + '<div style="font-size:12px;color:#9a988f;margin-top:4px">claude/branch · 진행 중</div></div>').join('') + '</div>'
+        + '<div style="position:absolute;left:12px;right:12px;bottom:12px;border:1px solid #4a4a46;border-radius:16px;padding:16px 14px;color:#9a988f">Claude에게 코딩 맡기기…</div>'
+        + '<div style="position:absolute;right:8px;top:6px;font-size:9px;color:#77756d">GeckoView 자리 (미리보기)</div>';
+      document.body.appendChild(n);
+      window._place = () => { const r = window._calls.filter(c => c[0] === 'left').map(c => JSON.parse(c[1])).pop() || [1, true, false];
+        n.style.transform = 'translateX(' + (-Math.min(1, r[0]) * innerWidth) + 'px)'; n.style.visibility = r[2] || r[0] >= 1 ? 'hidden' : 'visible'; };
+    });
+    const s = await p.evaluate(() => ({ claude: !el('claudePage').hidden, today: !el('todayPage').hidden, first: el('pages').firstElementChild.id, dots: el('dots').children.length }));
+    assert.deepStrictEqual(s, { claude: true, today: false, first: 'claudePage', dots: 3 }, 'Claude Code in 오늘\'s place');
+    await settle();
+    assert.deepStrictEqual(await last(), [1, true, false], 'on 홈 at first, settled (the app makes nothing yet)');
+    // Halfway: told as it moves.
+    await p.evaluate(() => { window._calls.length = 0; pagesBox.style.scrollSnapType = 'none'; pagesBox.scrollLeft = pagesBox.clientWidth / 2; });
+    await settle();
+    const half = await reports();
+    assert(half.some(r => r[0] === 0.5 && r[1] === false && r[2] === false), 'its place mid-swipe: ' + JSON.stringify(half));
+    await p.evaluate(() => window._place());
+    await p.screenshot({ path: path.join(SHOTS, 'home-left-half.png') });
+    // Settled on it: no dock (its touches too), the dots low in the strip under the app's page.
+    await p.evaluate(() => { pagesBox.style.scrollSnapType = ''; toPage(0, false); });
+    await settle();
+    assert.deepStrictEqual(await last(), [0, true, false], 'settled on the left page');
+    const there = await p.evaluate(() => {
+      const r = el('shelf').getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2), dots = el('dots').getBoundingClientRect();
+      return { dock: getComputedStyle(document.querySelector('.dock')).opacity, hit: !!(at && at.closest && at.closest('.dk')), onClaude: document.body.classList.contains('on-claude'),
+        dots: getComputedStyle(el('dots')).opacity, fromBottom: innerHeight - dots.bottom, height: dots.height, at: [...el('dots').children].map(i => { const b = i.getBoundingClientRect(); return [b.left + b.width / 2, b.top + b.height / 2]; }) };
+    });
+    assert(there.onClaude && there.dock === '0' && !there.hit, 'no dock on the left page: ' + JSON.stringify(there));
+    assert(there.dots === '1' && there.fromBottom >= 16 && there.fromBottom + there.height <= 16 + 24, 'the dots in the strip over the system bar: ' + JSON.stringify(there));
+    await p.evaluate(() => window._place());
+    await p.screenshot({ path: path.join(SHOTS, 'left-page-no-dock.png') });
+    // A tap on 홈's dot turns to it; the dock is back there.
+    await p.touchscreen.tap(there.at[1][0], there.at[1][1]);
+    await until(async () => { const l = await last(); return await p.evaluate(() => pageAt) === 1 && l[0] === 1 && l[1]; }, 'the dot\'s tap turns to 홈');
+    const home = await p.evaluate(() => { const r = el('shelf').getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { dock: getComputedStyle(document.querySelector('.dock')).opacity, hit: !!(at && at.closest && at.closest('.dk')), onClaude: document.body.classList.contains('on-claude') }; });
+    assert.deepStrictEqual(home, { dock: '1', hit: true, onClaude: false }, 'the dock again on 홈');
+    // Launchpad over the left page: the app is told (its page steps aside), and again when it closes.
+    await p.evaluate(() => toPage(0, false)); await settle();
+    await p.evaluate(() => launcher.pad(false)); await settle();
+    assert.deepStrictEqual(await last(), [0, true, true], 'covered');
+    await p.evaluate(() => launcher.back()); await settle();
+    assert.deepStrictEqual(await last(), [0, true, false], 'uncovered');
+    // 퍼레's home_page tool knows it by name.
+    await p.evaluate(() => launcher.goPage('홈')); assert.strictEqual(await p.evaluate(() => pageAt), 1);
+    assert.strictEqual(await p.evaluate(() => launcher.goPage('Claude Code')), true); assert.strictEqual(await p.evaluate(() => pageAt), 0);
+    // 화면 꾸미기 turns it off: 오늘 again, with the dock, and the app is told nothing more.
+    await p.evaluate(() => { toPage(0, false); launcher.claude(false); window._calls.length = 0; }); await settle();
+    const off = await p.evaluate(() => ({ claude: !el('claudePage').hidden, today: !el('todayPage').hidden, onClaude: document.body.classList.contains('on-claude'), dock: getComputedStyle(document.querySelector('.dock')).opacity }));
+    assert.deepStrictEqual(off, { claude: false, today: true, onClaude: false, dock: '1' }, '오늘 back on the left');
+    await p.evaluate(() => { toPage(1, false); toPage(0, false); }); await settle();
+    assert.deepStrictEqual(await reports(), [], 'no reports while it is 오늘');
+    await p.evaluate(() => launcher.claude(true)); await settle();
+    assert.deepStrictEqual(await last(), [0, true, false], 'on again: told where it is at once');
+    assert.deepStrictEqual(left.errors, []);
+  });
+  await left.ctx.close();
 
   // 준: "퍼레가 lp에서 노래 나오는 걸 인식못하네": the LP page on a page of the home screen says it plays → 퍼레 hears music at once (its notes,
   // a dance), not a quarter minute later from the app's word; stopped → off at once, unless other apps' music plays (the app's musicApps).

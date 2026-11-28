@@ -62,7 +62,8 @@ import org.json.JSONObject;
  *
  * The page is assets/decor/launcher.html, served from https://gyeot.local/ and never navigated away; its bridge (Gyeot) is
  * only on that page (no frames, no other site). Apps come from LauncherApps (work profile included) and change live; icons
- * are drawn once and kept. Folding or unfolding keeps the page (configChanges): it only lays itself out again.
+ * are drawn once and kept. Folding or unfolding keeps the page (configChanges): it only lays itself out again. The left page
+ * may be Claude Code: the AI 브라우저's page, which no frame can hold, laid by the app over the page's first page (ClaudePage).
  */
 public final class HomeActivity extends Activity {
     static final String PREFS = "launcher", DOCK = "dock", RECENT = "recent", MOVED = "moved", ORDER = "order";
@@ -88,6 +89,8 @@ public final class HomeActivity extends Activity {
     private final Map<String, LauncherActivityInfo> known = new ConcurrentHashMap<>();
     private static final LruCache<String, byte[]> ICONS = new LruCache<>(6 * 1024 * 1024) { @Override protected int sizeOf(String k, byte[] v) { return v.length; } };
     private WebView web; private LauncherApps launcher; private SharedPreferences prefs;
+    /** The left page as Claude Code (ClaudePage): the AI 브라우저's page laid over the launcher's first page, moved with it. */
+    private ClaudePage claude;
     private boolean ready, shown; private int top, bottom, keyboard;
     private final Runnable refresh = new Runnable() { @Override public void run() { pushBoard(); main.postDelayed(this, 60_000); } };
     private final Runnable pushBadges = this::pushBadges;
@@ -112,12 +115,17 @@ public final class HomeActivity extends Activity {
         FrameLayout root = new FrameLayout(this);
         setContentView(root);
         build(root);
+        // Over the page: nothing made until the left page first shows (and nothing at all while it is turned off).
+        claude = new ClaudePage(this, root, () -> web, () -> goPage("홈"));
+        claude.enabled(ClaudePage.on(prefs));
         root.setOnApplyWindowInsetsListener((v, insets) -> {
             var bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
             float d = getResources().getDisplayMetrics().density;
             top = Math.round(bars.top / d); bottom = Math.round(bars.bottom / d);
             // The keyboard's height too: 퍼레와 대화's box sits above it (준: "대화입력창은 하단으로").
-            keyboard = Math.round(insets.getInsets(WindowInsets.Type.ime()).bottom / d);
+            int ime = insets.getInsets(WindowInsets.Type.ime()).bottom;
+            keyboard = Math.round(ime / d);
+            claude.insets(bars.top, bars.bottom, ime);
             if (ready && web != null) web.evaluateJavascript("launcher.insets(" + top + "," + bottom + "," + keyboard + ")", null);
             return insets;
         });
@@ -168,7 +176,8 @@ public final class HomeActivity extends Activity {
                 return true;
             }
         });
-        root.addView(web, new FrameLayout.LayoutParams(-1, -1));
+        // Under the left page's layer (ClaudePage), also when drawn again.
+        root.addView(web, 0, new FrameLayout.LayoutParams(-1, -1));
         web.loadUrl(BASE + "launcher.html");
     }
     /** The home screen is dark glass (the aurora, or the wallpaper under a dark veil): the bars' icons are light on it. */
@@ -213,6 +222,7 @@ public final class HomeActivity extends Activity {
     private static final int LOCATION = 7531, MIC = 7532;
     @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(request, permissions, results);
+        if (claude != null && claude.permissionResult(request, results)) return;
         if (request == LOCATION) pushBoard();
         if (request == MIC) {
             if (results.length > 0 && results[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) voice();
@@ -323,8 +333,17 @@ public final class HomeActivity extends Activity {
         if (java.time.LocalTime.now().getHour() >= 22) try { io.execute(() -> BuddyTalk.dreamTonight(getApplicationContext())); } catch (RuntimeException stopped) {}
         // The home screen is gone: the taskbar over other apps may show (Taskbar).
         visible = false; PhoneService.taskbarChanged();
+        // Claude Code's page closes (its memory back); it opens again where it was when the left page shows again.
+        if (claude != null) claude.started(false);
         super.onStop();
     }
+    /** A file picked for Claude Code's page (its message attachments). */
+    @Override protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (claude != null) claude.files(request, result, data);
+    }
+    /** Memory runs low: Claude Code's page closes unless it is the one in use. */
+    @Override public void onTrimMemory(int level) { super.onTrimMemory(level); if (claude != null) claude.trim(level); }
     /**
      * Home pressed while the home screen is in front (Android pauses it just before, so "just paused" counts as in front:
      * 준: "폴더화면에서 홈버튼을 눌러서 돌아가기가 안돼"): everything open closes and the home page comes back, at its top.
@@ -364,8 +383,10 @@ public final class HomeActivity extends Activity {
     private void showPad(String show) {
         if (web != null) web.evaluateJavascript("launcher.pad&&launcher.pad(" + "search".equals(show) + ")", null);
     }
-    @Override protected void onStart() { super.onStart(); shownAt = android.os.SystemClock.uptimeMillis(); visible = true; PhoneService.taskbarChanged(); }
+    @Override protected void onStart() { super.onStart(); shownAt = android.os.SystemClock.uptimeMillis(); visible = true; PhoneService.taskbarChanged(); if (claude != null) claude.started(true); }
     @Override public void onBackPressed() {
+        // On Claude Code's page: the site's own back, then 홈 (ClaudePage.back).
+        if (claude != null && claude.back()) return;
         // A home screen does not close: back only closes what is open on it.
         if (ready && web != null) web.evaluateJavascript("launcher.back()", null);
     }
@@ -382,6 +403,7 @@ public final class HomeActivity extends Activity {
         LpMedia.host(this, null); LpMedia.gone(this);
         for (PageBridgeHost h : bridges.values()) h.close();
         bridges.clear();
+        if (claude != null) claude.destroy();
         main.removeCallbacksAndMessages(null); io.shutdownNow();
         if (web != null) { try { web.destroy(); } catch (RuntimeException ignored) {} web = null; }
         super.onDestroy();
@@ -514,7 +536,7 @@ public final class HomeActivity extends Activity {
         String html;
         try (InputStream in = getAssets().open("decor/launcher.html")) { html = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
         String kind = HtmlWallpaper.mascotReady(this);
-        JSONObject config = Jsons.obj("launcher", true, "token", secret, "pages", pagesJson(), "dark", darkWallpaper(), "accent", accent(), "bg", prefs.getString("bg", "aurora"), "mascot", !kind.isEmpty(), "mascotKind", kind, "mascotAt", HtmlWallpaper.mascot(this).lastModified());
+        JSONObject config = Jsons.obj("launcher", true, "token", secret, "pages", pagesJson(), "claude", ClaudePage.on(prefs), "dark", darkWallpaper(), "accent", accent(), "bg", prefs.getString("bg", "aurora"), "mascot", !kind.isEmpty(), "mascotKind", kind, "mascotAt", HtmlWallpaper.mascot(this).lastModified());
         return html.replace("/*GYEOT*/", "window.GYEOT=" + config.toString().replace("</", "<\\/") + ";");
     }
     /** The pages to the right of 홈 the user put there (화면 꾸미기 → 들퍼레 홈 화면 페이지): web pieces and their own pages. */
@@ -525,7 +547,11 @@ public final class HomeActivity extends Activity {
         for (dev.jun.gyeot.core.HomeBoard.Slot s : dev.jun.gyeot.core.HomeBoard.slots(prefs.getString(PAGES, ""), "", "")) if (s.web()) out.put(PieceExtras.framed(s.json(), s.src()));
         return out;
     }
-    private final SharedPreferences.OnSharedPreferenceChangeListener pagesChanged = (p, key) -> { if (PAGES.equals(key)) js("launcher.pages(" + pagesJson() + ")"); };
+    private final SharedPreferences.OnSharedPreferenceChangeListener pagesChanged = (p, key) -> {
+        if (PAGES.equals(key)) js("launcher.pages(" + pagesJson() + ")");
+        // 화면 꾸미기's 왼쪽 페이지 switch: Claude Code, or 오늘 again.
+        if (ClaudePage.ON.equals(key)) { boolean on = ClaudePage.on(p); if (claude != null) claude.enabled(on); js("launcher.claude&&launcher.claude(" + on + ")"); }
+    };
     /** An app's icon as the phone draws it (its shape, a work badge), once: kept in memory and in the cache folder. */
     /**
      * An app's icon as a rounded square, for the folder previews (준: "폴더 미리보기 아이콘 감싸는 테두리를 둥근 사각형으로 해줘"): the
@@ -612,6 +638,8 @@ public final class HomeActivity extends Activity {
                 // 중지 on a job's line (BuddyJobs.stop: the engine's own stop, the same as the voice pill's).
                 case "jobStop" -> { String id = a.optString(0, ""); try { io.execute(() -> dev.jun.gyeot.core.BuddyJobs.stop(id)); } catch (RuntimeException ignored) {} }
                 case "ask" -> b.ask(a.optString(0, null));
+                // Where the launcher's first page is (Claude Code's: its scroll in pages), whether the swipe ended, whether Launchpad covers it.
+                case "left" -> { float pages = (float) a.optDouble(0, 1); boolean settled = a.optBoolean(1, true), covered = a.optBoolean(2); main.post(() -> { if (claude != null) claude.moved(pages, settled, covered); }); }
                 case "web" -> b.web(a.optString(0, null));
                 case "settings" -> b.settings(a.optString(0, ""));
                 case "bars" -> b.bars(a.optBoolean(0));
@@ -800,6 +828,8 @@ public final class HomeActivity extends Activity {
         }
         /** 퍼레 홈's cards: the app's own screens. */
         public void open(String what) {
+            // Claude Code's page could not be drawn here (its placeholder's button): the AI 브라우저 at claude.ai/code.
+            if ("claude".equals(what)) { main.post(() -> { try { BrowserActivity.open(HomeActivity.this, ClaudePage.HOME); } catch (RuntimeException none) { Toast.makeText(HomeActivity.this, "AI 브라우저를 열지 못했어요.", Toast.LENGTH_SHORT).show(); } }); return; }
             // The way through for something 퍼레 could not do (its words in the voice talk's bubble): one tap (BuddyMisses).
             if (what != null && what.startsWith("fix:")) {
                 Intent fix = BuddyMisses.fixIntent(HomeActivity.this, what.substring(4));
