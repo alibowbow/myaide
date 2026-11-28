@@ -1,9 +1,9 @@
 {
   "name": "gyeot-browser-checks",
   "private": true,
-  "description": "The home screen page (assets/decor) in a real browser: touches, 퍼레's play, words and clothes; window.gyeot (assets/bridge) on a project and on the home screen.",
+  "description": "The home screen page (assets/decor) in a real browser: touches, 퍼레's play, words and clothes; window.gyeot (assets/bridge) on a project and on the home screen; the AI 브라우저's page bridge (assets/browser/content.js) on pages with login forms, captchas and payment forms.",
   "scripts": {
-    "test": "(playwright install --with-deps chromium || playwright install chromium) && node launcher.test.js && node bridge.test.js",
+    "test": "(playwright install --with-deps chromium || playwright install chromium) && node launcher.test.js && node bridge.test.js && node content.test.js",
     "install:firefox": "echo 'no Firefox checks'",
     "test:native": "echo 'no Firefox checks'"
   },

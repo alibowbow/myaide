@@ -45,17 +45,19 @@ public final class BrowserTaskService extends Service {
     private static final int REVIEW = 0x42e;
     private static final java.util.Set<String> askedReview = java.util.concurrent.ConcurrentHashMap.newKeySet();
     /**
-     * A Work job was stopped by an earlier step whose result is unknown: one notification for that step, whose tap opens its
-     * review at once (the user checks the site and lifts the block there; nothing is replayed). Once per step.
+     * A Work job was stopped by its own earlier step whose result is unknown (other Work jobs go on): one notification for that
+     * step, whose tap opens that step's review at once (the user checks the site and lifts the block there; nothing is
+     * replayed). Once per step.
      */
     static void askWorkReview(Context context, String receipt, String site, String action) {
         if (receipt == null || receipt.isBlank() || !askedReview.add(receipt)) return;
         try {
             NotificationManager manager = context.getSystemService(NotificationManager.class);
             manager.createNotificationChannel(new NotificationChannel(RESULTS, "브라우저 작업 결과", NotificationManager.IMPORTANCE_DEFAULT));
-            Intent review = new Intent(context, BrowserActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT).putExtra(BrowserActivity.REVIEW_WORK, true);
+            Intent review = new Intent(context, BrowserActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                .putExtra(BrowserActivity.REVIEW_WORK, true).putExtra(BrowserActivity.REVIEW_RECEIPT, receipt);
             PendingIntent open = PendingIntent.getActivity(context, REVIEW, review, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            String text = site + "에서 한 '" + action + "'의 결과가 확인되지 않아 새 작업의 클릭·입력을 멈췄어요. 사이트에서 실제 결과를 본 뒤 눌러서 확인하면 이어서 할 수 있어요.";
+            String text = site + "에서 한 '" + action + "'의 결과가 확인되지 않아 그 작업의 클릭·입력만 멈췄어요(다른 작업은 그대로 해요). 사이트에서 실제 결과를 본 뒤 눌러서 확인하면 그 작업도 이어서 할 수 있어요.";
             manager.notify(REVIEW, new Notification.Builder(context, RESULTS).setSmallIcon(R.drawable.ic_notification).setContentTitle("이전 브라우저 작업 확인이 필요해요")
                 .setContentText(text).setStyle(new Notification.BigTextStyle().bigText(text)).setVisibility(Notification.VISIBILITY_PRIVATE).setAutoCancel(true).setContentIntent(open).build());
         } catch (RuntimeException unavailable) { /* The answer in the chat still says where to look. */ }

@@ -79,15 +79,78 @@
   // Report only categories, never credentials, callback parameters or frame URLs.
   // Google's account chooser: YouTube sends a switch to another signed-in Google account through it. There only the rows of
   // accounts already signed in are shown and can be clicked (see snapshot); a password, code or captcha there stays protected.
+  const CAPTCHA = /recaptcha|hcaptcha|challenges.cloudflare/;
   const accountChooser = () => location.hostname === 'accounts.google.com' && /accountchooser|signinchooser/i.test(location.pathname)
     && !all('input[type="password"],input[autocomplete="one-time-code"]').some(visible)
-    && !all('iframe[src]').some(e => visible(e) && /recaptcha|hcaptcha|challenges.cloudflare/.test(e.src));
-  const guardReason = () => accountChooser() ? '' : location.hostname === 'accounts.google.com' ? 'auth_host'
-    : /(?:^|[?&])(?:code|access_token|id_token|oauth_token)=/i.test(location.search) ? 'oauth_callback'
-    : all('iframe[src]').some(e => visible(e) && /recaptcha|hcaptcha|challenges.cloudflare/.test(e.src)) ? 'captcha'
-    : all('input[autocomplete="one-time-code"]').some(visible) ? 'otp'
-    : all('input[type="password"]').some(e=>visible(e) && !commentRegion(e)) ? 'password' : '';
+    && !all('iframe[src]').some(e => visible(e) && CAPTCHA.test(e.src));
+  // An authentication form (a password, a one-time code, a captcha) protects itself, not the page around it (준: needless limits
+  // off): a login box in a sidebar or a reCAPTCHA badge in a corner no longer blanks the article. The form, or the nearest box
+  // holding the field with its own submit, is hidden from the AI and refused (authRegions); the rest stays readable and usable.
+  // A page that is nothing but that form (a sign-in page: little else to read outside it), accounts.google.com and an OAuth
+  // callback stay blanked whole, as before (guardReason).
+  const landmark = 'body,html,main,article,[role="main"],[role="article"]';
+  const submits = 'button,input[type="submit"],input[type="image"],[role="button"]';
+  // A form that wraps the page (ASP.NET's one form around everything) is no login box.
+  const pageForm = form => !!form.querySelector('main,article,[role="main"],[role="article"]') || tidy(form.textContent, 4000).length > 1500;
+  function authBox(field) {
+    const form = field.form || field.closest('form');
+    if (form && !pageForm(form)) return form;
+    if (field.tagName === 'IFRAME') return field.parentElement && !field.parentElement.matches(landmark) ? field.parentElement : field;
+    for (let node=field.parentElement, depth=0; node && depth<6 && !node.matches(landmark) && node!==form; node=node.parentElement || node.getRootNode()?.host, depth++)
+      if ([...node.querySelectorAll(submits)].some(e => e!==field && visible(e))) return node;
+    return field.parentElement && !field.parentElement.matches(landmark) ? field.parentElement : field;
+  }
+  /** Each visible authentication field's box and why: captcha, otp or password (an anonymous comment's password is commentRegion's).
+   * An invisible reCAPTCHA's corner badge (quiet) asks the user nothing: it is hidden, and never makes the page a sign-in page. */
+  function authRegions() {
+    const found = [];
+    for (const e of all('input[type="password"]')) if (visible(e) && !commentRegion(e)) found.push({box:authBox(e), reason:'password'});
+    for (const e of all('input[autocomplete="one-time-code"]')) if (visible(e)) found.push({box:authBox(e), reason:'otp'});
+    for (const e of all('iframe[src]')) if (visible(e) && CAPTCHA.test(e.src)) {
+      // A quiet badge hides only itself, never the form it sits in (a contact form with an invisible reCAPTCHA stays usable).
+      if (/[?&]size=invisible(?:&|$)/.test(e.src) || e.closest('.grecaptcha-badge')) found.push({box:e.closest('.grecaptcha-badge') || e, reason:'captcha', quiet:true});
+      else found.push({box:authBox(e), reason:'captcha'});
+    }
+    // One box once (its first reason: a password before a captcha), an outer box over the boxes inside it.
+    return found.filter((a, i) => !found.some((b, j) => j!==i && b.box!==a.box && composedContains(b.box, a.box)) && found.findIndex(b => b.box===a.box)===i);
+  }
+  // Page furniture around a sign-in form: its header, menus, side and footer are not something to read.
+  const furniture = 'header,footer,nav,aside,[role="banner"],[role="navigation"],[role="contentinfo"],[role="complementary"],[id*="footer" i],[class*="footer" i],[id*="header" i],[class*="header" i]';
+  /** The authentication form is the page's main content: it holds the page's main part, or outside it and the page furniture
+   * there is hardly anything to read (under 120 characters: a heading, "아이디 찾기", "회원가입"; 300 beside a captcha to solve,
+   * as on a full-page "Verifying you are human" check). */
+  function authPage(found) {
+    const regions = found.filter(r => !r.quiet);
+    if (!regions.length) return false;
+    const boxes = found.map(r => r.box), enough = regions.some(r => r.reason === 'captcha') ? 300 : 120;
+    if (regions.some(r => r.box.matches('main,[role="main"]') || r.box.querySelector('main,[role="main"]'))) return true;
+    let size = 0, nodes = 0;
+    for (const root of roots()) {
+      const walker = document.createTreeWalker(root===document ? document.body || document.documentElement : root, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode() && size < enough && ++nodes < 4000) {
+        const e = walker.currentNode.parentElement, t = tidy(walker.currentNode.textContent, 400);
+        if (!t || !e || e.closest('script,style,noscript,template,' + furniture) || boxes.some(box => composedContains(box, e)) || !visible(e)) continue;
+        size += t.length;
+      }
+    }
+    return size < enough;
+  }
+  const guardReason = () => {
+    if (accountChooser()) return '';
+    if (location.hostname === 'accounts.google.com') return 'auth_host';
+    if (/(?:^|[?&])(?:code|access_token|id_token|oauth_token)=/i.test(location.search)) return 'oauth_callback';
+    const regions = authRegions();
+    if (!authPage(regions)) return '';
+    for (const reason of ['captcha', 'otp', 'password']) if (regions.some(r => r.reason === reason && !r.quiet)) return reason;
+    return '';
+  };
   const loginPage = () => !!guardReason();
+  /** What the AI never sees or operates on a page it can read: anonymous comment forms and authentication forms, with the
+   * controls that submit them from outside (a form attribute). */
+  function protectedRegions(found = authRegions()) {
+    const auth = found.map(r => r.box);
+    return [...commentRegions(), ...auth, ...all('[form]').filter(e => e.form && auth.some(box => e.form===box || composedContains(box, e.form)))];
+  }
   // Read-only, coarse evidence for long-running work. These are page claims,
   // never authorization or proof that a generation has completed. A missing
   // indicator is UNKNOWN: Canvas can keep working without changing visible text.
@@ -95,7 +158,7 @@
     const evidence = [];
     const documentLoading = document.readyState === 'loading';
     if (documentLoading) evidence.push('document_loading');
-    const regions=commentRegions();
+    const regions=protectedRegions();
     const observable = e => inViewport(e) && !secret(e) && !protectedComment(e,regions);
     if (all('[aria-busy="true"]').some(observable)) evidence.push('aria_busy');
     if (all('progress,[role="progressbar"]').some(e => {
@@ -135,6 +198,13 @@
               !/%|;|\\|[\x00-\x1f\x7f]/.test(path) && !path.includes('..') && !u.search.slice(1).split('&').some(p=>u.search && !p) && [...u.searchParams].every(([k,v])=>readKeys.has(k.toLowerCase()) && !/[%\x00-\x1f\x7f]/.test(v) && (!['type','s_type'].includes(k.toLowerCase()) || types.has(v.toLowerCase())) && (k.toLowerCase()!=='recommend' || ['0','1'].includes(v)) && (k.toLowerCase()!=='exception_mode' || ['', 'recommend'].includes(v)) && v.length<=400 && !/https?:|javascript:|bearer\s|sk[-_]|access_token|password=/i.test(v))) return u.href;
         } catch (_) { }
     return '';
+  }
+  /** Where a native submit button, or Enter in a text field, sends its form: origin and path only (never its query or
+   * fragment); "" when it sends none. */
+  function formAction(e) {
+    if (!e.form || !e.matches('button:not([type]),button[type="submit"],input[type="submit"],input[type="image"],input:not([type]),input[type="text"],input[type="search"],input[type="email"],input[type="number"],input[type="tel"]')) return '';
+    try { const u=new URL(e.matches('button,input[type="submit"],input[type="image"]') && e.getAttribute('formaction') || e.form.getAttribute('action') || location.href, document.baseURI || location.href);
+      return /^https?:$/.test(u.protocol) ? u.origin + u.pathname : ''; } catch (_) { return ''; }
   }
   function sameTab(e) {
     const target=e.getAttribute('target') || document.querySelector('base[target]')?.getAttribute('target') || '';
@@ -226,11 +296,11 @@
   function snapshot() {
     const guard = guardReason();
     if (guard) { refs = new Map(); revision++; return {ok:true, requires_user:true, error_code:'authentication_required', guard_reason:guard,
-      error:guard==='password' ? '비밀번호 입력 영역이 있어 페이지 조작을 멈췄어요. 인증은 직접 진행하거나, 뒤로 가기 또는 공개 HTTPS 홈페이지로 이동을 새로 지시해 주세요.' : '인증·보안 확인은 직접 진행해 주세요. 이 화면에서 나가려면 뒤로 가기 또는 공개 HTTPS 홈페이지로 이동을 새로 지시해 주세요.',
+      error:guard==='password' ? '로그인 화면이라 이 페이지는 AI가 읽거나 조작하지 않아요. 로그인은 직접 하거나, 뒤로 가기 또는 공개 HTTPS 홈페이지로 이동을 새로 지시해 주세요.' : '인증·보안 확인은 직접 진행해 주세요. 이 화면에서 나가려면 뒤로 가기 또는 공개 HTTPS 홈페이지로 이동을 새로 지시해 주세요.',
       title:'보호된 입력 · 사용자 확인 필요', url:location.origin, document:documentId, elements:[], text:'보호된 화면의 내용은 AI에게 전달하지 않습니다.'}; }
     if (accountChooser()) return chooserSnapshot();
     refs = new Map(); revision++;
-    const elements = [], regions=commentRegions();
+    const auth = authRegions(), elements = [], regions=protectedRegions(auth);
     // Menu items, list options and checkboxes too: YouTube Studio's account and channel menu, its category and language
     // lists and its checkboxes are made of these, not of buttons or links.
     // Controls scrolled out of sight are listed too (offscreen:true): a form inside a dialog (YouTube Studio's upload
@@ -266,6 +336,8 @@
         placeholder:tidy(e.getAttribute('placeholder')),
         // An input inside a search landmark is a search box for the automation gate (BrowserDecisionEvidence.fieldKind).
         ...(e.tagName === 'INPUT' && e.closest('[role="search"],search') ? {in_search:true} : {}),
+        // Where a submit button sends its form (no query, no fragment): the automation gate reads a checkout or payment address.
+        ...(formAction(e) ? {form_action:formAction(e)} : {}),
         ...(e.tagName === 'SELECT' ? {options:[...e.options].slice(0,30).map(o=>({value:o.value,label:tidy(o.text)}))}: {})});
     }
     const chunks = []; let size = 0;
@@ -280,14 +352,16 @@
     // Preserve independently validated public read parameters (article id/filter/page).
     // Unknown queries, credentials and fragments still never enter observations.
     return {ok:true, document:documentId, title:tidy(document.title), url:publicReadUrl(location.href) || location.origin+location.pathname,
-      text:chunks.join('\n').slice(0,12000), elements, frames:document.querySelectorAll('iframe').length, activity:pageActivity()};
+      text:chunks.join('\n').slice(0,12000), elements, frames:document.querySelectorAll('iframe').length, activity:pageActivity(),
+      ...(auth.some(r => !r.quiet) ? {protected_form:{reason:auth.find(r => !r.quiet).reason, count:auth.filter(r => !r.quiet).length,
+        note:'이 페이지의 로그인·인증 입력 영역은 AI에게 보이지 않고 누르거나 입력할 수 없어요. 나머지 내용은 그대로 읽고 쓸 수 있어요. 로그인이 꼭 필요하면 사용자에게 직접 해 달라고 하세요.'}} : {})};
   }
   // Sample meaningful rendered content rather than waiting for every advertisement,
   // animation or network resource. No page script is patched or evaluated.
   function renderState(target) {
     if (away) throw stale('페이지가 이동 중이에요. 새 페이지를 읽어 주세요.');
     if (loginPage()) return {protected:true, signature:'protected', busy:false};
-    const regions=commentRegions(), chunks=[];
+    const regions=protectedRegions(), chunks=[];
     const scope=all('main,article,[role="main"],'+articleBody).filter(inViewport);
     const body=scope.length ? scope : [document.body || document.documentElement];
     for (const root of body.slice(0,4)) {
@@ -386,7 +460,9 @@
     else {
       if (a.document !== documentId) throw stale('페이지가 바뀌었어요. 다시 읽어 주세요.');
       const entry=refs.get(a.ref), e=entry?.element;
-      if (!e || !e.isConnected || !visible(e) || e.disabled || e.readOnly || secret(e) || protectedComment(e,commentRegions()) || fingerprint(e)!==entry.fingerprint) throw stale('요소가 바뀌었거나 입력할 수 없어요. 다시 읽어 주세요.');
+      if (e && e.isConnected && authRegions().some(r => composedContains(r.box, e) || e.form && (e.form===r.box || composedContains(r.box, e.form))))
+        throw stale('로그인·인증 입력 영역이라 누르거나 입력하지 않았어요. 이 부분은 사용자가 직접 해야 해요. 페이지의 나머지는 다시 읽어서 이어 갈 수 있어요.');
+      if (!e || !e.isConnected || !visible(e) || e.disabled || e.readOnly || secret(e) || protectedComment(e,protectedRegions()) || fingerprint(e)!==entry.fingerprint) throw stale('요소가 바뀌었거나 입력할 수 없어요. 다시 읽어 주세요.');
       const proposal=navigationProposal(a,e);
       if (proposal) return {ok:true,document:documentId,navigation_proposal:proposal,action_executed:false};
       // A file is ready for this page's chooser (attach): the app taps it for real, since a file chooser opens only for a real touch.
@@ -413,7 +489,7 @@
           if(accepted && !submitted && a.text==='Enter' && e.matches('input') && form) form.requestSubmit();
           else if(accepted && !submitted && a.text==='Enter' && e.matches('button,a[href]')) e.click();
         } finally { form?.removeEventListener('submit',mark,true); }
-        if(accepted && a.text==='Tab') { const regions=commentRegions(); const fields=all('a[href],button,input,textarea,select,[tabindex]').filter(x=>inViewport(x)&&!secret(x)&&!protectedComment(x,regions)&&!x.disabled); const next=fields[fields.indexOf(e)+1]; if(next) next.focus(); }
+        if(accepted && a.text==='Tab') { const regions=protectedRegions(); const fields=all('a[href],button,input,textarea,select,[tabindex]').filter(x=>inViewport(x)&&!secret(x)&&!protectedComment(x,regions)&&!x.disabled); const next=fields[fields.indexOf(e)+1]; if(next) next.focus(); }
         e.dispatchEvent(new KeyboardEvent('keyup',{key:a.text,code:a.text,bubbles:true,composed:true}));
       }
       else throw Error('지원하지 않는 페이지 동작이에요.');

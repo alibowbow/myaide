@@ -12,7 +12,12 @@ final class BrowserDecisionEvidence {
      * afterRead: a page was read in this task (a planner always reads before it acts). */
     static AutomationGate.Verdict verdict(JSONObject action, JSONObject page, String userWords, boolean afterRead) {
         AutomationGate.Tier tier = tier(action, page, userWords);
-        return AutomationGate.verdict(tier, kind(action, page), userWords, afterRead, tier == AutomationGate.Tier.FORBIDDEN && credentialInput(action, page));
+        boolean credential = tier == AutomationGate.Tier.FORBIDDEN && credentialInput(action, page);
+        AutomationGate.Verdict verdict = AutomationGate.verdict(tier, kind(action, page), userWords, afterRead, credential);
+        // A refused step says what it was and on which site (CLAUDE.md: what, where, which request), not only that it was refused.
+        if (tier != AutomationGate.Tier.FORBIDDEN || credential) return verdict;
+        String why = refusal(action, page);
+        return why.isEmpty() ? verdict : new AutomationGate.Verdict(tier, verdict.kind(), false, verdict.code(), why);
     }
     static AutomationGate.Verdict verdict(JSONObject action, JSONObject page, String userWords) { return verdict(action, page, userWords, true); }
     static AutomationGate.Tier tier(JSONObject action, JSONObject page, String userWords) {
@@ -22,16 +27,80 @@ final class BrowserDecisionEvidence {
         return AutomationGate.Tier.CONSEQUENTIAL;
     }
     /** Payment, money transfer, deletion, credential entry and banking or securities sites. */
-    static boolean forbidden(JSONObject action, JSONObject page) {
-        if (action == null) return false;
+    static boolean forbidden(JSONObject action, JSONObject page) { return !refusal(action, page).isEmpty(); }
+    /**
+     * Why this step never runs, in the user's words: what it was and on which site ("" when it may run). Payment, money
+     * transfer, deletion, credential entry and banking, card, securities, pay and crypto-exchange sites. A link or a card that
+     * only shows a price is none of them (it opens the product page); the words of the control, the address it goes to or
+     * the form it submits say whether it pays.
+     */
+    static String refusal(JSONObject action, JSONObject page) {
+        if (action == null) return "";
         String kind = action.optString("action");
-        if (kind.equals("open")) return AutomationGate.forbiddenUrl(action.optString("url")) || AutomationGate.bankingHost(action.optString("url"));
-        if (!java.util.Set.of("click", "type", "select", "press").contains(kind)) return false;
-        if (page != null && AutomationGate.bankingHost(page.optString("url"))) return true;
+        if (kind.equals("open")) {
+            String url = action.optString("url");
+            if (AutomationGate.bankingHost(url)) return bankSite(url);
+            return AutomationGate.forbiddenUrl(url) ? host(url) + "의 결제·주문·송금·삭제 주소라 자동으로 열지 않았어요. 필요하면 직접 열어 주세요." : "";
+        }
+        if (!java.util.Set.of("click", "type", "select", "press").contains(kind)) return "";
+        if (page != null && AutomationGate.bankingHost(page.optString("url"))) return bankSite(page.optString("url"));
         JSONObject target = target(action, page);
-        if (target == null) return false;
-        if (!("click".equals(kind) && sectionNavigation(target)) && AutomationGate.forbiddenLabel(target.optString("label")) || AutomationGate.forbiddenUrl(target.optString("href"))) return true;
-        return credentialInput(action, page);
+        if (target == null) return "";
+        String label = target.optString("label"), named = "'" + clip(label.isBlank() ? target.optString("placeholder", "이 항목") : label) + "'";
+        if (AutomationGate.forbiddenUrl(target.optString("href")))
+            return named + " 링크는 " + host(target.optString("href")) + "의 결제·주문·송금·삭제 주소로 가서 자동으로 누르지 않았어요. 필요하면 직접 눌러 주세요.";
+        boolean submits = "click".equals(kind) || "press".equals(kind) && "Enter".equals(action.optString("text"));
+        if (submits && AutomationGate.forbiddenUrl(target.optString("form_action")))
+            return named + ": " + host(target.optString("form_action")) + "의 결제·주문·송금·삭제 양식을 보내는 동작이라 자동으로 하지 않았어요. 필요하면 직접 해 주세요.";
+        if (credentialInput(action, page)) return AutomationGate.CREDENTIAL_MESSAGE;
+        if (!("click".equals(kind) && (sectionNavigation(target) || priceLink(target))) && AutomationGate.forbiddenLabel(label))
+            return DELETION.matcher(label).find()
+                ? named + ": 지우거나 비우는 동작이라 자동으로 하지 않았어요. 사용자가 지우라고 한 항목만 하나씩 지우고, 계정·전체·휴지통 비우기는 직접 해야 해요."
+                : named + ": 결제·구매·송금·구독처럼 돈이 드는 동작이라 자동으로 누르지 않았어요. 필요하면 직접 눌러 주세요.";
+        return "";
+    }
+    private static final java.util.regex.Pattern DELETION = dev.jun.gyeot.core.Regex.unicode("(?i)삭제|지우|지워|비우|비워|제거|탈퇴|해지|초기화|포맷|휴지통"
+        + "|(?<![A-Za-z0-9])(?:delete|remove|erase|clear|wipe|empty|reset|discard|uninstall|format)(?![A-Za-z0-9])");
+    /** A link to a page (an observed public address, no checkout) whose label only shows a price: a product link opens its page. */
+    private static boolean priceLink(JSONObject target) {
+        String href = target.optString("href");
+        return "a".equalsIgnoreCase(target.optString("tag")) && !href.isBlank() && !AutomationGate.forbiddenUrl(href)
+            && dev.jun.gyeot.core.BrowserReadNavigation.safeHref(href) && AutomationGate.priceOnly(target.optString("label"));
+    }
+    private static String bankSite(String url) {
+        return host(url) + ": 은행·증권·카드·결제·코인 거래소 사이트라 AI가 열거나 누르지 않아요. 그 사이트는 직접 써 주세요. 다른 사이트의 일은 계속 맡길 수 있어요.";
+    }
+    private static String host(String url) {
+        try { String host = new java.net.URI(url == null ? "" : url.strip()).getHost(); return host == null || host.isBlank() ? "이 페이지" : host.toLowerCase(java.util.Locale.ROOT); }
+        catch (Exception invalid) { return "이 페이지"; }
+    }
+    private static String clip(String text) {
+        String plain = text == null ? "" : text.replaceAll("\\s+", " ").strip();
+        return plain.length() <= 60 ? plain : plain.substring(0, 59) + "…";
+    }
+    /**
+     * The stop after too many refused steps for one instruction (BrowserAgent): which step was refused, on which site, at what
+     * time, for which request, why, and what the user can do themselves; nothing was run.
+     */
+    static String refusalStop(JSONObject action, JSONObject page, AutomationGate.Verdict verdict, int refusals, String request, long at) {
+        String kind = action == null ? "" : action.optString("action"), url = page != null && !page.optString("url").isBlank() ? page.optString("url") : action == null ? "" : action.optString("url");
+        JSONObject target = action == null ? null : target(action, page);
+        String label = target == null ? "" : clip(target.optString("label").isBlank() ? target.optString("placeholder") : target.optString("label"));
+        String what = switch (kind) {
+            case "open" -> "'" + clip(action.optString("url")) + "' 열기";
+            case "type" -> (label.isEmpty() ? "입력칸" : "'" + label + "' 칸") + "에 입력하기";
+            case "select" -> (label.isEmpty() ? "목록" : "'" + label + "'") + "에서 고르기";
+            case "press" -> (label.isEmpty() ? "" : "'" + label + "'에서 ") + action.optString("text") + " 키 누르기";
+            default -> (label.isEmpty() ? "그 항목" : "'" + label + "'") + " 누르기";
+        };
+        String when = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.KOREA).format(new java.util.Date(at));
+        String asked = request == null ? "" : request.replaceAll("\\s+", " ").strip();
+        if (asked.length() > 120) asked = asked.substring(0, 119) + "…";
+        boolean readOnly = AutomationGate.NOT_REQUESTED.equals(verdict.code());
+        return when + " " + host(url) + "에서 " + what + "를 실행하지 않았어요. 자동으로 하지 않는 동작이 이 지시에서 " + refusals + "번 필요해서 작업을 멈췄어요. "
+            + "까닭: " + verdict.message() + (asked.isEmpty() ? "" : " 요청: '" + asked + "'.")
+            + (readOnly ? " 그 동작까지 맡기려면 무엇을 누르거나 보낼지 같이 말해서 다시 지시해 주세요. 읽기·요약은 그대로 맡길 수 있어요."
+                : " 필요하면 브라우저에서 이 탭을 열어 그 동작은 직접 해 주세요. 페이지 읽기·확인과 다른 일은 계속 맡길 수 있어요.");
     }
     /**
      * A click on a control that only deletes an item (AutomationGate.deletionOnly), on a site that is no bank, when the user's

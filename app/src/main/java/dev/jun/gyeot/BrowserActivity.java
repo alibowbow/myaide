@@ -75,7 +75,7 @@ public final class BrowserActivity extends Activity {
     private boolean homeSide;
     private HomeEdge homeEdge;
     /** Opened from the "이전 브라우저 작업 확인" notification: the earlier Work step's review comes up at once. */
-    static final String REVIEW_WORK = "dev.jun.gyeot.browser.REVIEW_WORK";
+    static final String REVIEW_WORK = "dev.jun.gyeot.browser.REVIEW_WORK", REVIEW_RECEIPT = "dev.jun.gyeot.browser.REVIEW_RECEIPT";
     private static final String OPENED = "browserOpened";
     /** The ids of the requests already opened, oldest first, the newest OPENED_KEPT of them; kept in the saved state. */
     static final int OPENED_KEPT = 32;
@@ -633,8 +633,9 @@ public final class BrowserActivity extends Activity {
     private void consumeReview() {
         android.content.Intent intent = getIntent();
         if (!navigationResumed || engine == null || intent == null || !intent.getBooleanExtra(REVIEW_WORK, false)) return;
-        intent.removeExtra(REVIEW_WORK);
-        reviewWorkMutation();
+        String receipt = intent.getStringExtra(REVIEW_RECEIPT);
+        intent.removeExtra(REVIEW_WORK); intent.removeExtra(REVIEW_RECEIPT);
+        reviewWorkMutation(receipt == null ? "" : receipt);
     }
     private void consumeTaskNotification() {
         android.content.Intent intent = getIntent();
@@ -1268,12 +1269,13 @@ public final class BrowserActivity extends Activity {
         if (!receipt.optBoolean("ok") || receipt.optBoolean("pending")) {
             long view = ++recoveryViewSequence;
             showMutationReview(receipt, view, "현재 탭 작업 직접 확인", (id, done) -> engine.acknowledgeTabMutation(token, id, done));
-        } else reviewWorkMutation();
+        } else reviewWorkMutation("");
     }
-    /** Only direct user inspection can clear an exact durable receipt; this never replays work. */
-    private void reviewWorkMutation() {
+    /** Only direct user inspection can clear an exact durable receipt; this never replays work. Each Work job has its own:
+     * the notification's (receiptId), else the newest. */
+    private void reviewWorkMutation(String receiptId) {
         long view = ++recoveryViewSequence;
-        BrowserEngine.pendingWorkMutation(this, receipt -> {
+        BrowserEngine.pendingWorkMutation(this, receiptId, receipt -> {
             if (view != recoveryViewSequence || !navigationResumed || isFinishing() || isDestroyed()) return;
             showWorkMutationReview(receipt, view);
         });
@@ -1306,7 +1308,9 @@ public final class BrowserActivity extends Activity {
             acknowledge.accept(id, cleared -> {
                 if (view != recoveryViewSequence || !navigationResumed || isFinishing() || isDestroyed()) return;
                 sheet.dismiss();
-                toast(cleared ? "확인을 기록했어요. 이전 작업은 다시 실행하지 않았어요." : "기록이 바뀌었거나 저장하지 못했어요. 차단은 유지되니 다시 확인해 주세요.");
+                int more = receipt.optInt("more");
+                toast(!cleared ? "기록이 바뀌었거나 저장하지 못했어요. 차단은 유지되니 다시 확인해 주세요."
+                    : "확인을 기록했어요. 이전 작업은 다시 실행하지 않았어요." + (more > 0 ? " 확인할 다른 작업이 " + more + "개 더 있어요(메뉴 → 확인 필요한 작업)." : ""));
             });
         });
         sheet.setOnDismissListener(dialog -> { dialogs.remove(sheet); if (view == recoveryViewSequence) recoveryViewSequence++; });
