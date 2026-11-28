@@ -76,8 +76,9 @@ public class TaskbarTests {
     private static final Win APP = new Win(TaskbarPlan.APPLICATION, 0, 0, W, H - BAR), NAV = new Win(TaskbarPlan.SYSTEM, 0, H - BAR, W, H),
         STATUS = new Win(TaskbarPlan.SYSTEM, 0, 0, W, 90);
 
-    @org.junit.Before public void fresh() { Taskbar.forgetRole(); }
-    @After public void reset() { HomeActivity.visible = false; HomeActivity.shownAt = 0; Taskbar.forgetRole(); }
+    // The home screen's state is static: another class's test may have left a HomeActivity started and resumed.
+    @org.junit.Before public void fresh() { HomeActivity.visible = false; HomeActivity.resumed = false; HomeActivity.shownAt = 0; Taskbar.forgetRole(); }
+    @After public void reset() { HomeActivity.visible = false; HomeActivity.resumed = false; HomeActivity.shownAt = 0; Taskbar.forgetRole(); }
 
     private static TaskbarPlan.State state(boolean enabled, boolean home, boolean locked, boolean homeOnTop, int w, int h, float d, List<Win> windows) {
         boolean read = windows.stream().anyMatch(x -> x.type() == TaskbarPlan.APPLICATION);
