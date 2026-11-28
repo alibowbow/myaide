@@ -102,9 +102,8 @@ public class LpPlaybackTests {
         Intent show = nextService();
         assertNotNull("the media notification's service", show);
         assertEquals(LpService.class.getName(), show.getComponent().getClassName()); assertEquals(LpService.SHOW, show.getAction());
-        assertTrue("the audio focus held", LpMedia.holdsFocus());
-        ShadowAudioManager am = shadowOf(app.getSystemService(AudioManager.class));
-        assertEquals(AudioManager.AUDIOFOCUS_GAIN, am.getLastAudioFocusRequest().audioFocusRequest.getFocusGain());
+        // 내 음악: the web view takes the focus for its file itself; the app taking it too silenced the file (준: "내음악이 여전히 안 나와").
+        assertFalse("내 음악: no focus of the app's own", LpMedia.holdsFocus());
         JSONObject env = BuddyTalk.env(app);
         assertTrue("퍼레 hears music: " + env, env.getBoolean("music")); assertTrue(env.getBoolean("lp")); assertFalse("no other app's", env.getBoolean("musicApps"));
 
@@ -152,6 +151,18 @@ public class LpPlaybackTests {
         assertEquals("play", js.get(js.size() - 1));
     }
 
+    /** The records (the page's own Web Audio) take the focus; 내 음악 (a file the web view plays) never does, and lets it go. */
+    @Test public void theRecordsTakeTheFocusMyMusicDoesNot() throws Exception {
+        say("playing=1&title=a&artist=b&album=Moss%20%26%20Lantern&hidden=0");
+        assertTrue("a record: the focus held", LpMedia.holdsFocus());
+        ShadowAudioManager am = shadowOf(app.getSystemService(AudioManager.class));
+        assertEquals(AudioManager.AUDIOFOCUS_GAIN, am.getLastAudioFocusRequest().audioFocusRequest.getFocusGain());
+        say("playing=1&title=c&artist=d&album=%EB%82%B4%20%EC%9D%8C%EC%95%85%20%C2%B7%20A%EB%A9%B4&hidden=0");
+        assertFalse("내 음악 · A면: the focus let go, the web view's own", LpMedia.holdsFocus());
+        assertTrue(LpPlayback.takesFocus(new LpPlayback.State(true, "x", "", "Tidewater", false, 1)));
+        assertFalse(LpPlayback.takesFocus(new LpPlayback.State(true, "x", "", "내 음악", false, 1)));
+        assertTrue("no album said: a record", LpPlayback.takesFocus(new LpPlayback.State(true, "x", "", null, false, 1)));
+    }
     @Test public void aCallPausesItAndItPlaysAgainAfter_otherMusicStopsIt_pausedOnThePageEverythingGoes() throws Exception {
         say("playing=1&title=a&hidden=1"); nextService();
         LpMedia.onFocus(app, LpPlayback.Focus.LOSS_TRANSIENT);

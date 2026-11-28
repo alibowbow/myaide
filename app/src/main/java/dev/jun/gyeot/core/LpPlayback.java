@@ -47,6 +47,13 @@ public final class LpPlayback {
             case GAIN -> new Answer(resumeLater && !playing ? "play" : "", false);
         };
     }
+    /**
+     * Whether the app takes the audio focus for what plays: the three records, made by the page's own Web Audio, yes; 내 음악 no,
+     * a file the web view plays itself and takes the focus for on its own (준: "Lp는 예전 버전에선 내음악이 잘 나왔는데 왜 갑자기 안
+     * 나오게 된거야", "내음악이 여전히 안 나와"): with both taking it, each took it from the other, the web view silenced the file
+     * as the app took it, the app paused the page as the web view took it, and the record turned in silence or stopped at once.
+     */
+    public static boolean takesFocus(State s) { return s != null && (s.album() == null || !s.album().startsWith("내 음악")); }
     /** Whether the media service should run: while it plays, or while a call holds it paused for a while. */
     public static boolean serviceWanted(State s, long now, boolean resumeLater) { return playing(s, now) || resumeLater; }
 

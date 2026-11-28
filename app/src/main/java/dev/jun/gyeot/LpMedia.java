@@ -59,7 +59,8 @@ final class LpMedia {
         if (before) { /* its next word */ }
         else if (s.playing()) {
             if (!was) { resumeLater = false; pausedOutside = false; }
-            take(app);
+            // 내 음악: the web view holds the focus for its file itself; taking it here silenced the file (LpPlayback.takesFocus).
+            if (LpPlayback.takesFocus(s)) take(app); else drop(app);
             // (said every 2 s while it plays: the notification only when it starts or the track changes)
             if (!was || !LpService.running() || !prev.title().equals(s.title()) || !prev.album().equals(s.album())) LpService.show(app);
         } else if (was || LpService.running()) {
