@@ -136,7 +136,10 @@ public final class HomeActivity extends Activity {
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true); s.setAllowFileAccess(false); s.setAllowContentAccess(false);
         s.setSupportMultipleWindows(false); s.setJavaScriptCanOpenWindowsAutomatically(false); s.setGeolocationEnabled(false);
-        s.setMediaPlaybackRequiresUserGesture(true); s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        // Sound may start without a fresh tap (준: "턴테이블 내음악 재생이 안돼"): the LP page starts a record after its swap animation,
+        // from its media notification and from 퍼레 ("LP 틀어 줘"), none of them a tap at that moment; with a tap required its audio
+        // stayed asleep and 내 음악 played silently while the record turned. These pages are the user's own home screen.
+        s.setMediaPlaybackRequiresUserGesture(false); s.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         web.setVerticalScrollBarEnabled(false); web.setHorizontalScrollBarEnabled(false); web.setOverScrollMode(View.OVER_SCROLL_NEVER);
         web.addJavascriptInterface(new Gate(), "Gyeot");
         web.setWebViewClient(new WebViewClient() {

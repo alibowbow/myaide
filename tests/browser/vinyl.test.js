@@ -440,6 +440,23 @@ const needle = f => f.evaluate(() => +(/rotate\(([-\d.]+)/.exec(document.getElem
       assert.match(await frame.locator('.gy-note').textContent(), /3곡을 담았어요/);
       assert.deepStrictEqual(await frame.evaluate(() => [...document.querySelectorAll('#gySheet .gy-row b')].map(b => b.textContent)), ['A Quiet Tone', '좋은 날', '노래 002', '노래 003']);
     });
+    await check('a sleeping audio context wakes on the next tap anywhere, and a record playing in silence says so (준: "턴테이블 내음악 재생이 안돼")', async () => {
+      await frame.evaluate(() => __lp.actx.suspend());
+      await until(frame, () => __lp.actx.state === 'suspended', null, 3000, 'asleep');
+      // a tap that reaches no control of the deck (on the title): only the wake
+      await frame.evaluate(() => { const t = document.querySelector('h1, header, .title') || document.body;
+        for (const type of ['pointerdown', 'pointerup', 'click']) t.dispatchEvent(new (type === 'click' ? MouseEvent : PointerEvent)(type, { bubbles: true, cancelable: true })); });
+      await until(frame, () => __lp.actx.state === 'running', null, 3000, 'woken by a plain tap');
+      const told = await frame.evaluate(async () => {
+        const seen = []; const bar = document.getElementById('gyBar');
+        const o = new MutationObserver(() => seen.push(bar.textContent)); o.observe(bar, { subtree: true, characterData: true, childList: true });
+        const was = __lp.playing; if (!was) await __lp.play();
+        await __lp.actx.suspend();
+        await new Promise(r => setTimeout(r, 2200)); o.disconnect();
+        return { seen: seen.join(' | '), state: __lp.actx.state };
+      });
+      assert(/소리가 잠들었어요/.test(told.seen), 'playing while asleep is said: ' + told.seen.slice(0, 200));
+    });
     await check('내 음악 plays as an LP by default (wow delay, warm filters, saturation, narrower stereo); 원음 goes straight to the master; switched while playing, kept', async () => {
       await frame.locator('#gySheet .gy-row', { hasText: '좋은 날' }).tap();
       await until(frame, () => __lp.playing && !__lp.busy && !__gy.audio.paused && /5050aaaa0001/.test(__gy.audio.src) && __gy.audio.currentTime > 0.3, null, 15000, '좋은 날 playing');

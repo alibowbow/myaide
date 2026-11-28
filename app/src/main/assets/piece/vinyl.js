@@ -263,6 +263,18 @@
     v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true); s(36, 'data'); v.setUint32(40, n, true); b.fill(128, 44);
     let t = ''; for (const x of b) t += String.fromCharCode(x); return 'data:audio/wav;base64,' + btoa(t); })();
   for (const ev of ['pointerup', 'click', 'keydown']) document.addEventListener(ev, () => player.unlock(), true);
+  // Every tap also wakes the piece's audio context if it sleeps (a web view that asks a tap for sound lets it start only then):
+  // a record started after the swap animation, from the notification or by 퍼레 could leave it asleep, the record turning in
+  // silence (준: "턴테이블 내음악 재생이 안돼").
+  const wake = () => { try { const c = L.actx; if (c && c.state !== 'running') c.resume(); } catch (e) {} };
+  for (const ev of ['pointerdown', 'pointerup', 'click', 'keydown']) document.addEventListener(ev, wake, true);
+  /** Playing but asleep: said once, and the next tap anywhere wakes it (wake above). */
+  let toldAsleep = 0;
+  setInterval(() => {
+    const c = L.actx; if (!L.playing || !c || c.state === 'running' || document.hidden) { if (c && c.state === 'running') toldAsleep = 0; return; }
+    wake();
+    if (Date.now() - toldAsleep > 20000) { toldAsleep = Date.now(); say('소리가 잠들었어요 · 화면을 한 번 눌러 주세요', 4000); }
+  }, 1500);
 
   /** 원음 or LP for 내 음악: the chain, the surface's level, the liner notes; kept for next time. */
   function setSound(s) {
@@ -1044,7 +1056,8 @@
   function nowState() {
     const A = ALBUMS[L.albumIdx], T = current();
     return { playing: !!L.playing, title: T ? T.title : '', artist: T ? T.artist || (A === MINE ? '' : A.artist) : '',
-      album: A === MINE ? '내 음악' + (MINE.sides.length > 1 ? ' · ' + MINE.sideName + '면' : '') : A.title, hidden: !!document.hidden || inSight === false };
+      album: A === MINE ? '내 음악' + (MINE.sides.length > 1 ? ' · ' + MINE.sideName + '면' : '') : A.title, hidden: !!document.hidden || inSight === false,
+      audio: L.actx ? L.actx.state : 'none', file: A === MINE ? (player.au.error ? 'error ' + player.au.error.code : player.au.paused ? 'paused' : 'playing') : '' };
   }
   let told = '', toldAt = 0, toldOn = null, toldTitle = '', pausedAt = 0;
   function report(force) {
@@ -1058,7 +1071,7 @@
     // on a change, and every 2 s while it plays (or a while after: the notification's buttons are asked for then too)
     if (!force && key === told && !((st.playing || now - pausedAt < 600000) && now - toldAt > 2000)) return;
     told = key; toldAt = now;
-    const p = new URLSearchParams({ playing: st.playing ? '1' : '0', title: st.title, artist: st.artist, album: st.album, hidden: st.hidden ? '1' : '0' });
+    const p = new URLSearchParams({ playing: st.playing ? '1' : '0', title: st.title, artist: st.artist, album: st.album, hidden: st.hidden ? '1' : '0', audio: st.audio, file: st.file });
     fetch(q('/__gyeot/lp/state?' + p.toString()), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(j => { if (j && j.cmd) command(j.cmd); }, () => {});
   }
   // a page going away (the frame unloaded) is no longer playing

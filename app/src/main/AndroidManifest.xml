@@ -56,6 +56,8 @@
          Read-aloud binds the device's text-to-speech engine when there is no Gemini key or no internet.
          누르고 말하기 and the no-key composer mic bind the device's speech recognition service. -->
     <queries>
+        <!-- The home screen's date opens Google Calendar when it is there (HtmlWallpaper "gcalendar"). -->
+        <package android:name="com.google.android.calendar" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />

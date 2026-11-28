@@ -418,6 +418,15 @@ async function open(browser, at, bridge, pages, scale) {
     assert(dot.dots === 1 && /0\.4\.700/.test(dot.name), 'a newer build: a dot, and it says so: ' + JSON.stringify(dot));
     await p.evaluate(() => launcher.board({ weather: { code: 0, temp: 15, day: false }, env: { battery: 80 }, life: { heart: 60 } }));
     assert.strictEqual(await p.evaluate(() => document.querySelectorAll('#shorts .dot').length), 0, 'gone once updated');
+    // 준: "홈화면 왼쪽 상단부 날짜를 누르면 구글캘린더가 켜지게", "날짜폰트 조금만 더 키우고 시간 표시는 약간 줄이고", "하단 독에 돋보기 버튼 없애줘".
+    const when = await p.evaluate(() => { const d = document.querySelector('.hero .date'), c = document.querySelector('.hero .clock');
+      return { go: d && d.dataset.go, tap: d && d.classList.contains('tap'), date: d && parseFloat(getComputedStyle(d).fontSize), clock: c && parseFloat(getComputedStyle(c).fontSize), find: document.querySelectorAll('#shelf .find-btn').length, pad: document.querySelectorAll('#shelf .pad-btn').length }; });
+    assert(when.go === 'gcalendar' && when.tap, 'the date is a tap to Google Calendar: ' + JSON.stringify(when));
+    assert(when.date >= 13.5 && when.clock <= 76, 'the date a little bigger, the time a little smaller: ' + JSON.stringify(when));
+    assert(when.find === 0 && when.pad === 1, 'no 🔍 in the dock, Launchpad still there: ' + JSON.stringify(when));
+    await p.evaluate(() => { window._calls.length = 0; document.querySelector('.hero .date').click(); });
+    await p.waitForTimeout(300);
+    assert.deepStrictEqual(await p.evaluate(() => window._calls.filter(c => c[0] === 'open').map(c => JSON.parse(c[1])[0])), ['gcalendar'], 'a tap on the date opens it');
     assert.deepStrictEqual(shortsPage.errors, []);
     await p.screenshot({ path: '/tmp/claude-0/-home-user/138b3987-18a5-5339-9471-114de8ffce30/scratchpad/shorts_home.png' });
     await shortsPage.ctx.close();

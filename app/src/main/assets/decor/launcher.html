@@ -295,9 +295,11 @@ body.liquid .board{--card:var(--glass);--card-line:var(--glass-line);--shade:var
 body.liquid .board .wrap{padding-top:calc(var(--top) + 64px)}
 body.liquid .board .buddy .ground{display:none}
 body.liquid .when{text-shadow:none}
-body.liquid .date{font-family:var(--mono);font-size:11.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);display:flex;align-items:center;gap:8px}
+body.liquid .date{font-family:var(--mono);font-size:13.5px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--ink2);display:flex;align-items:center;gap:8px}
+body.liquid .date.tap{cursor:pointer;width:max-content;max-width:100%;-webkit-tap-highlight-color:transparent}
+body.liquid .date.tap.down{opacity:.6}
 body.liquid .date::before{content:"";width:7px;height:7px;border-radius:50%;background:#30d158;box-shadow:0 0 10px rgba(48,209,88,.7)}
-body.liquid .clock{font-size:84px;font-weight:250;letter-spacing:-.045em;line-height:.95;margin:10px 0 8px;background:linear-gradient(180deg,#ffffff 30%,#c9c0ff 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+body.liquid .clock{font-size:76px;font-weight:250;letter-spacing:-.045em;line-height:.95;margin:10px 0 8px;background:linear-gradient(180deg,#ffffff 30%,#c9c0ff 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
 body.liquid .clock small{font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:.16em;vertical-align:top;margin-right:10px;-webkit-text-fill-color:rgba(235,235,245,.6)}
 body.liquid .hello{font-size:17px;font-weight:600;letter-spacing:-.02em;background:linear-gradient(100deg,#5eead4 0%,#64d2ff 40%,#bf9bff 75%,#ff7ab6 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
 body.liquid .card{border-radius:26px;background:var(--glass);border:1px solid var(--glass-line);box-shadow:var(--shadow);-webkit-backdrop-filter:blur(24px) saturate(1.4);backdrop-filter:blur(24px) saturate(1.4)}
@@ -446,7 +448,7 @@ body.liquid .pad .kb.me{background:linear-gradient(135deg,#7fb0ae,#5a8f8f)}
 .typing{display:inline-flex;gap:4px;padding:3px 0}.typing i{width:7px;height:7px;border-radius:50%;background:var(--ink3);animation:dot 1.1s ease-in-out infinite}
 .typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
 .ask.resume{margin:4px 0 6px}
-@media (min-width:600px){body.liquid .clock{font-size:74px}}
+@media (min-width:600px){body.liquid .clock{font-size:68px}}
 /* Launchpad (every app, the search, the talk with 퍼레) in soft pastel, not near-black (준: "All app 표시란 바탕이 너무 새까매서 눈이
    피로해 보기편한 파스텔톤으로"): dark words on light glass. */
 body.liquid .pad{--ink:#263238;--ink2:#53616a;--ink3:#89949a;--glass:rgba(255,255,255,.72);--glass-line:rgba(255,255,255,.95);--hair:rgba(30,50,60,.08);--hair2:rgba(30,50,60,.12);color:var(--ink)}
@@ -511,8 +513,8 @@ body.liquid .when .w-line #wRange{grid-area:range;font-size:12px}
 #stacks.big .stack .name{font-size:13.5px}
 @media (min-width:600px) and (min-height:640px){
   body.liquid .board .wrap{gap:13px;padding-top:calc(var(--top) + 18px)}
-  body.liquid .clock{font-size:90px}
-  body.liquid .when .date{font-size:12.5px}
+  body.liquid .clock{font-size:82px}
+  body.liquid .when .date{font-size:14.5px}
 }
 /* The prices, small (준: "시세창이 너무 메인처럼 커"): one slim strip as wide as its words, no title, under the clock. */
 body.liquid .grid>.coins{justify-self:start;max-width:100%;padding:8px 15px;border-radius:15px;gap:0}
@@ -567,8 +569,8 @@ body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18p
 .mini-pill svg{width:14px;height:14px}.mini-pill b{color:var(--ink);font-weight:750}
 .launcher:not(.liquid) .mini-pill{background:var(--glass)}
 .bubble{white-space:pre-line}
-@media (max-width:420px){body.liquid .clock{font-size:64px}body.liquid .board .wrap{padding-top:calc(var(--top) + 54px)}}
-@media (max-width:380px){body.liquid .clock{font-size:66px}}
+@media (max-width:420px){body.liquid .clock{font-size:58px}body.liquid .board .wrap{padding-top:calc(var(--top) + 54px)}}
+@media (max-width:380px){body.liquid .clock{font-size:60px}}
 @media (prefers-reduced-motion:reduce){.aurora-bg i,.island .pulse{animation:none}}
 </style>
 </head>
@@ -695,7 +697,8 @@ function sizeFolders() {
 if (window.ResizeObserver) new ResizeObserver(() => sizeFolders()).observe(el("stacks"));
 function drawDock() {
   const ids = DOCK.filter(id => BY.has(id)), base = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--dockIcon")) || 52, gap = innerWidth <= 420 ? 8 : 10;
-  const width = Math.min(innerWidth, 900) - 44, extras = 2, cells = ids.length + extras;
+  // The extra cell: Launchpad's button (its screen has the search too, so no 🔍 of its own: 준 "하단 독에 돋보기 버튼 없애줘").
+  const width = Math.min(innerWidth, 900) - 44, extras = 1, cells = ids.length + extras;
   /*
     Every app in the dock is shown at its size. More than one row holds: two rows (준: "독을 두 줄로 해도 될듯"), the rows even;
     only when even two rows are full do the icons shrink (not below 34px) to keep it at two. One row: recent apps where there is
@@ -715,7 +718,7 @@ function drawDock() {
   shelf.style.setProperty("--dockIcon", size + "px"); shelf.style.gap = gap + "px";
   const one = (id, mine) => { const a = BY.get(id); return '<div class="dk"' + (mine ? ' data-dock="1"' : "") + ' data-id="' + esc(id) + '" aria-label="' + esc(a.label) + '"><img alt="" decoding="async" src="' + iconOf(a) + '">' + (DOCK_COUNTS.has(a.pkg) ? badgeHtml(badgeOf(a)) : "") + '</div>'; };
   shelf.innerHTML = '<div class="dk pad-btn" data-pad="1" aria-label="모든 앱">' + PAD_ICON + '</div>' + ids.map(id => one(id, true)).join("") + (recent.length ? '<span class="sep"></span>' + recent.map(id => one(id, false)).join("") : "")
-    + ('<span class="sep"></span><div class="dk find-btn" data-find="1" aria-label="앱 검색"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg></div>');
+    ;
   // The pages keep clear of the dock, whatever its height.
   const h = shelf.offsetHeight;
   if (h) { document.documentElement.style.setProperty("--dockTop", (8 + h) + "px"); requestAnimationFrame(() => { boards.forEach(fit); sizeFolders(); }); }
@@ -757,7 +760,7 @@ press(document.body, ".app", t => {
   if (pickInto && t.closest("#pad")) { const a = BY.get(t.dataset.id); if (a && a.stack !== pickInto) moveApp(a.id, pickInto); return; }
   launch(t.dataset.id, t.querySelector(".ic"));
 }, (t, x, y) => { if (t.closest("#fan")) lift(t, x, y, "fan"); else appMenu(t.dataset.id, x, y); });
-// (No search bar on the home page: the dock's 🔍 opens the search.)
+// (No search bar on the home page: Launchpad, the dock's first button, has the search.)
 el("weather").addEventListener("click", () => B && B.weather && B.weather());
 /*
   The weather widget at the top (준: "가운데 퍼레 준비됐어요를 빼고 날씨위젯을 넣어줘"), where the phone roughly is: an icon for

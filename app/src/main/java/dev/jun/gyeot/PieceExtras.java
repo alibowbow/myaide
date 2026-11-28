@@ -56,6 +56,8 @@ import java.util.function.Consumer;
  * picker give nothing while the phone is locked. Called on the web view's request thread, never the main one.
  */
 final class PieceExtras {
+    /** When "playing but silent" was last written to 오류 진단 (once a minute at most). */
+    private static volatile long silentLogged;
     private PieceExtras() {}
     static final String PREFIX = "/__gyeot/", PLACE = "__GY_KEY__";
     /** The app's own address for the LP piece (only that page's code runs there). */
@@ -174,6 +176,12 @@ final class PieceExtras {
                 // what the notification's buttons asked of it since (said on the lock screen too: nothing of the user's comes back)
                 dev.jun.gyeot.core.LpPlayback.State s = new dev.jun.gyeot.core.LpPlayback.State("1".equals(u.getQueryParameter("playing")), u.getQueryParameter("title"),
                     u.getQueryParameter("artist"), u.getQueryParameter("album"), "1".equals(u.getQueryParameter("hidden")), System.currentTimeMillis());
+                // Playing but silent (its audio asleep, or 내 음악's file not playing): written to 오류 진단 at most once a minute.
+                String audio = u.getQueryParameter("audio"), own = u.getQueryParameter("file");
+                if (s.playing() && ((audio != null && !audio.isEmpty() && !"running".equals(audio)) || (own != null && (own.startsWith("error") || "paused".equals(own))))) {
+                    long now = System.currentTimeMillis();
+                    if (now - silentLogged > 60_000) { silentLogged = now; DiagnosticsExport.record(c, "other", "LP · 재생 중인데 소리가 나지 않아요 · 오디오 " + audio + " · 내 음악 파일 " + (own == null || own.isEmpty() ? "-" : own) + " · " + s.album()); }
+                }
                 return json(Jsons.obj("cmd", LpMedia.report(c, s)).toString());
             }
             default: break;

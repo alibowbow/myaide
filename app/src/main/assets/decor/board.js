@@ -276,7 +276,7 @@ function makeBoard(slot) {
   b.innerHTML =
     '<div class="sky"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i><div class="stars">' + stars + '</div></div>'
   + '<div class="wrap">'
-  +   '<header class="hero"><div class="when"><div class="date"></div><div class="clock"></div><div class="hello"></div></div>'
+  +   '<header class="hero"><div class="when"><div class="date tap" data-go="gcalendar"></div><div class="clock"></div><div class="hello"></div></div>'
   +     '<button class="buddy" aria-label="퍼레"><div class="bubble"></div><span class="think private"><span class="dots"><i></i><i></i><i></i></span><span class="n"></span></span><span class="zz">z</span><div class="body">' + BUDDY + '</div><div class="ground"></div></button><button class="care-btn" aria-label="퍼레 돌보기"></button><div class="care" role="dialog" aria-label="퍼레 돌보기"></div></header>'
   +   '<div class="grid">'
   +     '<div class="card wide event tap private" data-go="calendar" data-rank="5"><div class="cal"><span class="dow"></span><span class="day"></span></div><div class="ev"><div class="eyebrow">다음 일정</div><div class="ev-title">일정을 보는 중…</div><div class="ev-meta"></div></div><div class="soon"></div></div>'
