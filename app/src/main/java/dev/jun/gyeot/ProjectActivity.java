@@ -40,8 +40,10 @@ import static dev.jun.gyeot.Ui.*;
  * no files; a link leaving it opens in the app's browser), a slim bar over it, and AI로 고치기, the composer
  * that asks the projects' AI to change it (ProjectMaker), shown when asked for. Each change keeps the version before it.
  * The page's own frame (never the charts' frames inside it) gets one message port to the app (connectApp): 트레이딩 asks
- * through it for an AI chart analysis and a news briefing; nothing else of the app is reachable from a page. Its bar has
- * TradingView's mark: the picked symbol's chart on tradingview.com, in the AI 브라우저.
+ * through it for an AI chart analysis and a news briefing, and any page has window.gyeot over it (미니앱에 다리 놓기: the
+ * script put first in the page, PageBridge.inject; its calls go to PageBridgeHost, each family allowed by the user once per
+ * project, listed in the menu's 권한); nothing else of the app is reachable from a page. Its bar has TradingView's mark: the
+ * picked symbol's chart on tradingview.com, in the AI 브라우저.
  */
 public final class ProjectActivity extends Activity implements ProjectMaker.Listener {
     static final String ID = "gyeot.project_id";
@@ -58,6 +60,8 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
     private android.webkit.WebMessagePort appPort;
     private final java.util.Map<String, java.util.concurrent.atomic.AtomicReference<Runnable>> asks = new java.util.concurrent.ConcurrentHashMap<>();
     private final java.util.concurrent.ExecutorService askJobs = java.util.concurrent.Executors.newFixedThreadPool(2);
+    /** window.gyeot's other end for this project (its grants keyed "project:<id>"), and the project's name as last drawn. */
+    private PageBridgeHost bridge; private volatile String pageTitle = "";
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -68,6 +72,8 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         maker.upgrade(id, false);
         ProjectBook.Project made = book.project(id);
         trading = made != null && ProjectMaker.TRADING.kind().equals(made.kind());
+        pageTitle = made == null ? "" : made.title();
+        bridge = new PageBridgeHost(this, ui, "project:" + id, () -> pageTitle, "오른쪽 위 메뉴(⋮) → 권한", this::toPage);
         composerOpen = book.html(id).isBlank() && !maker.busy(id);
         root = ui.column(); root.setBackgroundColor(BG);
         root.setOnApplyWindowInsetsListener((v, insets) -> {
@@ -87,6 +93,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         destroyed = true;
         for (java.util.concurrent.atomic.AtomicReference<Runnable> cancel : asks.values()) dev.jun.gyeot.core.RequestAbort.cancel(cancel);
         askJobs.shutdownNow();
+        if (bridge != null) bridge.close();
         if (appPort != null) { try { appPort.close(); } catch (RuntimeException ignored) {} appPort = null; }
         if (web != null) { web.destroy(); web = null; } super.onDestroy();
     }
@@ -165,6 +172,10 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
                 return true;
             }
             @Override public void onPageFinished(WebView v, String url) { if (url != null && url.startsWith(BASE)) connectApp(); }
+            // window.gyeot's script, put first in the page (refresh): served here, on the web view's own thread.
+            @Override public android.webkit.WebResourceResponse shouldInterceptRequest(WebView v, WebResourceRequest request) {
+                return dev.jun.gyeot.core.PageBridge.PROJECT_SCRIPT.equals(request.getUrl().toString()) ? PageBridgeHost.script(ProjectActivity.this) : null;
+            }
         });
         return view;
     }
@@ -207,7 +218,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
     /** Everything again from the book and the maker: the bar, the page (only when its HTML changed), the composer. */
     private void refresh() {
         ProjectBook.Project p = book.project(id); if (p == null) { finish(); return; }
-        title.setText(p.title());
+        title.setText(p.title()); pageTitle = p.title();
         boolean busy = maker.busy(id); String html = book.html(id);
         subtitle.setText(busy ? maker.doing(id) : (p.about().isBlank() ? "프로젝트" : p.about()));
         busyBar.setVisibility(busy && !html.isBlank() ? View.VISIBLE : View.GONE);
@@ -222,7 +233,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
             if (!busy && !composerOpen) toggleComposer(true);
         } else if (web != null && !html.equals(loaded)) {
             loaded = html;
-            web.loadDataWithBaseURL(BASE + id + "/", ProjectBook.themed(html, DARK), "text/html", "utf-8", null);
+            web.loadDataWithBaseURL(BASE + id + "/", dev.jun.gyeot.core.PageBridge.inject(ProjectBook.themed(html, DARK), dev.jun.gyeot.core.PageBridge.tag(dev.jun.gyeot.core.PageBridge.PROJECT_SCRIPT)), "text/html", "utf-8", null);
             if (showingSource) showSource(true);
         }
         input.setHint(empty ? "만들 것을 자세히 적어 주세요" : "어떻게 바꿀까요? · 예: ETH 차트 추가, 3열로");
@@ -312,6 +323,8 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         org.json.JSONObject m; try { m = new org.json.JSONObject(data == null ? "" : data); } catch (Exception unreadable) { return; }
         String ask = field(m, "id", 40);
         if (!ask.isEmpty() && !ask.matches("[A-Za-z0-9_.:-]+")) return;
+        // window.gyeot (any page): its own checks, grants and limits.
+        if ("gyeot".equals(m.optString("type"))) { if (bridge != null) bridge.handle(m); return; }
         switch (m.optString("type")) {
             case "model" -> toPage(dev.jun.gyeot.core.Jsons.obj("type", "model", "label", tradingModelLabel()));
             case "choose_model" -> chooseModel(this, ui, store, title, () -> toPage(dev.jun.gyeot.core.Jsons.obj("type", "model", "label", tradingModelLabel())), () -> ScopedModels.trading(store), "트레이딩 AI", "차트 분석에 적용");
@@ -560,7 +573,8 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         ProjectBook.Project p = book.project(id); if (p == null) return;
         // No 되돌리기 here (준: "그냥 되돌리기 버튼을 없애줘"): it brought back the page's code, not what was done on the page, and
         // took 트레이딩's AI 차트 분석 with it. 트레이딩's symbols have their own 방금 바꾼 것 되돌리기 in its 종목 편집.
-        String[] labels = {showingSource ? "미리보기로" : "소스 보기", "이름 바꾸기", p.pinned() ? "고정 해제" : "맨 위에 고정", "HTML 파일로 공유", "파일 위치", "프로젝트 지우기"};
+        // 권한: what the page may use of the app (window.gyeot), each family as the user left it.
+        String[] labels = {showingSource ? "미리보기로" : "소스 보기", "이름 바꾸기", p.pinned() ? "고정 해제" : "맨 위에 고정", "HTML 파일로 공유", "파일 위치", "권한", "프로젝트 지우기"};
         // 트레이딩's 새로 고침 is here (the bar has the TradingView button in its place).
         if (trading) { String[] more = new String[labels.length + 1]; more[0] = "새로 고침"; System.arraycopy(labels, 0, more, 1, labels.length); labels = more; }
         ui.miniMenu(anchor, labels, -1, picked -> {
@@ -576,8 +590,13 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
                 case 1 -> rename();
                 case 2 -> { try { book.save(p.pin(!p.pinned())); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); } }
                 case 3 -> share(p);
+                case 5 -> { if (bridge != null) bridge.permissions(); }
                 default -> ui.confirm("‘" + p.title() + "’ 프로젝트를 지울까요? 들퍼레/프로젝트의 폴더와 이전 버전도 함께 지워져요.", "지우기", () -> {
-                    maker.stop(id); try { book.remove(id); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); return; } finish(); }).show();
+                    maker.stop(id); try { book.remove(id); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); return; }
+                    // Its grants and the notifications it set for later go with it.
+                    android.content.Context app = getApplicationContext(); String key = "project:" + id;
+                    new Thread(() -> PageBridgeHost.forget(app, key), "project-forget").start();
+                    finish(); }).show();
             }
         });
     }

@@ -307,6 +307,13 @@ public final class ProjectBook {
         - 화면 글은 한국어로. 사용자가 고칠 수 있는 설정(목록, 숫자)은 화면에서 바로 바꾸게 하고 localStorage에 저장해.
         - 차트·시세는 TradingView 무료 위젯(https://s3.tradingview.com/external-embedding/…)을 쓰고, 그 밖의 데이터는 키가 필요 없는 공개 API만 fetch로.
         - alert/confirm/prompt, 새 창 열기, 개인 정보 수집은 하지 마.
+        - 휴대폰 기능이 필요하면 앱이 넣어 주는 window.gyeot을 써(물 마시기·할 일 알림 → notify, 내 일정 대시보드 → calendar.list, 공부 카드·요약·퀴즈 → ask의 json, 타이머·길 안내·앱 열기 → tool). 모두 Promise이고, 처음 쓸 때 앱이 사용자에게 허용을 물어:
+          gyeot.notify(제목, 내용, {at}) 지금 또는 at(Date·밀리초)에 휴대폰 알림 → {id} (예약은 페이지당 20개까지, gyeot.notify.cancel(id)로 하나·cancel()로 모두 취소) · gyeot.calendar.list(from, to) → [{title, start, end, allDay, place}] (ms) ·
+          gyeot.calendar.add({title, start, end, place}) 캘린더의 새 일정 화면을 채워 엶(저장은 사용자가) · gyeot.memory.recall(질문) → [짧은 기억] · gyeot.memory.remember(글) ·
+          gyeot.day.recall(질문) → 하루 기록에서 찾은 답(글) · gyeot.ask(질문, {kind: 'text'|'short'|'json'}) → 앱의 가벼운 AI 답(json이면 값) ·
+          gyeot.tool(이름, 인자): timer {seconds}, alarm {hour, minute}, open_app {app}, navigate {destination}, play {query}, weather {} → {temp, hi, lo, place}, when_event {when, then, what}, schedule_job {request, time:'HH:MM', repeat} (결제·송금·삭제·전화·보내기는 안 돼; message·email은 초안만).
+          거부·한도·꺼짐이면 reject돼: err.message(한국어 이유)를 그 자리에 짧게 보여 주고 나머지 화면은 그대로 동작하게. 앱 밖에서는 window.gyeot이 없으니 if (window.gyeot)로 확인해.
+          버튼을 누를 때처럼 사용자가 원할 때 부르고, 페이지를 열자마자 여러 기능을 한꺼번에 부르지 마. 받은 일정·기억은 화면에만 쓰고 다른 곳으로 보내지 마.
         """;
     public static String make(String request) {
         return "만들 것:\n" + request.strip() + "\n\n위 규칙대로 완전한 HTML 문서 하나를 만들어 줘.";

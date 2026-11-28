@@ -676,6 +676,12 @@ public final class DecorActivity extends Activity {
         ui.addRow(group, ui.listRow(R.drawable.ic_layers, Ui.PURPLE, "작품에서 고르기", "아래 목록의 움직이는 화면", ui.chevron(), () -> { menu.dismiss(); target = page; Toast.makeText(this, "오른쪽 " + (page + 1) + "페이지에 넣을 작품을 아래에서 골라 주세요", Toast.LENGTH_SHORT).show(); }), true);
         ui.addRow(group, ui.listRow(R.drawable.ic_pages, Ui.BLUE, "내 페이지에서", "페이지에 저장한 HTML (트레이딩, 논문, 시각화 …)", ui.chevron(), () -> { menu.dismiss(); target = page; fromPages(); }), true);
         ui.addRow(group, ui.listRow(R.drawable.ic_globe, Ui.TEAL, "주소로 넣기", "https:// 로 시작하는 웹 페이지", ui.chevron(), () -> { menu.dismiss(); target = page; fromAddress(); }), true);
+        // One of the user's own pages: what it may use of the app (window.gyeot), as the user left it on the home screen.
+        if (page < slots.size() && slots.get(page).src().startsWith(HtmlWallpaper.PAGE)) {
+            HomeBoard.Slot slot = slots.get(page);
+            ui.addRow(group, ui.listRow(R.drawable.ic_lock, Ui.INDIGO, "권한", "이 페이지가 쓸 수 있는 알림·일정·기억·도구", ui.chevron(), () -> {
+                menu.dismiss(); PageBridgeHost.permissions(this, ui, "home:" + slot.src(), slot.title(), null); }), true);
+        }
         if (page < slots.size()) ui.addRow(group, ui.listRow(R.drawable.ic_close, Ui.ERROR, "이 페이지 빼기", "뒤 페이지가 한 칸씩 당겨져요", null, () -> {
             menu.dismiss(); List<HomeBoard.Slot> now = slots(); if (page < now.size()) now.remove(page); save(now); draw();
         }), true);

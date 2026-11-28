@@ -51,6 +51,8 @@ public final class GyeotApp extends Application {
                 MediaIndex.registerExisting(this, saved);
                 // Sound files a YouTube fetch left half-made (stopped, failed, the app closed mid-way) go once they are an hour old.
                 try { YouTubeAudio.sweep(this, System.currentTimeMillis()); } catch (RuntimeException ignored) {}
+                // 미니앱 알림 set for later by a page: alarms do not survive a restart, so each is set again here.
+                try { PageNotices.rearm(this); } catch (RuntimeException ignored) {}
             }, "media-index"); index.setDaemon(true); index.start();
         }
     }

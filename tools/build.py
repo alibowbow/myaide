@@ -400,6 +400,11 @@ if __name__ == '__main__':
     habits.mkdir(parents=True, exist_ok=True)
     javac(['-encoding', 'UTF-8', '-d', habits, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/HabitsRegression.java'])
     run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (habits, jars[-1]))), 'dev.jun.gyeot.core.HabitsRegression'])
+    # 미니앱에 다리 놓기 (core/PageBridge): a page's calls by family, their arguments, the safe tools, the limits and the grants.
+    bridge = BUILD / 'page-bridge-checks'
+    bridge.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', bridge, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/PageBridgeRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (bridge, jars[-1]))), 'dev.jun.gyeot.core.PageBridgeRegression'])
     test_board(jars[-1])
     # The optional larger suites run when their tests folder is present.
     if (ROOT / 'tests/CoreTests.java').is_file(): test(jars)

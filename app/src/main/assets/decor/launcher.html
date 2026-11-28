@@ -851,6 +851,18 @@ addEventListener("message", e => {
   if (e.origin !== LP_ORIGIN || !e.data || e.data.gyeot !== "playing") return;
   lpPlaying(e.source, !!e.data.on);
 });
+/*
+  미니앱에 다리 놓기: the user's own pages here (page:…, served from pages.gyeot.local) call window.gyeot; the call comes from
+  that page's frame and goes to the app with the page's name, the answer back to it alone (launcher.bridgeReply). Pieces from
+  other sites (and the LP piece) are never relayed.
+*/
+const PAGES_ORIGIN = "https://pages.gyeot.local";
+addEventListener("message", e => {
+  if (e.origin !== PAGES_ORIGIN || !e.data || e.data.gyeot !== "call" || typeof e.data.message !== "string" || e.data.message.length > 20000 || !B) return;
+  const frames = [...pagesBox.querySelectorAll(".page.custom iframe")], i = frames.findIndex(f => f.contentWindow === e.source), p = i < 0 ? null : PAGES[i];
+  if (!p || !p.src.startsWith("page:")) return;
+  B.bridge(p.src, p.title || "", e.data.message);
+});
 addEventListener("resize", () => toPage(pageAt, false));
 requestAnimationFrame(() => toPage(1, false));
 drawPages(G.pages || []);
@@ -1842,6 +1854,12 @@ window.launcher = {
   lp(cmd) { pagesBox.querySelectorAll(".page.custom iframe").forEach(f => { try { if (f.getAttribute("src") && new URL(f.src).origin === LP_ORIGIN) f.contentWindow.postMessage({gyeot: "lp", cmd: String(cmd)}, LP_ORIGIN); } catch (e) {} }); return true; },
   /** The pages to the right changed (화면 꾸미기). */
   pages(list) { drawPages(list); },
+  /** window.gyeot's answer for one of the user's own pages (its src): to that page's frame alone, at its own origin. */
+  bridgeReply(src, message) {
+    const i = PAGES.findIndex(p => p.src === src), f = i < 0 ? null : pagesBox.querySelectorAll(".page.custom iframe")[i];
+    try { if (f && f.contentWindow && f.getAttribute("src")) f.contentWindow.postMessage({gyeot: "reply", message: String(message)}, PAGES_ORIGIN); } catch (e) {}
+    return true;
+  },
   /** 퍼레's jobs now (BuddyJobs.json: [{id, line, state, stop, open}]), and one that ended: its passing word ({id, text, go}). */
   jobs(list) { drawJobs(list); },
   jobDone(line) { boardJobDone(line); },

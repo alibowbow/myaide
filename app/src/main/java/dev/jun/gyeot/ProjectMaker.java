@@ -56,7 +56,9 @@ final class ProjectMaker {
 
     record Template(String kind, String title, String about, String asset, int hue) {}
     static final Template TRADING = new Template("trading", "트레이딩", "SOXL · NVDA · QQQ · BTCUSDT · BTCZ 차트를 트레이딩뷰로 한눈에", "projects/trading.html", 0);
-    static final List<Template> TEMPLATES = List.of(TRADING);
+    /** A small one that shows what a page may do with the app (window.gyeot): a day's water, with reminders as phone notifications. */
+    static final Template WATER = new Template("water", "물 마시기", "마신 잔 수를 적고, 정한 간격마다 휴대폰 알림으로 알려 줘요", "projects/water.html", 4);
+    static final List<Template> TEMPLATES = List.of(TRADING, WATER);
     ProjectBook.Project fromTemplate(Template t) throws IOException {
         String html;
         try (InputStream in = app.getAssets().open(t.asset())) { html = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
