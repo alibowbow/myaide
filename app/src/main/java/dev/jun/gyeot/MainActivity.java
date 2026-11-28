@@ -5224,7 +5224,8 @@ public final class MainActivity extends Activity {
         android.content.Context app = getApplicationContext();
         new Thread(() -> {
             String answer = null, why = "";
-            try { answer = Chores.run(store, dev.jun.gyeot.core.Memory.cleanup(listed), "기억을 정리해 주세요.", true); }
+            // The plan 남는 한도 made ahead for these same notes (SpareWork) is shown at once; otherwise it is made now.
+            try { answer = SpareWork.tidy(store, listed); if (answer == null) answer = Chores.run(store, dev.jun.gyeot.core.Memory.cleanup(listed), "기억을 정리해 주세요.", true); }
             catch (Exception e) { why = e.getMessage() == null ? "정리하지 못했어요." : e.getMessage(); }
             String plan = answer == null ? null : dev.jun.gyeot.core.Memory.withoutAdd(answer), reason = why;
             runOnUiThread(() -> {

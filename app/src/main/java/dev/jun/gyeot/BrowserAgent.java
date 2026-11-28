@@ -353,10 +353,13 @@ final class BrowserAgent {
                     quickRun = 0; quickBefore = ""; serverRetries = 0;
                     runPlanned(attempt, action, brain);
                 });
-            } catch (Exception e) { engine.main.post(() -> {
+            } catch (Exception e) {
+                // Who goes next, read here off the main thread: a subscription that reported itself nearly spent after the others (남는 한도).
+                java.util.List<String> next = SpareQuotas.browser(store, FALLBACK);
+                engine.main.post(() -> {
                 if (!takeModel(attempt)) return;
                 // A usage limit is not the task's failure: the same step is decided again by the next AI the user connected.
-                if (limitReached(e) && switchBrain()) { step(); return; }
+                if (limitReached(e) && switchBrain(next)) { step(); return; }
                 // Nor is a busy or failing server (503 overloaded, 500, a dropped connection): the same AI is asked again after a
                 // pause, twice, then the next AI the user connected takes the step. Nothing was executed meanwhile.
                 if (serverTrouble(e)) {
@@ -366,14 +369,14 @@ final class BrowserAgent {
                         engine.main.postDelayed(() -> { if (!finished && engine.valid(lease)) step(); }, wait); return;
                     }
                     String from = brain;
-                    if (switchBrain()) { serverRetries = 0; engine.setTaskStatus(lease, from + " 서버 오류 → " + brain + "로 이어서"); step(); return; }
+                    if (switchBrain(next)) { serverRetries = 0; engine.setTaskStatus(lease, from + " 서버 오류 → " + brain + "로 이어서"); step(); return; }
                 }
                 // Nor is an account or a model the provider refused (401/403, a model gone, no key): the next AI the user connected
                 // takes the step, read the same way as 메인 대화's handoff (core/Fallback). A stop or a content refusal is not handed on.
                 dev.jun.gyeot.core.Fallback.Why why = dev.jun.gyeot.core.Fallback.why(e);
                 if (why == dev.jun.gyeot.core.Fallback.Why.ACCOUNT || why == dev.jun.gyeot.core.Fallback.Why.GONE || why == dev.jun.gyeot.core.Fallback.Why.NO_KEY) {
                     String from = brain;
-                    if (switchBrain()) { serverRetries = 0; engine.setTaskStatus(lease, from + " " + why.label + " → " + brain + "로 이어서"); step(); return; }
+                    if (switchBrain(next)) { serverRetries = 0; engine.setTaskStatus(lease, from + " " + why.label + " → " + brain + "로 이어서"); step(); return; }
                 }
                 complete(BrowserEngine.error("두뇌 응답을 처리하지 못했어요. " + dev.jun.gyeot.core.Jsons.message(e, "")));
             }); }
@@ -1146,10 +1149,13 @@ final class BrowserAgent {
      * kept for other work); it decides only when the user chose it.
      */
     static final String[] FALLBACK = {"gpt", "grok", "nim", "claude"};
-    /** Goes on with the next connected AI that has not reached its limit in this task; false when there is none. */
-    private boolean switchBrain() {
+    /**
+     * Goes on with the next connected AI that has not reached its limit in this task, in order (FALLBACK as SpareQuotas.browser
+     * put it: one that reported itself nearly spent goes last, a paid key keeps its place); false when there is none.
+     */
+    private boolean switchBrain(java.util.List<String> order) {
         limited.add(brain);
-        for (String next : FALLBACK) {
+        for (String next : order) {
             if (limited.contains(next) || !engine.connected(next)) continue;
             String from = brain; BrowserModels selection = new BrowserModels(store);
             brain = next; model = selection.model(next); effort = selection.effort(next, model); speed = "gpt".equals(next) ? selection.speed(model) : "standard";

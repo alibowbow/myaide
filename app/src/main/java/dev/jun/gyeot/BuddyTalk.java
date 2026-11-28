@@ -270,7 +270,8 @@ final class BuddyTalk {
         start[0] = () -> {
             synchronized (lock) { if (answered.get() || tried[0]) return; tried[0] = true; running[0]++; }
             new Thread(() -> {
-                String model = qwen(store);
+                // 남는 한도: Qwen, or once its day is full the Groq model of its tier with the most left (core/SpareQuota); NVIDIA races as before.
+                String model = SpareQuotas.talk(qwen(store), dev.jun.gyeot.core.ChatMemory.tokens(instructions) + dev.jun.gyeot.core.ChatMemory.tokens(input) + dev.jun.gyeot.core.ChatMemory.ANSWER, true);
                 try {
                     String text;
                     // Qwen's thinking off for speed; a model that refuses the setting is asked again without it.
@@ -651,9 +652,11 @@ final class BuddyTalk {
         }
         String why = "";
         if (qwen) {
-            String model = qwen(store), in = talk.input(q, dev.jun.gyeot.core.ChatMemory.room(dev.jun.gyeot.core.ChatMemory.GROQ_MINUTE, rules, longAnswer));
+            String home = qwen(store), in = talk.input(q, dev.jun.gyeot.core.ChatMemory.room(dev.jun.gyeot.core.ChatMemory.GROQ_MINUTE, rules, longAnswer));
             int need = dev.jun.gyeot.core.ChatMemory.tokens(rules) + dev.jun.gyeot.core.ChatMemory.tokens(in) + (longAnswer ? dev.jun.gyeot.core.ChatMemory.LONG_ANSWER : dev.jun.gyeot.core.ChatMemory.ANSWER);
             lastNeed = need;
+            // 남는 한도: Qwen while it can take it, else the Groq model of its tier with the most of its day left, before NVIDIA (core/SpareQuota).
+            String model = SpareQuotas.talk(home, need, nim || !custom && costsNothing(store));
             if (GroqWork.ready(model, need)) {
                 try {
                     String text;
@@ -664,7 +667,7 @@ final class BuddyTalk {
                         if (dev.jun.gyeot.core.Fallback.why(first) == dev.jun.gyeot.core.Fallback.Why.LIMIT) throw first;
                         text = send.text(store, QWEN, model, rules, in, null, 30_000, cancel, null, null);
                     }
-                    chatBy = "Groq · " + model; CHAT_BRAIN.set(QWEN);
+                    chatBy = "Groq · " + model + (model.equals(home) ? "" : " (" + GroqModels.label(home) + " 한도라서)"); CHAT_BRAIN.set(QWEN);
                     return text.replaceAll("(?s)<think>.*?</think>", "").strip();
                 } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
                 catch (Exception failed) {

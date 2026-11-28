@@ -58,6 +58,8 @@ public final class GyeotApp extends Application {
                 try { YouTubeAudio.sweep(this, System.currentTimeMillis()); } catch (RuntimeException ignored) {}
                 // 미니앱 알림 set for later by a page: alarms do not survive a restart, so each is set again here.
                 try { PageNotices.rearm(this); } catch (RuntimeException ignored) {}
+                // 남는 한도로 한 일 (SpareWork): its job set for the hours before the free day starts again.
+                try { SpareWork.schedule(this, saved); } catch (RuntimeException ignored) {}
             }, "media-index"); index.setDaemon(true); index.start();
         }
     }

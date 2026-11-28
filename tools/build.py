@@ -456,6 +456,12 @@ if __name__ == '__main__':
     brains.mkdir(parents=True, exist_ok=True)
     javac(['-encoding', 'UTF-8', '-d', brains, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/BrainRegression.java'])
     run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (brains, jars[-1]))), 'dev.jun.gyeot.core.BrainRegression', ROOT / 'app/src/main/assets/buddy/scenarios.json'])
+    # 남는 한도 (core/SpareQuota): what each free model can still take, a talk or chore spread so one model is not used up
+    # while others idle (the routing before must fail the same day), spare work's window and budget, the browser's next AI.
+    spare = BUILD / 'spare-quota-checks'
+    spare.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', spare, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/SpareQuotaRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (spare, jars[-1]))), 'dev.jun.gyeot.core.SpareQuotaRegression'])
     # 미니앱에 다리 놓기 (core/PageBridge): a page's calls by family, their arguments, the safe tools, the limits and the grants.
     bridge = BUILD / 'page-bridge-checks'
     bridge.mkdir(parents=True, exist_ok=True)

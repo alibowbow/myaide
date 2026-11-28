@@ -65,7 +65,7 @@ public final class GeminiQuota {
      * out until midnight Pacific, though Groq takes requests again minutes later) does not count: it is asked again, and a refusal
      * now keeps the kind and the wait Groq names.
      */
-    private static boolean full(String model, JSONObject entry) { return entry.optBoolean("full") && !(groq(model) && entry.optString("dayKind").isEmpty()); }
+    static boolean full(String model, JSONObject entry) { return entry.optBoolean("full") && !(groq(model) && entry.optString("dayKind").isEmpty()); }
     /** A Groq model (its ids carry an owner, "openai/gpt-oss-120b", or are Whisper's): Groq's own section and limits. */
     public static boolean groq(String model) { return model != null && (model.contains("/") || model.startsWith("whisper-")); }
     /**

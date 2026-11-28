@@ -20,7 +20,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * 설정 → 사용량 · 남은 한도: for each connected account what its provider last said is left of its limits,
+ * 설정 → 사용량 · 남은 한도: first 오늘 남은 양 (core/SpareQuota), a one-line row per free tier and subscription the app can call
+ * with what it can still do today and when it fills again, and 남는 한도로 한 일 (SpareWork); then for each connected account what its provider last said is left of its limits,
  * "남은 72% · 14:30 초기화" and when it said so, or 모름, then what each company's text requests used in the last seven
  * days, from the usage ledger. What it shows is read off the main thread (load, read: the ledger and the connections'
  * identities), then drawn on it (fill). Opening it also asks the subscriptions' own usage pages (check,
@@ -52,9 +53,19 @@ final class UsageUi {
      * tokens for today, seven and thirty days (core/Prices.Tokens), with whether the Gemini key is marked 무료 and whether
      * its tier is known at all (GeminiKeyRing).
      */
-    record Page(List<Account> accounts, JSONArray totals, List<List<Prices.Tokens>> spend, boolean geminiFree, boolean geminiTier) {
+    /**
+     * With 오늘 남은 양 (left), what spare work did today in words and its tokens (spent, spentTokens: core/SpareQuota.line, tokens),
+     * and whether it can run at all (spare: Groq connected).
+     */
+    record Page(List<Account> accounts, JSONArray totals, List<List<Prices.Tokens>> spend, boolean geminiFree, boolean geminiTier, List<Left> left, String spent, long spentTokens, boolean spare) {
+        Page(List<Account> accounts, JSONArray totals, List<List<Prices.Tokens>> spend, boolean geminiFree, boolean geminiTier) { this(accounts, totals, spend, geminiFree, geminiTier, List.of(), "", 0, false); }
         Page(List<Account> accounts, JSONArray totals) { this(accounts, totals, List.of(List.of(), List.of(), List.of()), false, false); }
     }
+    /**
+     * 오늘 남은 양 (core/SpareQuota): one free tier or subscription the app can call, what it can still do today in a line ("모델 4개
+     * · 토큰 612k / 800k · 요청 3,950 / 4,000회 남음 · 오후 5시에 다시 채워져요"), and whether little is left.
+     */
+    record Left(String name, String line, boolean low) {}
     static final long MONTH_MS = 30L * 24 * 60 * 60 * 1000;
     /** 예상 비용's periods, at the end of its heading line; the one shown is kept while the app runs. */
     static final String[] PERIODS = {"오늘", "7일", "30일"};
@@ -119,7 +130,50 @@ final class UsageUi {
         if (!store.ready(WorkBook.CHATGPT) && store.codexImages.connected()) accounts.add(0, codex(store, now, zone));
         long midnight = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toEpochMilli();
         boolean[] gemini = geminiTier(store);
-        return new Page(accounts, store.usage.totals(now - WEEK_MS), List.of(store.usage.tokens(midnight), store.usage.tokens(now - WEEK_MS), store.usage.tokens(now - MONTH_MS)), gemini[0], gemini[1]);
+        return new Page(accounts, store.usage.totals(now - WEEK_MS), List.of(store.usage.tokens(midnight), store.usage.tokens(now - WEEK_MS), store.usage.tokens(now - MONTH_MS)), gemini[0], gemini[1],
+            left(store, now, zone), dev.jun.gyeot.core.SpareQuota.line(SpareWork.log(store), now, zone), dev.jun.gyeot.core.SpareQuota.tokens(SpareWork.log(store), now, zone), store.groq.connected());
+    }
+    /**
+     * 오늘 남은 양: a line per free tier the app counts (Groq's chat models together, Gemini's that the app uses on its own) with
+     * when it fills again, NVIDIA's free tier, and each subscription's tightest window as it last reported it. Paid keys are not
+     * listed (what is left there is money). Reads the ledger and the connections' identities: never on the main thread.
+     */
+    static List<Left> left(AppStore store, long now, ZoneId zone) {
+        List<Left> out = new ArrayList<>();
+        JSONObject state = store.geminiQuota();
+        String again = resets(dev.jun.gyeot.core.GeminiQuota.resetAt(now), now, zone);
+        if (store.groq.connected()) {
+            List<String> models = SpareQuotas.groq(store, GroqWork.CHORES);
+            String qwen = BuddyTalk.qwen(store); if (!models.contains(qwen) && dev.jun.gyeot.core.SpareQuota.tier(qwen) != null) models.add(qwen);
+            out.add(free("Groq 무료", models, state, now, again));
+        }
+        if (store.secrets.hasKey() || store.secrets.hasWorkKey()) out.add(free("Gemini 무료", java.util.Arrays.asList(geminiModels(store)), state, now, again));
+        if (store.nim.connected()) {
+            Limits.Window w = SpareQuotas.tightest(store, WorkBook.NIM, store.usageRoute(WorkBook.NIM), now);
+            out.add(new Left("NVIDIA NIM 무료", w == null ? "하루 한도 없이 분당 한도만 있어요" : w.name() + " · " + Limits.left(w, now, zone), w != null && w.left() < dev.jun.gyeot.core.SpareQuota.LOW));
+        }
+        for (String engine : new String[]{WorkBook.CHATGPT, WorkBook.GROK, WorkBook.ANTIGRAVITY}) {
+            if (!store.ready(engine) || !UsageLedger.PLAN.equals(store.usageRoute(engine))) continue;
+            Limits.Window w = SpareQuotas.tightest(store, engine, UsageLedger.PLAN, now);
+            out.add(new Left(WorkBook.author(engine) + " 구독", w == null ? "남은 한도 모름 · 답을 받으면 알려 줘요" : w.name() + " · " + Limits.left(w, now, zone), w != null && w.left() < dev.jun.gyeot.core.SpareQuota.LOW));
+        }
+        return out;
+    }
+    /**
+     * A free tier's row: its name with how many models it counts, the models together in one line (core/SpareQuota.summary) and
+     * when it fills again; low when every one has little left.
+     */
+    private static Left free(String name, List<String> models, JSONObject state, long now, String again) {
+        List<dev.jun.gyeot.core.SpareQuota.Room> rooms = new ArrayList<>(); boolean low = !models.isEmpty();
+        for (String model : models) { dev.jun.gyeot.core.SpareQuota.Room r = dev.jun.gyeot.core.SpareQuota.remaining(state, model, now); rooms.add(r); if (r.share() >= dev.jun.gyeot.core.SpareQuota.LOW) low = false; }
+        String sum = dev.jun.gyeot.core.SpareQuota.summary(rooms);
+        return new Left(name + (models.size() > 1 ? " · 모델 " + models.size() + "개" : ""), (sum.isEmpty() ? "" : sum + " · ") + again, low);
+    }
+    /** "17:00 초기화", or "11.29 17:00 초기화" on another day: when a day's counts start again, as the subscriptions' rows say it (core/Limits.left). */
+    static String resets(long at, long now, ZoneId zone) {
+        java.time.ZonedDateTime reset = java.time.Instant.ofEpochMilli(at).atZone(zone);
+        boolean today = reset.toLocalDate().equals(java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate());
+        return reset.format(java.time.format.DateTimeFormatter.ofPattern(today ? "HH:mm" : "M.d HH:mm")) + " 초기화";
     }
     /** {marked 무료, its tier known}: the key the app's Gemini requests go with, as the user marked it (GeminiKeyRing). Reads the keys: never on the main thread. */
     static boolean[] geminiTier(AppStore store) {
@@ -224,6 +278,7 @@ final class UsageUi {
      * or Grok sign-in is there.
      */
     void fill(LinearLayout box, Page page, Consumer<String> open, Runnable recheck) {
+        spare(box, page, System.currentTimeMillis(), ZoneId.systemDefault());
         box.addView(ui.sectionHeader("남은 한도"));
         if (recheck != null && (store.codexImages.connected() || store.grok.connected() || store.antigravity.connected())) {
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.bottomMargin = ui.dp(6);
@@ -245,7 +300,7 @@ final class UsageUi {
             box.addView(ui.sectionHeader("Groq 무료 한도 · Groq API 키"));
             box.addView(quota(groqModels(), true, now));
             box.addView(ui.footer("Groq는 하루 요청 횟수와 하루 토큰(보내고 받은 글의 양)을 따로 세요. 둘 중 하나라도 차면 Groq가 막고, Groq가 알려 준 시간이 지나면 다시 써요. "
-                + "퍼레 대화는 한 번에 긴 글을 보내서 횟수보다 토큰이 먼저 찰 수 있어요."));
+                + "퍼레 대화는 한 번에 긴 글을 보내서 횟수보다 토큰이 먼저 찰 수 있어요. 한 모델이 차면 같은 급에서 한도가 남은 모델이 이어받아요."));
         }
         box.addView(ui.sectionHeader("최근 7일"));
         LinearLayout recent = recent(page.totals());
@@ -254,6 +309,35 @@ final class UsageUi {
         box.addView(ui.footer("메인 대화·작업창·예약·누르고 말하기·퍼레·잡일·브라우저에서 받은 답과, 휴대폰이 모델 없이 바로 답한 것(기기 안)을 세요."));
         cost(box, page);
         routes(box, page);
+    }
+
+    // ── 오늘 남은 양 · 남는 한도로 한 일 (core/SpareQuota): what each free tier and subscription can still do, and what was left used for ──
+    /**
+     * A row per free tier or subscription (Page.left: what it can still do today and when it fills again; a warning color when
+     * little is left), then, with Groq connected, 남는 한도로 한 일 today, and how that works. Rows in one group, no cards.
+     */
+    void spare(LinearLayout box, Page page, long now, ZoneId zone) {
+        if (page.left().isEmpty() && !page.spare()) return;
+        box.addView(ui.sectionHeader("오늘 남은 양"));
+        LinearLayout group = ui.group();
+        for (Left left : page.left()) {
+            LinearLayout row = ui.listRow(0, 0, left.name(), left.line(), null, null);
+            TextView sub = ((Ui.ListRow) row).parts.subtitle();
+            if (sub != null) { sub.setSingleLine(false); sub.setMaxLines(2); if (left.low()) sub.setTextColor(Ui.WARNING); }
+            ui.addRow(group, row, false);
+        }
+        if (page.spare()) {
+            TextView took = page.spentTokens() > 0 ? ui.text("토큰 " + Usage.tokens(page.spentTokens()), 13, 500, Ui.MUTED) : null;
+            LinearLayout done = ui.listRow(0, 0, "남는 한도로 한 일", page.spent().isEmpty() ? "오늘은 아직 없어요" : "오늘 " + page.spent(), took, null);
+            TextView sub = ((Ui.ListRow) done).parts.subtitle(); if (sub != null) { sub.setSingleLine(false); sub.setMaxLines(2); }
+            ui.addRow(group, done, false);
+        }
+        box.addView(group);
+        long reset = dev.jun.gyeot.core.GeminiQuota.resetAt(now);
+        String from = clock(reset - dev.jun.gyeot.core.SpareQuota.WINDOW, zone), to = clock(reset, zone);
+        if (from.substring(0, 3).equals(to.substring(0, 3))) to = to.substring(3);
+        if (page.spare()) box.addView(ui.footer("다시 채워지기 전 " + from + "~" + to + ", 충전 중·Wi-Fi·화면 꺼짐이면 남은 Groq 한도로 대화 제목·기억 점검·나에 대한 이해를 미리 해요(하루 "
+            + Usage.tokens(dev.jun.gyeot.core.SpareQuota.DAY_BUDGET) + " 토큰까지, 모델마다 " + Math.round(dev.jun.gyeot.core.SpareQuota.FLOOR * 100) + "%는 남김). Gemini와 유료 키는 안 써요."));
     }
 
     // ── 예상 비용 (core/Prices): the ledger's tokens at each model's own price, by company and by where they were used ──
@@ -371,7 +455,8 @@ final class UsageUi {
         return box;
     }
     /** Gemma 4 (light work, the key's two largest), Flash-Lite (search, summaries), Transcribe (recordings). */
-    String[] geminiModels() {
+    String[] geminiModels() { return geminiModels(store); }
+    static String[] geminiModels(AppStore store) {
         String[] listed = store.gemini.gemma(), gemma = listed == null ? dev.jun.gyeot.core.GeminiLight.GEMMA : listed;
         java.util.List<String> shown = new java.util.ArrayList<>(java.util.List.of(gemma).subList(0, Math.min(2, gemma.length)));
         shown.add(dev.jun.gyeot.core.GeminiWork.FLASH_LITE[0]); shown.add(dev.jun.gyeot.core.GeminiWork.FLASH_LITE[1]); shown.add(dev.jun.gyeot.core.GeminiProtocol.FILE_TRANSCRIBE);
@@ -430,10 +515,13 @@ final class UsageUi {
         return "";
     }
     /** "오후 5시에 다시 채워져요": when the free daily quotas reset, in the phone's own time. */
-    static String refill(long at) {
-        java.time.ZonedDateTime local = java.time.Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault());
+    static String refill(long at) { return refill(at, ZoneId.systemDefault()); }
+    static String refill(long at, ZoneId zone) { return clock(at, zone) + "에 다시 채워져요"; }
+    /** "오후 5시", "오전 9시 30분": a moment as people say it, in zone. */
+    static String clock(long at, ZoneId zone) {
+        java.time.ZonedDateTime local = java.time.Instant.ofEpochMilli(at).atZone(zone);
         int hour = local.getHour(), minute = local.getMinute();
-        return (hour < 12 ? "오전 " : "오후 ") + (hour % 12 == 0 ? 12 : hour % 12) + "시" + (minute > 0 ? " " + minute + "분" : "") + "에 다시 채워져요";
+        return (hour < 12 ? "오전 " : "오후 ") + (hour % 12 == 0 ? 12 : hour % 12) + "시" + (minute > 0 ? " " + minute + "분" : "");
     }
     /** One row per company with requests in the last seven days, most requests first. */
     private LinearLayout recent(JSONArray totals) {

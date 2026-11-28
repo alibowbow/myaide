@@ -40,9 +40,10 @@ final class GroqWork {
         JSONArray messages = new JSONArray().put(new JSONObject().put("role", "system").put("content", instructions));
         for (int i = 0; i < turns.length(); i++) messages.put(turns.get(i));
         JSONObject body = new JSONObject().put("model", model).put("temperature", temperature).put("messages", messages);
-        if (reasoning != null && model.startsWith("openai/gpt-oss")) body.put("reasoning_effort", reasoning);
-        // Qwen's thinking: "none" answers at once (퍼레, BuddyTalk.ask).
-        else if (reasoning != null && model.toLowerCase(java.util.Locale.ROOT).contains("qwen")) body.put("reasoning_effort", reasoning);
+        // GPT OSS takes low · medium · high, Qwen none · default ("none" answers at once: 퍼레, BuddyTalk.ask); a model chosen
+        // instead of the caller's (core/SpareQuota) gets the nearest word it takes, the others none.
+        String effort = dev.jun.gyeot.core.SpareQuota.groqEffort(model, reasoning);
+        if (effort != null) body.put("reasoning_effort", effort);
         JSONObject answer = post(model, "chat/completions", "application/json", body.toString().getBytes(StandardCharsets.UTF_8), timeoutMs, cancel);
         JSONArray choices = answer.optJSONArray("choices");
         JSONObject message = choices == null || choices.length() == 0 ? null : choices.optJSONObject(0).optJSONObject("message");
@@ -50,9 +51,11 @@ final class GroqWork {
         if (text.isEmpty()) throw new IllegalStateException("Groq가 빈 답을 보냈어요.");
         JSONObject usage = answer.optJSONObject("usage");
         GeminiQuotas.used(model, usage == null ? 0 : usage.optInt("total_tokens"));
-        USED.set(dev.jun.gyeot.core.Usage.chat(usage));
+        USED.set(dev.jun.gyeot.core.Usage.chat(usage)); SERVED.set(model);
         return text;
     }
+    /** The model this thread's last converse() was answered by (잡일 may go to another than GPT OSS 120B: core/SpareQuota). */
+    static final ThreadLocal<String> SERVED = new ThreadLocal<>();
     /** A streamed answer: its words, and the tools it called ({"name", "arguments"} each, arguments as the model wrote them). */
     record Turn(String text, JSONArray calls) {}
     /**
@@ -87,11 +90,25 @@ final class GroqWork {
             return new Turn(read.text(), read.calls());
         }
     }
-    /** 잡일 on GPT OSS 120B: quick, low reasoning. */
-    static String chores(String instructions, String input) throws Exception {
+    /** 잡일, quick with low reasoning: on GPT OSS 120B, or the Groq model of its tier with the most room (chores(…, LIGHT)). */
+    static String chores(String instructions, String input) throws Exception { return chores(instructions, input, dev.jun.gyeot.core.SpareQuota.Kind.LIGHT); }
+    /**
+     * 잡일 on the Groq model core/SpareQuota picks for kind (LIGHT: GPT OSS 120B while it is near the roomiest of its tier, else
+     * that one; SPARE: only what spare work may take of a day about to start again). A limit Groq names hands a LIGHT one once
+     * to the next pick (the refused model now rests); never a third. SERVED says which model answered.
+     */
+    static String chores(String instructions, String input, dev.jun.gyeot.core.SpareQuota.Kind kind) throws Exception {
         int tokens = (instructions.length() + input.length()) * 2 / 3 + 1500;
-        if (!ready(CHORES, tokens)) throw new IllegalStateException("Groq 무료 한도를 기다리는 중이에요.");
-        return chat(CHORES, instructions, input, "low", 60_000, null);
+        boolean spare = kind == dev.jun.gyeot.core.SpareQuota.Kind.SPARE;
+        String model = spare ? SpareQuotas.spare(tokens) : SpareQuotas.light(tokens);
+        if (model == null || !ready(model, tokens)) throw new IllegalStateException(spare ? "남는 Groq 한도가 없어요." : "Groq 무료 한도를 기다리는 중이에요.");
+        try { return chat(model, instructions, input, "low", 60_000, null); }
+        catch (Exception refused) {
+            if (spare || dev.jun.gyeot.core.Fallback.why(refused) != dev.jun.gyeot.core.Fallback.Why.LIMIT) throw refused;
+            String next = SpareQuotas.lightBut(tokens, model);
+            if (next == null || !ready(next, tokens)) throw refused;
+            return chat(next, instructions, input, "low", 60_000, null);
+        }
     }
     /** A web search question to compound (Groq searches and answers); the answer's text. */
     static String search(String instructions, String query) throws Exception { return search(instructions, query, 45_000, null); }

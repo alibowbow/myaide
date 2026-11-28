@@ -30,15 +30,17 @@ public final class BrainRoutes {
      * The table, as 설정 → 사용량 shows it. TALK: the AI the user chose for 퍼레 (퍼레 두뇌), else Groq's quick model with NVIDIA
      * raced after it (BuddyTalk). WORK: the model chosen there; 메인 대화 hands one request to WORK_FALLBACK's next connected model
      * when the user leaves 막히면 다음 모델로 on, 작업창 hands over as its own team settings say (core/ModelRouting, the user's
-     * 자동 전환), the browser goes on with BrowserAgent.FALLBACK. LIGHT: Groq GPT OSS 120B, then Gemma 4, then Flash-Lite
-     * (Chores: the user's rule about Gemini's free tier). DEVICE: no model.
+     * 자동 전환), the browser goes on with BrowserAgent.FALLBACK (a subscription that reported itself nearly spent after the
+     * others: core/SpareQuota.order). LIGHT: Groq GPT OSS 120B, or the Groq model of its tier with the most room (core/SpareQuota),
+     * then Gemma 4, then Flash-Lite (Chores: the user's rule about Gemini's free tier). TALK's Qwen, when its day is full, hands
+     * the talk to the Groq model of its tier with the most room before NVIDIA. DEVICE: no model.
      */
     public static final List<Route> TABLE = List.of(
-        new Route(Kind.TALK, "퍼레 말·글", List.of(BUDDY), "퍼레 두뇌로 고른 AI → Groq 빠른 모델 · NVIDIA", "같은 대화 안에서 다음 빠른 두뇌로"),
+        new Route(Kind.TALK, "퍼레 말·글", List.of(BUDDY), "퍼레 두뇌로 고른 AI → Groq 빠른 모델 · NVIDIA", "한도가 남은 다른 Groq 모델 → NVIDIA"),
         new Route(Kind.WORK, "메인 대화", List.of(MAIN, VOICE), "메인 대화에서 고른 모델", "연결된 다음 큰 모델로 한 번(Gemini 제외)"),
         new Route(Kind.WORK, "작업창", List.of(WORK, SCHEDULE), "방에서 고른 모델", "팀 설정의 자동 전환(한도)"),
-        new Route(Kind.WORK, "브라우저", List.of(BROWSER), "브라우저 두뇌로 고른 모델", "GPT → Grok → NIM → Claude(한도·서버 오류)"),
-        new Route(Kind.LIGHT, "잡일", List.of(CHORES), "Groq GPT OSS 120B", "Gemma 4 → Gemini Flash-Lite"),
+        new Route(Kind.WORK, "브라우저", List.of(BROWSER), "브라우저 두뇌로 고른 모델", "GPT → Grok → NIM → Claude(한도·서버 오류, 거의 다 쓴 구독은 뒤로)"),
+        new Route(Kind.LIGHT, "잡일", List.of(CHORES), "Groq GPT OSS 120B · 밀리면 한도가 남은 Groq 모델", "Gemma 4 → Gemini Flash-Lite"),
         new Route(Kind.DEVICE, "기기 안", List.of(DEVICE), "모델 없이 휴대폰이 바로(시각·날짜·계산·타이머·손전등·앱 열기·날씨 …)", "없음"));
 
     /** The kind a ledger surface is of; an unknown one is WORK (the user's own chosen model). */

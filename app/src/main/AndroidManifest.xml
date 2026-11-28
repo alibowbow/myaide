@@ -208,6 +208,8 @@
         <!-- 미니앱 알림 (gyeot.notify at a time): only this app's own alarm reaches it, the same way. -->
         <receiver android:name=".PageNotices" android:exported="false" />
         <service android:name=".BriefingJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <!-- 남는 한도로 한 일 (SpareWork): before the free day starts again, while charging on Wi-Fi with the screen off. -->
+        <service android:name=".SpareJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
         <!-- 조건 알림 (사건 트리거): each door is switched on by TriggerWatch only while a trigger of its kind is on. Boot: the places
              watched again after a restart or an update. Bluetooth: a paired device (the car) connecting or going, a protected
              broadcast only Android sends. Place: Android's proximity alert, from this app's own PendingIntent only. -->
