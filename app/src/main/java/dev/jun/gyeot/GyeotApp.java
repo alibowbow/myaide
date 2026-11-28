@@ -17,6 +17,11 @@ public final class GyeotApp extends Application {
     private int startedActivities;
     /** The activity of this app in front now, if any (main thread). */
     private java.lang.ref.WeakReference<Activity> resumed = new java.lang.ref.WeakReference<>(null);
+    /** The phone's light/dark mode changed: the AI 브라우저's pages follow at once (BrowserRuntime.configurationChanged). */
+    @Override public void onConfigurationChanged(android.content.res.Configuration config) {
+        super.onConfigurationChanged(config);
+        BrowserRuntime.configurationChanged(config);
+    }
     @Override public void onCreate() {
         super.onCreate();
         // Gecko also starts Android child processes. They must not restore/cancel the main app's work journal.

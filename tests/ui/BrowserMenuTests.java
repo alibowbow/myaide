@@ -60,7 +60,8 @@ public class BrowserMenuTests {
         ui.addRow(group, ui.listRow(R.drawable.ic_pages, Ui.MUTED, "탭 3개", null, null, () -> {}), true);
         ui.addRow(group, ui.listRow(R.drawable.ic_lock, Ui.MUTED, "새 시크릿 탭", null, null, () -> {}), true);
         ui.addRow(group, ui.listRow(R.drawable.ic_browser, Ui.MUTED, "데스크톱 사이트", null, ui.toggle("", false, on -> {}), () -> {}), true);
-        LinearLayout zoom = ui.row(); zoom.addView(ui.pill("−", 0, false, () -> {})); zoom.addView(ui.pill("100%", 0, false, () -> {})); zoom.addView(ui.pill("+", 0, false, () -> {}));
+        LinearLayout zoom = ui.row();
+        for (String w : new String[]{"−", "100%", "+"}) { TextView b = ui.pill(w, 0, false, () -> {}); b.setMinHeight(ui.dp(30)); b.setMinimumHeight(ui.dp(30)); b.setHeight(ui.dp(30)); zoom.addView(b, new LinearLayout.LayoutParams(-2, ui.dp(30))); }
         ui.addRow(group, ui.listRow(R.drawable.ic_text, Ui.MUTED, "배율", null, zoom, null), true);
         sheet.body.addView(group);
         BrowserPopup.prepare(ui, sheet, false);
@@ -71,7 +72,9 @@ public class BrowserMenuTests {
         assertTrue("a row is 42dp, not 48 " + row.getHeight() / d, row.getHeight() <= Math.round(43 * d));
         TextView title = ((Ui.ListRow) row).parts.title();
         assertEquals("its words 14.5sp", 14.5f, title.getTextSize() / a.getResources().getDisplayMetrics().scaledDensity, .05f);
-        assertTrue("the zoom row no taller than its 34dp buttons need", group.getChildAt(6).getHeight() <= Math.round(43 * d));
+        assertTrue("the zoom row a row too (44dp) " + group.getChildAt(6).getHeight() / d, group.getChildAt(6).getHeight() <= Math.round(45 * d));
+        // A single-line centered word is brought into view before its first drawing (onPreDraw, as on a phone's window).
+        for (int i = 0; i < zoom.getChildCount(); i++) ((TextView) zoom.getChildAt(i)).onPreDraw();
         shot(sheet.panel, "browser_menu_compact");
 
         // On a phone it drops from its button (right edge under it), not across the bottom.

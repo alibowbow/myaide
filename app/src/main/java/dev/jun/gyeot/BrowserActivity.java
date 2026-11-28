@@ -540,7 +540,7 @@ public final class BrowserActivity extends Activity {
         catch (RuntimeException failed) { done.accept(null, null); }
     }
     @Override protected void onStart() { super.onStart(); slideReset(); coverWithShot(); }
-    @Override protected void onResume() { super.onResume(); if (voice != null) voice.attach(); navigationResumed = true; AppNavigator.browserInFront(true); AppNavigator.inFront("browser"); updateAiToolbarState(); engine.attach(this::refresh, prompts); engine.externalAppLink = this::offerYouTube; engine.appLink = this::openAppLink; engine.store.observe(storeObserver); consumeTaskNotification(); consumeOpen(); consumeReview(); consumeQuestion(); acknowledgeNavigation(); }
+    @Override protected void onResume() { super.onResume(); BrowserRuntime.configurationChanged(getResources().getConfiguration()); if (voice != null) voice.attach(); navigationResumed = true; AppNavigator.browserInFront(true); AppNavigator.inFront("browser"); updateAiToolbarState(); engine.attach(this::refresh, prompts); engine.externalAppLink = this::offerYouTube; engine.appLink = this::openAppLink; engine.store.observe(storeObserver); consumeTaskNotification(); consumeOpen(); consumeReview(); consumeQuestion(); acknowledgeNavigation(); }
     @Override protected void onPause() {
         // Left by the phone's home button or a swipe home: the left page shows this screen as it was (keepShot).
         if (homeSide && !leaving && !isFinishing()) keepShot(null);
@@ -1616,16 +1616,18 @@ public final class BrowserActivity extends Activity {
         if (!enabled) { row.setAlpha(0.38f); row.setContentDescription(title + ", 지금은 사용할 수 없음"); }
         return row;
     }
-    /** 배율: − 100% + at the row's end, small (34dp); the menu stays open for a few presses. A word under it only when the zoom could not be applied yet. */
+    /** 배율: − 100% + at the row's end, small (30dp); the menu stays open for a few presses. A word under it only when the zoom could not be applied yet. */
     private View zoomRow(BrowserEngine.Tab tab, Ui.Sheet sheet) {
         LinearLayout buttons = ui.row(); buttons.setGravity(Gravity.CENTER_VERTICAL);
         TextView smaller = ui.pill("−", 0, false, () -> {}), reset = ui.pill("100%", 0, false, () -> {}), larger = ui.pill("+", 0, false, () -> {});
         smaller.setPadding(ui.dp(12), 0, ui.dp(12), 0); larger.setPadding(ui.dp(12), 0, ui.dp(12), 0); reset.setPadding(ui.dp(8), 0, ui.dp(8), 0);
         reset.setMinWidth(ui.dp(52)); reset.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        // 30dp, so the row stays a row (44dp) and not a block of its own.
+        for (TextView b : new TextView[]{smaller, reset, larger}) { b.setMinHeight(ui.dp(30)); b.setMinimumHeight(ui.dp(30)); b.setHeight(ui.dp(30)); }
         smaller.setContentDescription("페이지 배율 10퍼센트 줄이기"); larger.setContentDescription("페이지 배율 10퍼센트 늘리기");
-        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, ui.dp(34)); gap.leftMargin = ui.dp(4);
-        buttons.addView(smaller, new LinearLayout.LayoutParams(-2, ui.dp(34))); buttons.addView(reset, gap); buttons.addView(larger, new LinearLayout.LayoutParams(gap));
-        LinearLayout row = ui.listRow(R.drawable.ic_text, MUTED, "배율", " ", buttons, null);
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-2, ui.dp(30)); gap.leftMargin = ui.dp(4);
+        buttons.addView(smaller, new LinearLayout.LayoutParams(-2, ui.dp(30))); buttons.addView(reset, gap); buttons.addView(larger, new LinearLayout.LayoutParams(gap));
+        LinearLayout row = ui.listRow(R.drawable.ic_text, MUTED, "배율", "적용 대기", buttons, null);
         TextView notice = ((Ui.ListRow) row).parts.subtitle();
         Runnable update = () -> {
             String word = tab.zoomFailed ? "이 페이지는 배율을 바꾸지 못했어요" : tab.appliedZoom != tab.zoomPercent ? "페이지가 열리면 적용돼요" : "";

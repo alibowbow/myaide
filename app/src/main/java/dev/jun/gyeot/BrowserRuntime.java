@@ -26,6 +26,15 @@ final class BrowserRuntime {
         if (instance == null) instance = new BrowserRuntime(context);
         return instance;
     }
+    /**
+     * The phone's light/dark (and other settings) told to Gecko (준: "휴대폰 다크모드를 라이트모드로 전환했는데 웹페이지 다크모드가 바로
+     * 전환이 안돼"): the runtime is made once and kept, so pages went on seeing the theme it was made under (prefers-color-scheme)
+     * until the app was closed. Nothing when the browser has not been opened.
+     */
+    static void configurationChanged(android.content.res.Configuration config) {
+        if (instance == null || config == null || Looper.myLooper() != Looper.getMainLooper()) return;
+        try { instance.runtime.configurationChanged(config); } catch (RuntimeException ignored) { /* the next page load reads it */ }
+    }
     GeckoResult<WebExtension> bridge() {
         if (bridge == null) bridge = runtime.getWebExtensionController().ensureBuiltIn("resource://android/assets/browser/", BrowserEngine.EXTENSION);
         return bridge;
