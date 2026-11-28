@@ -46,7 +46,7 @@ public final class BrowserActivity extends Activity {
     private Bundle pendingDraftState;
     private String renderedResult;
     private ProgressBar progress;
-    private LinearLayout resultBox, pane, conversationBox, resultActions, omniRow, thinkingRow;
+    private LinearLayout resultBox, pane, conversationBox, resultActions, omniRow, thinkingRow, suggestBox;
     private ShimmerText thinkingText; private ImageView thinkingMark; private android.animation.ObjectAnimator thinkingSpin;
     private HorizontalScrollView omniStrip;
     private BrowserTabStrip tabStrip;
@@ -182,6 +182,9 @@ public final class BrowserActivity extends Activity {
         // Under the toolbar while typing: the address bar doubles as the AI's command line.
         omniRow = ui.row(); omniStrip = new HorizontalScrollView(this); omniStrip.setHorizontalScrollBarEnabled(false); omniStrip.setClipToPadding(false);
         omniStrip.setPadding(ui.dp(12), 0, ui.dp(12), ui.dp(6)); omniStrip.addView(omniRow); omniStrip.setVisibility(View.GONE); root.addView(omniStrip, 1, new LinearLayout.LayoutParams(-1, -2));
+        // The address bar's suggestions (준: "Ai브라우저 주소창 자동완성이 안돼"): open tabs, pages seen, bookmarks, Google's.
+        suggestBox = ui.column(); suggestBox.setVisibility(View.GONE); suggestBox.setBackgroundColor(CARD); suggestBox.setPadding(0, 0, 0, ui.dp(4));
+        root.addView(suggestBox, 2, new LinearLayout.LayoutParams(-1, -2));
         updatePaneVisibility();
         installBrowserContent(root);
         homeEdge = new HomeEdge(this, ui, this::toHome); homeEdge.attach(findViewById(android.R.id.content)); fromHome(getIntent());
@@ -327,9 +330,10 @@ public final class BrowserActivity extends Activity {
         address.setOnEditorActionListener((v, action, event) -> { if (action == android.view.inputmethod.EditorInfo.IME_ACTION_GO) { go(); return true; } return false; });
         address.setOnFocusChangeListener((v, focused) -> { if (focused && engine.current != null) { address.setText(engine.current.url); address.selectAll(); } refresh(); renderOmni(); });
         address.addTextChangedListener(new android.text.TextWatcher() {
+            private boolean forward;
             @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
-            @Override public void afterTextChanged(android.text.Editable s) { renderOmni(); }
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { forward = count > before; }
+            @Override public void afterTextChanged(android.text.Editable s) { if (forward) complete(s); renderOmni(); }
         });
         omnibox.addView(address, new LinearLayout.LayoutParams(0, pillHeight(), 1));
         // Address editing is separate from page navigation: this × only clears typed text.
@@ -822,6 +826,7 @@ public final class BrowserActivity extends Activity {
         if (dictation != null) dictation.validateScope();
         updatePageNavigation();
         BrowserEngine.Tab tab = engine.current; if (tab == null || web == null) return;
+        loadHistory(); recordVisit(tab);
         refreshTabStrip();
         if (tabOverviewRefresh != null) tabOverviewRefresh.run();
         if (zoomMenuRefresh != null) zoomMenuRefresh.run();
@@ -1197,6 +1202,136 @@ public final class BrowserActivity extends Activity {
             chip.setContentDescription("최근 요청 " + clipLine(recent.text()) + ", AI에게 맡기기"); omniRow.addView(chip, chipParams());
         }
         omniStrip.setVisibility(omniRow.getChildCount() > 0 ? View.VISIBLE : View.GONE);
+        suggest(editing && !pageAddress ? typedOnly() : "");
+    }
+
+    // ── the address bar's autocomplete (준: "Ai브라우저 주소창 자동완성이 안돼") ──
+    private static dev.jun.gyeot.core.BrowserHistory history;
+    private static final java.util.concurrent.ExecutorService HISTORY_IO = java.util.concurrent.Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "gyeot-browser-history"); t.setDaemon(true); return t; });
+    private static boolean historySaveQueued;
+    private boolean completing; private String recordedUrl = "", recordedTitle = ""; private long suggestTicket;
+    private static java.io.File historyFile(android.content.Context c) { return new java.io.File(c.getFilesDir(), "browser_history.json"); }
+    /** The history, read once per run off the main thread; null until then (no suggestions from it meanwhile). */
+    private void loadHistory() {
+        if (history != null) return;
+        android.content.Context app = getApplicationContext();
+        HISTORY_IO.execute(() -> {
+            if (history != null) return;
+            dev.jun.gyeot.core.BrowserHistory h;
+            try { h = dev.jun.gyeot.core.BrowserHistory.of(new org.json.JSONArray(new String(java.nio.file.Files.readAllBytes(historyFile(app).toPath()), StandardCharsets.UTF_8))); }
+            catch (Exception none) { h = new dev.jun.gyeot.core.BrowserHistory(); }
+            history = h;
+        });
+    }
+    /** The page in front, seen: kept in the history (never a secret tab's), written a moment later off the main thread. */
+    private void recordVisit(BrowserEngine.Tab tab) {
+        dev.jun.gyeot.core.BrowserHistory h = history;
+        if (h == null || tab == null || tab.secret || tab.loading || tab.url == null) return;
+        String title = tab.title == null ? "" : tab.title;
+        if (tab.url.equals(recordedUrl) && title.equals(recordedTitle)) return;
+        boolean same = tab.url.equals(recordedUrl); recordedUrl = tab.url; recordedTitle = title;
+        android.content.Context app = getApplicationContext(); long now = System.currentTimeMillis(); String url = tab.url;
+        HISTORY_IO.execute(() -> {
+            if (same) h.title(url, title); else h.visit(url, title, now);
+            if (historySaveQueued) return; historySaveQueued = true;
+            try { Thread.sleep(1500); } catch (InterruptedException ignored) {}
+            historySaveQueued = false;
+            java.io.File f = historyFile(app), part = new java.io.File(f.getPath() + ".part");
+            try { java.nio.file.Files.write(part.toPath(), h.json().toString().getBytes(StandardCharsets.UTF_8)); if (!part.renameTo(f)) part.delete(); } catch (Exception ignored) {}
+        });
+    }
+    /** What the user typed, without the part autocomplete filled in after the cursor. */
+    private String typedOnly() {
+        android.text.Editable t = address.getText(); int a = address.getSelectionStart(), b = address.getSelectionEnd();
+        String all = t.toString();
+        if (a >= 0 && b == all.length() && a < b) return all.substring(0, a).strip();
+        return all.strip();
+    }
+    /** Fills in the rest of the address the typed start most likely means, selected, so the next letter replaces it. */
+    private void complete(android.text.Editable s) {
+        dev.jun.gyeot.core.BrowserHistory h = history;
+        if (completing || h == null || !address.hasFocus()) return;
+        String typed = s.toString();
+        // Not while the keyboard still composes (Korean), not mid-text, not for words with spaces (a search).
+        if (android.view.inputmethod.BaseInputConnection.getComposingSpanStart(s) != -1 || address.getSelectionEnd() != typed.length() || !typed.matches("[A-Za-z0-9.:/\\-_~%?=&#+@]+")) return;
+        String bare = dev.jun.gyeot.core.BrowserHistory.bare(typed);
+        String fill = h.inline(typed, System.currentTimeMillis());
+        if (fill.isEmpty() || !fill.startsWith(bare) || fill.length() <= bare.length() || bare.isEmpty() || !typed.toLowerCase(java.util.Locale.ROOT).endsWith(bare)) return;
+        completing = true;
+        try { s.append(fill.substring(bare.length())); address.setSelection(typed.length(), s.length()); }
+        finally { completing = false; }
+    }
+    /** The list under the address bar: open tabs, pages seen and bookmarks that match, then Google's suggestions (off the main thread). */
+    private void suggest(String typed) {
+        if (suggestBox == null) return;
+        long ticket = ++suggestTicket;
+        if (typed.isEmpty()) { suggestBox.removeAllViews(); suggestBox.setVisibility(View.GONE); return; }
+        java.util.List<String[]> rows = new java.util.ArrayList<>(); java.util.Set<String> seen = new java.util.HashSet<>();
+        String low = typed.toLowerCase(java.util.Locale.ROOT);
+        for (BrowserEngine.Tab t : engine.tabs) {
+            if (t == engine.current || t.secret || t.url == null) continue;
+            String b = dev.jun.gyeot.core.BrowserHistory.bare(t.url), title = t.title == null ? "" : t.title;
+            if ((b.contains(low) || title.toLowerCase(java.util.Locale.ROOT).contains(low)) && seen.add(b)) rows.add(new String[]{"tab", title.isBlank() ? b : title, t.url, t.id});
+            if (rows.size() >= 2) break;
+        }
+        dev.jun.gyeot.core.BrowserHistory h = history;
+        if (h != null) for (dev.jun.gyeot.core.BrowserHistory.Page p : h.matches(typed, 6, System.currentTimeMillis()))
+            if (seen.add(dev.jun.gyeot.core.BrowserHistory.bare(p.url())) && rows.size() < 5) rows.add(new String[]{"page", p.title().isBlank() ? dev.jun.gyeot.core.BrowserHistory.bare(p.url()) : p.title(), p.url(), ""});
+        for (dev.jun.gyeot.core.BrowserKit.Bookmark b : dev.jun.gyeot.core.BrowserKit.bookmarks(engine.store.settings.getString(BOOKMARKS, ""))) {
+            if (rows.size() >= 6) break;
+            String bb = dev.jun.gyeot.core.BrowserHistory.bare(b.url());
+            if ((bb.contains(low) || b.title().toLowerCase(java.util.Locale.ROOT).contains(low)) && seen.add(bb)) rows.add(new String[]{"mark", b.title().isBlank() ? bb : b.title(), b.url(), ""});
+        }
+        drawSuggestions(rows, java.util.List.of());
+        if (BrowserPrompts.isAddress(typed) && !typed.contains(" ") && typed.contains(".")) return;
+        // Google's suggestions for the words, a moment after typing stops; dropped when newer words came.
+        String q = typed;
+        progressUiHandler.postDelayed(() -> {
+            if (ticket != suggestTicket) return;
+            HISTORY_IO.execute(() -> {
+                java.util.List<String> words = googleSuggestions(q);
+                runOnUiThread(() -> { if (ticket == suggestTicket && !isFinishing()) drawSuggestions(rows, words); });
+            });
+        }, 140);
+    }
+    /** Google's search suggestions for q (its public suggest address, as browsers use it), or none. */
+    private static java.util.List<String> googleSuggestions(String q) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        try {
+            java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL("https://suggestqueries.google.com/complete/search?client=firefox&hl=ko&q=" + URLEncoder.encode(q, StandardCharsets.UTF_8)).openConnection();
+            c.setConnectTimeout(2500); c.setReadTimeout(2500);
+            try (java.io.InputStream in = c.getInputStream()) {
+                JSONArray a = new JSONArray(new String(in.readAllBytes(), StandardCharsets.UTF_8)); JSONArray list = a.optJSONArray(1);
+                for (int i = 0; list != null && i < list.length() && out.size() < 4; i++) { String w = list.optString(i); if (!w.isBlank() && !w.equalsIgnoreCase(q)) out.add(w); }
+            } finally { c.disconnect(); }
+        } catch (Exception none) { /* no suggestions offline */ }
+        return out;
+    }
+    private void drawSuggestions(java.util.List<String[]> rows, java.util.List<String> words) {
+        suggestBox.removeAllViews();
+        for (String[] r : rows) {
+            int icon = "tab".equals(r[0]) ? R.drawable.ic_globe : "mark".equals(r[0]) ? R.drawable.ic_heart : R.drawable.ic_history;
+            String sub = ("tab".equals(r[0]) ? "탭으로 전환 · " : "") + dev.jun.gyeot.core.BrowserHistory.bare(r[2]);
+            suggestBox.addView(suggestionRow(icon, r[1], sub, () -> {
+                hideKeyboard(); address.clearFocus();
+                if ("tab".equals(r[0])) { for (BrowserEngine.Tab t : engine.tabs) if (t.id.equals(r[3])) { saveDraft(); engine.select(t); return; } }
+                try { engine.navigate(r[2]); } catch (Exception e) { toast(e.getMessage()); }
+            }));
+        }
+        for (String w : words) suggestBox.addView(suggestionRow(R.drawable.ic_search, w, "", () -> { address.setText(w); go(); }));
+        suggestBox.setVisibility(suggestBox.getChildCount() > 0 ? View.VISIBLE : View.GONE);
+    }
+    /** One suggestion: its icon, its words (and the address under them), 44dp or two short lines. */
+    private View suggestionRow(int icon, String title, String sub, Runnable open) {
+        LinearLayout row = ui.row(); row.setGravity(Gravity.CENTER_VERTICAL); row.setPadding(ui.dp(16), ui.dp(6), ui.dp(12), ui.dp(6)); row.setMinimumHeight(ui.dp(44));
+        ImageView i = new ImageView(this); i.setImageResource(icon); i.setImageTintList(android.content.res.ColorStateList.valueOf(MUTED));
+        row.addView(i, new LinearLayout.LayoutParams(ui.dp(18), ui.dp(18)));
+        LinearLayout words = ui.column(); words.setPadding(ui.dp(14), 0, 0, 0);
+        TextView t = ui.text(title, 14.5f, 500, TEXT); t.setSingleLine(true); t.setEllipsize(android.text.TextUtils.TruncateAt.END); words.addView(t);
+        if (!sub.isEmpty()) { TextView u = ui.text(sub, 12, 450, MUTED); u.setSingleLine(true); u.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE); words.addView(u); }
+        row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+        row.setContentDescription(title + (sub.isEmpty() ? " 검색" : ", " + sub)); row.setOnClickListener(v -> open.run()); Ui.pressable(row, false);
+        return row;
     }
     private void askFromAddress(String text) { if (text.isBlank()) return; hideKeyboard(); setPaneVisible(true); submit(text, text, true); }
     private static final String ASK_AI = "dev.jun.gyeot.ASK_AI", TRANSLATE_AI = "dev.jun.gyeot.TRANSLATE_AI", EXPLAIN_AI = "dev.jun.gyeot.EXPLAIN_AI";

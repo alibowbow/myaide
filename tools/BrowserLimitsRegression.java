@@ -23,7 +23,32 @@ final class BrowserLimitsRegression {
     private static void same(Object want, Object got, String why) { check(java.util.Objects.equals(want, got), why + ": want <" + want + "> got <" + got + ">"); }
     static final long AT = 1_790_000_000_000L;
 
+    /** 준: "Ai브라우저 주소창 자동완성이 안돼": pages seen fill in the typed start and are listed, the often seen first. */
+    static void history() {
+        long now = 1_800_000_000_000L, day = 86_400_000L;
+        BrowserHistory h = new BrowserHistory();
+        h.visit("https://claude.ai/code", "Claude Code", now - day);
+        h.visit("https://claude.ai/code", "Claude Code", now - day / 2);
+        h.visit("https://claude.ai/code/session_01abc", "올인원 자비스 앱 기능 제안", now - 3600_000);
+        h.visit("https://www.coupang.com/", "쿠팡", now - 2 * day);
+        h.visit("https://classroom.google.com/u/0/h", "Google 클래스룸", now - 30 * day);
+        check("claude.ai".equals(h.inline("cla", now)), "within the site name: the site only, the often seen one: " + h.inline("cla", now));
+        check("claude.ai/code".equals(h.inline("claude.ai/c", now)), "past the site: up to the next part: " + h.inline("claude.ai/c", now));
+        check("coupang.com".equals(h.inline("www.cou", now)) && "coupang.com".equals(h.inline("https://cou", now)), "www. and the scheme are not needed");
+        check(h.inline("cla ude", now).isEmpty() && h.inline("naver", now).isEmpty(), "a search, or nothing seen: nothing filled in");
+        List<BrowserHistory.Page> m = h.matches("cla", 5, now);
+        check(m.size() == 3 && m.get(0).url().startsWith("https://claude.ai/code"), "addresses starting with it first, the often seen first: " + m);
+        check(h.matches("자비스", 5, now).size() == 1, "found by its title");
+        check(h.matches("구글 클래스", 5, now).isEmpty() && h.matches("google 클래스룸", 5, now).size() == 1, "every word somewhere");
+        BrowserHistory back = BrowserHistory.of(h.json());
+        check(back.size() == h.size() && "claude.ai".equals(back.inline("cla", now)), "kept and read back");
+        h.visit("intent://scan#Intent;end", "x", now); h.visit("about:blank", "", now);
+        check(h.size() == 4, "only web pages are kept");
+        System.out.println("Browser history (address bar autocomplete): ok");
+    }
+
     public static void main(String[] args) throws Exception {
+        history();
         endlessScroll();
         newPages();
         gathering();
