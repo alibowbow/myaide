@@ -779,10 +779,27 @@ public class BuddyBrainTests {
         assertTrue(full.contains("22 to 32 pieces of text") && full.contains("exact numbers, names, steps"));
         assertEquals("노멀 by default", normal, dev.jun.gyeot.core.VideoChat.pictures(1));
         String wide = dev.jun.gyeot.core.VideoChat.pictures(1, "landscape", "normal");
-        assertTrue(wide.contains("\"aspect\": \"landscape\"") && wide.contains("aspect is landscape (the shape the user set)") && wide.contains("columns from left to right"));
+        assertTrue(wide.contains("\"aspect\": \"landscape\"") && wide.contains("aspect is landscape (the shape the user set)") && wide.contains("use the width"));
         assertFalse(wide.contains("\"aspect\": \"portrait\""));
         assertTrue(dev.jun.gyeot.core.VideoChat.pictures(1, "16:9", "full").contains("\"aspect\": \"16:9\""));
-        assertTrue(dev.jun.gyeot.core.VideoChat.pictures(1, "square", "brief").contains("lay the sections out in a grid"));
+        assertTrue(dev.jun.gyeot.core.VideoChat.pictures(1, "square", "brief").contains("a grid or a centered layout"));
+        // Colors are never limited, the layout follows the content, and the way to draw turns (준: "색상이나 스타일이 비슷하게 나오는 경향",
+        // "내가 직접 요청해도 비슷한 느낌", "색상을 제한하지 말아줘").
+        for (String d : new String[]{"brief", "normal", "full"}) {
+            String any = dev.jun.gyeot.core.VideoChat.pictures(1, "portrait", d, "a risograph print");
+            assertFalse("no fixed colors: " + d, any.contains("three or four colors") || any.contains("white paper"));
+            assertTrue(any.contains("no fixed palette") && any.contains("not always a title over a row of equal boxes") && any.contains("This time draw it as a risograph print"));
+        }
+        assertFalse("no look, no line", normal.contains("This time draw it as"));
+        java.util.Set<String> comics = new java.util.HashSet<>(), notes = new java.util.HashSet<>(), free = new java.util.HashSet<>();
+        for (int t = 0; t < 8; t++) {
+            comics.add(dev.jun.gyeot.core.VideoChat.look("영상 내용을 4컷 만화로 그려줘", t));
+            notes.add(dev.jun.gyeot.core.VideoChat.look("대본을 요약해서 그래픽 레코딩 스타일로 그려줘", t));
+            free.add(dev.jun.gyeot.core.VideoChat.look("비트코인 형님 한번만 살려주세요 느낌으로 그려줘", t));
+        }
+        assertTrue("each turn another way: " + comics + notes + free, comics.size() == 8 && notes.size() == 8 && free.size() == 8);
+        assertTrue(comics.contains("a Korean webtoon") && notes.contains("chalk notes on a blackboard") && !free.contains("chalk notes on a blackboard"));
+        assertEquals("in turn, then again", dev.jun.gyeot.core.VideoChat.look("인포그래픽으로", 0), dev.jun.gyeot.core.VideoChat.look("인포그래픽으로", 9));
         assertTrue("an unknown shape is 세로", dev.jun.gyeot.core.VideoChat.pictures(1, "banana", "normal").contains("\"aspect\": \"portrait\""));
         String three = dev.jun.gyeot.core.VideoChat.pictures(3, "landscape", "full");
         assertTrue(three.contains("{\"pictures\": [{\"prompt\": \"...\", \"aspect\": \"landscape\"}, ...]} with exactly 3 items") && three.contains("22 to 32 pieces of text"));

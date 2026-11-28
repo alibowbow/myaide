@@ -374,6 +374,10 @@ final class VideoAskPanel {
         boolean picture = !page && !question.summary() && (question.sent().startsWith(DRAW) || VideoChat.asksPicture(question.shown()));
         int count = picture ? pictureCount() : 1;
         String aspect = pictureAspect(), detail = pictureDetail();
+        // A different way to draw each time (VideoChat.look): the turn is kept, so the next picture takes the next one.
+        int turn = picture ? store.settings.getInt("mytubeLookTurn", 0) : 0;
+        if (picture) store.settings.edit().putInt("mytubeLookTurn", turn + 1).apply();
+        String look = picture ? VideoChat.look(question.sent() + " " + question.shown(), turn) : "";
         job.status = question.summary() ? "Gemini가 영상을 보는 중" : page ? "페이지를 만드는 중" : picture ? "그릴 내용을 정리하는 중" : "생각하는 중"; waiting.setText(job.status); draw();
         // On the app's own threads: closing the panel or leaving 마이튜브 does not end it; only 멈추기 does.
         RUN.execute(() -> {
@@ -407,7 +411,7 @@ final class VideoAskPanel {
                 } else if (picture) {
                     // The AI chosen here writes the pictures' prompts from the video, then GPT image draws them one by one.
                     status(v, job, "그릴 내용을 정리하는 중");
-                    String planned = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.pictures(count, aspect, detail), VideoChat.chatInput(v, script, sent) + (count > 1 ? "\n\n그림 " + count + "장으로 그려 주세요." : ""), job.stop, name -> by[0] = name);
+                    String planned = MyTubeClient.askScoped(store, ScopedModels.videoChat(store), VideoChat.pictures(count, aspect, detail, look), VideoChat.chatInput(v, script, sent) + (count > 1 ? "\n\n그림 " + count + "장으로 그려 주세요." : ""), job.stop, name -> by[0] = name);
                     guard.run();
                     List<org.json.JSONObject> plans = new ArrayList<>();
                     int from = planned == null ? -1 : planned.indexOf('{'), to = planned == null ? -1 : planned.lastIndexOf('}');
