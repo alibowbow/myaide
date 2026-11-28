@@ -87,7 +87,15 @@ final class BuddyPrompt {
         return n;
     }
     /** Where in line a tool is written out instead of called (the start of the word it is in), or -1. */
+    /**
+     * A tool's name half in Korean, as the quick model sometimes writes it ("웹_job{request:…}", 퍼레 자동 점검 2026-11-29): its
+     * English name again.
+     */
+    static String english(String text) {
+        return text == null ? null : text.replace("웹_", "web_").replace("폰_", "phone_").replace("워크_", "work_").replace("웹잡", "web_job").replace("폰잡", "phone_job");
+    }
     static int toolWritten(String line) {
+        line = english(line);
         if (line == null || line.isEmpty()) return -1;
         java.util.Set<String> real = names(), joined = bare;
         java.util.regex.Matcher m = WORD.matcher(line);
@@ -161,7 +169,7 @@ final class BuddyPrompt {
     static JSONObject act(String text) {
         if (text == null) return null;
         // The model's own quote token left in ("play{query:<|"|>아이유<|"|>}", 퍼레 자동 점검 2026-11-27) is a quote.
-        String t = text.replaceAll("(?s)<think>.*?</think>", "").replace("<|\"|>", "\"");
+        String t = english(text.replaceAll("(?s)<think>.*?</think>", "").replace("<|\"|>", "\""));
         java.util.regex.Matcher m = BRACES.matcher(t);
         while (m.find()) {
             JSONObject a = loose(m.group()); if (a != null) return a;

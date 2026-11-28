@@ -273,6 +273,8 @@ final class BuddyTools {
         // Any "…ㄹ게" or "…ㄹ 거야" of a thing asked for (퍼레 자동 점검 with NVIDIA's quick model, 2026-11-29: "음악 멈춤시킬게 🎶",
         // "유튜브로 알아서 찾을 거야" and no tool), not only the verbs PROMISE names.
         if (ASKED.matcher(said).find() && willDo(answer)) return true;
+        // Asked back or said it can't, for a thing a tool does ("새 채용 공고 찾을 웹사이트 알려 줘"): the same as the written talk.
+        if (dev.jun.gyeot.core.BuddyChat.asksBack(said, answer)) return true;
         // 하루 타임라인: the past asked about and answered without day_recall (a guess, or "기억이 안 나"): asked again with a tool.
         if (dev.jun.gyeot.core.DayLog.asksPast(said)) return true;
         return ASKED.matcher(said).find() && (PROMISE.matcher(answer).find() || ELSEWHERE.matcher(answer).find());
@@ -335,6 +337,11 @@ final class BuddyTools {
                 String what = tool.equals("navigate") ? act.optString("destination") : tool.equals("open_app") ? act.optString("app") : tool.equals("play") ? act.optString("query") : act.optString("request");
                 return new JSONObject().put("tool", "when_event").put("command", "make").put("when", when).put("then", then.get(tool)).put("what", what.isBlank() ? words.substring(Math.min(words.length(), words.indexOf(when) + when.length())).strip() : what);
             }
+            // Picking with nothing to pick from ("짜장면이랑 짬뽕 중에 골라 줘" → pick with no options): the choices from the words.
+            if (tool.equals("pick") && (act.optJSONArray("options") == null || act.optJSONArray("options").length() < 2)) {
+                java.util.List<String> choices = choices(words);
+                if (choices.size() >= 2) return new JSONObject(act.toString()).put("options", new org.json.JSONArray(choices));
+            }
             if (tool.equals("navigate") && act.optString("mode").isBlank()) {
                 String mode = WALK.matcher(words).find() ? "walk" : BIKE.matcher(words).find() ? "bicycle" : TRANSIT.matcher(words).find() ? "public" : CAR.matcher(words).find() ? "car" : "";
                 if (!mode.isEmpty()) return new JSONObject(act.toString()).put("mode", mode);
@@ -346,6 +353,13 @@ final class BuddyTools {
             }
         } catch (org.json.JSONException broken) { return act; }
         return act;
+    }
+    /** The choices named before "중에 골라 줘" / "정해 줘": split at 이랑, 하고, 아니면, a comma, and a 와/과/나 ending a word. */
+    static java.util.List<String> choices(String words) {
+        String head = words.replaceAll("\\s*(중에서?|중|사이에서|둘\\s*중)?\\s*(에서)?\\s*(하나\\s*)?(만\\s*)?(골라|정해|뽑아|추천해).*$", "").strip();
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String part : head.split("\\s*(?:이랑|랑|하고|아니면|,|/)\\s*|(?<=[가-힣])(?:와|과|이나|나)\\s+")) { String p = part.strip(); if (!p.isEmpty() && p.length() <= 20) out.add(p); }
+        return out;
     }
     /**
      * The thing to do read from the words alone, for when the brain asked twice still only promised or asked back (퍼레 자동 점검

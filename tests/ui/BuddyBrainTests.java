@@ -128,6 +128,14 @@ public class BuddyBrainTests {
         assertNull("nothing plain: nothing made up", BuddyTools.fromWords("심심해"));
         assertNull(BuddyTools.fromWords("어떻게 하면 잘 자?"));
         assertTrue(dev.jun.gyeot.core.BuddyChat.asksBack("집에 도착하면 엄마한테 문자 보내 줘", "알림을 걸어둘게! 무슨 내용으로 보낼까?"));
+        // Picking with nothing to pick from: the choices from the words.
+        assertEquals("[\"짜장면\",\"짬뽕\"]", BuddyTools.refine("짜장면이랑 짬뽕 중에 골라 줘", new JSONObject("{\"tool\":\"pick\"}")).optJSONArray("options").toString());
+        assertEquals("[\"카레\",\"라면\",\"김밥\"]", BuddyTools.refine("카레, 라면, 김밥 중에서 하나 정해 줘", new JSONObject("{\"tool\":\"pick\"}")).optJSONArray("options").toString());
+        assertEquals("[\"산\",\"바다\"]", BuddyTools.refine("산과 바다 중에 골라 줘", new JSONObject("{\"tool\":\"pick\"}")).optJSONArray("options").toString());
+        // A tool's name half in Korean ("웹_job{…}") read as the tool.
+        assertEquals("web_job", BuddyPrompt.act("웹_job{request:\"학교 홈페이지에서 가정통신문 받기\"}").optString("tool"));
+        // The voice talk asked back for a thing a tool does: asked once more.
+        assertTrue(BuddyTools.promised("매일 아침 7시에 새 채용 공고 찾아 줘", "새 채용 공고 찾을 웹사이트 알려 줘 🧐"));
         // The 할일 line said again with the refined act.
         String said = BuddyPrompt.withAct("안내할게!\n할일: {\"tool\":\"navigate\",\"destination\":\"강남역\"}", walk);
         assertEquals("walk", BuddyPrompt.act(said).optString("mode"));
