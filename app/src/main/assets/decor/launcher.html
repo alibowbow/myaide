@@ -732,7 +732,10 @@ function launch(id, from) {
   if (from && from.classList.contains("dk")) { from.classList.remove("hop"); void from.offsetWidth; from.classList.add("hop"); }
   if (B) B.launch(id, r.left, r.top, r.width, r.height);
   // Which kind of app, for 퍼레's word when the user comes back (talk.js "app:…").
-  window.boardLastApp = (BY.get(id) || {}).stack || "";
+  // 내 휴대폰 holds the camera and the gallery with the phone's own apps: 퍼레's photo words only for the camera and the gallery.
+  { const a = BY.get(id) || {}; let kind = a.stack || "";
+    if (kind === "photo" && !/camera|gallery|photo|snow|b612|foodie|lightroom|picsart|vsco|capcut|카메라|갤러리|사진/i.test((a.pkg || "") + " " + (a.label || ""))) kind = "tools";
+    window.boardLastApp = kind; }
   RECENT = [id].concat(RECENT.filter(x => x !== id)).slice(0, 6);
   setTimeout(() => { closeFan(); closePad(); drawDock(); }, 350);
 }

@@ -425,7 +425,7 @@ public final class HomeActivity extends Activity {
         for (LauncherActivityInfo info : all) {
             String id = id(info, users); known.put(id, info);
             ApplicationInfo app = info.getApplicationInfo(); String pkg = app.packageName, label = String.valueOf(info.getLabel());
-            String stack = moved.optString(id, "");
+            String stack = AppStacks.current(moved.optString(id, ""));
             if (stack.isEmpty()) stack = AppStacks.of(pkg, label, app.category, (app.flags & ApplicationInfo.FLAG_IS_GAME) != 0, (app.flags & ApplicationInfo.FLAG_SYSTEM) != 0);
             long version = 0; try { version = getPackageManager().getPackageInfo(pkg, 0).lastUpdateTime; } catch (Exception ignored) {}
             list.put(Jsons.obj("id", id, "label", label, "pkg", pkg, "stack", stack, "v", version));

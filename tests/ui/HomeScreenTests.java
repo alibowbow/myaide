@@ -40,7 +40,18 @@ public class HomeScreenTests {
         assertEquals("photo", of("com.peace.SilentCamera", "무음 카메라"));
         assertEquals("web", of("com.android.chrome", "Chrome"));
         assertEquals("web", of("com.nhn.android.search", "NAVER"));
-        assertEquals("tools", of("com.sec.android.app.clockpackage", "시계"));
+        // 내 휴대폰 (준: "사진 카메라 분류는 안에 몇개 안 들어가", "전화 메세지나 내파일탐색기도 같이 넣자", "내 휴대폰 기본앱들을 넣는거야"):
+        // the camera and gallery with the phone's own everyday apps (what 도구 held), and a move to 도구 kept before lands there.
+        assertEquals("photo", of("com.sec.android.app.clockpackage", "시계"));
+        assertEquals("photo", of("com.samsung.android.dialer", "전화"));
+        assertEquals("photo", of("com.samsung.android.messaging", "메시지"));
+        assertEquals("photo", of("com.sec.android.app.myfiles", "내 파일"));
+        assertEquals("photo", of("com.samsung.android.app.contacts", "연락처"));
+        assertEquals("photo", AppStacks.of("com.samsung.android.bixby.agent", "Bixby", -1, false, true));
+        assertEquals("내 휴대폰", AppStacks.stack("photo").name());
+        assertEquals("a move to 도구 before", "photo", AppStacks.stack("tools").id());
+        assertTrue("no 도구 folder", AppStacks.STACKS.stream().noneMatch(st -> st.id().equals("tools")));
+        assertEquals("work", of("com.notion.id", "Notion"));
         assertEquals("google", of("com.google.android.apps.docs", "Drive"));
         assertEquals("no short word inside another", "etc", of("com.example.workflow", "Workflow"));
         assertEquals("game", AppStacks.of("com.example.puzzle", "Puzzle", AppStacks.GAME, false, false));

@@ -17,9 +17,15 @@ public final class AppStacks {
     public static final List<Stack> STACKS = List.of(
         new Stack("money", "금융·투자", "#2dbe60"), new Stack("chat", "메신저·SNS", "#ffcd00"), new Stack("ai", "AI", "#7c5cff"),
         new Stack("map", "지도·이동", "#12b5a6"), new Stack("shop", "쇼핑·배달", "#ff6b4a"), new Stack("media", "영상·음악", "#ff3b5c"),
-        new Stack("photo", "사진·카메라", "#ff9f0a"), new Stack("google", "구글", "#4285f4"), new Stack("web", "웹·검색", "#3182f6"),
-        new Stack("work", "업무", "#5e5ce6"), new Stack("game", "게임", "#af52de"), new Stack("tools", "도구", "#8e8e93"), new Stack("etc", "기타", "#a2845e"));
-    public static Stack stack(String id) { for (Stack s : STACKS) if (s.id().equals(id)) return s; return STACKS.get(STACKS.size() - 1); }
+        new Stack("photo", "내 휴대폰", "#ff9f0a"), new Stack("google", "구글", "#4285f4"), new Stack("web", "웹·검색", "#3182f6"),
+        new Stack("work", "업무", "#5e5ce6"), new Stack("game", "게임", "#af52de"), new Stack("etc", "기타", "#a2845e"));
+    public static Stack stack(String id) { String now = current(id); for (Stack s : STACKS) if (s.id().equals(now)) return s; return STACKS.get(STACKS.size() - 1); }
+    /**
+     * A stack id as it is now: 도구 became part of 내 휴대폰 (준: "사진 카메라 분류는 안에 몇개 안 들어가", "전화 메세지나 내파일탐색기도
+     * 같이 넣자", "내 휴대폰 기본앱들을 넣는거야"), so an app the user moved to 도구 is in 내 휴대폰. The id stays "photo" so moves kept
+     * before still land there.
+     */
+    public static String current(String id) { return "tools".equals(id) ? "photo" : id == null ? "" : id; }
 
     // Android's ApplicationInfo categories (the numbers, so this stays pure Java).
     public static final int GAME = 0, AUDIO = 1, VIDEO = 2, IMAGE = 3, SOCIAL = 4, NEWS = 5, MAPS = 6, PRODUCTIVITY = 7;
@@ -40,10 +46,12 @@ public final class AppStacks {
         new Rule("web", new String[]{"chrome", "browser", "sbrowser", "com.nhn.android.search", "daum", "firefox", "opera", "msedge", "whale", "브라우저", "인터넷", "naver"}),
         new Rule("work", new String[]{"notion", "office", "teams", "zoom", "dropbox", "evernote", "onenote", "todoist", "outlook", "mail", "hwp", "pdf", "scanner", "메일", "문서", "오피스"}),
         new Rule("google", new String[]{"com.google.", "google"}),
-        new Rule("tools", new String[]{"clock", "calculator", "settings", "myfiles", "files", "voicenote", "recorder", "notes", "memo", "contacts", "dialer", "messaging", "calendar", "weather", "members", "galaxyapps", "vending", "health", "smartthings", "wearable", "fmm", "find",
+        // The phone's own everyday apps (what 도구 held) go to 내 휴대폰 too, checked last as 도구 was (Notion, GoodNotes … stay put).
+        new Rule("photo", new String[]{"clock", "calculator", "settings", "myfiles", "files", "voicenote", "recorder", "notes", "memo", "contacts", "dialer", "messaging", "calendar", "weather", "members", "galaxyapps", "vending", "health", "smartthings", "wearable", "fmm", "find",
             "시계", "계산기", "설정", "파일", "녹음", "메모", "노트", "전화", "연락처", "메시지", "캘린더", "날씨", "헬스", "스토어"}));
 
-    /** The stack an app belongs to: its own words first, then Android's category, then 도구 for the phone's own apps. */
+
+    /** The stack an app belongs to: its own words first, then Android's category, then 내 휴대폰 for the phone's own apps. */
     public static String of(String pkg, String label, int category, boolean game, boolean system) {
         String p = pkg == null ? "" : pkg.toLowerCase(Locale.ROOT), l = label == null ? "" : " " + label.toLowerCase(Locale.ROOT);
         if (game || category == GAME) return "game";
@@ -60,7 +68,7 @@ public final class AppStacks {
             case MAPS: return "map";
             case PRODUCTIVITY: return "work";
             case NEWS: return "web";
-            default: return system ? "tools" : "etc";
+            default: return system ? "photo" : "etc";
         }
     }
     private static boolean part(String text, String word) {
