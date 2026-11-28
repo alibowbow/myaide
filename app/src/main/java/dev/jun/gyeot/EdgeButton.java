@@ -26,7 +26,7 @@ import java.util.List;
 
 /**
  * Optional "들퍼레" handle on the screen edge, drawn by the accessibility service so nothing has to keep running or listening.
- * Swiping it into the screen (or a tap) starts voice through QuickVoiceActivity at once; a drag along the edge moves it; a
+ * Pulling it PULL dp into the screen starts voice through QuickVoiceActivity at once (a tap only nudges it); a drag along the edge moves it; a
  * long press offers 열기 · 반대쪽으로 · 잠깐 숨기기 · 버튼 끄기. It hides during voice, phone control and on the lock screen. It never reads the screen.
  *
  * It sits just below Samsung's own Edge panel handle, on its side (준: "손잡이 위치를 기존 삼성엣지 아래로 해줘"), and follows it
@@ -49,6 +49,8 @@ final class EdgeButton implements AutoCloseable {
     private final float density;
     private final int width, height, slop, swipe;
     private final Runnable longPress = this::longPress, closeMenu = this::hideMenu;
+    /** How far it is pulled into the screen before it calls (dp): twice what it was, so a brush against the edge does nothing. */
+    static final int PULL = 72;
     private LinearLayout menu;
     private boolean attached, moved, pressed, hidden, swiped;
     /** Samsung's Edge handle as last seen (null: none), and when the windows were last looked at. */
@@ -67,7 +69,7 @@ final class EdgeButton implements AutoCloseable {
         density = context.getResources().getDisplayMetrics().density;
         // A generous touch strip around a slim pill; a short swipe inward is enough to call.
         // A short handle (60dp drawn in a 76dp strip); a pull of 36dp calls, and the strip widens while it is pulled.
-        width = dp(28); height = dp(76); slop = ViewConfiguration.get(context).getScaledTouchSlop(); swipe = dp(36);
+        width = dp(28); height = dp(76); slop = ViewConfiguration.get(context).getScaledTouchSlop(); swipe = dp(PULL);
         params = new WindowManager.LayoutParams(width, height, WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN, PixelFormat.TRANSLUCENT);
         view = new EdgeHandleView(context, HANDLE);
@@ -202,7 +204,8 @@ final class EdgeButton implements AutoCloseable {
                 // Let go before it called: the strand springs back.
                 if (!swiped && view.pull() > 0) { view.release(() -> widen(false)); return true; }
                 if (moved) store.settings.edit().putInt("edgeY", params.y).putBoolean(BY_USER, true).apply();
-                else if (!pressed && !swiped) talk();
+                // A tap only nudges it (준: "살짝 건드려도 실행이 되어버려 좀 더 많이 당겨야 실행되게 해줘"): it calls when pulled PULL dp in.
+                else if (!pressed && !swiped) { view.pull(dp(10), event.getRawY() - screenY()); view.release(() -> widen(false)); }
             }
             case MotionEvent.ACTION_CANCEL -> { main.removeCallbacks(longPress); view.release(() -> widen(false)); }
             default -> {}

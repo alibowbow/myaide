@@ -3965,16 +3965,16 @@ public final class MainActivity extends Activity {
         }
         if (on) {
             add(ui.sectionHeader("앱이 Groq에 맡기는 일 · 오늘"), 0);
-            String[] work = {GroqWork.CHORES, GroqWork.SEARCH, GroqWork.WHISPER}, what = {"잡일 · 요약·정리·제안·돌아보기 (항상 먼저)", "웹 검색 · 음성 비서의 검색", "받아쓰기 · 녹음·첨부 음성"};
+            String[] work = {GroqWork.CHORES, BuddyTalk.qwen(store), GroqWork.SEARCH, GroqWork.WHISPER}, what = {"잡일 · 요약·정리·제안·돌아보기 (항상 먼저)", "퍼레 두뇌 · 홈 화면 대화", "웹 검색 · 음성 비서의 검색", "받아쓰기 · 녹음·첨부 음성"};
             LinearLayout uses = ui.group(); long now = System.currentTimeMillis();
             java.util.List<dev.jun.gyeot.core.GeminiQuota.Row> rows = dev.jun.gyeot.core.GeminiQuota.rows(store.geminiQuota(), work, now);
             for (int i = 0; i < work.length; i++) {
                 dev.jun.gyeot.core.GeminiQuota.Row row = rows.get(i);
-                ui.addRow(uses, ui.listRow(0, 0, what[i], row.label() + " · 오늘 " + row.uses() + (row.perDay() > 0 ? " / " + row.perDay() : "") + "회" + (row.status().isEmpty() ? "" : " · " + row.status()), null, null), i < work.length - 1);
+                ui.addRow(uses, ui.listRow(0, 0, what[i], row.label() + " · 오늘 " + row.uses() + (row.perDay() > 0 ? " / " + row.perDay() : "") + "회" + (row.tokensPerDay() > 0 ? " · 토큰 " + dev.jun.gyeot.core.Usage.tokens(row.tokens()) + " / " + dev.jun.gyeot.core.Usage.tokens(row.tokensPerDay()) : "") + (row.status().isEmpty() ? "" : " · " + row.status()), null, null), i < work.length - 1);
             }
             add(uses, 0);
         }
-        add(ui.footer("Groq는 모델마다 매일 무료 한도를 줘요(console.groq.com → Limits). 키는 이 기기에만 암호화해 두고 Groq에만 보내요."), 16);
+        add(ui.footer("Groq는 모델마다 하루 요청 횟수와 하루 토큰을 따로 세요(console.groq.com → Limits). 퍼레 대화는 한 번에 긴 글을 보내서 토큰이 먼저 찰 수 있어요. 키는 이 기기에만 암호화해 두고 Groq에만 보내요."), 16);
     }
     /**
      * 타입캐스트: the voice of 퍼레 on the home screen (held 퍼레 talks with it, BuddyVoice). The key, 퍼레's voice chosen from the

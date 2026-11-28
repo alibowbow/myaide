@@ -67,8 +67,8 @@ public class BuddyBrainTests {
         for (String ai : new String[]{"ChatGPT", "Claude", "Gemini", "Grok", "NVIDIA", "Antigravity", "Groq"}) assertNotNull(ai + " listed", text(m, ai));
         shot(m, "buddy_brain_menu");
         // An AI's models, one row each.
-        var models = DecorActivity.class.getDeclaredMethod("brainModels", String.class); models.setAccessible(true);
-        models.invoke(a, dev.jun.gyeot.core.WorkBook.GROQ); shadowOf(Looper.getMainLooper()).idle();
+        var models = BrainPicker.class.getDeclaredMethod("models", Activity.class, Ui.class, Runnable.class, String.class); models.setAccessible(true);
+        models.invoke(null, a, new Ui(a), (Runnable) () -> {}, dev.jun.gyeot.core.WorkBook.GROQ); shadowOf(Looper.getMainLooper()).idle();
         Dialog list = ShadowDialog.getLatestDialog(); assertNotSame(menu, list);
         View l = list.getWindow().getDecorView();
         assertNotNull("the count", text(l, "모델 4개"));
@@ -1315,8 +1315,8 @@ public class BuddyBrainTests {
         app.store().settings.edit().putString("agyEfforts", "[\"high\",\"xhigh\",\"medium\",\"low\"]").commit();
         Activity a = Robolectric.buildActivity(DecorActivity.class).setup().get();
         shadowOf(Looper.getMainLooper()).idle();
-        var depth = DecorActivity.class.getDeclaredMethod("brainDepth", String.class, String.class); depth.setAccessible(true);
-        depth.invoke(a, dev.jun.gyeot.core.WorkBook.ANTIGRAVITY, "agy-test-model"); shadowOf(Looper.getMainLooper()).idle();
+        var depth = BrainPicker.class.getDeclaredMethod("depth", Activity.class, Ui.class, Runnable.class, String.class, String.class); depth.setAccessible(true);
+        depth.invoke(null, a, new Ui(a), (Runnable) () -> {}, dev.jun.gyeot.core.WorkBook.ANTIGRAVITY, "agy-test-model"); shadowOf(Looper.getMainLooper()).idle();
         View d = ShadowDialog.getLatestDialog().getWindow().getDecorView();
         java.util.List<String> words = new java.util.ArrayList<>();
         java.util.function.Consumer<View> walk = new java.util.function.Consumer<>() { public void accept(View v) { if (v instanceof TextView t) words.add(t.getText().toString()); if (v instanceof ViewGroup g) for (int i = 0; i < g.getChildCount(); i++) accept(g.getChildAt(i)); } };

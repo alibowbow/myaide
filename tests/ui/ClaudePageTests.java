@@ -35,11 +35,10 @@ import static org.junit.Assert.*;
 import static org.robolectric.Shadows.shadowOf;
 
 /**
- * 들퍼레 홈 화면's left page as Claude Code (준: "홈화면 왼쪽 페이지 자체를 내 ai브라우저로 https://claude.ai/code 이페이지를 띄울 수
- * 있어?", "왼쪽 페이지는 하단 독 없애고"): the AI 브라우저's page over the launcher's first page (a stand-in here, Robolectric has no
- * Gecko), nothing made before it first shows, moved with the reported swipe, in use only when settled on, kept next door,
- * closed two pages away and when the home screen stops; the dock's room is its, the dots' strip and the bars are not; back is
- * the site's then 홈; the right edge hands its swipe to the home page; 화면 꾸미기 turns it off and on in one compact row.
+ * 들퍼레 홈 화면's left page as Claude Code (준: "내 들퍼레 ai 브라우저가 안 뜨고 클로드 페이지만 떠", "일단 1번으로 가자", "뒤로가기로
+ * 홈페이지 돌아가는 건 넣지마, 홈버튼이나 우측 스와이프로"): a swipe come to rest on the left page opens the AI 브라우저 itself at
+ * claude.ai/code (once, not when the home screen merely starts there or Launchpad covers it, not when turned off); in the browser
+ * a swipe in from the right edge goes 홈 and nothing else there is taken; 화면 꾸미기 turns it off and on in one compact row.
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk=35, application=GyeotApp.class)
@@ -79,148 +78,106 @@ public class ClaudePageTests {
         idle(); layout(a);
     }
 
-    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void leftPageFollowsTheSwipeAndRests() throws Exception {
-        ActivityController<HomeActivity> run = Robolectric.buildActivity(HomeActivity.class).setup();
-        HomeActivity a = run.get(); idle(); layout(a);
-        ClaudePage claude = (ClaudePage) field(a, "claude");
-        float d = a.getResources().getDisplayMetrics().density; int w = a.getWindow().getDecorView().getWidth();
-        bars(a, Math.round(28 * d), Math.round(16 * d));
-        // Nothing at boot: no page made or loaded while 홈 is shown.
-        assertEquals("nothing made before the page shows", View.GONE, claude.host.getVisibility());
-        assertFalse(claude.open()); assertEquals(0, claude.loads);
-        page(a, "left", "[1,true,false]");
-        assertFalse("홈 settled: still nothing", claude.open());
+    /** The browser the home screen started last (null when none), and its extras. */
+    private static android.content.Intent started(HomeActivity a) { return shadowOf(a).getNextStartedActivity(); }
 
-        // Half swiped in: made and loaded once, drawn half over the screen, not yet in use.
-        page(a, "left", "[0.5,false,false]");
-        assertTrue(claude.open()); assertEquals(1, claude.loads);
-        assertEquals(View.VISIBLE, claude.host.getVisibility());
-        assertEquals("moves with the page", -0.5f * w, claude.host.getTranslationX(), 2f);
-        assertFalse("not in use mid-swipe", claude.here());
-        assertEquals("no edge strip mid-swipe", View.GONE, claude.edge.getVisibility());
-        assertEquals("at claude.ai/code", "https://claude.ai/code", claude.url());
-        shot(a, "claude-left-half");
-
-        // Settled on it: in place and in use; the bars are kept, the dock's room is the page's (only the dots' strip under it).
-        page(a, "left", "[0,true,false]");
-        assertTrue(claude.here()); assertEquals(0f, claude.host.getTranslationX(), 0.5f);
-        View content = claude.host.getChildAt(0);
-        int[] at = new int[2]; content.getLocationInWindow(at);
-        assertEquals("starts under the status bar", 28, dp(a, at[1]), 1);
-        float under = dp(a, a.getWindow().getDecorView().getHeight() - at[1] - content.getHeight());
-        assertEquals("ends over the dots' strip and the system bar, no dock room", 16 + ClaudePage.DOTS, under, 1);
-        assertEquals("the right edge's strip is there", View.VISIBLE, claude.edge.getVisibility());
-        assertTrue("a thin strip", dp(a, claude.edge.getWidth()) <= 12.5f);
-        assertEquals("at the right edge", w, claude.edge.getRight());
-        shot(a, "claude-left-shown");
-
-        // 홈 next door: kept, not drawn; back again at once, not loaded again.
-        assertTrue(claude.active());
-        page(a, "left", "[1,true,false]");
-        assertEquals("off the screen's left edge", -w, claude.host.getTranslationX(), 0.5f);
-        assertTrue("kept next door", claude.open()); assertFalse("not drawing", claude.active()); assertFalse(claude.here());
-        assertEquals(View.GONE, claude.edge.getVisibility());
-        int[] off = new int[2]; claude.host.getLocationOnScreen(off);
-        assertTrue("untouchable there: wholly off the screen", off[0] + claude.host.getWidth() <= 0);
-        page(a, "left", "[0,true,false]");
-        assertEquals("not loaded again", 1, claude.loads);
-        // Two pages away (LP): closed; coming back opens it again.
-        page(a, "left", "[2,true,false]");
-        assertFalse("closed two pages away", claude.open());
-        page(a, "left", "[0,true,false]");
-        assertTrue(claude.open()); assertEquals(2, claude.loads);
-        // Launchpad over the pages: the page steps aside, takes no back.
-        page(a, "left", "[0,true,true]");
-        assertEquals(View.INVISIBLE, claude.host.getVisibility()); assertFalse(claude.here());
-        page(a, "left", "[0,true,false]");
-        assertTrue(claude.here());
-
-        // The home screen stops: closed. Started again on the left page: opened again where it was.
-        run.pause().stop(); idle();
-        assertFalse("closed when the home screen stops", claude.open());
-        run.restart().resume(); idle(); layout(a);
-        assertTrue("opened again on return", claude.open()); assertEquals(3, claude.loads);
-        // Memory low: kept while in use, closed when not.
-        claude.trim(ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW); assertTrue(claude.open());
-        page(a, "left", "[1,true,false]");
-        claude.trim(ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW); assertFalse(claude.open());
-    }
-
-    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void backIsTheSitesThenHome() throws Exception {
-        HomeActivity a = Robolectric.buildActivity(HomeActivity.class).setup().get(); idle(); layout(a);
-        ClaudePage claude = (ClaudePage) field(a, "claude");
-        WebView web = (WebView) field(a, "web");
-        page(a, "left", "[0,true,false]");
-        claude.standInHistory(true);
-        a.onBackPressed(); idle();
-        assertEquals("the site's own back first", 1, claude.backs);
-        claude.standInHistory(false);
-        a.onBackPressed(); idle();
-        assertEquals(1, claude.backs);
-        assertEquals("then to 홈", "launcher.goPage(\"홈\")", shadowOf(web).getLastEvaluatedJavascript());
-        assertFalse("a home screen never closes", a.isFinishing());
-        // On 홈, back is the launcher's again (closing what is open there), once the page is up.
-        java.lang.reflect.Field ready = HomeActivity.class.getDeclaredField("ready"); ready.setAccessible(true); ready.setBoolean(a, true);
-        page(a, "left", "[1,true,false]");
-        a.onBackPressed(); idle();
-        assertEquals("launcher.back()", shadowOf(web).getLastEvaluatedJavascript());
-    }
-
-    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void rightEdgeHandsItsSwipeToTheHomePage() throws Exception {
-        HomeActivity a = Robolectric.buildActivity(HomeActivity.class).setup().get(); idle(); layout(a);
-        ClaudePage claude = (ClaudePage) field(a, "claude");
-        page(a, "left", "[0,true,false]");
-        List<float[]> heard = new ArrayList<>();
-        claude.handTo = e -> heard.add(new float[]{e.getActionMasked(), e.getX(), e.getY()});
-        View edge = claude.edge; long t = SystemClock.uptimeMillis();
-        float x = edge.getWidth() / 2f, y = edge.getHeight() / 2f;
-        edge.dispatchTouchEvent(MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0));
-        edge.dispatchTouchEvent(MotionEvent.obtain(t, t + 16, MotionEvent.ACTION_MOVE, x - 120, y, 0));
-        // The page turns under the finger: the strip stays until the finger is up.
-        page(a, "left", "[0.3,false,false]");
-        assertEquals("kept while the finger is down", View.VISIBLE, edge.getVisibility());
-        edge.dispatchTouchEvent(MotionEvent.obtain(t, t + 32, MotionEvent.ACTION_UP, x - 240, y, 0));
-        assertEquals(3, heard.size());
-        assertEquals(MotionEvent.ACTION_DOWN, (int) heard.get(0)[0]);
-        assertEquals("in the home page's place", edge.getLeft() + x, heard.get(0)[1], 0.5f);
-        assertEquals(edge.getTop() + y, heard.get(0)[2], 0.5f);
-        assertEquals(edge.getLeft() + x - 240, heard.get(2)[1], 0.5f);
-        assertEquals("gone once the finger is up mid-swipe", View.GONE, edge.getVisibility());
-    }
-
-    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void turnedOffItIsNeverMade() throws Exception {
+    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void restingOnTheLeftPageOpensTheBrowser() throws Exception {
         Application app = RuntimeEnvironment.getApplication();
-        app.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).edit().putBoolean(ClaudePage.ON, false).commit();
+        app.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).edit().putBoolean(ClaudePage.ON, true).commit();
         HomeActivity a = Robolectric.buildActivity(HomeActivity.class).setup().get(); idle(); layout(a);
-        ClaudePage claude = (ClaudePage) field(a, "claude");
+        while (started(a) != null) { /* what the home screen started on its own while coming up */ }
+        // On 홈, and a home screen that merely starts on the left page (drawn again): nothing opens.
+        page(a, "left", "[1,true,false]");
         page(a, "left", "[0,true,false]");
-        assertFalse(claude.open()); assertEquals(View.GONE, claude.host.getVisibility()); assertFalse(claude.here());
-        // Turned on from 화면 꾸미기 while the left page is shown: made then.
-        app.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).edit().putBoolean(ClaudePage.ON, true).commit(); idle();
-        assertTrue(claude.open()); assertTrue(claude.here());
+        assertNull("no swipe came before: nothing opens", started(a));
+        // A swipe that comes to rest on it: the AI 브라우저 at claude.ai/code, from the home screen.
+        page(a, "left", "[0.5,false,false]");
+        assertNull("mid-swipe: not yet", started(a));
+        page(a, "left", "[0,true,false]");
+        android.content.Intent open = started(a);
+        assertNotNull("rested on the left page: the browser", open);
+        assertEquals(BrowserActivity.class.getName(), open.getComponent().getClassName());
+        assertEquals("https://claude.ai/code", open.getStringExtra(BrowserActivity.OPEN));
+        assertTrue("from the home screen (its ways back to 홈)", open.getBooleanExtra(BrowserActivity.HOME_SIDE, false));
+        // A bounce right after: not twice.
+        page(a, "left", "[0.4,false,false]"); page(a, "left", "[0,true,false]");
+        assertNull("not twice in a moment", started(a));
+        // Later, Launchpad over it: nothing; uncovered after a swipe: again.
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(2));
+        page(a, "left", "[0.5,false,true]"); page(a, "left", "[0,true,true]");
+        assertNull("covered: nothing", started(a));
+        page(a, "left", "[0.5,false,false]"); page(a, "left", "[0,true,false]");
+        assertNotNull("again later", started(a));
+        // Turned off in 화면 꾸미기: 오늘 is there, nothing opens.
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(2));
         app.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).edit().putBoolean(ClaudePage.ON, false).commit(); idle();
-        assertFalse("off again: closed", claude.open());
+        page(a, "left", "[0.5,false,false]"); page(a, "left", "[0,true,false]");
+        assertNull("off: nothing opens", started(a));
+        app.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).edit().putBoolean(ClaudePage.ON, true).commit(); idle();
     }
 
-    /** Links: claude.ai and its sign-ins stay; other sites (a tap) go to the AI 브라우저; a sign-in's own redirects stay. */
-    @Test public void linksStayOrGoToTheBrowser() {
-        assertTrue(ClaudePage.stays("https://claude.ai/code/session_01abc", "https://claude.ai/code", true, false));
-        assertTrue(ClaudePage.stays("https://claude.ai/login", "", false, true));
-        assertTrue("Google sign-in", ClaudePage.stays("https://accounts.google.com/o/oauth2/v2/auth?client_id=x", "https://claude.ai/login", true, false));
-        assertTrue("GitHub sign-in for Claude Code", ClaudePage.stays("https://github.com/login/oauth/authorize?client_id=x", "https://claude.ai/code", true, false));
-        assertTrue("GitHub app install", ClaudePage.stays("https://github.com/apps/claude/installations/new", "https://claude.ai/code", true, false));
-        assertFalse("a repository link goes to the AI 브라우저", ClaudePage.stays("https://github.com/anthropics/claude-code", "https://claude.ai/code", true, false));
-        assertFalse("another site, tapped", ClaudePage.stays("https://docs.anthropic.com/en/docs", "https://claude.ai/code", true, false));
-        assertTrue("Anthropic's own address as a redirect", ClaudePage.stays("https://claude.com/login", "https://claude.ai/login", false, true));
-        assertTrue("a sign-in's step back to its site", ClaudePage.stays("https://auth.example.com/callback", "https://accounts.google.com/signin", false, true));
-        assertFalse("but a link tapped on the sign-in page", ClaudePage.stays("https://policies.google.com/privacy", "https://claude.ai/login", true, false));
-        assertTrue(ClaudePage.stays("about:blank", "", false, false));
-        assertTrue("claude.ai's own file", ClaudePage.stays("blob:https://claude.ai/1234", "", true, false));
-        assertFalse(ClaudePage.stays("blob:https://example.com/1234", "", true, false));
-        assertFalse(ClaudePage.stays("javascript:alert(1)", "", true, false));
-        assertFalse("not claude.ai by its name alone", ClaudePage.stays("https://claude.ai.example.com/", "", true, false));
-        assertFalse(ClaudePage.stays("intent://x#Intent;end", "", true, false));
-        assertTrue(ClaudePage.inside("https://claude.ai/code")); assertFalse(ClaudePage.inside("http://claude.ai/code"));
+    @Test public void onlyASwipeComeToRestOpensIt() {
+        ClaudePage.Swipe s = new ClaudePage.Swipe();
+        assertFalse("starting there", s.opens(0, true, false));
+        assertFalse(s.opens(0.7f, false, false)); assertFalse(s.opens(0.2f, false, false));
+        assertTrue("came to rest on it", s.opens(0, true, false));
+        assertFalse("once", s.opens(0, true, false));
+        assertFalse(s.opens(0.5f, false, false)); assertFalse("rested on 홈", s.opens(1, true, false));
+        assertFalse("then starting there again", s.opens(0, true, false));
+        assertFalse(s.opens(0.5f, false, false)); assertFalse("covered", s.opens(0, true, true));
+        assertFalse("a swipe toward the right pages", s.opens(1.5f, false, false) || s.opens(2, true, false));
+        assertTrue(ClaudePage.inside("https://claude.ai/code/session_01abc")); assertFalse(ClaudePage.inside("http://claude.ai/code"));
+        assertFalse("not claude.ai by its name alone", ClaudePage.inside("https://claude.ai.example.com/"));
+    }
+
+    /** A screen's touch, in its own window. */
+    private static MotionEvent touch(int action, float x, float y, long at) { return MotionEvent.obtain(0, at, action, x, y, 0); }
+
+    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void aSwipeInFromTheRightEdgeGoesHome() throws Exception {
+        Activity a = Robolectric.buildActivity(Activity.class).setup().get();
+        FrameLayout page = new FrameLayout(a); page.setBackgroundColor(0xff262624);
+        TextView words = new TextView(a); words.setText("Claude Code · claude.ai/code"); words.setTextColor(0xffe8e6dc); words.setPadding(40, 160, 40, 40); page.addView(words);
+        a.setContentView(page);
+        Ui ui = new Ui(a); int[] homes = {0};
+        HomeEdge edge = new HomeEdge(a, ui, () -> homes[0]++); edge.attach(a.findViewById(android.R.id.content));
+        layout(a);
+        assertEquals("off until it came from the home screen", View.GONE, edge.handle.getVisibility());
+        int w = a.getWindow().getDecorView().getWidth(), h = a.getWindow().getDecorView().getHeight(); float d = a.getResources().getDisplayMetrics().density;
+        List<Integer> passed = new ArrayList<>();
+        java.util.function.Consumer<MotionEvent> pass = e -> passed.add(e.getActionMasked());
+        assertFalse("off: nothing taken", edge.touch(touch(MotionEvent.ACTION_DOWN, w - 4, h / 2f, 0), pass));
+        edge.on(true); layout(a);
+        // The handle: small, at the right edge, kept from the phone's back gesture.
+        assertEquals(View.VISIBLE, edge.handle.getVisibility());
+        assertEquals("at the right edge", w, edge.handle.getRight());
+        assertTrue("narrow (" + dp(a, edge.handle.getWidth()) + "dp)", dp(a, edge.handle.getWidth()) <= HomeEdge.EDGE + 0.5f);
+        assertEquals("the stretch Android lets an app keep", HomeEdge.KEPT, dp(a, edge.handle.getHeight()), 1);
+        assertFalse("kept from the back gesture", edge.handle.getSystemGestureExclusionRects().isEmpty());
+        assertFalse("touches pass through it", edge.handle.isClickable());
+        shot(a, "browser-home-edge");
+        // A tap at the edge: the page's.
+        float x = w - 6 * d, y = h / 2f;
+        assertFalse(edge.touch(touch(MotionEvent.ACTION_DOWN, x, y, 0), pass));
+        assertFalse(edge.touch(touch(MotionEvent.ACTION_UP, x, y, 40), pass));
+        // A scroll down from the edge: the page's.
+        assertFalse(edge.touch(touch(MotionEvent.ACTION_DOWN, x, y, 100), pass));
+        assertFalse(edge.touch(touch(MotionEvent.ACTION_MOVE, x - 10 * d, y + 80 * d, 140), pass));
+        assertFalse("still the page's", edge.touch(touch(MotionEvent.ACTION_MOVE, x - 70 * d, y + 90 * d, 160), pass));
+        assertFalse(edge.touch(touch(MotionEvent.ACTION_UP, x - 70 * d, y + 90 * d, 180), pass));
+        // A sideways swipe started in the page (not at the edge): the page's.
+        assertFalse(edge.touch(touch(MotionEvent.ACTION_DOWN, w / 2f, y, 200), pass));
+        assertFalse(edge.touch(touch(MotionEvent.ACTION_MOVE, w / 2f - 120 * d, y, 240), pass));
+        assertFalse(edge.touch(touch(MotionEvent.ACTION_UP, w / 2f - 120 * d, y, 260), pass));
+        assertEquals("no 홈 yet", 0, homes[0]); assertTrue("nothing cancelled for the page", passed.isEmpty());
+        // In from the right edge, mostly sideways, past FAR: 홈, the page told the touch ended, the rest of it kept.
+        assertFalse(edge.touch(touch(MotionEvent.ACTION_DOWN, x, y, 300), pass));
+        assertFalse("short of FAR", edge.touch(touch(MotionEvent.ACTION_MOVE, x - 30 * d, y + 5 * d, 320), pass));
+        assertTrue("taken", edge.touch(touch(MotionEvent.ACTION_MOVE, x - 70 * d, y + 8 * d, 340), pass));
+        assertEquals(1, homes[0]); assertEquals("the page's touch cancelled", List.of(MotionEvent.ACTION_CANCEL), passed);
+        assertTrue(edge.touch(touch(MotionEvent.ACTION_MOVE, x - 120 * d, y, 360), pass));
+        assertTrue(edge.touch(touch(MotionEvent.ACTION_UP, x - 120 * d, y, 380), pass));
+        assertEquals("once", 1, homes[0]);
+        assertFalse("the next touch is the page's again", edge.touch(touch(MotionEvent.ACTION_DOWN, w / 2f, y, 400), pass));
     }
 
     /** 화면 꾸미기: one row for the left page, its switch at the end, as small as the other rows. */

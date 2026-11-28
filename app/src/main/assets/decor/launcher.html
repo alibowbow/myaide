@@ -226,11 +226,12 @@ body.covered .dock *,body.on-custom .dock *{pointer-events:none!important}
 .dock{transition:opacity .2s ease}
 body.on-custom .dock{opacity:0;pointer-events:none}
 body.on-custom .pager{bottom:calc(var(--bottom) + 10px)}
-/* 왼쪽 · Claude Code (준: "왼쪽 페이지는 하단 독 없애고"): the app's own page lies over this one (HomeActivity's ClaudePage), so no
-   dock there, and the dots sit in the thin strip it leaves above the system bar (ClaudePage.DOTS, 24px), a tap on one turning to it. */
+/* 왼쪽 · Claude Code (준: "왼쪽 페이지는 하단 독 없애고"): coming to rest here opens the AI 브라우저 (HomeActivity, ClaudePage); this
+   card shows meanwhile, with no dock, and the dots low, a tap on one turning to it. */
 .page.claude{position:relative;overflow:hidden;padding:0;background:#0b0c12}
 .claude-ph{position:absolute;left:0;right:0;top:40%;display:flex;flex-direction:column;align-items:center;gap:10px}
 .claude-ph b{font-size:15px;font-weight:700;letter-spacing:-.02em;color:rgba(255,255,255,.7)}
+.claude-ph small{font-size:12px;color:rgba(255,255,255,.45)}
 .claude-open{border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.08);color:#f5f5f7;font:inherit;font-size:12.5px;font-weight:650;padding:6px 13px;border-radius:999px}
 body.on-claude .dock{opacity:0;pointer-events:none}
 body.on-claude .dock *{pointer-events:none!important}
@@ -416,6 +417,18 @@ body.liquid .pad-top.voicing .field,.pad-top.voicing .field{border-color:#ff6f91
 .pad.chat-mode .pad-top .send{display:grid;place-items:center;flex:none;width:38px;height:38px;border-radius:50%;border:0;background:var(--accent);color:#fff}
 .chat-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:40px}
 .chat-bar b{font-size:16px;font-weight:800;letter-spacing:-.3px;color:var(--ink)}
+/* The talk's model, chosen right here (준: "대화모델 설정가능하게 해줘", "대화창에서", "모델선택을 왜 거기에둬? 안하던 행동을 하네"):
+   as 메인 대화 has it, a line under the box: the model in bold, its thinking level quiet beside it; a tap opens 퍼레 두뇌. */
+.pad-top .chat-model{display:none}
+.pad.chat-mode .pad-top{flex-wrap:wrap;row-gap:2px}
+.pad.chat-mode .pad-top .brk{display:block;order:8;flex-basis:100%;height:0}
+.pad-top .brk{display:none}
+.pad.chat-mode .pad-top .chat-model{display:flex;align-items:center;gap:6px;order:9;flex:0 1 auto;max-width:100%;height:24px;margin-left:6px;padding:0 4px;border:0;background:none;color:var(--ink);font:inherit;font-size:12.5px;white-space:nowrap;overflow:hidden}
+.chat-model b{font-weight:700;overflow:hidden;text-overflow:ellipsis}
+.chat-model i{font-style:normal;color:var(--muted,rgba(60,60,67,.6))}
+.chat-model svg{flex:none;width:12px;height:12px;opacity:.55}
+.pad-top .chat-model[hidden]{display:none!important}
+body.model-line .stage{bottom:calc(max(var(--bottom), var(--kb, 0px)) + 88px)}
 .chat-acts{display:flex;align-items:center;gap:4px}
 .chat-acts .ca{width:34px;height:34px;border-radius:50%;border:0;padding:0;display:grid;place-items:center;background:rgba(255,255,255,.5);color:var(--ink)}
 /* 퍼레 over the whole talk (준: "윗공간을 퍼레영역으로 한정짓지말고 그 영역도 채팅공간으로해", "퍼레는 이 채팅창 전체를 자유롭게
@@ -592,8 +605,8 @@ body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18p
 <script src="/talk.js"></script>
 <script src="/board.js"></script>
 <div id="pages">
-<!-- The left page as Claude Code (G.claude): the app's page is drawn over this place; this shows only if it cannot be. -->
-<section class="page claude" id="claudePage" aria-label="Claude Code" hidden><div class="claude-ph"><b>Claude Code</b><button class="claude-open" id="claudeOpen">AI 브라우저에서 열기</button></div></section>
+<!-- The left page as Claude Code (G.claude): resting here opens the AI 브라우저 at claude.ai/code; this card shows meanwhile. -->
+<section class="page claude" id="claudePage" aria-label="Claude Code" hidden><div class="claude-ph"><b>Claude Code</b><small>AI 브라우저로 여는 중</small><button class="claude-open" id="claudeOpen">AI 브라우저에서 열기</button></div></section>
 <section class="page" id="todayPage"><div class="inner">
   <div class="page-title"><h2>Today <em>Brief</em></h2><span id="todayDate"></span></div>
   <div class="today" id="today"></div>
@@ -614,7 +627,7 @@ body.liquid .bubble{right:4px;bottom:auto;top:calc(100% - 4px);border-radius:18p
 <div class="veil" id="veil"></div>
 <div class="fan" id="fan"></div>
 <section class="pad" id="pad">
-  <div class="pad-top"><label class="field"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg><input id="q" type="search" placeholder="앱 · 초성(ㅋㅋㅇ) · 퍼레에게 묻기" autocomplete="off" enterkeyhint="go"></label><button class="send" id="padSend" aria-label="보내기"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg></button><button class="mic" id="padMic" aria-label="음성 대화"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3 10v4"/><path d="M7.5 6v12"/><path d="M12 3v18"/><path d="M16.5 6v12"/><path d="M21 10v4"/></svg></button><button class="close" id="padClose">닫기</button></div>
+  <div class="pad-top"><label class="field"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg><input id="q" type="search" placeholder="앱 · 초성(ㅋㅋㅇ) · 퍼레에게 묻기" autocomplete="off" enterkeyhint="go"></label><button class="send" id="padSend" aria-label="보내기"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5.5 11.5L12 5l6.5 6.5"/></svg></button><button class="mic" id="padMic" aria-label="음성 대화"><svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3 10v4"/><path d="M7.5 6v12"/><path d="M12 3v18"/><path d="M16.5 6v12"/><path d="M21 10v4"/></svg></button><button class="close" id="padClose">닫기</button><span class="brk"></span><button class="chat-model" id="chatModel" hidden></button></div>
   <div class="chat-top" id="chatTop"><div class="chat-bar" id="chatBar"></div><div class="stage" id="stage"></div></div>
   <div class="chips" id="chips"></div>
   <div class="pad-body" id="padBody"></div>
@@ -817,9 +830,9 @@ function toPage(i, smooth) { pageAt = i; pagesBox.scrollTo({left: i * pagesBox.c
 function dotsAt(i) { Array.from(el("dots").children).forEach((d, k) => d.classList.toggle("on", k === i)); document.body.classList.toggle("on-custom", i >= 2); document.body.classList.toggle("on-claude", CLAUDE && i === 0); }
 /*
   왼쪽 · Claude Code (준: "홈화면 왼쪽 페이지 자체를 내 ai브라우저로 https://claude.ai/code 이페이지를 띄울 수 있어?", "왼쪽 페이지는 하단
-  독 없애고"): claude.ai cannot be put in a frame, so the app lays the AI 브라우저's own page (HomeActivity's ClaudePage, the same
-  sign-in) over this first page and moves it with the pages. It is told where the first page is (the scroll in pages: 0 shown,
-  1 a page away), whether the swipe has ended (then it takes touches, or rests, or closes when far) and whether Launchpad
+  독 없애고", "내 들퍼레 ai 브라우저가 안 뜨고 클로드 페이지만 떠"): claude.ai cannot be put in a frame, so coming to rest on this first
+  page opens the AI 브라우저 itself there (HomeActivity's ClaudePage), and the pages go back to 홈 under it (toHome). The app is
+  told where the first page is (the scroll in pages: 0 shown, 1 a page away), whether the swipe has ended and whether Launchpad
   covers the pages; only while the left page is in reach, and once on settling. 오늘 is not shown meanwhile (화면 꾸미기 brings it back).
 */
 let CLAUDE = !!G.claude, leftSent = "", leftAt = 1, leftSettled = true, leftCovered = false, leftTimer = 0;
@@ -1587,9 +1600,20 @@ function openChat() {
   if (B) B.bars(true);
   drawChat(); pal.show(); setTimeout(() => el("q").focus(), 80);
 }
+/** The brain 퍼레와 대화 answers with, "model · level" (HomeActivity: BrainPicker.chip), on the line under the box. */
+let BRAIN = String(G.brain || "");
+function drawBrain() {
+  const line = el("chatModel"); if (!line) return;
+  const at = BRAIN.lastIndexOf(" · "), model = at > 0 ? BRAIN.slice(0, at) : BRAIN, level = at > 0 ? BRAIN.slice(at + 3) : "";
+  line.hidden = !BRAIN || chatView === "list"; document.body.classList.toggle("model-line", !line.hidden);
+  line.innerHTML = '<b>' + esc(model) + '</b>' + (level ? '<i>' + esc(level) + '</i>' : "") + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
+  line.setAttribute("aria-label", "대화 모델과 생각 깊이 바꾸기, 지금 " + BRAIN);
+}
+el("chatModel").addEventListener("click", () => { if (B && B.brain) B.brain(); });
 function greeting() { if (!chatHello) chatHello = (typeof preset === "function" && preset("chathi")) || "뭐든 물어봐! 가볍게 알려 줄게 😊"; return chatHello; }
 function drawChatTop() {
   const busy = thread.some(t => t.pending), list = chatView === "list";
+  drawBrain();
   el("chatBar").innerHTML = '<b>' + (list ? "대화 목록" : "퍼레와 대화") + '</b><span class="chat-acts">' + (busy && !list ? '<button class="mini" data-stop="1">그만</button>' : "")
     + (list ? '<button class="ca" data-back="1" aria-label="대화로 돌아가기">' + ICON_BACK + '</button>'
       : '<button class="ca" data-list="1" aria-label="대화 목록">' + ICON_LIST + '</button><button class="ca" data-new="1" aria-label="새 대화">' + ICON_NEW + '</button><button class="ca" data-app="1" aria-label="앱에서 이어가기">' + ICON_APP + '</button>')
@@ -2012,6 +2036,10 @@ window.launcher = {
   pages(list) { drawPages(list); },
   /** 화면 꾸미기's 왼쪽 페이지 switch: Claude Code (on) or 오늘 again; the app is told where the page is now. */
   claude(on) { CLAUDE = !!on; leftPage(); dotsAt(pageAt); leftSent = ""; leftAt = 0; tellLeft(true); return true; },
+  /** 퍼레와 대화's model chip: the brain chosen now. */
+  brain(name) { BRAIN = String(name || ""); drawBrain(); return true; },
+  /** The AI 브라우저 came over the left page: 홈 under it at once, so coming back lands there. */
+  toHome() { if (el("pad").classList.contains("on")) closePad(); toPage(1, false); return true; },
   /** window.gyeot's answer for one of the user's own pages (its src): to that page's frame alone, at its own origin. */
   bridgeReply(src, message) {
     const i = PAGES.findIndex(p => p.src === src), f = i < 0 ? null : pagesBox.querySelectorAll(".page.custom iframe")[i];

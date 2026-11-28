@@ -233,11 +233,19 @@ final class UsageUi {
         if (limits.getChildCount() == 0) box.addView(ui.footer("연결된 AI가 없어요. 설정 → AI 연결에서 연결하면 여기에 보여요."));
         else box.addView(limits);
         box.addView(ui.footer("회사가 답에 함께 보낸 한도만 보여요. 보내지 않으면 ‘남은 한도 모름’이에요."));
+        // Two keys, two sections (준: "제미니 무료 api키랑 Groq 모델 한도 서로 분리해줘 헷갈려").
+        long now = System.currentTimeMillis();
         if (store.secrets.hasKey() || store.secrets.hasWorkKey()) {
-            box.addView(ui.sectionHeader(store.groq.connected() ? "무료 한도 · Gemini · Groq" : "Gemini 무료 한도"));
-            box.addView(geminiQuota(System.currentTimeMillis()));
-            box.addView(ui.footer("앱이 스스로 쓰는 Gemini(검색·대화 제목·영상 요약·첨부 분석·받아쓰기·두뇌)를 이 폰에서 센 거예요. 한도가 찬 모델은 건너뛰고 다음 모델을 써요. "
+            box.addView(ui.sectionHeader("Gemini 무료 한도 · Gemini API 키"));
+            box.addView(quota(geminiModels(), false, now));
+            box.addView(ui.footer("앱이 스스로 쓰는 Gemini(검색·영상 요약·첨부 분석·받아쓰기)를 이 폰에서 센 거예요. 한도가 찬 모델은 건너뛰고 다음 모델을 써요. "
                 + "같은 키를 다른 곳에서도 쓰면 실제 남은 양은 더 적을 수 있어요. 한도는 Google이 바꿀 수 있고, Google이 알려 준 한도가 있으면 그걸로 보여요."));
+        }
+        if (store.groq.connected()) {
+            box.addView(ui.sectionHeader("Groq 무료 한도 · Groq API 키"));
+            box.addView(quota(groqModels(), true, now));
+            box.addView(ui.footer("Groq는 하루 요청 횟수와 하루 토큰(보내고 받은 글의 양)을 따로 세요. 둘 중 하나라도 차면 Groq가 막고, Groq가 알려 준 시간이 지나면 다시 써요. "
+                + "퍼레 대화는 한 번에 긴 글을 보내서 횟수보다 토큰이 먼저 찰 수 있어요."));
         }
         box.addView(ui.sectionHeader("최근 7일"));
         LinearLayout recent = recent(page.totals());
@@ -362,41 +370,64 @@ final class UsageUi {
         box.setContentDescription(Limits.heading(window) + ", " + Limits.remaining(window) + ", " + Limits.until(window, now));
         return box;
     }
-    /**
-     * Gemini 무료 한도 (core/GeminiQuota): a card with each model the app uses on its own, today's requests against the free
-     * requests a day, when they are filled again, and a bar filled by what is left.
-     */
-    private LinearLayout geminiQuota(long now) {
-        LinearLayout card = ui.column();
-        android.graphics.drawable.GradientDrawable surface = ui.shape(Ui.CARD, 18); surface.setStroke(Math.max(1, ui.dp(.5f)), Ui.SEPARATOR);
-        card.setBackground(surface); card.setPadding(ui.dp(16), ui.dp(2), ui.dp(16), ui.dp(14));
-        // Gemma 4 (light work, the key's two largest), Flash-Lite (search, summaries), Transcribe (recordings).
+    /** Gemma 4 (light work, the key's two largest), Flash-Lite (search, summaries), Transcribe (recordings). */
+    String[] geminiModels() {
         String[] listed = store.gemini.gemma(), gemma = listed == null ? dev.jun.gyeot.core.GeminiLight.GEMMA : listed;
         java.util.List<String> shown = new java.util.ArrayList<>(java.util.List.of(gemma).subList(0, Math.min(2, gemma.length)));
         shown.add(dev.jun.gyeot.core.GeminiWork.FLASH_LITE[0]); shown.add(dev.jun.gyeot.core.GeminiWork.FLASH_LITE[1]); shown.add(dev.jun.gyeot.core.GeminiProtocol.FILE_TRANSCRIBE);
-        // Groq, when its key is saved: 잡일, web search and Whisper, each on its own daily free tier.
-        if (store.groq.connected()) { shown.add(GroqWork.CHORES); shown.add(GroqWork.SEARCH); shown.add(GroqWork.WHISPER); }
-        String[] models = shown.toArray(new String[0]);
+        return shown.toArray(new String[0]);
+    }
+    /** Groq's: 잡일 (GPT OSS), 퍼레's brain (the newest Qwen the key lists), web search and Whisper. */
+    String[] groqModels() {
+        java.util.List<String> shown = new java.util.ArrayList<>(java.util.List.of(GroqWork.CHORES));
+        String qwen = BuddyTalk.qwen(store); if (!shown.contains(qwen)) shown.add(qwen);
+        shown.add(GroqWork.SEARCH); shown.add(GroqWork.WHISPER);
+        return shown.toArray(new String[0]);
+    }
+    /**
+     * 무료 한도 (core/GeminiQuota): a card with each of models (and the others of the same company used today): today's
+     * requests against the free requests a day, who stopped it and until when when it is stopped, and a bar filled by what is
+     * left. Gemini's say when Google fills them again (midnight Pacific); Groq's say today's tokens, which Groq counts apart.
+     */
+    LinearLayout quota(String[] models, boolean groq, long now) {
+        LinearLayout card = ui.column();
+        android.graphics.drawable.GradientDrawable surface = ui.shape(Ui.CARD, 18); surface.setStroke(Math.max(1, ui.dp(.5f)), Ui.SEPARATOR);
+        card.setBackground(surface); card.setPadding(ui.dp(16), ui.dp(2), ui.dp(16), ui.dp(14));
         String reset = refill(dev.jun.gyeot.core.GeminiQuota.resetAt(now));
-        for (dev.jun.gyeot.core.GeminiQuota.Row row : dev.jun.gyeot.core.GeminiQuota.rows(store.geminiQuota(), models, now)) {
+        for (dev.jun.gyeot.core.GeminiQuota.Row row : dev.jun.gyeot.core.GeminiQuota.rows(store.geminiQuota(), models, now, groq)) {
             LinearLayout box = ui.column(); box.setPadding(0, ui.dp(12), 0, 0);
-            box.addView(ui.text(row.label(), 15, 650, Ui.TEXT));
+            // What the app has it do (준: "큐웬을 어디서 쓴거야?"), by its name.
+            String job = job(row.model());
+            box.addView(ui.text((groq ? row.label().replaceFirst("^Groq ", "") : row.label()) + (job.isEmpty() ? "" : " · " + job), 15, 650, Ui.TEXT));
             LinearLayout line = ui.row(); line.setPadding(0, ui.dp(4), 0, ui.dp(8));
             String used = "오늘 " + row.uses() + (row.perDay() > 0 ? " / " + row.perDay() : "") + "회";
-            line.addView(ui.text(row.status().isEmpty() ? reset : row.status(), 13, 450, row.status().isEmpty() ? Ui.MUTED : Ui.WARNING), new LinearLayout.LayoutParams(0, -2, 1));
+            String tokens = row.tokensPerDay() > 0 ? "토큰 " + Usage.tokens(row.tokens()) + " / " + Usage.tokens(row.tokensPerDay()) : "토큰 " + Usage.tokens(row.tokens());
+            String note = !row.status().isEmpty() ? row.status() : !groq ? reset : row.tokensPerDay() > 0 || row.tokens() > 0 ? tokens : "";
+            line.addView(ui.text(note, 13, 450, row.status().isEmpty() ? Ui.MUTED : Ui.WARNING), new LinearLayout.LayoutParams(0, -2, 1));
             line.addView(ui.text(used, 13, 500, Ui.TEXT));
             box.addView(line);
-            double left = row.status().startsWith("오늘 한도") ? 0 : row.perDay() > 0 ? Math.max(0, Math.min(1, 1 - row.uses() / (double) row.perDay())) : 1;
+            double byRequests = row.perDay() > 0 ? 1 - row.uses() / (double) row.perDay() : 1, byTokens = row.tokensPerDay() > 0 ? 1 - row.tokens() / (double) row.tokensPerDay() : 1;
+            double left = row.blocked() ? 0 : Math.max(0, Math.min(1, Math.min(byRequests, byTokens)));
             int ink = left < 0.1 ? Ui.ERROR : left < 0.25 ? Ui.WARNING : Ui.TEXT;
             LinearLayout track = ui.row(); track.setBackground(ui.shape(Ui.FILL, Ui.PILL)); track.setClipToOutline(true);
             android.view.View filled = new android.view.View(box.getContext()); filled.setBackground(ui.shape(ink, Ui.PILL));
             track.addView(filled, new LinearLayout.LayoutParams(0, -1, (float) left));
             track.addView(new android.view.View(box.getContext()), new LinearLayout.LayoutParams(0, -1, (float) (1 - left)));
             box.addView(track, new LinearLayout.LayoutParams(-1, ui.dp(8)));
-            box.setContentDescription(row.label() + ", " + used + ", " + (row.status().isEmpty() ? reset : row.status()));
+            box.setContentDescription(row.label() + ", " + used + ", " + note);
             card.addView(box);
         }
         return card;
+    }
+    /** What the app has a model do, in a word or two ("" for one only used now and then). */
+    private String job(String model) {
+        if (GroqWork.CHORES.equals(model)) return "잡일";
+        if (GroqWork.SEARCH.equals(model)) return "웹 검색";
+        if (GroqWork.WHISPER.equals(model) || dev.jun.gyeot.core.GeminiProtocol.FILE_TRANSCRIBE.equals(model)) return "받아쓰기";
+        if (model.startsWith("qwen/") && model.equals(BuddyTalk.qwen(store))) return "퍼레 대화";
+        if (model.startsWith("gemma-4-")) return "잡일 예비";
+        if (java.util.List.of(dev.jun.gyeot.core.GeminiWork.FLASH_LITE).contains(model)) return "검색 · 요약";
+        return "";
     }
     /** "오후 5시에 다시 채워져요": when the free daily quotas reset, in the phone's own time. */
     static String refill(long at) {

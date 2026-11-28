@@ -166,4 +166,86 @@ public class UsageCostTests {
         a.setContentView(box); settle(a, box);
         assertTrue("no answers in the period", shows(box, "동안 받은 답이 없어요"));
     }
+
+    /**
+     * 준: "1000회 중에 13회만 썼는데 왜 막힌거야", "Groq이 막은거야 앱이 막은거야": Groq's tokens a day (200,000 for Qwen 3.8 27B)
+     * filled after 13 long requests. Kept as Groq's own limit with its wait, the model back after it (not at Pacific midnight), its
+     * tokens shown next to its requests; a mark from before (no kind) no longer keeps it out; Gemini's own day limit stays.
+     */
+    @Test public void groqTokenDayLimitSaysWhoWhatAndWhen() throws Exception {
+        String qwen = "qwen/qwen3.8-27b";
+        long now = java.time.Instant.parse("2026-11-28T03:00:00Z").toEpochMilli();
+        org.json.JSONObject state = new org.json.JSONObject();
+        for (int i = 0; i < 13; i++) dev.jun.gyeot.core.GeminiQuota.used(state, qwen, now - (13 - i) * 60_000L, 15_000);
+        assertFalse("195k of 200k today: one more long request would pass the day's tokens", dev.jun.gyeot.core.GeminiQuota.ready(qwen, state, now, 15_000));
+        assertTrue("a short one still fits", dev.jun.gyeot.core.GeminiQuota.ready(qwen, state, now, 2_000));
+        String body = "{\"error\":{\"message\":\"Rate limit reached for model `qwen/qwen3.8-27b` in organization `org_x` service tier `on_demand` on tokens per day (TPD): Limit 200000, Used 196000, Requested 15000. Please try again in 23m14.4s. Need more tokens?\",\"type\":\"tokens\",\"code\":\"rate_limit_exceeded\"}}";
+        dev.jun.gyeot.core.GeminiQuota.groqDay(state, qwen, now, body);
+        assertFalse("resting as Groq said", dev.jun.gyeot.core.GeminiQuota.ready(qwen, state, now + 60_000, 0));
+        dev.jun.gyeot.core.GeminiQuota.Row row = dev.jun.gyeot.core.GeminiQuota.rows(state, new String[]{qwen}, now, true).get(0);
+        assertEquals("Groq 하루 토큰 한도가 찼어요 · 24분 뒤 다시", row.status());
+        assertTrue(row.blocked()); assertEquals(13, row.uses()); assertEquals(1000, row.perDay());
+        assertEquals(195_000, row.tokens()); assertEquals(200_000, row.tokensPerDay());
+        long later = now + 24 * 60_000L;
+        assertEquals("", dev.jun.gyeot.core.GeminiQuota.rows(state, new String[]{qwen}, later, true).get(0).status());
+        assertTrue("back after Groq's wait, not at midnight", dev.jun.gyeot.core.GeminiQuota.ready(qwen, state, later, 2_000));
+        // Requests a day: the limit Groq names is kept; no time named: out until the day turns.
+        org.json.JSONObject other = new org.json.JSONObject();
+        dev.jun.gyeot.core.GeminiQuota.groqDay(other, "openai/gpt-oss-120b", now, "Rate limit reached for model `openai/gpt-oss-120b` on requests per day (RPD): Limit 1000, Used 1000, Requested 1.");
+        dev.jun.gyeot.core.GeminiQuota.Row full = dev.jun.gyeot.core.GeminiQuota.rows(other, new String[]{"openai/gpt-oss-120b"}, now, true).get(0);
+        assertEquals("Groq 하루 요청 한도가 찼어요 · 내일 다시", full.status()); assertTrue(full.blocked());
+        // A mark from before this version (full, no kind) does not keep a Groq model out; a Gemini one's day limit still does.
+        org.json.JSONObject old = new org.json.JSONObject();
+        dev.jun.gyeot.core.GeminiQuota.used(old, qwen, now, 100); old.getJSONObject(qwen).put("full", true);
+        assertTrue(dev.jun.gyeot.core.GeminiQuota.ready(qwen, old, now, 100));
+        assertEquals("", dev.jun.gyeot.core.GeminiQuota.rows(old, new String[]{qwen}, now, true).get(0).status());
+        assertTrue(dev.jun.gyeot.core.GeminiQuota.refused(old, "gemini-3.5-flash-lite", 429, "Quota exceeded for metric generate_content_free_tier_requests, limit: 500, model: gemini-3.5-flash-lite PerDay", now));
+        assertFalse(dev.jun.gyeot.core.GeminiQuota.ready("gemini-3.5-flash-lite", old, now, 0));
+        assertEquals("오늘 한도를 다 썼어요", dev.jun.gyeot.core.GeminiQuota.rows(old, new String[]{"gemini-3.5-flash-lite"}, now, false).get(0).status());
+        // Groq's waits as it writes them.
+        assertEquals(3_724_000, dev.jun.gyeot.core.GeminiQuota.groqRetry("Please try again in 1h2m3.5s."));
+        assertEquals(7_660 + 500, dev.jun.gyeot.core.GeminiQuota.groqRetry("Please try again in 7.66s"));
+        assertEquals(450 + 500, dev.jun.gyeot.core.GeminiQuota.groqRetry("Please try again in 450ms"));
+        assertEquals("none named: a minute", 60_000, dev.jun.gyeot.core.GeminiQuota.groqRetry("Rate limit reached"));
+        // Each section keeps to its own company's models.
+        org.json.JSONObject both = new org.json.JSONObject();
+        dev.jun.gyeot.core.GeminiQuota.used(both, "gemini-3.8-flash", now, 0); dev.jun.gyeot.core.GeminiQuota.used(both, "meta-llama/llama-3.3-70b-versatile", now, 900);
+        List<String> google = dev.jun.gyeot.core.GeminiQuota.rows(both, new String[]{"gemma-4-31b-it"}, now, false).stream().map(dev.jun.gyeot.core.GeminiQuota.Row::model).toList();
+        List<String> groq = dev.jun.gyeot.core.GeminiQuota.rows(both, new String[]{"openai/gpt-oss-120b"}, now, true).stream().map(dev.jun.gyeot.core.GeminiQuota.Row::model).toList();
+        assertEquals(List.of("gemma-4-31b-it", "gemini-3.8-flash"), google);
+        assertEquals(List.of("openai/gpt-oss-120b", "meta-llama/llama-3.3-70b-versatile"), groq);
+        assertEquals("Llama 3.3 70B: 100k tokens a day", 100_000, dev.jun.gyeot.core.GeminiQuota.rows(both, new String[]{}, now, true).get(0).tokensPerDay());
+    }
+
+    /** 준: "제미니 무료 api키랑 Groq 모델 한도 서로 분리해줘 헷갈려": two cards, each with its own models; Groq's rows say tokens. */
+    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void geminiAndGroqQuotasApart() throws Exception {
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        AppStore store = app.store(); long now = System.currentTimeMillis();
+        String qwen = BuddyTalk.qwen(store);
+        store.changeGeminiQuota(state -> {
+            for (int i = 0; i < 13; i++) dev.jun.gyeot.core.GeminiQuota.used(state, qwen, now - 60_000L * (13 - i), 15_000);
+            for (int i = 0; i < 28; i++) dev.jun.gyeot.core.GeminiQuota.used(state, GroqWork.CHORES, now - 60_000L * (28 - i), 1_800);
+            dev.jun.gyeot.core.GeminiQuota.groqDay(state, qwen, now, "Rate limit reached for model `" + qwen + "` on tokens per day (TPD): Limit 200000, Used 196000, Requested 15000. Please try again in 23m14.4s.");
+            for (int i = 0; i < 3; i++) dev.jun.gyeot.core.GeminiQuota.used(state, "gemini-3.5-flash-lite", now, 0);
+            return null;
+        }, false);
+        Activity a = Robolectric.buildActivity(Activity.class).setup().get();
+        Ui ui = new Ui(a); UsageUi usage = new UsageUi(ui, store);
+        LinearLayout box = ui.column(); box.setPadding(ui.dp(16), 0, ui.dp(16), ui.dp(24));
+        box.addView(ui.sectionHeader("Gemini 무료 한도 · Gemini API 키")); LinearLayout google = usage.quota(usage.geminiModels(), false, now); box.addView(google);
+        box.addView(ui.sectionHeader("Groq 무료 한도 · Groq API 키")); LinearLayout groq = usage.quota(usage.groqModels(), true, now); box.addView(groq);
+        ScrollView scroll = new ScrollView(a); scroll.addView(box); a.setContentView(scroll); settle(a, box);
+        assertNotNull("Gemma in Gemini's card", text(google, "Gemma 4 31B")); assertNull("no Groq model in Gemini's card", text(google, "gpt-oss"));
+        assertNotNull(text(google, "Gemini 3.5 Flash-Lite")); assertTrue("Gemini: when Google fills it again", shows(google, "다시 채워져요"));
+        assertNotNull("GPT OSS in Groq's card", text(groq, "gpt-oss-120b")); assertNull("labels without a Groq prefix there", text(groq, "Groq gpt-oss"));
+        assertNotNull("퍼레's Qwen in Groq's card", text(groq, qwen.replaceFirst("^[^/]+/", "")));
+        assertNull("no Gemini model in Groq's card", text(groq, "Gemma"));
+        assertTrue("who stopped it and when", shows(groq, "Groq 하루 토큰 한도가 찼어요 · 24분 뒤 다시"));
+        assertTrue("its requests", shows(groq, "오늘 13 / 1000회"));
+        assertNotNull("what it is for", text(groq, qwen.replaceFirst("^[^/]+/", "") + " · 퍼레 대화")); assertNotNull(text(groq, "gpt-oss-120b · 잡일"));
+        assertFalse("no empty token counts", shows(groq, "토큰 0"));
+        assertTrue("GPT OSS's tokens today", shows(groq, "토큰 50.4k / 200k"));
+        assertFalse("no Pacific refill time on Groq's rows", shows(groq, "다시 채워져요"));
+        shot(box, "usage-quota-split");
+    }
 }

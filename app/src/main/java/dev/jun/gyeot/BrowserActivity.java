@@ -65,6 +65,14 @@ public final class BrowserActivity extends Activity {
      * even when the screen is made again (rotation, or the process restarting) with the same intent or an older one.
      */
     static final String OPEN = "dev.jun.gyeot.browser.OPEN", OPEN_ID = "dev.jun.gyeot.browser.OPEN_ID";
+    /**
+     * Opened from the home screen's left page (ClaudePage): its claude.ai tab again if one is open, and ways back to 홈 (준: "뒤로가기로
+     * 홈페이지 돌아가는 건 넣지마, 홈버튼이나 우측 스와이프로"): the ⌂ button and a swipe in from the right edge (HomeEdge); back stays
+     * the page's history.
+     */
+    static final String HOME_SIDE = "dev.jun.gyeot.browser.HOME_SIDE";
+    private boolean homeSide;
+    private HomeEdge homeEdge;
     /** Opened from the "이전 브라우저 작업 확인" notification: the earlier Work step's review comes up at once. */
     static final String REVIEW_WORK = "dev.jun.gyeot.browser.REVIEW_WORK";
     private static final String OPENED = "browserOpened";
@@ -173,6 +181,7 @@ public final class BrowserActivity extends Activity {
         omniStrip.setPadding(ui.dp(12), 0, ui.dp(12), ui.dp(6)); omniStrip.addView(omniRow); omniStrip.setVisibility(View.GONE); root.addView(omniStrip, 1, new LinearLayout.LayoutParams(-1, -2));
         updatePaneVisibility();
         installBrowserContent(root);
+        homeEdge = new HomeEdge(this, ui, this::toHome); homeEdge.attach(findViewById(android.R.id.content)); fromHome(getIntent());
         bindDraftScope();
     }
     /** Browser owns the full safe viewport; app navigation remains available through Home. */
@@ -547,7 +556,7 @@ public final class BrowserActivity extends Activity {
         request.setText(text); int length = request.length(); request.setSelection(Math.max(0, Math.min(start, length)), Math.max(0, Math.min(end, length)));
     }
     @Override protected void onNewIntent(android.content.Intent intent) {
-        super.onNewIntent(intent); setIntent(intent);
+        super.onNewIntent(intent); setIntent(intent); fromHome(intent);
         web.post(() -> { consumeTaskNotification(); consumeOpen(); consumeReview(); acknowledgeNavigation(); });
     }
     /**
@@ -558,6 +567,38 @@ public final class BrowserActivity extends Activity {
         String page = BrowserTools.url(url);
         context.startActivity(new android.content.Intent(context, BrowserActivity.class).putExtra(OPEN, page).putExtra(OPEN_ID, UUID.randomUUID().toString())
             .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
+    }
+    /**
+     * The AI 브라우저 from the home screen's left page (ClaudePage): fading in where the left page's card stands, its claude.ai tab
+     * again if one is open, and 홈 the way back.
+     */
+    static void openFromHome(android.app.Activity home, String url) {
+        String page = BrowserTools.url(url);
+        home.startActivity(new android.content.Intent(home, BrowserActivity.class).putExtra(OPEN, page).putExtra(OPEN_ID, UUID.randomUUID().toString()).putExtra(HOME_SIDE, true)
+            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK | android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+            android.app.ActivityOptions.makeCustomAnimation(home, R.anim.page_fade_in, R.anim.page_hold).toBundle());
+    }
+    /** Whether this screen came from the home screen's left page: its edge swipe and its ⌂ to 홈. */
+    private void fromHome(android.content.Intent intent) {
+        homeSide = intent != null && intent.getBooleanExtra(HOME_SIDE, false);
+        if (homeEdge != null) homeEdge.on(homeSide);
+        if (appReturnButton != null) {
+            String what = homeSide ? "홈 화면으로 · 탭과 대화 유지" : "앱으로 돌아가기 · 웹페이지 뒤로가기 아님 · 탭과 대화 유지";
+            appReturnButton.setContentDescription(what); appReturnButton.setTooltipText(homeSide ? "홈 화면으로" : "앱으로 돌아가기");
+        }
+    }
+    /** Touches go to the right edge's swipe first, when this screen came from the home screen (HomeEdge). */
+    @Override public boolean dispatchTouchEvent(MotionEvent e) {
+        if (homeEdge != null && homeEdge.touch(e, super::dispatchTouchEvent)) return true;
+        return super.dispatchTouchEvent(e);
+    }
+    /** To 홈: the home screen turns in from the right as this screen goes left, as from the left page to 홈. */
+    private void toHome() {
+        saveDraft(); if (dictation != null) dictation.cancel();
+        android.content.Intent home = new android.content.Intent(this, HomeActivity.class).putExtra(HomeActivity.PAGE, "홈").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+        try { startActivity(home, android.app.ActivityOptions.makeCustomAnimation(this, R.anim.page_in_right, R.anim.page_out_left).toBundle()); }
+        catch (RuntimeException none) { moveTaskToBack(true); return; }
+        finish(); overridePendingTransition(R.anim.page_in_right, R.anim.page_out_left);
     }
     /**
      * The page open() asked for, once its tabs have been restored: a new tab, once per request, checked again. With six tabs
@@ -573,6 +614,12 @@ public final class BrowserActivity extends Activity {
         opened.add(id); while (opened.size() > OPENED_KEPT) opened.remove(opened.iterator().next());
         String page;
         try { page = BrowserTools.url(url == null ? "" : url); } catch (IllegalArgumentException invalid) { toast(invalid.getMessage()); return; }
+        // From the home screen's left page: its claude.ai tab again (the conversation left there), else a new one.
+        if (homeSide && ClaudePage.inside(page)) {
+            BrowserEngine.Tab again = null;
+            for (BrowserEngine.Tab tab : engine.tabs) if (ClaudePage.inside(tab.url)) { again = tab; if (tab == engine.current) break; }
+            if (again != null) { if (again != engine.current) { saveDraft(); if (dictation != null) dictation.cancel(); engine.select(again); } return; }
+        }
         try { saveDraft(); if (dictation != null) dictation.cancel(); engine.newTab(page, true); }
         catch (Exception refused) {
             try { startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(page)).addCategory(android.content.Intent.CATEGORY_BROWSABLE)); }
@@ -612,6 +659,8 @@ public final class BrowserActivity extends Activity {
         // Like a sheet in iOS: back first lowers the AI panel from over the page, then walks the page history.
         if (paneVisible && !wide) { setPaneVisible(false); return; }
         if (engine != null && engine.current != null && engine.current.back) { goBackInPage(); return; }
+        // From the home screen: back is the page's alone (준: "뒤로가기로 홈페이지 돌아가는 건 넣지마"); 홈 is ⌂ or the edge's swipe.
+        if (homeSide) { toast("홈으로는 ⌂ 버튼이나 오른쪽 끝에서 밀어 주세요"); return; }
         leaveBrowser();
     }
     /** The toolbar arrow is page history only; it must never close the browser screen. */
@@ -659,6 +708,7 @@ public final class BrowserActivity extends Activity {
     }
     /** One-tap, non-destructive return. A notification-launched task root still returns to the app, not Home. */
     private void leaveBrowser() {
+        if (homeSide) { toHome(); return; }
         saveDraft();
         if (isTaskRoot()) startActivity(new android.content.Intent(this, MainActivity.class));
         finish();
