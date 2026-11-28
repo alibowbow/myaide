@@ -33,7 +33,11 @@ final class HomeEdge {
      * clearly a swipe (false: no picture of the home screen to slide in, the swipe then goes 홈 at FAR as before), move with
      * how far left it is, end with whether it goes 홈 (a third of the screen, or a quick fling) or springs back.
      */
-    interface Drag { boolean begin(); void move(float dx); void end(boolean home); }
+    interface Drag {
+        /** A finger came down at the edge: a swipe may follow (anything to have ready before the screen moves). */
+        default void prepare() {}
+        boolean begin(); void move(float dx); void end(boolean home);
+    }
     private Drag drag;
     void follow(Drag drag) { this.drag = drag; }
     /** For the screen tests: how often the swipe went 홈. */
@@ -76,6 +80,7 @@ final class HomeEdge {
             case MotionEvent.ACTION_DOWN -> {
                 taken = false; tracking = width > 0 && e.getRawX() >= width - ui.dp(EDGE);
                 x0 = e.getRawX(); y0 = e.getRawY();
+                if (tracking && drag != null) drag.prepare();
                 return false;
             }
             case MotionEvent.ACTION_MOVE -> {

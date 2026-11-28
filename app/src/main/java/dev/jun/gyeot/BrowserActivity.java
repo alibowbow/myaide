@@ -189,6 +189,7 @@ public final class BrowserActivity extends Activity {
         installBrowserContent(root);
         homeEdge = new HomeEdge(this, ui, this::toHome); homeEdge.attach(findViewById(android.R.id.content)); fromHome(getIntent());
         homeEdge.follow(new HomeEdge.Drag() {
+            @Override public void prepare() { if (slid == null && android.os.SystemClock.uptimeMillis() - shotAt > 800) { shotAt = android.os.SystemClock.uptimeMillis(); keepShot(null); } }
             @Override public boolean begin() { return slideBegin(); }
             @Override public void move(float dx) { slideMove(dx); }
             @Override public void end(boolean home) { slideEnd(home); }
@@ -540,10 +541,13 @@ public final class BrowserActivity extends Activity {
         catch (RuntimeException failed) { done.accept(null, null); }
     }
     @Override protected void onStart() { super.onStart(); slideReset(); coverWithShot(); }
+    /** Gone behind 홈 after the swipe: put back in place and opaque while unseen, so it comes back as it was, with no see-through open. */
+    @Override protected void onStop() { super.onStop(); if (seeThrough || slid != null) slideReset(); }
     @Override protected void onResume() { super.onResume(); BrowserRuntime.configurationChanged(getResources().getConfiguration()); if (voice != null) voice.attach(); navigationResumed = true; AppNavigator.browserInFront(true); AppNavigator.inFront("browser"); updateAiToolbarState(); engine.attach(this::refresh, prompts); engine.externalAppLink = this::offerYouTube; engine.appLink = this::openAppLink; engine.store.observe(storeObserver); consumeTaskNotification(); consumeOpen(); consumeReview(); consumeQuestion(); acknowledgeNavigation(); }
     @Override protected void onPause() {
         // Left by the phone's home button or a swipe home: the left page shows this screen as it was (keepShot).
-        if (homeSide && !leaving && !isFinishing()) keepShot(null);
+        // Not once the swipe back has begun: this screen shows 홈's picture then, and the left page would show 홈 (0.4.677's video).
+        if (homeSide && !leaving && slid == null && !isFinishing()) keepShot(null);
         if (voice != null) voice.detach();
         recoveryViewSequence++;
         navigationResumed = false; AppNavigator.browserInFront(false); stopProgressUiClock(); detailRefresh = null; progressDetails = null;
@@ -689,18 +693,62 @@ public final class BrowserActivity extends Activity {
     }
     // ── the swipe back to 홈, under the finger (준: "Ai브라우저에서 우측 홈으로 돌아갈때 슬라이드 방식으로 전환되게해줘") ──
     private android.widget.ImageView homeCover; private View slid;
+    /** When this screen's picture was last taken as a finger came down at the edge (not again within the same touch). */
+    private long shotAt;
     /** This screen will move with the finger and 홈's picture comes in at its right; false without a picture of 홈. */
     private boolean slideBegin() {
         android.graphics.Bitmap home = HomeActivity.homeShot;
         android.view.ViewGroup content = findViewById(android.R.id.content);
         if (home == null || content == null || content.getChildCount() == 0) return false;
-        keepShot(null); // the left page shows this screen as it is now, before it moves
+        // This screen's picture for the left page was taken before it moved (prepare, as the finger came down; toHome).
         slid = content.getChildAt(0);
         if (homeCover == null) { homeCover = new android.widget.ImageView(this); homeCover.setScaleType(android.widget.ImageView.ScaleType.FIT_XY); homeCover.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); homeCover.setElevation(ui.dp(2)); }
-        homeCover.animate().cancel(); homeCover.setImageBitmap(home);
+        homeCover.animate().cancel(); homeCover.setImageBitmap(home); homeCover.setAlpha(1f);
         if (homeCover.getParent() == null) content.addView(homeCover, new FrameLayout.LayoutParams(-1, -1));
         homeCover.setTranslationX(content.getWidth()); homeEdge.handle.setVisibility(View.INVISIBLE);
+        seeThrough(true);
         return true;
+    }
+    // ── see-through while swiped away (준: "LP턴테이블에서 홈으로 오는건 자연스러운데 왜 ai브라우저에서 홈으로 가면 요동을 치는거야?") ──
+    /**
+     * The LP page is a page of the home screen itself, so going from it to 홈 is the home screen's own scroll; this screen is
+     * another app window, and going from it to 홈 made the phone play its going-home transition whatever the app asked (its
+     * wallpaper alone, then 홈 fading and shrinking in), on top of the swipe. So while it is swiped away this screen is made
+     * see-through (Activity.setTranslucent): the home screen behind it is drawn again, as it is, under this one; and leaving only
+     * moves this screen back (moveTaskToBack) with 홈 already on the screen, so there is no going-home for the phone to play.
+     * Opaque again when the swipe springs back or this screen comes again (slideReset).
+     */
+    private boolean seeThrough;
+    private android.graphics.drawable.Drawable windowBackground;
+    private void seeThrough(boolean on) {
+        if (on == seeThrough) return;
+        if (on) {
+            boolean done; try { done = setTranslucent(true); } catch (RuntimeException refused) { done = false; }
+            if (!done) return;
+            seeThrough = true;
+            windowBackground = getWindow().getDecorView().getBackground();
+            getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        } else {
+            seeThrough = false;
+            try { setTranslucent(false); } catch (RuntimeException ignored) { /* stays as it is */ }
+            if (windowBackground != null) getWindow().setBackgroundDrawable(windowBackground);
+        }
+    }
+    /**
+     * The swipe has come all the way: with the home screen drawn behind (it came up behind this see-through screen, a moment
+     * after the swipe began; waited for a little), 홈's picture fades to 홈 as it is and this screen steps back; else 홈 is opened
+     * as before, its picture laid over the phone's transition (HomeCurtain).
+     */
+    private void leaveToHome(android.widget.ImageView cover, int tries) {
+        if (isFinishing() || isDestroyed()) return;
+        if (seeThrough && HomeActivity.visible) {
+            cover.animate().alpha(0f).setDuration(90).withEndAction(() -> { if (!isFinishing()) moveTaskToBack(true); }).start();
+            return;
+        }
+        if (seeThrough && tries < 20) { progressUiHandler.postDelayed(() -> leaveToHome(cover, tries + 1), 16); return; }
+        HomeCurtain.cover(this, HomeActivity.homeShot, HomeActivity.homeShotAt);
+        try { startActivity(homeIntent(this, true)); overridePendingTransition(0, 0); }
+        catch (RuntimeException none) { HomeCurtain.remove(); moveTaskToBack(true); }
     }
     private void slideMove(float dx) {
         if (slid == null || homeCover == null) return;
@@ -717,11 +765,7 @@ public final class BrowserActivity extends Activity {
             page.animate().translationX(-width).setDuration(ms).setInterpolator(ease).start();
             cover.animate().translationX(0).setDuration(ms).setInterpolator(ease).withEndAction(() -> {
                 saveDraft(); if (dictation != null) dictation.cancel();
-                // The phone still plays its own going-home transition (its wallpaper, then 홈 fading in): 홈's picture is laid
-                // over every window meanwhile (HomeCurtain), so what is seen stays this picture until it is 홈 itself.
-                HomeCurtain.cover(this, HomeActivity.homeShot, HomeActivity.homeShotAt);
-                try { startActivity(homeIntent(this, true)); overridePendingTransition(0, 0); }
-                catch (RuntimeException none) { HomeCurtain.remove(); moveTaskToBack(true); }
+                leaveToHome(cover, 0);
             }).start();
         } else {
             page.animate().translationX(0).setDuration(ms).setInterpolator(ease).start();
@@ -745,7 +789,7 @@ public final class BrowserActivity extends Activity {
         if (slid != null) { slid.animate().cancel(); slid.setTranslationX(0); }
         if (homeCover != null) { homeCover.animate().cancel(); android.view.ViewParent p = homeCover.getParent(); if (p instanceof android.view.ViewGroup g) g.removeView(homeCover); }
         if (homeEdge != null && homeEdge.on()) homeEdge.handle.setVisibility(View.VISIBLE);
-        slid = null;
+        slid = null; seeThrough(false);
     }
     /** Touches go to the right edge's swipe first, when this screen came from the home screen (HomeEdge). */
     @Override public boolean dispatchTouchEvent(MotionEvent e) {
@@ -757,12 +801,10 @@ public final class BrowserActivity extends Activity {
     private void toHome() {
         if (leaving || slid != null) return;
         saveDraft(); if (dictation != null) dictation.cancel();
-        // With a picture of 홈 (the aurora): the swipe's own slide, played by itself, then 홈 in place (homeIntent seamless).
-        // slideBegin keeps this screen's picture for the left page first.
-        if (slideBegin()) { slideEnd(true); return; }
-        // The screen as it is now goes to the home screen's left page first (keepShot), then home.
+        // The screen as it is now goes to the home screen's left page first (keepShot), then 홈: with a picture of 홈 (the
+        // aurora) the swipe's own slide, played by itself, and 홈 in its place (homeIntent seamless).
         leaving = true;
-        keepShot(() -> { leaving = false; goHome(); });
+        keepShot(() -> { leaving = false; if (slideBegin()) slideEnd(true); else goHome(); });
     }
     private void goHome() {
         if (isFinishing() || isDestroyed()) return;

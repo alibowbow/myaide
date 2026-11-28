@@ -81,6 +81,30 @@ public class ClaudePageTests {
     /** The browser the home screen started last (null when none), and its extras. */
     private static android.content.Intent started(HomeActivity a) { return shadowOf(a).getNextStartedActivity(); }
 
+    /**
+     * The pages turn back to 홈 under the browser only once it covers them (the home screen stopped), not at a set time after
+     * asking for it: in 0.4.677's video the browser took longer and the pages were seen going back to 홈 first.
+     */
+    @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void thePagesTurnBackOnlyOnceTheBrowserCovers() throws Exception {
+        Application app = RuntimeEnvironment.getApplication();
+        app.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).edit().putBoolean(ClaudePage.ON, true).commit();
+        org.robolectric.android.controller.ActivityController<HomeActivity> c = Robolectric.buildActivity(HomeActivity.class).setup();
+        HomeActivity a = c.get(); idle(); layout(a);
+        while (started(a) != null) { /* what the home screen started on its own */ }
+        page(a, "left", "[0.5,false,false]"); page(a, "left", "[0,true,false]");
+        assertNotNull("the browser asked for", started(a));
+        android.webkit.WebView web = (android.webkit.WebView) findView(a.getWindow().getDecorView(), android.webkit.WebView.class);
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(2));
+        assertFalse("not while the home screen still shows", String.valueOf(shadowOf(web).getLastEvaluatedJavascript()).contains("toHome"));
+        c.pause().stop(); idle();
+        assertTrue("covered: 홈 under it", String.valueOf(shadowOf(web).getLastEvaluatedJavascript()).contains("launcher.toHome"));
+    }
+    private static View findView(View v, Class<?> type) {
+        if (type.isInstance(v)) return v;
+        if (v instanceof ViewGroup g) for (int i = 0; i < g.getChildCount(); i++) { View f = findView(g.getChildAt(i), type); if (f != null) return f; }
+        return null;
+    }
+
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void restingOnTheLeftPageOpensTheBrowser() throws Exception {
         Application app = RuntimeEnvironment.getApplication();
         app.getSharedPreferences(HomeActivity.PREFS, Context.MODE_PRIVATE).edit().putBoolean(ClaudePage.ON, true).commit();

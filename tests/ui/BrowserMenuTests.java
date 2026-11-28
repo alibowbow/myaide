@@ -70,6 +70,11 @@ public class BrowserMenuTests {
         assertTrue("up while the phone's transition runs", HomeCurtain.covering());
         shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(400));
         assertFalse("lifted after it", HomeCurtain.covering());
+        // 홈 says its entering has finished: lifted at once, also when its resume comes after.
+        assertTrue(HomeCurtain.cover(a, picture, at));
+        HomeCurtain.homeDrawn(); HomeCurtain.homeShown();
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(HomeCurtain.AFTER_DRAWN_MS + 200));
+        assertFalse("lifted when 홈's entering ended", HomeCurtain.covering());
         // 홈 never says it is in front: lifted anyway.
         assertTrue(HomeCurtain.cover(a, picture, at));
         shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(HomeCurtain.MOST_MS + 400));

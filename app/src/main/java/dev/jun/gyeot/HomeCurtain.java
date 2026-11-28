@@ -27,10 +27,17 @@ final class HomeCurtain {
     private HomeCurtain() {}
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     /** Never left over the screen longer than this, whatever happens to 홈. */
-    static final long MOST_MS = 1800;
-    /** After 홈 is resumed: the phone's transition (its wallpaper, then 홈 fading in) runs about half a second under it. */
-    static final long AFTER_HOME_MS = 650;
+    static final long MOST_MS = 2600;
+    /**
+     * After 홈 is resumed, when 홈 never says its entering has finished: the phone's transition (its wallpaper, then 홈 fading in)
+     * ran about 1.2 seconds in 0.4.677's video, and lifting at 0.65 showed its end through the picture.
+     */
+    static final long AFTER_HOME_MS = 1400;
+    /** After 홈's entering has finished (onEnterAnimationComplete): a frame for 홈 to be drawn as it is. */
+    static final long AFTER_DRAWN_MS = 40;
     private static View shown;
+    /** 홈's entering has finished for the picture now up (then 홈's resume, if it comes after, does not hold it longer). */
+    private static boolean drawn;
     private static WindowManager manager;
     private static final Runnable lift = HomeCurtain::lift;
 
@@ -45,7 +52,7 @@ final class HomeCurtain {
         if (picture == null || at == null || at.isEmpty()) return false;
         RecordBubble.Host host = RecordBubble.host(context.getApplicationContext());
         if (host == null) return false;
-        remove();
+        remove(); drawn = false;
         try {
             WindowManager wm = host.context().getSystemService(WindowManager.class);
             Rect place = new Rect(at);
@@ -77,13 +84,19 @@ final class HomeCurtain {
     }
     /** 홈 is in front: lifted once the phone's own transition has run under it. */
     static void homeShown() {
-        if (shown == null) return;
+        if (shown == null || drawn) return;
         MAIN.removeCallbacks(lift); MAIN.postDelayed(lift, AFTER_HOME_MS);
     }
-    /** A quick fade, so 홈 as it is now (the clock may have moved on since the picture) takes its place softly. */
+    /** 홈's entering has finished: lifted at once (the picture and 홈 are the same but for what moved, so no long fade over it). */
+    static void homeDrawn() {
+        if (shown == null) return;
+        drawn = true;
+        MAIN.removeCallbacks(lift); MAIN.postDelayed(lift, AFTER_DRAWN_MS);
+    }
+    /** A very short fade: 홈 as it is now (퍼레 may have moved since the picture) takes its place without a ghost of either. */
     private static void lift() {
         View view = shown; if (view == null) return;
-        view.animate().alpha(0f).setDuration(140).withEndAction(HomeCurtain::remove).start();
+        view.animate().alpha(0f).setDuration(70).withEndAction(HomeCurtain::remove).start();
     }
     static void remove() {
         MAIN.removeCallbacks(lift);

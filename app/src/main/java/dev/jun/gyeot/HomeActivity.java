@@ -372,7 +372,13 @@ public final class HomeActivity extends Activity {
         if (ready && web != null) web.evaluateJavascript("launcher.hidden&&launcher.hidden()", null);
         super.onPause();
     }
+    /**
+     * 홈's own entering (the phone's going-home transition, wallpaper then 홈) has finished: the browser's picture of 홈 over
+     * it is lifted now, exactly when it ends (HomeCurtain).
+     */
+    @Override public void onEnterAnimationComplete() { super.onEnterAnimationComplete(); HomeCurtain.homeDrawn(); }
     @Override protected void onStop() {
+        if (toHomeWhenCovered) { toHomeWhenCovered = false; if (web != null) web.evaluateJavascript("launcher.toHome&&launcher.toHome()", null); }
         // 이번만 on a page here lasts while the home screen is in front.
         for (PageBridgeHost h : bridges.values()) h.forgetOnce();
         // Left late in the evening: the night's digest now if it was not done today (BuddyTalk.dream), off the main thread.
@@ -435,8 +441,11 @@ public final class HomeActivity extends Activity {
         leftOpened = android.os.SystemClock.uptimeMillis();
         try { BrowserActivity.openFromHome(this, ClaudePage.HOME); }
         catch (RuntimeException none) { Toast.makeText(this, "AI 브라우저를 열지 못했어요.", Toast.LENGTH_SHORT).show(); return; }
-        main.postDelayed(() -> { if (web != null) web.evaluateJavascript("launcher.toHome&&launcher.toHome()", null); }, 450);
+        // The pages go back to 홈 once the browser covers them (onStop), not at a set time: it sometimes takes longer than that
+        // to come up, and the pages were seen turning back to 홈 before it did (0.4.677's video).
+        toHomeWhenCovered = true;
     }
+    private boolean toHomeWhenCovered;
     /** The 작업 표시줄's all-apps button: Launchpad over whatever was open, with its search when the button was held. */
     private void showPad(String show) {
         if (web != null) web.evaluateJavascript("launcher.pad&&launcher.pad(" + "search".equals(show) + ")", null);
