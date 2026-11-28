@@ -320,11 +320,16 @@ final class BuddyTalk {
      * what it knows and remembers now; the assistant's note about the user without their work unless the question is about
      * it (BuddyMind.everyday), as a reference not to bring up first.
      */
-    static String chatInstructions(Context c, AppStore store, String question) {
+    static String chatInstructions(Context c, AppStore store, String question) { return chatInstructions(c, store, question, true); }
+    /**
+     * full: the whole list of what 퍼레 can do (BuddyPrompt.ACTS, ~4,600 chars); otherwise its one line (ACTS_LITE: plain words
+     * for chitchat, and "할일: {"tool":"more"}" when a thing to do turns out to be asked; chatText then asks again in full).
+     */
+    static String chatInstructions(Context c, AppStore store, String question, boolean full) {
         String about = "";
         try { String all = Briefing.profile(store); about = dev.jun.gyeot.core.BuddyMind.asksWork(question) ? all : dev.jun.gyeot.core.BuddyMind.everyday(all); } catch (RuntimeException ignored) {}
         String now = new SimpleDateFormat("yyyy년 M월 d일 EEEE a h:mm", Locale.KOREA).format(new Date());
-        return BuddyPrompt.chatRules(persona(c), now) + corrected(c, question) + ACTS + places(store)
+        return BuddyPrompt.chatRules(persona(c), now) + corrected(c, question) + (full ? ACTS + places(store) : BuddyPrompt.ACTS_LITE)
             + BuddyPrompt.CHAT_PHONE
             + "휴대폰 상태: " + facts(c) + "\n" + todayWords(c) + deliveryWords(c) + noticeWords(c) + dev.jun.gyeot.core.BuddyJobs.report(System.currentTimeMillis()) + memoryWords(c, question, true)
             + worldWords(c)
@@ -353,11 +358,42 @@ final class BuddyTalk {
                 return act == null ? here.say() : (here.say().isEmpty() ? "" : here.say() + "\n") + "할일: " + act;
             }
         }
+        // Chitchat goes with the one-line list of what 퍼레 can do (준: "퍼레 대화는 간단한 잡담인데 설정 인풋이 많나보네": 13 talks
+        // filled Groq's 200,000 tokens a day); a thing to do with the whole list, and a talk taken for chitchat that asks for one
+        // is asked again in full (BuddyPrompt.wantsMore).
+        boolean full = dev.jun.gyeot.core.BuddyMind.mayAct(question) || dev.jun.gyeot.core.BuddyMind.mayAct(lastAsked(history));
+        if (!full) {
+            StringBuilder held = new StringBuilder(); boolean[] passing = {false}, decided = {false};
+            // Streamed words: held until they are not the "할일: more" line, so the page never shows it.
+            Consumer<String> guarded = onDelta == null ? null : piece -> {
+                if (passing[0]) { onDelta.accept(piece); return; }
+                held.append(piece); String t = held.toString().stripLeading();
+                if (decided[0] || t.length() < 3) return;
+                decided[0] = true; passing[0] = !t.startsWith("할일") && !t.startsWith("{");
+                if (passing[0]) onDelta.accept(held.toString());
+            };
+            String said = chatBrain(c, store, question, history, cancel, current, guarded, custom, qwen, false);
+            if (!BuddyPrompt.wantsMore(said)) return said;
+            if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException();
+        }
+        return chatBrain(c, store, question, history, cancel, current, onDelta, custom, qwen, true);
+    }
+    /** The asks before this one in the talk's history ([{who, text}], the page's): the last of the user's, or "". */
+    private static String lastAsked(String history) {
+        try {
+            JSONArray turns = new JSONArray(history == null || history.isBlank() ? "[]" : history);
+            for (int i = turns.length() - 1; i >= 0; i--) { JSONObject t = turns.optJSONObject(i); if (t != null && "me".equals(t.optString("who"))) return t.optString("text"); }
+        } catch (Exception unreadable) { /* none */ }
+        return "";
+    }
+    /** One answer of 퍼레와 대화 from its brain (the chosen AI, Qwen, NVIDIA), with the whole list of what it can do or its line. */
+    private static String chatBrain(Context c, AppStore store, String question, String history, AtomicReference<Runnable> cancel,
+            java.util.function.BooleanSupplier current, Consumer<String> onDelta, boolean custom, boolean qwen, boolean full) throws Exception {
         String in = BuddyPrompt.chatInput(history, question.strip());
         if (custom) {
             // The AI the user chose for 퍼레 (화면 꾸미기 → 퍼레 두뇌); when it cannot answer, Qwen or NVIDIA below.
             try {
-                String text = askCustom(store, chatInstructions(c, store, question), in, cancel);
+                String text = askCustom(store, chatInstructions(c, store, question, full), in, cancel);
                 chatBy = "고른 AI · " + customLabel(store);
                 return text.replaceAll("(?s)<think>.*?</think>", "").strip();
             } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
@@ -370,13 +406,14 @@ final class BuddyTalk {
         if (qwen) {
             String model = qwen(store), text;
             JSONArray messages = new JSONArray().put(new JSONObject().put("role", "user").put("content", in));
-            try { text = GroqWork.converse(model, chatInstructions(c, store, question), messages, "none", 0.7, 30_000, cancel); }
-            catch (Exception first) { if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException(); text = GroqWork.converse(model, chatInstructions(c, store, question), messages, null, 0.7, 30_000, cancel); }
+            String rules = chatInstructions(c, store, question, full);
+            try { text = GroqWork.converse(model, rules, messages, "none", 0.7, 30_000, cancel); }
+            catch (Exception first) { if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException(); text = GroqWork.converse(model, rules, messages, null, 0.7, 30_000, cancel); }
             UsageLedger.count(store, UsageLedger.BUDDY, dev.jun.gyeot.core.WorkBook.GROQ, model, GroqWork.USED.get());
             chatBy = "Groq · " + model;
             return text.replaceAll("(?s)<think>.*?</think>", "").strip();
         }
-        WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), store.nim.model(), chatInstructions(c, store, question), in,
+        WorkClient.Result answer = NimClient.complete(store.nim, store.nim.generation(), store.nim.model(), chatInstructions(c, store, question, full), in,
             () -> { if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException(); }, cancel, onDelta == null ? text -> {} : onDelta);
         UsageLedger.count(store, UsageLedger.BUDDY, dev.jun.gyeot.core.WorkBook.NIM, store.nim.model(), answer.usage);
         chatBy = "NVIDIA · " + store.nim.model();

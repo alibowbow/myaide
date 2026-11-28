@@ -90,9 +90,7 @@ final class MyTubeChat {
         input.setOnEditorActionListener((v, id, event) -> { if (id == EditorInfo.IME_ACTION_SEND) { submit(); return true; } return false; });
         box.addView(input, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout bar = ui.row(); bar.setGravity(Gravity.CENTER_VERTICAL);
-        model = ui.text("", 13.5f, 500, TEXT); model.setSingleLine(true); model.setEllipsize(TextUtils.TruncateAt.END);
-        model.setGravity(Gravity.CENTER_VERTICAL | Gravity.END); model.setPadding(ui.dp(10), 0, ui.dp(6), 0); model.setMinHeight(ui.dp(44));
-        model.setOnClickListener(v -> chooseModel()); Ui.pressable(model, true);
+        model = ModelLine.make(activity, ui, v -> chooseModel()); model.setMinHeight(ui.dp(44));
         LinearLayout.LayoutParams modelAt = new LinearLayout.LayoutParams(0, -2, 1); bar.addView(model, modelAt);
         bar.addView(ui.bareIcon(R.drawable.ic_mic, TEXT, "음성 입력 · 입력창에만 넣기", this::dictate), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         voice = new VoiceBar(activity, store, ui, "mytube", () -> VoiceTargets.mytube(activity.getApplicationContext()));
@@ -139,11 +137,7 @@ final class MyTubeChat {
         more.setText(expanded ? "최근 대화만 보기" : "지난 대화 보기 (" + (all.size() - SHOWN) + ")");
         // The model as 작업창 shows it: its name in bold, its thinking level quiet beside it.
         String[] parts = modelParts();
-        android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(parts[0]);
-        label.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, label.length(), 0);
-        if (!parts[1].isEmpty()) { int at = label.length(); label.append("  ").append(parts[1]); label.setSpan(new android.text.style.ForegroundColorSpan(MUTED), at, label.length(), 0); }
-        model.setText(label);
-        model.setContentDescription("마이튜브 AI 모델과 생각 깊이 바꾸기, 지금 " + parts[0] + (parts[1].isEmpty() ? "" : " " + parts[1]));
+        ModelLine.show(model, parts, "마이튜브 AI");
         looks();
     }
     private View line(MyTubeBook.Line l) {

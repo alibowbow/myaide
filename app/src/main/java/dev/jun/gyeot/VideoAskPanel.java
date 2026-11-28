@@ -175,9 +175,7 @@ final class VideoAskPanel {
         // +: pictures of the video with GPT image (그래픽 레코딩, 인포그래픽, 4컷 만화, or the user's own words).
         plusButton = ui.bareIcon(R.drawable.ic_add, TEXT, "더하기 · 그림 그리기, HTML 페이지", this::plus);
         bar.addView(plusButton, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
-        model = ui.text("", 13.5f, 500, TEXT); model.setSingleLine(true); model.setEllipsize(TextUtils.TruncateAt.END);
-        model.setGravity(Gravity.CENTER_VERTICAL | Gravity.END); model.setPadding(ui.dp(10), 0, ui.dp(6), 0); model.setMinHeight(ui.dp(44));
-        model.setOnClickListener(v -> chooseModel()); Ui.pressable(model, true);
+        model = ModelLine.make(activity, ui, v -> chooseModel()); model.setMinHeight(ui.dp(44));
         bar.addView(model, new LinearLayout.LayoutParams(0, -2, 1));
         bar.addView(ui.bareIcon(R.drawable.ic_mic, TEXT, "음성 입력 · 입력창에만 넣기", this::dictate), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         send = ui.sendButton("보내기", () -> { if (busy()) halt(); else submit(); });
@@ -642,11 +640,7 @@ final class VideoAskPanel {
     /** The model as 작업창 shows it: its name in bold, its thinking level quiet beside it. */
     private void renderModel() {
         String[] parts = modelParts();
-        android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(parts[0]);
-        label.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, label.length(), 0);
-        if (!parts[1].isEmpty()) { int at = label.length(); label.append("  ").append(parts[1]); label.setSpan(new android.text.style.ForegroundColorSpan(MUTED), at, label.length(), 0); }
-        model.setText(label);
-        model.setContentDescription("질문에 답할 모델과 생각 깊이 바꾸기, 지금 " + parts[0] + (parts[1].isEmpty() ? "" : " " + parts[1]));
+        ModelLine.show(model, parts, "질문에 답할");
     }
     private String[] modelParts() {
         try {

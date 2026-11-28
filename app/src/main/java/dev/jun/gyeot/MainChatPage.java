@@ -147,14 +147,8 @@ final class MainChatPage implements AutoCloseable {
         // Under the field, small and quiet as in 작업창 and the other chats: the model that answers the next message (its name
         // in bold, its thinking level beside it); a tap opens the model menu (ModelPopover).
         dock = ui.column(); dock.addView(composer, new LinearLayout.LayoutParams(-1, -2));
-        LinearLayout modelRow = ui.row(); modelRow.setGravity(Gravity.END | Gravity.CENTER_VERTICAL); modelRow.setPadding(ui.dp(4), ui.dp(2), 0, 0);
-        modelLine = ui.text("", 13, 500, TEXT); modelLine.setSingleLine(true); modelLine.setEllipsize(TextUtils.TruncateAt.END);
-        modelLine.setGravity(Gravity.CENTER_VERTICAL | Gravity.END); modelLine.setPadding(ui.dp(8), 0, ui.dp(4), 0); modelLine.setMinHeight(ui.dp(36));
-        android.graphics.drawable.Drawable chevron = activity.getDrawable(R.drawable.ic_chevron_down);
-        if (chevron != null) { chevron = chevron.mutate(); chevron.setTint(MUTED); chevron.setBounds(0, 0, ui.dp(15), ui.dp(15)); modelLine.setCompoundDrawablesRelative(null, null, chevron, null); modelLine.setCompoundDrawablePadding(ui.dp(4)); }
-        modelLine.setOnClickListener(this::modelMenu); Ui.pressable(modelLine, true);
-        modelRow.addView(modelLine, new LinearLayout.LayoutParams(-2, ui.dp(36)));
-        dock.addView(modelRow, new LinearLayout.LayoutParams(-1, -2));
+        modelLine = ModelLine.make(activity, ui, this::modelMenu);
+        dock.addView(ModelLine.row(ui, modelLine), new LinearLayout.LayoutParams(-1, -2));
         LinearLayout.LayoutParams composerParams = new LinearLayout.LayoutParams(-1, -2); composerParams.topMargin = ui.dp(4); composerParams.bottomMargin = ui.dp(4);
         // 음성 대화's bar takes the composer's place while a conversation is on.
         voice = new VoiceBar(activity, store, ui, "chat", () -> VoiceTargets.chat(store)); voice.aside(dock, chipRow); voice.track(this::track);
@@ -1327,11 +1321,7 @@ final class MainChatPage implements AutoCloseable {
                 }
             }
         } catch (Exception ignored) {}
-        android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(shown);
-        label.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, label.length(), 0);
-        if (!level.isEmpty()) { int at = label.length(); label.append("  ").append(level); label.setSpan(new android.text.style.ForegroundColorSpan(MUTED), at, label.length(), 0); }
-        modelLine.setText(label);
-        modelLine.setContentDescription("메인 대화 모델과 생각 깊이 바꾸기, 지금 " + shown + (level.isEmpty() ? "" : " " + level));
+        ModelLine.show(modelLine, shown, level, "메인 대화");
     }
     static String level(String engine, String value) { return WorkBook.CHATGPT.equals(engine) ? Reasoning.gptShortLabel(value) : WorkBook.CLAUDE.equals(engine) ? Reasoning.claudeLabel(value) : MainActivity.effortName(value); }
     /**

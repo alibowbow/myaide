@@ -266,9 +266,8 @@ public final class PagesActivity extends Activity {
         LinearLayout.LayoutParams na = new LinearLayout.LayoutParams(-1, -2); na.topMargin = ui.dp(10); sheet.body.addView(name, na);
         LinearLayout line = ui.row(); line.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END);
         TextView label = ui.text("만드는 AI", 13, 500, MUTED); line.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView modelLine = ui.text("", 13.5f, 500, TEXT); modelLine.setSingleLine(true); modelLine.setEllipsize(TextUtils.TruncateAt.END); modelLine.setMinHeight(ui.dp(44)); modelLine.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        modelLine.setPadding(ui.dp(10), 0, ui.dp(4), 0);
-        Runnable paint = () -> modelLine.setText(ProjectActivity.modelText(store)); paint.run();
+        TextView modelLine = ModelLine.make(this, ui, null); modelLine.setMinHeight(ui.dp(44));
+        Runnable paint = () -> ModelLine.show(modelLine, ProjectActivity.modelParts(store), "만드는 AI"); paint.run();
         modelLine.setOnClickListener(v -> ProjectActivity.chooseModel(this, ui, store, v, paint)); Ui.pressable(modelLine, true);
         line.addView(modelLine, new LinearLayout.LayoutParams(-2, -2));
         sheet.body.addView(line);

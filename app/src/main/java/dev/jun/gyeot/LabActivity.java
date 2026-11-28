@@ -1253,9 +1253,7 @@ public final class LabActivity extends Activity implements LabRunner.Listener {
     private String modelText(LabBook.Project p, String role) { String[] m = modelParts(p, role); return m[0] + (m[1].isEmpty() ? "" : " " + m[1]); }
     private void modelLabel(TextView view, LabBook.Project p, String role) {
         String[] parts = modelParts(p, role);
-        SpannableStringBuilder label = new SpannableStringBuilder(parts[0]); label.setSpan(new StyleSpan(Typeface.BOLD), 0, label.length(), 0);
-        if (!parts[1].isEmpty()) { int at = label.length(); label.append("  ").append(parts[1]); label.setSpan(new ForegroundColorSpan(MUTED), at, label.length(), 0); }
-        view.setText(label); view.setContentDescription(LabBook.role(role).name() + " 모델 바꾸기, 지금 " + parts[0] + " " + parts[1]);
+        ModelLine.show(view, parts, LabBook.role(role).name());
     }
     private void chooseModel(TextView anchor, LabBook.Project p, LabBook.Role r) {
         ScopedModels selection; try { selection = ScopedModels.lab(store, p.id(), r.id()); } catch (Exception e) { Toast.makeText(this, e.getMessage(), Toast.LENGTH_LONG).show(); return; }

@@ -253,6 +253,20 @@ public final class BuddyMind {
     /** Whether the user asked about their work ("요즘 작업 잘 돼?", "일은 어때"): then the whole note goes with the answer. */
     public static boolean asksWork(String said) { return said != null && ASKS_WORK.matcher(said).find(); }
 
+    /**
+     * Words that may ask 퍼레 to do something (BuddyTalk.chatText: then the whole list of what it can do goes along; otherwise
+     * chitchat's one line). Generous on purpose: a miss costs one more request (the brain answers "more"), a hit only tokens.
+     */
+    private static final Pattern MAY_ACT = Pattern.compile("(열어|열기|켜|꺼|끄|틀어|재생|멈춰|정지|다음\\s*곡|이전\\s*곡|알람|타이머|스톱워치|깨워|맞춰|"
+        + "길\\s*(찾|안내|알려)|가는\\s*길|내비|네비|안내해|전화|통화|문자|메시지|카톡|보내|공유|검색|찾아|알아봐|사진|셀카|카메라|찍어|동영상|녹화|녹음|"
+        + "메모|적어|기록|기억해|잊어|지워|삭제|일정|캘린더|약속|예약|추가|넣어|빼|계산|번역|주사위|동전|골라|뽑아|몇\\s*시|시각|며칠|디데이|[dD]-?day|"
+        + "밝기|소리|볼륨|음량|손전등|플래시|와이파이|wifi|블루투스|방해\\s*금지|회전|가로|세로|설정|앱|어플|유튜브|멜론|스포티파이|노래|음악|영상|주문|"
+        + "배민|쿠팡|담아|사\\s*줘|올려|업로드|다운|파일|갤러리|연락처|메일|조사|연구|분석|보고서|정리해|만들어|써\\s*줘|작성|매일|마다|되면|도착하면|"
+        + "장난감|옷|입어|입혀|벗어|춤|놀자|놀아|불러|호칭|조용|그만|지난주|어제|그저께|뭐였지|어디였지|페이지|넘겨|닫아|종료|사이트|주소|"
+        + "해\\s*줘|해\\s*줄래|해\\s*봐|줄래|부탁|하자|가자|알려\\s*줘|알림|기억나|넘으면|하면|ㄱㄱ|고고)");
+    /** Whether what was said may ask 퍼레 to do something (MAY_ACT); plain chitchat ("안녕", "뭐해?", "심심해") does not. */
+    public static boolean mayAct(String said) { return said != null && MAY_ACT.matcher(said).find(); }
+
     private static final Pattern NAG = Pattern.compile("(힘\\s*내|화이팅|파이팅|쉬어|쉬자|쉬엄|쉬면서|휴식|푹\\s*쉬|수고|고생\\s*했|고생\\s*많|애썼|무리\\s*하지|무리하면|잘\\s*하고\\s*있어|응원할게|응원해)");
     /** Cheering, a nudge to rest, a "well done" (준: "자꾸 화이팅하고 쉬래"): not 퍼레's to say unasked. */
     public static boolean nag(String line) { return line != null && NAG.matcher(line).find(); }

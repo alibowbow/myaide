@@ -78,6 +78,15 @@ public class BuddyBrainTests {
     }
 
     /** A voice that ends going up is a question (준: "음악소리들려? 라고 말하면 음악소리들려로 알아들어"); one going down is not. */
+    /** 준: "퍼레 대화는 간단한 잡담인데 설정 인풋이 많나보네": chitchat goes with one line, not the whole list; "more" asks again. */
+    @Test public void chitchatGoesLight() {
+        assertTrue("one line, not the whole list (" + BuddyPrompt.ACTS_LITE.length() + " vs " + BuddyPrompt.ACTS.length() + ")", BuddyPrompt.ACTS_LITE.length() * 10 < BuddyPrompt.ACTS.length());
+        assertTrue(BuddyPrompt.wantsMore("할일: {\"tool\":\"more\"}"));
+        assertTrue(BuddyPrompt.wantsMore("할일 {tool: more}"));
+        assertTrue(BuddyPrompt.wantsMore("{\"tool\": \"more\"}"));
+        assertFalse(BuddyPrompt.wantsMore("응! 오늘은 더 놀자 ㅎㅎ"));
+        assertFalse(BuddyPrompt.wantsMore("알겠어!\n할일: {\"tool\":\"alarm\",\"hour\":7}"));
+    }
     @Test public void hearsAQuestionInTheVoice() {
         assertTrue("rising", dev.jun.gyeot.core.Intonation.rising(glide(150, 150, 230)));
         assertFalse("falling", dev.jun.gyeot.core.Intonation.rising(glide(170, 170, 120)));

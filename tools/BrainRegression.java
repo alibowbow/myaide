@@ -241,6 +241,18 @@ final class BrainRegression {
         }
         check(here >= 8, "기기 안 answers the scenarios it should: " + here + " " + rules);
         System.out.println("기기 안 answered " + here + " of the scenarios with a tool or nothing to do: " + rules);
+        // 퍼레와 대화 sends the whole list of what it can do only when the words may ask for something (준: "퍼레 대화는 간단한 잡담인데
+        // 설정 인풋이 많나보네"): every scenario with a thing to do goes with it at once (a miss would cost a second request).
+        int acts = 0, plain = 0;
+        for (int i = 0; i < all.length(); i++) {
+            JSONObject s = all.getJSONObject(i), expect = s.getJSONObject("expect");
+            if (!expect.has("tool")) continue;
+            acts++; check(BuddyMind.mayAct(BuddyMind.nameHeard(s.getString("said"))), "a thing to do taken for chitchat (the whole list would not go): " + s.getString("said"));
+        }
+        for (String talk : new String[]{"안녕", "뭐해?", "심심해", "오늘 너무 피곤하다", "고마워", "ㅋㅋㅋ 귀엽다", "잘 자", "사랑해", "배고프다", "오늘 날씨 좋네", "너는 누구야?", "기분이 좀 우울해"}) {
+            plain++; check(!BuddyMind.mayAct(talk), "chitchat taken for a thing to do (the whole list would go): " + talk);
+        }
+        System.out.println("퍼레와 대화: " + acts + " things to do go with the whole list, " + plain + " chitchats with its one line");
     }
 
     // ── what it costs ──

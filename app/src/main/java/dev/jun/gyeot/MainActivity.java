@@ -3109,16 +3109,10 @@ public final class MainActivity extends Activity {
     }
     /** "Sonnet 5.5  보통 ⌄": the model in the text color, the depth quieter, a small chevron; no icon, no box (as in Claude's and ChatGPT's apps). */
     private TextView modelText(String[] parts, String description, Runnable action) {
-        android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(parts[0]);
-        label.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, label.length(), 0);
-        if (!parts[1].isEmpty()) { int at = label.length(); label.append("  ").append(parts[1]); label.setSpan(new android.text.style.ForegroundColorSpan(MUTED), at, label.length(), 0); }
-        TextView chip = ui.text("", 13, 500, TEXT); chip.setText(label); chip.setSingleLine(true); chip.setEllipsize(TextUtils.TruncateAt.END);
-        chip.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END); chip.setPadding(ui.dp(8), 0, ui.dp(4), 0); chip.setMinHeight(ui.dp(36));
+        TextView chip = ModelLine.make(this, ui, v -> action.run()); ModelLine.show(chip, parts, "작업창");
         // On the slim line under the field, beside the repository: a long model name is cut short rather than crowding it.
         chip.setMaxWidth(ui.dp(composerOneRow ? 280 : 210));
-        android.graphics.drawable.Drawable chevron = getDrawable(R.drawable.ic_chevron_down).mutate(); chevron.setTint(MUTED); chevron.setBounds(0, 0, ui.dp(15), ui.dp(15));
-        chip.setCompoundDrawablesRelative(null, null, chevron, null); chip.setCompoundDrawablePadding(ui.dp(4));
-        chip.setContentDescription(description); chip.setOnClickListener(v -> action.run()); Ui.pressable(chip, true);
+        chip.setContentDescription(description);
         return chip;
     }
     /** The chip's two parts: the model (with "Fast" when GPT's fast processing is on) and its thinking level. */

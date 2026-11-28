@@ -33,7 +33,8 @@ public final class BrowserActivity extends Activity {
     static final String SKILLS = "browserSkills", BOOKMARKS = "browserBookmarks", MEMORY = "browserMemory", PROJECTS = "browserProjects"; static final int REQUEST_BOOKMARKS = 7311;
     private EditText address, request;
     private TextView resultText, tabButton, notice, askBubble, statsText;
-    private ImageView sendButton, modelPicker, pageBackButton, pageForwardButton, pageRefreshButton, browserMenuButton, paneToggle, siteIcon, clearAddressButton;
+    private TextView modelLine;
+    private ImageView sendButton, pageBackButton, pageForwardButton, pageRefreshButton, browserMenuButton, paneToggle, siteIcon, clearAddressButton;
     private BrowserPanelHeader panelHeader;
     private ImageView appReturnButton;
     private LinearLayout browserToolbar;
@@ -255,11 +256,10 @@ public final class BrowserActivity extends Activity {
         else { ScrollView results = new ScrollView(this) {
             @Override protected void onMeasure(int width, int height) { super.onMeasure(width, View.MeasureSpec.makeMeasureSpec(Math.min(ui.dp(240), View.MeasureSpec.getSize(height)), View.MeasureSpec.AT_MOST)); }
         }; results.setVerticalScrollBarEnabled(false); results.addView(resultBox); resultScroll = results; pane.addView(results, new LinearLayout.LayoutParams(-1, 0, 1)); }
-        // A quiet composer: model menu, draft, then send or add an instruction to this tab's task.
+        // A quiet composer: draft, then send or add an instruction to this tab's task; the model on its line under it (ModelLine,
+        // 준: "Ai브라우저 채팅창. 모델선택을 메뉴깊숙히 숨기지말고 이런식으로 입력창아래에").
         LinearLayout compose = ui.row(); compose.setGravity(Gravity.BOTTOM); compose.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4));
         android.graphics.drawable.GradientDrawable composeSurface = ui.shape(FILL, 18); composeSurface.setStroke(Math.max(1, ui.dp(.6f)), DARK ? 0x24ffffff : 0x14000000); compose.setBackground(composeSurface);
-        modelPicker = icon(R.drawable.ic_add, "AI 모델과 생각 깊이 선택", this::models);
-        modelPicker.setTooltipText("모델 선택"); compose.addView(modelPicker, square());
         request = ui.input("이 페이지에서 할 일", 2, 8000); request.setTextSize(15.5f); request.setMinLines(1); request.setMinimumHeight(0); request.setMinHeight(0); request.setMaxLines(wide ? 6 : 4); request.setBackgroundColor(android.graphics.Color.TRANSPARENT); request.setContentDescription("브라우저 AI에게 지시할 내용");
         request.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES); request.setPadding(ui.dp(6), ui.dp(12), ui.dp(6), ui.dp(12)); request.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         compose.addView(request, new LinearLayout.LayoutParams(0, -2, 1));
@@ -278,6 +278,8 @@ public final class BrowserActivity extends Activity {
         deepChip.setVisibility(View.GONE); deepChip.setContentDescription("끝까지 조사 켜짐, 눌러서 끄기"); deepChip.setOnClickListener(v -> deep(false));
         LinearLayout.LayoutParams deepParams = new LinearLayout.LayoutParams(-2, -2); deepParams.bottomMargin = ui.dp(6); pane.addView(deepChip, deepParams);
         pane.addView(compose);
+        modelLine = ModelLine.make(this, ui, v -> models());
+        pane.addView(ModelLine.row(ui, modelLine), new LinearLayout.LayoutParams(-1, -2));
         updateComposerLines(false);
         return pane;
     }
@@ -744,8 +746,7 @@ public final class BrowserActivity extends Activity {
         // At large text sizes or with the keyboard up, keep the two-line draft reachable.
         updateComposerLines(engine.transcriptStorageWarning || engine.taskStorageWarning);
         panelHeader.update(host(tab.url));
-        String model = new BrowserModels(engine.store).summary(engine.brain());
-        modelPicker.setContentDescription("AI 모델과 생각 깊이 선택 · 현재 " + model); modelPicker.setTooltipText(model);
+        showModel();
         boolean anyRunning = engine.running(), otherTask = anyRunning && !engine.taskOnCurrentTab();
         boolean running = anyRunning && !otherTask, failed = !otherTask && engine.resultState.equals("error"), completed = !otherTask && engine.resultState.equals("done");
         boolean attention = !otherTask && (engine.resultState.equals("paused") || engine.paused);
@@ -1132,9 +1133,20 @@ public final class BrowserActivity extends Activity {
         }
         if (code == REQUEST_BOOKMARKS && result == RESULT_OK && data != null && data.getData() != null) importBookmarks(data.getData());
     }
+    /** The line under the composer: the browser AI's model in bold, its thinking level beside it (ModelLine). */
+    private void showModel() {
+        if (modelLine == null) return;
+        BrowserModels models = new BrowserModels(engine.store); String brain = engine.brain();
+        if (brain == null || brain.isBlank() || "none".equals(brain)) { ModelLine.show(modelLine, "AI 연결·선택", "", "AI 브라우저"); return; }
+        String model = models.model(brain), effort = models.effort(brain, model);
+        String name = models.label(brain, model) + ("gpt".equals(brain) && "fast".equals(models.speed(model)) ? " · Fast" : "");
+        String engine = switch (brain) { case "gpt" -> dev.jun.gyeot.core.WorkBook.CHATGPT; case "claude" -> dev.jun.gyeot.core.WorkBook.CLAUDE; case "gemini" -> dev.jun.gyeot.core.WorkBook.GEMINI; case "grok" -> dev.jun.gyeot.core.WorkBook.GROK; default -> dev.jun.gyeot.core.WorkBook.NIM; };
+        String level = effort == null || effort.isEmpty() ? "" : MainChatPage.level(engine, effort);
+        ModelLine.show(modelLine, name, level, "AI 브라우저");
+    }
     private void models() {
         showBrowserPopup(BrowserModelUi.create(this, ui, engine.store, engine.brain(), () -> { engine.changed(); refresh(); },
-            () -> startActivity(new android.content.Intent(this, MainActivity.class).putExtra("tab", 2))), modelPicker, true);
+            () -> startActivity(new android.content.Intent(this, MainActivity.class).putExtra("tab", 2))), modelLine, true);
     }
     private void conversationMenu() {
         BrowserEngine.Tab tab = engine.current; if (tab == null) return;

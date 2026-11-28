@@ -320,6 +320,19 @@ def test(jars):
         subprocess.run(['sh', str(ROOT / 'tests' / suite / 'run.sh')], cwd=ROOT, env=dict(os.environ, JSON_JAR=str(json_jar)), check=True)
 
 
+def check_composers():
+    """Every chat's input has its model line under it, the one ModelLine (준: "새로 대화창 만들거나 입력창 만들면 같은문제가
+    반복돼"): a screen with a send button (Ui.sendButton) that does not use ModelLine fails here, before anything is built.
+    퍼레와 대화 is a web page (launcher.html): it keeps its own #chatModel line in the same look."""
+    java = ROOT / 'app/src/main/java/dev/jun/gyeot'
+    missing = [f.name for f in sorted(java.glob('*.java')) if f.name != 'Ui.java' and 'ui.sendButton(' in f.read_text(encoding='utf-8') and 'ModelLine.' not in f.read_text(encoding='utf-8')]
+    launcher = (ROOT / 'app/src/main/assets/decor/launcher.html').read_text(encoding='utf-8')
+    if 'id="chatModel"' not in launcher: missing.append('launcher.html (퍼레와 대화 #chatModel)')
+    if missing:
+        raise SystemExit('A chat input without its model line (use ModelLine.make/show under the field): ' + ', '.join(missing))
+    print('Model line under every chat input: ok')
+
+
 def compile_app():
     """test() covers core classes only. This compiles MainActivity, Ui, BrowserActivity and every other Android source
     against the real SDK and GeckoView, so a screen code error fails the pull request check before merging instead of
@@ -410,6 +423,7 @@ if __name__ == '__main__':
     bridge.mkdir(parents=True, exist_ok=True)
     javac(['-encoding', 'UTF-8', '-d', bridge, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/PageBridgeRegression.java'])
     run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (bridge, jars[-1]))), 'dev.jun.gyeot.core.PageBridgeRegression'])
+    check_composers()
     test_board(jars[-1])
     # The optional larger suites run when their tests folder is present.
     if (ROOT / 'tests/CoreTests.java').is_file(): test(jars)

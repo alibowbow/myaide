@@ -384,9 +384,7 @@ public final class SchoolActivity extends Activity {
         input.setOnEditorActionListener((v, id, event) -> { if (id == EditorInfo.IME_ACTION_SEND) { submit(t); return true; } return false; });
         box.addView(input, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout bar = ui.row(); bar.setGravity(Gravity.CENTER_VERTICAL);
-        model = ui.text("", 13.5f, 500, TEXT); model.setSingleLine(true); model.setEllipsize(TextUtils.TruncateAt.END);
-        model.setGravity(Gravity.CENTER_VERTICAL | Gravity.END); model.setPadding(ui.dp(10), 0, ui.dp(6), 0); model.setMinHeight(ui.dp(44));
-        model.setOnClickListener(v -> chooseModel(t)); Ui.pressable(model, true);
+        model = ModelLine.make(this, ui, v -> chooseModel(t)); model.setMinHeight(ui.dp(44));
         bar.addView(model, new LinearLayout.LayoutParams(0, -2, 1));
         bar.addView(ui.bareIcon(R.drawable.ic_mic, TEXT, "음성 입력 · 입력창에만 넣기", this::dictate), new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
         send = ui.sendButton("질문 보내기", () -> { if (t.id().equals(thinkingFor)) stop(); else submit(t); });
@@ -406,11 +404,7 @@ public final class SchoolActivity extends Activity {
     private void modelLabel(SchoolBook.Teacher t) {
         if (model == null) return;
         String[] parts = appParts(t);
-        android.text.SpannableStringBuilder label = new android.text.SpannableStringBuilder(parts[0]);
-        label.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, label.length(), 0);
-        if (!parts[1].isEmpty()) { int at = label.length(); label.append("  ").append(parts[1]); label.setSpan(new android.text.style.ForegroundColorSpan(MUTED), at, label.length(), 0); }
-        model.setText(label);
-        model.setContentDescription("선생님이 쓰는 AI 바꾸기, 지금 " + parts[0] + (parts[1].isEmpty() ? "" : " " + parts[1]));
+        ModelLine.show(model, parts, "선생님이 쓰는");
     }
     /** {name, thinking level} of the teacher's app AI; "AI 연결·선택" when none is connected. */
     private String[] appParts(SchoolBook.Teacher t) {

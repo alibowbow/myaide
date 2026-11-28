@@ -371,6 +371,15 @@ final class BuddyPrompt {
             + "한국어로, 너답게 친근한 반말(~야, ~해)로 밝고 상냥하게 답해. 존댓말은 쓰지 마. 핵심부터 2~6문장. 표·코드 블록·머리글 없이 평문으로, 필요하면 '-' 목록만 써. 어울리면 이모지나 ^^·ㅎㅎ·ㅠㅠ·(๑˃ᴗ˂)ﻭ 같은 텍스트 이모티콘 하나까지(반짝이·별은 빼고).\n"
             + "모르는 것은 지어내지 말고 모른다고 말해.\n";
     }
+    /**
+     * 퍼레와 대화 for chitchat (준: "퍼레 대화는 간단한 잡담인데 설정 인풋이 많나보네"): ACTS in one line. A thing to do asked after all
+     * comes back as "할일: {"tool":"more"}" alone (wantsMore), and the talk is asked again with ACTS whole.
+     */
+    static final String ACTS_LITE = "- 잡담·기분 이야기엔 할일 줄 없이 대답만 해. 사용자가 휴대폰이나 너(퍼레)에게 해 달라는 일(앱·알람·타이머·음악·검색·길·전화·메시지·"
+        + "일정·메모·기억·지난 일 찾기·장난감·옷·춤 …)이 있으면 다른 말 없이 이 한 줄만 써: 할일: {\"tool\":\"more\"}\n";
+    private static final java.util.regex.Pattern MORE = java.util.regex.Pattern.compile("할일\\s*[:：]?\\s*\\{[^}]*\"?tool\"?\\s*[:=]\\s*\"?more\\b|\\{\\s*\"tool\"\\s*:\\s*\"more\"");
+    /** The answer asks for the whole list of what 퍼레 can do (ACTS_LITE's line). */
+    static boolean wantsMore(String text) { return text != null && MORE.matcher(text).find(); }
     /** 퍼레와 대화: the line on the phone's state, before its numbers. */
     static final String CHAT_PHONE = "사용자가 저장공간·배터리 같은 휴대폰 상태를 물으면 아래 '휴대폰 상태'의 숫자로 답해. 묻지 않으면 꺼내지 말고 정리·삭제를 권하지 마.\n";
     /** The question with the turns before it (history: the page's [{who, text}], at most six, each cut short), as the model reads them. */

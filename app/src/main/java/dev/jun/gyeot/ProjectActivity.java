@@ -198,9 +198,7 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         input.setPadding(ui.dp(14), ui.dp(10), ui.dp(12), ui.dp(2));
         box.addView(input, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout bar = ui.row(); bar.setGravity(Gravity.CENTER_VERTICAL);
-        model = ui.text("", 13.5f, 500, TEXT); model.setSingleLine(true); model.setEllipsize(TextUtils.TruncateAt.END);
-        model.setGravity(Gravity.CENTER_VERTICAL | Gravity.END); model.setPadding(ui.dp(10), 0, ui.dp(6), 0); model.setMinHeight(ui.dp(44));
-        model.setOnClickListener(v -> chooseModel()); Ui.pressable(model, true);
+        model = ModelLine.make(this, ui, v -> chooseModel()); model.setMinHeight(ui.dp(44));
         bar.addView(model, new LinearLayout.LayoutParams(0, -2, 1));
         send = ui.sendButton("보내기", () -> { if (maker.busy(id)) maker.stop(id); else submit(); });
         bar.addView(send, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(44)));
@@ -250,13 +248,11 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
 
     // ── the model ────────────────────────────────────────────────────
 
-    private void modelLabel() { model.setText(modelText(store)); model.setContentDescription("프로젝트 AI 모델 바꾸기, 지금 " + model.getText()); }
+    private void modelLabel() { ModelLine.show(model, modelParts(store), "프로젝트 AI"); }
     /** The projects' AI as the composers show a model: its name in bold, the thinking level quiet beside it. */
     static CharSequence modelText(AppStore store) {
         String[] parts = modelParts(store);
-        SpannableStringBuilder label = new SpannableStringBuilder(parts[0]); label.setSpan(new StyleSpan(Typeface.BOLD), 0, label.length(), 0);
-        if (!parts[1].isEmpty()) { int at = label.length(); label.append("  ").append(parts[1]); label.setSpan(new ForegroundColorSpan(MUTED), at, label.length(), 0); }
-        return label;
+        return ModelLine.label(parts[0], parts[1]);
     }
     static String[] modelParts(AppStore store) { return modelParts(store, () -> ScopedModels.projects(store)); }
     /** The model of a choice (the projects' AI, 트레이딩's): {its name, its thinking level or ""}. */
