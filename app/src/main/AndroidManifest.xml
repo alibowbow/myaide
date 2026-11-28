@@ -226,6 +226,8 @@
             </intent-filter>
         </receiver>
         <receiver android:name=".TriggerReceiver$Place" android:exported="false" />
+        <!-- 매크로: a run's 중지, its ask before a send, a recording's 끝 and 취소, from this app's own notifications only. -->
+        <receiver android:name=".MacroReceiver" android:exported="false" />
         <!-- 조건 알림's price reads and battery checks while charging, set only while a trigger needs them. -->
         <service android:name=".TriggerJob" android:exported="true" android:permission="android.permission.BIND_JOB_SERVICE" />
         <!-- 조건 알림's one tap: a draft to send, an app to open, a permission, which device is the car; see-through. -->

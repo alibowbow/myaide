@@ -769,7 +769,9 @@ public final class Triggers {
         String rest = split == null ? "" : split[1];
         String body = words.isEmpty() || key(words).contains(key(text)) ? s(text) : "", to = words.isEmpty() || key(words).contains(key(who)) ? s(who) : "";
         Action heardAct = rest.isEmpty() ? null : fromWords(rest);
-        Action a = heardAct != null && !JOB.equals(heardAct.kind()) && !(TELL.equals(heardAct.kind()) && !s(then).isEmpty() && !TELL.equals(s(then)) && !Pattern.compile("알려|말해|알림").matcher(rest).find())
+        // A macro named in the words is that macro, whatever then the brain chose (open_app would look for an app so named).
+        boolean macro = heardAct != null && JOB.equals(heardAct.kind()) && heardAct.target().contains("매크로");
+        Action a = macro ? heardAct : heardAct != null && !JOB.equals(heardAct.kind()) && !(TELL.equals(heardAct.kind()) && !s(then).isEmpty() && !TELL.equals(s(then)) && !Pattern.compile("알려|말해|알림").matcher(rest).find())
             ? fill(heardAct, s(what), to, body) : action(s(then), s(what), to, body, rest);
         // A send is never done by itself: it becomes a draft the user sends.
         a = safe(a, words);
@@ -977,6 +979,8 @@ public final class Triggers {
         String w = s(words).replaceAll("(?:매번|항상|언제나|꼭|좀|바로|자동으로|한\\s?번만)\\s*", "").replaceAll("\\s*(?:해\\s?줘|해\\s?주세요|해\\s?줄래|줘|주세요|줄래|해)[.!?~]*$", "").strip();
         if (w.isEmpty() || TELL_WORDS.matcher(w).find()) return Action.tell(remindOf(s(words)));
         String b = w.replaceAll("\\s+", "");
+        // A macro (core/Macros) by its name: a phone job, which BuddyHands runs as the recorded steps (never an app named so).
+        if (b.contains("매크로")) return Action.job("phone_job", w, "");
         // A send: always a draft (퍼레 never sends by itself).
         if (SEND.matcher(b).find() || Pattern.compile("전화(?:를)?(?:걸|해|하)").matcher(b).find()) {
             Matcher to = Pattern.compile("([가-힣A-Za-z0-9]+?)\\s*(?:한테|에게|께)").matcher(w);
@@ -1012,7 +1016,8 @@ public final class Triggers {
     static Action safe(Action a, String heard) {
         if (a == null || !JOB.equals(a.kind())) return a;
         String b = a.target().replaceAll("\\s+", "");
-        if (!SEND.matcher(b).find()) return a;
+        // A macro that sends stays the macro: run with nobody watching, it asks before it sends (Macros.asks).
+        if (!SEND.matcher(b).find() || b.contains("매크로")) return a;
         Action draft = fromWords(a.target());
         return draft != null && DRAFT.equals(draft.kind()) ? draft : Action.draft("message", "", "", "");
     }

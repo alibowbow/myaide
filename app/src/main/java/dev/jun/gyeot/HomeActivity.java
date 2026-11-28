@@ -826,6 +826,12 @@ public final class HomeActivity extends Activity {
             // 맡은 일: how it goes ("어떻게 돼 가?") and 중지 ("하던 거 멈춰"), from the job's own record, with no brain.
             String jobs = jobWords(question);
             if (jobs != null) { js("launcher.reply(" + JSONObject.quote(jobs) + ")"); return; }
+            // 매크로 by its name, or its 녹화 시작·끝 (MacroActs.local): done at once, with no brain.
+            JSONObject macro = MacroActs.local(HomeActivity.this, question);
+            if (macro != null) {
+                Thread m = new Thread(() -> { BuddyVoice.Outcome o = BuddyActs.run(HomeActivity.this, macro, question, false); js("launcher.reply(" + JSONObject.quote(o == null || o.say() == null || o.say().isBlank() ? "할게!" : o.say()) + ")"); }, "gyeot-home-macro");
+                m.setDaemon(true); m.start(); return;
+            }
             AppStore store = ((GyeotApp) getApplication()).store();
             // 퍼레's brain (BuddyTalk.brain): Groq's Qwen unless the user chose NVIDIA; the other when the chosen one is not connected.
             boolean custom = BuddyTalk.CUSTOM.equals(BuddyTalk.brain(HomeActivity.this)) && !BuddyTalk.customLabel(store).isEmpty();

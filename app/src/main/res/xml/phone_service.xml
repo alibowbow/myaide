@@ -3,7 +3,9 @@
      and no fingerprint gestures. One screenshot is taken only for 화면 보기, when the user allowed it and asks during a voice
      conversation (canTakeScreenshot). While a 들퍼레 screen recording with 누른 위치 표시 is on, and only then, the service
      also asks for view clicked / long clicked / scrolled events (PhoneService.watchTouches) and uses only the pressed view's
-     bounds, to draw a circle there (TouchMarks); nothing is read, kept or sent. Events only invalidate earlier readings, and tell the optional taskbar (Taskbar.java) which
+     bounds, to draw a circle there (TouchMarks); nothing is read, kept or sent. While the user records a 매크로 (started by
+     them, with its bar on screen), and only then, it also asks for text changed events and keeps the controls they pressed,
+     typed into (never a password) or scrolled as the macro's steps on the phone (MacroRecorder). Events only invalidate earlier readings, and tell the optional taskbar (Taskbar.java) which
      windows are on screen and which app came to the front (its package name, in memory only); for a split it compares the
      windows' places and titles with the app's name to log which side it opened on, never a window's contents. It does not request the
      accessibility button: on Android 12+ that ties the service to the button, so it would only run while the button exists. -->

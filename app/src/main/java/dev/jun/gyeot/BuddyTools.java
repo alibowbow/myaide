@@ -96,6 +96,9 @@ final class BuddyTools {
                 "every", "integer", "interval이면 N", "unit", new String[]{"hour", "day"}, "every의 단위", "url", "string", "웹사이트 일이면 시작 주소"), "request", "time"))
         .put(fn("research_job", "연구실에 새 연구를 맡긴다(연구원들이 스스로 조사·토론·실험해 결론까지): '…을 연구해 줘'.",
             props("question", "string", "연구할 질문, 사용자의 말대로"), "question"))
+        // 매크로 (MacroActs): steps the user did by hand once, done again by name with no AI.
+        .put(fn("macro", "매크로: 사용자가 손으로 한 화면 조작을 녹화(record, 다 하면 stop)해 두고 이름으로 그대로 다시 한다(run). 목록 list, 지우기 delete, 방금 한 폰 작업을 매크로로 저장 save.",
+            props("command", new String[]{"run", "record", "stop", "list", "delete", "save"}, "기본 run", "name", "string", "매크로 이름, 말했으면")))
         // 앱 없이 퍼레가 직접 (답은 도구가 정한다: 지어내지 않게)
         .put(fn("stopwatch", "너(퍼레)의 스톱워치: 시작, 지금 몇 초째인지, 멈추기.", props("command", new String[]{"start", "check", "stop"}, "시작·지금 몇 초째·멈추기"), "command"))
         .put(fn("coin", "동전을 던져 앞면·뒷면을 정한다(결과는 도구가 정한다).", null))
@@ -198,7 +201,7 @@ final class BuddyTools {
      */
     static final String JOBS_RULE = "여러 단계가 필요한 일도 너가 직접 도구로 맡아: 앱 화면에서 여러 단계로 하는 일(배민에서 지난번 메뉴 다시 담기, 카톡 단톡방 공지 읽기)은 phone_job, "
         + "웹사이트에서 하는 일(유튜브 스튜디오에 영상 올리기, 파일 받기, 신청서 채우기, 로그인한 페이지 읽기)은 web_job, 길게 쓰거나 조사·분석·코딩할 일(보고서 쓰기, 앱 코드 짜기)은 work_job, "
-        + "정한 때마다 저절로 할 일(매일 아침 7시에 …)은 schedule_job, 연구해 달라는 일은 research_job. 한 번에 끝나는 일(앱 열기, 알람, 길 안내, 노래 틀기, 검색)은 원래 도구로 해. "
+        + "정한 때마다 저절로 할 일(매일 아침 7시에 …)은 schedule_job, 연구해 달라는 일은 research_job, 녹화해 둔 매크로(출근 체크 해 줘)나 매크로 녹화는 macro. 한 번에 끝나는 일(앱 열기, 알람, 길 안내, 노래 틀기, 검색)은 원래 도구로 해. "
         + "이런 일도 못 한다고 하거나 사용자에게 직접 하라고 하지 말고 그 도구를 바로 불러. ";
     /**
      * The past asked about (하루 타임라인): never answered from what the brain thinks it remembers; day_recall finds it in the
@@ -244,7 +247,7 @@ final class BuddyTools {
             + "|기억해 ?줘|기억해 ?둬|기억해$|잊어 ?줘|잊어버려|까먹어|지워 ?줘|틀렸어|되돌려|(이라고|라고) ?불러|부르지 ?마|호칭|조용히|말 ?걸지"
             + "|음소거|깨워|닫아|종료|나가 ?줘|만들어|넘겨|넘어가|페이지|소원"
             // The jobs that take more than one step (phone_job, web_job, work_job, schedule_job, research_job).
-            + "|담아|담기|장바구니|공지|단톡|읽어 ?줘|양식|신청서|업로드|올려 ?줘|다운로드|내려 ?받|받아 ?(?:줘|와|놔)|작업창|맡겨|맡아 ?줘|분석해|보고서|코딩|코드|짜 ?줘|프로그램|예약해|매일|평일|마다|연구해|연구실|조사해|정리해 ?줘"
+            + "|담아|담기|장바구니|공지|단톡|읽어 ?줘|양식|신청서|업로드|올려 ?줘|다운로드|내려 ?받|받아 ?(?:줘|와|놔)|작업창|맡겨|맡아 ?줘|분석해|보고서|코딩|코드|짜 ?줘|프로그램|예약해|매일|평일|마다|연구해|연구실|조사해|정리해 ?줘|매크로"
             // 사건 트리거 (when_event): "…하면 …", and the ones made.
             + "|(?:도착하|출발하|나가|나오|타|내리|넘으|떨어지|오르|다 ?되|오|끊기|연결되|꽂으|빼)면|때마다|조건 ?알림|걸어 ?둔"),
         PROMISE = java.util.regex.Pattern.compile("꺼낼게|입을게|벗을게|쓸게|출게|뛸게|놀게|해 볼게|할게|줄게|열게|틀게|켤게|끌게|맞출게|찾아볼게|바꿀게|멈출게|둘게|보낼게|걸게|찍게|넣을게|시작"
@@ -330,6 +333,8 @@ final class BuddyTools {
             case "work_job" -> "작업창에 맡길게!";
             case "schedule_job" -> "예약해 둘게!";
             case "research_job" -> "연구실에 맡길게!";
+            // 매크로: the act says what it did itself ("‘출근 체크’ 할게!", "녹화 시작할게!").
+            case "macro" -> "";
             // 사건 트리거: the act says it back itself ("차에 타면 네이버 지도 열게. 매번.").
             case "when_event" -> "";
             // The answer itself is the act's own words, said after these (BuddyActs: coin, dice, pick, the time, the days).

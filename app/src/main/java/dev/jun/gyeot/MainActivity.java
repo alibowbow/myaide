@@ -4145,7 +4145,10 @@ public final class MainActivity extends Activity {
         String persona = store.persona().strip().replaceAll("\\s+", " ");
         settingsRow(personal, "persona", "나에 대해", persona.isEmpty() ? "비어 있어요 · 호칭과 답변 스타일" : persona, null);
         String routines = dev.jun.gyeot.core.Routines.summary(store.routines());
-        settingsRow(personal, "routines", "한마디 루틴", routines.isEmpty() ? "아직 없어요 · 한마디로 여러 일을 맡겨요" : routines, null);
+        // 매크로 live on the same page (MacrosUi).
+        int macros = MacroBook.list(this).size();
+        settingsRow(personal, "routines", "한마디 루틴", (routines.isEmpty() ? (macros == 0 ? "아직 없어요 · 한마디로 여러 일을 맡겨요 · 매크로 녹화" : "") : routines)
+            + (macros == 0 ? "" : (routines.isEmpty() ? "" : " · ") + "매크로 " + macros + "개"), null);
         int remembered = store.memories().length();
         settingsRow(personal, "memory", "기억", !store.memoryOn() ? "꺼짐" : remembered == 0 ? "켜짐 · 아직 기억한 게 없어요" : remembered + "개 기억 중" + (store.autoMemory() ? " · 자동으로 배우는 중" : ""), null);
         ui.add(sections, personal, 0);

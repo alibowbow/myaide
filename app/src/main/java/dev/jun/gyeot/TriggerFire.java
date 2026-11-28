@@ -55,7 +55,9 @@ final class TriggerFire {
             }
             case Triggers.JOB -> {
                 // The same path and guards as 퍼레's job tools (BuddyHands: AutomationGate, no payment, transfer or bank).
-                BuddyHands.Started s = AutomationGate.requestsForbidden(a.target()) ? null : BuddyHands.start(c, a.act(), t.said());
+                // Nobody asked just now: a macro it runs asks before it sends (MacroRunner).
+                JSONObject job = a.act(); try { job.put("unattended", true); } catch (org.json.JSONException never) { /* a plain key */ }
+                BuddyHands.Started s = AutomationGate.requestsForbidden(a.target()) ? null : BuddyHands.start(c, job, t.said());
                 boolean done = s != null && s.ok();
                 line = what + " · " + Triggers.did(a, done) + (done || s == null ? "" : " (" + s.say() + ")");
                 if (s == null) line = what + " · " + AutomationGate.FORBIDDEN_MESSAGE;

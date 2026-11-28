@@ -70,6 +70,10 @@ final class BuddyHands {
                     // The voice assistant's own lines, before anything opens: a payment or a transfer the user asked for, a banking app.
                     if (AutomationGate.requestsForbidden(words) || AutomationGate.requestsForbidden(request)) throw new Refused(AutomationGate.FORBIDDEN_MESSAGE.replace("않아요", "않아").replace("주세요", "줘"), "");
                     if (!app.isEmpty() && AutomationGate.bankingApp(app)) throw new Refused("은행·카드·증권·결제 앱은 내가 조작하지 않아. 그건 직접 해 줘.", "");
+                    // A macro named ("출근 체크 해 줘", a 조건 알림's "출근 체크 매크로"): its recorded steps, with no AI (MacroRunner).
+                    dev.jun.gyeot.core.Macros.Macro macro = MacroBook.named(c, act.optString("macro").isBlank() ? request : act.optString("macro"));
+                    if (macro == null && !words.equals(request)) macro = MacroBook.named(c, words);
+                    if (macro != null) return MacroRunner.start(c, macro, act.optBoolean("unattended"), words, null);
                     BuddyJobs.Job busy = busy(BuddyJobs.PHONE);
                     if (busy != null) throw new Refused("지금 ‘" + busy.label + "’ 하고 있어. 끝나면 할게, 먼저 멈추려면 ‘하던 거 멈춰’라고 해 줘.", "");
                     job = BuddyJobs.start(BuddyJobs.PHONE, app, request, now);
@@ -93,6 +97,10 @@ final class BuddyHands {
                 }
                 case "schedule_job" -> {
                     JSONObject input = scheduleInput(act, words, request, LocalDate.now(ZoneId.systemDefault()));
+                    // A macro at set times ("평일 8시 50분에 출근 체크 매크로 실행해 줘"): it runs with no AI and no 작업창 room.
+                    dev.jun.gyeot.core.Macros.Macro macro = MacroBook.named(c, request);
+                    if (macro == null) macro = MacroBook.named(c, words);
+                    if (macro != null) { put(input, "macro", obj("name", macro.name())); put(input, "goal", "‘" + macro.name() + "’ 매크로 실행"); }
                     JSONObject saved = engines.schedule(c, input);
                     return new Started(true, scheduled(saved, now), "", null);
                 }
@@ -258,6 +266,8 @@ final class BuddyHands {
             store.phoneLog("● 퍼레 폰 작업 · " + who + (app.isEmpty() ? "" : " · " + app));
             java.util.concurrent.atomic.AtomicInteger steps = new java.util.concurrent.atomic.AtomicInteger(), refused = new java.util.concurrent.atomic.AtomicInteger(), forbidden = new java.util.concurrent.atomic.AtomicInteger();
             JSONObject[] screen = {null};
+            // 매크로로 저장: each step done, with the reading it named its element in, so a job that went right can be one (Macros.learned).
+            java.util.List<JSONObject[]> done = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
             try (AutoCloseable watch = PhoneService.gate.watch(control.ticket, () -> control.cancel("폰 조작이 중지됐어요."));
                  dev.jun.gyeot.core.PhoneAgent.Model controller = decisions
                      ? new dev.jun.gyeot.core.DecisionPhone.Model(GeminiDecisions.client(store.secrets.get(), abort), task, "", line -> store.phoneLog("  · " + line))
@@ -277,7 +287,7 @@ final class BuddyHands {
                         PhoneService.takeTiming(value);
                         JSONObject seen = "phone_screen".equals(name) ? value : value.optJSONObject("screen_after");
                         if ("phone_action".equals(name)) {
-                            if (value.optBoolean("ok")) steps.incrementAndGet(); else refused.incrementAndGet();
+                            if (value.optBoolean("ok")) { steps.incrementAndGet(); done.add(new JSONObject[]{copy(args), screen[0], value}); } else refused.incrementAndGet();
                             if (AutomationGate.refused(value) && AutomationGate.FORBIDDEN.equals(value.optString("error_code"))) forbidden.incrementAndGet();
                             BuddyJobs.progress(job, steps.get(), "", stepWords(args, screen[0], value.optBoolean("ok")));
                         }
@@ -295,6 +305,9 @@ final class BuddyHands {
                     });
                 if (forbidden.get() > 0 && AutomationGate.requestsForbidden(goal)) throw new IllegalStateException(AutomationGate.FORBIDDEN_MESSAGE);
                 if (refused.get() > 0) answer = answer + "\n" + dev.jun.gyeot.core.PhoneTools.NOT_RUN;
+                // Once, after a job that went right: the same steps can be a macro, done next time with no AI call.
+                java.util.List<dev.jun.gyeot.core.Macros.Step> learned = refused.get() == 0 && !dev.jun.gyeot.core.PhoneTools.claimsNoSuccess(answer) ? dev.jun.gyeot.core.Macros.learned(done) : null;
+                if (learned != null) { MacroBook.offer(learned, goal, System.currentTimeMillis()); answer = answer + "\n이대로 매크로로 저장할까? ‘매크로로 저장해’라고 하면 다음엔 AI 없이 그대로 할게."; }
                 store.phoneLog("✓ 퍼레 폰 작업 끝 · " + steps.get() + "단계");
                 BuddyJobs.end(job, BuddyJobs.State.DONE, answer, System.currentTimeMillis());
             } catch (Exception error) {
@@ -431,6 +444,12 @@ final class BuddyHands {
         /** 예약 작업, saved as its sheet saves one: bound to the 작업창 default AI and the connection it uses now. */
         @Override public JSONObject schedule(Context c, JSONObject input) throws Refused {
             AppStore store = store(c);
+            // A macro needs no AI: no model or connection is bound to it.
+            if (input.optJSONObject("macro") != null) {
+                long at = System.currentTimeMillis();
+                try { return store.changeSchedules(all -> WorkSchedules.save(all, input, new JSONObject(), at, ZoneId.systemDefault())); }
+                catch (Exception e) { throw new Refused(message(e, "예약하지 못했어."), ""); }
+            }
             JSONObject selection = new ScopedModels(store, "").snapshot();
             String engine = selection.optString("engine");
             if (!store.ready(engine)) throw new Refused("예약 작업에 쓸 작업창 AI가 연결되지 않았어. 설정에서 연결해 줘.", "settings:ai");

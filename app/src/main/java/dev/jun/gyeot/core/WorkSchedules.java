@@ -68,6 +68,13 @@ public final class WorkSchedules {
             if (url.length() > 2000) throw new IllegalArgumentException("시작 페이지 주소가 너무 길어요.");
             put(result, "browser", obj("url", url.isEmpty() ? "" : BrowserTools.url(url)));
         }
+        // A macro (core/Macros): its recorded steps are done again at the time, with no AI and no 작업창 room.
+        JSONObject macro = input.optJSONObject("macro");
+        if (macro != null) {
+            String name = macro.optString("name").strip();
+            if (name.isEmpty()) throw new IllegalArgumentException("실행할 매크로를 골라 주세요.");
+            put(result, "macro", obj("name", name));
+        }
         switch (repeat) {
             case ONCE -> {
                 LocalDate date = date(input.optString("date"));
@@ -226,6 +233,8 @@ public final class WorkSchedules {
     /** A browser task (the AI browser does it in a background tab), and the page it starts from ("" for none). */
     public static boolean browser(JSONObject s) { return s != null && s.optJSONObject("browser") != null; }
     public static String startPage(JSONObject s) { return browser(s) ? s.optJSONObject("browser").optString("url") : ""; }
+    /** The macro a schedule runs (its name), or "" for an AI request. */
+    public static String macro(JSONObject s) { return s == null || s.optJSONObject("macro") == null ? "" : s.optJSONObject("macro").optString("name"); }
     /**
      * The message a run sends to its new Work room: the saved request, and for a browser task a first line that says so and
      * names the start page, so the room reads clearly and the model reaches for the browser.

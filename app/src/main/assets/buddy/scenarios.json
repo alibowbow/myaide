@@ -80,6 +80,7 @@
     {"said": "매일 아침 7시에 새 채용 공고 찾아 줘", "expect": {"tool": "schedule_job", "args": {"time": "7:00", "repeat": "daily"}}, "why": "문 하나: 정한 때마다 저절로 (예약 작업)"},
     {"said": "평일 저녁 6시마다 오늘 뉴스 정리해 줘", "expect": {"tool": "schedule_job", "args": {"repeat": "weekdays"}}},
     {"said": "양자 컴퓨터 오류 정정 방법을 연구해 줘", "expect": {"tool": "research_job"}, "why": "문 하나: 연구실에 자율 연구로"},
+    {"said": "아까 녹화한 출근 체크 매크로 돌려 줘", "expect": {"tool": "macro"}, "why": "매크로(2026-11-28): 손으로 한 번 한 걸 이름으로 그대로, AI 없이"},
 
     {"said": "집에 도착하면 알려 줘", "expect": {"tool": "when_event", "args": {"when": "집"}}, "why": "사건 트리거(2026-11-27): 정한 시각이 아니라 일이 생기면"},
     {"said": "차 타면 매번 네이버 지도 켜 줘", "expect": {"tool": "when_event", "args": {"when": "차"}}, "why": "사건 트리거: 차 블루투스, 매번"},

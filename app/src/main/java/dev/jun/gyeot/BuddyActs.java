@@ -190,6 +190,11 @@ final class BuddyActs {
                     BuddyHands.Started s = BuddyHands.start(context, act, heard);
                     return s.ok() ? said(s.say()) : fail(s.say(), s.fix());
                 }
+                // 매크로: recorded by hand, done again by name with no AI (MacroActs: record, stop, run, list, delete, save).
+                case "macro" -> {
+                    MacroActs.Said s = MacroActs.run(context, act, heard);
+                    return s.ok() ? new BuddyVoice.Outcome(s.say(), s.leaves(), null) : fail(s.say(), s.fix());
+                }
                 // 사건 트리거 (stage 2): "…하면 …" made, listed, turned off or deleted by words (BuddyTriggers, core/Triggers).
                 case "when_event" -> {
                     BuddyTriggers.Said s = BuddyTriggers.run(context, act, heard);

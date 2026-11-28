@@ -537,6 +537,8 @@ public final class PhoneService extends AccessibilityService {
     @Override public void onAccessibilityEvent(AccessibilityEvent event) {
         // Window changes only invalidate references; event contents are neither kept nor sent.
         int type = event.getEventType();
+        // 매크로 녹화, while the user records one: their own presses, typing and scrolls become its steps (MacroRecorder).
+        if (macroWatch) try { MacroRecorder.event(this, event); } catch (RuntimeException ignored) { /* not a step */ }
         // 누른 위치 표시 while a screen recording asks for it: where a view was pressed or scrolled (its bounds), nothing else.
         if (touchWatch && (type == AccessibilityEvent.TYPE_VIEW_CLICKED || type == AccessibilityEvent.TYPE_VIEW_LONG_CLICKED || type == AccessibilityEvent.TYPE_VIEW_SCROLLED)) {
             try {
@@ -568,6 +570,8 @@ public final class PhoneService extends AccessibilityService {
     @Override public void onDestroy() { disconnect(); imaging.shutdownNow(); super.onDestroy(); }
     private void disconnect() {
         gate.stop(); invalidate(); forget(); removeStop(); if (instance == this) instance = null;
+        // A macro recording needs this service's events: it ends with what it has (MacroRecorder).
+        try { MacroRecorder.serviceGone(this); } catch (RuntimeException ignored) {}
         if (edge != null) {
             if (getApplication() instanceof GyeotApp app && app.store() != null) app.store().unobserve(edgeRefresh);
             edge.close(); edge = null;
@@ -638,14 +642,65 @@ public final class PhoneService extends AccessibilityService {
     private void watchTouchesNow(boolean on) {
         if (touchWatch == on) return;
         touchWatch = on;
+        if (!events()) touchWatch = false;
+    }
+    /** Whether a 매크로 recording asks for the user's own presses, typing and scrolls (main thread; MacroRecorder). */
+    private boolean macroWatch;
+    /** On while a macro records, off after: the press, text and scroll events are asked for only meanwhile. */
+    static void watchMacro(boolean on) {
+        PhoneService service = instance;
+        if (service != null) service.main.post(() -> { if (service.macroWatch == on) return; service.macroWatch = on; if (!service.events()) service.macroWatch = false; });
+    }
+    static boolean watchingMacro() { PhoneService service = instance; return service != null && service.macroWatch; }
+    /** The event types asked for now: the window ones of phone_service.xml, and the view ones 누른 위치 표시 or a macro wants. */
+    private boolean events() {
         try {
             android.accessibilityservice.AccessibilityServiceInfo info = getServiceInfo();
-            if (info == null) return;
-            int extra = AccessibilityEvent.TYPE_VIEW_CLICKED | AccessibilityEvent.TYPE_VIEW_LONG_CLICKED | AccessibilityEvent.TYPE_VIEW_SCROLLED;
+            if (info == null) return true;
+            int touch = AccessibilityEvent.TYPE_VIEW_CLICKED | AccessibilityEvent.TYPE_VIEW_LONG_CLICKED | AccessibilityEvent.TYPE_VIEW_SCROLLED;
+            int macro = touch | AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED;
             // The service's own types are window ones (phone_service.xml), so taking these off again leaves them as they were.
-            info.eventTypes = on ? info.eventTypes | extra : info.eventTypes & ~extra;
+            info.eventTypes = info.eventTypes & ~macro | (touchWatch ? touch : 0) | (macroWatch ? macro : 0);
             setServiceInfo(info);
-        } catch (RuntimeException refused) { touchWatch = false; }
+            return true;
+        } catch (RuntimeException refused) { return false; }
+    }
+    /** The back button, as the macro recording bar's 뒤로 presses it (false when the service is off). */
+    static boolean back() { PhoneService s = instance; return s != null && s.performGlobalAction(GLOBAL_ACTION_BACK); }
+    /** A node's role as a reading names it (input, button, item …), for a macro's recorded control. */
+    static String roleOf(AccessibilityNodeInfo node) { return Snapshot.role(node); }
+    /** The app in front (its package), "" when unknown or the service is off. */
+    static String frontApp() {
+        PhoneService s = instance;
+        try { AccessibilityNodeInfo root = s == null ? null : s.getRootInActiveWindow(); return root == null ? "" : Snapshot.text(root.getPackageName()); }
+        catch (RuntimeException gone) { return ""; }
+    }
+    /** The screen's size in pixels, {0, 0} when the service is off. */
+    static int[] screenSize() { PhoneService s = instance; if (s == null) return new int[2]; Point p = s.screen(); return new int[]{p.x, p.y}; }
+    /**
+     * 매크로's reading (MacroRunner): the screen read as phone_screen reads it, under the same ticket, guards and protected
+     * screens, with each element's view id (vid), class (cls) and place among its siblings (idx) for finding a recorded
+     * control again. Only the macro gets these; a model's reading stays as it is.
+     */
+    static void macroScreen(long ticket, Runnable guard, Result result) {
+        PhoneService service = instance;
+        if (service == null) { result.done(error("폰 접근성 서비스가 연결되지 않았어요.")); return; }
+        service.main.post(() -> {
+            try {
+                gate.check(ticket); guard.run(); service.requireUnlocked();
+                JSONObject screen = copy(service.observeLocal());
+                Snapshot read = service.snapshot;
+                JSONArray elements = screen.optJSONArray("elements");
+                for (int i = 0; read != null && elements != null && i < elements.length(); i++) {
+                    JSONObject e = elements.optJSONObject(i); String[] x = e == null ? null : read.extras.get(e.optString("id"));
+                    if (x == null) continue;
+                    if (!x[0].isEmpty()) put(e, "vid", x[0]);
+                    if (!x[1].isEmpty()) put(e, "cls", x[1]);
+                    put(e, "idx", Integer.parseInt(x[2]));
+                }
+                result.done(screen);
+            } catch (Exception failure) { result.done(error(failure.getMessage() == null ? "화면을 읽지 못했어요." : failure.getMessage())); }
+        });
     }
     /**
      * A view pressed, long-pressed or scrolled (its bounds on the screen) while 누른 위치 표시 records: a circle at its middle,
@@ -831,16 +886,19 @@ public final class PhoneService extends AccessibilityService {
         final int windowId, width, height;
         final Map<String, AccessibilityNodeInfo> nodes = new HashMap<>();
         final Map<String, Rect> bounds = new HashMap<>();
+        /** Per element: its view id, class and place among its siblings (macroScreen hands these to a macro only). */
+        final Map<String, String[]> extras = new HashMap<>();
         final JSONObject json;
         Snapshot(AccessibilityNodeInfo root, long revision, int width, int height) {
             this.revision = revision; this.width = width; this.height = height;
             windowId = root.getWindowId(); packageName = text(root.getPackageName());
             JSONArray elements = new JSONArray(), blindRegions=new JSONArray(); StringBuilder words = new StringBuilder();
             ArrayDeque<AccessibilityNodeInfo> queue = new ArrayDeque<>(); queue.add(root);
+            ArrayDeque<Integer> places = new ArrayDeque<>(); places.add(0);
             int visited = 0; boolean composer = false;
             while (!queue.isEmpty() && visited++ < MAX_VISITED && elements.length() < MAX_ELEMENTS) {
-                AccessibilityNodeInfo node = queue.removeFirst();
-                for (int i = 0; i < node.getChildCount(); i++) { AccessibilityNodeInfo child = node.getChild(i); if (child != null) queue.addLast(child); }
+                AccessibilityNodeInfo node = queue.removeFirst(); int place = places.isEmpty() ? 0 : places.removeFirst();
+                for (int i = 0; i < node.getChildCount(); i++) { AccessibilityNodeInfo child = node.getChild(i); if (child != null) { queue.addLast(child); places.addLast(i); } }
                 if (!node.isVisibleToUser()) continue;
                 Rect box = new Rect(); node.getBoundsInScreen(box);
                 if (box.isEmpty()) continue;
@@ -854,6 +912,7 @@ public final class PhoneService extends AccessibilityService {
                 boolean useful = !label.isEmpty() || !description.isEmpty() || node.isClickable() || node.isLongClickable() || node.isEditable() || node.isScrollable() || node.isCheckable();
                 if (!useful) continue;
                 String key = "e" + elements.length(); nodes.put(key, node); bounds.put(key, box);
+                extras.put(key, new String[]{text(node.getViewIdResourceName()), text(node.getClassName()), String.valueOf(place)});
                 words.append(label).append(' ').append(description).append(' ');
                 StringBuilder flags = new StringBuilder();
                 if (node.isClickable()) flags.append("click,"); if (node.isLongClickable()) flags.append("long,"); if (node.isEditable()) flags.append("edit,");
@@ -928,7 +987,7 @@ public final class PhoneService extends AccessibilityService {
         if (action.equals("open_app")) {
             if (dev.jun.gyeot.core.AppNavigation.ownApp(args.optString("app"))) {
                 AppNavigator.open(this, "assistant", false, () -> { try { gate.check(ticket); taskGuard.run(); return true; } catch (IllegalStateException stopped) { return false; } }, once::done);
-            } else { String opened = openApp(args.optString("app"), args.optString("resolved_package")); once.done(obj("ok", true, "action", action, "opened", opened, "next", "phone_screen로 결과를 확인하세요")); }
+            } else { String opened = openApp(args.optString("app"), args.optString("resolved_package"), args.optBoolean("fresh")); once.done(obj("ok", true, "action", action, "opened", opened, "next", "phone_screen로 결과를 확인하세요")); }
             return;
         }
         if (action.equals("open_url")) { String opened = openUrl(args.optString("url"), args.optString("app")); once.done(obj("ok", true, "action", action, "url", opened, "next", "페이지가 열리도록 2~3초 wait 한 뒤 phone_screen로 확인하세요")); return; }
@@ -1440,7 +1499,8 @@ public final class PhoneService extends AccessibilityService {
         return chosen;
     }
     /** Starts the app and returns the package it started. */
-    private String openApp(String app, String resolved) {
+    /** fresh: from its first screen, its earlier screens closed (a macro whose app came up where it was left). */
+    private String openApp(String app, String resolved, boolean fresh) {
         String wanted = app == null ? "" : app.strip();
         if (wanted.isEmpty() && (resolved == null || resolved.isBlank())) throw new IllegalArgumentException("열 앱 이름이나 패키지를 알려 주세요.");
         PackageManager packages = getPackageManager();
@@ -1452,7 +1512,7 @@ public final class PhoneService extends AccessibilityService {
         if (AutomationGate.bankingApp(chosen) || AutomationGate.bankingApp(found[1])) throw new IllegalStateException(AutomationGate.FORBIDDEN_MESSAGE);
         Intent launch = packages.getLaunchIntentForPackage(chosen);
         if (launch == null) throw new IllegalArgumentException("이 앱은 실행할 수 없어요.");
-        startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)); invalidate();
+        startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | (fresh ? Intent.FLAG_ACTIVITY_CLEAR_TASK : 0))); invalidate();
         return chosen;
     }
     private static float coordinate(JSONObject args, String name, int limit, float fallback) {

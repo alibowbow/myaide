@@ -275,6 +275,8 @@ public final class GeminiProtocol {
         for (int i = 0; i < device.length(); i++) functions.put(device.optJSONObject(i));
         functions.put(Notices.declaration());
         functions.put(Bgm.declaration());
+        // 매크로: the user's recorded phone steps, by name (a 한마디 루틴 can name one too).
+        functions.put(Macros.declaration());
         // 작업창 by voice, only when the user turned it on: they overlap browser_task and phone control.
         if (options.voiceWork) { JSONArray work = VoiceWork.declarations(options.thinkAsync); for (int i = 0; i < work.length(); i++) functions.put(work.optJSONObject(i)); }
         // Phone control is declared for every assistant session; each call is refused unless the user enabled it in the app.

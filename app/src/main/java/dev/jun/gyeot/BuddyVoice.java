@@ -572,6 +572,9 @@ final class BuddyVoice {
                 show("thinking", said); turns.add(talkTurn("user", said, false)); turns.add(talkTurn("assistant", line, false));
                 say(line); return true;
             }
+            // 매크로 by its name, or its 녹화 시작·끝 (MacroActs.local): done at once, with no brain.
+            org.json.JSONObject macro = act == null ? null : MacroActs.local(context, said);
+            if (macro != null) { show("thinking", said); turns.add(talkTurn("user", said, false)); doNow(macro, said); return true; }
         }
         dev.jun.gyeot.core.VoiceTurns.Kind kind = turn(said, false);
         if (kind == dev.jun.gyeot.core.VoiceTurns.Kind.BYE) kind = turn(said, music);

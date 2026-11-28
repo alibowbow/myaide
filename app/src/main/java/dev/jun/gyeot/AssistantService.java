@@ -1137,11 +1137,14 @@ public final class AssistantService extends Service {
     private boolean scheduleAlive(JSONObject schedule) {
         String room = schedule.optString("lastRoom");
         if (room.isBlank()) return false;
+        // A macro's run (MacroRunner) is its job while it runs.
+        if (room.startsWith("macro:")) { dev.jun.gyeot.core.BuddyJobs.Job job = dev.jun.gyeot.core.BuddyJobs.find(room.substring(6)); return job != null && job.running(); }
         JSONObject thread = WorkBook.find(store.works(), room);
         return workRuns.containsKey(room) || thread != null && WorkBook.RUNNING.equals(thread.optString("state"));
     }
     private void startScheduled(JSONObject claimed, boolean open) {
         String id = claimed.optString("id"), run = claimed.optString("runId"), errorBefore = store.error;
+        if (!dev.jun.gyeot.core.WorkSchedules.macro(claimed).isEmpty()) { startScheduledMacro(claimed, id, run, open); return; }
         try {
             JSONObject selection = claimed.optJSONObject("selection");
             String engine = selection == null ? "" : selection.optString("engine");
@@ -1155,6 +1158,32 @@ public final class AssistantService extends Service {
             if (!open && room.equals(store.workOpen)) store.workOpen = "";
             store.changeSchedules(list -> dev.jun.gyeot.core.WorkSchedules.attach(list, id, run, room));
             store.status("예약 작업을 시작했어요 · " + dev.jun.gyeot.core.WorkSchedules.describe(claimed));
+        } catch (Exception e) {
+            String why = message(e, "예약 작업을 시작하지 못했어요.");
+            try { store.changeSchedules(list -> dev.jun.gyeot.core.WorkSchedules.finished(list, id, run, dev.jun.gyeot.core.WorkSchedules.ERROR, "", null, why, System.currentTimeMillis())); }
+            catch (Exception ignored) { /* The next store load marks the run interrupted. */ }
+            if (!store.appVisible) notify(2800 + (id.hashCode() & 0x3ff), Brand.NAME + " · 예약 작업", "실행하지 못했어요 · " + why, why, openApp(2800 + (id.hashCode() & 0x3ff), 3));
+            else store.error("예약 작업을 실행하지 못했어요. " + why);
+        }
+    }
+    /**
+     * A 예약 작업 that runs a macro: its recorded steps with no AI and no room (MacroRunner), nobody watching unless the user
+     * pressed 지금 실행 (open), so it asks before a send. How it ended is the run's result.
+     */
+    private void startScheduledMacro(JSONObject claimed, String id, String run, boolean open) {
+        String name = dev.jun.gyeot.core.WorkSchedules.macro(claimed);
+        dev.jun.gyeot.core.Macros.Macro macro = MacroBook.named(this, name);
+        BuddyHands.Started s = macro == null ? new BuddyHands.Started(false, "‘" + name + "’ 매크로가 없어요. 지웠거나 이름을 바꿨으면 예약을 다시 만들어 주세요.", "", null)
+            : MacroRunner.start(this, macro, !open, "", job -> {
+                dev.jun.gyeot.core.BuddyJobs.State how = job.state();
+                String state = how == dev.jun.gyeot.core.BuddyJobs.State.DONE ? dev.jun.gyeot.core.WorkSchedules.DONE : how == dev.jun.gyeot.core.BuddyJobs.State.STOPPED ? dev.jun.gyeot.core.WorkSchedules.CANCELLED : dev.jun.gyeot.core.WorkSchedules.ERROR;
+                try { store.changeSchedules(list -> dev.jun.gyeot.core.WorkSchedules.finished(list, id, run, state, job.result(), null, state.equals(dev.jun.gyeot.core.WorkSchedules.DONE) ? "" : job.result(), System.currentTimeMillis())); }
+                catch (Exception ignored) { /* The next store load marks the run interrupted. */ }
+            });
+        try {
+            if (!s.ok()) throw new IllegalStateException(s.say());
+            store.changeSchedules(list -> dev.jun.gyeot.core.WorkSchedules.attach(list, id, run, "macro:" + s.job().id));
+            store.status("예약 작업을 시작했어요 · ‘" + name + "’ 매크로");
         } catch (Exception e) {
             String why = message(e, "예약 작업을 시작하지 못했어요.");
             try { store.changeSchedules(list -> dev.jun.gyeot.core.WorkSchedules.finished(list, id, run, dev.jun.gyeot.core.WorkSchedules.ERROR, "", null, why, System.currentTimeMillis())); }
@@ -3927,6 +3956,7 @@ public final class AssistantService extends Service {
             if (AppNavigation.FUNCTION.equals(name)) { if ("mytube".equals(args.optString("screen"))) MyTubeActivity.ask(args.optString("play")); openAppScreen(session, id, name, args.optString("screen")); continue; }
             if (dev.jun.gyeot.core.VoiceBoard.FUNCTION.equals(name)) { boardExplain(session, id, name, args); continue; }
             if (dev.jun.gyeot.core.Bgm.FUNCTION.equals(name)) { touch(); session.tool(id, name, backgroundMusic(args)); continue; }
+            if (dev.jun.gyeot.core.Macros.FUNCTION.equals(name)) { touch(); session.tool(id, name, MacroActs.voice(this, args)); continue; }
             if (dev.jun.gyeot.core.Notices.FUNCTION.equals(name)) { touch(); session.tool(id, name, dev.jun.gyeot.core.Notices.answer(NoticeListener.on(this) && NoticeListener.allowed(this), NoticeListener.list(this), System.currentTimeMillis(), args.optDouble("hours", 6))); continue; }
             if (DeviceActions.NAMES.contains(name)) { deviceAction(session, id, name, args); continue; }
             if (dev.jun.gyeot.core.CalendarQuery.VOICE.contains(name)) { calendarFor(session, id, name, args); continue; }

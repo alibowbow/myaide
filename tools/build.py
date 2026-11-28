@@ -446,6 +446,11 @@ if __name__ == '__main__':
     triggers.mkdir(parents=True, exist_ok=True)
     javac(['-encoding', 'UTF-8', '-d', triggers, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/TriggersRegression.java'])
     run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (triggers, jars[-1]))), 'dev.jun.gyeot.core.TriggersRegression'])
+    # 매크로 (core/Macros): a recording made into steps, a control found again on a changed screen, the words, the guards.
+    macros = BUILD / 'macro-checks'
+    macros.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', macros, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/MacrosRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (macros, jars[-1]))), 'dev.jun.gyeot.core.MacrosRegression'])
     # 퍼레's routine suggestion (core/Habits): a moment → app habit only when it is real, never money, never asked twice.
     habits = BUILD / 'habit-checks'
     habits.mkdir(parents=True, exist_ok=True)

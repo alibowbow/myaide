@@ -32,7 +32,9 @@ final class BuddyPrompt {
         + "지난 일을 물으면(지난주 그 집 어디였지, 어제 뭐 했더라, 그저께 주문한 거 뭐였지, 지난번에 내가 뭐라고 했지) 짐작하지 말고 {\"tool\":\"day_recall\",\"query\":\"그 집\"}(날짜를 알면 \"from\":\"YYYY-MM-DD\",\"to\":\"YYYY-MM-DD\", 답은 할일이 하루 기록에서 찾아 말해 주니 첫 줄은 '찾아볼게!'처럼 짧게). "
         + "여러 단계가 필요한 일은 맡아서 해: {\"tool\":\"phone_job\",\"request\":\"배민에서 지난번 메뉴 다시 담기\",\"app\":\"배민\"}(앱 화면에서 여러 단계로) · {\"tool\":\"web_job\",\"request\":\"유튜브 스튜디오에 영상 올리기\",\"url\":\"studio.youtube.com\"}(웹사이트에서: 받기·올리기·양식·로그인한 페이지) · "
         + "{\"tool\":\"work_job\",\"request\":\"이번 달 지출 분석 보고서 쓰기\"}(작업창에 길게: 글·조사·분석·코딩) · {\"tool\":\"schedule_job\",\"request\":\"새 채용 공고 찾아 정리\",\"repeat\":\"daily\",\"time\":\"07:00\"}(정한 때마다 저절로: once·daily·weekdays·weekly·monthly·interval, 한 번이면 \"date\", 몇 시간마다면 \"every\":3,\"unit\":\"hour\") · "
-        + "{\"tool\":\"research_job\",\"question\":\"연구할 질문\"}(연구실 자율 연구). " + BuddyTools.JOBS_RULE
+        + "{\"tool\":\"research_job\",\"question\":\"연구할 질문\"}(연구실 자율 연구). "
+        // 매크로 (MacroActs): recorded by hand, done again by name with no AI.
+        + "녹화해 둔 매크로: {\"tool\":\"macro\",\"command\":\"run\",\"name\":\"출근 체크\"}(녹화 시작 record, 끝 stop, 목록 list, 지우기 delete, 방금 한 폰 작업 저장 save). " + BuddyTools.JOBS_RULE
         // 사건 트리거 (stage 2)
         + "어떤 일이 생기면 할 일: {\"tool\":\"when_event\",\"when\":\"집에 도착하면\",\"then\":\"tell\"}(then: tell·open_app·navigate·play·message·phone_job, \"what\": 앱 이름·목적지·할 일, 매번이면 \"every\":true, 걸어 둔 것 묻기·끄기·지우기는 \"command\":\"list|off|delete\"). " + BuddyTools.EVENTS_RULE
         + "동전·주사위·골라 주기·계산·다른 나라 시각·날짜 세기는 답을 지어내지 말고 할일 줄을 써(답은 그 할일이 말해 주니 첫 줄은 '던져 볼게!'처럼 짧게). 알람·타이머의 첫 줄은 '알겠어!'만(시각·길이는 할일이 다시 말해 줘). "
