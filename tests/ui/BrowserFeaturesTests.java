@@ -38,7 +38,7 @@ import static org.robolectric.Shadows.shadowOf;
  */
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk=35, application=GyeotApp.class)
-public class BrowserLimitsTests {
+public class BrowserFeaturesTests {
     @Test public void intentLinkHandedOffOnATapCleaned() throws Exception {
         String kakao = "intent://kakaolink?appkey=1#Intent;scheme=kakaolink;package=com.kakao.talk;component=com.evil/.Steal;launchFlags=0x10000043;"
             + "S.browser_fallback_url=https%3A%2F%2Fsharer.kakao.com%2Fpicker;SEL;component=com.evil/.Other;end";

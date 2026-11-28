@@ -30,7 +30,9 @@ public final class BrowserActivity extends Activity {
     private GeckoView splitView; private LinearLayout splitPane; private TextView splitTitle;
     /** 끝까지 조사: the next request goes as a deep research task (one request, then off). */
     private boolean deepNext; private TextView deepChip;
-    static final String SKILLS = "browserSkills", BOOKMARKS = "browserBookmarks", MEMORY = "browserMemory", PROJECTS = "browserProjects"; static final int REQUEST_BOOKMARKS = 7311;
+    static final String SKILLS = "browserSkills", BOOKMARKS = "browserBookmarks", MEMORY = "browserMemory", PROJECTS = "browserProjects"; static final int REQUEST_BOOKMARKS = 7311, REQUEST_FILES = 7312;
+    /** A page's file chooser waiting for the phone's picker (onFilePrompt), and its answer. */
+    private GeckoSession.PromptDelegate.FilePrompt filePrompt; private GeckoResult<GeckoSession.PromptDelegate.PromptResponse> fileAnswer;
     private EditText address, request;
     private TextView resultText, tabButton, notice, askBubble, statsText;
     private TextView modelLine;
@@ -75,7 +77,7 @@ public final class BrowserActivity extends Activity {
     private boolean homeSide;
     private HomeEdge homeEdge;
     /** Opened from the "이전 브라우저 작업 확인" notification: the earlier Work step's review comes up at once. */
-    static final String REVIEW_WORK = "dev.jun.gyeot.browser.REVIEW_WORK";
+    static final String REVIEW_WORK = "dev.jun.gyeot.browser.REVIEW_WORK", REVIEW_RECEIPT = "dev.jun.gyeot.browser.REVIEW_RECEIPT";
     private static final String OPENED = "browserOpened";
     /** The ids of the requests already opened, oldest first, the newest OPENED_KEPT of them; kept in the saved state. */
     static final int OPENED_KEPT = 32;
@@ -260,7 +262,7 @@ public final class BrowserActivity extends Activity {
         // 준: "Ai브라우저 채팅창. 모델선택을 메뉴깊숙히 숨기지말고 이런식으로 입력창아래에").
         LinearLayout compose = ui.row(); compose.setGravity(Gravity.BOTTOM); compose.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4));
         android.graphics.drawable.GradientDrawable composeSurface = ui.shape(FILL, 18); composeSurface.setStroke(Math.max(1, ui.dp(.6f)), DARK ? 0x24ffffff : 0x14000000); compose.setBackground(composeSurface);
-        request = ui.input("이 페이지에서 할 일", 2, 8000); request.setTextSize(15.5f); request.setMinLines(1); request.setMinimumHeight(0); request.setMinHeight(0); request.setMaxLines(wide ? 6 : 4); request.setBackgroundColor(android.graphics.Color.TRANSPARENT); request.setContentDescription("브라우저 AI에게 지시할 내용");
+        request = ui.input("이 페이지에서 할 일", 2, BrowserPrompts.REQUEST_LIMIT); request.setTextSize(15.5f); request.setMinLines(1); request.setMinimumHeight(0); request.setMinHeight(0); request.setMaxLines(wide ? 6 : 4); request.setBackgroundColor(android.graphics.Color.TRANSPARENT); request.setContentDescription("브라우저 AI에게 지시할 내용");
         request.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES); request.setPadding(ui.dp(6), ui.dp(12), ui.dp(6), ui.dp(12)); request.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
         compose.addView(request, new LinearLayout.LayoutParams(0, -2, 1));
         // The round send/voice button as in the other chats: a smaller disc inside the same 48dp target.
@@ -668,8 +670,9 @@ public final class BrowserActivity extends Activity {
     private void consumeReview() {
         android.content.Intent intent = getIntent();
         if (!navigationResumed || engine == null || intent == null || !intent.getBooleanExtra(REVIEW_WORK, false)) return;
-        intent.removeExtra(REVIEW_WORK);
-        reviewWorkMutation();
+        String receipt = intent.getStringExtra(REVIEW_RECEIPT);
+        intent.removeExtra(REVIEW_WORK); intent.removeExtra(REVIEW_RECEIPT);
+        reviewWorkMutation(receipt == null ? "" : receipt);
     }
     private void consumeTaskNotification() {
         android.content.Intent intent = getIntent();
@@ -958,8 +961,28 @@ public final class BrowserActivity extends Activity {
     /** 기억: with it on, the notes the app keeps about the user that fit this request go along, marked as for the answer only. */
     private String withMemory(String text) {
         if (!engine.store.settings.getBoolean(MEMORY, false) || !engine.store.memoryOn()) return text;
-        String notes = engine.store.recallMemory(text, 1200);
-        return notes.isBlank() ? text : text + "\n\n[참고 · 사용자에 대해 기억한 것. 판단과 답에만 쓰고, 웹페이지에 입력하거나 사이트로 보내지 마세요]\n" + notes;
+        String header = "\n\n[참고 · 사용자에 대해 기억한 것. 판단과 답에만 쓰고, 웹페이지에 입력하거나 사이트로 보내지 마세요]\n";
+        // The notes fit beside the request within BrowserPrompts.REQUEST_LIMIT; a request that fills it goes alone.
+        int room = Math.min(MEMORY_NOTES, BrowserPrompts.REQUEST_LIMIT - text.length() - header.length());
+        if (room < 200) return text;
+        String notes = engine.store.recallMemory(text, room);
+        return notes.isBlank() ? text : text + header + notes;
+    }
+    /** Characters of remembered notes that go along with a request, and of a note written by hand in 기억. */
+    private static final int MEMORY_NOTES = 4000, NOTE_LIMIT = 2000;
+    /** A note written by hand, cut into pieces Memory keeps whole (Memory.TEXT_LIMIT each), at a sentence end or a space when it can. */
+    private static List<String> notePieces(String words) {
+        List<String> pieces = new ArrayList<>(); String rest = words.replaceAll("\\s+", " ").strip();
+        int most = dev.jun.gyeot.core.Memory.TEXT_LIMIT;
+        while (rest.length() > most) {
+            int cut = -1;
+            for (String end : new String[]{". ", "다. ", "요. ", "! ", "? ", "\n"}) cut = Math.max(cut, rest.lastIndexOf(end, most - end.length()) + end.length() - 1);
+            if (cut < most / 2) cut = rest.lastIndexOf(' ', most);
+            if (cut < most / 2) cut = most;
+            pieces.add(rest.substring(0, cut).strip()); rest = rest.substring(cut).strip();
+        }
+        if (!rest.isEmpty()) pieces.add(rest);
+        return pieces;
     }
     /** 기억: whether the browser's AI may use what the app remembers about the user, and a note written down by hand. */
     private void memorySheet() {
@@ -975,11 +998,16 @@ public final class BrowserActivity extends Activity {
         for (int i = 0; i < notes.length(); i++) if (dev.jun.gyeot.core.Memory.ABOUT.equals(notes.optJSONObject(i).optString("kind"))) about++;
         sheet.body.addView(group);
         sheet.body.addView(ui.footer("나에 대해 기억한 것 " + about + "개 · 보기와 지우기는 설정 → 기억 → 기억한 것"));
-        EditText note = ui.input("기억해 둘 것 (예: 회의록은 표로 정리해 줘)", 2, 300);
+        EditText note = ui.input("기억해 둘 것 (예: 회의록은 표로 정리해 줘)", 2, NOTE_LIMIT);
         sheet.body.addView(note);
         sheet.primary.setText("기억에 적어 두기"); sheet.primary.setOnClickListener(v -> {
             String words = note.getText().toString().strip(); if (words.isEmpty()) { sheet.dismiss(); return; }
-            try { engine.store.changeMemory(list -> dev.jun.gyeot.core.Memory.add(list, dev.jun.gyeot.core.Memory.ABOUT, words, "", System.currentTimeMillis())); sheet.dismiss(); toast("기억해 둘게요"); }
+            // A note longer than one memory holds is kept whole, as several notes in a row, never cut short.
+            List<String> pieces = notePieces(words); long now = System.currentTimeMillis();
+            try {
+                engine.store.changeMemory(list -> { for (int i = 0; i < pieces.size(); i++) dev.jun.gyeot.core.Memory.add(list, dev.jun.gyeot.core.Memory.ABOUT, pieces.get(i), "", now + i); return null; });
+                sheet.dismiss(); toast(pieces.size() > 1 ? "길어서 기억 " + pieces.size() + "개로 나눠 적어 뒀어요" : "기억해 둘게요");
+            }
             catch (Exception e) { toast(e.getMessage() == null ? "기억하지 못했어요." : e.getMessage()); }
         });
         show(sheet);
@@ -994,7 +1022,11 @@ public final class BrowserActivity extends Activity {
             } else toast("지시를 반영하지 못했어요. 입력은 유지했으니 작업 상태를 확인해 주세요.");
             return;
         }
-        if (!engine.canAcceptTask(text)) { toast("탭의 작업 기억을 불러오는 중이거나 문맥이 가득 찼어요. 잠시 후 다시 보내거나 새 대화를 시작해 주세요. 표시 기록은 유지돼요."); return; }
+        if (!engine.canAcceptTask(text)) {
+            toast(text.length() > BrowserPrompts.REQUEST_LIMIT ? String.format(java.util.Locale.ROOT, "요청이 %,d자를 넘어요. 나눠서 보내 주세요. 입력은 그대로 두었어요.", BrowserPrompts.REQUEST_LIMIT)
+                : "탭의 작업 기억을 불러오는 중이에요. 잠시 후 다시 보내 주세요. 입력은 그대로 두었어요.");
+            return;
+        }
         if (!engine.connected()) { engine.status = engine.brainName() + " 연결이 필요해요. 모델 선택에서 연결할 수 있어요."; engine.resultState = "error"; engine.changed(); return; }
         BrowserEngine.Tab target = engine.current;
         String conversation = target.conversationId, before = target.task.snapshot();
@@ -1102,7 +1134,7 @@ public final class BrowserActivity extends Activity {
             omniRow.addView(ui.chip(BrowserPrompts.isAddress(typed) ? "주소로 이동" : "Google 검색", this::go), chipParams());
         } else if (editing) for (BrowserPrompts.Recent recent : BrowserPrompts.recents(stored())) {
             Button chip = ui.chip((recent.pinned() ? "📌 " : "↺ ") + BrowserPrompts.label(recent.text()), () -> askFromAddress(recent.text()));
-            chip.setContentDescription("최근 요청 " + recent.text() + ", AI에게 맡기기"); omniRow.addView(chip, chipParams());
+            chip.setContentDescription("최근 요청 " + clipLine(recent.text()) + ", AI에게 맡기기"); omniRow.addView(chip, chipParams());
         }
         omniStrip.setVisibility(omniRow.getChildCount() > 0 ? View.VISIBLE : View.GONE);
     }
@@ -1167,6 +1199,18 @@ public final class BrowserActivity extends Activity {
             return;
         }
         if (code == REQUEST_BOOKMARKS && result == RESULT_OK && data != null && data.getData() != null) importBookmarks(data.getData());
+        if (code == REQUEST_FILES) {
+            GeckoSession.PromptDelegate.FilePrompt p = filePrompt; GeckoResult<GeckoSession.PromptDelegate.PromptResponse> answer = fileAnswer;
+            filePrompt = null; fileAnswer = null;
+            if (p == null || answer == null) return;
+            java.util.List<android.net.Uri> picked = new java.util.ArrayList<>();
+            if (result == RESULT_OK && data != null) {
+                if (data.getClipData() != null) for (int i = 0; i < data.getClipData().getItemCount(); i++) { android.net.Uri u = data.getClipData().getItemAt(i).getUri(); if (u != null) picked.add(u); }
+                else if (data.getData() != null) picked.add(data.getData());
+            }
+            try { answer.complete(picked.isEmpty() ? p.dismiss() : picked.size() == 1 ? p.confirm(this, picked.get(0)) : p.confirm(this, picked.toArray(new android.net.Uri[0]))); }
+            catch (RuntimeException unreadable) { answer.complete(p.dismiss()); toast("고른 파일을 페이지에 넣지 못했어요."); }
+        }
     }
     /** The line under the composer: the browser AI's model in bold, its thinking level beside it (ModelLine). */
     private void showModel() {
@@ -1265,7 +1309,7 @@ public final class BrowserActivity extends Activity {
         LinearLayout assistant = ui.group();
         ui.addRow(assistant, menuRow(R.drawable.ic_ai_chat, Ui.INDIGO, paneVisible ? "AI 패널 접기" : "AI 패널 열기", true, () -> setPaneVisible(!paneVisible), sheet), true);
         ui.addRow(assistant, menuRow(R.drawable.ic_tune, Ui.INDIGO, "모델·생각 깊이", true, this::models, sheet), true);
-        ui.addRow(assistant, menuRow(R.drawable.ic_lock, Ui.INDIGO, "권한 모드 · " + (engine.readOnly() ? "읽기만" : "확인받기"), true, this::permissionMode, sheet), true);
+        ui.addRow(assistant, menuRow(R.drawable.ic_lock, Ui.INDIGO, "권한 모드 · " + (engine.readOnly() ? "읽기만" : PERMISSION_FULL), true, this::permissionMode, sheet), true);
         ui.addRow(assistant, menuRow(R.drawable.ic_search, Ui.INDIGO, deepNext ? "끝까지 조사 끄기" : "끝까지 조사로 맡기기", !engine.running(), () -> deep(!deepNext), sheet), true);
         ui.addRow(assistant, menuRow(R.drawable.ic_bolt, Ui.INDIGO, "스킬 · 자주 하는 일", true, this::skills, sheet), true);
         ui.addRow(assistant, menuRow(R.drawable.ic_bulb, Ui.INDIGO, "기억 · " + (engine.store.settings.getBoolean(MEMORY, false) && engine.store.memoryOn() ? "참고함" : "참고 안 함"), true, this::memorySheet, sheet), true);
@@ -1303,12 +1347,13 @@ public final class BrowserActivity extends Activity {
         if (!receipt.optBoolean("ok") || receipt.optBoolean("pending")) {
             long view = ++recoveryViewSequence;
             showMutationReview(receipt, view, "현재 탭 작업 직접 확인", (id, done) -> engine.acknowledgeTabMutation(token, id, done));
-        } else reviewWorkMutation();
+        } else reviewWorkMutation("");
     }
-    /** Only direct user inspection can clear an exact durable receipt; this never replays work. */
-    private void reviewWorkMutation() {
+    /** Only direct user inspection can clear an exact durable receipt; this never replays work. Each Work job has its own:
+     * the notification's (receiptId), else the newest. */
+    private void reviewWorkMutation(String receiptId) {
         long view = ++recoveryViewSequence;
-        BrowserEngine.pendingWorkMutation(this, receipt -> {
+        BrowserEngine.pendingWorkMutation(this, receiptId, receipt -> {
             if (view != recoveryViewSequence || !navigationResumed || isFinishing() || isDestroyed()) return;
             showWorkMutationReview(receipt, view);
         });
@@ -1341,7 +1386,9 @@ public final class BrowserActivity extends Activity {
             acknowledge.accept(id, cleared -> {
                 if (view != recoveryViewSequence || !navigationResumed || isFinishing() || isDestroyed()) return;
                 sheet.dismiss();
-                toast(cleared ? "확인을 기록했어요. 이전 작업은 다시 실행하지 않았어요." : "기록이 바뀌었거나 저장하지 못했어요. 차단은 유지되니 다시 확인해 주세요.");
+                int more = receipt.optInt("more");
+                toast(!cleared ? "기록이 바뀌었거나 저장하지 못했어요. 차단은 유지되니 다시 확인해 주세요."
+                    : "확인을 기록했어요. 이전 작업은 다시 실행하지 않았어요." + (more > 0 ? " 확인할 다른 작업이 " + more + "개 더 있어요(메뉴 → 확인 필요한 작업)." : ""));
             });
         });
         sheet.setOnDismissListener(dialog -> { dialogs.remove(sheet); if (view == recoveryViewSequence) recoveryViewSequence++; });
@@ -1351,20 +1398,32 @@ public final class BrowserActivity extends Activity {
         String text = value == null ? "" : value;
         return text.length() <= limit ? text : text.substring(0, limit) + "…";
     }
+    /** Rows a long list (스킬, 프로젝트, 북마크) draws at first, and again on each "N개 더 보기"; 작업 상세's newest log lines. */
+    static final int LIST_PAGE = 50, DETAIL_LINES = 12;
+    /** "스킬 N개 더 보기" under a list drawn LIST_PAGE rows at a time (only what is seen is drawn). */
+    private TextView moreRow(String what, int hidden, Runnable more) {
+        TextView row = ui.text(what + " " + hidden + "개 더 보기", 13, 650, ACCENT); row.setGravity(Gravity.CENTER); row.setPadding(0, ui.dp(10), 0, ui.dp(10));
+        row.setOnClickListener(v -> more.run()); Ui.pressable(row, true); return row;
+    }
+    /** A long text as one row's subtitle: only what a line can show is laid out. */
+    private static String clipLine(String text) {
+        String line = text == null ? "" : text.replaceAll("\\s+", " ").strip();
+        return line.length() > 120 ? line.substring(0, 119) + "…" : line;
+    }
     // ── 스킬 ──────────────────────────────────────────────────────────────
 
     /** 스킬: requests kept by name to run again (optionally from a start page); tap runs, swipe deletes, long press edits. */
     private void skills() {
         Ui.Sheet sheet = ui.selectionSheet("스킬", "자주 하는 일을 이름 붙여 두고 한 번에 맡겨요");
-        Runnable[] fill = new Runnable[1];
+        Runnable[] fill = new Runnable[1]; int[] shown = {LIST_PAGE};
         fill[0] = () -> {
             sheet.body.removeAllViews();
             List<dev.jun.gyeot.core.BrowserKit.Skill> list = dev.jun.gyeot.core.BrowserKit.skills(engine.store.settings.getString(SKILLS, ""));
             if (list.isEmpty()) sheet.body.addView(ui.footer("아직 스킬이 없어요. 예: '오늘 IT 뉴스 5개 정리', '이 쇼핑몰 최저가 비교'."));
             else {
                 LinearLayout group = ui.group();
-                for (dev.jun.gyeot.core.BrowserKit.Skill skill : list) {
-                    LinearLayout row = ui.listRow(R.drawable.ic_bolt, Ui.INDIGO, skill.name(), (skill.url().isBlank() ? "" : host(skill.url()) + " · ") + skill.prompt(), ui.chevron(), () -> {
+                for (dev.jun.gyeot.core.BrowserKit.Skill skill : list.subList(0, Math.min(list.size(), shown[0]))) {
+                    LinearLayout row = ui.listRow(R.drawable.ic_bolt, Ui.INDIGO, skill.name(), (skill.url().isBlank() ? "" : host(skill.url()) + " · ") + clipLine(skill.prompt()), ui.chevron(), () -> {
                         if (engine.running()) { toast("진행 중인 작업이 끝난 뒤 실행해 주세요."); return; }
                         sheet.dismiss(); setPaneVisible(true); submit(skill.name(), skill.request(), false);
                     });
@@ -1374,6 +1433,7 @@ public final class BrowserActivity extends Activity {
                     }), true);
                 }
                 sheet.body.addView(group);
+                if (list.size() > shown[0]) sheet.body.addView(moreRow("스킬", list.size() - shown[0], () -> { shown[0] += LIST_PAGE; fill[0].run(); }));
                 sheet.body.addView(ui.footer("누르면 실행 · 길게 누르면 고치기 · 왼쪽으로 밀면 지우기"));
             }
             if (!engine.lastRequest.isBlank()) sheet.body.addView(ui.button("방금 요청을 스킬로 저장", false, () -> { sheet.dismiss(); editSkill(new dev.jun.gyeot.core.BrowserKit.Skill("", "", engine.lastRequest, "", 0)); }));
@@ -1383,7 +1443,8 @@ public final class BrowserActivity extends Activity {
     }
     private void editSkill(dev.jun.gyeot.core.BrowserKit.Skill skill) {
         Ui.Sheet sheet = ui.selectionSheet(skill == null || skill.id().isBlank() ? "새 스킬" : "스킬 고치기", null);
-        EditText name = ui.input("이름 (예: 아침 뉴스 정리)", 1, 60), words = ui.input("할 일", 3, 2000), page = ui.input("시작 페이지 (선택)", 1, 2000);
+        EditText name = ui.input("이름 (예: 아침 뉴스 정리)", 1, dev.jun.gyeot.core.BrowserKit.SKILL_NAME), words = ui.input("할 일", 3, dev.jun.gyeot.core.BrowserKit.SKILL_PROMPT),
+            page = ui.input("시작 페이지 (선택)", 1, dev.jun.gyeot.core.BrowserKit.URL_LIMIT);
         if (skill != null) { name.setText(skill.name()); words.setText(skill.prompt()); page.setText(skill.url()); }
         else if (engine.current != null && engine.current.url != null && engine.current.url.startsWith("http")) page.setHint("시작 페이지 (선택) · 예: " + host(engine.current.url));
         page.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
@@ -1408,15 +1469,23 @@ public final class BrowserActivity extends Activity {
         List<dev.jun.gyeot.core.BrowserKit.Project> list = dev.jun.gyeot.core.BrowserKit.projects(engine.store.settings.getString(PROJECTS, ""));
         if (list.isEmpty()) sheet.body.addView(ui.footer("아직 프로젝트가 없어요. 예: 여행 준비, 노트북 고르기 — 관련 탭을 열어 둔 채 아래 버튼을 눌러요."));
         else {
-            LinearLayout group = ui.group();
-            for (dev.jun.gyeot.core.BrowserKit.Project project : list) {
-                StringBuilder sites = new StringBuilder(); for (dev.jun.gyeot.core.BrowserKit.Bookmark b : project.pages()) sites.append(sites.length() == 0 ? "" : " · ").append(host(b.url()));
-                View row = ui.listRow(R.drawable.ic_layers, Ui.PINK, project.name(), "탭 " + project.pages().size() + "개 · " + sites, ui.chevron(), () -> { sheet.dismiss(); openProject(project); });
-                ui.addRow(group, SwipeDelete.wrap(ui, row, "이 프로젝트", () -> {
-                    engine.store.settings.edit().putString(PROJECTS, dev.jun.gyeot.core.BrowserKit.deleteProject(engine.store.settings.getString(PROJECTS, ""), project.id())).apply(); return true;
-                }), true);
-            }
-            sheet.body.addView(group);
+            LinearLayout group = ui.group(); int[] shown = {0};
+            Runnable[] more = new Runnable[1]; TextView[] moreView = new TextView[1];
+            more[0] = () -> {
+                int until = Math.min(list.size(), shown[0] + LIST_PAGE);
+                for (dev.jun.gyeot.core.BrowserKit.Project project : list.subList(shown[0], until)) {
+                    StringBuilder sites = new StringBuilder(); int named = 0;
+                    for (dev.jun.gyeot.core.BrowserKit.Bookmark b : project.pages()) { if (named++ == 4) { sites.append(" 외 ").append(project.pages().size() - 4).append("곳"); break; } sites.append(sites.length() == 0 ? "" : " · ").append(host(b.url())); }
+                    View row = ui.listRow(R.drawable.ic_layers, Ui.PINK, project.name(), "탭 " + project.pages().size() + "개 · " + sites, ui.chevron(), () -> { sheet.dismiss(); openProject(project); });
+                    ui.addRow(group, SwipeDelete.wrap(ui, row, "이 프로젝트", () -> {
+                        engine.store.settings.edit().putString(PROJECTS, dev.jun.gyeot.core.BrowserKit.deleteProject(engine.store.settings.getString(PROJECTS, ""), project.id())).apply(); return true;
+                    }), true);
+                }
+                shown[0] = until;
+                if (moreView[0] != null) { sheet.body.removeView(moreView[0]); moreView[0] = null; }
+                if (shown[0] < list.size()) { moreView[0] = moreRow("프로젝트", list.size() - shown[0], more[0]); sheet.body.addView(moreView[0], sheet.body.indexOfChild(group) + 1); }
+            };
+            sheet.body.addView(group); more[0].run();
             sheet.body.addView(ui.footer("누르면 그 탭들을 열어요 · 왼쪽으로 밀면 지우기 · 같은 이름으로 저장하면 바뀐 탭으로 고쳐요"));
         }
         sheet.primary.setText("지금 탭들을 프로젝트로 저장"); sheet.primary.setOnClickListener(v -> { sheet.dismiss(); saveProject(); });
@@ -1428,7 +1497,7 @@ public final class BrowserActivity extends Activity {
             pages.add(new dev.jun.gyeot.core.BrowserKit.Bookmark(tab.url, tab.title == null || tab.title.isBlank() ? host(tab.url) : tab.title, "", System.currentTimeMillis()));
         if (pages.isEmpty()) { toast("저장할 웹 페이지 탭이 없어요."); return; }
         Ui.Sheet sheet = ui.selectionSheet("프로젝트로 저장", "열린 탭 " + pages.size() + "개");
-        EditText name = ui.input("이름 (예: 여행 준비)", 1, 40); sheet.body.addView(name);
+        EditText name = ui.input("이름 (예: 여행 준비)", 1, dev.jun.gyeot.core.BrowserKit.PROJECT_NAME); sheet.body.addView(name);
         sheet.primary.setText("저장"); sheet.primary.setOnClickListener(v -> {
             try {
                 engine.store.settings.edit().putString(PROJECTS, dev.jun.gyeot.core.BrowserKit.saveProject(engine.store.settings.getString(PROJECTS, ""), name.getText().toString(), pages, System.currentTimeMillis())).apply();
@@ -1460,23 +1529,26 @@ public final class BrowserActivity extends Activity {
         if (dev.jun.gyeot.core.BrowserKit.bookmarked(saved, tab.url)) { engine.store.settings.edit().putString(BOOKMARKS, dev.jun.gyeot.core.BrowserKit.deleteBookmark(saved, tab.url)).apply(); toast("북마크에서 뺐어요"); }
         else {
             String title = tab.title == null || tab.title.isBlank() ? host(tab.url) : tab.title;
-            engine.store.settings.edit().putString(BOOKMARKS, dev.jun.gyeot.core.BrowserKit.addBookmarks(saved, List.of(new dev.jun.gyeot.core.BrowserKit.Bookmark(tab.url, title, "", System.currentTimeMillis())))).apply();
-            toast("북마크에 추가했어요");
+            dev.jun.gyeot.core.BrowserKit.Added added = dev.jun.gyeot.core.BrowserKit.add(saved, List.of(new dev.jun.gyeot.core.BrowserKit.Bookmark(tab.url, title, "", System.currentTimeMillis())));
+            engine.store.settings.edit().putString(BOOKMARKS, added.saved()).apply();
+            // Past MAX_BOOKMARKS the oldest goes, and the user hears which one: never let go silently.
+            toast(added.note().isEmpty() ? "북마크에 추가했어요" : "북마크에 추가했어요 · " + added.note());
         }
     }
     /** 북마크: kept pages, searched, opened with a tap, deleted with a swipe; other browsers' bookmarks are brought in from their export file. */
     private void bookmarks() {
         Ui.Sheet sheet = ui.selectionSheet("북마크", null);
         EditText search = ui.input("북마크 검색", 1, 100); sheet.controls.addView(search);
-        Runnable[] fill = new Runnable[1];
+        Runnable[] fill = new Runnable[1]; int[] page = {dev.jun.gyeot.core.BrowserKit.MAX_BOOKMARKS};
         fill[0] = () -> {
             sheet.body.removeAllViews();
             String query = search.getText().toString().strip().toLowerCase(java.util.Locale.ROOT);
             List<dev.jun.gyeot.core.BrowserKit.Bookmark> list = dev.jun.gyeot.core.BrowserKit.bookmarks(engine.store.settings.getString(BOOKMARKS, ""));
-            LinearLayout group = ui.group(); int shown = 0;
+            // At most MAX_BOOKMARKS are kept, all drawn; a list saved before that cap draws that many at a time.
+            LinearLayout group = ui.group(); int shown = 0, more = 0;
             for (dev.jun.gyeot.core.BrowserKit.Bookmark b : list) {
                 if (!query.isEmpty() && !(b.title() + " " + b.url() + " " + b.folder()).toLowerCase(java.util.Locale.ROOT).contains(query)) continue;
-                if (shown >= 300) break;
+                if (shown >= page[0]) { more++; continue; }
                 View row = ui.listRow(R.drawable.ic_globe, Ui.PINK, b.title(), (b.folder().isBlank() ? "" : b.folder() + " · ") + host(b.url()), null, () -> { sheet.dismiss(); engine.navigate(b.url()); });
                 ui.addRow(group, SwipeDelete.wrap(ui, row, "이 북마크", () -> {
                     engine.store.settings.edit().putString(BOOKMARKS, dev.jun.gyeot.core.BrowserKit.deleteBookmark(engine.store.settings.getString(BOOKMARKS, ""), b.url())).apply(); return true;
@@ -1484,7 +1556,8 @@ public final class BrowserActivity extends Activity {
                 shown++;
             }
             if (shown > 0) sheet.body.addView(group);
-            else sheet.body.addView(ui.footer(list.isEmpty() ? "아직 북마크가 없어요. 브라우저 메뉴에서 '북마크에 추가'를 누르거나, 다른 브라우저의 북마크를 가져와요." : "검색과 맞는 북마크가 없어요."));
+            if (more > 0) sheet.body.addView(moreRow("북마크", more, () -> { page[0] += dev.jun.gyeot.core.BrowserKit.MAX_BOOKMARKS; fill[0].run(); }));
+            if (shown == 0) sheet.body.addView(ui.footer(list.isEmpty() ? "아직 북마크가 없어요. 브라우저 메뉴에서 '북마크에 추가'를 누르거나, 다른 브라우저의 북마크를 가져와요." : "검색과 맞는 북마크가 없어요."));
             sheet.body.addView(ui.footer("크롬은 북마크 관리자 → ⋮ → 북마크 내보내기로 HTML 파일을 만들 수 있어요(엣지·사파리·파이어폭스도 같은 형식)."));
         };
         search.addTextChangedListener(new android.text.TextWatcher() {
@@ -1500,35 +1573,43 @@ public final class BrowserActivity extends Activity {
         });
         fill[0].run(); show(sheet);
     }
-    /** Reads another browser's exported bookmarks file (at most 8 MB) and adds the pages not kept yet. */
+    /** An exported bookmarks file read whole: 64 MB at most. */
+    private static final int IMPORT_BYTES = 64 * 1024 * 1024;
+    /** Reads another browser's exported bookmarks file (at most IMPORT_BYTES) and adds the pages not kept yet. */
     private void importBookmarks(android.net.Uri uri) {
         new Thread(() -> {
             String message;
             try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
                 if (in == null) throw new java.io.IOException("파일을 열지 못했어요.");
-                byte[] bytes = in.readNBytes(8 * 1024 * 1024 + 1); if (bytes.length > 8 * 1024 * 1024) throw new java.io.IOException("파일이 너무 커요 (8MB까지).");
+                byte[] bytes = in.readNBytes(IMPORT_BYTES + 1); if (bytes.length > IMPORT_BYTES) throw new java.io.IOException("파일이 너무 커요 (" + (IMPORT_BYTES >> 20) + "MB까지).");
                 List<dev.jun.gyeot.core.BrowserKit.Bookmark> pages = dev.jun.gyeot.core.BrowserKit.parseExport(new String(bytes, java.nio.charset.StandardCharsets.UTF_8), System.currentTimeMillis());
                 if (pages.isEmpty()) throw new java.io.IOException("이 파일에서 북마크를 찾지 못했어요. 브라우저의 '북마크 내보내기'로 만든 HTML 파일인지 확인해 주세요.");
-                String before = engine.store.settings.getString(BOOKMARKS, ""); int had = dev.jun.gyeot.core.BrowserKit.bookmarks(before).size();
-                String after = dev.jun.gyeot.core.BrowserKit.addBookmarks(before, pages);
-                engine.store.settings.edit().putString(BOOKMARKS, after).apply();
-                message = "북마크 " + (dev.jun.gyeot.core.BrowserKit.bookmarks(after).size() - had) + "개를 가져왔어요 (파일 " + pages.size() + "개 중 새 것만)";
+                dev.jun.gyeot.core.BrowserKit.Added added = dev.jun.gyeot.core.BrowserKit.add(engine.store.settings.getString(BOOKMARKS, ""), pages);
+                engine.store.settings.edit().putString(BOOKMARKS, added.saved()).apply();
+                // What the cap let go is said, never dropped silently: the oldest of those kept and of the file's pages.
+                message = "북마크 " + added.added() + "개를 가져왔어요 (파일 " + pages.size() + "개 중 새 것만)" + (added.note().isEmpty() ? "" : " · " + added.note());
             } catch (Exception e) { message = e.getMessage() == null ? "북마크를 가져오지 못했어요." : e.getMessage(); }
             String shown = message; runOnUiThread(() -> { if (!isFinishing() && !isDestroyed()) { toast(shown); bookmarks(); } });
         }, "gyeot-bookmark-import").start();
     }
-    /** 권한 모드: 확인받기 (the default: the AI works on pages and asks before what matters) or 읽기만 (it only reads). */
+    /**
+     * 권한 모드, said as it is (there is no ask-first flow): 조작 허용 (the default: the AI also types, chooses, presses and
+     * attaches on pages) or 읽기만 (BrowserEngine refuses typing, choosing, pressing and attaching). In both, payment, money
+     * transfers, deletion and passwords or codes stay with the user (AutomationGate).
+     */
+    /** The default 권한 모드's name, in the AI menu and its sheet. */
+    static final String PERMISSION_FULL = "조작 허용";
     private void permissionMode() {
         Ui.Sheet sheet = ui.selectionSheet("권한 모드", "다음 지시부터 적용돼요");
         boolean readOnly = engine.readOnly(); LinearLayout rows = ui.group();
         android.widget.ImageView on = new android.widget.ImageView(this); on.setImageResource(R.drawable.ic_check); on.setImageTintList(android.content.res.ColorStateList.valueOf(ACCENT));
         android.widget.ImageView on2 = new android.widget.ImageView(this); on2.setImageResource(R.drawable.ic_check); on2.setImageTintList(android.content.res.ColorStateList.valueOf(ACCENT));
-        ui.addRow(rows, ui.listRow(R.drawable.ic_hand, Ui.BLUE, "확인받기 (기본)", "페이지에서 입력·클릭까지 하고, 결제·삭제·전송 전에는 꼭 물어봐요", readOnly ? null : on, () -> {
-            engine.store.settings.edit().putBoolean(BrowserEngine.READ_ONLY, false).apply(); sheet.dismiss(); toast("권한 모드: 확인받기"); refresh(); }), true);
-        ui.addRow(rows, ui.listRow(R.drawable.ic_eye, Ui.GREEN, "읽기만", "읽기·스크롤·링크 이동만 해요. 입력하거나 버튼을 누르지 않아요", readOnly ? on2 : null, () -> {
+        ui.addRow(rows, ui.listRow(R.drawable.ic_hand, Ui.BLUE, PERMISSION_FULL + " (기본)", "읽기·링크 이동에 더해 글 입력·고르기·버튼 누르기·파일 첨부까지 해요", readOnly ? null : on, () -> {
+            engine.store.settings.edit().putBoolean(BrowserEngine.READ_ONLY, false).apply(); sheet.dismiss(); toast("권한 모드: " + PERMISSION_FULL); refresh(); }), true);
+        ui.addRow(rows, ui.listRow(R.drawable.ic_eye, Ui.GREEN, "읽기만", "읽기·스크롤·링크 이동만 해요. 글 입력·고르기·버튼 누르기·파일 첨부는 하지 않아요", readOnly ? on2 : null, () -> {
             engine.store.settings.edit().putBoolean(BrowserEngine.READ_ONLY, true).apply(); sheet.dismiss(); toast("권한 모드: 읽기만"); refresh(); }), true);
         sheet.body.addView(rows);
-        sheet.body.addView(ui.footer("어느 모드에서든 결제·삭제·전송·로그인은 AI가 혼자 하지 않아요."));
+        sheet.body.addView(ui.footer("어느 모드에서든 결제·송금·삭제와 비밀번호·인증번호 입력은 AI가 하지 않고 직접 하시도록 남겨 둬요."));
         show(sheet);
     }
     /** Room for two pages side by side (a foldable opened, a tablet): 600dp and wider. */
@@ -1679,6 +1760,10 @@ public final class BrowserActivity extends Activity {
         elapsed.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         waiting.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_NONE);
         sheet.body.addView(elapsed); sheet.body.addView(waiting);
+        // The action log keeps up to BrowserEngine.ACTIVITY lines; only the newest DETAIL_LINES are drawn until asked for more.
+        int[] drawn = {DETAIL_LINES}; Runnable[] again = new Runnable[1];
+        TextView earlier = ui.text("", 13, 650, ACCENT); earlier.setGravity(Gravity.CENTER); earlier.setPadding(0, ui.dp(6), 0, ui.dp(6));
+        earlier.setOnClickListener(v -> { drawn[0] += DETAIL_LINES; if (again[0] != null) again[0].run(); }); Ui.pressable(earlier, true); sheet.body.addView(earlier);
         TextView actions = ui.label("", 13, MUTED); actions.setTextIsSelectable(true); sheet.body.addView(actions);
         ViewGroup resultCommands = ui.actions(ui.chip("결과 복사", () -> copyText("브라우저 작업 결과", dev.jun.gyeot.core.Markdown.plain(engine.status))), ui.chip("결과 공유", () -> shareText(engine.status, "브라우저 작업 결과"))); sheet.body.addView(resultCommands);
         Button direct = ui.button("페이지에서 직접 확인", false, sheet::dismiss); sheet.body.addView(direct);
@@ -1695,17 +1780,20 @@ public final class BrowserActivity extends Activity {
             BrowserProgressUi.Snapshot snapshot = progressSnapshot();
             boolean other = engine.running() && !engine.taskOnCurrentTab();
             long now = android.os.SystemClock.elapsedRealtime();
-            setProgressText(ask, other ? "" : engine.lastAsk.isBlank() ? engine.lastRequest : engine.lastAsk);
+            String asked = other ? "" : engine.lastAsk.isBlank() ? engine.lastRequest : engine.lastAsk;
+            setProgressText(ask, asked.length() > 500 ? asked.substring(0, 499) + "…" : asked); // a long request: what fits the sheet
             setProgressText(stage, snapshot.running() || other ? snapshot.stage() : engine.status);
             setProgressText(elapsed, BrowserProgressUi.elapsed(snapshot, now));
             setProgressText(waiting, BrowserProgressUi.waiting(snapshot, now));
-            setProgressText(actions, String.join("\n", snapshot.actions()));
+            List<String> lines = snapshot.actions(); int hidden = Math.max(0, lines.size() - drawn[0]);
+            setProgressText(earlier, hidden > 0 ? "이전 기록 " + hidden + "개 더 보기" : "");
+            setProgressText(actions, String.join("\n", lines.subList(hidden, lines.size())));
             resultCommands.setVisibility(!engine.running() && !engine.status.isBlank() ? View.VISIBLE : View.GONE);
             stop.setVisibility(stopTarget.canStop() ? View.VISIBLE : View.GONE);
             direct.setVisibility(!other && (engine.paused || "paused".equals(engine.resultState)) ? View.VISIBLE : View.GONE);
             resume.setVisibility(!other && engine.paused ? View.VISIBLE : View.GONE);
         };
-        detailRefresh = render;
+        detailRefresh = render; again[0] = render;
         sheet.setOnDismissListener(d -> { dialogs.remove(sheet); if (progressDetails == sheet) { progressDetails = null; detailRefresh = null; } });
         render.run(); showBrowserPopup(sheet, paneToggle, false);
     }
@@ -1893,6 +1981,26 @@ public final class BrowserActivity extends Activity {
         dialog.setOnDismissListener(d -> { dialogs.remove(dialog); if (!prompt.isComplete()) result.complete(prompt.dismiss()); }); show(dialog); return result;
     }
     private final GeckoSession.PromptDelegate prompts = new GeckoSession.PromptDelegate() {
+        /**
+         * A page's "파일 올리기" (준: "AI 브라우저에서 이 동작이 안돼": claude.ai's 파일 또는 사진 추가 did nothing, the chooser had no
+         * handler): the phone's own picker, one file or several as the page asks, of the kinds it accepts; what is picked goes to
+         * the page (GeckoView copies it in). Cancelled, the page hears no file.
+         */
+        @Override public GeckoResult<PromptResponse> onFilePrompt(GeckoSession session, FilePrompt p) {
+            if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss());
+            if (fileAnswer != null && filePrompt != null) { fileAnswer.complete(filePrompt.dismiss()); fileAnswer = null; filePrompt = null; }
+            android.content.Intent pick = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).addCategory(android.content.Intent.CATEGORY_OPENABLE);
+            java.util.List<String> kinds = new java.util.ArrayList<>();
+            if (p.mimeTypes != null) for (String m : p.mimeTypes) if (m != null && m.contains("/")) kinds.add(m.strip().toLowerCase(java.util.Locale.ROOT));
+            pick.setType(kinds.size() == 1 ? kinds.get(0) : "*/*");
+            if (kinds.size() > 1) pick.putExtra(android.content.Intent.EXTRA_MIME_TYPES, kinds.toArray(new String[0]));
+            if (p.type == FilePrompt.Type.MULTIPLE) pick.putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true);
+            GeckoResult<PromptResponse> answer = new GeckoResult<>();
+            try { startActivityForResult(pick, REQUEST_FILES); }
+            catch (RuntimeException none) { toast("파일을 고를 앱이 없어요."); return GeckoResult.fromValue(p.dismiss()); }
+            filePrompt = p; fileAnswer = answer;
+            return answer;
+        }
         @Override public GeckoResult<PromptResponse> onAlertPrompt(GeckoSession session, AlertPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss()); return prompt(session, p, (b, r) -> b.setMessage(p.message).setPositiveButton("확인", (d, w) -> r.complete(p.dismiss()))); }
         @Override public GeckoResult<PromptResponse> onButtonPrompt(GeckoSession session, ButtonPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss()); return prompt(session, p, (b, r) -> b.setMessage(p.message).setPositiveButton("확인", (d, w) -> r.complete(p.confirm(ButtonPrompt.Type.POSITIVE))).setNegativeButton("취소", (d, w) -> r.complete(p.confirm(ButtonPrompt.Type.NEGATIVE)))); }
         @Override public GeckoResult<PromptResponse> onTextPrompt(GeckoSession session, TextPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss());

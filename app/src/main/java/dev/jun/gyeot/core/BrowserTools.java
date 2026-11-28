@@ -71,6 +71,8 @@ public final class BrowserTools {
     public static boolean googleLogin(String value) {
         try { return "accounts.google.com".equalsIgnoreCase(URI.create(url(value)).getHost()); } catch (Exception e) { return false; }
     }
+    /** The longest text the AI types into a page in one step (BrowserDecisionEvidence checks the same). */
+    public static final int TYPE_LIMIT = 100_000;
     public static JSONObject validate(JSONObject input) {
         JSONObject a = copy(input); String action = a.optString("action");
         if (!ACTIONS.contains(action)) throw new IllegalArgumentException("지원하지 않는 브라우저 동작이에요.");
@@ -87,7 +89,7 @@ public final class BrowserTools {
         // Only the app gives a paste its words (what this task copied); a plan's own "paste" never reaches the page.
         a.remove("paste");
         if (action.equals("attach") && a.optString("file").isBlank()) throw new IllegalArgumentException("첨부할 파일(drive_download가 돌려준 uri나 이름)을 주세요.");
-        if (a.optString("text").length() > 8000) throw new IllegalArgumentException("입력할 글이 너무 길어요.");
+        if (a.optString("text").length() > TYPE_LIMIT) throw new IllegalArgumentException("입력할 글이 너무 길어요 (" + String.format(java.util.Locale.ROOT, "%,d", TYPE_LIMIT) + "자까지).");
         return a;
     }
     /** attach: a file the app fetched for the user (drive_download's uri or name) goes into the next file chooser the page opens. */
@@ -192,23 +194,13 @@ public final class BrowserTools {
         java.util.regex.Matcher english = java.util.regex.Pattern.compile("^(?:please )?(?:open|go to|navigate to) (https?://\\S+)(?: please)?$", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(text);
         String target = korean.matches() ? korean.group(1) : english.matches() ? english.group(1) : "";
         if (target.isEmpty()) return null;
-        try {
-            URI uri = URI.create(target);
-            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(java.util.Locale.ROOT);
-            // Only an explicit HTTPS public-looking origin root. Never silently strip a path,
-            // token, query or fragment and thereby change the user's requested destination.
-            if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getUserInfo() != null || uri.getPort() != -1
-                    || uri.getRawQuery() != null || uri.getRawFragment() != null
-                    || !host.matches("(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,63}")
-                    || host.matches(".*\\.(?:local|localhost|internal|home|lan|test|invalid)")
-                    || googleLogin(target) || host.matches("(?:login|signin|auth|oauth|sso)\\..*")) throw new IllegalArgumentException();
-            // A path is not an approved escape shortcut. On an ordinary readable page,
-            // leave its interpretation to the existing observed planner; on auth it stops.
-            if (!(uri.getRawPath().isEmpty() || uri.getRawPath().equals("/"))) return null;
-            return obj("action", "open", "url", "https://" + host + "/");
-        } catch (IllegalArgumentException invalid) {
-            return obj("ok", false, "error_code", "unsafe_navigation_target", "action_executed", false, "retryable", false,
-                "error", "인증 화면에서 나갈 주소는 토큰·경로·검색어가 없는 공개 HTTPS 홈페이지 주소로 알려 주세요. 주소를 추측하거나 인증을 우회하지 않았어요.");
+        // The address the user wrote is opened as they wrote it: path, query, #fragment, port, http and login·auth·sso hosts
+        // included (준: "쓸데 없는 제한이 너무 많아"). BrowserEngine still refuses a known phishing address when it loads
+        // (SecurityLink), and a login page is the user's to fill in.
+        try { return obj("action", "open", "url", url(target)); }
+        catch (IllegalArgumentException invalid) {
+            return obj("ok", false, "error_code", "unreadable_navigation_target", "action_executed", false, "retryable", false,
+                "error", "이 주소는 열 수 없어요: http·https 주소여야 하고, 사용자 이름이나 비밀번호(…@)를 넣은 주소는 열지 않아요.");
         }
     }
     public static String voiceRequestKey(String request) {

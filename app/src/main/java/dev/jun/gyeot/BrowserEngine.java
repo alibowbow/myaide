@@ -63,16 +63,20 @@ final class BrowserEngine {
         BrowserEngine engine = new BrowserEngine(context.getApplicationContext(), true, workScope);
         engine.current.url = BrowserTools.url(url); return engine;
     }
-    /** Native recovery UI only; page/model claims never call this API. */
-    static void pendingWorkMutation(Context context, Consumer<JSONObject> callback) {
+    /** Native recovery UI only; page/model claims never call this API. The newest Work job's unconfirmed step. */
+    static void pendingWorkMutation(Context context, Consumer<JSONObject> callback) { pendingWorkMutation(context, "", callback); }
+    /** The unconfirmed step of this receipt (a notification's), else the newest; "more" tells how many other jobs have one. */
+    static void pendingWorkMutation(Context context, String receipt, Consumer<JSONObject> callback) {
         AppStore store = ((GyeotApp) context.getApplicationContext()).store();
         Handler main = new Handler(Looper.getMainLooper());
         WORK_STORAGE_IO.execute(() -> {
             JSONObject result;
             try {
-                JSONObject pending = readWorkPending(store);
-                result = pending == null ? obj("ok", true, "pending", false) : pending;
-                put(result, "ok", true); put(result, "pending", pending != null);
+                dev.jun.gyeot.core.WorkFence fence = readWorkFence(store);
+                JSONObject pending = receipt == null || receipt.isBlank() ? null : fence.receipt(receipt);
+                if (pending == null) pending = fence.newest();
+                result = pending == null ? obj("ok", true, "pending", false) : new JSONObject(pending.toString());
+                put(result, "ok", true); put(result, "pending", pending != null); put(result, "more", Math.max(0, fence.rows().size() - 1));
                 if (pending != null) put(result, "active", activeWorkReceipts.contains(pending.optString("receipt_id")));
             } catch (Exception failure) { result = obj("ok", false, "pending", true, "error_code", "work_recovery_unreadable"); }
             final JSONObject value = result; main.post(() -> callback.accept(value));
@@ -85,14 +89,17 @@ final class BrowserEngine {
         WORK_STORAGE_IO.execute(() -> {
             boolean cleared = false; String scope = "";
             try {
-                JSONObject pending = readWorkPending(store);
-                if (pending != null && pending.optString("receipt_id").equals(receiptId) && !activeWorkReceipts.contains(receiptId)) {
+                dev.jun.gyeot.core.WorkFence fence = readWorkFence(store);
+                JSONObject pending = fence.receipt(receiptId);
+                if (pending != null && !activeWorkReceipts.contains(receiptId)) {
                     scope = pending.getString("job_id");
                     BrowserTaskContext task = readWorkTask(store, scope);
                     if (task.confirmMutationInspected(receiptId)
                             || task.lastMutationId().equals(receiptId) && !task.mutationUnresolved()) {
                         store.secrets.put(workTaskKey(scope), task.snapshot());
-                        store.secrets.put(WORK_PENDING_KEY, ""); cleared = true;
+                        // Only this job's fence: the other jobs' stay as they are.
+                        fence.removeReceipt(receiptId);
+                        store.secrets.put(WORK_PENDING_KEY, fence.save()); cleared = true;
                     }
                 }
             } catch (Exception failure) { /* Preserve the guard unless every required write succeeded. */ }
@@ -111,11 +118,15 @@ final class BrowserEngine {
             });
         });
     }
-    private static JSONObject readWorkPending(AppStore store) throws Exception {
+    /** Every Work job's fence (core/WorkFence), each row checked; an unreadable or invalid one fails closed (no dispatch). */
+    private static dev.jun.gyeot.core.WorkFence readWorkFence(AppStore store) throws Exception {
         String saved = store.secrets.get(WORK_PENDING_KEY);
         if (saved == null) throw new IllegalStateException("Unreadable Work recovery record");
-        if (saved.isBlank()) return null;
-        JSONObject row = new JSONObject(saved);
+        dev.jun.gyeot.core.WorkFence fence = dev.jun.gyeot.core.WorkFence.read(saved);
+        for (JSONObject row : fence.rows()) checkWorkRow(row);
+        return fence;
+    }
+    private static void checkWorkRow(JSONObject row) throws Exception {
         if (row.optInt("version") != 1 || !validIdentity(row.optString("receipt_id"))
                 || !row.optString("job_id").matches("[A-Za-z0-9_.:-]{1,160}")
                 || !(row.opt("request") instanceof String) || row.getString("request").length() > BrowserPrompts.REQUEST_LIMIT
@@ -123,7 +134,6 @@ final class BrowserEngine {
                 || !row.optString("reason").matches("[a-z][a-z0-9_]{0,79}")
                 || !Set.of("click", "type", "select", "press", "vault_fill").contains(row.optString("action"))
                 || !row.optString("state").equals("awaiting_acknowledgement")) throw new IllegalArgumentException("Invalid Work recovery record");
-        return row;
     }
     private static BrowserTaskContext readWorkTask(AppStore store, String scope) throws Exception {
         String saved = store.secrets.get(workTaskKey(scope)); BrowserTaskContext task = new BrowserTaskContext();
@@ -359,7 +369,8 @@ final class BrowserEngine {
     boolean acceptSteering(long lease, String visible, String actual) {
         Lane l = lane(lease);
         if (!valid(lease) || l.onCancel == null || l.owner != current || !canAcceptTask(actual)) return false;
-        l.owner.task.accept(actual); l.owner.taskChanged = true; l.lastAsk = visible; l.lastRequest = actual;
+        int dropped = l.owner.task.accept(actual); l.owner.taskChanged = true; l.lastAsk = visible; l.lastRequest = actual;
+        if (dropped > 0) record(lease, forgotten(dropped));
         l.taskWords = (l.taskWords + "\n" + dev.jun.gyeot.core.AutomationGate.userWords(actual)).strip();
         l.transcriptRequest = transcript.request(l.conversation, visible);
         persistTranscript(); changed(); return true;
@@ -379,8 +390,12 @@ final class BrowserEngine {
     void record(long lease, String text) {
         Lane l = lane(lease); if (!valid(lease) || l.completed) return;
         l.progressUpdatedElapsed = android.os.SystemClock.elapsedRealtime(); l.activity.add(text);
-        if (l.activity.size() > 30) l.activity.remove(0); changed();
+        if (l.activity.size() > ACTIVITY) l.activity.remove(0); changed();
     }
+    /** Lines 작업 상세 keeps for a task (it draws the newest few and the rest on request). */
+    static final int ACTIVITY = 200;
+    /** A quiet line in 작업 상세 when a tab's long task memory let its oldest turns go (BrowserTaskContext.USER_BUDGET). */
+    private static String forgotten(int dropped) { return "이 탭의 작업 기억이 길어 가장 오래된 지시 " + dropped + "개는 기억에서 뺐어요 · 대화 기록은 그대로예요"; }
     /** A step's outcome line (BrowserAgent's journal) in place of the "…하는 중" line its start added. */
     void recordStep(long lease, String started, String text) {
         Lane l = lane(lease); if (!valid(lease) || l.completed) return;
@@ -584,7 +599,8 @@ final class BrowserEngine {
         Set<String> restoredIds = new HashSet<>(), restoredConversations = new HashSet<>();
         int savedSelected = -1;
         tabsWritable = saved.tabs() != null;
-        try { JSONArray values = new JSONArray(saved.tabs() == null || saved.tabs().isBlank() ? "[]" : saved.tabs()); if (values.length() > 6) tabsWritable = false; for (int i = 0; i < Math.min(6, values.length()); i++) {
+        // Every saved tab comes back: there is no cap on tabs (준: "탭갯수 제한 없애"), and a tab out of sight loads only when shown.
+        try { JSONArray values = new JSONArray(saved.tabs() == null || saved.tabs().isBlank() ? "[]" : saved.tabs()); for (int i = 0; i < values.length(); i++) {
             try {
                 JSONObject entry = values.optJSONObject(i);
                 if (entry != null && entry.has("task") && !(entry.opt("task") instanceof String)) throw new IllegalArgumentException("Invalid tab task memory");
@@ -734,8 +750,9 @@ final class BrowserEngine {
     }
     void acceptRequest(long lease, String visible, String actual) {
         Lane l = lane(lease); if (!valid(lease) || l.completed || !l.transcriptRequest.isEmpty()) return;
-        l.owner.task.accept(actual); l.owner.taskChanged = true;
+        int dropped = l.owner.task.accept(actual); l.owner.taskChanged = true;
         l.lastAsk = visible; l.lastRequest = actual; l.lastStats = ""; l.requestStarted = System.currentTimeMillis();
+        if (dropped > 0) record(lease, forgotten(dropped));
         l.taskWords = dev.jun.gyeot.core.AutomationGate.userWords(actual);
         transcript.ensure(l.conversation, BrowserTools.origin(l.owner.url));
         l.transcriptRequest = transcript.request(l.conversation, visible);
@@ -945,8 +962,8 @@ final class BrowserEngine {
     private Tab addTab(String url, boolean open) { return addTab(url, open, false); }
     private Tab addTab(String url, boolean open, boolean secret) {
         if (disposed) throw new IllegalStateException("작업 브라우저가 종료됐어요.");
-        if (workEngine && tabs.size() >= 2) throw new IllegalStateException("작업별 탭은 2개까지 열 수 있어요. 별도 병렬 작업을 사용해 주세요.");
-        // No cap on tabs (준: "탭갯수 제한 없애", "쓸데 없는 제한이 너무 많아"): a tab out of sight is paused and lets its display go.
+        // No cap on tabs, a Work job's own included (준: "탭갯수 제한 없애", "쓸데 없는 제한이 너무 많아"): a tab out of sight is
+        // paused and lets its display go.
         Tab tab = new Tab(secret); tab.url = BrowserTools.url(url); tabs.add(tab); current = tab; viewEpoch++;
         tab.session.setPromptDelegate(gatedPrompts);
         tab.session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
@@ -1054,9 +1071,11 @@ final class BrowserEngine {
         main.post(() -> { if (live(tab) && (tab == current || rendering(tab))) { activate(tab); changed(); } });
     }
     /**
-     * The user gave this tab, which they are looking at, a new instruction while an earlier task's step on it is unconfirmed:
-     * that step is settled (the user sees the page; the new task reads it first and is told about it) instead of refusing
-     * every click and keystroke of the new task. Not for Work's background tabs, which no one sees.
+     * The user gave this tab a new instruction, from any surface (the browser's own box, voice, 퍼레's job, a background
+     * request), while an earlier task's step on it is unconfirmed: that step is settled (the new task reads the page first and
+     * is told about it; the step is never reported as done) instead of refusing every click and keystroke of the new task.
+     * Not for a Work job's tab: no one gives it a new instruction, each run is its job again, and its fence is lifted by the
+     * user's check of the job's notification.
      */
     boolean releaseForNewRequest(long lease) {
         Lane l = lane(lease);
@@ -1133,10 +1152,13 @@ final class BrowserEngine {
     static int clampZoom(int percent) { return Math.max(ZOOM_LEAST, Math.min(ZOOM_MOST, percent)); }
     /** Page zoom from a quarter to three times (as wide as Chrome's, a little wider at the small end). */
     static final int ZOOM_LEAST = 25, ZOOM_MOST = 300;
-    /** Page layout zoom, separate from system font scale and pinch zoom. Never reloads forms. */
+    /**
+     * Page layout zoom, separate from system font scale and pinch zoom. Never reloads forms. A task running in the tab goes
+     * on: how the page is shown is the user's to change while the AI works (the next read sees the page as it is then).
+     */
     void setZoom(Tab tab, int percent) {
         if (tab == null || !tabs.contains(tab)) return;
-        stop(tab,"직접 조작 중 · AI가 멈췄어요"); tab.settingsChanged = true; tab.appliedZoom = -1; tab.zoomFailed = false; tab.zoomPercent = clampZoom(percent); applyZoom(tab); persist(); changed();
+        tab.settingsChanged = true; tab.appliedZoom = -1; tab.zoomFailed = false; tab.zoomPercent = clampZoom(percent); applyZoom(tab); persist(); changed();
     }
     private void applyZoom(Tab tab) {
         if (tab.port == null) return;
@@ -1144,9 +1166,10 @@ final class BrowserEngine {
         catch (Exception e) { if (tab == current) status = "페이지 연결 뒤 확대·축소를 다시 적용할게요."; }
     }
 
+    /** 데스크톱 보기 on or off; like the zoom it leaves a running task going (the page reloads and the task reads it again). */
     void setDesktop(Tab tab, boolean desktop) {
         if (tab == null || !tabs.contains(tab)) return;
-        stop(tab,"직접 조작 중 · AI가 멈췄어요"); changeDesktop(tab, desktop); changed();
+        changeDesktop(tab, desktop); changed();
     }
     private void desktopSettings(Tab tab) {
         tab.session.getSettings().setUserAgentMode(tab.desktop ? GeckoSessionSettings.USER_AGENT_MODE_DESKTOP : GeckoSessionSettings.USER_AGENT_MODE_MOBILE);
@@ -1160,7 +1183,7 @@ final class BrowserEngine {
         else { tab.needsLoad = true; activate(tab); }
         persist();
     }
-    /** 권한 모드: '읽기만' keeps the AI to reading (BrowserActivity's AI menu sets it); '확인받기' is the default. */
+    /** 권한 모드: '읽기만' keeps the AI to reading (BrowserActivity's AI menu sets it); '조작 허용' is the default. */
     static final String READ_ONLY = "browserReadOnly";
     boolean readOnly() { return store != null && store.settings.getBoolean(READ_ONLY, false); }
     /** 화면 분할: the tab shown beside the current one on a wide screen (kept live and active while shown), or null. */
@@ -1210,18 +1233,19 @@ final class BrowserEngine {
         if (!pendingId.isEmpty() && old.lastMutationId().equals(pendingId) && old.lastMutationState().equals("user_inspected"))
             next.confirmMutationInspected(pendingId);
         store.secrets.put(workTaskKey(), next.snapshot());
-        JSONObject guard = readWorkPending(store);
-        if (guard != null && guard.optString("job_id").equals(workScope)) {
+        dev.jun.gyeot.core.WorkFence fence = readWorkFence(store);
+        JSONObject guard = fence.job(workScope);
+        if (guard != null) {
             String receipt = guard.optString("receipt_id");
             if (next.lastMutationId().equals(receipt) && !next.mutationUnresolved()) {
-                store.secrets.put(WORK_PENDING_KEY, "");
+                fence.remove(workScope); store.secrets.put(WORK_PENDING_KEY, fence.save());
             } else if (next.pendingMutation().optString("id").equals(receipt)) {
                 JSONObject state = new JSONObject(next.snapshot());
                 JSONObject live = state.optJSONObject("liveness");
                 if (live != null) put(guard, "reason", live.optString("reason", "awaiting_acknowledgement"));
                 String stopped = next.lastResult();
                 if (!stopped.isBlank()) put(guard, "stop_reason", stopped.substring(0, Math.min(stopped.length(), BrowserPrompts.REQUEST_LIMIT)));
-                store.secrets.put(WORK_PENDING_KEY, guard.toString());
+                fence.put(guard); store.secrets.put(WORK_PENDING_KEY, fence.save());
             }
         }
     }
@@ -1476,8 +1500,8 @@ final class BrowserEngine {
         catch (RuntimeException malformed) { return false; }
     }
     /**
-     * Releases a global Work fence an earlier repeat-safe job left (REPEAT_SAFE_SCOPE: one question typed to Gemini, which may
-     * safely be sent twice) when no running job holds it, as such jobs left before they took none. Any other job's fence
+     * Releases the Work fences earlier repeat-safe jobs left (REPEAT_SAFE_SCOPE: one question typed to Gemini, which may
+     * safely be sent twice) when no running job holds them, as such jobs left before they took none. Any other job's fence
      * stays for the user to look at (Work 실행 확인). Native code only; done hears on the main thread whether one went.
      */
     static void releaseRepeatSafeWork(Context context, Consumer<Boolean> done) {
@@ -1486,36 +1510,53 @@ final class BrowserEngine {
         WORK_STORAGE_IO.execute(() -> {
             boolean released = false;
             try {
-                JSONObject pending = readWorkPending(store);
-                if (pending != null && pending.optString("job_id").startsWith(REPEAT_SAFE_SCOPE) && !activeWorkReceipts.contains(pending.optString("receipt_id"))) {
-                    store.secrets.put(WORK_PENDING_KEY, ""); released = true;
-                }
+                dev.jun.gyeot.core.WorkFence fence = readWorkFence(store);
+                boolean leftover = false;
+                for (JSONObject row : fence.rows())
+                    if (row.optString("job_id").startsWith(REPEAT_SAFE_SCOPE) && !activeWorkReceipts.contains(row.optString("receipt_id")))
+                        leftover |= fence.remove(row.optString("job_id"));
+                if (leftover) { store.secrets.put(WORK_PENDING_KEY, fence.save()); released = true; }
             } catch (Exception unreadable) { /* The fence stays. */ }
             final boolean value = released;
             if (done != null) main.post(() -> done.accept(value));
         });
     }
     private JSONObject mutationBlocked() { return mutationBlocked(null); }
+    /** The tab's own unconfirmed step as a record for mutationBlocked (its receipt, action, site and request; no time). */
+    private static JSONObject earlierStep(Tab tab) {
+        JSONObject step = tab.task.pendingMutation();
+        if (step.optString("id").isEmpty()) return null;
+        put(step, "receipt_id", step.optString("id"));
+        return step;
+    }
     /**
-     * A change refused because an earlier one's result is unknown. With the earlier Work step's record (earlier), the answer
-     * says which step it was (when, on which site, what it did, for what request), that reading still works, and how the
-     * user lifts the block: the AI can then look for the earlier result itself and tell the user exactly what to check.
+     * A change refused because an earlier one's result is unknown. The fence is the tab's own (a Work job's, or this tab's):
+     * other tabs and other Work jobs go on. With the earlier step's record (earlier), the answer says which step it was (when,
+     * on which site, what it did, for what request), that reading still works, and how the user lifts the block: in the app's
+     * browser a new instruction to that tab does it, from any surface; a Work job's one tap on its notification. The AI can
+     * then look for the earlier result itself and tell the user exactly what to check.
      */
     private JSONObject mutationBlocked(JSONObject earlier) {
         JSONObject out = obj("ok", false, "requires_user", true, "error_code", "mutation_unresolved", "action_executed", false,
             "action_may_have_run", false, "previous_action_may_have_run", true, "retryable", false, "reads_allowed", true,
             "error", workEngine
-                ? "이전 Work 작업의 변경 결과가 불확실해 현재 변경은 실행하지 않았어요. 읽기로 상태를 확인한 뒤 브라우저 메뉴의 Work 실행 확인에서 해당 기록을 직접 확인해 주세요."
-                : "이 탭의 이전 변경 결과가 불확실해 현재 변경은 실행하지 않았어요. 읽기로 상태를 확인한 뒤 브라우저 메뉴에서 해당 실행 기록을 직접 확인해 주세요.");
-        if (!workEngine || earlier == null) return out;
+                ? "이 Work 작업의 이전 변경 결과가 불확실해 현재 변경은 실행하지 않았어요. 다른 Work 작업은 그대로 해요. 읽기로 상태를 확인한 뒤 알림의 '이전 작업 확인'(또는 브라우저 메뉴 → 확인 필요한 작업)에서 직접 확인해 주세요."
+                : "이 탭의 이전 변경 결과가 불확실해 현재 변경은 실행하지 않았어요. 읽기로 상태를 확인해 주세요. 이 탭에 새로 지시하면(브라우저 창·음성·퍼레 어디서든) 그 표시가 풀리고 페이지를 먼저 읽고 이어 가요.");
+        if (earlier == null) return out;
         String site = siteOf(earlier.optString("url")), action = stepName(earlier.optString("action")), asked = earlier.optString("request");
         if (asked.length() > 300) asked = asked.substring(0, 300) + "…";
         long at = earlier.optLong("at");
         String when = at > 0 ? new java.text.SimpleDateFormat("M월 d일 HH:mm", Locale.KOREA).format(new Date(at)) + "에" : "앞서";
         put(out, "previous_step", obj("site", site, "action", earlier.optString("action"), "at", at > 0 ? at : JSONObject.NULL, "request", asked,
             "reason", earlier.optString("stop_reason", earlier.optString("reason"))));
-        put(out, "error", "이전 Work 작업이 " + when + " " + site + "에서 '" + action + "'을 한 뒤 결과를 확인하지 못했어요. 같은 일이 두 번 일어나지 않도록 클릭·입력 같은 변경은 막았고, 이번 변경은 실행하지 않았어요."
-            + " 주소 열기와 페이지 읽기는 돼요: " + site + "에서 그 작업이 실제로 됐는지(이미 올라간 글·영상·초안 등) 먼저 읽어서 확인하고, 사용자에게 알림의 '이전 작업 확인'(또는 브라우저 메뉴 → Work 실행 확인)을 눌러 차단을 풀어 달라고 한 뒤 다시 하세요."
+        if (!workEngine) {
+            put(out, "error", "이 탭에서 " + when + " " + site + "에서 '" + action + "'을 한 뒤 결과를 확인하지 못해서, 같은 일이 두 번 일어나지 않도록 이번 변경은 실행하지 않았어요."
+                + " 페이지 읽기는 돼요: " + site + "에서 그 동작이 실제로 됐는지 먼저 읽어서 확인하세요. 이 탭에 새로 지시하면(브라우저 창·음성·퍼레 어디서든) 그 표시가 풀려요."
+                + (asked.isBlank() ? "" : " 이전 요청: " + asked));
+            return out;
+        }
+        put(out, "error", "이 Work 작업이 " + when + " " + site + "에서 '" + action + "'을 한 뒤 결과를 확인하지 못했어요. 같은 일이 두 번 일어나지 않도록 이 작업의 클릭·입력 같은 변경만 막았고(다른 Work 작업은 그대로 해요), 이번 변경은 실행하지 않았어요."
+            + " 주소 열기와 페이지 읽기는 돼요: " + site + "에서 그 작업이 실제로 됐는지(이미 올라간 글·영상·초안 등) 먼저 읽어서 확인하고, 사용자에게 알림의 '이전 작업 확인'(또는 브라우저 메뉴 → 확인 필요한 작업)을 눌러 차단을 풀어 달라고 한 뒤 다시 하세요."
             + (asked.isBlank() ? "" : " 이전 요청: " + asked));
         BrowserTaskService.askWorkReview(context, earlier.optString("receipt_id"), site, action);
         return out;
@@ -1533,7 +1574,7 @@ final class BrowserEngine {
         if (!isPending(p) || !valid(p.generation)) return;
         if (p.mutationSaved) { dispatch.run(); return; }
         if (p.preparingMutation) return;
-        if (p.tab.task.mutationUnresolved()) { finish(p, mutationBlocked()); return; }
+        if (p.tab.task.mutationUnresolved()) { finish(p, mutationBlocked(earlierStep(p.tab))); return; }
         p.dispatchId = UUID.randomUUID().toString();
         if (!p.tab.task.prepareMutation(p.dispatchId, p.action)) { finish(p, mutationBlocked()); return; }
         Lane owner = lane(p.generation);
@@ -1568,8 +1609,8 @@ final class BrowserEngine {
             return;
         }
         if (workScope.isEmpty() || !workTaskWritable || restorePending || p.tab != restoreTab) { ready.accept(false); return; }
-        // Reserve globally, then dispatch only after both encrypted records commit. Serial Work IO
-        // means concurrent/new UUID jobs cannot observe an empty guard and both submit effects.
+        // Reserve this job's fence, then dispatch only after both encrypted records commit. Serial Work IO means a run of the
+        // same job cannot observe an empty guard and submit its effect twice; another job's fence never stops this one.
         String snapshot = p.tab.task.snapshot();
         JSONObject record = obj("version", 1, "receipt_id", p.dispatchId, "job_id", workScope,
             "request", request, "url", safeWorkUrl(p.tab.url), "reason", "awaiting_acknowledgement",
@@ -1581,25 +1622,24 @@ final class BrowserEngine {
         storageIo.execute(() -> {
             boolean saved = false, blocked = false, waiting = false; JSONObject earlier = null;
             try {
-                JSONObject existing = readWorkPending(store);
-                // Records from before steps were tiered fenced every click, links and file buttons included: one that no
-                // running job holds is released, so an ordinary click does not stop all later browser work.
-                if (existing != null && !existing.has("tier") && !activeWorkReceipts.contains(existing.optString("receipt_id"))) {
-                    store.secrets.put(WORK_PENDING_KEY, ""); existing = null;
-                }
-                if (existing != null) {
-                    waiting = activeWorkReceipts.contains(existing.optString("receipt_id")); blocked = !waiting; earlier = existing;
-                }
-                else {
-                    store.secrets.put(workTaskKey(), snapshot);
-                    store.secrets.put(WORK_PENDING_KEY, record.toString()); saved = true;
+                // Only this job's own row decides (core/WorkFence.reserve); a record from before steps were tiered that no
+                // running job holds is released there, so an ordinary click does not stop later browser work.
+                dev.jun.gyeot.core.WorkFence fence = readWorkFence(store);
+                dev.jun.gyeot.core.WorkFence.Decision decision = fence.reserve(workScope, activeWorkReceipts);
+                switch (decision.step()) {
+                    case WAIT -> { waiting = true; earlier = decision.earlier(); }
+                    case BLOCKED -> { blocked = true; earlier = decision.earlier(); }
+                    case RESERVE -> {
+                        store.secrets.put(workTaskKey(), snapshot);
+                        fence.put(record); store.secrets.put(WORK_PENDING_KEY, fence.save()); saved = true;
+                    }
                 }
             } catch (Exception failure) { /* No durable reservation, no dispatch. */ }
             final boolean durable = saved, conflict = blocked, awaitActive = waiting; final JSONObject previous = earlier;
             main.post(() -> {
                 if (!isPending(p) || !valid(p.generation)) return;
                 if (awaitActive) {
-                    setTaskStatus(p.generation, "다른 Work 동작의 실행 확인을 기다리는 중이에요");
+                    setTaskStatus(p.generation, "이 작업의 이전 동작이 끝나기를 기다리는 중이에요");
                     main.postDelayed(() -> reserveWorkDispatch(p, snapshot, record, ready), 150);
                 } else if (conflict) {
                     p.preparingMutation = false; settleUnsent(p);
@@ -1800,9 +1840,10 @@ final class BrowserEngine {
         if (tab.task.mutationUnresolved() && !Set.of("read", "scroll", "switch").contains(action) && !observedReadNavigation && !explicitBack) {
             // The running task's own step whose confirmation never came (a page busy uploading, a receipt lost) does not end
             // the task: the page is read first and the task decides again from what it shows; once it has, the step is
-            // settled and work goes on. Another task's unconfirmed step stays fenced (the user confirms it).
+            // settled and work goes on. Another task's unconfirmed step stays fenced in this tab only: a new instruction to the
+            // tab lifts it (releaseForNewRequest), a Work job's the user's check of its notification.
             String unresolved = tab.task.pendingMutation().optString("id");
-            if (!l.ownMutations.contains(unresolved)) { callback.accept(mutationBlocked()); return; }
+            if (!l.ownMutations.contains(unresolved)) { callback.accept(mutationBlocked(earlierStep(tab))); return; }
             if (!unresolved.equals(l.observedUncertain)) {
                 execute(obj("action", "read"), lease, false, value -> {
                     put(value, "action_executed", false); put(value, "previous_action_rejected", true); put(value, "earlier_step_unconfirmed", true);
@@ -1823,13 +1864,13 @@ final class BrowserEngine {
             callback.accept(pdfPage(tab, action.equals("scroll") ? args.optString("direction", "down") : "")); return;
         }
         if (action.equals("open") && keepsFile(args.optString("url"))) { record(lease, "파일을 받는 중"); callback.accept(fetchFile(tab, args.optString("url"), linkLabel(tab, args.optString("url")))); return; }
-        if (action.equals("back") && !tab.back) { callback.accept(obj("ok", false, "error_code", "no_history", "action_executed", false, "retryable", false, "error", "돌아갈 이전 페이지가 없어요. 이동할 공개 HTTPS 홈페이지 주소를 알려 주세요.")); return; }
+        if (action.equals("back") && !tab.back) { callback.accept(obj("ok", false, "error_code", "no_history", "action_executed", false, "retryable", false, "error", "돌아갈 이전 페이지가 없어요. 이동할 주소를 알려 주세요.")); return; }
         // 권한 모드 '읽기만': the AI reads, scrolls, follows links and opens pages, and never types, chooses or presses on one
         // (a key that only moves or selects, QUIET_KEYS, changes nothing and goes through).
         if (readOnly() && (Set.of("type", "select", "attach").contains(action) || action.equals("press") && !BrowserTools.QUIET_KEYS.contains(args.optString("text"))
                 || action.equals("click") && !routine)) {
             callback.accept(obj("ok", false, "error_code", "read_only_mode", "action_executed", false, "retryable", false,
-                "error", "읽기만 모드예요: 페이지에 입력하거나 고르거나 누르는 동작은 하지 않아요. 읽기·스크롤·링크 이동으로만 이어 가고, 필요하면 사용자에게 AI 메뉴 → 권한 모드에서 '확인받기'로 바꿔 달라고 말해 주세요.")); return;
+                "error", "읽기만 모드예요: 페이지에 입력하거나 고르거나 누르는 동작은 하지 않아요. 읽기·스크롤·링크 이동으로만 이어 가고, 필요하면 사용자에게 AI 메뉴 → 권한 모드에서 '조작 허용'으로 바꿔 달라고 말해 주세요.")); return;
         }
         if (action.equals("attach")) { callback.accept(stageUpload(tab, lease, args.optString("file"))); return; }
         if (action.equals("click")) tab.clickLabel = elementLabel(tab, args.optString("ref"));

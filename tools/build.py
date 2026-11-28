@@ -423,13 +423,23 @@ if __name__ == '__main__':
     bridge.mkdir(parents=True, exist_ok=True)
     javac(['-encoding', 'UTF-8', '-d', bridge, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/PageBridgeRegression.java'])
     run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (bridge, jars[-1]))), 'dev.jun.gyeot.core.PageBridgeRegression'])
-    # AI 브라우저 제한 풀기 (core/BrowserTaskTabs, BrowserSiteDialogs, BrowserDownloadPolicy, BrowserAppLinks, BrowserTools keys):
-    # several tabs per task, popups, an alert accepted while a confirm goes to the user, downloads kept, keys, app links on a tap.
-    limits = BUILD / 'browser-limits-checks'
-    limits.mkdir(parents=True, exist_ok=True)
-    javac(['-encoding', 'UTF-8', '-d', limits, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/BrowserLimitsRegression.java'])
-    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (limits, jars[-1]))), 'dev.jun.gyeot.core.BrowserLimitsRegression'])
     check_composers()
+    # AI 브라우저의 숫자 제한 (core/BrowserJournal …): no step cap, but an endless scroll stops at the checkpoint; lifted sizes stay lifted.
+    browser_limits = BUILD / 'browser-limit-checks'
+    browser_limits.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', browser_limits, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/BrowserLimitsRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (browser_limits, jars[-1]))), 'dev.jun.gyeot.core.BrowserLimitsRegression'])
+    # AI 브라우저 기능 제한 풀기 (core/BrowserTaskTabs, BrowserSiteDialogs, BrowserDownloadPolicy, BrowserAppLinks, BrowserTools keys):
+    # several tabs per task, popups, an alert accepted while a confirm goes to the user, downloads kept, keys, app links on a tap.
+    browser_features = BUILD / 'browser-feature-checks'
+    browser_features.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', browser_features, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/BrowserFeaturesRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (browser_features, jars[-1]))), 'dev.jun.gyeot.core.BrowserFeaturesRegression'])
+    # The AI 브라우저's essential guards without false positives (AutomationGate, BrowserDecisionEvidence, core/WorkFence).
+    browser_safety = BUILD / 'browser-safety-checks'
+    browser_safety.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', browser_safety, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/BrowserSafetyRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (browser_safety, jars[-1]))), 'dev.jun.gyeot.BrowserSafetyRegression'])
     test_board(jars[-1])
     # The optional larger suites run when their tests folder is present.
     if (ROOT / 'tests/CoreTests.java').is_file(): test(jars)

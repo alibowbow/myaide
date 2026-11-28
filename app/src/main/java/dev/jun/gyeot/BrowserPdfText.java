@@ -24,8 +24,11 @@ import static dev.jun.gyeot.core.Jsons.*;
  */
 final class BrowserPdfText {
     private BrowserPdfText() {}
-    /** Enough for a long report, and bounded: a 2,000-page scan or a book does not fill memory. */
-    static final int MAX_PAGES = 2000, MAX_CHARS = 2_000_000;
+    /**
+     * Every page is read; only the words kept in memory are bounded (about a thousand dense pages, a few MB), so a huge book
+     * cannot fill the phone's memory. It is a memory guard, not a page limit: a scan of any length is read page by page.
+     */
+    static final int MAX_CHARS = 2_000_000;
     private static final ExecutorService IO = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "browser-pdf-text"); t.setDaemon(true); return t; });
 
     /** Whether this phone's PDF reader gives text (PdfRenderer.Page.getTextContents). */
@@ -58,7 +61,7 @@ final class BrowserPdfText {
         if (!available()) return obj("ok", false, "error_code", "pdf_reader_missing", "error", "이 휴대폰에는 PDF의 글을 읽는 기능이 없어요(안드로이드 15부터).");
         try (ParcelFileDescriptor fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY); PdfRenderer pdf = new PdfRenderer(fd)) {
             int pages = pdf.getPageCount(), read = 0; StringBuilder words = new StringBuilder(); boolean any = false;
-            for (int i = 0; i < pages && i < MAX_PAGES && words.length() < MAX_CHARS; i++, read++) {
+            for (int i = 0; i < pages && words.length() < MAX_CHARS; i++, read++) {
                 try (PdfRenderer.Page page = pdf.openPage(i)) {
                     if (words.length() > 0) words.append("\n\n");
                     words.append('[').append(i + 1).append("쪽]\n");

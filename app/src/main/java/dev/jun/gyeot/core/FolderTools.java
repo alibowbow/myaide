@@ -9,16 +9,25 @@ import static dev.jun.gyeot.core.Jsons.*;
 /**
  * The 들퍼레 folder for a work job's model: folder_list shows what a folder in it holds, folder_save copies a file the
  * job downloaded with the browser into a folder in it (made when missing). Only inside 들퍼레, never over an existing file,
- * and a save only when the user's own words ask to keep files. Pure Java: names, paths and the rule; the phone does the rest.
+ * never an executable or installer, and a save only when the user's own words ask to keep files. Pure Java: names, paths and the rule; the phone does the rest.
  */
 public final class FolderTools {
     private FolderTools() {}
     public static final String LIST = "folder_list", SAVE = "folder_save", MAKE = "folder_make", ROOT = "들퍼레";
     /** Files one folder_save call may keep. */
-    public static final int BATCH = 24;
-    public static final int DEPTH = 5, ENTRIES = 300, NAME = 120;
-    /** The kinds of file that may be kept: documents, pictures, sound and video, and archives of them. */
-    public static final Set<String> TYPES = Set.of("pdf", "png", "jpg", "jpeg", "webp", "gif", "txt", "md", "csv", "json", "hwp", "hwpx", "docx", "xlsx", "pptx", "zip", "mp3", "m4a", "wav", "mp4");
+    public static final int BATCH = 500;
+    /** Folders deep a path may go, entries one folder_list shows, and a kept name's length in UTF-8 bytes (what a file system takes). */
+    public static final int DEPTH = 20, ENTRIES = 5000, NAME = 255;
+    /** Installers of other systems, beside WorkBook's executables (apk, exe, sh …): never kept either. */
+    private static final Set<String> INSTALLERS = Set.of("ipa", "appx", "appxbundle", "msix", "msixbundle", "dmg", "pkg", "deb", "rpm", "appimage", "run", "com", "scr", "ps1", "vbs", "crx", "xpi");
+    /**
+     * Any kind of file may be kept except what a computer or phone could run or install: WorkBook's executables (the line
+     * BrowserArtifactPolicy draws for downloads) and INSTALLERS.
+     */
+    public static boolean keepable(String extension) {
+        String type = extension == null ? "" : extension.toLowerCase(Locale.ROOT);
+        return !INSTALLERS.contains(type) && WorkBook.fileName("x." + type) != null;
+    }
     public static boolean is(String name) { return LIST.equals(name) || SAVE.equals(name) || MAKE.equals(name); }
     public static String stage(String name) { return SAVE.equals(name) ? "들퍼레 폴더에 저장하는 중" : MAKE.equals(name) ? "들퍼레에 폴더를 만드는 중" : "들퍼레 폴더를 살펴보는 중"; }
 
@@ -69,7 +78,7 @@ public final class FolderTools {
         StringBuilder out = new StringBuilder();
         for (String part : parts) {
             String piece = part.strip();
-            if (!single(piece) || piece.length() > 80) return null;
+            if (!single(piece) || bytes(piece) > NAME) return null;
             if (out.length() > 0) out.append('/');
             out.append(piece);
         }
@@ -102,11 +111,12 @@ public final class FolderTools {
         for (int i = 0; i < text.length(); i++) if ((head[at + i] & 255) != text.charAt(i)) return false;
         return true;
     }
-    private static final Set<String> ZIPPED = Set.of("zip", "docx", "xlsx", "pptx", "hwpx");
+    /** Formats that are zip files inside: bytes that say zip may be kept under these names too. */
+    private static final Set<String> ZIPPED = Set.of("zip", "docx", "xlsx", "pptx", "hwpx", "docm", "xlsm", "pptm", "odt", "ods", "odp", "odg", "epub", "cbz", "kmz", "3mf", "xps", "oxps", "vsdx", "key", "pages", "numbers");
     /**
      * The name a file is kept under: the one asked for (else the downloaded one), with the extension of what the file
-     * really is. null when the name is not a plain file name, the kind may not be kept, or the name asks for a kind the
-     * bytes are not (a web page saved as .pdf).
+     * really is when it has none. null when the name is not a plain file name, the file is an executable or installer, or
+     * the name asks for a kind the bytes are not (a web page saved as .pdf).
      */
     public static String name(String wanted, String downloaded, String kind) {
         String base = wanted == null || wanted.isBlank() ? (downloaded == null ? "" : downloaded.strip()) : wanted.strip();
@@ -114,16 +124,21 @@ public final class FolderTools {
         String asked = extension(base), real = kind == null ? "" : kind;
         if (asked.isEmpty()) {
             String from = !real.isEmpty() ? real : extension(downloaded);
-            if (from.isEmpty()) return null;
-            base = base + "." + from; asked = from;
+            if (!from.isEmpty()) { base = base + "." + from; asked = from; }
         }
-        if (!TYPES.contains(asked)) return null;
+        if (!asked.isEmpty() && !keepable(asked) || WorkBook.fileName(base) == null) return null;
         // What the bytes say wins over a name: a page of HTML is not kept as a PDF, a picture not as a document.
         if (!real.isEmpty() && !real.equals(asked) && !(real.equals("jpg") && asked.equals("jpeg")) && !(real.equals("zip") && ZIPPED.contains(asked))) return null;
         if (real.isEmpty() && Set.of("pdf", "png", "jpg", "jpeg", "gif", "webp", "zip").contains(asked)) return null;
-        if (base.length() > NAME) { int keep = NAME - asked.length() - 1; base = base.substring(0, Math.max(1, keep)).strip() + "." + asked; }
+        if (bytes(base) > NAME) {
+            String tail = asked.isEmpty() ? "" : base.substring(base.length() - asked.length() - 1), stem = base.substring(0, base.length() - tail.length());
+            while (!stem.isEmpty() && bytes(stem + tail) > NAME) stem = stem.substring(0, stem.offsetByCodePoints(stem.length(), -1));
+            base = (stem.strip().isEmpty() ? "_" : stem.strip()) + tail;
+        }
         return base;
     }
+    /** A name's length as the file system counts it (UTF-8 bytes; 255 at most). */
+    private static int bytes(String name) { return name.getBytes(java.nio.charset.StandardCharsets.UTF_8).length; }
     /** The name itself when it is free, else the same with " (2)", " (3)" … before its extension. */
     public static String unique(String name, Set<String> taken) {
         if (!taken.contains(name)) return name;

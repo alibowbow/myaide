@@ -1,176 +1,292 @@
 package dev.jun.gyeot.core;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * AI 브라우저의 쓸데없는 제한 풀기 (준: "쓸데 없는 제한이 너무 많아"), the rules that stay and the ones that went:
- * several tabs per task (open_tab, switch, tabs, close; one task per tab; only its own tabs closed), a page's new window as a
- * tab the task goes on with, a site's alert accepted while its confirm still goes to the user (saying which site asked what),
- * a download kept in the phone's 다운로드 (a PDF, HWP, ZIP …; never an installer), the keys press takes, and links to other
- * apps handed over only on the user's tap, never from an AI step. Run by tools/build.py.
+ * AI 브라우저's limits (준: "쓸데 없는 제한이 너무 많아"): what was lifted stays lifted, and what took the place of the old
+ * 150-step stop still catches a job that only looks busy. A job scrolling a feed forever on one address (a new screen every
+ * step, which the circle guards cannot see) stops at the checkpoint and says why; a job that reaches new pages or gathers
+ * something goes on with a line about it. Also the tab's task memory letting its oldest turns go instead of refusing, any
+ * address the user wrote opened as written, the bookmark cap that says what it lets go, and the Work and voice sizes.
+ * Run by tools/build.py.
  */
 final class BrowserLimitsRegression {
     private static int checked;
-    private static void check(boolean condition, String why) { if (!condition) throw new AssertionError(why); checked++; }
+    private static void check(boolean condition, String why) {
+        if (!condition) throw new AssertionError(why);
+        checked++;
+    }
     private static void same(Object want, Object got, String why) { check(java.util.Objects.equals(want, got), why + ": want <" + want + "> got <" + got + ">"); }
-    private static String refused(java.util.function.Supplier<Object> call) {
-        try { call.get(); } catch (IllegalArgumentException e) { return e.getMessage(); }
-        return null;
-    }
+    static final long AT = 1_790_000_000_000L;
+
     public static void main(String[] args) throws Exception {
-        tabs();
-        popup();
-        dialogs();
-        downloads();
-        keys();
-        appLinks();
-        System.out.println("BrowserLimitsRegression: " + checked + " checks passed");
+        endlessScroll();
+        newPages();
+        gathering();
+        circlesStay();
+        taskMemory();
+        navigation();
+        bookmarks();
+        kit();
+        prompts();
+        folders();
+        work();
+        voice();
+        System.out.println("Browser limits regression checks passed: " + checked);
     }
 
-    /** A task opens a second tab, works there, comes back; another task's tab and the user's tabs stay theirs. */
-    static void tabs() {
-        // The planner may name the new actions: the old engine refused open_tab ("지원하지 않는 브라우저 동작이에요").
-        JSONObject open = BrowserTools.validate(new JSONObject().put("action", "open_tab").put("url", "https://news.example.com/a"));
-        same("https://news.example.com/a", open.optString("url"), "open_tab takes a full address");
-        check(refused(() -> BrowserTools.validate(new JSONObject().put("action", "open_tab").put("url", "javascript:alert(1)"))) != null, "open_tab takes only a web address");
-        String planner = BrowserTools.plannerInstructions();
-        check(planner.contains("open_tab with url") && planner.contains("switch with tab=<id>") && planner.contains("close with tab=<id> closes a tab this task opened"), "the planner is told how to use several tabs");
-        check(planner.contains("busy:true when another task uses it"), "and that a tab another task uses is left alone");
-        check(BrowserTools.declaration().toString().contains("open_tab"), "the tool declaration offers open_tab");
-
-        BrowserTaskTabs<String> task = new BrowserTaskTabs<>("A");
-        same("A", task.focus(), "a task starts on its own tab");
-        check(!task.several(), "with only its own tab");
-        task.opened("B", null);
-        check(task.uses("B") && task.opened("B") && "B".equals(task.focus()) && task.several(), "open_tab: the task works in the new tab next");
-        check(task.use("C", false) == null && "C".equals(task.focus()) && task.uses("C") && !task.opened("C"), "switch to a tab the user opened: the task works there");
-        JSONObject busy = task.use("D", true);
-        check(busy != null && busy.optBoolean("ok") && busy.optBoolean("tab_refused") && !busy.optBoolean("action_executed", true)
-            && "tab_busy".equals(busy.optString("refusal_code")) && "C".equals(task.focus()) && !task.uses("D"), "a tab another task uses is refused, nothing runs, and the task goes on (ok)");
-        check(task.closing("A") != null && "own_tab".equals(task.closing("A").optString("refusal_code")), "the task's own tab is never closed by it");
-        check(task.closing("C") != null && "not_opened_by_task".equals(task.closing("C").optString("refusal_code")), "a tab the user opened is not closed by it");
-        check(task.closing("B") == null, "a tab it opened may be closed");
-        task.closed("C");
-        same("A", task.focus(), "the tab it was on closed: back on its own tab");
-        check(task.use(null, false) != null && "tab_closed".equals(task.use(null, false).optString("refusal_code")), "a closed tab is answered, not an error that ends the task");
-        check(task.use("A", false) == null && "A".equals(task.focus()), "switch back to its own tab (처음 보던 탭으로 돌아와 줘)");
+    /** One scroll on a feed whose screen changes every time (a new page key) while the address stays the same. */
+    private static BrowserJournal.Verdict scroll(BrowserJournal journal, String url, int n) {
+        journal.page(url, "피드");
+        return journal.step("아래로 스크롤", "바뀜", false, "scroll:down", "screen-" + n, true, AT + n * 1000L);
     }
 
-    /** A target=_blank link or window.open while the task works: a tab it may use; the task does not stop. */
-    static void popup() {
-        BrowserTaskTabs<String> task = new BrowserTaskTabs<>("A");
-        task.popup("P", new JSONObject().put("tab", "P").put("url", "https://login.example.com/"));
-        check(task.uses("P") && task.opened("P") && "A".equals(task.focus()), "the popup is the task's to use and close; its steps stay where they were");
-        JSONArray events = task.drain();
-        check(events.length() == 1 && "P".equals(events.getJSONObject(0).getJSONObject("new_tab").optString("tab"))
-            && events.getJSONObject(0).optString("note").contains("switch with its tab id"), "the next step's result says a tab opened and how to go there");
-        check(task.drain().length() == 0, "said once");
-        for (int i = 0; i < 20; i++) task.event(new JSONObject().put("n", i));
-        same(BrowserTaskTabs.EVENTS, task.drain().length(), "a page alerting in a loop cannot fill memory");
+    private static void endlessScroll() {
+        BrowserJournal.clear();
+        BrowserJournal journal = BrowserJournal.open("scroll", "gpt", "피드를 끝까지 봐 줘", AT);
+        journal.page("https://feed.example.com/home", "피드"); // the page the job starts on, before its first step
+        BrowserJournal.Verdict verdict = BrowserJournal.Verdict.GO; int n = 0;
+        while (verdict != BrowserJournal.Verdict.STOP && n < 1000) verdict = scroll(journal, "https://feed.example.com/home#item-" + n, ++n);
+        same(BrowserJournal.Verdict.STOP, verdict, "an endless scroll on one address stops");
+        same(BrowserJournal.CHECKPOINT, n, "at the first checkpoint, not before (no circle guard fired) and not never");
+        check(journal.why().contains(BrowserJournal.CHECKPOINT + "단계 동안 새 페이지로 가지 않았고"), "says it reached no new page: " + journal.why());
+        check(journal.why().contains("새로 모은 것"), "and gathered nothing: " + journal.why());
+        check(journal.why().contains(BrowserJournal.CHECKPOINT + "단계 전"), "and how long since anything new: " + journal.why());
+        same("feed.example.com", journal.site(), "where it stopped");
+
+        // Reaching one new page early buys one window, never forever: the next checkpoint stops it.
+        BrowserJournal later = BrowserJournal.open("scroll-2", "gpt", "피드", AT);
+        later.page("https://feed.example.com/", "피드");
+        verdict = BrowserJournal.Verdict.GO; n = 0;
+        while (verdict != BrowserJournal.Verdict.STOP && n < 1000) verdict = scroll(later, n < 3 ? "https://feed.example.com/" : "https://feed.example.com/latest", ++n);
+        same(2 * BrowserJournal.CHECKPOINT, n, "a page reached in the first window passes one checkpoint, then the scroll stops at the next");
+        check(later.lines(1000).stream().anyMatch(l -> l.contains(BrowserJournal.CHECKPOINT + "단계마다 확인: 새 페이지 1곳 · 모은 자료 0개")), "the passed checkpoint is a line in the journal");
+        same(2 * BrowserJournal.CHECKPOINT - 4, Integer.parseInt(later.why().replaceAll(".*새것이 생긴 건 (\\d+)단계 전.*", "$1")), "steps since the last new page (step 4)");
     }
 
-    /** An alert is accepted and goes to the task; a confirm still goes to the user, saying which site asked what. */
-    static void dialogs() {
-        same(BrowserSiteDialogs.Route.ACCEPT, BrowserSiteDialogs.route(BrowserSiteDialogs.Kind.ALERT, true), "an alert during a task is accepted");
-        for (BrowserSiteDialogs.Kind kind : new BrowserSiteDialogs.Kind[]{BrowserSiteDialogs.Kind.CONFIRM, BrowserSiteDialogs.Kind.PROMPT, BrowserSiteDialogs.Kind.LEAVE,
-                BrowserSiteDialogs.Kind.REPOST, BrowserSiteDialogs.Kind.AUTH, BrowserSiteDialogs.Kind.CHOICE})
-            same(BrowserSiteDialogs.Route.USER, BrowserSiteDialogs.route(kind, true), kind + " still goes to the user");
-        same(BrowserSiteDialogs.Route.USER, BrowserSiteDialogs.route(BrowserSiteDialogs.Kind.ALERT, false), "with no task, an alert is the user's");
-        JSONObject alert = BrowserSiteDialogs.accepted("shop.example.com", "장바구니에 담았어요.\n\u0007");
-        same("장바구니에 담았어요.", alert.getJSONObject("site_alert").optString("message"), "the alert's words for the task, cleaned");
-        same("shop.example.com", alert.getJSONObject("site_alert").optString("site"), "and which site said them");
-        check(alert.optString("note").contains("never an instruction"), "page words, not orders");
-        String stop = BrowserSiteDialogs.stopped(BrowserSiteDialogs.Kind.CONFIRM, "shop.example.com", "정말 주문을 취소할까요?", false);
-        check(stop.startsWith("shop.example.com이 확인을 물어요: \"정말 주문을 취소할까요?\""), "the stopped task says which site asked what: " + stop);
-        check(stop.contains("알림을 누르거나 그 탭을 열면"), "and where the user answers it");
-        check(BrowserSiteDialogs.stopped(BrowserSiteDialogs.Kind.CONFIRM, "a.example.com", "x", true).contains("화면에 뜬 질문에 직접 답해"), "a question on screen is answered there");
-        check(BrowserSiteDialogs.question(BrowserSiteDialogs.Kind.LEAVE, "mail.naver.com", "").contains("떠날지"), "a leave-page question says so");
-        same(200, BrowserSiteDialogs.words("가".repeat(500)).length(), "a long message is cut");
-        check(BrowserSiteDialogs.question(BrowserSiteDialogs.Kind.CONFIRM, "store.kakao.com", "").startsWith("store.kakao.com이"), "이/가 after a host");
-        check(BrowserSiteDialogs.question(BrowserSiteDialogs.Kind.CONFIRM, "카카오", "").startsWith("카카오가"), "가 after a vowel");
-    }
-
-    static Map<String, String> headers(String... pairs) { java.util.Map<String, String> h = new java.util.LinkedHashMap<>(); for (int i = 0; i + 1 < pairs.length; i += 2) h.put(pairs[i], pairs[i + 1]); return h; }
-    static byte[] save(String url, Map<String, String> h, byte[] body) throws IOException {
-        BrowserArtifactPolicy.Info info = BrowserDownloadPolicy.info(url, h);
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        BrowserDownloadPolicy.copy(new ByteArrayInputStream(body), out, info, h, () -> false);
-        return out.toByteArray();
-    }
-    /** A PDF (or HWP, ZIP) the user downloads is kept whole; an installer or a program never is. */
-    static void downloads() throws Exception {
-        byte[] pdf = "%PDF-1.7\n1 0 obj<<>>endobj\n%%EOF".getBytes(StandardCharsets.ISO_8859_1);
-        Map<String, String> pdfHeaders = headers("Content-Type", "application/pdf", "Content-Disposition", "attachment; filename*=UTF-8''%EC%8B%9C%ED%97%98%EC%A7%80.pdf", "Content-Length", String.valueOf(pdf.length));
-        // The main browser used to keep only music: a PDF was "음악 파일로 확인되지 않아 저장하지 않았어요".
-        check(MusicDownload.classify("https://school.example.kr/files/1", pdfHeaders) == null, "the old music-only saver refused a PDF");
-        BrowserArtifactPolicy.Info info = BrowserDownloadPolicy.info("https://school.example.kr/files/1", pdfHeaders);
-        same("시험지.pdf", info.name(), "a PDF keeps the name the site gave");
-        same("application/pdf", info.mime(), "and its type");
-        same(Long.MAX_VALUE, info.limit(), "the user's download has no cap of the app's own");
-        check(java.util.Arrays.equals(pdf, save("https://school.example.kr/files/1", pdfHeaders, pdf)), "a PDF download is saved whole");
-        byte[] hwp = {(byte) 0xD0, (byte) 0xCF, 0x11, (byte) 0xE0, 1, 2, 3, 4, 5};
-        same("공문.hwp", BrowserDownloadPolicy.info("https://gov.example.kr/down?id=3", headers("Content-Type", "application/octet-stream", "Content-Disposition", "attachment; filename=\"공문.hwp\"")).name(), "an HWP by its name");
-        check(save("https://gov.example.kr/down?id=3", headers("Content-Disposition", "attachment; filename=\"공문.hwp\""), hwp).length == hwp.length, "an HWP is saved");
-        same("다운로드.zip", BrowserDownloadPolicy.info("blob:https://drive.example.com/1f2e", headers("Content-Type", "application/zip")).name(), "a nameless download is named for its type");
-        check(BrowserDownloadPolicy.generic("application/octet-stream") && !BrowserDownloadPolicy.generic("application/pdf"), "a type that says nothing is left for the phone to read from the name");
-        // Installers and programs stay refused, by name, by type and by their first bytes.
-        for (String[] bad : new String[][]{{"https://x.example.com/app.apk", "application/octet-stream"}, {"https://x.example.com/setup", "application/vnd.android.package-archive"}, {"https://x.example.com/a.exe", ""}}) {
-            try { BrowserDownloadPolicy.info(bad[0], headers("Content-Type", bad[1])); check(false, "refused: " + bad[0]); }
-            catch (IOException refusedInstaller) { check(refusedInstaller.getMessage().contains("실행 파일"), "an installer or program is never kept: " + bad[0]); }
+    private static void newPages() {
+        BrowserJournal journal = BrowserJournal.open("pages", "claude", "기사 500개를 차례로 읽어 정리해 줘", AT);
+        journal.page("https://news.example.com/", "뉴스");
+        BrowserJournal.Verdict verdict = BrowserJournal.Verdict.GO; List<String> notes = new ArrayList<>();
+        for (int n = 1; n <= 4 * BrowserJournal.CHECKPOINT && verdict != BrowserJournal.Verdict.STOP; n++) {
+            journal.page("https://news.example.com/article/" + (n / 10), "기사");
+            verdict = journal.step("다음 기사", "바뀜", false, "click:next", "screen-" + n, true, AT + n * 1000L);
+            String note = journal.takeNote(); if (!note.isEmpty()) notes.add(note);
         }
-        try { save("https://x.example.com/report.zip", headers("Content-Type", "application/zip"), new byte[]{'M', 'Z', 0, 0, 1}); check(false, "a program under another name"); }
-        catch (IOException program) { check(program.getMessage().contains("실행 파일"), "a program dressed as a ZIP is refused by its first bytes"); }
-        try { save("https://x.example.com/a.pdf", headers("Content-Type", "application/pdf", "Content-Length", "99"), pdf); check(false, "a short download"); }
-        catch (IOException cut) { check(cut.getMessage().contains("완성되지"), "a download shorter than the server said is not kept"); }
+        check(verdict != BrowserJournal.Verdict.STOP, "a job reaching a new page every ten steps never stops at a checkpoint");
+        same(600, journal.count(), "it ran past every checkpoint: no step cap any more");
+        same(4, notes.size(), "one line at each checkpoint passed");
+        same(BrowserJournal.CHECKPOINT + "단계마다 확인: 새 페이지 15곳 · 모은 자료 0개", notes.get(1), "the checkpoint line counts the new pages since the last one");
+        same("", journal.takeNote(), "the line is given once");
     }
 
-    /** The keys press takes, normalized to the spelling content.js reads; others are refused. */
-    static void keys() {
-        for (String key : new String[]{"ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Backspace", "Delete", "Space", "Home", "End", "PageUp", "PageDown", "Enter", "Escape", "Tab"})
-            same(key, BrowserTools.key(key), "press takes " + key);
-        same("ArrowDown", BrowserTools.key("down"), "an alias");
-        same("Escape", BrowserTools.key("Esc"), "Esc");
-        same("Space", BrowserTools.key(" "), "a space");
-        same("PageDown", BrowserTools.key("pgdn"), "PgDn");
-        same("Control+a", BrowserTools.key("Ctrl+A"), "Ctrl+A");
-        same("Control+Enter", BrowserTools.key("control+enter"), "Control+Enter");
-        same("Meta+v", BrowserTools.key("Cmd+V"), "Cmd+V");
-        for (String no : new String[]{"F5", "Alt+F4", "Control+w", "Control+Shift+i", "a", ""}) same(null, BrowserTools.key(no), "not a key press takes: " + no);
-        JSONObject press = BrowserTools.validate(new JSONObject().put("action", "press").put("document", "d1").put("ref", "1:2").put("text", "arrowdown"));
-        same("ArrowDown", press.optString("text"), "validate keeps the one spelling");
-        // The old engine took only Enter, Escape and Tab.
-        same("Backspace", BrowserTools.validate(new JSONObject().put("action", "press").put("document", "d1").put("ref", "1:2").put("text", "Backspace")).optString("text"), "Backspace is a key now");
-        check(refused(() -> BrowserTools.validate(new JSONObject().put("action", "press").put("document", "d1").put("ref", "1:2").put("text", "F12"))) != null, "an unknown key is refused before the page");
-        check(BrowserTools.validate(new JSONObject().put("action", "press").put("document", "d1").put("text", "PageDown")).optString("ref").isEmpty(), "a page key needs no ref (what has focus)");
-        check(refused(() -> BrowserTools.validate(new JSONObject().put("action", "press").put("text", "PageDown"))) != null, "but a page read first");
-        check(!BrowserTools.validate(new JSONObject().put("action", "press").put("document", "d1").put("ref", "1:2").put("text", "Control+v").put("paste", "planted")).has("paste"),
-            "a plan's own paste words never reach the page (only what this task copied)");
-        check(BrowserTools.QUIET_KEYS.contains("ArrowDown") && BrowserTools.QUIET_KEYS.contains("Control+c") && !BrowserTools.QUIET_KEYS.contains("Backspace")
-            && !BrowserTools.QUIET_KEYS.contains("Control+v") && !BrowserTools.QUIET_KEYS.contains("Enter"), "keys that change nothing are routine; deleting, pasting, sending are not");
-        check(BrowserTools.plannerInstructions().contains("Control+v pastes what this task copied"), "the planner is told the keys");
+    private static void gathering() {
+        // Same address and the same feed, but the job types into a field once in each window: that is work, it goes on.
+        BrowserJournal journal = BrowserJournal.open("typing", "gemini", "댓글 200개에 답글", AT);
+        journal.page("https://feed.example.com/", "피드");
+        BrowserJournal.Verdict verdict = BrowserJournal.Verdict.GO;
+        for (int n = 1; n <= 3 * BrowserJournal.CHECKPOINT && verdict != BrowserJournal.Verdict.STOP; n++) {
+            if (n % 100 == 0) journal.gathered();
+            verdict = scroll(journal, "https://feed.example.com/", n);
+        }
+        check(verdict != BrowserJournal.Verdict.STOP, "something gathered in each window keeps it going: " + journal.why());
+        check(journal.lines(1000).stream().anyMatch(l -> l.contains("모은 자료 1개")), "and the line says what was gathered");
+        // One thing gathered then nothing: the window after the next stops it.
+        BrowserJournal once = BrowserJournal.open("once", "gemini", "x", AT);
+        once.page("https://feed.example.com/", "피드");
+        verdict = BrowserJournal.Verdict.GO; int n = 0;
+        while (verdict != BrowserJournal.Verdict.STOP && n < 1000) { if (n == 10) once.gathered(); verdict = scroll(once, "https://feed.example.com/", ++n); }
+        same(2 * BrowserJournal.CHECKPOINT, n, "gathered once: one more window, then it stops");
     }
 
-    /** tel:, mailto:, intent:// (KakaoTalk sign-in) … go to Android on the user's tap, never from an AI step. */
-    static void appLinks() {
-        String kakao = "intent://kakaolink?appkey=1#Intent;scheme=kakaolink;package=com.kakao.talk;S.browser_fallback_url=https%3A%2F%2Fsharer.kakao.com%2Fpicker;end";
-        same(BrowserAppLinks.Verdict.HANDOFF, BrowserAppLinks.decide(kakao, true, true, false), "the user's tap on a KakaoTalk sign-in link goes to Android");
-        same(BrowserAppLinks.Verdict.REFUSE, BrowserAppLinks.decide(kakao, true, true, true), "an AI step's (or the page reacting to it) keeps the refusal");
-        same(BrowserAppLinks.Verdict.REFUSE, BrowserAppLinks.decide(kakao, false, true, false), "a page opening it by itself, without a tap, is refused");
-        same(BrowserAppLinks.Verdict.REFUSE, BrowserAppLinks.decide("tel:01012345678", true, false, false), "a tab out of sight never hands one over");
-        for (String link : new String[]{"tel:01012345678", "mailto:a@example.com", "sms:010", "market://details?id=com.kakao.talk", "geo:37.5,127", "naversearchapp://search?q=x", "kakaotalk://inappbrowser"})
-            same(BrowserAppLinks.Verdict.HANDOFF, BrowserAppLinks.decide(link, true, true, false), "an app link: " + link);
-        for (String not : new String[]{"https://example.com/", "javascript:alert(1)", "data:text/html,x", "file:///sdcard/a", "content://media/1", "about:blank", "gyeot://openai-done", "blob:https://x/1", "intent"})
-            same(BrowserAppLinks.Verdict.NOT_APP, BrowserAppLinks.decide(not, true, true, false), "never handed to an app: " + not);
-        same("https://sharer.kakao.com/picker", BrowserAppLinks.fallback(kakao), "the page Chrome opens when no app takes it");
-        same("", BrowserAppLinks.fallback("intent://x#Intent;scheme=x;S.browser_fallback_url=javascript%3Aalert(1);end"), "only a web page as the fallback");
-        same("카카오톡", BrowserAppLinks.label(kakao), "named for the user");
-        same("전화", BrowserAppLinks.label("tel:010"), "tel: is 전화");
-        same("com.kakao.talk", BrowserAppLinks.field(kakao, "package"), "the package it names");
+    private static void circlesStay() {
+        // The circle guards are as they were: the same step on an unchanged page warns, then stops within WARNING_SPAN.
+        BrowserJournal journal = BrowserJournal.open("circle", "gpt", "x", AT);
+        journal.page("https://site.example.com/", "s");
+        List<BrowserJournal.Verdict> verdicts = new ArrayList<>();
+        for (int n = 1; n <= 8; n++) verdicts.add(journal.step("「다음」 누름", "그대로", false, "click:e1", "same", true, AT + n));
+        same(BrowserJournal.Verdict.WARN, verdicts.get(BrowserJournal.REPEATS), "the fourth same step warns");
+        same(BrowserJournal.Verdict.STOP, verdicts.get(2 * BrowserJournal.REPEATS), "the next circle stops");
+        // Reads only look: never stopped, however many.
+        BrowserJournal reads = BrowserJournal.open("reads", "gpt", "x", AT);
+        boolean stopped = false;
+        for (int n = 1; n <= 40; n++) stopped |= reads.step("페이지 읽기", "✓", false, "read", "same", false, true, AT + n) == BrowserJournal.Verdict.STOP;
+        check(!stopped, "reads are never stopped by the circle guards");
+        // Jobs and steps kept: far more than the six jobs and eighty steps of before.
+        BrowserJournal.clear();
+        for (int i = 0; i < 60; i++) BrowserJournal.open("job" + i, "gpt", "x", AT).end("완료", AT + 1);
+        BrowserJournal big = BrowserJournal.open("big", "gpt", "가".repeat(2000), AT);
+        for (int n = 1; n <= 1200; n++) { big.page("https://site.example.com/p" + n, "p"); big.step("다음", "바뀜", false, "c" + n, "k" + n, true, AT + n); }
+        same(1000, big.lines(5000).size(), "1000 steps kept");
+        check(big.report(1, AT).contains("가".repeat(900)), "the request is kept up to 1000 characters");
+        check(BrowserJournal.live(AT + 23 * 3_600_000L).contains("브라우저 작업"), "a job is shown for a day after");
+    }
+
+    private static void taskMemory() {
+        BrowserTaskContext context = new BrowserTaskContext();
+        String big = "가".repeat(90_000);
+        check(context.canAccept(big), "a 90,000-character request is taken");
+        check(!context.canAccept("가".repeat(BrowserPrompts.REQUEST_LIMIT + 1)), "past REQUEST_LIMIT it is not");
+        int dropped = 0;
+        for (int i = 0; i < 8; i++) {
+            check(context.canAccept(i + big), "turn " + i + " is never refused for a full memory");
+            dropped += context.accept(i + big);
+            context.finish("결과 " + i, "done");
+        }
+        check(dropped > 0, "the oldest turns were let go");
+        String snapshot = context.snapshot();
+        JSONObject saved = new JSONObject(snapshot);
+        JSONArray requests = saved.getJSONArray("requests"), outcomes = saved.getJSONArray("outcomes");
+        int size = 0; for (int i = 0; i < requests.length(); i++) size += requests.getString(i).length();
+        check(size <= BrowserTaskContext.USER_BUDGET, "the memory stays within its budget: " + size);
+        same(7 + big, context.lastRequest(), "the newest request stays");
+        same(8 - dropped, requests.length(), "dropped turns are gone");
+        for (int i = 0; i < outcomes.length(); i++) {
+            JSONObject row = outcomes.getJSONObject(i);
+            same("결과 " + (dropped + row.getInt("request_index")), row.getString("result"), "each result still points at its own request");
+        }
+        BrowserTaskContext back = new BrowserTaskContext();
+        check(back.restore(snapshot), "the trimmed memory reads back");
+        check(back.canAccept("다음"), "and takes the next request");
+        // A memory saved larger than the budget (an older build, a bigger budget) is read back, its oldest turns let go.
+        JSONArray huge = new JSONArray(); for (int i = 0; i < 6; i++) huge.put(i + big);
+        BrowserTaskContext old = new BrowserTaskContext();
+        check(old.restore(new JSONObject().put("version", 1).put("requests", huge).put("outcomes", new JSONArray()).put("result", "").put("state", "done").toString()), "an oversized memory is not unreadable");
+        check(old.canAccept("이어서"), "and does not refuse the next request");
+        same(5 + big, old.lastRequest(), "its newest request kept");
+    }
+
+    private static void navigation() {
+        String[] asked = {
+            "https://www.youtube.com/watch?v=abc123&t=42s 열어줘",
+            "https://docs.example.com/guide#install 로 이동해 줘",
+            "http://192.168.0.10:8080/admin 열어",
+            "https://login.example.com/ 접속해",
+            "https://accounts.google.com/ServiceLogin?continue=x 열어줘",
+            "open https://sso.example.org/auth?next=%2Fhome please",
+        };
+        String[] url = {
+            "https://www.youtube.com/watch?v=abc123&t=42s",
+            "https://docs.example.com/guide#install",
+            "http://192.168.0.10:8080/admin",
+            "https://login.example.com/",
+            "https://accounts.google.com/ServiceLogin?continue=x",
+            "https://sso.example.org/auth?next=%2Fhome",
+        };
+        for (int i = 0; i < asked.length; i++) {
+            JSONObject open = BrowserTools.explicitNavigation(asked[i]);
+            check(open != null && "open".equals(open.optString("action")), "opened as asked: " + asked[i] + " → " + open);
+            same(url[i], open.optString("url"), "the address exactly as written");
+        }
+        JSONObject userinfo = BrowserTools.explicitNavigation("https://user:pw@example.com/ 열어줘");
+        check(userinfo != null && !userinfo.has("action") && userinfo.optString("error").contains("비밀번호"), "an address carrying a password is not opened, and says why");
+        same(null, BrowserTools.explicitNavigation("유튜브에서 고양이 영상 찾아 줘"), "a task, not an address: the planner");
+        same("back", BrowserTools.explicitNavigation("뒤로 가 줘").optString("action"), "back is still back");
+    }
+
+    private static void bookmarks() {
+        String saved = "[]";
+        for (int i = 0; i < BrowserKit.MAX_BOOKMARKS; i++) {
+            BrowserKit.Added added = BrowserKit.add(saved, List.of(new BrowserKit.Bookmark("https://site" + i + ".example.com/", "사이트 " + i, "", AT + i)));
+            same("", added.note(), "under the cap nothing goes");
+            saved = added.saved();
+        }
+        BrowserKit.Added more = BrowserKit.add(saved, List.of(new BrowserKit.Bookmark("https://new.example.com/", "새 사이트", "", AT + 1000)));
+        same(BrowserKit.MAX_BOOKMARKS, BrowserKit.bookmarks(more.saved()).size(), "the 101st keeps the count at the cap");
+        same(1, more.dropped().size(), "one goes");
+        same("https://site0.example.com/", more.dropped().get(0).url(), "the oldest goes");
+        same("북마크는 100개까지라 가장 오래된 ‘사이트 0’를 뺐어요", more.note(), "and the user is told which, never silently");
+        check(BrowserKit.bookmarked(more.saved(), "https://new.example.com/"), "the new one is kept");
+        List<BrowserKit.Bookmark> file = new ArrayList<>();
+        for (int i = 0; i < 150; i++) file.add(new BrowserKit.Bookmark("https://import" + i + ".example.com/", "가져온 " + i, "폴더", AT - 100_000 + i));
+        BrowserKit.Added imported = BrowserKit.add(more.saved(), file);
+        same(BrowserKit.MAX_BOOKMARKS, BrowserKit.bookmarks(imported.saved()).size(), "an import stays within the cap");
+        same(150, imported.dropped().size(), "the 150 oldest (all older than those kept) are left out");
+        same(0, imported.added(), "none of the file's older pages stayed");
+        same("북마크는 100개까지라 가장 오래된 150개를 뺐어요", imported.note(), "the import says how many were left out");
+        List<BrowserKit.Bookmark> parsed = new ArrayList<>();
+        StringBuilder html = new StringBuilder("<DL>");
+        for (int i = 0; i < 300; i++) html.append("<DT><A HREF=\"https://p").append(i).append(".example.com/\" ADD_DATE=\"").append(1_700_000_000 + i).append("\">P").append(i).append("</A>");
+        parsed.addAll(BrowserKit.parseExport(html.append("</DL>").toString(), AT));
+        same(300, parsed.size(), "the whole export file is read, so an import knows what it leaves out");
+    }
+
+    private static void kit() {
+        List<BrowserKit.Bookmark> tabs = new ArrayList<>();
+        for (int i = 0; i < 40; i++) tabs.add(new BrowserKit.Bookmark("https://tab" + i + ".example.com/", "탭 " + i, "", AT));
+        String projects = BrowserKit.saveProject("", "여행 준비", tabs, AT);
+        same(40, BrowserKit.projects(projects).get(0).pages().size(), "a project keeps every tab (was 6)");
+        for (int i = 0; i < 40; i++) projects = BrowserKit.saveProject(projects, "프로젝트 " + i, tabs.subList(0, 1), AT + i);
+        same(41, BrowserKit.projects(projects).size(), "far more than 30 projects");
+        String skills = "";
+        for (int i = 0; i < 120; i++) skills = BrowserKit.saveSkill(skills, "", "스킬 " + i, "할 일 " + i, "", AT + i);
+        same(120, BrowserKit.skills(skills).size(), "far more than 50 skills");
+        String longSkill = BrowserKit.saveSkill("", "", "이".repeat(BrowserKit.SKILL_NAME), "할".repeat(BrowserKit.SKILL_PROMPT), "https://example.com/" + "a".repeat(5000), AT);
+        same(BrowserKit.SKILL_PROMPT, BrowserKit.skills(longSkill).get(0).prompt().length(), "a 20,000-character skill is kept whole");
+        same(BrowserKit.SKILL_NAME, BrowserKit.skills(longSkill).get(0).name().length(), "a 200-character name too");
+    }
+
+    private static void prompts() {
+        String stored = "";
+        for (int i = 0; i < 40; i++) stored = BrowserPrompts.remember(stored, "요청 " + i);
+        same(BrowserPrompts.RECENT_LIMIT, BrowserPrompts.recents(stored).size(), "30 recent requests remembered");
+        String long4000 = "이".repeat(4000);
+        check(BrowserPrompts.recents(BrowserPrompts.remember(stored, long4000)).get(0).text().equals(long4000), "a 4000-character request is remembered");
+        same(BrowserPrompts.QUOTE_LIMIT, BrowserPrompts.quote("가".repeat(50_000)).length(), "a selection quoted up to 20,000 characters");
+        check(BrowserPrompts.selectionRead(BrowserPrompts.translate("가".repeat(15_000))), "a long selection is still the app's own read");
+    }
+
+    private static void folders() {
+        same("자료.7z", FolderTools.name("자료.7z", "x.7z", ""), "any kind of file is kept (7z)");
+        same("책.epub", FolderTools.name("책.epub", "x.epub", "zip"), "a zip-based format under its own name");
+        same("notes", FolderTools.name("", "notes", ""), "a file without an extension too");
+        same(null, FolderTools.name("앱.apk", "x.apk", "zip"), "never an installer");
+        same(null, FolderTools.name("setup.exe", "setup.exe", ""), "never an executable");
+        same(null, FolderTools.name("tool.dmg", "tool.dmg", ""), "never another system's installer");
+        same(null, FolderTools.name("보고서.pdf", "x.html", ""), "a page is still not kept as a PDF");
+        String longName = FolderTools.name("가".repeat(200) + ".pdf", "x.pdf", "pdf");
+        check(longName != null && longName.endsWith(".pdf") && longName.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= FolderTools.NAME, "a long Korean name fits 255 bytes: " + (longName == null ? 0 : longName.length()));
+        StringBuilder deep = new StringBuilder(); for (int i = 0; i < 20; i++) deep.append(i == 0 ? "" : "/").append("f").append(i);
+        same(deep.toString(), FolderTools.folder(deep.toString()), "20 folders deep");
+        same(null, FolderTools.folder(deep + "/f20"), "21 is not");
+    }
+
+    private static void work() throws Exception {
+        JSONArray tasks = new JSONArray();
+        for (int i = 0; i < BrowserWorkJobs.BATCH; i++) tasks.put(new JSONObject().put("request", "다".repeat(BrowserWorkJobs.REQUEST)).put("url", "https://example.com/").put("expected_downloads", BrowserWorkJobs.DOWNLOADS));
+        same(10, BrowserWorkJobs.requests(new JSONObject().put("tasks", tasks)).length(), "ten tasks of 50,000 characters, fifty files each");
+        tasks.put(new JSONObject().put("request", "x").put("url", "https://example.com/").put("expected_downloads", 0));
+        try { BrowserWorkJobs.requests(new JSONObject().put("tasks", tasks)); check(false, "eleven"); }
+        catch (IllegalArgumentException many) { check(many.getMessage().contains("1~10"), "says how many: " + many.getMessage()); }
+        BrowserWorkJobs receipts = new BrowserWorkJobs("room", "run");
+        JSONObject last = null;
+        for (int i = 0; i < 150; i++) last = receipts.add(new JSONObject().put("request", "r").put("url", "https://example.com/").put("expected_downloads", 0));
+        same("queued", receipts.status(last.getString("job_id")).optString("state"), "150 queued receipts are kept (was 30)");
+        BrowserArtifactPolicy.Info pdf = BrowserArtifactPolicy.classify("https://example.com/a.pdf", Map.of("Content-Type", "application/pdf"));
+        BrowserArtifactPolicy.Info picture = BrowserArtifactPolicy.classify("https://example.com/a.png", Map.of("Content-Type", "image/png"));
+        same(4L << 30, pdf.limit(), "a PDF up to 4GB");
+        same(4L << 30, picture.limit(), "a picture up to 4GB");
+        try { BrowserArtifactPolicy.classify("https://example.com/a.apk", Map.of("Content-Type", "application/vnd.android.package-archive")); check(false, "apk"); }
+        catch (java.io.IOException refused) { check(refused.getMessage().contains("실행 파일"), "an installer is still refused"); }
+        same(200, MainBrowser.ROUNDS, "200 rounds a browsing reply");
+        same(4L << 30, MusicDownload.LIMIT, "an audio file up to 4GB");
+    }
+
+    private static void voice() {
+        BrowserJobs jobs = new BrowserJobs();
+        JSONObject accepted = jobs.submit("call", "나".repeat(BrowserPrompts.REQUEST_LIMIT), (request, done) -> {}, value -> {});
+        check(accepted.optBoolean("accepted"), "a 100,000-character browser job is taken: " + accepted);
+        for (int i = 0; i < 63; i++) check(jobs.submit("c" + i, "r" + i, (request, done) -> {}, value -> {}).optBoolean("accepted"), "64 running jobs at once");
+        check(jobs.submit("c64", "r", (request, done) -> {}, value -> {}).optBoolean("busy"), "the 65th waits for one to finish");
+        VoiceBrowserRequest words = new VoiceBrowserRequest();
+        words.finalized(7, "라".repeat(VoiceBrowserRequest.TASK_LIMIT));
+        JSONObject envelope = new JSONObject(words.instruction(7, "마".repeat(9000), "tab"));
+        same(VoiceBrowserRequest.TASK_LIMIT, envelope.getString("original_user_instruction").length(), "a 50,000-character spoken task");
+        same(VoiceBrowserRequest.INTERPRETATION_LIMIT, envelope.getString("model_interpretation").length(), "with 8000 characters of the voice model's reading");
+        check(envelope.toString().length() <= BrowserPrompts.REQUEST_LIMIT, "and the whole fits one browser request");
     }
 }

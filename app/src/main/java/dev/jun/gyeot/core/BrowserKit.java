@@ -18,7 +18,10 @@ import static dev.jun.gyeot.core.Jsons.*;
  */
 public final class BrowserKit {
     private BrowserKit() {}
-    public static final int MAX_SKILLS = 50, MAX_BOOKMARKS = 2000;
+    /** Skills kept; 북마크 kept (준: "북마크는 필요없어 100개 제한하자": the oldest goes, and the user is told). */
+    public static final int MAX_SKILLS = 1000, MAX_BOOKMARKS = 100;
+    /** The longest skill name, skill request, start address and project name the sheets take. */
+    public static final int SKILL_NAME = 200, SKILL_PROMPT = 20_000, URL_LIMIT = 8000, PROJECT_NAME = 100;
 
     // ── 끝까지 조사 ───────────────────────────────────────────────────────
 
@@ -49,8 +52,11 @@ public final class BrowserKit {
     /** Adds or replaces (same id) a skill; the name is the request's start when blank. Newest first. */
     public static String saveSkill(String saved, String id, String name, String prompt, String url, long now) {
         String words = prompt == null ? "" : prompt.strip(); if (words.isEmpty()) throw new IllegalArgumentException("스킬이 할 일을 적어 주세요.");
+        if (words.length() > SKILL_PROMPT) throw new IllegalArgumentException("스킬이 할 일은 " + String.format(Locale.ROOT, "%,d", SKILL_PROMPT) + "자까지 적을 수 있어요.");
         String title = name == null || name.isBlank() ? (words.length() > 24 ? words.substring(0, 24) + "…" : words) : name.strip();
+        if (title.length() > SKILL_NAME) title = title.substring(0, SKILL_NAME);
         String page = url == null ? "" : url.strip();
+        if (page.length() > URL_LIMIT) throw new IllegalArgumentException("시작 페이지 주소가 너무 길어요 (" + URL_LIMIT + "자까지).");
         if (!page.isEmpty()) page = BrowserTools.url(page.matches("(?i)[a-z][a-z0-9+.-]*://.*") ? page : "https://" + page); // "naver.com" works too
         List<Skill> list = skills(saved); String key = id == null || id.isBlank() ? UUID.randomUUID().toString() : id; long created = now;
         for (Skill s : list) if (s.id().equals(key)) created = s.created();
@@ -77,14 +83,46 @@ public final class BrowserKit {
     }
     public static boolean bookmarked(String saved, String url) { String key = norm(url); for (Bookmark b : bookmarks(saved)) if (norm(b.url()).equals(key)) return true; return false; }
     private static String norm(String url) { String u = url == null ? "" : url.strip(); while (u.endsWith("/")) u = u.substring(0, u.length() - 1); return u.replaceFirst("^https?://(www\\.)?", "").toLowerCase(Locale.ROOT); }
-    /** Adds pages not kept yet (newest first), skipping those already there; at most MAX_BOOKMARKS. */
-    public static String addBookmarks(String saved, List<Bookmark> pages) {
+    /**
+     * What adding bookmarks did: the list to keep, how many of the pages were new and stayed, and the oldest bookmarks let go
+     * (those already kept or new ones) so that at most MAX_BOOKMARKS stay. Nothing is let go without the user being told (note).
+     */
+    public record Added(String saved, int added, List<Bookmark> dropped) {
+        /** One short line about what was let go ("" when nothing was): the bookmark by name when one, else how many. */
+        public String note() {
+            if (dropped.isEmpty()) return "";
+            if (dropped.size() == 1) {
+                String title = dropped.get(0).title().isBlank() ? dropped.get(0).url() : dropped.get(0).title();
+                return "북마크는 " + MAX_BOOKMARKS + "개까지라 가장 오래된 ‘" + (title.length() > 30 ? title.substring(0, 29) + "…" : title) + "’를 뺐어요";
+            }
+            return "북마크는 " + MAX_BOOKMARKS + "개까지라 가장 오래된 " + dropped.size() + "개를 뺐어요";
+        }
+    }
+    /** Adds pages not kept yet (newest first), skipping those already there; past MAX_BOOKMARKS the oldest (by added) go. */
+    public static Added add(String saved, List<Bookmark> pages) {
         List<Bookmark> list = bookmarks(saved); java.util.Set<String> seen = new java.util.HashSet<>(); for (Bookmark b : list) seen.add(norm(b.url()));
         List<Bookmark> fresh = new ArrayList<>();
         for (Bookmark b : pages) { if (b.url().isBlank() || !b.url().matches("(?i)https?://.+") || !seen.add(norm(b.url()))) continue; fresh.add(b); }
-        fresh.addAll(list); while (fresh.size() > MAX_BOOKMARKS) fresh.remove(fresh.size() - 1);
-        JSONArray out = arr(); for (Bookmark b : fresh) out.put(b.json()); return out.toString();
+        int added = fresh.size();
+        fresh.addAll(list);
+        List<Bookmark> dropped = new ArrayList<>();
+        if (fresh.size() > MAX_BOOKMARKS) {
+            // The oldest first; of two added at the same time, the one further down the list (kept longer) goes first.
+            List<Integer> order = new ArrayList<>(); for (int i = 0; i < fresh.size(); i++) order.add(i);
+            List<Bookmark> all = fresh;
+            order.sort((a, b) -> all.get(a).added() != all.get(b).added() ? Long.compare(all.get(a).added(), all.get(b).added()) : Integer.compare(b, a));
+            java.util.Set<Integer> gone = new java.util.HashSet<>(order.subList(0, fresh.size() - MAX_BOOKMARKS));
+            List<Bookmark> kept = new ArrayList<>(); int newOnes = added;
+            for (int i = 0; i < fresh.size(); i++) {
+                if (!gone.contains(i)) { kept.add(fresh.get(i)); continue; }
+                dropped.add(fresh.get(i)); if (i < newOnes) added--;
+            }
+            fresh = kept;
+        }
+        JSONArray out = arr(); for (Bookmark b : fresh) out.put(b.json());
+        return new Added(out.toString(), added, dropped);
     }
+    public static String addBookmarks(String saved, List<Bookmark> pages) { return add(saved, pages).saved(); }
     public static String deleteBookmark(String saved, String url) {
         String key = norm(url); JSONArray out = arr(); for (Bookmark b : bookmarks(saved)) if (!norm(b.url()).equals(key)) out.put(b.json()); return out.toString();
     }
@@ -100,23 +138,26 @@ public final class BrowserKit {
             return new Project(o.optString("id"), o.optString("name"), pages, o.optLong("saved"));
         }
     }
-    public static final int MAX_PROJECTS = 30, PROJECT_PAGES = 6;
+    /** Projects kept; a project keeps every web page tab open when it is saved. */
+    public static final int MAX_PROJECTS = 1000;
     public static List<Project> projects(String saved) {
         List<Project> out = new ArrayList<>();
         try { JSONArray list = new JSONArray(saved == null || saved.isBlank() ? "[]" : saved); for (int i = 0; i < list.length(); i++) { JSONObject o = list.optJSONObject(i); if (o != null) { Project p = Project.of(o); if (!p.pages().isEmpty()) out.add(p); } } }
         catch (Exception unreadable) { return out; }
         return out;
     }
-    /** Saves (or, same name, replaces) a project of these pages: web pages only, at most PROJECT_PAGES. Newest first. */
+    /** Saves (or, same name, replaces) a project of these pages: every web page among them, each once. Newest first. */
     public static String saveProject(String saved, String name, List<Bookmark> pages, long now) {
         String title = name == null ? "" : name.strip(); if (title.isEmpty()) throw new IllegalArgumentException("프로젝트 이름을 적어 주세요.");
+        if (title.length() > PROJECT_NAME) title = title.substring(0, PROJECT_NAME).strip();
         List<Bookmark> kept = new ArrayList<>(); java.util.Set<String> seen = new java.util.HashSet<>();
-        for (Bookmark b : pages) if (kept.size() < PROJECT_PAGES && b.url().matches("(?i)https?://.+") && seen.add(norm(b.url()))) kept.add(b);
+        for (Bookmark b : pages) if (b.url().matches("(?i)https?://.+") && seen.add(norm(b.url()))) kept.add(b);
         if (kept.isEmpty()) throw new IllegalArgumentException("저장할 웹 페이지 탭이 없어요.");
         List<Project> list = projects(saved); String id = UUID.randomUUID().toString();
         for (Project p : list) if (p.name().equalsIgnoreCase(title)) id = p.id();
+        String named = title;
         String key = id; list.removeIf(p -> p.id().equals(key));
-        list.add(0, new Project(key, title, kept, now));
+        list.add(0, new Project(key, named, kept, now));
         while (list.size() > MAX_PROJECTS) list.remove(list.size() - 1);
         JSONArray out = arr(); for (Project p : list) out.put(p.json()); return out.toString();
     }
@@ -128,14 +169,15 @@ public final class BrowserKit {
         OPEN = Pattern.compile("(?i)<DL>"), CLOSE = Pattern.compile("(?i)</DL>"), ADDED = Pattern.compile("(?i)ADD_DATE=\"(\\d+)\"");
     /**
      * The pages in an exported bookmarks file (the Netscape format Chrome, Edge, Safari and Firefox write), each with the
-     * folder path it was in ("즐겨찾기 표시줄 / 뉴스"). Only http(s) pages; at most MAX_BOOKMARKS.
+     * folder path it was in ("즐겨찾기 표시줄 / 뉴스"). Only http(s) pages, all of them: add then keeps MAX_BOOKMARKS and
+     * says how many it let go.
      */
     public static List<Bookmark> parseExport(String html, long now) {
         List<Bookmark> out = new ArrayList<>(); if (html == null) return out;
         List<String> path = new ArrayList<>(); String pendingFolder = null;
         Pattern any = Pattern.compile("(?is)<H3[^>]*>.*?</H3>|<A\\s[^>]*>.*?</A>|<DL>|</DL>");
         Matcher m = any.matcher(html);
-        while (m.find() && out.size() < MAX_BOOKMARKS) {
+        while (m.find()) {
             String token = m.group();
             if (OPEN.matcher(token).matches()) { if (pendingFolder != null) { path.add(pendingFolder); pendingFolder = null; } else path.add(""); continue; }
             if (CLOSE.matcher(token).matches()) { if (!path.isEmpty()) path.remove(path.size() - 1); continue; }

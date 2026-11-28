@@ -124,8 +124,9 @@ final class DriveFiles {
         if (!category.isEmpty()) {
             try (InputStream in = new java.io.FileInputStream(file)) { uri = SharedMediaOutput.save(context, key + "-" + java.util.UUID.randomUUID(), category, name, mime, in, check); }
         } else {
-            if (file.length() > GoogleDrive.FILE_DOWNLOAD) throw new IllegalStateException("파일이 너무 커요 (" + (GoogleDrive.FILE_DOWNLOAD >> 20) + "MB까지).");
-            uri = SharedWorkFiles.save(context, name, mime, java.nio.file.Files.readAllBytes(file.toPath()));
+            // Streamed from the file, never whole in memory: any kind of file up to GoogleDrive.DOWNLOAD_LIMIT.
+            if (file.length() > GoogleDrive.DOWNLOAD_LIMIT) throw new IllegalStateException("파일이 너무 커요 (" + DriveWorkTools.size(GoogleDrive.DOWNLOAD_LIMIT) + "까지).");
+            uri = SharedWorkFiles.save(context, name, mime, file, check);
         }
         return obj("name", name, "uri", uri.toString(), "size", file.length());
     }

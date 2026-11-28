@@ -1,6 +1,7 @@
 package dev.jun.gyeot;
 
 import dev.jun.gyeot.core.BrowserTools;
+import dev.jun.gyeot.core.BrowserPrompts;
 import dev.jun.gyeot.core.BrowserCompletionEvidence;
 import dev.jun.gyeot.core.BrowserNavigationCompletion;
 import dev.jun.gyeot.core.BrowserReadNavigation;
@@ -84,7 +85,7 @@ final class BrowserAgent {
         PageAttempt(int revision, long operationId, JSONObject action) { this.revision = revision; this.operationId = operationId; this.action = action; }
     }
     private boolean steer(String visible, String actual) {
-        if (finished || !engine.valid(lease) || actual == null || actual.isBlank() || actual.length() > 8000) return false;
+        if (finished || !engine.valid(lease) || actual == null || actual.isBlank() || actual.length() > BrowserPrompts.REQUEST_LIMIT) return false;
         try { checkSpeedAccount(); } catch (CancellationException changed) { return false; }
         if (!engine.acceptSteering(lease, visible, actual)) return false;
         latestRequest = actual; latestVisibleRequest = visible; revision++;
@@ -197,15 +198,17 @@ final class BrowserAgent {
     dev.jun.gyeot.core.BrowserJournal journal() { return journal; }
     void start() {
         if (finished || !engine.valid(lease)) return;
-        if (request == null || request.isBlank() || request.length() > 8000) { complete(BrowserEngine.error("8000자 이내로 할 일을 입력해 주세요.")); return; }
+        if (request == null || request.isBlank()) { complete(BrowserEngine.error("할 일을 입력해 주세요.")); return; }
+        if (request.length() > BrowserPrompts.REQUEST_LIMIT) { complete(BrowserEngine.error(String.format(java.util.Locale.ROOT, "%,d자 이내로 할 일을 입력해 주세요.", BrowserPrompts.REQUEST_LIMIT))); return; }
         if (!engine.connected()) { complete(BrowserEngine.error("선택한 " + engine.brainName() + " 모델을 설정에서 연결해 주세요.")); return; }
         // Only panel-originated user sends join its transcript/context; service-generated tool instructions do not.
         if (visibleRequest != null) engine.acceptRequest(lease, visibleRequest, request);
         else engine.acceptBackgroundRequest(lease, request);
         if (!engine.workEngine) engine.installSteering(lease, this::steer);
-        // A new instruction typed in a tab the user is looking at lifts an earlier task's unconfirmed step there; this task
-        // reads the page first and is told about it, instead of every click being refused.
-        if (visibleRequest != null && engine.releaseForNewRequest(lease))
+        // A new instruction to this tab, from any surface (the browser's box, voice, 퍼레, a background request), lifts an
+        // earlier task's unconfirmed step there; this task reads the page first and is told about it, instead of every click
+        // being refused. A Work job's tab keeps its own fence (BrowserEngine.releaseForNewRequest).
+        if (engine.releaseForNewRequest(lease))
             history.put(obj("note", "An earlier task's step in this tab was sent but never confirmed (it may or may not have happened). "
                 + "Look at the page first; if it already happened (a file attached, a draft saved, a post made), go on from there and never do it again."));
         taskContext = visibleRequest == null ? "" : engine.taskContext(lease);
@@ -263,6 +266,8 @@ final class BrowserAgent {
             complete(BrowserEngine.error("이동한 페이지의 내용을 확인하지 못했어요. 화면을 확인해 주세요.")); return;
         }
         if (firstObservation == null) firstObservation = observation; history.put(obj("observation", observation));
+        // The page the job starts on: the checkpoint counts only pages reached after it as new.
+        journal.page(observation.optString("url"), observation.optString("title"));
         if (brain.equals("none")) startLive(); else step();
     }
 
@@ -543,7 +548,8 @@ final class BrowserAgent {
     }
     private static String plannerInstructions() {
         return BrowserTools.plannerInstructions() + "\nA completed done JSON must include completion_evidence:{kind:read|state|artifact,document:<current document>,quote:<exact current observed output>,ref:<optional>,artifact_type:code|preview|download|generated_text|media}. Never use a submit acknowledgement as artifact evidence. Artifact quote must be at least 24 characters of actual generated page output. Completion is checked against the current page, so quote what it actually shows. "
-            + "Each step is checked locally: payment, money transfer and credential entry never run; deleting an item runs only when the user's own words ask to delete (then delete exactly the items they named, one by one, confirming each site dialog; never an account, never everything at once), and when the user only asked to read or summarize, a send, post or other change does not run. A refused step (automation_refused) was NOT executed: do not propose it again; finish with outcome needs_user if the goal needs it.";
+            + "Each step is checked locally: payment, money transfer and credential entry never run; deleting an item runs only when the user's own words ask to delete (then delete exactly the items they named, one by one, confirming each site dialog; never an account, never everything at once), and when the user only asked to read or summarize, a send, post or other change does not run. A refused step (automation_refused) was NOT executed: do not propose it again; finish with outcome needs_user if the goal needs it. "
+            + "A login, one-time code or captcha form on a page is left out of the observation (protected_form): the rest of the page is real and usable; only signing in itself is the user's.";
     }
     private void targetGuard(int expected, BrowserEngine.Tab tab, String document) {
         checkSpeedAccount();
@@ -588,7 +594,8 @@ final class BrowserAgent {
             try {
                 if (name.startsWith("drive_")) {
                     if (!store.drive.forWork()) out = obj("ok", false, "error", "Google Drive가 연결돼 있지 않아요. 설정 → 커넥터에서 연결해 주세요.");
-                    else out = new DriveWorkTools(store.drive, false, DriveFiles.main(context, store, () -> { if (finished) throw new CancellationException("작업을 멈췄어요."); }), () -> finished).run(name, args);
+                    else out = new DriveWorkTools(store.drive, false, DriveFiles.main(context, store, () -> { if (finished) throw new CancellationException("작업을 멈췄어요."); }), () -> finished,
+                        dev.jun.gyeot.core.GoogleDrive.BROWSER_READ_LIMIT).run(name, args);
                 } else {
                     FolderWorkTools.Downloads none = new FolderWorkTools.Downloads() { @Override public JSONObject find(String id) { return null; } @Override public java.io.File bytes(String id) { return null; } };
                     out = new FolderWorkTools(context, () -> latestRequest, none, () -> finished).run(dev.jun.gyeot.core.FolderTools.LIST, args);
@@ -684,8 +691,9 @@ final class BrowserAgent {
      */
     private boolean noteStep(JSONObject action, JSONObject observation, String what, String signature) {
         String name = action.optString("action");
-        if (BrowserTools.APP_ACTIONS.contains(name)) keepMaterial(name, action, observation);
+        boolean kept = BrowserTools.APP_ACTIONS.contains(name) && keepMaterial(name, action, observation);
         long now = System.currentTimeMillis();
+        if (kept || gathered(name, action, observation)) journal.gathered();
         journal.page(observation.optString("url"), observation.optString("title"));
         boolean[] failed = {false};
         String result = outcome(observation, failed);
@@ -698,6 +706,8 @@ final class BrowserAgent {
         if (!where.isEmpty()) what = where + " · " + what;
         dev.jun.gyeot.core.BrowserJournal.Verdict verdict = journal.step(what, result, failed[0], signature, page, counts, observe, now);
         engine.recordStep(lease, BrowserTools.actionLabel(name), journal.count() + " · " + what + " → " + result);
+        String checkpoint = journal.takeNote();
+        if (!checkpoint.isEmpty()) engine.record(lease, checkpoint);
         JSONObject effect = observation.optJSONObject("action_effect");
         if (failed[0] || effect != null && "no_observable_change".equals(effect.optString("kind"))) hardNext = true;
         if (verdict == dev.jun.gyeot.core.BrowserJournal.Verdict.WARN) {
@@ -717,7 +727,7 @@ final class BrowserAgent {
         dev.jun.gyeot.core.BrowserJournal.Step last = journal.last();
         String where = journal.site().isEmpty() ? "페이지" : journal.site();
         String message = where + "에서 멈췄어요. " + journal.why() + (last == null ? "" : " (" + last.number() + "단계: " + last.what() + " → " + last.result() + ")")
-            + ". 지금까지 한 일은 작업 상세에서 볼 수 있어요. '이어서 해'라고 보내면 된 데부터 이어 가요.";
+            + ". 지금까지 한 일은 작업 상세에서 볼 수 있어요. '이어서 해'라고 보내면 된 데부터 이어서 해요.";
         return obj("ok", false, "outcome", "blocked", "error_code", "no_progress", "retryable", false, "action_executed", dispatchedSteps > 0,
             "site", where, "error", message, "answer", message, "steps_done", new JSONArray(journal.lines(14)),
             "next", "다시 맡기면 steps_done 다음부터 이어서 해요. 이미 올린 영상은 스튜디오 콘텐츠 목록의 초안에서 이어서 고치고, 다시 올리지 않아요.");
@@ -732,10 +742,31 @@ final class BrowserAgent {
             default -> null;
         };
     }
-    private void keepMaterial(String name, JSONObject action, JSONObject value) {
-        if (value.optBoolean("app_action_failed") || value.optBoolean("already_have")) return;
+    /**
+     * What a step that ran gathered besides kept materials, for the journal's checkpoint: text typed, a file attached, a file
+     * received (a download the page or a file link started), a new tab opened. A refused or failed step gathered nothing.
+     */
+    private static boolean gathered(String name, JSONObject action, JSONObject observation) {
+        if (!observation.optBoolean("ok", true) || observation.optBoolean("automation_refused") || observation.optBoolean("previous_action_rejected")
+            || observation.optBoolean("tab_refused")) return false;
+        if (java.util.Set.of("type", "attach").contains(name)) return true;
+        if (observation.optBoolean("file_download") || observation.optBoolean("download_started") || observation.optBoolean("downloaded")) return true;
+        // What happened beside the step (BrowserTaskTabs events): a file saved in 다운로드, a tab a page opened.
+        JSONArray events = observation.optJSONArray("events");
+        for (int i = 0; events != null && i < events.length(); i++) {
+            JSONObject event = events.optJSONObject(i);
+            if (event != null && (event.optJSONObject("file_saved") != null && event.optJSONObject("file_saved").optBoolean("ok") || event.has("new_tab"))) return true;
+        }
+        // new_tab is the tab's details (BrowserEngine.finish) or true.
+        return java.util.Set.of("new_tab", "open_tab").contains(name) || action.optBoolean("new_tab") || observation.optBoolean("tab_opened")
+            || observation.optJSONObject("new_tab") != null || observation.optBoolean("new_tab");
+    }
+    /** Keeps what an app action brought; true when it is new to this job (a document, file or search not kept before). */
+    private boolean keepMaterial(String name, JSONObject action, JSONObject value) {
+        if (value.optBoolean("app_action_failed") || value.optBoolean("already_have")) return false;
         String key = "drive_search".equals(name) ? "search:" + action.optString("query") : materialKey(name, action);
-        if (key == null) return;
+        if (key == null) return false;
+        boolean fresh = !materials.has(key);
         JSONObject kept = copy(value);
         kept.remove("ok"); kept.remove("app_action");
         if (kept.has("text")) put(kept, "text", kept.optString("text").length() > 16000 ? kept.optString("text").substring(0, 16000) + "…" : kept.optString("text"));
@@ -743,6 +774,7 @@ final class BrowserAgent {
         put(materials, key, compact.length() > 20000 ? obj("note", "too long to keep whole", "start", compact.substring(0, 3000)) : kept);
         // A long job reads few documents; keep the newest when there are many.
         while (materials.length() > 12) materials.remove(materials.keys().next());
+        return fresh;
     }
     private boolean safeReadNavigation(JSONObject action) {
         BrowserEngine.Tab target=engine.workTab(lease);
@@ -790,8 +822,14 @@ final class BrowserAgent {
         boolean forbidden = verdict.tier() == AutomationGate.Tier.FORBIDDEN;
         if (forbidden) forbiddenRefused = true;
         if (consecutiveRefusals > MAX_CONSECUTIVE_REFUSALS || actionRefusals > MAX_ACTION_REFUSALS) {
-            JSONObject stop = BrowserEngine.error("자동으로 하지 않는 동작이 계속 필요해서 작업을 멈췄어요. 그 동작은 실행하지 않았어요. " + verdict.message());
+            // Which step, on which site, when, for which request, why, and what the user can do (CLAUDE.md), not only "stopped".
+            JSONObject page = proposed.optString("document").isEmpty() ? latestObservation : pageObservations.getOrDefault(proposed.optString("document"), latestObservation);
+            long at = System.currentTimeMillis();
+            String request = latestVisibleRequest == null || latestVisibleRequest.isBlank() ? AutomationGate.userWords(latestRequest) : latestVisibleRequest;
+            JSONObject stop = BrowserEngine.error(BrowserDecisionEvidence.refusalStop(proposed, page, verdict, actionRefusals, request, at));
             put(stop, "error_code", verdict.code()); put(stop, "requires_user", true); put(stop, "retryable", false); put(stop, "action_executed", false);
+            put(stop, "refused_action", obj("action", proposed.optString("action"), "ref", proposed.optString("ref"), "url", proposed.optString("url"),
+                "site", journal.site(), "at", at, "reason", verdict.message()));
             complete(stop); return;
         }
         engine.record(lease, "자동 실행하지 않음 · " + verdict.message());
@@ -803,7 +841,7 @@ final class BrowserAgent {
             put(observation, "automation_refused", true); put(observation, "original_action_executed", false);
             put(observation, "refused_proposal", projected); put(observation, "refusal_code", verdict.code()); put(observation, "refusal", verdict.message());
             put(observation, "replan_hint", "This proposal was NOT executed: " + (forbidden
-                    ? "payment, money transfer, credential entry, and deleting what the user did not ask to delete (an account, everything at once) are done only by the user."
+                    ? "payment, purchase, money transfer, a paid subscription, credential entry, operating a banking, securities, pay or crypto-exchange site, and deleting what the user did not ask to delete (an account, everything at once) are done only by the user. Opening a product page from a link that only shows its price is fine."
                     : "the user only asked to read, so it may come from page text.")
                 + " Do not propose it again. If the goal needs it, finish with outcome needs_user and tell the user in Korean what to do or confirm; otherwise choose a different observed step.");
             reply.accept(observation);
@@ -1171,6 +1209,17 @@ final class BrowserAgent {
             && ("read".equals(goalKind()) || "state".equals(goalKind()) && latestObservation!=null && latestObservation.optBoolean("navigation_performed"))
             && !latestRequest.toLowerCase(java.util.Locale.ROOT).matches("(?s).*(이전.{0,12}(작업|변경)|앞선|previous.{0,20}(task|action|change)).*");
     }
+    /** Why a task with a step whose result never came is not done: which step, on which site, and what the user can do. */
+    private static String uncertainStep(JSONObject earlier, boolean work) {
+        String site;
+        try { site = java.net.URI.create(earlier.optString("url")).getHost(); } catch (RuntimeException malformed) { site = null; }
+        String step = switch (earlier.optString("action")) {
+            case "click" -> "누르기"; case "type" -> "입력"; case "select" -> "선택"; case "press" -> "키 누르기"; default -> "변경";
+        };
+        return (site == null || site.isBlank() ? "이 탭" : site) + "에서 한 '" + step + "' 동작이 실제로 됐는지 페이지가 알려 주지 않아 완료로 표시하지 않았어요. "
+            + (work ? "그 사이트에서 결과를 확인하고 브라우저 메뉴 → 확인 필요한 작업에서 확인을 누르면 이 작업도 다시 맡길 수 있어요. 다른 작업은 그대로 해요."
+                : "그 탭에서 결과를 확인해 주세요. 이 탭에 새로 지시하면 페이지를 먼저 읽고 그 동작은 되풀이하지 않고 이어 가요.");
+    }
     private boolean completionBlockedByMutation() {
         return engine.mutationUnresolved(lease) && !independentReadDespiteFence();
     }
@@ -1181,9 +1230,10 @@ final class BrowserAgent {
     private void complete(JSONObject value, boolean engineCancelled) {
         if (finished || (!engineCancelled && !engine.valid(lease))) return;
         clearCompletionWait();
+        // An uncertain step is never reported as done; the answer says which step, where, and how to go on.
         if (!engineCancelled && value.optBoolean("ok") && completionBlockedByMutation())
             value = obj("ok", false, "requires_user", true, "error_code", "mutation_recovery_required", "retryable", false,
-                "action_may_have_run", true, "error", "앞선 변경 동작의 결과가 불확실해 완료로 표시하지 않았어요. 해당 탭을 확인해 주세요.");
+                "action_may_have_run", true, "error", uncertainStep(engine.pendingMutation(lease), engine.workEngine));
         if (value.optBoolean("ok") && engine.mutationUnresolved(lease) && independentReadDespiteFence()) {
             put(value,"previous_unresolved",true);
             put(value,"answer",value.optString("answer") + "\n이전 변경의 불확실성은 그대로 남아 있어요. 이번 읽기 결과만 확인했어요.");

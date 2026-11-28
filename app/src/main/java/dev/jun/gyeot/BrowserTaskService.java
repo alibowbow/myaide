@@ -45,17 +45,19 @@ public final class BrowserTaskService extends Service {
     private static final int REVIEW = 0x42e;
     private static final java.util.Set<String> askedReview = java.util.concurrent.ConcurrentHashMap.newKeySet();
     /**
-     * A Work job was stopped by an earlier step whose result is unknown: one notification for that step, whose tap opens its
-     * review at once (the user checks the site and lifts the block there; nothing is replayed). Once per step.
+     * A Work job was stopped by its own earlier step whose result is unknown (other Work jobs go on): one notification for that
+     * step, whose tap opens that step's review at once (the user checks the site and lifts the block there; nothing is
+     * replayed). Once per step.
      */
     static void askWorkReview(Context context, String receipt, String site, String action) {
         if (receipt == null || receipt.isBlank() || !askedReview.add(receipt)) return;
         try {
             NotificationManager manager = context.getSystemService(NotificationManager.class);
             manager.createNotificationChannel(new NotificationChannel(RESULTS, "브라우저 작업 결과", NotificationManager.IMPORTANCE_DEFAULT));
-            Intent review = new Intent(context, BrowserActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT).putExtra(BrowserActivity.REVIEW_WORK, true);
+            Intent review = new Intent(context, BrowserActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                .putExtra(BrowserActivity.REVIEW_WORK, true).putExtra(BrowserActivity.REVIEW_RECEIPT, receipt);
             PendingIntent open = PendingIntent.getActivity(context, REVIEW, review, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-            String text = site + "에서 한 '" + action + "'의 결과가 확인되지 않아 새 작업의 클릭·입력을 멈췄어요. 사이트에서 실제 결과를 본 뒤 눌러서 확인하면 이어서 할 수 있어요.";
+            String text = site + "에서 한 '" + action + "'의 결과가 확인되지 않아 그 작업의 클릭·입력만 멈췄어요(다른 작업은 그대로 해요). 사이트에서 실제 결과를 본 뒤 눌러서 확인하면 그 작업도 이어서 할 수 있어요.";
             manager.notify(REVIEW, new Notification.Builder(context, RESULTS).setSmallIcon(R.drawable.ic_notification).setContentTitle("이전 브라우저 작업 확인이 필요해요")
                 .setContentText(text).setStyle(new Notification.BigTextStyle().bigText(text)).setVisibility(Notification.VISIBILITY_PRIVATE).setAutoCancel(true).setContentIntent(open).build());
         } catch (RuntimeException unavailable) { /* The answer in the chat still says where to look. */ }
@@ -107,9 +109,20 @@ public final class BrowserTaskService extends Service {
         startForeground(NOTIFICATION, new Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_notification).setContentTitle("들퍼레가 브라우저에서 작업 중이에요")
             .setContentText(notificationTarget(engine, lease)).setVisibility(Notification.VISIBILITY_PRIVATE)
             .setOngoing(true).setContentIntent(open).addAction(new Notification.Action.Builder(null, "이 작업 중지", stop).build()).build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-        if (wake == null) { wake = getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gyeot:browser"); wake.setReferenceCounted(false); }
-        wake.acquire(5 * 60_000L);
+        keepAwake();
         return START_NOT_STICKY;
+    }
+    /** The wake lock is taken for WAKE_MS and renewed every RENEW_MS while any task runs, so a long task never loses it. */
+    private static final long WAKE_MS = 5 * 60_000L, RENEW_MS = 4 * 60_000L;
+    private final Handler renewer = new Handler(Looper.getMainLooper());
+    private final Runnable renew = this::keepAwake;
+    /** Holds the wake lock while a browser task runs (renewing it), and lets it go once none does. */
+    private void keepAwake() {
+        renewer.removeCallbacks(renew);
+        if (!BrowserEngine.get(this).anyRunning()) { if (wake != null && wake.isHeld()) wake.release(); return; }
+        if (wake == null) { wake = getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gyeot:browser"); wake.setReferenceCounted(false); }
+        wake.acquire(WAKE_MS);
+        renewer.postDelayed(renew, RENEW_MS);
     }
     private static String notificationTarget(BrowserEngine engine, long lease) {
         BrowserEngine.Tab target = engine.tabForLease(lease);
@@ -124,6 +137,7 @@ public final class BrowserTaskService extends Service {
         finally { stoppingService = false; stopSelf(); }
     }
     @Override public void onDestroy() {
+        renewer.removeCallbacks(renew);
         if (wake != null && wake.isHeld()) wake.release();
         BrowserEngine engine = BrowserEngine.get(this);
         stoppingService = true;
