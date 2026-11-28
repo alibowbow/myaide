@@ -5,7 +5,11 @@ import static dev.jun.gyeot.core.Jsons.*;
 
 /** Per-tab task memory, deliberately separate from the complete display transcript. */
 public final class BrowserTaskContext {
-    public static final int USER_BUDGET = 64000;
+    /**
+     * Characters of this tab's requests and results kept as its task memory. Past it the oldest turns are let go, newest kept:
+     * a long conversation in a tab is never refused (it used to say "문맥이 가득 찼어요").
+     */
+    public static final int USER_BUDGET = 400_000;
     private JSONArray requests = arr(), outcomes = arr();
     private String result = "", state = "idle";
     private boolean readable = true;
@@ -85,21 +89,45 @@ public final class BrowserTaskContext {
             throw new IllegalArgumentException("Invalid liveness codes");
         liveness = obj("phase", normalized, "reason", reason);
     }
+    /** A request this tab can take: its memory was read back (or is new) and the request is within REQUEST_LIMIT. */
     public boolean canAccept(String request) {
-        if (!readable || request == null || request.isBlank() || request.length() > BrowserPrompts.REQUEST_LIMIT) return false;
-        int size = request.length();
+        return readable && request != null && !request.isBlank() && request.length() <= BrowserPrompts.REQUEST_LIMIT;
+    }
+    /** Takes a new request; returns how many of the oldest turns were let go to stay within USER_BUDGET (0 mostly). */
+    public int accept(String request) {
+        if (!canAccept(request)) throw new IllegalStateException("이 탭의 작업 기억을 아직 불러오지 못했어요. 잠시 후 다시 보내 주세요. 이전 표시 기록은 보존돼요.");
+        requests.put(request); state = "running";
+        return trim();
+    }
+    /**
+     * Lets the oldest turns (a request and the results of it) go while the memory is over USER_BUDGET; the newest request
+     * always stays. Results point at their request by index, so those after the dropped ones move up.
+     */
+    private int trim() {
+        int dropped = 0;
+        while (requests.length() > 1 && size() > USER_BUDGET) {
+            requests.remove(0); dropped++;
+            JSONArray kept = arr();
+            for (int i = 0; i < outcomes.length(); i++) {
+                JSONObject row = outcomes.optJSONObject(i); int at = row.optInt("request_index", -1);
+                if (at <= 0) continue;
+                put(row, "request_index", at - 1); kept.put(row);
+            }
+            outcomes = kept;
+        }
+        return dropped;
+    }
+    private int size() {
+        int size = 0;
         for (int i = 0; i < requests.length(); i++) size += requests.optString(i).length();
         for (int i = 0; i < outcomes.length(); i++) size += outcomes.optJSONObject(i).optString("result").length();
-        return size <= USER_BUDGET;
-    }
-    public void accept(String request) {
-        if (!canAccept(request)) throw new IllegalStateException("이 탭의 작업 문맥이 가득 찼거나 복원되지 않았어요. 새 대화를 시작해 주세요. 이전 표시 기록은 보존돼요.");
-        requests.put(request); state = "running";
+        return size;
     }
     public void finish(String result, String state) {
         this.result = result == null ? "" : result;
         this.state = state == null ? "error" : state;
         if (requests.length() > 0) outcomes.put(obj("request_index", requests.length() - 1, "result", this.result, "state", this.state));
+        trim();
     }
     public String lastRequest() { return requests.length() == 0 ? "" : requests.optString(requests.length() - 1); }
     public String lastResult() { return result; }
@@ -149,12 +177,8 @@ public final class BrowserTaskContext {
         try {
             JSONObject value = new JSONObject(saved); JSONArray older = value.getJSONArray("requests");
             if (value.optInt("version") != 1 || !(value.opt("result") instanceof String) || !(value.opt("state") instanceof String)) throw new IllegalArgumentException();
-            int size = 0;
-            for (int i = 0; i < older.length(); i++) {
+            for (int i = 0; i < older.length(); i++)
                 if (!(older.get(i) instanceof String) || older.getString(i).isBlank() || older.getString(i).length() > BrowserPrompts.REQUEST_LIMIT) throw new IllegalArgumentException();
-                size += older.getString(i).length();
-            }
-            if (size > USER_BUDGET) throw new IllegalArgumentException();
             JSONArray results = value.optJSONArray("outcomes");
             if (value.has("outcomes") && results == null) throw new IllegalArgumentException();
             if (results == null) results = arr();
@@ -190,6 +214,7 @@ public final class BrowserTaskContext {
             if (preserve) return true;
             requests = new JSONArray(older.toString()); outcomes = new JSONArray(results.toString()); result = value.getString("result"); state = value.getString("state");
             pendingMutation = pending; lastMutation = last; liveness = live; recoveryContext = recovery;
+            trim(); // A memory saved larger than the budget lets its oldest turns go instead of being refused.
             if (state.equals("running")) state = "interrupted";
             return true;
         } catch (Exception invalid) { readable = false; return false; }

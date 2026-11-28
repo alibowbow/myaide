@@ -8,7 +8,8 @@ import java.util.function.BooleanSupplier;
 
 /** Untrusted download metadata and bounded original-body transfer. No networking or execution. */
 public final class BrowserArtifactPolicy {
-    public static final long LIMIT = 64L * 1024 * 1024;
+    /** The largest file a browser job keeps, whatever its kind; executables and installers are never kept. */
+    public static final long LIMIT = 4L * 1024 * 1024 * 1024;
     public record Info(String name, String mime, String kind, long limit) {}
     private BrowserArtifactPolicy() {}
     /** Only explicitly saved Work result metadata authorizes an artifact URI; paths never come from callers. */
@@ -38,8 +39,7 @@ public final class BrowserArtifactPolicy {
         if (mime.matches(".*(executable|x-msdownload|android.package|java-archive|x-sh|x-shellscript).*")) throw new IOException("실행 파일은 저장하지 않아요.");
         // Do not infer a supported model format from an untrusted extension against an explicit MIME.
         String kind = mime.equals("application/octet-stream") ? "" : WorkBook.kind(mime, "");
-        long limit = kind.equals(WorkBook.PDF) ? WorkBook.PDF_LIMIT : kind.equals(WorkBook.IMAGE) ? 60L * 1024 * 1024 : LIMIT;
-        return new Info(name, mime, kind, limit);
+        return new Info(name, mime, kind, LIMIT);
     }
     public static long expected(Map<String,String> headers) throws IOException {
         String encoding = MusicDownload.header(headers, "Content-Encoding");
@@ -51,10 +51,10 @@ public final class BrowserArtifactPolicy {
     }
     public static long copy(InputStream input, OutputStream output, Info info, long expected, BooleanSupplier cancelled) throws IOException {
         if (input == null) throw new IOException("다운로드 본문이 없어요.");
-        if (expected > info.limit()) throw new IOException("파일이 허용 크기를 넘어요.");
+        if (expected > info.limit()) throw new IOException(tooLarge(info));
         if (cancelled.getAsBoolean()) throw new InterruptedIOException("다운로드를 취소했어요.");
         byte[] prefix = input.readNBytes(8);
-        if (prefix.length > info.limit()) throw new IOException("파일이 허용 크기를 넘어요.");
+        if (prefix.length > info.limit()) throw new IOException(tooLarge(info));
         validatePrefix(prefix, prefix.length, info);
         if (cancelled.getAsBoolean()) throw new InterruptedIOException("다운로드를 취소했어요.");
         output.write(prefix);
@@ -64,13 +64,14 @@ public final class BrowserArtifactPolicy {
             size = input.read(buffer); if (size == -1) break;
             if (size == 0) continue;
             count += size;
-            if (count > info.limit()) throw new IOException("파일이 허용 크기를 넘어요.");
+            if (count > info.limit()) throw new IOException(tooLarge(info));
             output.write(buffer, 0, size);
         }
         if (cancelled.getAsBoolean()) throw new InterruptedIOException("다운로드를 취소했어요.");
         if (count == 0 || (expected >= 0 && expected != count)) throw new IOException("다운로드가 완성되지 않았어요.");
         return count;
     }
+    private static String tooLarge(Info info) { return "파일이 " + (info.limit() >= 1L << 30 ? (info.limit() >> 30) + "GB" : (info.limit() >> 20) + "MB") + "를 넘어 저장하지 않았어요."; }
     private static void validatePrefix(byte[] bytes, int size, Info info) throws IOException {
         if (size >= 2 && bytes[0] == 'M' && bytes[1] == 'Z' || size >= 4 && bytes[0] == 127 && bytes[1] == 'E' && bytes[2] == 'L' && bytes[3] == 'F')
             throw new IOException("실행 파일은 저장하지 않아요.");

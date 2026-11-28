@@ -26,16 +26,28 @@ public final class GoogleDrive {
     public static final List<String> TOOLS = List.of(SEARCH, READ, SAVE, DOWNLOAD, FOLDER, UPDATE, MOVE, TRASH);
     /** Tools that change existing files: offered only with the user's 수정·정리 permission. */
     public static final List<String> CHANGES = List.of(UPDATE, MOVE, TRASH);
-    public static final int READ_LIMIT = 60_000, LIST_LIMIT = 50, NAME_LIMIT = 200, TEXT_LIMIT = 1_000_000;
+    public static final int READ_LIMIT = 60_000, LIST_LIMIT = 200, NAME_LIMIT = 200, TEXT_LIMIT = 1_000_000;
+    /** Characters of one document drive_read gives the AI browser (a job's instructions can be long; it keeps what it read). */
+    public static final int BROWSER_READ_LIMIT = 400_000;
     /** Changes to existing files in one Work turn, a guard against a runaway loop. */
     public static final int CHANGE_LIMIT = 200;
-    /** Downloads: pictures, video and audio stream to the media folders; other files go through work-file saving in memory. */
-    public static final long MEDIA_DOWNLOAD = 250L * 1024 * 1024, FILE_DOWNLOAD = 64L * 1024 * 1024;
-    /** A video (for a YouTube upload, say): up to 2GB. */
-    public static final long VIDEO_DOWNLOAD = 2048L * 1024 * 1024;
+    /**
+     * Downloads to the phone: any kind of file up to 4GB (pictures, video and audio stream to the media folders, other files
+     * to the 들퍼레 folder, all through a file, never whole in memory).
+     */
+    public static final long DOWNLOAD_LIMIT = 4L * 1024 * 1024 * 1024;
+    /**
+     * A Google Docs, Sheets, Slides or Drawings export. Google itself refuses to export more than 10MB (files.export), so no
+     * larger limit would ever be reached here; this one only stops a broken answer.
+     */
+    public static final long EXPORT_LIMIT = 64L * 1024 * 1024;
+    /** A file read whole into memory by a caller that keeps it there (AssistantService's tool download): 64MB. */
+    public static final long FILE_DOWNLOAD = 64L * 1024 * 1024;
     public static final String FOLDER_TYPE = "application/vnd.google-apps.folder", PRESENTATION = "application/vnd.google-apps.presentation", DRAWING = "application/vnd.google-apps.drawing";
     /** Bytes read from Drive for one text file: enough for READ_LIMIT characters of Korean, then the text is clipped. */
     public static final int READ_BYTES = READ_LIMIT * 4;
+    /** The same for the AI browser's drive_read (BROWSER_READ_LIMIT). */
+    public static int readBytes(int limit) { return limit * 4; }
     /** The largest picture, video or audio file sent to Drive at once. */
     public static final long MEDIA_LIMIT = 300L * 1024 * 1024;
     public static final String DOCUMENT = "application/vnd.google-apps.document", SHEET = "application/vnd.google-apps.spreadsheet";
@@ -90,7 +102,9 @@ public final class GoogleDrive {
         return out;
     }
     /** Text read from Drive, at most READ_LIMIT characters. */
-    public static String clip(String text) { String value = text == null ? "" : text; return value.length() <= READ_LIMIT ? value : value.substring(0, READ_LIMIT); }
+    public static String clip(String text) { return clip(text, READ_LIMIT); }
+    /** Text read from Drive, at most limit characters. */
+    public static String clip(String text, int limit) { String value = text == null ? "" : text; return value.length() <= limit ? value : value.substring(0, limit); }
     /**
      * How a file is read as text: Google Docs, Sheets and Slides through export; plain text, CSV, Markdown, JSON, XML and
      * HTML downloaded as they are; anything else (PDF, images, video) is not read here. Returns the address, or "" when
@@ -173,13 +187,12 @@ public final class GoogleDrive {
             for (String[] choice : choices) if (choice[0].equals(want)) chosen = choice;
             int dot = base.lastIndexOf('.'); if (dot > 0 && base.length() - dot <= 6) base = base.substring(0, dot);
             String out = safeName(base + "." + chosen[0]);
-            return obj("url", API + "files/" + id + "/export?mimeType=" + encode(chosen[1]), "name", out, "mime", chosen[1], "limit", FILE_DOWNLOAD);
+            return obj("url", API + "files/" + id + "/export?mimeType=" + encode(chosen[1]), "name", out, "mime", chosen[1], "limit", EXPORT_LIMIT);
         }
         if (type.startsWith("application/vnd.google-apps.")) throw new IllegalArgumentException(type.equals(FOLDER_TYPE) ? "폴더는 내려받을 수 없어요. 안의 파일을 하나씩 내려받아 주세요." : "이 Google 형식은 내려받을 수 없어요.");
         if (BLOCKED.matcher(base).matches()) throw new IllegalArgumentException("설치 파일이나 실행 스크립트는 휴대폰에 내려받지 않아요.");
         String mime = type.isBlank() ? "application/octet-stream" : type;
-        boolean media = mime.startsWith("image/") || mime.startsWith("video/") || mime.startsWith("audio/");
-        return obj("url", API + "files/" + id + "?alt=media&supportsAllDrives=true", "name", base, "mime", mime, "limit", mime.startsWith("video/") ? VIDEO_DOWNLOAD : media ? MEDIA_DOWNLOAD : FILE_DOWNLOAD);
+        return obj("url", API + "files/" + id + "?alt=media&supportsAllDrives=true", "name", base, "mime", mime, "limit", DOWNLOAD_LIMIT);
     }
     /** A file name safe on the phone and in Drive: no slashes or control characters, at most NAME_LIMIT characters. */
     static String safeName(String name) {
@@ -250,7 +263,7 @@ public final class GoogleDrive {
     public static JSONArray declarations() { return declarations(false); }
     public static JSONArray declarations(boolean changes) {
         JSONArray tools = arr(
-            obj("name", SEARCH, "description", "Search the user's Google Drive by words in file names or contents (blank query: newest files), optionally inside one folder or folders only. Returns up to 50 files {id, name, type, size, modified, link, folder} and next_page when there are more.",
+            obj("name", SEARCH, "description", "Search the user's Google Drive by words in file names or contents (blank query: newest files), optionally inside one folder or folders only. Returns up to " + LIST_LIMIT + " files {id, name, type, size, modified, link, folder} and next_page when there are more.",
                 "parameters", obj("type", "object", "additionalProperties", false, "properties", obj(
                     "query", obj("type", "string", "description", "Words to look for; blank for the newest files."),
                     "folder_id", obj("type", "string", "description", "Optional folder id to list or search inside."),

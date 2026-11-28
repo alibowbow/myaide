@@ -5,6 +5,8 @@ import static dev.jun.gyeot.core.Jsons.*;
 
 /** Turn-bound input buffer. The resulting task envelope uses normal task-context storage, never diagnostic logs. */
 public final class VoiceBrowserRequest {
+    /** The longest spoken browser task, and how much of the voice model's own reading of it goes along. */
+    public static final int TASK_LIMIT = 50_000, INTERPRETATION_LIMIT = 8000;
     private long turn = -1;
     private String original = "";
     /**
@@ -55,15 +57,15 @@ public final class VoiceBrowserRequest {
         if (raw.isBlank()) {
             String request = modelRequest == null ? "" : modelRequest.strip();
             if (request.isEmpty()) throw new IllegalArgumentException("browser_task의 request가 비어 있어요. 사용자가 원하는 일을 request에 담아 주세요.");
-            return request.length() > 5500 ? request.substring(0, 5500) : request;
+            return request.length() > TASK_LIMIT ? request.substring(0, TASK_LIMIT) : request;
         }
-        if (raw.length() > 5500)
+        if (raw.length() > TASK_LIMIT)
             throw new IllegalArgumentException("지시가 너무 길어요. 핵심 요청을 짧게 다시 말씀해 주세요.");
         String earlier = carried(input);
         return obj("source", "finalized_voice", "turn_id", input, "target_tab", tab == null ? "" : tab,
             "original_user_instruction", raw, "goal_and_constraints_from", "original_user_instruction",
             "earlier_user_turns", earlier.isEmpty() ? new org.json.JSONArray() : new org.json.JSONArray().put(earlier),
-            "model_interpretation", modelRequest == null ? "" : modelRequest.substring(0, Math.min(1000, modelRequest.length())),
+            "model_interpretation", modelRequest == null ? "" : modelRequest.substring(0, Math.min(INTERPRETATION_LIMIT, modelRequest.length())),
             "handoff_rule", "Original user instruction and its constraints are authoritative. Interpretation is secondary and must not remove the target website, requested mode, deliverable or constraints. earlier_user_turns is the user's previous request that a short follow-up answers, context only; never redo it. Continue this tab's task context; newest user corrections supersede unexecuted plans, never repeat a submitted action.").toString();
     }
     public void clear() { turn = -1; original = ""; answered = ""; }

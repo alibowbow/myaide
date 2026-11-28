@@ -89,9 +89,20 @@ public final class BrowserTaskService extends Service {
         startForeground(NOTIFICATION, new Notification.Builder(this, CHANNEL).setSmallIcon(R.drawable.ic_notification).setContentTitle("들퍼레가 브라우저에서 작업 중이에요")
             .setContentText(notificationTarget(engine, lease)).setVisibility(Notification.VISIBILITY_PRIVATE)
             .setOngoing(true).setContentIntent(open).addAction(new Notification.Action.Builder(null, "이 작업 중지", stop).build()).build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-        if (wake == null) { wake = getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gyeot:browser"); wake.setReferenceCounted(false); }
-        wake.acquire(5 * 60_000L);
+        keepAwake();
         return START_NOT_STICKY;
+    }
+    /** The wake lock is taken for WAKE_MS and renewed every RENEW_MS while any task runs, so a long task never loses it. */
+    private static final long WAKE_MS = 5 * 60_000L, RENEW_MS = 4 * 60_000L;
+    private final Handler renewer = new Handler(Looper.getMainLooper());
+    private final Runnable renew = this::keepAwake;
+    /** Holds the wake lock while a browser task runs (renewing it), and lets it go once none does. */
+    private void keepAwake() {
+        renewer.removeCallbacks(renew);
+        if (!BrowserEngine.get(this).anyRunning()) { if (wake != null && wake.isHeld()) wake.release(); return; }
+        if (wake == null) { wake = getSystemService(PowerManager.class).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "gyeot:browser"); wake.setReferenceCounted(false); }
+        wake.acquire(WAKE_MS);
+        renewer.postDelayed(renew, RENEW_MS);
     }
     private static String notificationTarget(BrowserEngine engine, long lease) {
         BrowserEngine.Tab target = engine.tabForLease(lease);
@@ -106,6 +117,7 @@ public final class BrowserTaskService extends Service {
         finally { stoppingService = false; stopSelf(); }
     }
     @Override public void onDestroy() {
+        renewer.removeCallbacks(renew);
         if (wake != null && wake.isHeld()) wake.release();
         BrowserEngine engine = BrowserEngine.get(this);
         stoppingService = true;

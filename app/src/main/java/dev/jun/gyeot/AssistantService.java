@@ -1928,7 +1928,7 @@ public final class AssistantService extends Service {
                 android.net.Uri uri; long size;
                 try (java.io.InputStream body = connection.getInputStream()) {
                     if (!category.isEmpty()) {
-                        if (announced > SharedMediaOutput.MAX_BYTES) throw new IllegalStateException("파일이 너무 커요 (2GB까지).");
+                        if (announced > SharedMediaOutput.MAX_BYTES) throw new IllegalStateException("파일이 너무 커요 (" + (SharedMediaOutput.MAX_BYTES >> 30) + "GB까지).");
                         java.util.concurrent.atomic.AtomicLong count = new java.util.concurrent.atomic.AtomicLong();
                         java.io.InputStream counted = new java.io.FilterInputStream(body) {
                             @Override public int read() throws IOException { int b = super.read(); if (b >= 0) count.incrementAndGet(); return b; }

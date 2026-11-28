@@ -312,7 +312,8 @@ final class BrowserEngine {
     boolean acceptSteering(long lease, String visible, String actual) {
         Lane l = lane(lease);
         if (!valid(lease) || l.onCancel == null || l.owner != current || !canAcceptTask(actual)) return false;
-        l.owner.task.accept(actual); l.owner.taskChanged = true; l.lastAsk = visible; l.lastRequest = actual;
+        int dropped = l.owner.task.accept(actual); l.owner.taskChanged = true; l.lastAsk = visible; l.lastRequest = actual;
+        if (dropped > 0) record(lease, forgotten(dropped));
         l.taskWords = (l.taskWords + "\n" + dev.jun.gyeot.core.AutomationGate.userWords(actual)).strip();
         l.transcriptRequest = transcript.request(l.conversation, visible);
         persistTranscript(); changed(); return true;
@@ -332,8 +333,12 @@ final class BrowserEngine {
     void record(long lease, String text) {
         Lane l = lane(lease); if (!valid(lease) || l.completed) return;
         l.progressUpdatedElapsed = android.os.SystemClock.elapsedRealtime(); l.activity.add(text);
-        if (l.activity.size() > 30) l.activity.remove(0); changed();
+        if (l.activity.size() > ACTIVITY) l.activity.remove(0); changed();
     }
+    /** Lines 작업 상세 keeps for a task (it draws the newest few and the rest on request). */
+    static final int ACTIVITY = 200;
+    /** A quiet line in 작업 상세 when a tab's long task memory let its oldest turns go (BrowserTaskContext.USER_BUDGET). */
+    private static String forgotten(int dropped) { return "이 탭의 작업 기억이 길어 가장 오래된 지시 " + dropped + "개는 기억에서 뺐어요 · 대화 기록은 그대로예요"; }
     /** A step's outcome line (BrowserAgent's journal) in place of the "…하는 중" line its start added. */
     void recordStep(long lease, String started, String text) {
         Lane l = lane(lease); if (!valid(lease) || l.completed) return;
@@ -509,7 +514,8 @@ final class BrowserEngine {
         Set<String> restoredIds = new HashSet<>(), restoredConversations = new HashSet<>();
         int savedSelected = -1;
         tabsWritable = saved.tabs() != null;
-        try { JSONArray values = new JSONArray(saved.tabs() == null || saved.tabs().isBlank() ? "[]" : saved.tabs()); if (values.length() > 6) tabsWritable = false; for (int i = 0; i < Math.min(6, values.length()); i++) {
+        // Every saved tab comes back: there is no cap on tabs (준: "탭갯수 제한 없애"), and a tab out of sight loads only when shown.
+        try { JSONArray values = new JSONArray(saved.tabs() == null || saved.tabs().isBlank() ? "[]" : saved.tabs()); for (int i = 0; i < values.length(); i++) {
             try {
                 JSONObject entry = values.optJSONObject(i);
                 if (entry != null && entry.has("task") && !(entry.opt("task") instanceof String)) throw new IllegalArgumentException("Invalid tab task memory");
@@ -655,8 +661,9 @@ final class BrowserEngine {
     }
     void acceptRequest(long lease, String visible, String actual) {
         Lane l = lane(lease); if (!valid(lease) || l.completed || !l.transcriptRequest.isEmpty()) return;
-        l.owner.task.accept(actual); l.owner.taskChanged = true;
+        int dropped = l.owner.task.accept(actual); l.owner.taskChanged = true;
         l.lastAsk = visible; l.lastRequest = actual; l.lastStats = ""; l.requestStarted = System.currentTimeMillis();
+        if (dropped > 0) record(lease, forgotten(dropped));
         l.taskWords = dev.jun.gyeot.core.AutomationGate.userWords(actual);
         transcript.ensure(l.conversation, BrowserTools.origin(l.owner.url));
         l.transcriptRequest = transcript.request(l.conversation, visible);
@@ -852,8 +859,8 @@ final class BrowserEngine {
     private Tab addTab(String url, boolean open) { return addTab(url, open, false); }
     private Tab addTab(String url, boolean open, boolean secret) {
         if (disposed) throw new IllegalStateException("작업 브라우저가 종료됐어요.");
-        if (workEngine && tabs.size() >= 2) throw new IllegalStateException("작업별 탭은 2개까지 열 수 있어요. 별도 병렬 작업을 사용해 주세요.");
-        // No cap on tabs (준: "탭갯수 제한 없애", "쓸데 없는 제한이 너무 많아"): a tab out of sight is paused and lets its display go.
+        // No cap on tabs, a Work job's own included (준: "탭갯수 제한 없애", "쓸데 없는 제한이 너무 많아"): a tab out of sight is
+        // paused and lets its display go.
         Tab tab = new Tab(secret); tab.url = BrowserTools.url(url); tabs.add(tab); current = tab; viewEpoch++;
         tab.session.setPromptDelegate(gatedPrompts);
         tab.session.setNavigationDelegate(new GeckoSession.NavigationDelegate() {
@@ -1012,10 +1019,13 @@ final class BrowserEngine {
     static int clampZoom(int percent) { return Math.max(ZOOM_LEAST, Math.min(ZOOM_MOST, percent)); }
     /** Page zoom from a quarter to three times (as wide as Chrome's, a little wider at the small end). */
     static final int ZOOM_LEAST = 25, ZOOM_MOST = 300;
-    /** Page layout zoom, separate from system font scale and pinch zoom. Never reloads forms. */
+    /**
+     * Page layout zoom, separate from system font scale and pinch zoom. Never reloads forms. A task running in the tab goes
+     * on: how the page is shown is the user's to change while the AI works (the next read sees the page as it is then).
+     */
     void setZoom(Tab tab, int percent) {
         if (tab == null || !tabs.contains(tab)) return;
-        stop(tab,"직접 조작 중 · AI가 멈췄어요"); tab.settingsChanged = true; tab.appliedZoom = -1; tab.zoomFailed = false; tab.zoomPercent = clampZoom(percent); applyZoom(tab); persist(); changed();
+        tab.settingsChanged = true; tab.appliedZoom = -1; tab.zoomFailed = false; tab.zoomPercent = clampZoom(percent); applyZoom(tab); persist(); changed();
     }
     private void applyZoom(Tab tab) {
         if (tab.port == null) return;
@@ -1023,9 +1033,10 @@ final class BrowserEngine {
         catch (Exception e) { if (tab == current) status = "페이지 연결 뒤 확대·축소를 다시 적용할게요."; }
     }
 
+    /** 데스크톱 보기 on or off; like the zoom it leaves a running task going (the page reloads and the task reads it again). */
     void setDesktop(Tab tab, boolean desktop) {
         if (tab == null || !tabs.contains(tab)) return;
-        stop(tab,"직접 조작 중 · AI가 멈췄어요"); changeDesktop(tab, desktop); changed();
+        changeDesktop(tab, desktop); changed();
     }
     private void desktopSettings(Tab tab) {
         tab.session.getSettings().setUserAgentMode(tab.desktop ? GeckoSessionSettings.USER_AGENT_MODE_DESKTOP : GeckoSessionSettings.USER_AGENT_MODE_MOBILE);
@@ -1039,7 +1050,7 @@ final class BrowserEngine {
         else { tab.needsLoad = true; activate(tab); }
         persist();
     }
-    /** 권한 모드: '읽기만' keeps the AI to reading (BrowserActivity's AI menu sets it); '확인받기' is the default. */
+    /** 권한 모드: '읽기만' keeps the AI to reading (BrowserActivity's AI menu sets it); '조작 허용' is the default. */
     static final String READ_ONLY = "browserReadOnly";
     boolean readOnly() { return store != null && store.settings.getBoolean(READ_ONLY, false); }
     /** 화면 분할: the tab shown beside the current one on a wide screen (kept live and active while shown), or null. */
@@ -1607,11 +1618,11 @@ final class BrowserEngine {
         if (action.equals("close")) { close(tab); callback.accept(tabList()); return; }
         if (!extensionError.isBlank()) { callback.accept(obj("ok", false, "error_code", "bridge_install_failed", "error", extensionError)); return; }
         if (action.equals("open") && keepsFile(args.optString("url"))) { record(lease, "파일을 받는 중"); callback.accept(fetchFile(tab, args.optString("url"), linkLabel(tab, args.optString("url")))); return; }
-        if (action.equals("back") && !tab.back) { callback.accept(obj("ok", false, "error_code", "no_history", "action_executed", false, "retryable", false, "error", "돌아갈 이전 페이지가 없어요. 이동할 공개 HTTPS 홈페이지 주소를 알려 주세요.")); return; }
+        if (action.equals("back") && !tab.back) { callback.accept(obj("ok", false, "error_code", "no_history", "action_executed", false, "retryable", false, "error", "돌아갈 이전 페이지가 없어요. 이동할 주소를 알려 주세요.")); return; }
         // 권한 모드 '읽기만': the AI reads, scrolls, follows links and opens pages, and never types, chooses or presses on one.
         if (readOnly() && (Set.of("type", "select", "press", "attach").contains(action) || action.equals("click") && !routine)) {
             callback.accept(obj("ok", false, "error_code", "read_only_mode", "action_executed", false, "retryable", false,
-                "error", "읽기만 모드예요: 페이지에 입력하거나 고르거나 누르는 동작은 하지 않아요. 읽기·스크롤·링크 이동으로만 이어 가고, 필요하면 사용자에게 AI 메뉴 → 권한 모드에서 '확인받기'로 바꿔 달라고 말해 주세요.")); return;
+                "error", "읽기만 모드예요: 페이지에 입력하거나 고르거나 누르는 동작은 하지 않아요. 읽기·스크롤·링크 이동으로만 이어 가고, 필요하면 사용자에게 AI 메뉴 → 권한 모드에서 '조작 허용'으로 바꿔 달라고 말해 주세요.")); return;
         }
         if (action.equals("attach")) { callback.accept(stageUpload(tab, lease, args.optString("file"))); return; }
         if (action.equals("click")) tab.clickLabel = elementLabel(tab, args.optString("ref"));

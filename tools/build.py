@@ -410,6 +410,11 @@ if __name__ == '__main__':
     bridge.mkdir(parents=True, exist_ok=True)
     javac(['-encoding', 'UTF-8', '-d', bridge, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/PageBridgeRegression.java'])
     run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (bridge, jars[-1]))), 'dev.jun.gyeot.core.PageBridgeRegression'])
+    # AI 브라우저의 숫자 제한 (core/BrowserJournal …): no step cap, but an endless scroll stops at the checkpoint; lifted sizes stay lifted.
+    browser_limits = BUILD / 'browser-limit-checks'
+    browser_limits.mkdir(parents=True, exist_ok=True)
+    javac(['-encoding', 'UTF-8', '-d', browser_limits, '-cp', jars[-1], '-sourcepath', ROOT / 'app/src/main/java', ROOT / 'tools/BrowserLimitsRegression.java'])
+    run(['java', '-ea', '-Dstdout.encoding=UTF-8', '-cp', os.pathsep.join(map(str, (browser_limits, jars[-1]))), 'dev.jun.gyeot.core.BrowserLimitsRegression'])
     test_board(jars[-1])
     # The optional larger suites run when their tests folder is present.
     if (ROOT / 'tests/CoreTests.java').is_file(): test(jars)

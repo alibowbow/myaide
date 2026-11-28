@@ -17,8 +17,8 @@ import org.json.JSONObject;
 /** Streamed, private-first generated media export (and memory backups in 백업). No MediaStore fallback or user-file deletion. */
 final class SharedMediaOutput {
     static final String DIRECTORY = "pending-media-exports-v1";
-    /** Up to 2GB: a video to upload (YouTube) can be long. */
-    static final long MAX_BYTES = 2048L * 1024 * 1024;
+    /** Up to 4GB: a video to upload (YouTube) can be long. */
+    static final long MAX_BYTES = 4L * 1024 * 1024 * 1024;
     /** 마이튜브's captures while a video plays: their own folder in the 들퍼레 folder. */
     static final String CAPTURES = "마이튜브 캡처";
     /** 마이튜브's MP3s (YouTubeAudio): their own folder in the 들퍼레 folder too. */
@@ -43,7 +43,7 @@ final class SharedMediaOutput {
         MessageDigest digest=MessageDigest.getInstance("SHA-256");long count=0;
         try(OutputStream raw=Files.newOutputStream(body.toPath(),java.nio.file.StandardOpenOption.CREATE_NEW,java.nio.file.StandardOpenOption.WRITE);FileOutputStream sync=new FileOutputStream(body,true)) {
             byte[] buffer=new byte[65536];int n;
-            while(true){guard.run();n=source.read(buffer);guard.run();if(n<0)break;if(n==0)continue;count+=n;if(count>MAX_BYTES)throw new IOException("미디어가 2GB를 넘어 저장을 중단했어요.");raw.write(buffer,0,n);digest.update(buffer,0,n);}
+            while(true){guard.run();n=source.read(buffer);guard.run();if(n<0)break;if(n==0)continue;count+=n;if(count>MAX_BYTES)throw new IOException("미디어가 "+(MAX_BYTES>>30)+"GB를 넘어 저장을 중단했어요.");raw.write(buffer,0,n);digest.update(buffer,0,n);}
             raw.flush();sync.getFD().sync();
         }
         MigrationLedger.syncDirectory(dir);guard.run();
