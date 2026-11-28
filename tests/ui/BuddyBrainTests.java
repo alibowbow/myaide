@@ -79,6 +79,43 @@ public class BuddyBrainTests {
 
     /** A voice that ends going up is a question (준: "음악소리들려? 라고 말하면 음악소리들려로 알아들어"); one going down is not. */
     /** 준: "퍼레 대화는 간단한 잡담인데 설정 인풋이 많나보네": chitchat goes with one line, not the whole list; "more" asks again. */
+    /**
+     * What the user's words settle, whatever the brain picked (퍼레 자동 점검 with NVIDIA's models, 2026-11-29): a condition said
+     * makes a 조건 알림, the way of going is the navigation's mode, a thing to do in an app is a phone_job; "…ㄹ게" and "…ㄹ 거야"
+     * with no tool are promises; asking back for a thing a tool does is asked again.
+     */
+    @Test public void theWordsSettleWhatTheBrainMissed() throws Exception {
+        JSONObject nav = BuddyTools.refine("회사에서 나가면 집으로 길 안내해 줘", new JSONObject("{\"tool\":\"navigate\",\"destination\":\"집\",\"mode\":\"car\"}"));
+        assertEquals("when_event", nav.optString("tool"));
+        assertEquals("회사에서 나가면", nav.optString("when"));
+        assertEquals("navigate", nav.optString("then")); assertEquals("집", nav.optString("what"));
+        JSONObject walk = BuddyTools.refine("강남역까지 걸어서 길 안내해 줘", new JSONObject("{\"tool\":\"navigate\",\"destination\":\"강남역\"}"));
+        assertEquals("navigate", walk.optString("tool")); assertEquals("walk", walk.optString("mode"));
+        assertEquals("public", BuddyTools.refine("지하철로 시청 가는 길 알려 줘", new JSONObject("{\"tool\":\"navigate\",\"destination\":\"시청\"}")).optString("mode"));
+        JSONObject cart = BuddyTools.refine("쿠팡 장바구니에 휴지 담아 줘", new JSONObject("{\"tool\":\"open_app\",\"app\":\"쿠팡\"}"));
+        assertEquals("phone_job", cart.optString("tool")); assertEquals("쿠팡", cart.optString("app")); assertTrue(cart.optString("request").contains("휴지"));
+        assertEquals("phone_job", BuddyTools.refine("카톡 단톡방 공지 읽어 줘", new JSONObject("{\"tool\":\"open_app\",\"app\":\"카카오톡\"}")).optString("tool"));
+        // Left as they were: only opening an app, a message to send, a mode already given, an act that is already a 조건 알림.
+        assertEquals("open_app", BuddyTools.refine("유튜브 열어 줘", new JSONObject("{\"tool\":\"open_app\",\"app\":\"YouTube\"}")).optString("tool"));
+        assertEquals("open_app", BuddyTools.refine("카톡 열어서 엄마한테 보내 줘", new JSONObject("{\"tool\":\"open_app\",\"app\":\"카카오톡\"}")).optString("tool"));
+        assertEquals("car", BuddyTools.refine("걸어서 가면 멀어? 차로 안내해 줘", new JSONObject("{\"tool\":\"navigate\",\"destination\":\"역\",\"mode\":\"car\"}")).optString("mode"));
+        assertEquals("navigate", BuddyTools.refine("어떻게 하면 빨리 가? 강남역 안내해 줘", new JSONObject("{\"tool\":\"navigate\",\"destination\":\"강남역\"}")).optString("tool"));
+        // Promises with no tool: "멈춤시킬게", "찾을 거야"; not "그거야", not a question.
+        assertTrue(BuddyTools.promised("음악 꺼 줘", "음악 멈춤시킬게 🎶"));
+        assertTrue(BuddyTools.promised("유튜브에서 아이유 노래 틀어 줘", "유튜브로 알아서 찾을 거야 🎶"));
+        assertFalse(BuddyTools.willDo("맞아, 바로 그거야!"));
+        assertFalse(BuddyTools.willDo("음악 끌까?"));
+        // Asked back for a thing a tool does: asked again; a talk's own question is not.
+        assertTrue(dev.jun.gyeot.core.BuddyChat.asksBack("카톡으로 오늘 좀 늦는다고 보내 줘", "누구한테 보낼까? 이름만 말해 주면 바로 보낼게!"));
+        assertTrue(dev.jun.gyeot.core.BuddyChat.asksBack("어제 유튜브 얼마나 봤지", "어제 유튜브 본 시간은 내가 바로 확인할 수 있는 기능이 없어 ㅠㅠ"));
+        assertTrue(dev.jun.gyeot.core.BuddyChat.asksBack("할 일 관리 앱 코드 짜 줘", "좋아! 어떤 기능이 필요할지 좀 더 구체적으로 말해 줄래?"));
+        assertFalse(dev.jun.gyeot.core.BuddyChat.asksBack("심심해", "뭐 하고 놀까? 어떤 걸 좋아해?"));
+        assertFalse(dev.jun.gyeot.core.BuddyChat.asksBack("카톡으로 보내 줘", "보낼게!\n할일: {\"tool\":\"share\",\"text\":\"늦어\"}"));
+        // The 할일 line said again with the refined act.
+        String said = BuddyPrompt.withAct("안내할게!\n할일: {\"tool\":\"navigate\",\"destination\":\"강남역\"}", walk);
+        assertEquals("walk", BuddyPrompt.act(said).optString("mode"));
+    }
+
     @Test public void chitchatGoesLight() {
         assertTrue("one line, not the whole list (" + BuddyPrompt.ACTS_LITE.length() + " vs " + BuddyPrompt.ACTS.length() + ")", BuddyPrompt.ACTS_LITE.length() * 10 < BuddyPrompt.ACTS.length());
         assertTrue(BuddyPrompt.wantsMore("할일: {\"tool\":\"more\"}"));

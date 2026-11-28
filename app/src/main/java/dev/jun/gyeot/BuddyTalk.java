@@ -426,16 +426,20 @@ final class BuddyTalk {
         // Said it would ("찾아볼게!", "알아볼게", "열어 줄게") and wrote no 할일 line: asked once more, the whole list and "now" (the
         // voice talk's retry, BuddyTools.promised, for the written talk). Its answer stands only when it did a thing or stopped
         // promising; otherwise the first one is shown.
-        if (act(said) == null && dev.jun.gyeot.core.BuddyChat.promised(said)) {
+        // Or it asked back / said it can't, for a thing a tool does (BuddyChat.asksBack): asked once more, told not to ask.
+        boolean asksBack = act(said) == null && dev.jun.gyeot.core.BuddyChat.asksBack(question, said);
+        if (act(said) == null && (dev.jun.gyeot.core.BuddyChat.promised(said) || asksBack)) {
             if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException();
             String first = said, by = chatBy, who = CHAT_BRAIN.get();
             try {
-                String again = chatBrain(c, store, question, talk, cancel, current, null, custom, qwen, true, BuddyPrompt.DO_IT_NOW);
-                if (act(again) != null || !again.isBlank() && !BuddyPrompt.wantsMore(again) && !dev.jun.gyeot.core.BuddyChat.promised(again)) said = again;
+                String again = chatBrain(c, store, question, talk, cancel, current, null, custom, qwen, true, asksBack ? BuddyPrompt.DONT_ASK : BuddyPrompt.DO_IT_NOW);
+                if (act(again) != null || !again.isBlank() && !BuddyPrompt.wantsMore(again) && !dev.jun.gyeot.core.BuddyChat.promised(again) && !dev.jun.gyeot.core.BuddyChat.asksBack(question, again)) said = again;
                 else { chatBy = by; CHAT_BRAIN.set(who); }
             } catch (java.util.concurrent.CancellationException stopped) { throw stopped; }
             catch (Exception keep) { said = first; chatBy = by; CHAT_BRAIN.set(who); }
         }
+        // What the user's words settle (a condition said, the way of going, a thing to do in an app): BuddyTools.refine.
+        { JSONObject chosen = act(said), refined = BuddyTools.refine(question, chosen); if (chosen != null && refined != chosen) said = BuddyPrompt.withAct(said, refined); }
         said = backed(question, said, java.time.ZonedDateTime.now());
         if (!current.getAsBoolean()) throw new java.util.concurrent.CancellationException();
         return checked(c, store, question, history, said);
@@ -951,6 +955,8 @@ final class BuddyTalk {
                     } catch (Exception refused) { /* the words alone */ }
                     if (a == null && !none && !ask.dry()) BuddyMisses.add(c, said, "할 일 도구", "말로만 하겠다고 하고 도구를 부르지 않았어요", "", BuddyMisses.PROMISED);
                 }
+                // What the user's words settle (a condition said, the way of going, a thing to do in an app): BuddyTools.refine.
+                a = BuddyTools.refine(said, a);
                 // 기억 2.0: "내일 아침에 알려 줄게" said aloud, asked for and still nothing set: kept by a 예약 or a 조건 알림 made
                 // from the user's own words (BuddyPromises.backing), so the spoken promise is real.
                 if (doIt != null && a == null && !ask.dry()) {

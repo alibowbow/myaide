@@ -149,6 +149,7 @@ public final class BuddyEval {
             if (raw) System.out.println("    ↳ 다시(도구 꼭): " + again.calls());
             act = BuddyTools.act(again.calls());
         }
+        act = BuddyTools.refine(said, act);
         long end = System.nanoTime();
         String words = BuddyPrompt.spoken(t.text());
         if ((words == null || words.isBlank()) && act == null) return new Answer(null, "", "빈 답", ms(begun, end), 0);
@@ -162,9 +163,20 @@ public final class BuddyEval {
         JSONObject body = dev.jun.gyeot.core.NimProtocol.request(model, instructions, messages, null);
         long begun = System.nanoTime(); long[] first = {0};
         ChatStream.Turn t = send(key, body, piece -> { if (first[0] == 0 && !piece.isBlank()) first[0] = System.nanoTime(); });
-        long end = System.nanoTime();
         String text = t.text().replaceAll("(?s)<think>.*?</think>", "").strip();
-        return new Answer(BuddyPrompt.act(text), text.replaceAll("(?m)^\\s*할\\s*일\\s*[:：].*$", "").strip(), text.isEmpty() ? "빈 답" : null, ms(begun, end), first[0] == 0 ? 0 : ms(begun, first[0]));
+        // As BuddyTalk.chatText: only promised, or asked back for a thing a tool does: asked once more (DO_IT_NOW / DONT_ASK).
+        boolean back = BuddyPrompt.act(text) == null && dev.jun.gyeot.core.BuddyChat.asksBack(s.said(), text);
+        if (BuddyPrompt.act(text) == null && (dev.jun.gyeot.core.BuddyChat.promised(text) || back)) {
+            JSONObject again = dev.jun.gyeot.core.NimProtocol.request(model, instructions + (back ? BuddyPrompt.DONT_ASK : BuddyPrompt.DO_IT_NOW), messages, null);
+            String retry = send(key, again, null).text().replaceAll("(?s)<think>.*?</think>", "").strip();
+            if (raw) System.out.println("    ↳ 다시(" + (back ? "되묻지 말기" : "지금 하기") + "): " + retry.replace("\n", " "));
+            if (BuddyPrompt.act(retry) != null || !retry.isBlank() && !dev.jun.gyeot.core.BuddyChat.promised(retry) && !dev.jun.gyeot.core.BuddyChat.asksBack(s.said(), retry)) text = retry;
+        }
+        JSONObject act = BuddyPrompt.act(text), refined = BuddyTools.refine(s.said(), act);
+        // The app keeps a refined act only through its 할일 line (BuddyPrompt.withAct), so here too.
+        if (act != null && refined != act) { String said = BuddyPrompt.withAct(text, refined); if (!said.equals(text)) { text = said; act = refined; } }
+        long end = System.nanoTime();
+        return new Answer(act, text.replaceAll("(?m)^\\s*할\\s*일\\s*[:：].*$", "").strip(), text.isEmpty() ? "빈 답" : null, ms(begun, end), first[0] == 0 ? 0 : ms(begun, first[0]));
     }
     private static long ms(long from, long to) { return Math.max(1, (to - from) / 1_000_000); }
 

@@ -270,6 +270,9 @@ final class BuddyTools {
     static boolean promised(String said, String answer) {
         if (said == null || answer == null) return false;
         for (String line : answer.split("\n")) if (BuddyPrompt.toolWritten(line) >= 0) return true;
+        // Any "…ㄹ게" or "…ㄹ 거야" of a thing asked for (퍼레 자동 점검 with NVIDIA's quick model, 2026-11-29: "음악 멈춤시킬게 🎶",
+        // "유튜브로 알아서 찾을 거야" and no tool), not only the verbs PROMISE names.
+        if (ASKED.matcher(said).find() && willDo(answer)) return true;
         // 하루 타임라인: the past asked about and answered without day_recall (a guess, or "기억이 안 나"): asked again with a tool.
         if (dev.jun.gyeot.core.DayLog.asksPast(said)) return true;
         return ASKED.matcher(said).find() && (PROMISE.matcher(answer).find() || ELSEWHERE.matcher(answer).find());
@@ -279,6 +282,73 @@ final class BuddyTools {
      * model said "작업으로 맡기기를 눌러 줘", "영상 올리는 건 내가 직접 할 수 없어"): asked once more with a tool required.
      */
     private static final java.util.regex.Pattern ELSEWHERE = java.util.regex.Pattern.compile("맡기기를? ?눌러|작업으로 (?:맡기|보내)|작업창에서 (?:직접|해)|직접 (?:할 수(?:가)? 없|못 해|못해)|내가 (?:할 수(?:가)? 없|못 해|못해)|다른 화면에서");
+    /** "…ㄹ게" (a syllable ending in ㄹ, then 게: 할게, 멈출게, 시킬게) or "…ㄹ/을 거야" in a sentence that is not a question. */
+    static boolean willDo(String answer) {
+        if (answer == null) return false;
+        for (String sentence : answer.split("(?<=[.!?~\n])")) {
+            String t = sentence.strip(); if (t.isEmpty() || t.endsWith("?")) continue;
+            for (int i = 1; i < t.length(); i++) {
+                char g = t.charAt(i), prev = t.charAt(i - 1);
+                boolean rieul = prev >= 0xAC00 && prev <= 0xD7A3 && (prev - 0xAC00) % 28 == 8;
+                if (g == '게' && rieul && (i + 1 == t.length() || !Character.isLetter(t.charAt(i + 1)) || "요!~".indexOf(t.charAt(i + 1)) >= 0)) return true;
+            }
+            // "찾을 거야", "할 거예요": 거 after 을 or a syllable ending in ㄹ (not "그거야", "이거예요").
+            java.util.regex.Matcher m = WILL.matcher(t);
+            while (m.find()) {
+                int at = m.start() - 1; while (at >= 0 && t.charAt(at) == ' ') at--;
+                char before = at >= 0 ? t.charAt(at) : ' ';
+                if (before == '을' || before >= 0xAC00 && before <= 0xD7A3 && (before - 0xAC00) % 28 == 8) return true;
+            }
+        }
+        return false;
+    }
+    private static final java.util.regex.Pattern WILL = java.util.regex.Pattern.compile("거(?:야|예요|에요)(?![가-힣])");
+
+    /**
+     * What the user's own words settle about a thing the brain chose (퍼레 자동 점검 with NVIDIA's models, 2026-11-29: small and
+     * big models alike dropped what the words said plainly): a condition said ("회사에서 나가면 집으로 길 안내해 줘") makes it a
+     * 조건 알림 (when_event) rather than doing it now; the way of going said ("걸어서", "버스로") is the navigation's mode; and an
+     * app with a thing to do in it ("쿠팡 장바구니에 휴지 담아 줘", "카톡 단톡방 공지 읽어 줘") is a phone_job, not only opening the
+     * app. A message to send stays the brain's (share asks the user whom). The same act when nothing applies.
+     */
+    static JSONObject refine(String said, JSONObject act) {
+        if (act == null || said == null || said.isBlank()) return act;
+        String tool = act.optString("tool"), words = said.strip();
+        try {
+            String when = condition(words);
+            java.util.Map<String, String> then = java.util.Map.of("navigate", "navigate", "open_app", "open_app", "play", "play", "phone_job", "phone_job", "web_job", "web_job", "work_job", "work_job");
+            if (when != null && then.containsKey(tool)) {
+                String what = tool.equals("navigate") ? act.optString("destination") : tool.equals("open_app") ? act.optString("app") : tool.equals("play") ? act.optString("query") : act.optString("request");
+                return new JSONObject().put("tool", "when_event").put("command", "make").put("when", when).put("then", then.get(tool)).put("what", what.isBlank() ? words.substring(Math.min(words.length(), words.indexOf(when) + when.length())).strip() : what);
+            }
+            if (tool.equals("navigate") && act.optString("mode").isBlank()) {
+                String mode = WALK.matcher(words).find() ? "walk" : BIKE.matcher(words).find() ? "bicycle" : TRANSIT.matcher(words).find() ? "public" : CAR.matcher(words).find() ? "car" : "";
+                if (!mode.isEmpty()) return new JSONObject(act.toString()).put("mode", mode);
+            }
+            if (tool.equals("open_app") && DOES_IN_APP.matcher(words).find() && !SENDS.matcher(words).find()) {
+                JSONObject job = new JSONObject().put("tool", "phone_job").put("request", words);
+                if (!act.optString("app").isBlank()) job.put("app", act.optString("app"));
+                return job;
+            }
+        } catch (org.json.JSONException broken) { return act; }
+        return act;
+    }
+    private static final java.util.regex.Pattern WALK = java.util.regex.Pattern.compile("걸어서|걸어가|도보|걷는"), BIKE = java.util.regex.Pattern.compile("자전거"),
+        TRANSIT = java.util.regex.Pattern.compile("대중교통|지하철|버스\\s*(로|타고)|전철"), CAR = java.util.regex.Pattern.compile("차로|차 타고|운전해|자동차로");
+    /** A thing done inside an app beyond opening it (put in the cart, read, search, press, order, write …). */
+    private static final java.util.regex.Pattern DOES_IN_APP = java.util.regex.Pattern.compile("담아|넣어|읽어|검색해|찾아서|눌러|주문|예약해|구독|좋아요|댓글|적어|써 ?줘|확인해|체크해|저장해|추가해|신청|공지|장바구니");
+    private static final java.util.regex.Pattern SENDS = java.util.regex.Pattern.compile("보내|전송|답장|공유");
+    /**
+     * The condition in the words, up to its "…면" ("회사에서 나가면", "차에 타면", "충전 다 되면"), or null: only the ones that are
+     * events (leaving, arriving, getting in, finishing, coming, being connected …), never "어떻게 하면" or "괜찮으면".
+     */
+    static String condition(String words) {
+        java.util.regex.Matcher m = WHEN.matcher(words);
+        if (!m.find()) return null;
+        return words.substring(0, m.end()).strip();
+    }
+    private static final java.util.regex.Pattern WHEN = java.util.regex.Pattern.compile("(나가|나오|도착하|타|내리|끝나|들어가|들어오|출발하|떠나|연결되|끊기|켜지|꺼지|울리|떨어지|넘으|오르|충전되|다 되|오)면(?=\\s|$)");
+
     private static String outfitSay(JSONObject a) {
         JSONArray items = a.optJSONArray("items"); String first = items != null && items.length() > 0 ? items.optString(0).strip() : a.optString("item").strip();
         if (first.isEmpty() || first.equals("기본")) return "원래 모습으로 돌아갈게!";

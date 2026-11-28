@@ -75,6 +75,23 @@ public final class BuddyChat {
         return false;
     }
 
+    /**
+     * An answer that asks back or says it can't, for a thing 퍼레 does with a tool (퍼레 자동 점검 with NVIDIA's big model,
+     * 2026-11-29: "누구한테 보낼까?" for 카톡으로 보내 줘, where the share sheet lets the user pick; "주소를 알려 주면 받아올게" for a
+     * school PDF, which the browser finds; "어떤 기능이 필요할지 구체적으로" for 앱 코드 짜 줘, which 작업창 does; "확인할 수 있는
+     * 기능이 없어" for 어제 유튜브 얼마나 봤지, which the day's record answers). Asked once more, told not to ask
+     * (BuddyPrompt.DONT_ASK). A plain question back about what the user wants in a talk is not one: only for what was asked done.
+     */
+    public static boolean asksBack(String said, String answer) {
+        if (said == null || answer == null || answer.isBlank()) return false;
+        for (String line : answer.split("\n")) { String l = line.strip(); if (l.startsWith("할일") || l.startsWith("할 일")) return false; }
+        return DOING.matcher(said).find() && BACK.matcher(answer).find();
+    }
+    private static final Pattern DOING = Pattern.compile("보내\\s*줘|받아\\s*줘|내려\\s*받|다운|짜\\s*줘|만들어\\s*줘|담아\\s*줘|읽어\\s*줘|신청해|채워\\s*줘|올려\\s*줘|정리해\\s*줘|"
+        + "얼마나\\s*(봤|썼|했|들었)|몇\\s*(시간|분)\\s*(봤|썼|했)|뭐\\s*했");
+    private static final Pattern BACK = Pattern.compile("누구(한테|에게)|어디(로|에)\\s*보낼|주소(를|만)?\\s*(알려|모르)|링크(를|만)?\\s*(알려|줘)|구체적으로|어떤\\s*(기능|걸|내용)|"
+        + "기능이\\s*없|확인할\\s*수\\s*(가\\s*)?없|알\\s*수\\s*(가\\s*)?없|할\\s*수\\s*(가\\s*)?없|못\\s*해|정보가\\s*없");
+
     // ── the things whose result 퍼레 says in its own words ──
     /** The tools that find or work out something to say (the rest only do something: open, set, play, turn on …). */
     public static final Set<String> INFORMS = Set.of("day_recall", "calculator", "world_time", "count_days", "coin", "dice", "pick");

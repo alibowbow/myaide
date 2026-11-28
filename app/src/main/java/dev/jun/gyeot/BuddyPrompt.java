@@ -389,6 +389,25 @@ final class BuddyPrompt {
     static final String DO_IT_NOW = "- 방금 너는 '찾아볼게·알아볼게·열어 줄게'처럼 하겠다고 말만 하고 할일 줄을 쓰지 않았어. 할 일이 있으면 지금 바로 짧은 첫 줄과 함께 "
         + "둘째 줄에 '할일: {json}'을 써서 해. 약속만 하는 말은 쓰지 마. 할 일이 없으면 할일 줄 없이, 아는 만큼 바로 대답해.\n";
 
+    /**
+     * Said to the brain when it asked back or said it can't, for a thing it does with a tool (BuddyChat.asksBack): what it needs
+     * comes from the tool or the user later, so it is done now.
+     */
+    static final String DONT_ASK = "- 방금 너는 할 일을 하지 않고 되묻거나 못 한다고 했어. 되묻지 말고 지금 할일 줄로 해: 보내는 글은 share(받는 사람은 "
+        + "사용자가 공유 창에서 골라), 웹에서 받기·올리기·신청은 web_job, 코드·앱·문서 만들기는 work_job, 앱 안에서 하는 일은 phone_job, 지난 일·앱을 "
+        + "얼마나 썼는지는 day_recall. 모르는 건 그 도구가 찾아. 정말 할 수 없는 일(결제·송금 같은)만 할 수 없다고 말해.\n";
+    /** The answer with its 할일 line said again as act (BuddyTools.refine); the same text when it has no 할일 line. */
+    static String withAct(String text, JSONObject act) {
+        if (text == null || act == null) return text;
+        String[] lines = text.split("\n", -1); StringBuilder out = new StringBuilder(); boolean done = false;
+        for (String line : lines) {
+            if (!done && line.strip().matches("할\\s*일\\s*[:：].*")) { out.append("할일: ").append(act); done = true; }
+            else out.append(line);
+            out.append('\n');
+        }
+        return done ? out.substring(0, out.length() - 1) : text;
+    }
+
     // ── a thing done, said back in 퍼레's own words (BuddyTalk.toolAnswer) ──
     /** The rules for saying a result: 퍼레 itself, the result as data, its facts as they are, 1–3 sentences, nothing more to do. */
     static String toolRules(String persona, String now) {
