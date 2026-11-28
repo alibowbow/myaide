@@ -1296,6 +1296,13 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
         LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, -2); gap.topMargin = ui.dp(10);
         sheet.body.addView(name, gap);
         LinearLayout.LayoutParams gap2 = new LinearLayout.LayoutParams(-1, -2); gap2.topMargin = ui.dp(8); sheet.body.addView(what, gap2);
+        // 원하는 것, written by the AI from the name (준: "Ai로 자동으로 채워넣을 수 있게 해줘"): a small chip under the field; an
+        // empty one is filled the same way when 저장 is pressed.
+        Button fill = ui.smallChip("✨ AI로 채우기", () -> {});
+        fill.setContentDescription("원하는 것을 이름에 맞춰 AI로 채우기");
+        LinearLayout fillRow = ui.row(); fillRow.setGravity(Gravity.END); fillRow.setPadding(0, ui.dp(4), 0, 0); fillRow.addView(fill);
+        sheet.body.addView(fillRow);
+        fill.setOnClickListener(v -> fillWant(name, what, channel, kinds[kind[0]], days[0], fill, null));
         LinearLayout.LayoutParams gap3 = new LinearLayout.LayoutParams(-1, -2); gap3.topMargin = ui.dp(8); sheet.body.addView(channel, gap3);
         sheet.body.addView(channelNote);
         // 저장한 채널: the channels kept in this feed (a live feed shows their broadcasts first); ✕ takes one off.
@@ -1318,7 +1325,8 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             String title = name.getText().toString().strip(), want = what.getText().toString().strip(), from = channel.getText().toString().strip();
             MyTube.Kind chosen = kinds[kind[0]];
             if (title.isEmpty()) { name.setError("이름을 적어 주세요."); return; }
-            if (want.isEmpty() && !(chosen == MyTube.Kind.VIDEOS && !from.isEmpty())) { what.setError("무엇을 보고 싶은지 적어 주세요."); return; }
+            // Left empty: the AI writes it from the name, then 저장 goes on (no "적어 주세요").
+            if (want.isEmpty() && !(chosen == MyTube.Kind.VIDEOS && !from.isEmpty())) { fillWant(name, what, channel, chosen, days[0], fill, () -> sheet.primary.performClick()); return; }
             if (chosen == MyTube.Kind.VIDEOS && !from.isEmpty() && MyTube.channelPath(from).isEmpty()) { channel.setError("@채널이름이나 youtube.com/@채널이름 형식으로 적어 주세요."); return; }
             try {
                 MyTube.Feed saved = book.save(new MyTube.Feed(fresh ? "" : editing.id(), title, chosen, want, chosen == MyTube.Kind.VIDEOS ? from : "", chosen == MyTube.Kind.NEWS ? days[0] : 0));
@@ -1327,6 +1335,39 @@ public final class MyTubeActivity extends Activity implements MyTubeChat.Actions
             } catch (Exception e) { toast(e.getMessage()); }
         });
         sheet.show();
+    }
+
+    /**
+     * 원하는 것 from the feed's name (and its kind, days, reference channel), in the user's words' style: one short sentence of the
+     * subject, the kind of videos wanted and what to leave out. 잡일 (Chores: Groq first). then: what to do once it is filled.
+     */
+    private void fillWant(EditText name, EditText what, EditText channel, MyTube.Kind kind, int days, Button chip, Runnable then) {
+        String title = name.getText().toString().strip();
+        if (title.isEmpty()) { name.setError("이름을 먼저 적어 주세요. 그 이름에 맞춰 채워요."); return; }
+        if (!chip.isEnabled()) return;
+        chip.setEnabled(false); CharSequence was = chip.getText(); chip.setText("AI가 쓰는 중…"); what.setError(null);
+        String input = "피드 이름: " + title + "\n종류: " + kind.label + " · " + kind.about + (kind == MyTube.Kind.NEWS ? "\n기간: " + days + "일" : "")
+            + (channel.getVisibility() == View.VISIBLE && !channel.getText().toString().isBlank() ? "\n기준 채널: " + channel.getText().toString().strip() : "")
+            + (what.getText().toString().isBlank() ? "" : "\n지금 적힌 것: " + what.getText().toString().strip());
+        String rules = "유튜브에서 영상을 골라 오는 피드의 '원하는 것' 칸을 채워. 피드 이름과 종류를 보고, 이 피드에서 보고 싶어 할 것을 한국어 한두 문장(80자 안쪽)으로 써: "
+            + "다룰 주제와 그 범위, 원하는 영상 성격(원래 발표·실제 시연·해설·리뷰 …), 빼고 싶은 것(낚시성 요약, 재업로드 …). 지금 적힌 것이 있으면 그 뜻을 살려 다듬어. "
+            + "따옴표·머리말·설명 없이 그 문장만.";
+        try {
+            work.execute(() -> {
+                String said; try { said = Chores.run(store, rules, input, true); } catch (Exception e) { said = null; String why = e.getMessage();
+                    main.post(() -> { chip.setEnabled(true); chip.setText(was); toast(why == null ? "AI가 채우지 못했어요." : why); }); return; }
+                String text = said == null ? "" : said.replaceAll("(?s)<think>.*?</think>", "").replaceAll("^[\"'“”‘’\\s]+|[\"'“”‘’\\s]+$", "").strip();
+                if (text.length() > 400) text = text.substring(0, 400);
+                String done = text;
+                main.post(() -> {
+                    chip.setEnabled(true); chip.setText(was);
+                    if (isFinishing() || isDestroyed()) return;
+                    if (done.isEmpty()) { toast("AI가 빈 답을 보냈어요. 직접 적어 주세요."); return; }
+                    what.setText(done); what.setSelection(done.length());
+                    if (then != null) then.run();
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException closed) { chip.setEnabled(true); chip.setText(was); }
     }
 
     /**

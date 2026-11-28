@@ -30,7 +30,9 @@ public final class BrowserActivity extends Activity {
     private GeckoView splitView; private LinearLayout splitPane; private TextView splitTitle;
     /** 끝까지 조사: the next request goes as a deep research task (one request, then off). */
     private boolean deepNext; private TextView deepChip;
-    static final String SKILLS = "browserSkills", BOOKMARKS = "browserBookmarks", MEMORY = "browserMemory", PROJECTS = "browserProjects"; static final int REQUEST_BOOKMARKS = 7311;
+    static final String SKILLS = "browserSkills", BOOKMARKS = "browserBookmarks", MEMORY = "browserMemory", PROJECTS = "browserProjects"; static final int REQUEST_BOOKMARKS = 7311, REQUEST_FILES = 7312;
+    /** A page's file chooser waiting for the phone's picker (onFilePrompt), and its answer. */
+    private GeckoSession.PromptDelegate.FilePrompt filePrompt; private GeckoResult<GeckoSession.PromptDelegate.PromptResponse> fileAnswer;
     private EditText address, request;
     private TextView resultText, tabButton, notice, askBubble, statsText;
     private TextView modelLine;
@@ -1132,6 +1134,18 @@ public final class BrowserActivity extends Activity {
             return;
         }
         if (code == REQUEST_BOOKMARKS && result == RESULT_OK && data != null && data.getData() != null) importBookmarks(data.getData());
+        if (code == REQUEST_FILES) {
+            GeckoSession.PromptDelegate.FilePrompt p = filePrompt; GeckoResult<GeckoSession.PromptDelegate.PromptResponse> answer = fileAnswer;
+            filePrompt = null; fileAnswer = null;
+            if (p == null || answer == null) return;
+            java.util.List<android.net.Uri> picked = new java.util.ArrayList<>();
+            if (result == RESULT_OK && data != null) {
+                if (data.getClipData() != null) for (int i = 0; i < data.getClipData().getItemCount(); i++) { android.net.Uri u = data.getClipData().getItemAt(i).getUri(); if (u != null) picked.add(u); }
+                else if (data.getData() != null) picked.add(data.getData());
+            }
+            try { answer.complete(picked.isEmpty() ? p.dismiss() : picked.size() == 1 ? p.confirm(this, picked.get(0)) : p.confirm(this, picked.toArray(new android.net.Uri[0]))); }
+            catch (RuntimeException unreadable) { answer.complete(p.dismiss()); toast("고른 파일을 페이지에 넣지 못했어요."); }
+        }
     }
     /** The line under the composer: the browser AI's model in bold, its thinking level beside it (ModelLine). */
     private void showModel() {
@@ -1858,6 +1872,26 @@ public final class BrowserActivity extends Activity {
         dialog.setOnDismissListener(d -> { dialogs.remove(dialog); if (!prompt.isComplete()) result.complete(prompt.dismiss()); }); show(dialog); return result;
     }
     private final GeckoSession.PromptDelegate prompts = new GeckoSession.PromptDelegate() {
+        /**
+         * A page's "파일 올리기" (준: "AI 브라우저에서 이 동작이 안돼": claude.ai's 파일 또는 사진 추가 did nothing, the chooser had no
+         * handler): the phone's own picker, one file or several as the page asks, of the kinds it accepts; what is picked goes to
+         * the page (GeckoView copies it in). Cancelled, the page hears no file.
+         */
+        @Override public GeckoResult<PromptResponse> onFilePrompt(GeckoSession session, FilePrompt p) {
+            if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss());
+            if (fileAnswer != null && filePrompt != null) { fileAnswer.complete(filePrompt.dismiss()); fileAnswer = null; filePrompt = null; }
+            android.content.Intent pick = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).addCategory(android.content.Intent.CATEGORY_OPENABLE);
+            java.util.List<String> kinds = new java.util.ArrayList<>();
+            if (p.mimeTypes != null) for (String m : p.mimeTypes) if (m != null && m.contains("/")) kinds.add(m.strip().toLowerCase(java.util.Locale.ROOT));
+            pick.setType(kinds.size() == 1 ? kinds.get(0) : "*/*");
+            if (kinds.size() > 1) pick.putExtra(android.content.Intent.EXTRA_MIME_TYPES, kinds.toArray(new String[0]));
+            if (p.type == FilePrompt.Type.MULTIPLE) pick.putExtra(android.content.Intent.EXTRA_ALLOW_MULTIPLE, true);
+            GeckoResult<PromptResponse> answer = new GeckoResult<>();
+            try { startActivityForResult(pick, REQUEST_FILES); }
+            catch (RuntimeException none) { toast("파일을 고를 앱이 없어요."); return GeckoResult.fromValue(p.dismiss()); }
+            filePrompt = p; fileAnswer = answer;
+            return answer;
+        }
         @Override public GeckoResult<PromptResponse> onAlertPrompt(GeckoSession session, AlertPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss()); return prompt(session, p, (b, r) -> b.setMessage(p.message).setPositiveButton("확인", (d, w) -> r.complete(p.dismiss()))); }
         @Override public GeckoResult<PromptResponse> onButtonPrompt(GeckoSession session, ButtonPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss()); return prompt(session, p, (b, r) -> b.setMessage(p.message).setPositiveButton("확인", (d, w) -> r.complete(p.confirm(ButtonPrompt.Type.POSITIVE))).setNegativeButton("취소", (d, w) -> r.complete(p.confirm(ButtonPrompt.Type.NEGATIVE)))); }
         @Override public GeckoResult<PromptResponse> onTextPrompt(GeckoSession session, TextPrompt p) { if (!engine.liveSession(session)) return GeckoResult.fromValue(p.dismiss());
