@@ -71,28 +71,60 @@ final class ModelPopover {
         window = new PopupWindow(scroll, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
         window.setBackgroundDrawable(new ColorDrawable(0)); window.setOutsideTouchable(true); window.setElevation(ui.dp(14));
         window.setAnimationStyle(android.R.style.Animation_Dialog);
+        // Screen coordinates whatever window the chip is in (a sheet over the screen included).
+        window.setIsLaidOutInScreen(true); window.setOnDismissListener(this::closeSide);
         place(anchor, width);
     }
-    void dismiss() { if (window != null && window.isShowing()) window.dismiss(); }
+    void dismiss() { closeSide(); if (window != null && window.isShowing()) window.dismiss(); }
+    private android.graphics.Rect screen() { return activity.getWindowManager().getCurrentWindowMetrics().getBounds(); }
+
+    // ── A side card, as claude.ai has it (준: "생각깊이가 너무 동떨어진 곳에 떠", "부모 플로팅창을 지우지말고 클로드처럼 해줘") ──
+    private PopupWindow side;
+    private int mainX, mainY, mainWidth;
+    /**
+     * A second card beside the main one, at the row that opened it: left of it when there is room, else right of it, else
+     * over its left part (a phone held upright); its bottom lined up with the row's. The main card stays as it is.
+     */
+    private void openSide(View row, java.util.function.Consumer<LinearLayout> fill) {
+        closeSide();
+        LinearLayout box = ui.column(); box.setBackground(ui.shape(CARD, 18)); box.setPadding(0, ui.dp(4), 0, ui.dp(4)); box.setElevation(ui.dp(16)); box.setClipToOutline(true);
+        fill.accept(box);
+        ScrollView scroll = new ScrollView(activity); scroll.setVerticalScrollBarEnabled(false); scroll.addView(box);
+        android.graphics.Rect screen = screen(); int width = mainWidth > 0 ? mainWidth : ui.dp(264);
+        box.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int height = Math.min(box.getMeasuredHeight(), screen.height() - ui.dp(96)), gap = ui.dp(6);
+        int[] at = new int[2]; row.getLocationOnScreen(at); int rowBottom = at[1] + row.getHeight();
+        int x = mainX - width - gap >= screen.left + ui.dp(8) ? mainX - width - gap
+            : mainX + mainWidth + gap + width <= screen.right - ui.dp(8) ? mainX + mainWidth + gap
+            : Math.max(screen.left + ui.dp(8), mainX - ui.dp(40));
+        int y = Math.max(screen.top + ui.dp(12), Math.min(rowBottom - height, screen.bottom - height - ui.dp(12)));
+        side = new PopupWindow(scroll, width, height, true);
+        side.setBackgroundDrawable(new ColorDrawable(0)); side.setOutsideTouchable(true); side.setElevation(ui.dp(16));
+        side.setAnimationStyle(android.R.style.Animation_Dialog); side.setIsLaidOutInScreen(true);
+        side.showAtLocation(host, Gravity.NO_GRAVITY, x, y);
+    }
+    private void closeSide() { PopupWindow open = side; side = null; if (open != null && open.isShowing()) open.dismiss(); }
     /** Above the chip, right edges lined up, inside the screen; below it when there is no room above. Read once. */
     private void place(View anchor, int width) {
-        int[] at = new int[2]; anchor.getLocationInWindow(at);
+        int[] at = new int[2]; anchor.getLocationOnScreen(at);
         chipRight = at[0] + anchor.getWidth(); chipTop = at[1]; chipBottom = at[1] + anchor.getHeight(); host = anchor.getRootView();
         int height = measure(width);
         // Above unless the tallest page (the models) would not fit there.
-        below = chipTop - height - ui.dp(8) < ui.dp(48);
+        below = chipTop - height - ui.dp(8) < screen().top + ui.dp(48);
         window.setHeight(height);
         int[] xy = position(width, height);
         window.showAtLocation(host, Gravity.NO_GRAVITY, xy[0], xy[1]);
     }
     private int measure(int width) {
         card.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-        return Math.min(card.getMeasuredHeight(), activity.getResources().getDisplayMetrics().heightPixels - ui.dp(96));
+        return Math.min(card.getMeasuredHeight(), screen().height() - ui.dp(96));
     }
     /** Where a card of this size sits: its bottom just above the chip (or its top just under it), right edges lined up. */
     int[] position(int width, int height) {
-        int x = Math.max(ui.dp(12), Math.min(chipRight - width, activity.getResources().getDisplayMetrics().widthPixels - width - ui.dp(12)));
-        int y = below ? chipBottom + ui.dp(8) : Math.max(ui.dp(12), chipTop - height - ui.dp(8));
+        android.graphics.Rect screen = screen();
+        int x = Math.max(screen.left + ui.dp(12), Math.min(chipRight - width, screen.right - width - ui.dp(12)));
+        int y = below ? chipBottom + ui.dp(8) : Math.max(screen.top + ui.dp(12), chipTop - height - ui.dp(8));
+        mainX = x; mainY = y; mainWidth = width;
         return new int[] {x, y};
     }
     /** A page changed: its new size, its edge against the chip kept where it was (PopupWindow.update alone keeps the top). */
@@ -132,9 +164,14 @@ final class ModelPopover {
         if (!currentShown && !current.isBlank()) card.addView(choice(catalog.label(engine, current), true, this::dismiss));
         card.addView(divider());
         Reasoning.Profile profile = catalog.profile(engine, current);
-        if (!current.isBlank() && !profile.efforts.isEmpty())
-            card.addView(row("생각 깊이", catalog.effortLabel(engine, shown(engine, profile, selection.effort(engine, current))), true, this::depth));
-        card.addView(row("다른 AI", WorkBook.author(engine), true, this::engines));
+        if (!current.isBlank() && !profile.efforts.isEmpty()) {
+            View[] depthRow = new View[1];
+            depthRow[0] = row("생각 깊이", catalog.effortLabel(engine, shown(engine, profile, selection.effort(engine, current))), true, () -> openSide(depthRow[0], this::depth));
+            card.addView(depthRow[0]);
+        }
+        View[] aiRow = new View[1];
+        aiRow[0] = row("다른 AI", WorkBook.author(engine), true, () -> openSide(aiRow[0], this::engines));
+        card.addView(aiRow[0]);
         card.addView(row(models.length() > most ? "더 많은 모델·설정" : "모델 설정", "", true, () -> { dismiss(); more.run(); }));
         // A screen without agent teams (마이튜브) passes no team: no row for it.
         if (team != null) { card.addView(divider()); card.addView(row("에이전트 팀", catalog.team(), true, () -> { dismiss(); team.run(); })); }
@@ -154,19 +191,18 @@ final class ModelPopover {
     /** Levels from the lightest to the deepest, whatever order a provider lists them in. */
     private static final List<String> ORDER = List.of("none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra");
     /**
-     * 생각 깊이 as a page of the same card (‹ back to the models): each level with 추천 on the recommended one and a check on
+     * 생각 깊이 in a side card beside the main one (openSide, as claude.ai has it): each level with 추천 on the recommended one and a check on
      * the chosen one, lightest first. Claude's page is claude.ai's: 최대 says what it costs, and Ultracode is a switch under
      * the levels. Other AIs get a line on what depth costs. Choosing a level closes the menu.
      */
-    private void depth() {
+    private void depth(LinearLayout card) {
         String engine = selection.engine(), model = selection.model(engine);
         Reasoning.Profile profile = catalog.profile(engine, model);
-        List<String> levels = new java.util.ArrayList<>(profile.efforts); if (levels.isEmpty()) { main(); return; }
+        List<String> levels = new java.util.ArrayList<>(profile.efforts); if (levels.isEmpty()) return;
         levels.sort(java.util.Comparator.comparingInt(l -> ORDER.indexOf(l) < 0 ? ORDER.size() : ORDER.indexOf(l)));
         boolean claude = WorkBook.CLAUDE.equals(engine);
         String shown = shown(engine, profile, selection.effort(engine, model)), recommended = recommended(engine, profile);
-        card.removeAllViews();
-        card.addView(back("생각 깊이 · " + catalog.label(engine, model)));
+        card.addView(caption("생각 깊이 · " + catalog.label(engine, model)));
         if (!claude) {
             TextView hint = ui.text("깊이 생각할수록 답이 철저해지지만, 시간이 더 걸리고 사용량이 늘어요.", 12, 450, MUTED);
             hint.setPadding(ui.dp(16), 0, ui.dp(16), ui.dp(6)); hint.setLineSpacing(ui.dp(1.5f), 1); card.addView(hint);
@@ -190,7 +226,6 @@ final class ModelPopover {
             card.addView(row);
         }
         if (claude) { card.addView(divider()); card.addView(ultracode()); }
-        resize();
     }
     /** Claude's Ultracode switch: big work split up, each conclusion checked, gaps closed (ClaudeClient.ULTRACODE). Saved at once. */
     private View ultracode() {
@@ -215,9 +250,8 @@ final class ModelPopover {
         });
     }
     /** The five AIs: the one answering checked, each with its model or what it still needs. */
-    private void engines() {
-        card.removeAllViews();
-        card.addView(back("다른 AI"));
+    private void engines(LinearLayout card) {
+        card.addView(caption("다른 AI"));
         String engine = selection.engine();
         for (String option : ENGINES) {
             String model = selection.model(option);
@@ -225,28 +259,21 @@ final class ModelPopover {
             // Picking an AI goes straight on to its models (and 생각 깊이) in the same menu, as choosing a model should;
             // only an AI still to be connected closes it (its settings open instead).
             card.addView(row(WorkBook.author(option), detail, false, option.equals(engine), () -> {
-                if (option.equals(selection.engine())) { main(); return; }
+                if (option.equals(selection.engine())) { closeSide(); return; }
                 confirm.accept(() -> {
                     chooseEngine.accept(option);
+                    // The main card shows the new AI's models (and 생각 깊이) at once; the side card closes.
+                    closeSide();
                     if (window != null && window.isShowing() && store.ready(option) && option.equals(selection.engine())) main(); else dismiss();
                 });
             }));
         }
-        resize();
     }
 
     // ── Rows ────────────────────────────────────────────────────────────────
 
     private TextView caption(String value) {
         TextView view = ui.text(value, 12, 600, MUTED); view.setPadding(ui.dp(18), ui.dp(8), ui.dp(18), ui.dp(4)); return view;
-    }
-    private View back(String title) {
-        LinearLayout row = ui.row(); row.setPadding(ui.dp(4), 0, ui.dp(16), 0); row.setMinimumHeight(ui.dp(44));
-        ImageView arrow = new ImageView(activity); arrow.setImageResource(R.drawable.ic_back); arrow.setImageTintList(ColorStateList.valueOf(MUTED)); arrow.setScaleType(ImageView.ScaleType.CENTER_INSIDE); arrow.setPadding(ui.dp(12), ui.dp(12), ui.dp(4), ui.dp(12));
-        row.addView(arrow, new LinearLayout.LayoutParams(ui.dp(36), ui.dp(44)));
-        row.addView(ui.text(title, 13, 600, MUTED));
-        row.setContentDescription("뒤로"); row.setOnClickListener(v -> main()); Ui.pressable(row, true);
-        return row;
     }
     /** A plain 44dp icon button (no tile), tinted. */
     private ImageView icon(int res, int tint, String description, Runnable action) {

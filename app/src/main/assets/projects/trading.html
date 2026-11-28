@@ -567,7 +567,8 @@
     if (open.status) { send({ type: 'stop', id: open.id }); open.status = ''; open.id = ''; open.asking = ''; paint(); return; }
     start(open.card);
   };
-  $('aiModel').onclick = () => send({ type: 'choose_model' });
+  // Where the chip is, so the app opens its menu right at it (준: "생각깊이가 너무 동떨어진 곳에 떠").
+  $('aiModel').onclick = () => { const r = $('aiModel').getBoundingClientRect(); send({ type: 'choose_model', x: r.left, y: r.top, w: r.width, h: r.height, vw: innerWidth }); };
   $('aiGo').onclick = () => { if (!open || open.status) return; if (!app) { open.error = '이 기능은 들퍼레 앱의 페이지에서만 돼요.'; paint(); return; } start(open.card); };
 
   intervals(); tape(); grid(); tick(); setInterval(tick, 15000);

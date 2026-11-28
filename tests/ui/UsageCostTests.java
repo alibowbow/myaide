@@ -157,6 +157,50 @@ public class UsageCostTests {
         shot(card, "model_menu_price");
     }
 
+    /** 준: "생각깊이가 너무 동떨어진 곳에 떠", "부모 플로팅창을 지우지말고 클로드처럼 해줘": 생각 깊이 opens beside the menu, which stays. */
+    @Test @Config(qualifiers="w840dp-h900dp-xhdpi") public void depthOpensBesideTheMenu() throws Exception {
+        GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
+        AppStore store = app.store();
+        Activity a = Robolectric.buildActivity(Activity.class).setup().get();
+        Ui ui = new Ui(a);
+        ScopedModels main = ScopedModels.main(store);
+        main.chooseEngine(WorkBook.CLAUDE); main.model(WorkBook.CLAUDE, "claude-opus-5-5");
+        ModelPopover.Catalog catalog = new ModelPopover.Catalog() {
+            @Override public JSONArray models(String engine) { return new JSONArray().put(dev.jun.gyeot.core.Jsons.obj("id", "claude-opus-5-5", "name", "Claude Opus 5.5")); }
+            @Override public String label(String engine, String model) { return "Claude Opus 5.5"; }
+            @Override public dev.jun.gyeot.core.Reasoning.Profile profile(String engine, String model) { return dev.jun.gyeot.core.Reasoning.Profile.of(List.of("low", "medium", "high", "xhigh", "max"), "medium"); }
+            @Override public String effortLabel(String engine, String effort) { return switch (effort) { case "low" -> "낮음"; case "medium" -> "중간"; case "high" -> "높음"; case "xhigh" -> "엑스트라"; default -> "최대"; }; }
+            @Override public String effortHint(String effort, String fallback) { return ""; }
+            @Override public String team() { return ""; }
+        };
+        LinearLayout root = ui.column(); root.setGravity(android.view.Gravity.END); root.setPadding(0, ui.dp(700), ui.dp(24), 0);
+        TextView chip = ui.text("Opus 5.5", 13, 500, Ui.TEXT); root.addView(chip, new LinearLayout.LayoutParams(ui.dp(120), ui.dp(34)));
+        a.setContentView(root); settle(a, root);
+        new ModelPopover(a, ui, store, main, catalog, e -> {}, () -> {}, null, () -> {}).show(chip);
+        shadowOf(Looper.getMainLooper()).idle();
+        android.widget.PopupWindow menu = shadowOf(app).getLatestPopupWindow();
+        View card = menu.getContentView();
+        card.measure(View.MeasureSpec.makeMeasureSpec(ui.dp(264), View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        card.layout(0, 0, card.getMeasuredWidth(), card.getMeasuredHeight());
+        View depth = find(card, x -> x.isClickable() && x.getContentDescription() != null && x.getContentDescription().toString().startsWith("생각 깊이"));
+        assertNotNull("the 생각 깊이 row", depth);
+        depth.performClick(); shadowOf(Looper.getMainLooper()).idle();
+        android.widget.PopupWindow side = shadowOf(app).getLatestPopupWindow();
+        assertNotSame("a card of its own", menu, side);
+        assertTrue("the menu stays", menu.isShowing()); assertTrue(side.isShowing());
+        View levels = side.getContentView();
+        assertNotNull("its levels", find(levels, x -> x instanceof TextView t && "엑스트라".equals(t.getText().toString())));
+        assertNotNull("titled with the model", find(levels, x -> x instanceof TextView t && t.getText().toString().startsWith("생각 깊이 · Claude Opus 5.5")));
+        assertNull("no back arrow: it is not a page in place of the menu", find(levels, x -> "뒤로".equals(String.valueOf(x.getContentDescription()))));
+        levels.measure(View.MeasureSpec.makeMeasureSpec(ui.dp(264), View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        levels.layout(0, 0, levels.getMeasuredWidth(), levels.getMeasuredHeight());
+        shot(levels, "model_menu_depth_side");
+        // A level chosen: both close.
+        View high = find(levels, x -> x.isClickable() && String.valueOf(x.getContentDescription()).startsWith("생각 깊이 높음"));
+        high.performClick(); shadowOf(Looper.getMainLooper()).idle();
+        assertFalse("chosen: the side card closes", side.isShowing()); assertFalse("and the menu", menu.isShowing());
+    }
+
     @Test @Config(qualifiers="w411dp-h891dp-xxhdpi") public void nothingYet() throws Exception {
         GyeotApp app = (GyeotApp) org.robolectric.RuntimeEnvironment.getApplication();
         Activity a = Robolectric.buildActivity(Activity.class).setup().get();

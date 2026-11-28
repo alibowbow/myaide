@@ -315,6 +315,22 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         main.post(() -> { if (appPort != null && !destroyed) try { appPort.postMessage(new android.webkit.WebMessage(message.toString())); } catch (RuntimeException closed) {} });
     }
     private static String field(org.json.JSONObject m, String key, int max) { String v = m.optString(key).strip(); return v.length() > max ? v.substring(0, max) : v; }
+    /**
+     * A stand-in for something the page drew (its x, y, w, h in the page's CSS pixels, vw its width): an invisible view over the
+     * page at that place, for a menu to open at (준: "생각깊이가 너무 동떨어진 곳에 떠": the model menu had opened at the title).
+     * The title when the page did not say where.
+     */
+    private View pageSpot(org.json.JSONObject m) {
+        if (web == null || stage == null || !m.has("x") || m.optDouble("vw", 0) <= 0) return title;
+        float scale = web.getWidth() / (float) m.optDouble("vw");
+        View spot = new View(this); spot.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        FrameLayout.LayoutParams at = new FrameLayout.LayoutParams(Math.max(1, Math.round((float) m.optDouble("w") * scale)), Math.max(1, Math.round((float) m.optDouble("h") * scale)));
+        at.leftMargin = web.getLeft() + Math.round((float) m.optDouble("x") * scale); at.topMargin = web.getTop() + Math.round((float) m.optDouble("y") * scale);
+        if (pageSpot != null && pageSpot.getParent() == stage) stage.removeView(pageSpot);
+        pageSpot = spot; stage.addView(spot, at);
+        return spot; // laid out by the next frame: the menu opens after it (post).
+    }
+    private View pageSpot;
     private void fromPage(String data) {
         org.json.JSONObject m; try { m = new org.json.JSONObject(data == null ? "" : data); } catch (Exception unreadable) { return; }
         String ask = field(m, "id", 40);
@@ -323,7 +339,15 @@ public final class ProjectActivity extends Activity implements ProjectMaker.List
         if ("gyeot".equals(m.optString("type"))) { if (bridge != null) bridge.handle(m); return; }
         switch (m.optString("type")) {
             case "model" -> toPage(dev.jun.gyeot.core.Jsons.obj("type", "model", "label", tradingModelLabel()));
-            case "choose_model" -> chooseModel(this, ui, store, title, () -> toPage(dev.jun.gyeot.core.Jsons.obj("type", "model", "label", tradingModelLabel())), () -> ScopedModels.trading(store), "트레이딩 AI", "차트 분석에 적용");
+            case "choose_model" -> {
+                View spot = pageSpot(m);
+                Runnable open = () -> { if (!isFinishing()) chooseModel(this, ui, store, spot, () -> toPage(dev.jun.gyeot.core.Jsons.obj("type", "model", "label", tradingModelLabel())), () -> ScopedModels.trading(store), "트레이딩 AI", "차트 분석에 적용"); };
+                // The stand-in is placed by the next layout: the menu opens once it is.
+                if (spot == title || spot.isLaidOut()) open.run();
+                else spot.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                    @Override public void onLayoutChange(View v, int l, int t, int r, int b, int ol, int ot, int or, int ob) { v.removeOnLayoutChangeListener(this); v.post(open); }
+                });
+            }
             case "analyze" -> { if (!ask.isEmpty()) capture(m, ask); }
             case "news" -> { if (!ask.isEmpty()) start(ask, (cancel, guard) -> news(m, ask, cancel, guard)); }
             case "followup" -> { if (!ask.isEmpty()) start(ask, (cancel, guard) -> followUp(m, ask, cancel, guard)); }
