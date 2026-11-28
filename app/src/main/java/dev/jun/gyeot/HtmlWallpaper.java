@@ -501,8 +501,6 @@ public final class HtmlWallpaper extends WallpaperService {
         if (i == null || !i.getBooleanExtra(FROM_HOME, false)) return false;
         a.moveTaskToBack(true); a.finish(); return true;
     }
-    /** Google Calendar's package (the date's tap opens it when it is installed). */
-    static final String GOOGLE_CALENDAR = "com.google.android.calendar";
     static Intent target(Context c, String what) {
         Intent open;
         // 알림을 행동으로's one tap: the notice's screen, the calendar filled in, or the reply sheet (NoticeActActivity).
@@ -524,18 +522,9 @@ public final class HtmlWallpaper extends WallpaperService {
             case "pages": open = new Intent(c, PagesActivity.class); break;
             case "notices": open = new Intent(c, NoticeActivity.class); break;
             case "calendarSettings": open = new Intent(c, MainActivity.class).putExtra(PhoneCalendar.PAGE_EXTRA, PhoneCalendar.PAGE); break;
-            // The date at the top of the home screen (준: "날짜를 누르면 구글캘린더가 켜지게"): Google Calendar at today, else the phone's
-            // own calendar app at today, else Google Calendar on the web.
-            case "gcalendar": {
-                Uri today = CalendarContract.CONTENT_URI.buildUpon().appendPath("time").appendPath(String.valueOf(System.currentTimeMillis())).build();
-                Intent google = new Intent(Intent.ACTION_VIEW, today).setPackage(GOOGLE_CALENDAR);
-                if (google.resolveActivity(c.getPackageManager()) != null) return google.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                Intent launch = c.getPackageManager().getLaunchIntentForPackage(GOOGLE_CALENDAR);
-                if (launch != null) return launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                Intent phone = new Intent(Intent.ACTION_VIEW, today);
-                if (phone.resolveActivity(c.getPackageManager()) != null) return phone.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                return new Intent(Intent.ACTION_VIEW, Uri.parse("https://calendar.google.com/")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            }
+            // The date at the top of the board where no widget can be hosted (the live wallpaper; the launcher shows Google Calendar's
+            // widget instead, CalendarWidget): the phone's calendar at today, light, as the 오늘 page's events open it.
+            case "gcalendar":
             case "calendar":
                 return new Intent(Intent.ACTION_VIEW, CalendarContract.CONTENT_URI.buildUpon().appendPath("time").appendPath(String.valueOf(System.currentTimeMillis())).build())
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
