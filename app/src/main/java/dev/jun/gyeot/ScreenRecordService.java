@@ -109,7 +109,8 @@ public final class ScreenRecordService extends Service {
     static boolean pauseAt(Context c, long at) {
         if (!running || saving || counting || startedMono == 0) return false;
         if (!pauses.pause(Math.min(at, now()))) return false;
-        // Held first; only now everything of ours may show again.
+        // Held first; only now everything of ours may show again (no touch circle is left over for when it goes on).
+        TouchMarks.clear();
         RecordControl.unveil();
         send(c, SYNC);
         RecordControl.changed(c);
@@ -203,6 +204,8 @@ public final class ScreenRecordService extends Service {
         startedAt = System.currentTimeMillis(); startedMono = 0; label = ""; counting = false; pauses = new RecordPauses();
         // The controls count down over the screen first (when they can float): nothing is written until they are gone.
         hold(this);
+        // 누른 위치 표시: its layer (in the video, drawn only while frames are written), with 폰 조작 telling where views are pressed.
+        if (TouchMarks.wanted(settings) && PhoneService.connected()) TouchMarks.start(this);
         // To the foreground before the projection is taken (Android 14). The phone's sound is also captured through the
         // recording permission, so any sound holds the microphone type; without it the capture would go silent in the background.
         types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION | (sound.any() ? ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE : 0);
@@ -370,6 +373,7 @@ public final class ScreenRecordService extends Service {
     }
     private void quit() {
         running = false; saving = false; counting = false; label = ""; startedMono = 0;
+        TouchMarks.stop();
         if (destroyed) { try { channels().cancel(NOTIFICATION); } catch (RuntimeException ignored) { /* none */ } }
         else { try { stopForeground(STOP_FOREGROUND_REMOVE); } catch (RuntimeException ignored) { /* not in front */ } stopSelf(); }
         changed();
@@ -387,7 +391,7 @@ public final class ScreenRecordService extends Service {
         }
         if (projection == null && recorder == null) {
             if (worker != null) worker.quitSafely();
-            running = false; saving = false; counting = false;
+            running = false; saving = false; counting = false; TouchMarks.stop();
         }
         super.onDestroy();
     }
