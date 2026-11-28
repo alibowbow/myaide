@@ -39,7 +39,7 @@ final class BoardVoice {
         this.context = context.getApplicationContext(); this.store = store;
         this.voices = voices != null ? voices : kind -> LIVE.equals(kind) ? new LiveVoice(this.context, store, loadedModel, loadedVoice)
             : realtimeKind(kind) ? realtimeVoice(this.context, store, dev.jun.gyeot.core.RealtimeVoice.Kind.of(kind))
-            : new Speech.DeviceVoice(this.context);
+            : new Speech.DeviceVoice(this.context, Speech.LESSON);
     }
 
     /** 판서's own voice: the one chosen in its menu, the assistant's until one is. "" is the model's default voice. */
@@ -51,7 +51,7 @@ final class BoardVoice {
     boolean blocked() { return store.voiceActive || store.recording || ComposerDictation.listening() || store.talk != null && store.talk.listening(); }
     /** A GPT or Grok voice reading through LiveVoice's pacing, with the speaker as its Gemini voice has. */
     static LiveVoice realtimeVoice(Context context, AppStore store, dev.jun.gyeot.core.RealtimeVoice.Kind kind) {
-        return new LiveVoice(BoardRealtime.lines(context, store, kind), () -> { Speaker speaker = new Speaker(context); return new LiveVoice.Out() {
+        return new LiveVoice(BoardRealtime.lines(context, store, kind), () -> { Speaker speaker = Speaker.media(context); return new LiveVoice.Out() {
             @Override public boolean play(byte[] pcm, java.util.function.LongConsumer started) { return speaker.play(pcm, started); }
             @Override public void finish(Runnable after) { speaker.finish(after); }
             @Override public void flush() { speaker.flush(); }
@@ -145,7 +145,7 @@ final class BoardVoice {
         if (focused) return true;
         AudioManager audio = context.getSystemService(AudioManager.class);
         if (audio == null) return true;
-        if (focus == null) focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).setAudioAttributes(Speech.ATTRIBUTES)
+        if (focus == null) focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).setAudioAttributes(Speech.LESSON)
             .setOnAudioFocusChangeListener(change -> { if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) lost(); }, main).build();
         focused = audio.requestAudioFocus(focus) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
         return focused;
@@ -230,7 +230,7 @@ final class BoardVoice {
                     }
                     @Override public void close() { session.close(); }
                 };
-            }, () -> { Speaker speaker = new Speaker(context); return new Out() {
+            }, () -> { Speaker speaker = Speaker.media(context); return new Out() {
                 @Override public boolean play(byte[] pcm, LongConsumer started) { return speaker.play(pcm, started); }
                 @Override public void finish(Runnable after) { speaker.finish(after); }
                 @Override public void flush() { speaker.flush(); }

@@ -71,15 +71,22 @@ final class Speaker implements AutoCloseable {
      * window spans the pause between two words or sentences of one answer, so its room echo is never taken for the user.
      */
     double level() { return levels.level(SystemClock.uptimeMillis()); }
-    Speaker(Context context) { this(context, false); }
+    Speaker(Context context) { this(context, false, false); }
+    Speaker(Context context, boolean call) { this(context, call, false); }
+    /**
+     * A lesson read aloud (판서), played as media: Android lets a screen recording take in only media, game and unknown
+     * sound, never an assistant's or a call's (준: "판서강의는 왜 녹화할 때 미디어 소리가 녹음이 안되지?"), so 판서's voice is media
+     * like a video's, and follows the media volume.
+     */
+    static Speaker media(Context context) { return new Speaker(context, false, true); }
     /**
      * call: played as a call's voice (with CallRoute), so the phone's echo cancelling hears it and takes it out of the
      * microphone, and a user speaking over it is heard at an ordinary voice; otherwise as an assistant's speech.
      */
-    Speaker(Context context, boolean call) {
+    private Speaker(Context context, boolean call, boolean media) {
         app = context.getApplicationContext();
         manager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-        AudioAttributes attributes = new AudioAttributes.Builder().setUsage(call ? AudioAttributes.USAGE_VOICE_COMMUNICATION : AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
+        AudioAttributes attributes = new AudioAttributes.Builder().setUsage(call ? AudioAttributes.USAGE_VOICE_COMMUNICATION : media ? AudioAttributes.USAGE_MEDIA : AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build();
         focus = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK).setAudioAttributes(attributes)
             .setOnAudioFocusChangeListener(change -> { if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) flush(); }, main).build();
         track = new AudioTrack.Builder().setAudioAttributes(attributes)
